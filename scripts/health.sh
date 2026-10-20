@@ -17,6 +17,12 @@
 #   6. stale-state        — orphaned worktrees / pending|running tasks?
 #   7. hook-cache-drift   — running hooks load from the cache, not the dev checkout?
 #
+# Plus two warnings, printed only when they apply and never counted as a FAIL:
+#   duplicate-plugin — more than one enabled copy of this plugin applies to the
+#   project; Claude Code registers the hooks of only one of them.
+#   legacy-user-hooks — the user-scope settings.json still runs pre-1.1.0
+#   TMB hooks in every project (read only; never edited).
+#
 # LOAD-BEARING REMEDIATION RULE
 # ----------------------------
 # NEVER recommend `/reload-plugins` for an MCP-SERVER-STATE failure
@@ -41,6 +47,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/hooks/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/resolve-workspace.sh
 . "$SCRIPT_DIR/hooks/lib/resolve-workspace.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+. "$SCRIPT_DIR/hooks/lib/resolve-install.sh"
 
 PLUGIN_NAME="tmb"
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
@@ -63,7 +71,11 @@ remediate() {
 }
 
 DB=""
-DB=$(tmb_db_path 2>/dev/null || true)
+if [ "${TRAJECTORY_DB_PATH:-}" = ":memory:" ]; then
+  DB=":memory:"
+else
+  DB=$(tmb_db_path 2>/dev/null || true)
+fi
 
 # ---------------------------------------------------------------------------
 # Resolve the installed (intended) version + cache dir from CC's
@@ -95,13 +107,22 @@ if [ -z "$INTENDED_VERSION" ] || [ -z "$CACHE_DIR" ]; then
   fi
 fi
 
-# Server log: prefer override, else the canonical per-plugin logs dir.
-SERVER_LOG="${TMB_HEALTH_SERVER_LOG:-$HOME/.claude/${PLUGIN_NAME}/logs/mcp-server.log}"
+# Server log: prefer override, else the logs dir beside the trajectory DB
+# (mirrors platform.ts resolveLogDir).
+SERVER_LOG="${TMB_HEALTH_SERVER_LOG:-}"
+if [ -z "$SERVER_LOG" ]; then
+  if [ "$DB" = ":memory:" ]; then
+    _tmp="${TMPDIR:-/tmp}"
+    SERVER_LOG="${_tmp%/}/${PLUGIN_NAME}-memory-logs/mcp-server.log"
+  elif [ -n "$DB" ]; then
+    SERVER_LOG="$(dirname "$DB")/logs/mcp-server.log"
+  fi
+fi
 
 printf '== TMB health-check ==\n'
 printf 'db:        %s\n' "${DB:-<unresolved>}"
 printf 'cache:     %s\n' "${CACHE_DIR:-<unresolved>}"
-printf 'server-log:%s\n' "$SERVER_LOG"
+printf 'server-log:%s\n' "${SERVER_LOG:-<unresolved>}"
 printf '\n'
 
 # ===========================================================================
@@ -126,7 +147,7 @@ else
   remediate \
     "Fully quit Claude Code (Cmd-Q) and relaunch — a dead MCP server needs a full restart, NOT /reload-plugins." \
     "If it does not come back after relaunch, see skills/tmb_recovery (CC plugin MCP-config cache bug)." \
-    "Forensics: tail -n 50 $SERVER_LOG"
+    "Forensics: tail -n 50 ${SERVER_LOG:-<project>/.claude/${PLUGIN_NAME}/logs/mcp-server.log}"
 fi
 
 # ===========================================================================
@@ -191,60 +212,93 @@ fi
 # ===========================================================================
 # 4. world-model (kuzu) — graph openable? graph_db_open_failed sub-diagnosis
 # ===========================================================================
-# The graph file is a sibling of the DB: <...>/world-model.kuzu
+# The standard graph is <...>/world-model.kuzu; custom DBs use
+# <db-path>.world-model.kuzu so each DB has a distinct graph. DB filenames
+# shaped like graph artifacts are reserved to prevent cross-type collisions.
 KUZU_FILE=""
+KUZU_PATH_ERROR=""
 if [ -n "$DB" ]; then
-  KUZU_FILE="${DB%trajectory.db}world-model.kuzu"
+  if [ "$DB" = ":memory:" ]; then
+    KUZU_FILE=":memory:"
+  elif [ "${DB##*/}" = "trajectory.db" ]; then
+    KUZU_FILE="${DB%trajectory.db}world-model.kuzu"
+  else
+    DB_BASENAME_LOWER=$(printf '%s' "${DB##*/}" | tr '[:upper:]' '[:lower:]')
+    case "$DB_BASENAME_LOWER" in
+      world-model.kuzu|*.world-model.kuzu)
+        KUZU_PATH_ERROR="trajectory DB filename is reserved for graph storage (${DB##*/})"
+        ;;
+      *)
+        KUZU_FILE="${DB}.world-model.kuzu"
+        ;;
+    esac
+  fi
 fi
-# Most recent graph_db_open / graph_db_open_failed line from the server log.
+# Most recent graph event for the graph path currently being checked. The
+# server log is shared across TRAJECTORY_DB_PATH overrides, so an unscoped
+# "last event wins" lookup can report another database's graph as healthy.
 LAST_GRAPH_LINE=""
-if [ -f "$SERVER_LOG" ]; then
-  LAST_GRAPH_LINE=$(grep -E '"kind":"graph_db_open(_failed)?"' "$SERVER_LOG" 2>/dev/null | tail -1)
+if [ -f "$SERVER_LOG" ] && command -v jq >/dev/null 2>&1; then
+  LAST_GRAPH_LINE=$(jq -Rrc --arg path "$KUZU_FILE" '
+    fromjson?
+    | select(
+        (.kind == "graph_db_open" or .kind == "graph_db_open_failed")
+        and .path == $path
+      )
+  ' "$SERVER_LOG" 2>/dev/null | tail -1)
 fi
 KUZU_MODULE_DIR=""
 [ -n "$CACHE_DIR" ] && KUZU_MODULE_DIR="$CACHE_DIR/mcp/trajectory-server/node_modules/kuzu"
 
-case "$LAST_GRAPH_LINE" in
-  *graph_db_open_failed*)
-    # A failure is the latest signal. Sub-diagnose by error_message.
-    if printf '%s' "$LAST_GRAPH_LINE" | grep -qiE 'could not set lock|lock.*world-model'; then
-      fail "world-model: kuzu open FAILED — graph file is locked by another process"
-      remediate \
-        "A concurrent/orphan trajectory-server holds the single-writer lock." \
-        "Close the other Claude Code session, OR kill the orphan: pkill -f 'trajectory-server/dist/index.js'" \
-        "Then fully quit + relaunch THIS session. The .kuzu data is intact — do NOT /scan."
-    elif [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
-      fail "world-model: kuzu open FAILED — native binding not installed (postinstall skipped)"
-      remediate \
-        "cd $KUZU_MODULE_DIR && node install.js" \
-        "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
-    else
-      fail "world-model: kuzu open FAILED — see server log"
-      remediate \
-        "Inspect the error: grep graph_db_open_failed $SERVER_LOG | tail -1" \
-        "If the native binding is missing: cd ${KUZU_MODULE_DIR:-<cache>/mcp/trajectory-server/node_modules/kuzu} && node install.js, then full restart." \
-        "The .kuzu data survives — only /scan if the graph file is gone."
-    fi
-    ;;
-  *graph_db_open*)
-    pass "world-model: kuzu graph opened successfully (per server log)"
-    ;;
-  *)
-    # No log evidence either way — fall back to filesystem checks.
-    if [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
-      fail "world-model: kuzu native binding missing (no index.js — postinstall skipped)"
-      remediate \
-        "cd $KUZU_MODULE_DIR && node install.js" \
-        "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
-    elif [ -n "$KUZU_FILE" ] && [ ! -e "$KUZU_FILE" ]; then
-      fail "world-model: graph file missing ($KUZU_FILE)"
-      remediate \
-        "Build the world model: run /scan."
-    else
-      pass "world-model: kuzu binding present, graph file exists (no failure logged)"
-    fi
-    ;;
-esac
+if [ -n "$KUZU_PATH_ERROR" ]; then
+  fail "world-model: $KUZU_PATH_ERROR"
+  remediate \
+    "Choose a different trajectory DB filename; world-model.kuzu and *.world-model.kuzu are reserved for graph storage."
+else
+  case "$LAST_GRAPH_LINE" in
+    *graph_db_open_failed*)
+      # A failure is the latest signal. Sub-diagnose by error_message.
+      if printf '%s' "$LAST_GRAPH_LINE" | grep -iE 'could not set lock|lock.*world-model' >/dev/null; then
+        fail "world-model: kuzu open FAILED — graph file is locked by another process"
+        remediate \
+          "A concurrent/orphan trajectory-server holds the single-writer lock." \
+          "Close the other Claude Code session, OR kill the orphan: pkill -f 'trajectory-server/dist/index.js'" \
+          "Then fully quit + relaunch THIS session. The .kuzu data is intact — do NOT /scan."
+      elif [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
+        fail "world-model: kuzu open FAILED — native binding not installed (postinstall skipped)"
+        remediate \
+          "cd $KUZU_MODULE_DIR && node install.js" \
+          "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
+      else
+        fail "world-model: kuzu open FAILED — see server log"
+        remediate \
+          "Inspect the error: grep graph_db_open_failed ${SERVER_LOG:-<project>/.claude/${PLUGIN_NAME}/logs/mcp-server.log} | tail -1" \
+          "If the native binding is missing: cd ${KUZU_MODULE_DIR:-<cache>/mcp/trajectory-server/node_modules/kuzu} && node install.js, then full restart." \
+          "The .kuzu data survives — only /scan if the graph file is gone."
+      fi
+      ;;
+    *graph_db_open*)
+      pass "world-model: kuzu graph opened successfully (per server log)"
+      ;;
+    *)
+      # No log evidence either way — fall back to filesystem checks.
+      if [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
+        fail "world-model: kuzu native binding missing (no index.js — postinstall skipped)"
+        remediate \
+          "cd $KUZU_MODULE_DIR && node install.js" \
+          "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
+      elif [ "$KUZU_FILE" = ":memory:" ]; then
+        pass "world-model: in-memory graph configured (no persistent graph file)"
+      elif [ -n "$KUZU_FILE" ] && [ ! -e "$KUZU_FILE" ]; then
+        fail "world-model: graph file missing ($KUZU_FILE)"
+        remediate \
+          "Build the world model: run /scan."
+      else
+        pass "world-model: kuzu binding present, graph file exists (no failure logged)"
+      fi
+      ;;
+  esac
+fi
 
 # ===========================================================================
 # 5. label-config — issue_classification_labels sane (not bare default)
@@ -329,6 +383,42 @@ else
     "Your edits to hooks/skills/agents/commands are NOT live until the cache updates." \
     "After /plugin update brings the cache to your version, run /reload-plugins to load the new hook/skill/agent/command definitions." \
     "(/reload-plugins is the RIGHT tool here — these are definition files, not the MCP server.)"
+fi
+
+# ===========================================================================
+# duplicate-plugin (warning) — more than one enabled copy for this project
+# ===========================================================================
+DUP_PROJECT=""
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] || [ "$DB" != ":memory:" ]; then
+  DUP_PROJECT=$(tmb_project_root)
+fi
+DUP_INSTALLS=""
+if [ -z "$DUP_PROJECT" ]; then
+  printf 'WARN  duplicate-plugin: skipped — no project resolves (no CLAUDE_PROJECT_DIR and no trajectory DB)\n'
+  remediate "Run from a Claude Code session in the project, or set CLAUDE_PROJECT_DIR (or TRAJECTORY_DB_PATH) to it."
+else
+  DUP_INSTALLS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_duplicate_installs "$DUP_PROJECT" 2>/dev/null || true)
+fi
+if [ -n "$DUP_INSTALLS" ]; then
+  printf 'WARN  duplicate-plugin: %s enabled %s copies for %s: %s\n' \
+    "$(printf '%s\n' "$DUP_INSTALLS" | grep -c .)" "$PLUGIN_NAME" "$DUP_PROJECT" "$(tmb_duplicate_installs_names "$DUP_INSTALLS")"
+  remediate \
+    "Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors — TMB's gates may be missing while its MCP tools still work." \
+    "Run /plugin and disable the extra copy, then restart Claude Code."
+fi
+
+# ===========================================================================
+# legacy-user-hooks (warning) — pre-1.1.0 hooks left in the user settings.json
+# ===========================================================================
+LEGACY_HOOKS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_legacy_user_hooks "$DUP_PROJECT" 2>/dev/null || true)
+if [ -n "$LEGACY_HOOKS" ]; then
+  printf 'WARN  legacy-user-hooks: %s holds %s pre-1.1.0 TMB hook(s): %s\n' \
+    "$(tmb_user_settings_json)" "$(printf '%s\n' "$LEGACY_HOOKS" | grep -c '^hook')" "$(tmb_legacy_user_hooks_entries "$LEGACY_HOOKS")"
+  remediate \
+    "They run in every project, so a pre-1.1.0 gate can deny what this version allows. TMB does not edit that file." \
+    "Remove them by hand: $(tmb_legacy_user_hooks_doc)"
+  LEGACY_PROJECTS=$(tmb_legacy_user_hooks_projects "$LEGACY_HOOKS")
+  [ -z "$LEGACY_PROJECTS" ] || remediate "Projects on TMB < 1.1.0 lose them too: ${LEGACY_PROJECTS}"
 fi
 
 printf '\n'

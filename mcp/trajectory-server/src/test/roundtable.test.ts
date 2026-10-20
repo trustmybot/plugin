@@ -1008,6 +1008,78 @@ describe('roundtable tools', () => {
       localDb.close();
     });
 
+    it('rejects an ms-ISO slash-invoke row 11 minutes old (window is 10 minutes, not "today")', async () => {
+      const localDb = tempDB();
+      localDb.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'stale iso fixture', '{}', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes'))`,
+      );
+      const issues = issueTools(localDb);
+      const localIssueId = parseResult(
+        await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'iso window' }),
+      ).id as number;
+      const result = await call(roundtableTools(localDb).handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'should be rejected — stale iso slash row',
+        expected_participants: 2,
+      });
+      assert.ok(result.isError, 'an 11-minute-old ms-ISO slash row must be outside the window');
+      assert.equal(parseResult(result).error, 'roundtable_slash_gate_violation');
+      localDb.close();
+    });
+
+    it('consumes only the slash-invoke row inside the 10-minute window (ms-ISO 11 min vs 1 min old)', async () => {
+      const localDb = tempDB();
+      localDb.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'old iso', '{}', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes')),
+                (-1, NULL, 'system', 'roundtable_slash_invoked', 'recent iso', '{}', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 minutes'))`,
+      );
+      const issues = issueTools(localDb);
+      const localIssueId = parseResult(
+        await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'iso window' }),
+      ).id as number;
+      const result = await call(roundtableTools(localDb).handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'recent iso slash row clears the gate',
+        expected_participants: 2,
+      });
+      assert.ok(!result.isError, `expected ok, got ${JSON.stringify(parseResult(result))}`);
+      const rows = localDb
+        .all<{ summary: string; consumed: number | null }>(
+          `SELECT summary, json_extract(content_json, '$.consumed_by_roundtable_id') AS consumed
+             FROM audit WHERE event_type = 'roundtable_slash_invoked' ORDER BY id`,
+        )
+        .map((r) => ({ summary: r.summary, consumed: r.consumed !== null }));
+      assert.deepEqual(rows, [
+        { summary: 'old iso', consumed: false },
+        { summary: 'recent iso', consumed: true },
+      ], 'only the row inside the window is consumed');
+      localDb.close();
+    });
+
+    it('accepts a recent hook-written space-format slash-invoke row', async () => {
+      const localDb = tempDB();
+      localDb.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'hook format', '{}', strftime('%Y-%m-%d %H:%M:%S', 'now', '-1 minutes'))`,
+      );
+      const issues = issueTools(localDb);
+      const localIssueId = parseResult(
+        await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'hook window' }),
+      ).id as number;
+      const result = await call(roundtableTools(localDb).handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'hook-format slash row clears the gate',
+        expected_participants: 2,
+      });
+      assert.ok(!result.isError, `expected ok, got ${JSON.stringify(parseResult(result))}`);
+      localDb.close();
+    });
+
     it('rejects when slash-invoke row already consumed (single-use)', async () => {
       const localDb = tempDB();
       localDb.run(

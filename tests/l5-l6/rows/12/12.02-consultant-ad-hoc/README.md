@@ -20,6 +20,6 @@
 | Scorer | What it asserts |
 |---|---|
 | `outcome.sql` | ≥0 discussions with `kind='analysis'` (trajectory_required=Agent is the gate) |
-| `tools-required.json` | `Agent`, `agent_list` |
+| `tools-required.json` | `Agent` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | 80K / 120s soft |

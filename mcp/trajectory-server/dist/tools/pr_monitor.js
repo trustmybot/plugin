@@ -6,8 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { repoRemotes } from '../repos/remotes.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
+import { insertDiscussion } from './discussions.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -45,20 +47,10 @@ function defaultSpawnFn(cmd, args, opts) {
 function repoNameForSlug(db, slug) {
     if (!slug)
         return null;
-    const rows = db.all(`SELECT name, remotes FROM repos`);
+    const rows = db.all(`SELECT name FROM repos`);
     for (const row of rows) {
-        if (!row.remotes)
-            continue;
-        let remotes;
-        try {
-            const parsed = JSON.parse(row.remotes);
-            remotes = Array.isArray(parsed) ? parsed : [];
-        }
-        catch {
-            continue;
-        }
-        for (const r of remotes) {
-            const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+        for (const r of repoRemotes(db, row.name)) {
+            const full = repoSlugFromRemoteUrl(r.url);
             if (!full)
                 continue;
             const bare = full.replace(/^[^/]+\//, '');
@@ -69,21 +61,76 @@ function repoNameForSlug(db, slug) {
     return null;
 }
 // Resolve the task that owns a PR from its head branch (+ repo). Populates
-// pr_review_runs.task_id on the monitor path (#1024) so the post-pr-comments
-// carrier resolution (pr_number → pr_review_runs → tasks → issue) resolves in
-// production. Best-effort: returns null when the branch is empty, unknown, or
-// ambiguous — the carrier hook then exits cleanly.
+// pr_review_runs.task_id on the monitor path (#1024) so comment persistence can
+// resolve its carrier issue (pr_number → pr_review_runs → tasks → issue).
+// Best-effort: returns null when the branch is empty, unknown, or ambiguous.
 function resolveMonitorTaskId(db, branch, repoSlug) {
     if (!branch)
         return null;
     const repoName = repoNameForSlug(db, repoSlug);
-    if (repoName) {
-        const scoped = db.all(`SELECT id FROM tasks WHERE branch_id = ? AND repo = ?`, [branch, repoName]);
-        if (scoped.length === 1)
-            return scoped[0].id;
-    }
-    const rows = db.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
+    const rows = repoName
+        ? db.all(`SELECT id FROM tasks WHERE branch_id = ? AND (repo = ? OR repo IS NULL)`, [branch, repoName])
+        : db.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
     return rows.length === 1 ? rows[0].id : null;
+}
+// The issue that carries a PR's comments: the PR's linked task (pr_review_runs),
+// else the task on the head branch → its issue. When the slug maps to a
+// registered repo only that repo's tasks (or legacy rows with no repo) qualify;
+// otherwise any repo's task does. A task is closed at bro_atomic_close before
+// its PR opens, so closed tasks carry comments; failed and escalated tasks do
+// not. The most recently updated match wins. Null when no task carries the PR.
+function resolveCarrierIssueId(db, prNumber, repo, headBranch) {
+    const repoName = repoNameForSlug(db, repo);
+    const linkedParams = [prNumber];
+    if (repo !== '')
+        linkedParams.push(repo);
+    if (repoName)
+        linkedParams.push(repoName);
+    const linked = db.get(`SELECT t.issue_id
+       FROM pr_review_runs r
+       JOIN tasks t ON t.id = r.task_id
+      WHERE r.pr_number = ? ${repo !== '' ? 'AND r.repo = ?' : ''}
+        ${repoName ? 'AND (t.repo = ? OR t.repo IS NULL)' : ''}
+        AND t.status NOT IN ('failed','escalated')
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`, linkedParams);
+    if (linked)
+        return linked.issue_id;
+    if (!headBranch)
+        return null;
+    const byBranch = db.get(`SELECT issue_id FROM tasks
+      WHERE branch_id = ? ${repoName ? 'AND (repo = ? OR repo IS NULL)' : ''}
+        AND status NOT IN ('failed','escalated')
+      ORDER BY updated_at DESC, id DESC LIMIT 1`, repoName ? [headBranch, repoName] : [headBranch]);
+    return byBranch?.issue_id ?? null;
+}
+export function remoteCommentId(remoteKind, prNumber, commentId) {
+    return `${remoteKind}:${prNumber}:${commentId}`;
+}
+// Persist each fetched comment as a discussion on the carrier issue, keyed by
+// remote_comment_id so a re-fetch of the same comment inserts nothing.
+function persistComments(db, prNumber, repo, fetchResult) {
+    const counts = { persisted: 0, duplicates: 0 };
+    const issueId = resolveCarrierIssueId(db, prNumber, repo, fetchResult.head_branch);
+    if (issueId === null)
+        return counts;
+    db.transaction(() => {
+        for (const c of fetchResult.comments) {
+            if (!c.id || !c.body)
+                continue;
+            const id = insertDiscussion(db, {
+                issue_id: issueId,
+                author: c.author,
+                kind: 'note',
+                body: `[PR #${prNumber} comment by ${c.author}] ${c.body}`,
+                remote_comment_id: remoteCommentId(fetchResult.remote_kind, prNumber, c.id),
+            });
+            if (id === null)
+                counts.duplicates++;
+            else
+                counts.persisted++;
+        }
+    });
+    return counts;
 }
 function normalizePrState(raw) {
     const lower = raw.toLowerCase();
@@ -96,8 +143,7 @@ function normalizePrState(raw) {
 function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
     const opts = { timeout: 15000, encoding: 'utf8' };
     const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews,headRefName'];
-    if (repo)
-        ghArgs.splice(2, 0, '-R', repo);
+    ghArgs.splice(2, 0, '-R', repo);
     const result = spawnFn('gh', ghArgs, opts);
     if (result.status !== 0)
         return null;
@@ -152,8 +198,7 @@ function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
 function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
     const opts = { timeout: 15000, encoding: 'utf8' };
     const glabArgs = ['mr', 'view', String(prNumber), '--comments', '--output', 'json'];
-    if (repo)
-        glabArgs.splice(2, 0, '-R', repo);
+    glabArgs.splice(2, 0, '-R', repo);
     const result = spawnFn('glab', glabArgs, opts);
     if (result.status !== 0)
         return null;
@@ -207,7 +252,7 @@ export function prMonitorTools(db, _spawnFn) {
     const definitions = [
         {
             name: 'pr_monitor_comments_get',
-            description: 'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.',
+            description: 'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state. Persists each comment as a discussion on the issue of the task that owns the PR, deduped by remote comment id; `persisted` and `duplicates` count the new and already-stored comments.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -217,7 +262,7 @@ export function prMonitorTools(db, _spawnFn) {
                     },
                     repo: {
                         type: 'string',
-                        description: 'Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo\'s remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace.',
+                        description: 'Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo\'s remote slug; a named error is returned when no slug resolves or several repos are registered. The cwd git remote is never used.',
                     },
                     since: {
                         type: 'string',
@@ -269,15 +314,20 @@ export function prMonitorTools(db, _spawnFn) {
                     return err('pr_monitor_comments_get: multiple repos registered and no repo slug given — ' +
                         'pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.');
                 }
-                // 0 or 1 repos: derive the sole repo's slug from its remotes; fall back
-                // to '' (cwd remote) only when no repo/remote slug resolves (uninitialized).
+                // 0 or 1 repos: derive the sole repo's slug from its remotes. No slug
+                // → a named error; gh/glab never run against the server cwd's remote.
                 const resolved = resolveRepoForSync(db, null);
                 const slug = resolved
-                    ? resolved.remotes
+                    ? repoRemotes(db, resolved.name)
                         .map((r) => repoSlugFromRemoteUrl(r.url))
                         .find((s) => s !== null) ?? null
                     : null;
-                repo = slug ?? '';
+                if (slug === null) {
+                    return err(resolved
+                        ? `pr_monitor_comments_get: repo "${resolved.name}" has no GitHub/GitLab remote slug — pass repo="owner/repo" or run /scan.`
+                        : 'pr_monitor_comments_get: no repo is registered — pass repo="owner/repo" or run /scan.');
+                }
+                repo = slug;
             }
             // Wire incremental polling: prefer the explicit `since` arg, otherwise
             // read the cursor from pr_review_runs and pass `last_fetched_at` as the
@@ -331,11 +381,9 @@ export function prMonitorTools(db, _spawnFn) {
             const lastCommentId = fetchResult.comments.length > 0
                 ? (fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null)
                 : null;
-            // Upsert the cursor: a re-fetch of the same (pr_number, repo) should
-            // overwrite last_fetched_at + last_comment_id rather than insert a
-            // duplicate row. Monitoring rows always have pr_number > 0 so they
-            // are covered by idx_pr_review_runs_pr (partial unique WHERE pr_number > 0).
-            // Use SELECT + INSERT/UPDATE to avoid relying on partial-index ON CONFLICT.
+            // Upsert the cursor: a re-fetch of the same (pr_number, repo) overwrites
+            // last_fetched_at + last_comment_id rather than inserting a duplicate row
+            // (UNIQUE (pr_number, repo)).
             // Resolve the owning task from the PR head branch so the carrier
             // resolution (pr_number → pr_review_runs → tasks → issue) works in
             // production (#1024). Null when unresolvable — COALESCE keeps a
@@ -349,7 +397,8 @@ export function prMonitorTools(db, _spawnFn) {
                 db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
            VALUES (?, ?, ?, ?, ?)`, [prNumber, repo, now, lastCommentId, taskId]);
             }
-            return ok(fetchResult);
+            const { persisted, duplicates } = persistComments(db, prNumber, repo, fetchResult);
+            return ok({ ...fetchResult, persisted, duplicates });
         })),
         pr_monitor_runs_list: requireRoles('pr_monitor_runs_list', ['bro'], async (args) => {
             const prFilter = args['pr_number'];

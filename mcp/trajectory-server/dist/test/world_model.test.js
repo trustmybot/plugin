@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTree, worldModelTools } from '../tools/world_model.js';
 import { WorldModelGraph, GraphHolder } from '../graph-db.js';
@@ -6,7 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, runGraphScript, tempDB } from './helpers.js';
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 // Helper to detect whether kuzu is loadable in this environment.
 function kuzuAvailable() {
     try {
@@ -186,7 +188,10 @@ describe('world_model_get/search — repo-unspecified (#15)', () => {
 // success path; the git work happens against a real temp repo.
 describe('world_model_get — unmerged_work (#1059)', () => {
     function stubGraph() {
-        return { allDirectoriesForRepo: () => [row('', '')] };
+        return {
+            allDirectoriesForRepo: () => [row('', '')],
+            fileCoverage: () => ({ files: 0, with_purpose: 0, by_source: {} }),
+        };
     }
     function gitRepo() {
         const ws = mkdtempSync(join(tmpdir(), 'wm-unmerged-'));
@@ -407,6 +412,93 @@ console.log(JSON.stringify({ ok: true, hadOldDir, hasOldDir, hasNewDir }));
             assert.ok(result.hadOldDir, 'old-dir node present after first scan');
             assert.ok(!result.hasOldDir, 'old-dir node must be gone after rename + rescan (#342)');
             assert.ok(result.hasNewDir, 'new-dir node must be visible after rescan');
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('world_model_get/search — File nodes', () => {
+    it('zoom-in lists files with purposes, root carries coverage, depth-2 children carry no files, search returns kind:file', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'wm-files-'));
+        try {
+            const repoRoot = join(ws, 'app');
+            const files = {
+                'README.md': '# App\n\nFixture application.\n',
+                'src/a.ts': '// Parses inbound webhook payloads.\n',
+                'src/b.ts': 'export const b = 1;\n',
+                'lib/README.md': '# lib\n\nShared helpers.\n',
+                'lib/zeta.ts': '// Quokka handshake negotiator.\n',
+            };
+            for (const [p, body] of Object.entries(files)) {
+                mkdirSync(join(repoRoot, p, '..'), { recursive: true });
+                writeFileSync(join(repoRoot, p), body);
+            }
+            execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repoRoot });
+            execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: repoRoot });
+            execFileSync('git', ['config', 'user.name', 't'], { cwd: repoRoot });
+            execFileSync('git', ['add', '.'], { cwd: repoRoot });
+            execFileSync('git', ['commit', '-qm', 'init'], { cwd: repoRoot });
+            const out = runGraphScript(`
+import { tempDB } from '$DIST/test/helpers.js';
+import { WorldModelGraph, GraphHolder } from '$DIST/graph-db.js';
+import { scanTools } from '$DIST/tools/scan.js';
+import { worldModelTools } from '$DIST/tools/world_model.js';
+
+const ws = ${JSON.stringify(ws)};
+const db = tempDB();
+const graph = new WorldModelGraph(ws + '/world-model.kuzu');
+const holder = GraphHolder.fixed(graph);
+const scan = await scanTools(db, holder, ':memory:').handlers.scan_run({ agent: 'bro', session_dir: ws });
+if (scan.isError) { console.log(JSON.stringify({ error: scan.content[0].text })); process.exit(0); }
+const wm = worldModelTools(db, holder).handlers;
+const parse = (r) => JSON.parse(r.content[0].text);
+const zoom = parse(await wm.world_model_get({ agent: 'bro', repo: 'app', path: 'src', depth: 1 }));
+const root = parse(await wm.world_model_get({ agent: 'bro', repo: 'app' }));
+const search = parse(await wm.world_model_search({ agent: 'bro', repo: 'app', query: 'quokka', mode: 'keyword' }));
+const hybrid = parse(await wm.world_model_search({ agent: 'bro', repo: 'app', query: 'lib' }));
+const all = graph.allFilesForRepo('app');
+const stored = Object.fromEntries(all.map((f) => [f.path, f.purpose]));
+const graphCounts = {
+  files: all.length,
+  with_purpose: all.filter((f) => f.purpose !== '').length,
+  by_source: all.reduce((acc, f) => ({ ...acc, [f.purpose_source]: (acc[f.purpose_source] ?? 0) + 1 }), {}),
+};
+graph.close();
+db.close();
+console.log(JSON.stringify({ zoom, root, search, hybrid, graphCounts, stored }));
+`);
+            assert.equal(out['error'], undefined, `scan failed: ${String(out['error'])}`);
+            const zoom = out['zoom'];
+            assert.equal(zoom.root.path, 'src');
+            assert.deepEqual(zoom.root.files, [
+                {
+                    path: 'src/a.ts',
+                    purpose: '<untrusted-content source="file-purpose">\nParses inbound webhook payloads.\n</untrusted-content>',
+                    purpose_source: 'comment',
+                    content_md5: zoom.root.files[0]['content_md5'],
+                },
+                { path: 'src/b.ts', purpose: '', purpose_source: 'none', content_md5: zoom.root.files[1]['content_md5'] },
+            ]);
+            assert.match(String(zoom.root.files[0]['content_md5']), /^[0-9a-f]{32}$/);
+            const root = out['root'];
+            const graphCounts = out['graphCounts'];
+            assert.deepEqual(root.coverage, graphCounts, 'coverage matches the graph');
+            assert.deepEqual(graphCounts.by_source, { comment: 2, heading: 2, none: 1 });
+            assert.equal(root.root['files'], undefined, 'the default root call carries no file array');
+            assert.ok(root.root.children.length > 0);
+            for (const c of root.root.children)
+                assert.equal(c['files'], undefined, `child ${String(c['path'])} carries no files`);
+            const search = out['search'];
+            assert.equal(search.mode, 'keyword');
+            assert.deepEqual(search.results.map((r) => [r['kind'], r['path']]), [['file', 'lib/zeta.ts']]);
+            assert.equal(search.results[0]['purpose'], '<untrusted-content source="file-purpose">\nQuokka handshake negotiator.\n</untrusted-content>', 'file hit purposes leave the server framed');
+            const stored = out['stored'];
+            assert.equal(stored['app/src/a.ts'], 'Parses inbound webhook payloads.', 'the graph keeps the raw purpose');
+            assert.equal(stored['app/lib/zeta.ts'], 'Quokka handshake negotiator.');
+            const hybrid = out['hybrid'];
+            assert.equal(hybrid.warning, 'semantic_unavailable');
+            assert.deepEqual(hybrid.results.map((r) => [r['kind'], r['path']]), [['dir', 'lib'], ['file', 'lib/README.md'], ['file', 'lib/zeta.ts']], 'directories first, then files, each tagged with kind');
         }
         finally {
             rmSync(ws, { recursive: true, force: true });

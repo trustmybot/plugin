@@ -1,33 +1,36 @@
 #!/usr/bin/env bash
 # PreToolUse hook — dispatcher for all Agent-matcher checks.
 #
-# Runs the five Agent-spawn gate hooks IN ORDER, short-circuiting on the
+# Runs the six Agent-spawn gate hooks IN ORDER, short-circuiting on the
 # first deny (emits that deny verbatim and exits). On a clean pass from
-# all five, emits the union of any additionalContext outputs (currently
-# none of the five produce context, but the union logic is future-proof).
+# all six, emits the union of any additionalContext outputs (currently
+# none of the six produce context, but the union logic is future-proof).
 #
-# Hook order (preserved from the five individual hooks.json entries):
+# Hook order:
 #   1. require-task-spec              — swe must cite a valid task_id
-#   2. require-feature-branch-active  — task's branch must already exist
-#   3. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
-#   4. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have six anchors
-#   5. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
+#   2. require-spawn-effort           — swe/pr-reviewer effort must match the DB
+#   3. require-feature-branch-active  — task's branch must already exist
+#   4. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
+#   5. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have seven anchors
+#   6. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
 #
-# After all gates pass, a final PREPARE step runs (ensure-swe-worktree.sh). It
-# ACTS — deterministically creates swe's worktree at the canonical slug — rather
-# than gates: it is non-blocking and fail-open, so it never denies a spawn.
+# After all gates pass, the PREPARE steps run: ensure-swe-worktree.sh creates
+# swe's worktree at the canonical slug, then record-swe-spawn.sh moves a pending
+# task to running and opens the spawn's swe agent_runs row. They ACT rather than
+# gate: non-blocking and fail-open, so they never deny a spawn.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INPUT=$(cat 2>/dev/null) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { echo "agent-spawn-dispatch: jq not found" >&2; exit 1; }
 
 HOOKS=(
   "$SCRIPT_DIR/require-task-spec.sh"
+  "$SCRIPT_DIR/require-spawn-effort.sh"
   "$SCRIPT_DIR/require-feature-branch-active.sh"
   "$SCRIPT_DIR/pr-reviewer-no-worktree.sh"
   "$SCRIPT_DIR/pr-reviewer-spawn-prompt-shape.sh"
@@ -51,13 +54,13 @@ for hook in "${HOOKS[@]}"; do
   [ -n "$CTX" ] && CONTEXT_PARTS+=("$CTX")
 done
 
-# PREPARE step — all gates passed. Deterministically create swe's worktree at
-# the canonical slug so the non-interactive `claude -p` path is isolated and the
-# verification gate finds the right slug. Fail-open: never denies the spawn.
-PREPARE="$SCRIPT_DIR/ensure-swe-worktree.sh"
-if [ -x "$PREPARE" ]; then
+# PREPARE steps — all gates passed. Create swe's worktree at the canonical slug
+# (so the non-interactive `claude -p` path is isolated and the verification gate
+# finds the right slug), then record the spawn. Fail-open: never deny the spawn.
+for PREPARE in "$SCRIPT_DIR/ensure-swe-worktree.sh" "$SCRIPT_DIR/record-swe-spawn.sh"; do
+  [ -x "$PREPARE" ] || continue
   printf '%s' "$INPUT" | bash "$PREPARE" >/dev/null 2>&1 || true
-fi
+done
 
 if [ "${#CONTEXT_PARTS[@]}" -gt 0 ]; then
   MERGED=""

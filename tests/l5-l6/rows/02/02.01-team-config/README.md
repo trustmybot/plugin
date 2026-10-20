@@ -9,7 +9,7 @@
 **Expected behavior**:
 1. Bro recognises config-change trigger
 2. Routes the Human to `/onboard` (a Human-triggered slash command — bro doesn't fire it itself)
-3. **In test mode**: bro doesn't call AUQ; the documented default is to tell the Human to run `/onboard`, recorded as an audit/discussion `/onboard` mention. (Interactive: `/onboard`'s AUQ → `config_set` writes the new value + `config_changed` event.)
+3. **In test mode**: bro reads current config via `onboard_state_get` (the reonboard-intent hint's required first action), doesn't call AUQ, and tells the Human to run `/onboard`; policy stays unchanged. (Interactive: `/onboard`'s AUQ → `config_set` writes the new value + `config_changed` event.)
 
 **L5 mode**: onboarding-named fixture provides identity; no extra pre-state.
 **L6 mode**: standalone row, not in chain.
@@ -18,7 +18,7 @@
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | Audit has `config_changed` OR `/onboard` routing |
-| `tools-required.json` | `audit_append` |
+| `outcome.sql` | `branching_model` unchanged AND no `config_changed` event |
+| `tools-required.json` | `onboard_state_get` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | Tight 40K / 60s |

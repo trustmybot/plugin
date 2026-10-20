@@ -23,6 +23,7 @@ test('issue_update_description — bro updates issue, verified via issue_get', a
     agent: 'bro',
     issue_id: String(issue.id),
     description: '# Full Description\n\nThis is the complete description that was truncated on import.',
+    include_description: true,
   });
   assert.equal(updateResult.ok, true, `update should succeed: ${JSON.stringify(updateResult)}`);
   assert.equal(
@@ -41,6 +42,14 @@ test('issue_update_description — bro updates issue, verified via issue_get', a
     '# Full Description\n\nThis is the complete description that was truncated on import.',
     'description should match after round-trip via issue_get',
   );
+
+  const defaultResult = await call(client, 'issue_update_description', {
+    agent: 'bro',
+    issue_id: String(issue.id),
+    description: '# Second pass\n\nStill not echoed by default.',
+  });
+  assert.equal(defaultResult.ok, true, `default update should succeed: ${JSON.stringify(defaultResult)}`);
+  assert.equal('description' in defaultResult.data, false, 'description is not echoed unless include_description is true');
 });
 
 test('issue_update_description — agent=swe returns forbidden', async (t) => {

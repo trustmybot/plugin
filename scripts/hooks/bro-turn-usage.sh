@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
-# Stop hook — meters the bro main loop per session turn (#333).
+# Stop hook — meters the bro main loop per Claude Code session.
 #
 # Fires on: Stop (main Claude session)
-# Purpose: attribute per-task token deltas to each open bro agent_run row.
-# Each row carries a write-once usage_baseline_json checkpoint; delta =
-# max(0, cumulative_now − baseline). Idempotent: baseline is set once
-# (WHERE usage_baseline_json IS NULL guard).
+# Purpose: bro lives per session, not per task, so each session owns exactly
+# one bro agent_runs row: agent_type 'bro', task_id and issue_id NULL,
+# session_id the payload's session. The row holds the sums of the session
+# transcript's main-loop assistant usage; started_at / completed_at are the
+# first / last main-loop message, model the one with the most tokens, root_dir
+# the project holding the trajectory DB (NULL when the DB sits elsewhere).
+# Every Stop rewrites the row with absolute sums and inserts it when absent, so
+# the hook is idempotent. A session with no real model (only <synthetic>
+# messages) or no output tokens writes no row; a row an earlier Stop wrote
+# stays as it is.
+# Per-task cost is the task's swe + pr-reviewer runs; no turn is split across
+# tasks.
 #
-# Failure modes are silent — this hook is analytics, never load-bearing.
+# One tmb_db_write transaction. Analytics, never load-bearing: a failed write
+# is reported on stderr and the hook exits 0.
 # Bypass: TMB_DISABLE_BRO_TURN_USAGE_HOOK=1.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/normalize-role.sh
-. "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -30,123 +39,104 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 
-# Find the active row: newest open bro agent_run.
-RUN_ROW=$(sqlite3 -separator '|' "$DB_PATH" \
-  "SELECT id, usage_baseline_json FROM agent_runs WHERE agent_type='bro' AND completed_at IS NULL ORDER BY id DESC LIMIT 1;" 2>/dev/null)
-[ -n "$RUN_ROW" ] || exit 0
-RUN_ID="${RUN_ROW%%|*}"
-[ -n "$RUN_ID" ] || exit 0
-
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null || true)
+TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || true)
+[ -n "$SESSION_ID" ] || exit 0
 [ -n "$TRANSCRIPT_PATH" ] || exit 0
 [ -f "$TRANSCRIPT_PATH" ] || exit 0
 
-# Parse cumulative usage from the full transcript. Fields:
-#   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens
-STATS=$(jq -rsc '
-  (map(select(.message.usage != null) | .message.usage.input_tokens // 0) | add // 0) as $ti |
-  (map(select(.message.usage != null) | .message.usage.output_tokens // 0) | add // 0) as $to |
-  (map(select(.message.usage != null) | .message.usage.cache_read_input_tokens // 0) | add // 0) as $cr |
-  (map(select(.message.usage != null) | .message.usage.cache_creation_input_tokens // 0) | add // 0) as $cc |
-  (map(.message.content // [] | arrays | .[]) | map(select(.type == "tool_use")) | length) as $tu |
-  ( map(select(.timestamp != null) |
-      .timestamp |
-      capture("(?<sec>[^.]+)(?:\\.(?<ms>[0-9]+))?Z$") |
-      ((.sec + "Z") | fromdateiso8601) * 1000 + ((.ms // "0")[0:3] | tonumber)
-    ) |
-    if length < 2 then 0 else (max - min) end
-  ) as $dm |
-  [$ti, $to, $tu, $dm, $cr, $cc] | join("|")
-' "$TRANSCRIPT_PATH" 2>/dev/null) || true
+# One pass over the transcript, main loop only (isSidechain false). Prints one
+# tab-separated line: first ts, last ts, in, out, cache_read, cache_creation,
+# tool_uses, model — nothing when the main loop has no real model or no output
+# tokens. CC writes one JSONL line per content block, each repeating the
+# message's usage, so lines are grouped by message id (last usage wins,
+# tool_use blocks are counted across the group). Timestamps are validated and normalized to the 24-char
+# ms-ISO form; numbers are floored non-negative integers, anything else counts
+# as 0. A model id keeps only [A-Za-z0-9._:@/[]-] and is emitted as a quoted
+# SQL literal; CC's synthetic messages (<synthetic>) carry no model, and the
+# model with the most tokens wins (ties by name).
+PARSED=$(jq -rsc --arg q "'" '
+  def iso:
+    if type == "string" then
+      (capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.(?<f>[0-9]+))?Z$")
+        // null)
+      | if . == null then null else .s + "." + (((.f // "") + "000")[0:3]) + "Z" end
+    else null end;
+  def n: if type == "number" and . >= 0 then floor else 0 end;
+  def model:
+    if type == "string" and (startswith("<") | not) then gsub("[^A-Za-z0-9._:@/\\[\\]-]"; "")
+    else "" end;
+  [.[] | objects | select((.isSidechain // false) == false and .message != null)] as $main |
+  [$main[] | .timestamp | iso | select(. != null)] as $stamps |
+  [ $main | to_entries[] | .key as $i | .value
+    | select(.message.usage != null)
+    | {id: (.message.id // .uuid // ("line-" + ($i | tostring))), ts: (.timestamp | iso), u: .message.usage,
+       m: (.message.model | model),
+       tu: ([.message.content // [] | arrays | .[] | select(.type == "tool_use")] | length)}
+    | select(.ts != null)
+  ]
+  | group_by(.id)
+  | map({u: .[-1].u, m: .[-1].m, tu: (map(.tu) | add)}
+        | {ti: (.u.input_tokens | n), to: (.u.output_tokens | n), cr: (.u.cache_read_input_tokens | n),
+           cc: (.u.cache_creation_input_tokens | n), tu, m})
+  | ([.[] | select(.m != "") | {m, tok: (.ti + .to + .cr + .cc)}]
+     | group_by(.m) | map({m: .[0].m, tok: (map(.tok) | add)})
+     | sort_by([-.tok, .m]) | .[0].m // null) as $model
+  | select($model != null and (map(.to) | add) > 0)
+  | [($stamps | min), ($stamps | max),
+     (map(.ti) | add), (map(.to) | add), (map(.cr) | add), (map(.cc) | add), (map(.tu) | add)
+       | tostring]
+    + [$q + $model + $q]
+  | join("\t")
+' "$TRANSCRIPT_PATH" 2>/dev/null) || exit 0
+[ -n "$PARSED" ] || exit 0
 
-[ -n "$STATS" ] || exit 0
+IFS=$'\t' read -r FIRST_TS LAST_TS T_IN T_OUT T_CR T_CC T_TU SAFE_MODEL <<<"$PARSED"
+for stamp in "$FIRST_TS" "$LAST_TS"; do
+  case "$stamp" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z) ;;
+    *) exit 0 ;;
+  esac
+done
+for num in "$T_IN" "$T_OUT" "$T_CR" "$T_CC" "$T_TU"; do
+  case "$num" in
+    '' | *[!0-9]*) exit 0 ;;
+  esac
+done
 
-CUM_TI=$(echo "$STATS" | cut -d'|' -f1)
-CUM_TO=$(echo "$STATS" | cut -d'|' -f2)
-CUM_TU=$(echo "$STATS" | cut -d'|' -f3)
-CUM_DM=$(echo "$STATS" | cut -d'|' -f4)
-CUM_CR=$(echo "$STATS" | cut -d'|' -f5)
-CUM_CC=$(echo "$STATS" | cut -d'|' -f6)
+ROOT_SQL="NULL"
+PROJECT_ROOT=$(dirname "$(dirname "$(dirname "$DB_PATH")")")
+if [ "$(tmb_db_location "$PROJECT_ROOT")" = "$DB_PATH" ]; then
+  ROOT_SQL="'$(tmb_sql_quote "$PROJECT_ROOT")'"
+fi
 
-case "${CUM_TI}" in (''|*[!0-9]*) CUM_TI=0 ;; esac
-case "${CUM_TO}" in (''|*[!0-9]*) CUM_TO=0 ;; esac
-case "${CUM_TU}" in (''|*[!0-9]*) CUM_TU=0 ;; esac
-case "${CUM_DM}" in (''|*[!0-9]*) CUM_DM=0 ;; esac
-case "${CUM_CR}" in (''|*[!0-9]*) CUM_CR=0 ;; esac
-case "${CUM_CC}" in (''|*[!0-9]*) CUM_CC=0 ;; esac
+SAFE_SESSION=$(tmb_sql_quote "$SESSION_ID")
+SESSION_ROW="agent_type = 'bro' AND task_id IS NULL AND session_id = '${SAFE_SESSION}'"
+DURATION_SQL="MAX(0, CAST(ROUND((julianday('${LAST_TS}') - julianday('${FIRST_TS}')) * 86400000) AS INTEGER))"
 
-# If the active row has no baseline yet, compute the per-field high-water mark
-# over all prior bro rows and set it (write-once via IS NULL guard).
-BASELINE_ROW=$(sqlite3 -separator '|' "$DB_PATH" "
-  SELECT
-    COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.ti'),0) + tokens_in), 0),
-    COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.to'),0) + tokens_out), 0),
-    COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.cr'),0) + cache_read_tokens), 0),
-    COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.cc'),0) + cache_creation_tokens), 0),
-    COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.tu'),0) + tool_uses), 0),
-    COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.dm'),0) + duration_ms), 0)
-  FROM agent_runs WHERE agent_type='bro' AND id < ${RUN_ID};
-" 2>/dev/null) || true
+tmb_db_write "$DB_PATH" "
+UPDATE agent_runs
+   SET tokens_in             = ${T_IN},
+       tokens_out            = ${T_OUT},
+       cache_read_tokens     = ${T_CR},
+       cache_creation_tokens = ${T_CC},
+       tool_uses             = ${T_TU},
+       started_at            = '${FIRST_TS}',
+       completed_at          = '${LAST_TS}',
+       duration_ms           = ${DURATION_SQL},
+       usage_source          = 'transcript',
+       model                 = ${SAFE_MODEL},
+       host                  = 'claude',
+       root_dir              = COALESCE(${ROOT_SQL}, root_dir),
+       exit_reason           = 'completed'
+ WHERE ${SESSION_ROW};
 
-BL_TI=$(echo "$BASELINE_ROW" | cut -d'|' -f1)
-BL_TO=$(echo "$BASELINE_ROW" | cut -d'|' -f2)
-BL_CR=$(echo "$BASELINE_ROW" | cut -d'|' -f3)
-BL_CC=$(echo "$BASELINE_ROW" | cut -d'|' -f4)
-BL_TU=$(echo "$BASELINE_ROW" | cut -d'|' -f5)
-BL_DM=$(echo "$BASELINE_ROW" | cut -d'|' -f6)
-
-case "${BL_TI}" in (''|*[!0-9]*) BL_TI=0 ;; esac
-case "${BL_TO}" in (''|*[!0-9]*) BL_TO=0 ;; esac
-case "${BL_CR}" in (''|*[!0-9]*) BL_CR=0 ;; esac
-case "${BL_CC}" in (''|*[!0-9]*) BL_CC=0 ;; esac
-case "${BL_TU}" in (''|*[!0-9]*) BL_TU=0 ;; esac
-case "${BL_DM}" in (''|*[!0-9]*) BL_DM=0 ;; esac
-
-BASELINE_JSON="{\"ti\":${BL_TI},\"to\":${BL_TO},\"cr\":${BL_CR},\"cc\":${BL_CC},\"tu\":${BL_TU},\"dm\":${BL_DM}}"
-
-# Write-once: only set baseline if the active row's usage_baseline_json IS NULL.
-sqlite3 "$DB_PATH" \
-  "UPDATE agent_runs SET usage_baseline_json='${BASELINE_JSON}' WHERE id=${RUN_ID} AND usage_baseline_json IS NULL;" 2>/dev/null || true
-
-# Re-read the baseline (now guaranteed non-NULL) to compute deltas.
-STORED_BL=$(sqlite3 "$DB_PATH" \
-  "SELECT usage_baseline_json FROM agent_runs WHERE id=${RUN_ID};" 2>/dev/null) || true
-[ -n "$STORED_BL" ] || STORED_BL="$BASELINE_JSON"
-
-# Extract baseline fields from stored JSON.
-SBL_TI=$(echo "$STORED_BL" | jq -r '.ti // 0' 2>/dev/null || echo 0)
-SBL_TO=$(echo "$STORED_BL" | jq -r '.to // 0' 2>/dev/null || echo 0)
-SBL_CR=$(echo "$STORED_BL" | jq -r '.cr // 0' 2>/dev/null || echo 0)
-SBL_CC=$(echo "$STORED_BL" | jq -r '.cc // 0' 2>/dev/null || echo 0)
-SBL_TU=$(echo "$STORED_BL" | jq -r '.tu // 0' 2>/dev/null || echo 0)
-SBL_DM=$(echo "$STORED_BL" | jq -r '.dm // 0' 2>/dev/null || echo 0)
-
-case "${SBL_TI}" in (''|*[!0-9]*) SBL_TI=0 ;; esac
-case "${SBL_TO}" in (''|*[!0-9]*) SBL_TO=0 ;; esac
-case "${SBL_CR}" in (''|*[!0-9]*) SBL_CR=0 ;; esac
-case "${SBL_CC}" in (''|*[!0-9]*) SBL_CC=0 ;; esac
-case "${SBL_TU}" in (''|*[!0-9]*) SBL_TU=0 ;; esac
-case "${SBL_DM}" in (''|*[!0-9]*) SBL_DM=0 ;; esac
-
-# Compute per-field delta = max(0, cumulative_now - baseline).
-DTI=$(( CUM_TI > SBL_TI ? CUM_TI - SBL_TI : 0 ))
-DTO=$(( CUM_TO > SBL_TO ? CUM_TO - SBL_TO : 0 ))
-DCR=$(( CUM_CR > SBL_CR ? CUM_CR - SBL_CR : 0 ))
-DCC=$(( CUM_CC > SBL_CC ? CUM_CC - SBL_CC : 0 ))
-DTU=$(( CUM_TU > SBL_TU ? CUM_TU - SBL_TU : 0 ))
-DDM=$(( CUM_DM > SBL_DM ? CUM_DM - SBL_DM : 0 ))
-DTOTAL=$(( DTI + DTO ))
-
-sqlite3 "$DB_PATH" \
-  "UPDATE agent_runs
-      SET tokens_in = ${DTI},
-          tokens_out = ${DTO},
-          tokens_total = ${DTOTAL},
-          cache_read_tokens = ${DCR},
-          cache_creation_tokens = ${DCC},
-          tool_uses = ${DTU},
-          duration_ms = ${DDM}
-    WHERE id = ${RUN_ID}
-      AND completed_at IS NULL;" 2>/dev/null || true
+INSERT INTO agent_runs (agent_type, task_id, issue_id, session_id, tokens_in, tokens_out, cache_read_tokens,
+                        cache_creation_tokens, tool_uses, started_at, completed_at, duration_ms,
+                        usage_source, model, host, root_dir, exit_reason)
+SELECT 'bro', NULL, NULL, '${SAFE_SESSION}', ${T_IN}, ${T_OUT}, ${T_CR}, ${T_CC}, ${T_TU},
+       '${FIRST_TS}', '${LAST_TS}', ${DURATION_SQL}, 'transcript', ${SAFE_MODEL}, 'claude', ${ROOT_SQL}, 'completed'
+ WHERE NOT EXISTS (SELECT 1 FROM agent_runs WHERE ${SESSION_ROW});
+" || exit 0
 
 exit 0

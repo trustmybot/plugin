@@ -23,7 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/orphan-scan.sh"
 
-TMPDIR_BASE=$(mktemp -d)
+TMPDIR_BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-orphan-scan.XXXXXX")
 PIDS_TO_KILL=()
 cleanup() {
   for p in "${PIDS_TO_KILL[@]:-}"; do
@@ -40,7 +40,8 @@ PROJECT_DIR="$TMPDIR_BASE/project"
 SCAN_HOME="$TMPDIR_BASE/home"
 mkdir -p "$PROJECT_DIR/.claude/tmb" "$SCAN_HOME/.claude"
 LIVE_DB="$PROJECT_DIR/.claude/tmb/trajectory.db"
-printf 'live' > "$LIVE_DB"   # non-empty so the [ -s "$LIVE_DB" ] gate is true
+export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
+sqlite3 "$LIVE_DB" 'CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER);'   # non-empty so the [ -s "$LIVE_DB" ] gate is true
 
 SRV_ARGV="node /x/mcp/trajectory-server/dist/index.js"
 

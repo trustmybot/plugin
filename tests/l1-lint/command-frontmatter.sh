@@ -16,7 +16,7 @@ for cmd in $(find commands -maxdepth 1 -type f -name '*.md' ! -name 'README.md' 
   filename=$(basename "$cmd")
 
   # Filename must match ^[a-z][a-z0-9-]*\.md$
-  if ! echo "$filename" | grep -qE '^[a-z][a-z0-9-]*\.md$'; then
+  if ! echo "$filename" | grep -E '^[a-z][a-z0-9-]*\.md$' >/dev/null; then
     printf "  ✗ %s: filename must match ^[a-z][a-z0-9-]*\\.md$\n" "$cmd" >&2
     failed=1
     continue
@@ -34,14 +34,14 @@ for cmd in $(find commands -maxdepth 1 -type f -name '*.md' ! -name 'README.md' 
   fm=$(awk '/^---$/{c++; next} c==1' "$cmd" | head -50)
 
   # Required: description (non-empty value)
-  if ! echo "$fm" | grep -qE '^description:[[:space:]]+\S'; then
+  if ! echo "$fm" | grep -E '^description:[[:space:]]+\S' >/dev/null; then
     printf "  ✗ %s: missing or empty 'description:' field in frontmatter\n" "$cmd" >&2
     failed=1
     continue
   fi
 
   # Required: argument-hint key present (value may be empty for no-arg commands)
-  if ! echo "$fm" | grep -qE '^argument-hint:'; then
+  if ! echo "$fm" | grep -E '^argument-hint:' >/dev/null; then
     printf "  ✗ %s: missing 'argument-hint:' field in frontmatter\n" "$cmd" >&2
     failed=1
     continue

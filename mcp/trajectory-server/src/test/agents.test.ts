@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tempDB } from './helpers.js';
 import { agentTools } from '../tools/agents.js';
 import { auditTools } from '../tools/audit.js';
@@ -22,16 +23,40 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+const PLUGIN_ROOT = (() => {
+  const env = process.env['CLAUDE_PLUGIN_ROOT'];
+  if (env && existsSync(join(env, '.claude-plugin', 'plugin.json'))) return env;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  while (!existsSync(join(dir, '.claude-plugin', 'plugin.json'))) dir = dirname(dir);
+  return dir;
+})();
+
 describe('agentTools', () => {
-  it('fresh DB has 6 seeded agents after init', () => {
+  it('fresh DB has 6 seeded agents, every file_path under the plugin: root', () => {
     const db = tempDB();
-    const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
-    assert.ok(count !== undefined);
-    assert.equal(count.cnt, 6, 'Expected 6 seeded agents');
+    const rows = db.all<{ name: string; file_path: string }>('SELECT name, file_path FROM agents ORDER BY id');
+    assert.equal(rows.length, 6, 'Expected 6 seeded agents');
+    assert.deepEqual(rows.map((r) => r.file_path), [
+      'plugin:agents/swe.md',
+      'plugin:agents/pr-reviewer.md',
+      'plugin:templates/agents/architect.md',
+      'plugin:templates/agents/cto.md',
+      'plugin:templates/agents/ceo.md',
+      'plugin:templates/agents/pm.md',
+    ]);
     db.close();
   });
 
-  it('agent_list returns all 6 seeded agents', async () => {
+  it('the file_path CHECK rejects an unmarked path', () => {
+    const db = tempDB();
+    assert.throws(
+      () => db.run(`INSERT INTO agents (name, kind, file_path) VALUES ('x-ray', 'consultant', '.claude/agents/x-ray.md')`),
+      /CHECK/,
+    );
+    db.close();
+  });
+
+  it('agent_list returns all 6 seeded agents with resolved_path and no scope key', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
@@ -39,23 +64,62 @@ describe('agentTools', () => {
     const data = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     assert.equal(data.agents.length, 6, 'Expected 6 agents');
+    for (const a of data.agents) {
+      assert.ok(!('scope' in a), 'agent rows carry no scope key');
+      assert.equal(a.resolved_path, join(PLUGIN_ROOT, a.file_path.slice('plugin:'.length)));
+    }
+    assert.ok(existsSync(data.agents.find((a: { name: string }) => a.name === 'swe').resolved_path), 'swe resolves to a real file');
     db.close();
   });
 
-  it('agent_list(scope=template) filters to 4 template agents', async () => {
+  it('agent_list(root=…) filters by the file_path root', async () => {
     const db = tempDB();
-    const tools = agentTools(db);
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro', name: 'legal-reviewer', kind: 'consultant', file_path: 'project:.claude/agents/legal-reviewer.md',
+    });
 
-    const result = await call(tools.handlers, 'agent_list', { agent: 'bro', scope: 'template' });
-    const data = parseResult(result);
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
-    assert.equal(data.agents.length, 4, 'Expected 4 template-scope agents');
-    const names = data.agents.map((a: { name: string }) => a.name).sort();
-    assert.deepEqual(names, ['architect', 'ceo', 'cto', 'pm']);
+    const plugin = parseResult(await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'plugin' }));
+    assert.deepEqual(
+      plugin.agents.map((a: { name: string }) => a.name),
+      ['architect', 'ceo', 'cto', 'pm', 'pr-reviewer', 'swe'],
+    );
+
+    const project = parseResult(await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'project' }));
+    assert.equal(project.agents.length, 1);
+    assert.equal(project.agents[0].name, 'legal-reviewer');
+    assert.equal(project.agents[0].resolved_path, '/tmp/workspace/.claude/agents/legal-reviewer.md');
+
+    const bad = await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'global' });
+    assert.ok(bad.isError);
+    assert.match(parseResult(bad).error, /Invalid root/);
     db.close();
   });
 
-  it('agent_register inserts a project-local row', async () => {
+  it('agent_register inserts a project: row and returns its resolved_path', async () => {
+    const db = tempDB();
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+
+    const result = await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'legal-reviewer',
+      kind: 'consultant',
+      file_path: 'project:.claude/agents/legal-reviewer.md',
+    });
+    const row = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+    assert.equal(row.name, 'legal-reviewer');
+    assert.equal(row.kind, 'consultant');
+    assert.ok(!('scope' in row));
+    assert.equal(row.file_path, 'project:.claude/agents/legal-reviewer.md');
+    assert.equal(row.resolved_path, '/tmp/workspace/.claude/agents/legal-reviewer.md');
+
+    const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
+    assert.equal(count!.cnt, 7, 'Expected 7 agents after registering one');
+    db.close();
+  });
+
+  it('agent_register rejects a file_path without a root marker, naming both accepted forms', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
@@ -63,23 +127,17 @@ describe('agentTools', () => {
       agent: 'bro',
       name: 'legal-reviewer',
       kind: 'consultant',
-      scope: 'project-local',
       file_path: '.claude/agents/legal-reviewer.md',
     });
-    const row = parseResult(result);
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-    assert.equal(row.name, 'legal-reviewer');
-    assert.equal(row.kind, 'consultant');
-    assert.equal(row.scope, 'project-local');
-    assert.equal(row.file_path, '.claude/agents/legal-reviewer.md');
-
-    const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
-    assert.ok(count !== undefined);
-    assert.equal(count.cnt, 7, 'Expected 7 agents after registering one project-local');
+    assert.ok(result.isError);
+    const error = parseResult(result).error as string;
+    assert.match(error, /^invalid_file_path:/);
+    assert.match(error, /'plugin:<path under the plugin root>'/);
+    assert.match(error, /'project:<path under the workspace root>'/);
     db.close();
   });
 
-  it('agent_register promotes template-seeded row to project-local and updates scope+file_path', async () => {
+  it('agent_register promotes a plugin: consultant row to its project: file_path', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
@@ -87,55 +145,37 @@ describe('agentTools', () => {
       agent: 'bro',
       name: 'cto',
       kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/cto.md',
+      file_path: 'project:.claude/agents/cto.md',
     });
     const row = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-    assert.equal(row.scope, 'project-local', 'Promoted row must have scope=project-local');
-    assert.equal(row.file_path, '.claude/agents/cto.md', 'Promoted row must have updated file_path');
+    assert.equal(row.file_path, 'project:.claude/agents/cto.md', 'Promoted row must carry the project: file_path');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
-    assert.ok(count !== undefined);
-    assert.equal(count.cnt, 6, 'Row count must not grow on promotion');
+    assert.equal(count!.cnt, 6, 'Row count must not grow on promotion');
     db.close();
   });
 
   it('agent_register promotion emits exactly one tmb_agent_created audit; repeat call emits none', async () => {
     const db = tempDB();
     const tools = agentTools(db);
+    const args = { agent: 'bro', name: 'cto', kind: 'consultant', file_path: 'project:.claude/agents/cto.md' };
 
-    await call(tools.handlers, 'agent_register', {
-      agent: 'bro',
-      name: 'cto',
-      kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/cto.md',
-    });
-
+    await call(tools.handlers, 'agent_register', args);
     const afterFirst = db.get<{ cnt: number }>(
       "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
     );
-    assert.ok(afterFirst !== undefined);
-    assert.equal(afterFirst.cnt, 1, 'Promotion must emit exactly one tmb_agent_created audit');
+    assert.equal(afterFirst!.cnt, 1, 'Promotion must emit exactly one tmb_agent_created audit');
 
-    await call(tools.handlers, 'agent_register', {
-      agent: 'bro',
-      name: 'cto',
-      kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/cto.md',
-    });
-
+    await call(tools.handlers, 'agent_register', args);
     const afterSecond = db.get<{ cnt: number }>(
       "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
     );
-    assert.ok(afterSecond !== undefined);
-    assert.equal(afterSecond.cnt, 1, 'Repeat call on already-project-local must not emit duplicate audit');
+    assert.equal(afterSecond!.cnt, 1, 'Repeat call on an already-project: row must not emit a duplicate audit');
     db.close();
   });
 
-  it('agent_register emits tmb_agent_created audit row for new project-local consultant', async () => {
+  it('agent_register emits tmb_agent_created audit row for a new project: consultant', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
@@ -143,8 +183,7 @@ describe('agentTools', () => {
       agent: 'bro',
       name: 'legal-reviewer',
       kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/legal-reviewer.md',
+      file_path: 'project:.claude/agents/legal-reviewer.md',
     });
 
     const auditRow = db.get<{ event_type: string; summary: string }>(
@@ -158,27 +197,15 @@ describe('agentTools', () => {
   it('agent_register does NOT emit audit row for idempotent re-registration', async () => {
     const db = tempDB();
     const tools = agentTools(db);
+    const args = { agent: 'bro', name: 'legal-reviewer', kind: 'consultant', file_path: 'project:.claude/agents/legal-reviewer.md' };
 
-    await call(tools.handlers, 'agent_register', {
-      agent: 'bro',
-      name: 'legal-reviewer',
-      kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/legal-reviewer.md',
-    });
-    await call(tools.handlers, 'agent_register', {
-      agent: 'bro',
-      name: 'legal-reviewer',
-      kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/legal-reviewer.md',
-    });
+    await call(tools.handlers, 'agent_register', args);
+    await call(tools.handlers, 'agent_register', args);
 
     const auditCount = db.get<{ cnt: number }>(
       "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
     );
-    assert.ok(auditCount !== undefined);
-    assert.equal(auditCount.cnt, 1, 'Only one tmb_agent_created row on idempotent re-register');
+    assert.equal(auditCount!.cnt, 1, 'Only one tmb_agent_created row on idempotent re-register');
     db.close();
   });
 });
@@ -192,15 +219,38 @@ describe('agent_register reserved name gate', () => {
       agent: 'bro',
       name: 'bro',
       kind: 'consultant',
-      scope: 'project-local',
-      file_path: '.claude/agents/bro.md',
+      file_path: 'project:.claude/agents/bro.md',
     });
     assert.ok(result.isError, 'Expected an error when registering bro');
     assert.match(parseResult(result).error, /reserved orchestrator name/);
     db.close();
   });
 
-  it("rejects 'swe' at project-local scope — backbone scope mismatch", async () => {
+  for (const name of ['swe', 'pr-reviewer']) {
+    it(`rejects a project: '${name}' — backbone agents must be plugin:`, async () => {
+      const db = tempDB();
+      const tools = agentTools(db);
+
+      const result = await call(tools.handlers, 'agent_register', {
+        agent: 'bro',
+        name,
+        kind: 'backbone',
+        file_path: `project:.claude/agents/${name}.md`,
+      });
+      assert.ok(result.isError, `Expected an error for a project: ${name}`);
+      const error = parseResult(result).error as string;
+      assert.match(error, /backbone agent whose file_path must be plugin:/);
+      assert.match(error, /would shadow the backbone and disable it/);
+      assert.equal(
+        db.get<{ file_path: string }>('SELECT file_path FROM agents WHERE name = ?', [name])!.file_path,
+        `plugin:agents/${name}.md`,
+        'the backbone row is untouched',
+      );
+      db.close();
+    });
+  }
+
+  it("allows a plugin: 'swe' — backbone registration at its own root", async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
@@ -208,42 +258,10 @@ describe('agent_register reserved name gate', () => {
       agent: 'bro',
       name: 'swe',
       kind: 'backbone',
-      scope: 'project-local',
-      file_path: '.claude/agents/swe.md',
+      file_path: 'plugin:agents/swe.md',
     });
-    assert.ok(result.isError, "Expected an error for swe at project-local scope");
-    assert.match(parseResult(result).error, /backbone agent whose scope must be 'global'/);
-    db.close();
-  });
-
-  it("rejects 'pr-reviewer' at template scope — backbone scope mismatch", async () => {
-    const db = tempDB();
-    const tools = agentTools(db);
-
-    const result = await call(tools.handlers, 'agent_register', {
-      agent: 'bro',
-      name: 'pr-reviewer',
-      kind: 'backbone',
-      scope: 'template',
-      file_path: '.claude/agents/pr-reviewer.md',
-    });
-    assert.ok(result.isError, "Expected an error for pr-reviewer at template scope");
-    assert.match(parseResult(result).error, /backbone agent whose scope must be 'global'/);
-    db.close();
-  });
-
-  it("allows 'swe' at global scope — backbone registration at correct scope", async () => {
-    const db = tempDB();
-    const tools = agentTools(db);
-
-    const result = await call(tools.handlers, 'agent_register', {
-      agent: 'bro',
-      name: 'swe',
-      kind: 'backbone',
-      scope: 'global',
-      file_path: '.claude/agents/swe.md',
-    });
-    assert.ok(!result.isError, `Expected no error for swe at global scope: ${JSON.stringify(parseResult(result))}`);
+    assert.ok(!result.isError, `Expected no error for a plugin: swe: ${JSON.stringify(parseResult(result))}`);
+    assert.equal(parseResult(result).resolved_path, join(PLUGIN_ROOT, 'agents', 'swe.md'));
     db.close();
   });
 });
@@ -263,40 +281,27 @@ describe('audit_append requireRoles guard', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      event_type: 'test_event',
+      event_type: 'planning_complete',
       summary: 'test summary',
     });
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
     db.close();
   });
 
-  it('audit_append accepts swe', async () => {
+  it('audit_append refuses swe and a consultant on a bro-only event', async () => {
     const db = tempDB();
     const issueId = await createIssueId(db);
     const tools = auditTools(db);
-    const result = await call(tools.handlers, 'audit_append', {
-      agent: 'swe',
-      issue_id: String(issueId),
-      from_node: 'swe',
-      event_type: 'test_event',
-      summary: 'test summary',
-    });
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-    db.close();
-  });
-
-  it('audit_append accepts consultant', async () => {
-    const db = tempDB();
-    const issueId = await createIssueId(db);
-    const tools = auditTools(db);
-    const result = await call(tools.handlers, 'audit_append', {
-      agent: 'architect',
-      issue_id: String(issueId),
-      from_node: 'architect',
-      event_type: 'test_event',
-      summary: 'test summary',
-    });
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    for (const agent of ['swe', 'architect']) {
+      const result = await call(tools.handlers, 'audit_append', {
+        agent,
+        issue_id: String(issueId),
+        event_type: 'planning_complete',
+        summary: 'test summary',
+      });
+      assert.ok(result.isError, `Expected ${agent} to be refused`);
+      assert.equal(parseResult(result).error, 'audit_event_not_writable_by_role');
+    }
     db.close();
   });
 
@@ -308,7 +313,7 @@ describe('audit_append requireRoles guard', () => {
       agent: '!!!invalid!!!',
       issue_id: String(issueId),
       from_node: '!!!invalid!!!',
-      event_type: 'test_event',
+      event_type: 'planning_complete',
       summary: 'test summary',
     });
     assert.ok(result.isError, 'Expected isError=true for unknown agent');
@@ -319,7 +324,7 @@ describe('audit_append requireRoles guard', () => {
 });
 
 describe('agent_resolve', () => {
-  it('Branch A — collision: returns mode=collision when workspace file already exists', async () => {
+  it('Branch A — collision: returns mode=collision when the project: file already exists', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'tmb-resolve-a-'));
     try {
       const agentsDir = join(tmp, '.claude', 'agents');
@@ -332,8 +337,8 @@ describe('agent_resolve', () => {
       const data = parseResult(result);
       assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
       assert.equal(data.mode, 'collision');
-      assert.ok(typeof data.existing_path === 'string' && data.existing_path.startsWith('/'), 'existing_path must be absolute');
-      assert.ok(data.existing_path.endsWith('legal-reviewer.md'), 'existing_path must end with the agent filename');
+      assert.equal(data.file_path, 'project:.claude/agents/legal-reviewer.md');
+      assert.equal(data.resolved_path, join(agentsDir, 'legal-reviewer.md'));
       db.close();
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -347,10 +352,9 @@ describe('agent_resolve', () => {
     const data = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     assert.equal(data.mode, 'template-copy');
-    assert.ok(typeof data.source_path === 'string' && data.source_path.startsWith('/'), 'source_path must be absolute');
-    assert.ok(typeof data.target_path === 'string' && data.target_path.startsWith('/'), 'target_path must be absolute');
-    assert.ok(data.source_path.endsWith('templates/agents/architect.md'), 'source_path must point to plugin template');
-    assert.ok(data.target_path.endsWith('.claude/agents/architect.md'), 'target_path must point into workspace');
+    assert.equal(data.source_path, join(PLUGIN_ROOT, 'templates', 'agents', 'architect.md'));
+    assert.equal(data.file_path, 'project:.claude/agents/architect.md');
+    assert.equal(data.resolved_path, '/tmp/workspace/.claude/agents/architect.md');
     db.close();
   });
 
@@ -361,10 +365,34 @@ describe('agent_resolve', () => {
     const data = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     assert.equal(data.mode, 'from-scratch');
-    assert.ok(typeof data.scaffold_path === 'string' && data.scaffold_path.startsWith('/'), 'scaffold_path must be absolute');
-    assert.ok(typeof data.target_path === 'string' && data.target_path.startsWith('/'), 'target_path must be absolute');
-    assert.ok(data.scaffold_path.endsWith('templates/agents/template.md'), 'scaffold_path must point to base template');
-    assert.ok(data.target_path.endsWith('.claude/agents/novel-consultant.md'), 'target_path must point into workspace');
+    assert.equal(data.scaffold_path, join(PLUGIN_ROOT, 'templates', 'agents', 'template.md'));
+    assert.equal(data.file_path, 'project:.claude/agents/novel-consultant.md');
+    assert.equal(data.resolved_path, '/tmp/workspace/.claude/agents/novel-consultant.md');
+    db.close();
+  });
+
+  it('resolves a plugin: file_path against the plugin root', async () => {
+    const db = tempDB();
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+    const result = await call(tools.handlers, 'agent_resolve', {
+      agent: 'bro', name: 'architect', file_path: 'plugin:templates/agents/architect.md',
+    });
+    const data = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+    assert.equal(data.mode, 'collision', 'the plugin template already exists at that path');
+    assert.equal(data.file_path, 'plugin:templates/agents/architect.md');
+    assert.equal(data.resolved_path, join(PLUGIN_ROOT, 'templates', 'agents', 'architect.md'));
+    db.close();
+  });
+
+  it('rejects an unmarked file_path', async () => {
+    const db = tempDB();
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+    const result = await call(tools.handlers, 'agent_resolve', {
+      agent: 'bro', name: 'legal-reviewer', file_path: '.claude/agents/legal-reviewer.md',
+    });
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^invalid_file_path:/);
     db.close();
   });
 
@@ -382,7 +410,7 @@ describe('agent_resolve', () => {
     const tools = agentTools(db);
     const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'swe' });
     assert.ok(result.isError, 'Expected isError=true for backbone name');
-    assert.match(parseResult(result).error, /backbone agent/);
+    assert.match(parseResult(result).error, /backbone agent whose file_path must be plugin:/);
     db.close();
   });
 

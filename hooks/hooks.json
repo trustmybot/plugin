@@ -6,48 +6,48 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/ensure-gitignore.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/mcp-health-check.sh",
-            "timeout": 2
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/deferred-tools-drift-warn.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/write-active-workspace-sentinel.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-prescan.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/ensure-kuzu-installed.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/substrate-preflight.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cheatcode-healthcheck.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/orphan-scan.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" ensure-gitignore",
             "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" mcp-health-check",
+            "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" deferred-tools-drift-warn",
+            "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" plugin-hooks-marker",
+            "timeout": 4
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" session-start-persona",
+            "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" session-start-prescan",
+            "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" ensure-kuzu-installed",
+            "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" substrate-preflight",
+            "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" orphan-scan",
+            "timeout": 7
           }
         ]
       }
@@ -58,80 +58,99 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/activation-routine.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" user-prompt-persona",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/mcp-health-check.sh",
-            "timeout": 2
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" activation-routine",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-log-capture.sh",
-            "timeout": 3
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" session-log-capture",
+            "timeout": 4
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/prompt-intent-hints.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" prompt-intent-hints",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-slash-detect.sh",
-            "timeout": 20
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-slash-detect",
+            "timeout": 21
           }
         ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" containment-guard",
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-guards.sh",
-            "timeout": 10
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" git-guards",
+            "timeout": 11,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-push-guard.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" git-push-guard",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-boundary",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-worktree-branch-create.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-worktree-branch-create",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/stay-on-base-guard.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" stay-on-base-guard",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/branch-up-to-date-with-remote.sh",
-            "timeout": 15
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" branch-up-to-date-with-remote",
+            "timeout": 16,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-msg-lint.sh",
-            "timeout": 3
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" commit-msg-lint",
+            "timeout": 4
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-remote-auth-guard.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-remote-auth-guard",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/remote-id-guard.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" remote-id-guard",
+            "timeout": 6,
+            "onFailure": "block"
           }
         ]
       },
@@ -140,8 +159,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/agent-spawn-dispatch.sh",
-            "timeout": 15
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" agent-spawn-dispatch",
+            "timeout": 16,
+            "onFailure": "block"
           }
         ]
       },
@@ -150,28 +170,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__task_update_status",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-verification-gate.sh",
-            "timeout": 960
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__cheatcode_install",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cheatcode-install-approval.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" trajectory-gates",
+            "timeout": 1842,
+            "onFailure": "block"
           }
         ]
       },
@@ -180,13 +181,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/askuserquestion-length-lint.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" askuserquestion-length-lint",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-auq-shape.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-auq-shape",
+            "timeout": 6
           }
         ]
       },
@@ -195,33 +196,36 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-brief-gate",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-source-edit-from-main",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-boundary",
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-scope-fence.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-scope-fence",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/naming-lint.sh",
-            "timeout": 3
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" naming-lint",
+            "timeout": 4
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/code-quality-lint.sh",
-            "timeout": 3
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" code-quality-lint",
+            "timeout": 4
           }
         ]
       },
@@ -230,8 +234,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/debug-trajectory.sh",
-            "timeout": 3
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" debug-trajectory",
+            "timeout": 4
           }
         ]
       }
@@ -242,18 +246,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
-            "timeout": 10
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" cleanup-worktree-on-task-close",
+            "timeout": 11
           }
         ]
       },
       {
-        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
+        "matcher": "mcp__.*trajectory-server__validation_record",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
-            "timeout": 10
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" cleanup-worktree-on-task-close",
+            "timeout": 11
           }
         ]
       },
@@ -262,8 +266,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-cleanup-postcheck.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-cleanup-postcheck",
+            "timeout": 6
           }
         ]
       },
@@ -272,13 +276,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-close-rescan.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-task-close-rescan",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-atomic-close-readme.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-atomic-close-readme",
+            "timeout": 6
           }
         ]
       },
@@ -287,18 +291,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-create-spawn-hint.sh",
-            "timeout": 3
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__pr_monitor_comments_get",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-pr-comments-persist.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-task-create-spawn-hint",
+            "timeout": 4
           }
         ]
       },
@@ -307,18 +301,40 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/attribution-footer.sh",
-            "timeout": 15
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" attribution-footer",
+            "timeout": 16
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/clean-merged-branch.sh",
-            "timeout": 10
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" clean-merged-branch",
+            "timeout": 11
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/close-issue-on-merge.sh",
-            "timeout": 15
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" close-issue-on-merge",
+            "timeout": 16
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-spawn-bind",
+            "timeout": 6
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-spawn-rollback",
+            "timeout": 6
           }
         ]
       }
@@ -329,8 +345,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/bro-turn-usage.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" bro-turn-usage",
+            "timeout": 6
           }
         ]
       }
@@ -341,13 +357,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-atomic-close.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-atomic-close",
+            "timeout": 6
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/consultant-persistence-gate.sh",
-            "timeout": 5
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" consultant-persistence-gate",
+            "timeout": 6,
+            "onFailure": "block"
           }
         ]
       }
@@ -358,8 +375,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh",
-            "timeout": 15
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" worktree-create",
+            "timeout": 16
           }
         ]
       }

@@ -29,46 +29,48 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
-[ -n "$CMD" ] || exit 0
-
 case "$CMD" in
-  *"git worktree add"*) ;;
+  *worktree*) ;;
   *) exit 0 ;;
 esac
 
-VIOLATION=""
-case "$CMD" in
-  *"git worktree add -b "*|*"git worktree add -B "*|*"git worktree add --create-branch "*)
-    [ "${TMB_ALLOW_WORKTREE_BRANCH_CREATE:-0}" = "1" ] || VIOLATION="branch-create"
-    ;;
-esac
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
-if [ -z "$VIOLATION" ]; then
-  case "$CMD" in
-    *"git worktree add"*"--detach"*)
-      [ "${TMB_ALLOW_WORKTREE_DETACH:-0}" = "1" ] || VIOLATION="detach"
+# Judge every `git [-C <p>] worktree add` statement of the command's executable
+# skeleton; one named in quoted text or a heredoc is data.
+VIOLATION=""
+while IFS="$(printf '\t')" read -r _dir stmt; do
+  sub=$(tmb_git_subcommand "$stmt")
+  case "$sub" in "worktree add "*) ;; *) continue ;; esac
+  case " $sub " in
+    *" -b "*|*" -B "*|*" --create-branch "*)
+      if [ "${TMB_ALLOW_WORKTREE_BRANCH_CREATE:-0}" != "1" ]; then VIOLATION="branch-create"; break; fi
       ;;
   esac
-fi
+  case " $sub " in
+    *" --detach "*)
+      if [ "${TMB_ALLOW_WORKTREE_DETACH:-0}" != "1" ]; then VIOLATION="detach"; break; fi
+      ;;
+  esac
+done < <(tmb_cmd_statements "$CMD" /)
 
 [ -n "$VIOLATION" ] || exit 0
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="$PWD"
-  DB_PATH="$REPO_ROOT/.claude/$PLUGIN_NAME/trajectory.db"
-fi
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 
-[ -f "$DB_PATH" ] || exit 0
+case "$(tmb_db_state)" in
+  unresolved) exit 0 ;;
+  error) tmb_deny_db_unavailable no-worktree-branch-create; exit 0 ;;
+esac
 
 if [ "$VIOLATION" = "branch-create" ]; then
   REASON="BLOCKED: \`git worktree add\` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via \`git branch <task.branch_id> HEAD\`, then SWE attaches the worktree with \`git worktree add <path> <branch>\` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (\`tasks.branch_id\`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1."

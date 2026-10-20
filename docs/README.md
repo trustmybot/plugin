@@ -9,8 +9,11 @@ If something in `docs/` turns out to be load-bearing for bro's behavior, inline 
 | File / folder | Purpose |
 |---|---|
 | `reference/REFERENCE.md` | Where workflow state lives (trajectory DB, kuzu world model, CC config) |
+| `reference/CONFIG_KEYS.md` | `plugin_config` key registry (generated) |
 | `reference/MULTI_PLATFORM.md` | OS compatibility notes |
+| `reference/INSTALL.md` | Recommended install scope and what `/onboard` writes where |
 | `reference/UPGRADE.md` | Plugin version migration notes |
 | `architecture/` | Design rationale (CHEATCODES, ERD, FLOWS, GIT, REPO_RESOLUTION, RESPONSIBILITIES, TYPED_RAILS, UI, WORLD_MODEL) |
 | `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
 | `contributing/` | Enum/label/naming registries (ENUMS, LABELS, NAMING) |
+| `adapters/` | Platform-adapter development standard (ADAPTER_CONTRACT) |

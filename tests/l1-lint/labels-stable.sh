@@ -5,12 +5,18 @@
 # the doctrine, OR removes a canonical label without updating LABELS.md.
 #
 # Skipped automatically if `gh` is unavailable or unauthenticated (lets
-# the lint pass on dev machines without GH access; CI always has gh).
+# the lint pass on dev machines without GH access; CI always has gh), and
+# when TMB_L1_OFFLINE=1 (run-all.sh's L1 step: no forge calls).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DOC="$ROOT/docs/contributing/LABELS.md"
+
+if [ "${TMB_L1_OFFLINE:-0}" = "1" ]; then
+  echo "  ⊘ skip: TMB_L1_OFFLINE=1"
+  exit 0
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "  ⊘ skip: gh CLI not installed"
@@ -25,8 +31,8 @@ if ! gh api user --jq '.login' >/dev/null 2>&1; then
 fi
 
 # Pull canonical names from the doc.
-CANONICAL_FILE=$(mktemp)
-LIVE_FILE=$(mktemp)
+CANONICAL_FILE=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-labels-stable.XXXXXX")
+LIVE_FILE=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-labels-stable.XXXXXX")
 trap 'rm -f "$CANONICAL_FILE" "$LIVE_FILE"' EXIT
 # Match label rows from any canonical-list table — heading-agnostic so the
 # parser keeps working as the doc evolves. A label row is `| **Name** | ...`

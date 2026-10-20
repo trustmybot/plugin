@@ -96,7 +96,7 @@ if [ "$STABLE_REPIN" -eq 1 ]; then
   # --stable-repin: the version must be a STABLE tag (X.Y.Z). This is the
   # deliberate inverse of the default rc-only refusal — an rc version here is a
   # mode mismatch and is refused fail-closed.
-  if ! printf '%s' "$VERSION" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+  if ! printf '%s' "$VERSION" | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
     printf "❌ Refusing to re-pin. Version '%s' is not a stable version.\n" "$VERSION" >&2
     printf "   --stable-repin re-pins the rc channel to a stable tag (e.g. 1.0.0).\n" >&2
     printf "   For an rc tag, drop --stable-repin and pass the rc version.\n" >&2
@@ -105,7 +105,7 @@ if [ "$STABLE_REPIN" -eq 1 ]; then
   # Accept an optional leading v so TAG construction stays uniform.
   VERSION="${VERSION#v}"
 else
-  if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$'; then
+  if ! printf '%s' "$VERSION" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' >/dev/null; then
     printf "❌ Refusing to publish. Version '%s' is not an rc version.\n" "$VERSION" >&2
     printf "   The rc channel only serves rc tags (e.g. 0.10.0-rc.2).\n" >&2
     printf "   For a stable tag, re-pin the rc channel with --stable-repin.\n" >&2
@@ -138,12 +138,12 @@ if [ "$STABLE_REPIN" -eq 1 ]; then
   printf "Re-pinning the rc channel to the stable tag %s (no gate — gated at its rc) ...\n" "$TAG"
 else
   printf "Checking the release-gate run for %s ...\n" "$TAG"
-  await_release_gate "$TAG" || exit $?
+  await_release_gate "$TAG" "$PLUGIN_ROOT" || exit $?
 fi
 
 # ---------- clone the catalog into a temp dir ----------
 
-WORK_DIR="$(mktemp -d -t tmb-rc-catalog-XXXXXX)"
+WORK_DIR="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-rc-catalog-XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 printf "Cloning %s ...\n" "$CATALOG_REPO"

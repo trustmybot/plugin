@@ -38,7 +38,7 @@ done
 # tools must not reappear in its tools: line.
 swe_tools=$(grep -m1 '^tools:' agents/swe.md || true)
 for retired in task_get world_model_get discussion_search; do
-  if printf '%s' "$swe_tools" | grep -q "$retired"; then
+  if printf '%s' "$swe_tools" | grep "$retired" >/dev/null; then
     printf 'agent-task-brief-contract: swe tools: line lists retired read tool "%s" — context goes through task_brief only (#300)\n' "$retired" >&2
     FAIL=1
   fi

@@ -20,21 +20,21 @@ run_hook() {
 
 test_case "no config (fresh install) is non-blocking for commits"
 # Isolate like the #549 case: a fresh temp git repo with NO ancestor
-# .claude/tmb DB, and a clean temp HOME so no tmb-active-workspace sentinel
-# resolves. Otherwise tmb_db_path walks up and finds the real workspace DB
+# .claude/tmb DB, and a clean temp HOME. Otherwise tmb_db_path walks up and finds the real workspace DB
 # (gitflow/dev policy) when the suite runs nested inside a live TMB checkout,
 # which would block the commit and fail the assertion. The repo is on a
 # feature branch so the fresh-install safe-default ([main,dev] protected) does
 # not fire Rule 2 — the assertion is purely "no config → no policy block".
-_fresh_dir=$(mktemp -d -t tmb-guards-fresh-XXXX)
-_fresh_home=$(mktemp -d -t tmb-guards-freshhome-XXXX)
+_fresh_dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-fresh-XXXXXX")
+_fresh_home=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-freshhome-XXXXXX")
 (
   cd "$_fresh_dir" || exit 1
-  git init -q -b feat/fresh
+  git init -q -b main
   git config user.email t@t.t
   git config user.name T
   echo init > README.md
   git add . && git commit -qm init
+  git switch -q -c feat/fresh
   # No .claude/tmb DB and no INSERT INTO repos — genuine fresh install.
 )
 out=$(cd "$_fresh_dir" && echo '{"tool_input":{"command":"git commit -m test"}}' \
@@ -55,7 +55,7 @@ out=$(run_hook '{"tool_input":{"command":"git log --oneline -5"}}')
 assert_not_contains "$out" '"permissionDecision":"deny"' "git log should pass"
 
 test_case "#549: unregistered repo → guard no-ops (commit on protected branch not blocked)"
-_unreg_dir=$(mktemp -d -t tmb-guards-unreg-XXXX)
+_unreg_dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-unreg-XXXXXX")
 (
   cd "$_unreg_dir" || exit 1
   git init -q -b main
@@ -81,7 +81,7 @@ rm -rf "$_unreg_dir"
 
 setup_worktree_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-wt-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-wt-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -119,7 +119,15 @@ cleanup_repo() {
 test_case "v0.3.2: bare 'git commit' from project root on main IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git commit -m 'broken'")
-assert_contains "$out" '"permissionDecision":"deny"' "commit on protected main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "commit with no dir while worktrees exist must block"
+assert_contains "$out" "ambiguous_git_target" "the deny names the real reason, not a protected-branch rule"
+cleanup_repo
+
+test_case "v0.3.2: bare 'git commit' in a repo without worktrees on main IS blocked"
+setup_worktree_repo
+git -C "$REPO_PATH" worktree remove --force .claude/worktrees/task-1
+out=$(run_hook_in_repo "git commit -m 'broken'")
+assert_contains "$out" "main is a shared workflow base" "with one checkout the cwd names the branch"
 cleanup_repo
 
 test_case "v0.3.2: 'cd .claude/worktrees/task-1 && git commit' is ALLOWED (worktree on feature branch)"
@@ -176,7 +184,7 @@ cleanup_repo
 
 setup_detached_worktree_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-detached-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-detached-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -230,7 +238,7 @@ test_case "injection: quote-bearing slug resolves a PROTECTED branch and BLOCKS 
 # correct tmb_sql_quote escaping makes the lookup succeed and Rule 2 block.
 # Broken escaping breaks the SQL instead (error → empty branch → fail-open,
 # NO block), so the block assertion below fails the moment escaping regresses.
-dir=$(mktemp -d -t tmb-guards-quote-XXXX)
+dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-quote-XXXXXX")
 (
   cd "$dir" || exit 1
   git init -q -b main
@@ -251,7 +259,7 @@ dir=$(mktemp -d -t tmb-guards-quote-XXXX)
   " >/dev/null
 )
 REPO_PATH="$dir"
-out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/o'brien-cli && git commit -m 'feat: add x'")
+out=$(run_hook_in_repo "cd \"$REPO_PATH/.claude/worktrees/o'brien-cli\" && git commit -m 'feat: add x'")
 assert_contains "$out" '"permissionDecision":"deny"' "quote-bearing protected slug must BLOCK — empty means the lookup SQL errored out"
 assert_contains "$out" "feat/o'brien-cli" "block message must name the quoted branch resolved via DB lookup"
 cleanup_repo
@@ -440,7 +448,7 @@ cleanup_repo
 
 setup_glab_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-glab-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-glab-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
@@ -525,7 +533,7 @@ setup_multirepo_workspace() {
   # $1 = "single" registers only `managed`; "both" registers managed + sibling.
   local mode="$1"
   local ws
-  ws=$(mktemp -d -t tmb-guards-ws-XXXX)
+  ws=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-ws-XXXXXX")
   mkdir -p "$ws/.claude/tmb"
   sqlite3 "$ws/.claude/tmb/trajectory.db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
   # Managed repo on protected main.
@@ -609,14 +617,15 @@ setup_perrepo_protected() {
   # $1 = repos.protected_branches JSON (may be empty to test the safe-default path).
   local repo_protected="$1"
   local dir
-  dir=$(mktemp -d -t tmb-guards-perrepo-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-perrepo-XXXXXX")
   (
     cd "$dir" || exit 1
-    git init -q -b release
+    git init -q -b main
     git config user.email t@t.t
     git config user.name T
     echo init > README.md
     git add . && git commit -qm init
+    git switch -q -c release
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
     # Safe-default protected_branches is [main, dev] — does NOT cover the
@@ -655,7 +664,7 @@ setup_unconfigured_registered_repo() {
   # $1 = branch to init on (default main).
   local branch="${1:-main}"
   local dir
-  dir=$(mktemp -d -t tmb-guards-unconf-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-unconf-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b "$branch"
@@ -690,6 +699,16 @@ out=$(run_hook_in_repo "git push -f origin main")
 assert_contains "$out" '"permissionDecision":"deny"' "unconfigured repo must deny force-push to default-protected main"
 cleanup_repo
 
+test_case "repos row without target: PR target resolves from origin/HEAD"
+setup_unconfigured_registered_repo main
+git -C "$REPO_PATH" branch trunk
+git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+out=$(run_hook_in_repo "gh pr create --base trunk --head feat/x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "base equal to the origin/HEAD branch is the PR target"
+out=$(run_hook_in_repo "gh pr create --base main --head feat/x")
+assert_contains "$out" 'PRs must target trunk' "other base denied, naming the resolved target"
+cleanup_repo
+
 # ---- #15/H8: unresolved repo → NO-OP (don't enforce a guessed default policy) --
 # When a command runs in the non-repo workspace root with no `cd`/`-C` target,
 # the repo can't be resolved. The guard must no-op rather than apply a guessed
@@ -709,7 +728,7 @@ cleanup_ws
 
 setup_h3_missing_target_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-h3-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-h3-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -748,17 +767,21 @@ cleanup_repo
 
 test_case "#15/H2: dev→main gh pr create (no --head) reads head=dev from the cd target → ALLOWED"
 setup_glab_repo   # repo initialized on dev, target_branch=dev
-out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title release" '{tool_input:{command:$c}}')" \
+ELSEWHERE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-elsewhere.XXXXXX")
+out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title release" '{tool_input:{command:$c}}')" \
   | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "current branch (dev), read from the cd target, must allow the release PR"
+rm -rf "$ELSEWHERE"
 cleanup_repo
 
 test_case "#15/H2: dev→main gh pr create (no --head) from a FEATURE branch (read via cd target) → BLOCKS"
 setup_glab_repo
 git -C "$REPO_PATH" checkout -q -b feat/x
-out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title oops" '{tool_input:{command:$c}}')" \
+ELSEWHERE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-elsewhere.XXXXXX")
+out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title oops" '{tool_input:{command:$c}}')" \
   | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
 assert_contains "$out" '"permissionDecision":"deny"' "head=feat/x (read from cd target) must block the dev→main exception"
+rm -rf "$ELSEWHERE"
 cleanup_repo
 
 # ---- #1032: Rule 1 --base compared at a token boundary ----------------------
@@ -825,7 +848,7 @@ setup_taskparent_repo() {
   # $2 = target_branch (e.g. main)
   local protected="$1" target="$2"
   local dir
-  dir=$(mktemp -d -t tmb-guards-taskparent-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-taskparent-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -910,6 +933,7 @@ cleanup_repo
 
 test_case "#54: in-command checkout -b dev (protected name) is DENIED"
 setup_worktree_repo
+sqlite3 "$REPO_PATH/.claude/tmb/trajectory.db" "UPDATE repos SET protected_branches='[\"main\",\"dev\"]';"
 out=$(run_hook_in_repo "git clone https://example.com/x.git repo && cd repo && git checkout -b dev && git commit -m 'bump'")
 assert_contains "$out" '"permissionDecision":"deny"' "creating a protected branch name must still block the commit"
 cleanup_repo
@@ -946,14 +970,153 @@ cleanup_repo
 
 test_case "#58: laundering (checkout -b feat/x && commit && checkout dev && commit) is DENIED"
 setup_worktree_repo
-out=$(run_hook_in_repo "git checkout -b feat/x && git commit -m a && git checkout dev && git commit -m b")
+sqlite3 "$REPO_PATH/.claude/tmb/trajectory.db" "UPDATE repos SET protected_branches='[\"main\",\"dev\"]';"
+out=$(run_hook_in_repo "cd $REPO_PATH && git checkout -b feat/x && git commit -m a && git checkout dev && git commit -m b")
 assert_contains "$out" '"permissionDecision":"deny"' "a trailing commit landing on protected dev must be blocked even after a clean feature-branch commit"
+assert_contains "$out" "dev is a shared workflow base" "the deny names the protected landing branch"
 cleanup_repo
 
 test_case "#58: two commits on the same feature branch (checkout -b feat/x && commit && commit) is ALLOWED"
 setup_worktree_repo
-out=$(run_hook_in_repo "git checkout -b feat/x && git commit -m a && git commit -m b")
+out=$(run_hook_in_repo "cd $REPO_PATH && git checkout -b feat/x && git commit -m a && git commit -m b")
 assert_not_contains "$out" '"permissionDecision":"deny"' "every commit lands on the non-protected feat/x → allowed"
+cleanup_repo
+
+# ---- GH 1196: target dir from the command, never a guess; heredocs are data ----
+# Main checkout on dev (protected), one task worktree on a feature branch, a
+# real origin remote. Payloads carry the agent identity and the payload cwd the
+# harness reported, which may be a different checkout than the command targets.
+
+setup_dev_main_repo() {
+  local dir
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-1196-XXXXXX")
+  (
+    cd "$dir" || exit 1
+    git init -q -b dev
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md && git add . && git commit -qm init
+    git remote add origin "$dir/.origin.git"
+    git branch fix/thing
+    git worktree add -q .claude/worktrees/thing fix/thing
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES ('fixture', '$(git rev-parse --show-toplevel)', 'dev', 'gitflow', '[\"main\",\"dev\"]');" >/dev/null
+  )
+  REPO_PATH="$(cd -P "$dir" && pwd)"
+  WT_PATH="$REPO_PATH/.claude/worktrees/thing"
+}
+
+run_hook_payload() {
+  local agent="$1" cwd="$2" cmd="$3" payload
+  if [ -n "$agent" ]; then
+    payload=$(jq -cn --arg a "$agent" --arg d "$cwd" --arg c "$cmd" '{tool_name:"Bash",agent_type:$a,cwd:$d,tool_input:{command:$c}}')
+  else
+    payload=$(jq -cn --arg d "$cwd" --arg c "$cmd" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}')
+  fi
+  (cd "$REPO_PATH" && printf '%s' "$payload" \
+    | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1 || true)
+}
+
+test_case "GH 1196: bro 'git -C <main> push' with payload cwd inside a worktree → allowed"
+setup_dev_main_repo
+out=$(run_hook_payload "" "$WT_PATH" "git -C $REPO_PATH push origin fix/thing")
+assert_not_contains "$out" '"permissionDecision":"deny"' "an explicit -C target decides, not the payload cwd"
+cleanup_repo
+
+test_case "GH 1196: bro 'cd <main> && gh issue create' with payload cwd inside a worktree → allowed"
+setup_dev_main_repo
+out=$(run_hook_payload "" "$WT_PATH" "cd $REPO_PATH && gh issue create --title x --body y")
+assert_not_contains "$out" '"permissionDecision":"deny"' "an issue create is not a git-workflow op"
+cleanup_repo
+
+test_case "GH 1196: SWE 'cd <wt> && git commit' with the main checkout on dev → allowed"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" "cd $WT_PATH && git commit -m 'fix: thing'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the cd target's branch (fix/thing) decides, not main's dev"
+cleanup_repo
+
+test_case "GH 1196: SWE bare 'git commit' with worktrees present → ambiguous_git_target with the remedy"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" "git commit -m 'fix: thing'")
+assert_contains "$out" '"permissionDecision":"deny"' "no dir and several checkouts must deny"
+assert_contains "$out" "ambiguous_git_target" "the deny names the real reason"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+assert_not_contains "$out" "shared workflow base" "never the protected-branch rule the agent did not break"
+cleanup_repo
+
+test_case "GH 1196: markdown-only heredoc mentioning git commit / gh pr merge → allowed"
+setup_dev_main_repo
+HEREDOC_CMD=$(printf '%s\n' "cat > $WT_PATH/notes.md <<'EOF'" "Run git commit -m 'x' on dev, then gh pr merge 12 --merge." 'git merge feat/x' 'EOF')
+out=$(run_hook_payload "swe" "$REPO_PATH" "$HEREDOC_CMD")
+assert_not_contains "$out" '"permissionDecision":"deny"' "heredoc content is data"
+out=$(run_hook_payload "swe" "$REPO_PATH" "python3 -c \"open('t.txt','w').write('gh pr merge 3; git commit -m x')\"")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a python program's text is data"
+cleanup_repo
+
+test_case "GH 1196: protected-branch commit with an explicit dir → still denied, remote named correctly"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$WT_PATH" "git -C $REPO_PATH commit -m 'fix: thing'")
+assert_contains "$out" "dev is a shared workflow base" "an explicit dir on protected dev denies"
+assert_contains "$out" "open a PR into dev" "the repo has a remote — the recovery says so"
+assert_not_contains "$out" "no remote" "never the false no-remote claim"
+cleanup_repo
+
+
+PUSH_HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
+
+test_case "GH 1196: 'cd \$D && git commit' with worktrees present → ambiguous_git_target, as git-push-guard"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
+assert_contains "$out" "ambiguous_git_target" "a dir behind a variable in a repo with worktrees is ambiguous"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+out=$(run_hook_payload "" "$REPO_PATH" 'cd $D && git checkout -b feat/y')
+assert_contains "$out" "ambiguous_git_target" "a branch create behind a variable dir is ambiguous too"
+push_out=$(cd "$REPO_PATH" && jq -cn --arg d "$REPO_PATH" --arg c 'cd $D && git push origin fix/thing' '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}' \
+  | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$PUSH_HOOK" 2>&1 || true)
+assert_contains "$push_out" "ambiguous_git_target" "git-push-guard gives the same verdict for the same unknown dir"
+cleanup_repo
+
+# ---- GH 1281: text in a heredoc or a quoted $( ) body is never a statement ----
+
+test_case "GH 1281: bro gh issue comment whose \$( ) heredoc body names cd && git commit → allowed"
+setup_dev_main_repo
+COMMENT_CMD=$(printf '%s\n' "gh issue comment 1 --body \"\$(cat <<'EOF'" 'run: cd x && git commit --amend then rebase' 'and `cd x && git push origin dev` after' 'EOF' ')"')
+out=$(run_hook_payload "" "$REPO_PATH" "$COMMENT_CMD")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the comment body is data"
+cleanup_repo
+
+test_case "GH 1281: bro heredoc into a --body-file naming git push origin dev → allowed"
+setup_dev_main_repo
+NOTES_CMD=$(printf '%s\n' "cat > notes.md <<'EOF'" 'git push origin dev' 'git commit --amend' 'EOF' 'gh issue comment 1 --body-file notes.md')
+out=$(run_hook_payload "" "$REPO_PATH" "$NOTES_CMD")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the notes file body is data"
+cleanup_repo
+
+test_case "GH 1281: git commit on dev in the main checkout → still denied"
+setup_dev_main_repo
+git -C "$REPO_PATH" worktree remove --force "$WT_PATH"
+out=$(run_hook_payload "" "$REPO_PATH" "git commit -m x")
+assert_contains "$out" "dev is a shared workflow base" "a real commit on protected dev denies"
+cleanup_repo
+
+test_case "GH 1281: 'cd <wt> && git commit --amend' on a feature branch → allowed; same on the main checkout at dev → denied"
+setup_dev_main_repo
+out=$(run_hook_payload "" "$REPO_PATH" "cd $WT_PATH && git commit --amend")
+assert_not_contains "$out" '"permissionDecision":"deny"' "judged against the worktree's fix/thing"
+out=$(run_hook_payload "" "$WT_PATH" "cd $REPO_PATH && git commit --amend")
+assert_contains "$out" "dev is a shared workflow base" "judged against the main checkout's dev"
+cleanup_repo
+
+test_case "GH 1196: 'cd \$D && git commit' without worktrees → judged in the payload cwd"
+setup_dev_main_repo
+git -C "$REPO_PATH" worktree remove --force "$WT_PATH"
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
+assert_not_contains "$out" "ambiguous_git_target" "one checkout is never ambiguous"
+assert_contains "$out" "dev is a shared workflow base" "judged on the payload cwd's branch (dev)"
+git -C "$REPO_PATH" checkout -q fix/thing
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
+assert_not_contains "$out" '"permissionDecision":"deny"' "on a feature branch the commit is allowed"
 cleanup_repo
 
 summarize

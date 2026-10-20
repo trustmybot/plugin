@@ -4,6 +4,7 @@ import { tempDB } from './helpers.js';
 import { issueTools, objectiveSimilarity } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { makeSpawnFn } from './sync-issue.test.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 // Mandatory tagging (#93/#777): a valid issue_create must carry one
 // classification + one priority label. Shared so existing cases stay valid.
 const VALID_LABELS = ['Bug', 'Priority: High'];
@@ -16,14 +17,15 @@ function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
 // Issue-scoped sync (#155/#146) resolves the issue's repo to a `repos` row and
-// reads that row's `remotes` to pick the explicit gh --repo / glab -R target.
+// reads its repo_remotes rows to pick the explicit gh --repo / glab -R target.
 // Register a single repo so the sole-repo fallback resolves and the remotes are
 // available; with exactly one repos row the issue inherits it at create time.
 function registerSoleRepo(db, remotes = [
     { name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' },
-    { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
+    { name: 'gitlab', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
 ]) {
-    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [JSON.stringify(remotes)]);
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', remotes);
 }
 describe('issueTools', () => {
     it('create then get returns the created issue', async () => {
@@ -192,7 +194,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid, 77);
+        assert.equal(issue.gh_iid, 77);
         assert.equal(issue.remote_kind, 'github');
         const row = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = ?', [issue.id]);
         assert.equal(row?.gh_iid, 77, 'gh_iid must be set after gh sync');
@@ -225,7 +227,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid, 55);
+        assert.equal(issue.gl_iid, 55);
         assert.equal(issue.remote_kind, 'gitlab');
         const row = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = ?', [issue.id]);
         assert.equal(row?.gh_iid, null, 'gh_iid must remain null for glab-only sync');
@@ -241,7 +243,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
             labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
-        db.run(`UPDATE issues SET gh_iid = 101, remote_iid = 101, remote_kind = 'github' WHERE id = ?`, [issue.id]);
+        db.run(`UPDATE issues SET gh_iid = 101, remote_kind = 'github' WHERE id = ?`, [issue.id]);
         const closeResult = await call(tools.handlers, 'issue_close', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -261,7 +263,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
             labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
-        db.run(`UPDATE issues SET gl_iid = 202, remote_iid = 202, remote_kind = 'gitlab' WHERE id = ?`, [issue.id]);
+        db.run(`UPDATE issues SET gl_iid = 202, remote_kind = 'gitlab' WHERE id = ?`, [issue.id]);
         const closeResult = await call(tools.handlers, 'issue_close', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -290,7 +292,7 @@ describe('issueTools — remote sync', () => {
         });
         const created = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
-        assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync is off');
+        assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when sync is off');
         assert.equal(created.remote_kind ?? null, null, 'remote_kind should be null when sync is off');
         db.close();
     });
@@ -313,7 +315,7 @@ describe('issueTools — remote sync', () => {
         assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
         assert.equal(created.objective, 'Test gh sync failure fallback');
         assert.equal(created.status, 'open');
-        assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync fails');
+        assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when sync fails');
         db.close();
     });
     it('issue_create with issue_sync=glab, remote fails → local insert succeeds', async () => {
@@ -334,7 +336,7 @@ describe('issueTools — remote sync', () => {
         const created = parseResult(result);
         assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
         assert.equal(created.objective, 'Test glab sync failure fallback');
-        assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync fails');
+        assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when sync fails');
         db.close();
     });
     it('issue_create with issue_sync=auto and nothing available → null sync, local insert succeeds', async () => {
@@ -356,10 +358,10 @@ describe('issueTools — remote sync', () => {
         const created = parseResult(result);
         assert.ok(!result.isError, 'Local insert must succeed even when no backend available');
         assert.equal(created.objective, 'Test auto with no remote');
-        assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when no backend resolves');
+        assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when no backend resolves');
         db.close();
     });
-    it('issue_close with no remote_iid skips remote close', async () => {
+    it('issue_close with no remote link skips remote close', async () => {
         const db = tempDB();
         const tools = issueTools(db);
         const createResult = await call(tools.handlers, 'issue_create', {
@@ -373,11 +375,11 @@ describe('issueTools — remote sync', () => {
             issue_id: String(issue.id),
         });
         const closed = parseResult(closeResult);
-        assert.ok(!closeResult.isError, 'issue_close should succeed when no remote_iid');
+        assert.ok(!closeResult.isError, 'issue_close should succeed when no remote link');
         assert.equal(closed.status, 'closed');
         db.close();
     });
-    it('issue_close mirrors to remote when remote_iid is set', async () => {
+    it('issue_close mirrors to remote when gh_iid is set', async () => {
         const db = tempDB();
         const tools = issueTools(db);
         const createResult = await call(tools.handlers, 'issue_create', {
@@ -386,7 +388,7 @@ describe('issueTools — remote sync', () => {
             labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
-        db.run(`UPDATE issues SET remote_iid = 99, remote_kind = 'github' WHERE id = ?`, [issue.id]);
+        db.run(`UPDATE issues SET gh_iid = 99, remote_kind = 'github' WHERE id = ?`, [issue.id]);
         const closeResult = await call(tools.handlers, 'issue_close', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -436,11 +438,11 @@ describe('issueTools — remote sync', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid, 42, 'remote_iid should be set after successful sync');
-        const row = db.get(`SELECT updated_at, remote_iid FROM issues WHERE id = ?`, [issue.id]);
+        assert.equal(issue.gh_iid, 42, 'gh_iid should be set after successful sync');
+        const row = db.get(`SELECT updated_at, gh_iid FROM issues WHERE id = ?`, [issue.id]);
         assert.ok(row, 'issue row must exist');
-        assert.equal(row.remote_iid, 42, 'remote_iid must be persisted');
-        assert.ok(row.updated_at >= before, `updated_at must be set on successful remote_iid UPDATE, got: ${row.updated_at}`);
+        assert.equal(row.gh_iid, 42, 'gh_iid must be persisted');
+        assert.ok(row.updated_at >= before, `updated_at must be set on successful remote-link UPDATE, got: ${row.updated_at}`);
         db.close();
     });
     it('issue_sync_retry returns skipped when issue_sync=off', async () => {
@@ -467,7 +469,7 @@ describe('issueTools — remote sync', () => {
         assert.equal(data.skipped, true);
         db.close();
     });
-    it('issue_get_phase returns ready_to_close when all tasks completed and issue open', async () => {
+    it('issue_get_phase keeps a completed-but-unclosed task out of done (awaiting close)', async () => {
         const db = tempDB();
         const tools = issueTools(db);
         const createResult = await call(tools.handlers, 'issue_create', {
@@ -477,17 +479,18 @@ describe('issueTools — remote sync', () => {
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
-        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
         const phaseResult = await call(tools.handlers, 'issue_get_phase', {
             agent: 'bro',
             issue_id: String(issue.id),
         });
         const phaseData = parseResult(phaseResult);
         assert.ok(!phaseResult.isError, `Expected no error: ${JSON.stringify(phaseData)}`);
-        assert.equal(phaseData.phase, 'ready_to_close', `Expected ready_to_close, got ${phaseData.phase}`);
+        assert.equal(phaseData.phase, 'tasks', `Expected tasks, got ${phaseData.phase}`);
         assert.equal(phaseData.counts.tasks_total, 1);
-        assert.equal(phaseData.counts.tasks_completed, 1);
+        assert.equal(phaseData.counts.tasks_completed, 0, 'completed is not done until closed');
+        assert.equal(phaseData.counts.tasks_awaiting_close, 1);
         db.close();
     });
     it('issue_get_phase returns tasks when some tasks still pending', async () => {
@@ -500,10 +503,10 @@ describe('issueTools — remote sync', () => {
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
-        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
-        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
         const phaseResult = await call(tools.handlers, 'issue_get_phase', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -523,8 +526,8 @@ describe('issueTools — remote sync', () => {
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
-        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', '', NULL, datetime('now'), datetime('now'))`, [issue.id]);
         const phaseResult = await call(tools.handlers, 'issue_get_phase', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -578,7 +581,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid ?? null, null, 'remote_iid must be null when URL is blank');
+        assert.equal(issue.gh_iid ?? null, null, 'gh_iid must be null when URL is blank');
         assert.ok(issue._sync, 'sync diagnostic must be present');
         assert.equal(issue._sync.sync_skipped, true, 'sync_skipped must be true');
         assert.equal(issue._sync.reason, 'blank_remote_url');
@@ -613,7 +616,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, 'local insert must succeed even when verify fails');
-        assert.equal(issue.remote_iid ?? null, null, 'remote_iid must NOT be persisted when verify_failed');
+        assert.equal(issue.gh_iid ?? null, null, 'gh_iid must NOT be persisted when verify_failed');
         const row = db.get('SELECT gh_iid FROM issues WHERE id = ?', [issue.id]);
         assert.equal(row?.gh_iid ?? null, null, 'gh_iid must NOT be persisted when read-back shows PR');
         assert.ok(issue._sync, 'sync diagnostic must be present');
@@ -639,9 +642,8 @@ describe('issue_link (#336)', () => {
         assert.equal(linked.linked, true);
         assert.equal(linked.backend, 'github');
         assert.equal(linked.iid, 99);
-        const row = db.get('SELECT gh_iid, remote_iid, remote_kind FROM issues WHERE id = ?', [issue.id]);
+        const row = db.get('SELECT gh_iid, remote_kind FROM issues WHERE id = ?', [issue.id]);
         assert.equal(row?.gh_iid, 99);
-        assert.equal(row?.remote_iid, 99);
         assert.equal(row?.remote_kind, 'github');
         db.close();
     });
@@ -714,7 +716,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
             ]),
         });
         const issue = parseResult(createResult);
-        db.run('UPDATE issues SET gh_iid = 10, gl_iid = 20, remote_iid = 10, remote_kind = ? WHERE id = ?', ['github', issue.id]);
+        db.run('UPDATE issues SET gh_iid = 10, gl_iid = 20, remote_kind = ? WHERE id = ?', ['github', issue.id]);
         const retryResult = await call(tools.handlers, 'issue_sync_retry', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -742,7 +744,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
             ]),
         });
         const issue = parseResult(createResult);
-        db.run('UPDATE issues SET gh_iid = 55, remote_iid = 55, remote_kind = ? WHERE id = ?', ['github', issue.id]);
+        db.run('UPDATE issues SET gh_iid = 55, remote_kind = ? WHERE id = ?', ['github', issue.id]);
         const retryResult = await call(tools.handlers, 'issue_sync_retry', {
             agent: 'bro',
             issue_id: String(issue.id),
@@ -1052,6 +1054,35 @@ describe('issue_create mandatory tagging (#93/#777)', () => {
         const data = parseResult(rejected);
         assert.ok(rejected.isError, 'Priority: High is not in the configured set, so it must be rejected');
         assert.match(data.error, /P0, P1, P2/);
+        db.close();
+    });
+    it('validates against a caller-resolved taxonomy snapshot without re-reading config', async () => {
+        const db = tempDB();
+        const tools = issueTools(db, '', {
+            labelTaxonomy: {
+                classification: ['Doctrine'],
+                priorityLabels: ['P1'],
+            },
+        });
+        const cfg = configTools(db);
+        await call(cfg.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_classification_labels',
+            value: ['Bug'],
+        });
+        await call(cfg.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_priority_labels',
+            value: ['Priority: High'],
+        });
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'snapshot taxonomy remains authoritative',
+            labels: ['Doctrine', 'P1'],
+        });
+        const issue = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+        assert.equal(issue.objective, 'snapshot taxonomy remains authoritative');
         db.close();
     });
 });
@@ -1436,7 +1467,6 @@ describe('issue_create remote adoption (#36)', () => {
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
         assert.equal(issue.gh_iid, 42, 'gh_iid linked from adopted remote');
         assert.equal(issue.remote_kind, 'github');
-        assert.equal(issue.remote_iid, 42);
         assert.deepEqual(issue._adopted, { backend: 'github', remote_iid: 42 });
         assert.ok(!calls.some((c) => c.args[0] === 'issue' && c.args[1] === 'create'), 'adoption must skip the remote create');
         const row = db.get('SELECT gh_iid, remote_kind FROM issues WHERE id = ?', [issue.id]);
@@ -1538,9 +1568,8 @@ describe('issue_adopt_remote (#36)', () => {
         assert.equal(data.adopted, true);
         assert.equal(data.backend, 'github');
         assert.equal(data.idempotent, false);
-        const row = db.get('SELECT gh_iid, remote_iid, remote_kind FROM issues WHERE id = ?', [issueId]);
+        const row = db.get('SELECT gh_iid, remote_kind FROM issues WHERE id = ?', [issueId]);
         assert.equal(row?.gh_iid, 42);
-        assert.equal(row?.remote_iid, 42);
         assert.equal(row?.remote_kind, 'github');
         const audit = db.get(`SELECT event_type FROM audit WHERE issue_id = ? AND event_type = 'issue_adopted'`, [issueId]);
         assert.ok(audit, 'issue_adopted audit row must exist');
@@ -1634,7 +1663,7 @@ describe('issue_create label pre-validation (#36)', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid, 7, 'remote issue still created');
+        assert.equal(issue.gh_iid, 7, 'remote issue still created');
         assert.ok(issue._sync, 'label warning must surface');
         assert.deepEqual(issue._sync.labels_dropped, ['nonexistent-label']);
         assert.equal(issue._sync.reason, 'labels_not_in_remote_taxonomy');
@@ -1675,7 +1704,7 @@ describe('issue_create label pre-validation (#36)', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid, 9, 'remote issue created even with an empty valid subset');
+        assert.equal(issue.gh_iid, 9, 'remote issue created even with an empty valid subset');
         assert.ok(issue._sync, 'warning surfaced');
         assert.deepEqual(issue._sync.labels_dropped.sort(), ['Bug', 'Priority: High']);
         const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
@@ -1708,7 +1737,7 @@ describe('issue_create label pre-validation (#36)', () => {
         });
         const issue = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-        assert.equal(issue.remote_iid, 11);
+        assert.equal(issue.gh_iid, 11);
         assert.ok(!issue._sync || issue._sync.reason !== 'labels_not_in_remote_taxonomy', 'no label warning when taxonomy is unavailable');
         const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
         assert.ok(createCall, 'remote create must run');
@@ -1718,6 +1747,216 @@ describe('issue_create label pre-validation (#36)', () => {
                 labelValues.push(createCall.args[i + 1]);
         }
         assert.ok(labelValues.includes('maybe-unknown'), 'all labels pass through when taxonomy is unavailable');
+        db.close();
+    });
+});
+describe('issue write tools omit the description unless include_description (GH 1372)', () => {
+    const BODY = '# Body\nlong description text';
+    const viewOkSpawn = (cmd, args) => {
+        if (args[0] === 'issue' && args[1] === 'view') {
+            return { status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' };
+        }
+        return { status: 1, stdout: '', stderr: 'unexpected' };
+    };
+    it('issue_create (plain create) omits the description by default and echoes it on opt-in', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const plain = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'plain create default', labels: VALID_LABELS, description: BODY,
+        }));
+        assert.ok(!('description' in plain), 'no description by default');
+        assert.equal(plain.objective, 'plain create default');
+        assert.equal(plain.status, 'open');
+        assert.ok('milestone_default' in plain, 'milestone_default kept');
+        assert.deepEqual(JSON.parse(plain.labels), VALID_LABELS, 'labels kept');
+        const optIn = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'zebra quantum opt-in variant', labels: VALID_LABELS, description: BODY, include_description: true,
+        }));
+        assert.equal(optIn.description, BODY);
+        db.close();
+    });
+    it('issue_create adopt-at-create omits the description by default and echoes it on opt-in', async () => {
+        const db = tempDB();
+        registerGithubRepo(db);
+        const tools = issueTools(db);
+        const plain = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'adopt at create default', labels: VALID_LABELS, description: BODY,
+            remote_iid: 42, _spawnFn: viewOkSpawn,
+        }));
+        assert.ok(!('description' in plain), 'no description by default');
+        assert.equal(plain.gh_iid, 42);
+        assert.equal(plain.remote_kind, 'github');
+        assert.equal(plain.repo, 'app');
+        assert.deepEqual(plain._adopted, { backend: 'github', remote_iid: 42 });
+        const optIn = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'zebra quantum adopt opt-in', labels: VALID_LABELS, description: BODY,
+            remote_iid: 42, _spawnFn: viewOkSpawn, include_description: true,
+        }));
+        assert.equal(optIn.description, BODY);
+        db.close();
+    });
+    it('issue_create on an unresolvable repo omits the description by default and echoes it on opt-in', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a'), ('b', '/ws/b')`);
+        upsertRepoRemotes(db, 'a', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/a.git' }]);
+        upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/b.git' }]);
+        db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')
+             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
+        const tools = issueTools(db);
+        const plain = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'unresolvable default', labels: VALID_LABELS, description: BODY, _spawnFn: makeSpawnFn([]),
+        }));
+        assert.equal(plain._sync.reason, 'unresolvable_repo');
+        assert.ok(!('description' in plain), 'no description by default');
+        const optIn = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'zebra quantum unresolvable opt-in', labels: VALID_LABELS, description: BODY,
+            _spawnFn: makeSpawnFn([]), include_description: true,
+        }));
+        assert.equal(optIn._sync.reason, 'unresolvable_repo');
+        assert.equal(optIn.description, BODY);
+        db.close();
+    });
+    it('issue_link omits the description by default and echoes it on opt-in', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const issue = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'link echo', labels: VALID_LABELS, description: BODY,
+        }));
+        const plain = parseResult(await call(tools.handlers, 'issue_link', {
+            agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 7,
+        }));
+        assert.ok(!('description' in plain.issue), 'no description by default');
+        assert.equal(plain.issue.gh_iid, 7);
+        const optIn = parseResult(await call(tools.handlers, 'issue_link', {
+            agent: 'bro', issue_id: String(issue.id), backend: 'gitlab', iid: 8, include_description: true,
+        }));
+        assert.equal(optIn.issue.description, BODY);
+        db.close();
+    });
+    it('issue_adopt_remote omits the description by default and echoes it on opt-in', async () => {
+        const db = tempDB();
+        registerGithubRepo(db);
+        const tools = issueTools(db);
+        const issue = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'adopt echo', labels: VALID_LABELS, description: BODY,
+        }));
+        const plain = parseResult(await call(tools.handlers, 'issue_adopt_remote', {
+            agent: 'bro', issue_id: String(issue.id), remote_iid: 42, _spawnFn: viewOkSpawn,
+        }));
+        assert.ok(!('description' in plain.issue), 'no description by default');
+        assert.equal(plain.issue.gh_iid, 42);
+        const optIn = parseResult(await call(tools.handlers, 'issue_adopt_remote', {
+            agent: 'bro', issue_id: String(issue.id), remote_iid: 42, _spawnFn: viewOkSpawn, include_description: true,
+        }));
+        assert.equal(optIn.issue.description, BODY);
+        db.close();
+    });
+    it('issue_close does not echo the description', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const issue = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'close echo', labels: VALID_LABELS, description: BODY,
+        }));
+        const closed = parseResult(await call(tools.handlers, 'issue_close', { agent: 'bro', issue_id: String(issue.id) }));
+        assert.equal(closed.status, 'closed');
+        assert.ok(!('description' in closed), 'issue_close must not echo the description');
+        db.close();
+    });
+});
+describe('issue_adopt_remote repo resolution (GH 1368)', () => {
+    function recordingViewSpawn() {
+        const calls = [];
+        const fn = (cmd, args, opts) => {
+            calls.push({ cmd, args, cwd: opts?.cwd });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' };
+            }
+            return { status: 1, stdout: '', stderr: 'unexpected' };
+        };
+        return { fn, calls };
+    }
+    function seedTwoRepos(db) {
+        db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a'), ('b', '/ws/b')`);
+        upsertRepoRemotes(db, 'a', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/a.git' }]);
+        upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/b.git' }]);
+    }
+    async function createRepolessIssue(tools, db) {
+        const created = parseResult(await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'repo-less issue', labels: VALID_LABELS }));
+        const row = db.get('SELECT repo FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.repo ?? null, null, 'precondition: the issue has no repo');
+        return created.id;
+    }
+    it('an explicit repo drives the verify spawn and backfills the null issue repo', async () => {
+        const db = tempDB();
+        seedTwoRepos(db);
+        const tools = issueTools(db);
+        const issueId = await createRepolessIssue(tools, db);
+        const spawn = recordingViewSpawn();
+        const result = await call(tools.handlers, 'issue_adopt_remote', {
+            agent: 'bro', issue_id: String(issueId), remote_iid: 42, repo: 'b', _spawnFn: spawn.fn,
+        });
+        const data = parseResult(result);
+        assert.ok(!result.isError, `expected success, got ${JSON.stringify(data)}`);
+        assert.equal(spawn.calls.length, 1);
+        assert.equal(spawn.calls[0].cwd, '/ws/b');
+        const repoIdx = spawn.calls[0].args.indexOf('--repo');
+        assert.ok(repoIdx >= 0, 'gh view carries --repo');
+        assert.equal(spawn.calls[0].args[repoIdx + 1], 'github.com/acme/b');
+        const row = db.get('SELECT gh_iid, repo FROM issues WHERE id = ?', [issueId]);
+        assert.equal(row?.gh_iid, 42);
+        assert.equal(row?.repo, 'b');
+        assert.equal(data.issue.repo, 'b');
+        db.close();
+    });
+    it('a repo-less issue in a multi-repo workspace without repo → repo_unresolved, no spawn, no write', async () => {
+        const db = tempDB();
+        seedTwoRepos(db);
+        const tools = issueTools(db);
+        const issueId = await createRepolessIssue(tools, db);
+        const spawn = recordingViewSpawn();
+        const result = await call(tools.handlers, 'issue_adopt_remote', {
+            agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: spawn.fn,
+        });
+        assert.ok(result.isError, 'must error');
+        assert.equal(parseResult(result).error, `repo_unresolved: issue ${issueId} has no repo and the workspace has 2 repos — pass repo`);
+        assert.equal(spawn.calls.length, 0, 'no gh/glab spawn');
+        const row = db.get('SELECT gh_iid, repo, remote_kind FROM issues WHERE id = ?', [issueId]);
+        assert.equal(row?.gh_iid ?? null, null);
+        assert.equal(row?.repo ?? null, null);
+        assert.equal(row?.remote_kind ?? null, null);
+        const audit = db.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ? AND event_type = 'issue_adopted'`, [issueId]);
+        assert.equal(audit?.n, 0);
+        db.close();
+    });
+    it('a single-repo workspace resolves a repo-less issue without the arg', async () => {
+        const db = tempDB();
+        registerGithubRepo(db);
+        const tools = issueTools(db);
+        db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, repo) VALUES ('repo-less sole', '', 'open', datetime('now'), datetime('now'), NULL)`);
+        const issueId = db.get(`SELECT id FROM issues WHERE objective = 'repo-less sole'`).id;
+        const spawn = recordingViewSpawn();
+        const result = await call(tools.handlers, 'issue_adopt_remote', {
+            agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: spawn.fn,
+        });
+        const data = parseResult(result);
+        assert.ok(!result.isError, `expected success, got ${JSON.stringify(data)}`);
+        assert.equal(spawn.calls[0].cwd, '/tmp/app');
+        assert.equal(db.get('SELECT gh_iid FROM issues WHERE id = ?', [issueId])?.gh_iid, 42);
+        db.close();
+    });
+    it('an unknown repo returns a named error without spawning', async () => {
+        const db = tempDB();
+        seedTwoRepos(db);
+        const tools = issueTools(db);
+        const issueId = await createRepolessIssue(tools, db);
+        const spawn = recordingViewSpawn();
+        const result = await call(tools.handlers, 'issue_adopt_remote', {
+            agent: 'bro', issue_id: String(issueId), remote_iid: 42, repo: 'nope', _spawnFn: spawn.fn,
+        });
+        assert.ok(result.isError, 'must error');
+        assert.match(parseResult(result).error, /^repo_not_found: no repos row named "nope"/);
+        assert.equal(spawn.calls.length, 0);
+        assert.equal(db.get('SELECT gh_iid FROM issues WHERE id = ?', [issueId])?.gh_iid ?? null, null);
         db.close();
     });
 });

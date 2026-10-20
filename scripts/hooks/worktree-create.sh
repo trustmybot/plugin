@@ -30,8 +30,13 @@
 # closers, so a repo nested under the launch workspace (e.g. TMB/plugin under
 # TMB) resolves to one canonical path everywhere.
 #
-# Resolves <repo> relative to the workspace root (dir containing
-# .claude/<plugin>/trajectory.db), found via tmb_db_path walk-up.
+# Resolves <repo> relative to the workspace root (the dir holding the
+# trajectory DB), found via tmb_db_path.
+#
+# Every success path (created or reused) installs the tmb-regen merge driver
+# into the repo's .git/config when its .gitattributes routes files to it, so a
+# rebase in the worktree keeps ours for generated artefacts
+# (scripts/maintenance/install-merge-driver.sh).
 #
 # Exits non-zero when:
 #   - no branch in input (nothing to create)
@@ -46,6 +51,14 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
+install_merge_driver() {
+  local top
+  top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  grep -qs "merge=tmb-regen" "$top/.gitattributes" || return 0
+  bash "$PLUGIN_ROOT/scripts/maintenance/install-merge-driver.sh" "$top" >/dev/null 2>&1 \
+    || printf "tmb worktree-create: could not install the tmb-regen merge driver in %s\n" "$top" >&2
+}
+
 INPUT=$(cat)
 
 BRANCH_NAME=$(echo "$INPUT" | jq -r '.branch // ""' 2>/dev/null)
@@ -55,7 +68,7 @@ if [ -z "$BRANCH_NAME" ]; then
 fi
 
 # Slug: strip type/ prefix (fix/123-foo → 123-foo)
-SLUG="${BRANCH_NAME#*/}"
+SLUG=$(tmb_branch_slug "$BRANCH_NAME")
 
 DB_PATH=$(tmb_db_path 2>/dev/null) || true
 
@@ -72,6 +85,7 @@ if [ -z "$DB_PATH" ] || [ ! -f "$DB_PATH" ]; then
   if [ -e "$WORKTREE_PATH/.git" ]; then
     printf 'tmb worktree-create: reusing existing worktree %s for branch %s\n' \
       "$WORKTREE_PATH" "$BRANCH_NAME" >&2
+    install_merge_driver "$CWD_REPO"
     echo "$WORKTREE_PATH"
     exit 0
   fi
@@ -89,6 +103,7 @@ if [ -z "$DB_PATH" ] || [ ! -f "$DB_PATH" ]; then
   fi
   printf 'tmb worktree-create: created worktree %s for branch %s (no-DB path)\n' \
     "$WORKTREE_PATH" "$BRANCH_NAME" >&2
+  install_merge_driver "$CWD_REPO"
   echo "$WORKTREE_PATH"
   exit 0
 fi
@@ -136,6 +151,7 @@ mkdir -p "$(dirname "$WORKTREE_PATH")"
 if [ -e "$WORKTREE_PATH/.git" ]; then
   printf 'tmb worktree-create: reusing existing worktree %s for branch %s\n' \
     "$WORKTREE_PATH" "$BRANCH_NAME" >&2
+  install_merge_driver "$REPO_ABS"
   echo "$WORKTREE_PATH"
   exit 0
 fi
@@ -158,4 +174,5 @@ fi
 printf 'tmb worktree-create: created worktree %s for branch %s in repo %s\n' \
   "$WORKTREE_PATH" "$BRANCH_NAME" "$REPO_ABS" >&2
 
+install_merge_driver "$REPO_ABS"
 echo "$WORKTREE_PATH"

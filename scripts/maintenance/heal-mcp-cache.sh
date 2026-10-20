@@ -20,9 +20,17 @@
 # aggressive and defaults to N.
 # Pass --dry-run to preview Step C's prune without deleting anything.
 # Idempotent: re-runs see nothing to do and exit 0.
-# Run from a terminal, NOT from inside Claude Code.
+# Run from a terminal: inside Claude Code (CLAUDE_PROJECT_DIR or
+# CLAUDE_PLUGIN_ROOT set) it refuses and changes nothing.
 
 set -euo pipefail
+
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  printf 'Refusing to run inside Claude Code: this script edits ~/.claude.json\n' >&2
+  printf '(which Claude Code reads on every prompt) and the plugins cache.\n' >&2
+  printf 'Quit Claude Code first, then run it from a regular terminal.\n' >&2
+  exit 1
+fi
 
 INSTALLED_JSON="${HOME}/.claude/plugins/installed_plugins.json"
 CC_CONFIG="${HOME}/.claude.json"
@@ -77,15 +85,6 @@ MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
 CACHE_DIR="${HOME}/.claude/plugins/cache/${MARKETPLACE_OWNER}"
 PLUGIN_ENTRY="${PLUGIN_NAME}@${MARKETPLACE_OWNER}"
 MCP_SERVER_KEY="plugin:${PLUGIN_NAME}:trajectory-server"
-
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-  printf '⚠️  This script appears to be running INSIDE Claude Code.\n' >&2
-  printf '    It will mutate ~/.claude.json (which CC reads on every prompt)\n' >&2
-  printf '    and the plugins cache. Quit CC first (⌘Q), then re-run from a\n' >&2
-  printf '    regular terminal.\n' >&2
-  printf '    Continuing anyway in 3s — Ctrl-C to abort.\n' >&2
-  sleep 3
-fi
 
 if ! command -v jq >/dev/null 2>&1; then
   printf 'Error: jq is required but not on PATH.\n' >&2
@@ -322,8 +321,8 @@ if [ "$cache_exists" = "no" ] && [ "$matching_count" -eq 0 ]; then
   printf 'Done. To reinstall:\n'
   printf '  1. Launch Claude Code.\n'
   printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
-  printf '  3. Verify with: tail -1 ~/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
-  printf '     (expect mcp_alive:true and mode:null)\n'
+  printf '  3. Verify with: tail -1 <project>/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
+  printf '     (expect mcp_alive:true)\n'
   exit 0
 fi
 
@@ -366,5 +365,5 @@ fi
 printf '\nDone. To reinstall:\n'
 printf '  1. Launch Claude Code.\n'
 printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
-printf '  3. Verify with: tail -1 ~/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
-printf '     (expect mcp_alive:true and mode:null)\n'
+printf '  3. Verify with: tail -1 <project>/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
+printf '     (expect mcp_alive:true)\n'

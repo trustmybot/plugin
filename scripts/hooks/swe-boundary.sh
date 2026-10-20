@@ -5,27 +5,41 @@
 # This is a tripwire for obvious write-forms, not a Bash sandbox. When in
 # doubt, the hook passes — precision beats recall here.
 #
-# Five rules, all guarded by tmb_swe_context():
+# Eight rules, all for an SWE identity (SWE_CTX):
 #
 #   (a) Bash: git push from SWE context                  → DENY
 #   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
 #   (c) Edit/Write: target outside assigned worktree      → DENY
-#   (d) Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
-#   (e) Bash: write-form command targeting prompt surface → DENY (unless prompt_bearing=1)
+#   (d) Edit/Write: CLAUDE.md at the worktree root        → DENY (always)
+#       Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
+#   (e) Bash: a written CLAUDE.md at the worktree root    → DENY (always)
+#       Bash: a written path on the prompt surface        → DENY (unless prompt_bearing=1)
+#   (f) Bash: a written path inside the worktree but outside the task's
+#       files[] dirs                                      → NOTE (additionalContext, once per path)
+#   (g) Bash: a write target behind a variable the command does not set
+#                                                         → DENY (unless prompt_bearing=1)
+#   (h) Edit/Write: a path a PreToolUse Bash gate denied a write to earlier in
+#       the session (dispatch.sh keeps the record)        → ALLOW, audit hook_block_bypassed
 #
-# Write-forms matched by rule (e):
-#   >, >>, tee, sed -i, perl -i, python/python3 open(...,'w'|'a'), cp/mv/rsync
-#   with a prompt-surface destination (verb coupled to destination token).
-# Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
-#   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
-# Read-only commands (cat, grep, sed -n, sed without -i) are never tripped.
+# Bash writes are judged by the same rules as Edit/Write: every path a
+# statement writes (tmb_cmd_write_paths in lib/cmd-analysis.sh, the one list
+# of write shapes, resolved against the statement's own cd / git -C dir) goes
+# through the prompt-surface predicate (tmb_is_prompt_surface_path) and the
+# files[] classifier (lib/scope-fence.sh, shared with swe-scope-fence.sh).
+# Scope itself is judged at close: bro_atomic_close diffs the task's own
+# commits against files[]. Reads and read inputs of a write never fire.
 #
-# SWE-context signal (deterministic, defined once here):
-#   - For Bash tool calls: PWD is inside .claude/worktrees/* AND a tasks row with
-#     matching branch_id exists in state IN ('pending','running','completed'), OR
-#     agent_type == 'swe' in the hook payload.
-#   - For Edit/Write tool calls: agent_type == 'swe' OR the target path is inside
-#     a known worktree path.
+# SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
+# swe. A path never decides the role. The assigned task and worktree come from
+# identity, never the shared cwd (tmb_agent_context in lib/agent-context.sh):
+# task_id=<N> in the swe's spawn transcript → tasks.repo → repos.path →
+# <repos.path>/.claude/worktrees/<slug>. A swe whose context cannot be
+# resolved is denied every Edit/Write (rule (c) fails closed) with the missing
+# piece named; with no trajectory DB nothing is enforced. Relative targets
+# join the payload cwd (the dir the tool runs in). Bash rules judge the command's
+# executable statements only: data heredocs and quoted text are data; a
+# program fed to an interpreter through a heredoc is analysed for the paths it
+# writes, and a variable set earlier in the same command is resolved.
 #
 # Fires on: PreToolUse — matcher: Bash|Edit|Write|MultiEdit|NotebookEdit
 set -euo pipefail
@@ -33,281 +47,243 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
-. "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
+# shellcheck source=scripts/hooks/lib/scope-fence.sh
+. "$SCRIPT_DIR/lib/scope-fence.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
-
-AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
-
-# tmb_swe_context: returns "yes" when this hook invocation is in a SWE context.
-# Two deterministic signals, priority order:
-#   1. agent_type field == 'swe' → yes (most reliable when CC populates it)
-#   2. agent_type field is a known non-SWE role → no (explicit identity wins)
-#   3. agent_type field is absent/empty + $PWD inside .claude/worktrees/ → yes
-#      (structural fallback for cases where CC #97 strips the agent_type field)
-# Never returns "yes" when agent_type is explicitly a non-SWE role.
-tmb_swe_context() {
-  if [ "$AGENT_TYPE" = "swe" ]; then
-    echo "yes"
-    return
-  fi
-  case "$AGENT_TYPE" in
-    bro|pr-reviewer|architect|cto|ceo|pm|consultant)
-      echo "no"
-      return
-      ;;
-  esac
-  # agent_type absent or unknown — fall back to PWD signal.
-  case "$PWD" in
-    */.claude/worktrees/*) echo "yes"; return ;;
-  esac
-  echo "no"
+claude_md_reason() {
+  printf 'BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: %s. Propose the change in your report; the Human applies it.' "$1"
 }
 
-SWE_CTX=$(tmb_swe_context)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 
-# Resolve the assigned worktree root once — used by rules (c), (d), and (e).
-# Primary signal: $PWD when it's inside a worktree.
+SWE_CTX="no"
+[ "$(tmb_agent_role "$INPUT")" = "swe" ] && SWE_CTX="yes"
+
+# The caller's context (tmb_agent_context): its task and derived worktree
+# decide rule (c), the Bash write root and every task lookup below.
+# CTX_STATE: ok, missing (a swe whose task, repo or path is unresolved) or
+# nodb (no trajectory DB: nothing to enforce against).
+CALLER_TASK=""
 WORKTREE_ROOT=""
-case "$PWD" in
-  */.claude/worktrees/*)
-    WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-    ;;
-esac
+CTX_STATE="ok"
+if [ "$SWE_CTX" = "yes" ] && tmb_have_sqlite; then
+  _CTX_RC=0
+  tmb_agent_context "$INPUT" || _CTX_RC=$?
+  case "$_CTX_RC" in
+    0) CALLER_TASK="$TMB_CTX_TASK_ID"; WORKTREE_ROOT="$TMB_CTX_WORKTREE" ;;
+    2) tmb_deny_db_unavailable swe-boundary; exit 0 ;;
+    3) CTX_STATE="nodb" ;;
+    *) CTX_STATE="missing"; CALLER_TASK="$TMB_CTX_TASK_ID" ;;
+  esac
+fi
 
-# ---- Rule (a): git push from SWE context ------------------------------------
-# Already handled by git-push-guard.sh (which checks both WT_CWD and agent_type).
-# This hook adds defense-in-depth by also checking the SWE_CTX signal for
-# non-worktree cases (e.g. SWE calling git push with a cd prefix).
-# We skip force-pushes (delegated to git-guards.sh).
+# _task_for <target> <db> — the caller's task when resolved, else the task the
+# target's worktree resolves to.
+_task_for() {
+  if [ -n "$CALLER_TASK" ]; then
+    printf '%s\n' "$CALLER_TASK"
+  else
+    tmb_resolve_task_id_for_target "$1" "$INPUT" "$2"
+  fi
+}
 
+# _wt_of <path> — the worktree a written path lies in: the caller's own when
+# the path is inside it, else the path's .claude/worktrees/<slug> dir.
+_wt_of() {
+  if tmb_ctx_in_worktree "$1"; then
+    printf '%s' "$TMB_CTX_WORKTREE"
+    return 0
+  fi
+  tmb_worktree_root_for_target "$1"
+}
+
+# ---- Rules (a), (b), (e), (f): Bash from SWE context ------------------------
+# Each rule judges the executable statements of the command
+# (tmb_cmd_statements): a push or gh mutation named in a heredoc, a quoted
+# string, a grep pattern or a commit message is data and never fires.
 if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+  STMTS=$(tmb_cmd_statements "$CMD" "$(tmb_payload_cwd "$INPUT")")
 
-  # Whitespace-tolerant, boundary-anchored push detection (#1016): the old
-  # literal `case` substrings failed open on `git  push` (double space),
-  # leading-/newline-prefixed forms, and `bash -c "git push"` / `eval "..."`
-  # wrappers. _norm_cmd strips quotes, squeezes whitespace, pads, and rewrites
-  # shell-executor prefixes (`-c `, `eval `) to a statement separator; a push is
-  # then `git [ -C <p> ] push` anchored at a statement boundary.
-  _norm_cmd() {
-    local n
-    n=$(printf '%s' "$1" | tr -d "\"'" | tr -s '[:space:]' ' ')
-    n=" $n "
-    printf '%s' "$n" | sed -E 's/ -c / ; /g; s/ eval / ; /g'
-  }
-  NCMD=$(_norm_cmd "$CMD")
+  # (a) git push (force pushes are git-guards' job). (b) gh/glab mutating
+  # subcommands and api calls with a write verb (tmb_gh_mutation); read-only
+  # gh (view, list, status, api GET) stays allowed.
   IS_PUSH=""
-  IS_FORCE=""
-  printf '%s' "$NCMD" | grep -qE '(^[[:space:]]*|[;&|][[:space:]]*)git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$)' && IS_PUSH="yes"
-  printf '%s' "$NCMD" | grep -qE 'push[^;&|]*[[:space:]](--force(-with-lease)?|-f)([[:space:]]|$)' && IS_FORCE="yes"
-  if [ "$IS_PUSH" = "yes" ] && [ "$IS_FORCE" != "yes" ]; then
+  GH_MUTATING=""
+  while IFS="$(printf '\t')" read -r _dir stmt; do
+    sub=$(tmb_git_subcommand "$stmt")
+    case "$sub" in
+      push|"push "*)
+        case " ${sub} " in
+          *" --force "*|*" -f "*|*" --force-with-lease "*|*" --force-with-lease="*) ;;
+          *) IS_PUSH="yes" ;;
+        esac
+        ;;
+    esac
+    if [ -n "$(tmb_gh_mutation "$stmt")" ]; then GH_MUTATING="yes"; fi
+  done <<< "$STMTS"
+
+  if [ "$IS_PUSH" = "yes" ]; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
     exit 0
   fi
-
-  # ---- Rule (b): gh/glab MUTATING subcommands from SWE context --------------
-  # Read-only gh is allowed (SWEs legitimately read issues/PRs).
-  # Blocked: gh issue create/close/edit, gh pr create/merge/close, gh api -X POST/PATCH/PUT/DELETE
-  # Same for glab equivalents.
-  GH_MUTATING=""
-  case "$CMD" in
-    *"gh issue create"*|*"gh issue close"*|*"gh issue edit"*|*"gh issue delete"*) GH_MUTATING="yes" ;;
-    *"gh pr create"*|*"gh pr merge"*|*"gh pr close"*|*"gh pr edit"*) GH_MUTATING="yes" ;;
-    *"gh api"*"-X POST"*|*"gh api"*"-X PATCH"*|*"gh api"*"-X PUT"*|*"gh api"*"-X DELETE"*) GH_MUTATING="yes" ;;
-    *"gh api"*"--method POST"*|*"gh api"*"--method PATCH"*|*"gh api"*"--method PUT"*|*"gh api"*"--method DELETE"*) GH_MUTATING="yes" ;;
-    *"glab issue create"*|*"glab issue close"*|*"glab issue edit"*) GH_MUTATING="yes" ;;
-    *"glab mr create"*|*"glab mr merge"*|*"glab mr close"*|*"glab mr edit"*) GH_MUTATING="yes" ;;
-  esac
   if [ "$GH_MUTATING" = "yes" ]; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro."}}'
     exit 0
   fi
 
-  # ---- Rule (e): Bash write-form targeting a prompt surface ------------------
-  # Tripwire for the obvious forms only — reads (cat/grep/sed -n) never fire.
-  # Deny lifts when the resolved task has prompt_bearing=1 (same resolution as
-  # rule (d), including the slug fallback).
-  #
-  # Destination-coupled matching: the verb/redirect operator must be adjacent to
-  # the prompt-surface path token. A prompt-surface path mentioned inside a quoted
-  # string argument (grep/echo) or as the SOURCE of cp/mv does not count.
-  #
-  # _is_prompt_surface_token <token>: returns 0 if the token is a prompt-surface path.
-  _is_prompt_surface_token() {
-    local tok="$1"
-    case "$tok" in
-      agents/*.md|*/agents/*.md) return 0 ;;
-      skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
-      commands/*.md|*/commands/*.md) return 0 ;;
-      templates/*.md|*/templates/*.md) return 0 ;;
-      CLAUDE.md|*/CLAUDE.md) return 0 ;;
-      CODEX.md|*/CODEX.md) return 0 ;;
-      CURSOR.md|*/CURSOR.md) return 0 ;;
-      GEMINI.md|*/GEMINI.md) return 0 ;;
-    esac
-    return 1
-  }
+  # (e), (f) Every written path, relative to the worktree it lies in.
+  _SWE_ROOT="$WORKTREE_ROOT"
+  [ -n "$_SWE_ROOT" ] || _SWE_ROOT=$(tmb_project_root)
 
-  _bash_writes_prompt_surface() {
-    local cmd="$1"
+  SURFACE_PATH=""
+  SURFACE_ANCHOR=""
+  ROOT_CLAUDE_MD=""
+  UNRESOLVED_TARGET=""
+  FENCE_PATHS=()
+  while IFS= read -r _wpath; do
+    [ -n "$_wpath" ] || continue
+    case "$_wpath" in
+      UNRESOLVED:*)
+        [ -n "$UNRESOLVED_TARGET" ] || UNRESOLVED_TARGET="${_wpath#UNRESOLVED:*:}"
+        continue
+        ;;
+    esac
+    _wt=$(_wt_of "$_wpath")
+    _rel="${_wpath#"$_wt"/}"
+    if [ -z "$_wt" ] || [ "$_rel" = "$_wpath" ]; then _wt=""; _rel="$_wpath"; fi
+    if [ -n "$_wt" ] && [ "$_rel" = "CLAUDE.md" ]; then ROOT_CLAUDE_MD="$_wpath"; fi
+    if [ -z "$SURFACE_PATH" ] && tmb_is_prompt_surface_path "$_rel" "$_wt"; then
+      SURFACE_PATH="$_wpath"
+      SURFACE_ANCHOR="${_wt:+$_wpath}"
+    fi
+    if [ -n "$_wt" ]; then FENCE_PATHS+=("$_wpath"); fi
+  done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")" "" "$_SWE_ROOT")
 
-    # --- Redirect forms: > <dest> or >> <dest> ---
-    # Extract the token immediately after > or >> (with optional leading spaces).
-    # We strip the redirect operator and look at what follows.
-    # Pattern: anything then ">>" or ">" then optional space then the dest token.
-    # We use a two-step approach: find the dest token after the last redirect.
-    local after_redir=""
-    case "$cmd" in
-      *">>"*)
-        # Extract what comes after >> (rightmost occurrence for pipelines).
-        after_redir="${cmd##*>>}"
-        # Strip leading whitespace.
-        after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-        # Take first token (up to space or end).
-        local dest_tok="${after_redir%% *}"
-        _is_prompt_surface_token "$dest_tok" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      *">"*)
-        # Only match single > (not >>). Strip >> occurrences first.
-        local no_dbl
-        no_dbl=$(printf '%s' "$cmd" | sed 's/>>//g')
-        case "$no_dbl" in
-          *">"*)
-            after_redir="${no_dbl##*>}"
-            after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-            local dest_tok2="${after_redir%% *}"
-            _is_prompt_surface_token "$dest_tok2" && return 0
-            ;;
-        esac
-        ;;
-    esac
-
-    # --- tee: match "tee <dest>" or "tee -a <dest>" ---
-    # The destination is the last non-flag argument to tee.
-    # Extract the argument after 'tee' (or 'tee -a').
-    local tee_rest=""
-    case "$cmd" in
-      *" tee "*|*" tee	"*|"tee "*)
-        # Capture everything after the last occurrence of " tee " or "tee ".
-        case "$cmd" in
-          *" tee "*) tee_rest="${cmd##* tee }" ;;
-          "tee "*) tee_rest="${cmd#tee }" ;;
-        esac
-        # Skip -a flag if present.
-        case "$tee_rest" in
-          "-a "*) tee_rest="${tee_rest#-a }" ;;
-        esac
-        local tee_dest="${tee_rest%% *}"
-        _is_prompt_surface_token "$tee_dest" && return 0
-        ;;
-    esac
-
-    # --- sed -i: match "sed -i[suffix] ... <file>" ---
-    # The file is the last token. We check if the command has sed -i and a
-    # prompt-surface path token appears after sed -i (not before).
-    case "$cmd" in
-      *"sed -i"*|*"sed --in-place"*)
-        local after_sedi=""
-        case "$cmd" in
-          *"sed --in-place"*) after_sedi="${cmd##*sed --in-place}" ;;
-          *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
-        esac
-        # The last token in after_sedi is the file.
-        local sedi_file="${after_sedi##* }"
-        _is_prompt_surface_token "$sedi_file" && return 0
-        ;;
-    esac
-
-    # --- perl -i: match "perl -i[suffix] ... <file>" ---
-    case "$cmd" in
-      *"perl -i"*)
-        local after_perli="${cmd##*perl -i}"
-        local perli_file="${after_perli##* }"
-        _is_prompt_surface_token "$perli_file" && return 0
-        ;;
-    esac
-
-    # --- python/python3 open(<path>, 'w'|'a'): the path inside open() ---
-    case "$cmd" in
-      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*)
-        local open_arg="${cmd##*open(}"
-        local open_path="${open_arg%%,*}"
-        # Strip surrounding quotes.
-        open_path="${open_path#\'}"
-        open_path="${open_path%\'}"
-        open_path="${open_path#\"}"
-        open_path="${open_path%\"}"
-        _is_prompt_surface_token "$open_path" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      *"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
-        local open_arg2="${cmd##*open(}"
-        local open_path2="${open_arg2%%,*}"
-        open_path2="${open_path2#\'}"
-        open_path2="${open_path2%\'}"
-        open_path2="${open_path2#\"}"
-        open_path2="${open_path2%\"}"
-        _is_prompt_surface_token "$open_path2" && return 0
-        ;;
-    esac
-
-    # --- cp/mv/rsync: destination is the LAST argument ---
-    # The prompt-surface path must be the last token (destination).
-    case "$cmd" in
-      "cp "*|*" cp "*)
-        local cp_last="${cmd##* }"
-        _is_prompt_surface_token "$cp_last" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      "mv "*|*" mv "*)
-        local mv_last="${cmd##* }"
-        _is_prompt_surface_token "$mv_last" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      "rsync "*|*" rsync "*)
-        local rsync_last="${cmd##* }"
-        _is_prompt_surface_token "$rsync_last" && return 0
-        ;;
-    esac
-
-    return 1
-  }
-
-  BASH_PROMPT_WRITE=""
-  if _bash_writes_prompt_surface "$CMD"; then
-    BASH_PROMPT_WRITE="yes"
+  if [ -n "$ROOT_CLAUDE_MD" ]; then
+    jq -nc --arg r "$(claude_md_reason "$ROOT_CLAUDE_MD")" \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+    exit 0
   fi
 
-  if [ "$BASH_PROMPT_WRITE" = "yes" ]; then
-    # Resolve prompt_bearing via the shared resolver (worktree branch → slug →
-    # transcript). Bash write-forms have no Edit target path; pass empty so the
-    # resolver derives the worktree from $PWD.
-    _PB_DB=$(tmb_db_path || true)
-    _PB_TASK_ID=$(tmb_resolve_task_id_for_target "" "$INPUT" "$_PB_DB")
-    _PB_ALLOWED=""
-    if [ -n "$_PB_TASK_ID" ]; then
-      if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
-        _PB_VAL=$(tmb_sqlite_ro "$_PB_DB" "
-          SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
-        " 2>/dev/null || echo "0")
-        [ "${_PB_VAL:-0}" -eq 1 ] && _PB_ALLOWED="yes"
+  _DB=""
+  if [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ] || [ "${#FENCE_PATHS[@]}" -gt 0 ]; then
+    _DB=$(tmb_db_path || true)
+  fi
+  if { [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ]; } && [ "$(tmb_db_state)" = "error" ]; then
+    tmb_deny_db_unavailable swe-boundary
+    exit 0
+  fi
+
+  # (e), (g) Lift when the resolved task has prompt_bearing=1.
+  _PB_ALLOWED=""
+  if [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ]; then
+    _PB_TASK_ID=$(_task_for "$SURFACE_ANCHOR" "$_DB")
+    if [ -n "$_PB_TASK_ID" ] && [ -n "$_DB" ] && tmb_have_sqlite; then
+      _PB_VAL=$(tmb_gate_read "$_DB" "
+        SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
+      ")
+      if [ "$_PB_VAL" = "__ERR__" ]; then
+        tmb_deny_db_unavailable swe-boundary
+        exit 0
       fi
+      if [ "${_PB_VAL:-0}" = "1" ]; then _PB_ALLOWED="yes"; fi
+    fi
+  fi
+  if [ -n "$SURFACE_PATH" ]; then
+    if [ "$_PB_ALLOWED" != "yes" ] && [ "${SURFACE_PATH%%[*?[]*}" != "$SURFACE_PATH" ]; then
+      jq -nc --arg r "BLOCKED: a loop or glob over $(dirname "${SURFACE_PATH%%[*?[]*}x") reaches prompt-surface paths (${SURFACE_PATH}); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task." \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+      exit 0
     fi
     if [ "$_PB_ALLOWED" != "yes" ]; then
-      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
+      jq -nc --arg r "BLOCKED: SWE may not write prompt-surface files via Bash ($(tmb_cmd_write_shapes)). Target: ${SURFACE_PATH}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed." \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
       exit 0
     fi
   fi
+
+  if [ -n "$UNRESOLVED_TARGET" ] && [ "$_PB_ALLOWED" != "yes" ]; then
+    jq -nc --arg r "BLOCKED: write target \"${UNRESOLVED_TARGET}\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command." \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+    exit 0
+  fi
+
+  # (f) files[] note, per worktree a written path lies in. Never denies.
+  if [ "${#FENCE_PATHS[@]}" -gt 0 ] && [ -n "$_DB" ] && tmb_have_sqlite; then
+    _FENCE_WT=""
+    _FENCE_TASK=""
+    _NOTES=""
+    for _wpath in "${FENCE_PATHS[@]}"; do
+      _wt=$(_wt_of "$_wpath")
+      if [ "$_wt" != "$_FENCE_WT" ]; then
+        _FENCE_WT="$_wt"
+        _FENCE_TASK=$(_task_for "$_wpath" "$_DB")
+        tmb_scope_fence_load "$_DB" "$_FENCE_TASK"
+      fi
+      [ "$TMB_FENCE_STATE" = "ok" ] || continue
+      _rel="${_wpath#"$_wt"/}"
+      if tmb_scope_fence_allows "$_rel"; then continue; fi
+      _note=$(tmb_scope_fence_note "$_FENCE_TASK" "$_rel")
+      [ -n "$_note" ] && _NOTES="${_NOTES:+$_NOTES; }$_note"
+    done
+    if [ -n "$_NOTES" ]; then
+      jq -nc --arg c "TMB: $_NOTES" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$c}}'
+    fi
+  fi
+  exit 0
 fi
+
+# ---- Rule (h): Edit/Write after a Bash deny on the same path ----------------
+# bypass_check — the allow path of an Edit/Write. When dispatch.sh recorded a
+# Bash deny of a write to this path in this session within
+# TMB_BYPASS_WINDOW_MIN minutes (default 10), appends a hook_block_bypassed
+# audit row, removes the record and prints an additionalContext reminder. The
+# write stays allowed; no DB, session or record means no output.
+bypass_check() {
+  local session state record window gate denied_at now abs db task issue rel content summary ctx
+  session=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+  case "$session" in ''|*/*|.*) return 0 ;; esac
+  state=$(tmb_state_dir 2>/dev/null) || return 0
+  case "$TARGET" in
+    /*) abs="$TARGET" ;;
+    *)  abs="$(tmb_payload_cwd "$INPUT")/$TARGET" ;;
+  esac
+  record="$(tmb_path_canonical "$state")/locks/boundary-denies/$session/$(tmb_path_digest "$abs")"
+  [ -f "$record" ] || return 0
+  gate=$(sed -n 1p "$record" 2>/dev/null || true)
+  denied_at=$(sed -n 2p "$record" 2>/dev/null || true)
+  case "$denied_at" in ''|*[!0-9]*) rm -f "$record"; return 0 ;; esac
+  window="${TMB_BYPASS_WINDOW_MIN:-10}"
+  case "$window" in ''|*[!0-9]*|0) window=10 ;; esac
+  now=$(date +%s)
+  if [ $((now - denied_at)) -gt $((window * 60)) ]; then rm -f "$record"; return 0; fi
+  db=$(tmb_db_path 2>/dev/null || true)
+  [ -n "$db" ] && tmb_have_sqlite || return 0
+  # shellcheck source=scripts/hooks/lib/db-write.sh
+  . "$SCRIPT_DIR/lib/db-write.sh"
+  task=$(_task_for "$TARGET" "$db")
+  issue=-1
+  if [ -n "$task" ]; then
+    issue=$(tmb_sql_int "$(tmb_sqlite_ro "$db" "SELECT issue_id FROM tasks WHERE id = ${task};" 2>/dev/null || true)")
+    [ -n "$issue" ] || issue=-1
+  fi
+  rel="$TARGET"
+  [ -n "$_WT_D" ] && rel="${TARGET#"$_WT_D"/}"
+  content=$(jq -cn --arg tool "$TOOL_NAME" --arg path "$TARGET" --arg gate "$gate" --argjson at "$denied_at" --arg sid "$session" --arg tid "$task" \
+    '{tool:$tool, path:$path, denied_gate:$gate, denied_at:$at, session_id:$sid, task_id:(if $tid == "" then null else ($tid | tonumber) end)}')
+  summary="$TOOL_NAME to $rel after $gate denied a Bash write to it"
+  tmb_audit_append "$db" "$issue" '' "hook:swe-boundary" "hook_block_bypassed" "$summary" "$content" || return 0
+  rm -f "$record"
+  ctx="TMB: $TOOL_NAME to $TARGET follows a $gate Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool."
+  jq -nc --arg c "$ctx" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$c}}'
+}
 
 # ---- Rules (c) and (d): Edit/Write fence ------------------------------------
 case "$TOOL_NAME" in
@@ -321,58 +297,66 @@ TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_pa
 [ -n "$TARGET" ] || exit 0
 
 # ---- Rule (c): target outside assigned worktree ----------------------------
-if [ -n "$WORKTREE_ROOT" ]; then
-  # Normalize target to absolute path for comparison.
-  # If target is relative, prepend PWD.
-  case "$TARGET" in
-    /*) ABS_TARGET="$TARGET" ;;
-    *)  ABS_TARGET="${PWD}/${TARGET}" ;;
-  esac
-  # Resolve any ./ or ../ without requiring realpath (best-effort).
-  case "$ABS_TARGET" in
-    *"/../"*|*"/./"*)
-      _resolved=$(cd "$(dirname "$ABS_TARGET")" 2>/dev/null && pwd)/$(basename "$ABS_TARGET") || true
-      [ -n "$_resolved" ] && ABS_TARGET="$_resolved"
-      ;;
-  esac
-  case "$ABS_TARGET" in
-    "${WORKTREE_ROOT}"/*|"${WORKTREE_ROOT}") ;;
-    *)
-      DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}). Target '${TARGET}' is outside the worktree."
-      jq -nc --arg r "$DENY_MSG" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
-      exit 0
-      ;;
-  esac
+# The worktree is the caller's derived one (canonical paths compared); a
+# relative target joins the payload cwd, the dir the tool resolves it in.
+if [ "$CTX_STATE" = "missing" ]; then
+  DENY_MSG="BLOCKED: swe-boundary cannot resolve this swe's worktree: ${TMB_CTX_MISSING}. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: ${TARGET}. Report this to bro."
+  jq -nc --arg r "$DENY_MSG" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+  exit 0
+fi
+case "$TARGET" in
+  /*) ABS_TARGET="$TARGET" ;;
+  *)  ABS_TARGET="$(tmb_payload_cwd "$INPUT")/${TARGET}" ;;
+esac
+if [ -n "$WORKTREE_ROOT" ] && ! tmb_ctx_in_worktree "$ABS_TARGET"; then
+  DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}) of task ${CALLER_TASK}. Target '${TARGET}' is outside the worktree."
+  jq -nc --arg r "$DENY_MSG" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+  exit 0
 fi
 
-# ---- Rule (d): prompt-surface paths ----------------------------------------
-# Deny edits to agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md,
-# CODEX.md, CURSOR.md, GEMINI.md from SWE context — unless the task row has
-# prompt_bearing=1.
-BASENAME=$(basename "$TARGET")
+# ---- Rule (d): CLAUDE.md and prompt-surface paths --------------------------
+# Deny CLAUDE.md at the worktree root always; deny the rest of the prompt
+# surface (tmb_is_prompt_surface_path) from SWE context unless the task row
+# has prompt_bearing=1.
+if [ -n "$WORKTREE_ROOT" ]; then
+  _WT_D="$WORKTREE_ROOT"
+  _SUBJECT=$(tmb_path_canonical "$ABS_TARGET")
+  _SUBJECT="${_SUBJECT#"$(tmb_path_canonical "$WORKTREE_ROOT")"/}"
+else
+  _WT_D=$(tmb_worktree_root_for_target "$TARGET")
+  _SUBJECT="$TARGET"
+  [ -z "$_WT_D" ] || _SUBJECT="${TARGET#"$_WT_D"/}"
+fi
+if [ -n "$_WT_D" ] && [ "$_SUBJECT" = "CLAUDE.md" ]; then
+  jq -nc --arg r "$(claude_md_reason "$TARGET")" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+  exit 0
+fi
 IS_PROMPT_SURFACE=""
-case "$TARGET" in
-  */agents/*.md|agents/*.md) IS_PROMPT_SURFACE="yes" ;;
-  */skills/*/SKILL.md|skills/*/SKILL.md) IS_PROMPT_SURFACE="yes" ;;
-  */commands/*.md|commands/*.md) IS_PROMPT_SURFACE="yes" ;;
-  */templates/*.md|templates/*.md) IS_PROMPT_SURFACE="yes" ;;
-esac
-case "$BASENAME" in
-  CLAUDE.md|CODEX.md|CURSOR.md|GEMINI.md) IS_PROMPT_SURFACE="yes" ;;
-esac
+tmb_is_prompt_surface_path "$_SUBJECT" "$_WT_D" && IS_PROMPT_SURFACE="yes"
 
 if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   DB=$(tmb_db_path || true)
+  if [ "$(tmb_db_state)" = "error" ]; then
+    tmb_deny_db_unavailable swe-boundary
+    exit 0
+  fi
   if [ -n "$DB" ] && tmb_have_sqlite; then
-    # Resolve task_id robustly (worktree branch → slug → transcript), deriving
-    # the worktree from the TARGET when $PWD isn't inside one.
-    TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
+    # The caller's task (tmb_agent_context); without a DB-resolved context,
+    # the task the TARGET's worktree resolves to (branch → slug → transcript).
+    TASK_ID=$(_task_for "$TARGET" "$DB")
     if [ -n "$TASK_ID" ]; then
-      PROMPT_BEARING=$(tmb_sqlite_ro "$DB" "
+      PROMPT_BEARING=$(tmb_gate_read "$DB" "
         SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${TASK_ID} LIMIT 1;
-      " 2>/dev/null || echo "0")
-      if [ "${PROMPT_BEARING:-0}" -eq 1 ]; then
+      ")
+      if [ "$PROMPT_BEARING" = "__ERR__" ]; then
+        tmb_deny_db_unavailable swe-boundary
+        exit 0
+      fi
+      if [ "${PROMPT_BEARING:-0}" = "1" ]; then
+        bypass_check
         exit 0
       fi
     fi
@@ -383,4 +367,5 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   exit 0
 fi
 
+bypass_check
 exit 0

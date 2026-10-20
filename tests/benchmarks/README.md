@@ -1,8 +1,8 @@
 # Benchmark Measurement Harness
 
-Tools for measuring token burn, cache health, and subagent behaviour from Claude Code session transcripts.
+Tools for measuring token burn, cache health, Claude Code subagent behaviour, and Codex Agent materialization latency.
 
-**Dependencies:** `bash` and `python3` (stdlib only) — all JSON parsing is done in python3, so `jq` is not required. When python3 is unavailable, `selftest.sh` skips with a warning and exits 0.
+**Dependencies:** the legacy transcript tools use `bash` and `python3` (stdlib only); the Codex materialization harness uses Node.js 22 or newer. `jq` is not required. `selftest.sh` runs each available toolchain independently and prints a warning for a missing optional runtime.
 
 ## Tools
 
@@ -71,6 +71,22 @@ bash tests/benchmarks/spawn-reads.sh session.jsonl
 Output: `spawns=N reads=M mean_reads_per_spawn=X.XX`
 
 High reads-per-spawn is a signal that subagents are doing expensive cold-start file exploration rather than relying on the world model.
+
+### codex-agent-materialization.mjs
+
+Measure `agent_materialization_get` against a copied installed plugin artifact and three disposable Git projects: `absent`, `current`, and `conflict`.
+
+```bash
+node tests/benchmarks/codex-agent-materialization.mjs \
+  --installed-plugin-root /absolute/path/to/fixed-sha-installed-artifact \
+  --output-dir /absolute/path/to/new-evidence-directory
+```
+
+The copied artifact must contain `.tmb-artifact-provenance.json`. Its only field is `source_sha`, set to the 40-character lowercase commit SHA used to build the artifact. Run the harness from a clean checkout of that commit. Before sampling, the harness compares the artifact with the checkout, including tracked files, file types, executable bits, and in-repository symlink targets. It rejects `.git`, `node_modules`, broken symlinks, and symlinks that leave the artifact. The artifact hash covers every file, directory, mode, symlink target, and the provenance file.
+
+The harness starts one fresh measurement MCP process per state, takes one cold sample, discards 10 warm-up calls, and records 100 warm samples. Preparing the `current` fixture uses one separate installed-cache MCP process before its measurement process starts. A JSON-RPC request that receives no response within 10 seconds fails the run and triggers bounded process cleanup; this timeout is not part of the latency samples. The harness verifies every response matches the intended state, then writes one JSONL sample file and one JSON summary. The summary uses nearest-rank p50 and p95 values and reports `pass` when every warm p95 is at or below 100 ms. A slower result reports `investigate` but still exits zero so machine-specific latency remains an advisory signal; protocol, fixture, or output failures exit non-zero.
+
+The output directory must not exist and its canonical parent must be outside the installed artifact; symlinked-parent escapes are rejected. Benchmark Git commands discard inherited `GIT_*` overrides, disable hooks and fsmonitor, and ignore global/system Git configuration. The harness leaves the disposable projects and evidence in place for inspection.
 
 ## Session JSONL Format
 

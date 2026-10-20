@@ -60,44 +60,44 @@ push() { FINDINGS="${FINDINGS}\n - $1"; }
 case "$EXT" in
   py)
     # Bare except or `except Exception` (catches SystemExit/KeyboardInterrupt).
-    if echo "$CONTENT" | grep -qE '^[[:space:]]*except[[:space:]]*:'; then
+    if echo "$CONTENT" | grep -E '^[[:space:]]*except[[:space:]]*:' >/dev/null; then
       push "bare 'except:' — catch a specific exception or re-raise"
     fi
-    if echo "$CONTENT" | grep -qE '^[[:space:]]*except[[:space:]]+Exception[[:space:]]*[:as ]'; then
+    if echo "$CONTENT" | grep -E '^[[:space:]]*except[[:space:]]+Exception[[:space:]]*[:as ]' >/dev/null; then
       push "'except Exception' is too broad — catches SystemExit/KeyboardInterrupt"
     fi
     # subprocess.run without timeout=
-    if echo "$CONTENT" | grep -qE 'subprocess\.run\(' \
-       && echo "$CONTENT" | grep -E 'subprocess\.run\([^)]*\)' | grep -qvE 'timeout[[:space:]]*='; then
+    if echo "$CONTENT" | grep -E 'subprocess\.run\(' >/dev/null \
+       && echo "$CONTENT" | grep -E 'subprocess\.run\([^)]*\)' | grep -vE 'timeout[[:space:]]*=' >/dev/null; then
       push "subprocess.run without timeout= — risk of indefinite hang"
     fi
     # f-string SQL
-    if echo "$CONTENT" | grep -qE "f['\"](SELECT|INSERT|UPDATE|DELETE|MERGE)[[:space:]]"; then
+    if echo "$CONTENT" | grep -E "f['\"](SELECT|INSERT|UPDATE|DELETE|MERGE)[[:space:]]" >/dev/null; then
       push "f-string SQL — use parameterized queries to prevent injection"
     fi
     # datetime.utcnow()
-    if echo "$CONTENT" | grep -qE 'datetime\.utcnow\(\)'; then
+    if echo "$CONTENT" | grep -E 'datetime\.utcnow\(\)' >/dev/null; then
       push "datetime.utcnow() returns naive datetime — use datetime.now(timezone.utc)"
     fi
     # Mutable default args
-    if echo "$CONTENT" | grep -qE 'def[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\([^)]*=\[\]'; then
+    if echo "$CONTENT" | grep -E 'def[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\([^)]*=\[\]' >/dev/null; then
       push "mutable default argument [] — use None and assign in body"
     fi
-    if echo "$CONTENT" | grep -qE 'def[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\([^)]*=\{\}'; then
+    if echo "$CONTENT" | grep -E 'def[[:space:]]+[A-Za-z_][A-Za-z0-9_]*\([^)]*=\{\}' >/dev/null; then
       push "mutable default argument {} — use None and assign in body"
     fi
     ;;
   ts|tsx|js|jsx|mjs|cjs)
     # any-typed catch
-    if echo "$CONTENT" | grep -qE 'catch[[:space:]]*\([[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*any[[:space:]]*\)'; then
+    if echo "$CONTENT" | grep -E 'catch[[:space:]]*\([[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*any[[:space:]]*\)' >/dev/null; then
       push "catch (e: any) — use 'unknown' and narrow with instanceof"
     fi
     # template-string SQL with interpolation
-    if echo "$CONTENT" | grep -qE '`(SELECT|INSERT|UPDATE|DELETE|MERGE)[^`]*[$][{]'; then
+    if echo "$CONTENT" | grep -E '`(SELECT|INSERT|UPDATE|DELETE|MERGE)[^`]*[$][{]' >/dev/null; then
       push "template-string SQL with \${...} — use parameterized queries"
     fi
     # setTimeout with string
-    if echo "$CONTENT" | grep -qE "setTimeout\([[:space:]]*['\"]"; then
+    if echo "$CONTENT" | grep -E "setTimeout\([[:space:]]*['\"]" >/dev/null; then
       push "setTimeout with string argument — use a function reference"
     fi
     ;;
@@ -105,7 +105,7 @@ esac
 
 # TODO/FIXME/HACK in any source language. Allowed in tests/__fixtures__,
 # already filtered above.
-if echo "$CONTENT" | grep -qE '(TODO|FIXME|HACK|XXX)([[:space:]]|:|$)'; then
+if echo "$CONTENT" | grep -E '(TODO|FIXME|HACK|XXX)([[:space:]]|:|$)' >/dev/null; then
   push "TODO/FIXME/HACK — finish the work or escalate; don't ship the marker"
 fi
 

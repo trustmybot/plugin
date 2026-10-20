@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
@@ -290,6 +290,7 @@ describe('fields projection — validation_history (#210)', () => {
         const issueId = await createIssue(db);
         const taskId = await createTask(db, issueId);
         const validation = validationTools(db);
+        seedReviewerObservation(db, taskId, 1);
         await call(validation.handlers, 'validation_record', {
             agent: 'pr-reviewer',
             task_id: taskId,
@@ -320,6 +321,7 @@ describe('fields projection — validation_history (#210)', () => {
         const issueId = await createIssue(db);
         const taskId = await createTask(db, issueId);
         const validation = validationTools(db);
+        seedReviewerObservation(db, taskId, 1);
         await call(validation.handlers, 'validation_record', {
             agent: 'pr-reviewer',
             task_id: taskId,
@@ -402,7 +404,7 @@ describe('issue_report_md summary mode (#210)', () => {
                 agent: 'bro',
                 issue_id: String(issueId),
                 from_node: 'bro',
-                event_type: 'test_event',
+                event_type: 'planning_complete',
                 summary: `Audit event ${i}`,
             });
         }
@@ -438,7 +440,7 @@ describe('issue_report_md summary mode (#210)', () => {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
-            event_type: 'task_started',
+            event_type: 'planning_complete',
             summary: 'Detail mode audit entry',
         });
         const tools = reportTools(db);
@@ -471,7 +473,7 @@ describe('branch_report_md summary mode (#210)', () => {
                 issue_id: String(issueId),
                 branch_id: branchId,
                 from_node: 'bro',
-                event_type: 'test_event',
+                event_type: 'planning_complete',
                 summary: `Branch event ${i}`,
             });
         }

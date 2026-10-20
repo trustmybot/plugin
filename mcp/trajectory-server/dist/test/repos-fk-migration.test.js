@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import { issueTools } from '../tools/issues.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -27,7 +28,9 @@ function recordingSpawnFn(url) {
     return { fn, calls };
 }
 function seedRepo(db, name, path, remotes) {
-    db.run(`INSERT INTO repos (name, path, file_count, remotes) VALUES (?, ?, 0, ?)`, [name, path, remotes ? JSON.stringify(remotes) : null]);
+    db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, [name, path]);
+    if (remotes)
+        upsertRepoRemotes(db, name, remotes);
 }
 describe('repos-centric schema (#155) — fresh schema shape', () => {
     it('declares a repo FK on every work table', () => {
@@ -46,16 +49,18 @@ describe('repos-centric schema (#155) — fresh schema shape', () => {
         assert.ok(issueFks.some((fk) => fk.table === 'milestones'), 'issues must declare a composite FK to milestones');
         db.close();
     });
-    it('repos.remotes column exists', () => {
+    it('a repo\'s remotes live in repo_remotes, not on repos', () => {
         const db = tempDB();
         const cols = db.all('PRAGMA table_info(repos)').map((c) => c.name);
-        assert.ok(cols.includes('remotes'), 'repos.remotes must exist');
+        assert.ok(!cols.includes('remotes'), 'repos has no remotes column');
+        const fks = db.all('PRAGMA foreign_key_list(repo_remotes)');
+        assert.ok(fks.some((fk) => fk.table === 'repos' && fk.from === 'repo'), 'repo_remotes.repo must FK repos(name)');
         db.close();
     });
     it('the four repo-scoped keys live on repos, not in plugin_config (#980)', () => {
         const db = tempDB();
         const cols = db.all('PRAGMA table_info(repos)').map((c) => c.name);
-        for (const col of ['target_branch', 'branching_model', 'protected_branches', 'remotes']) {
+        for (const col of ['target_branch', 'branching_model', 'protected_branches']) {
             assert.ok(cols.includes(col), `repos.${col} must exist`);
         }
         for (const key of ['pr_target', 'branching_model', 'protected_branches', 'remotes']) {
@@ -116,7 +121,7 @@ describe('repos-centric schema (#155) — FK enforcement', () => {
     });
 });
 describe('repos-centric schema (#155) — issue-scoped sync', () => {
-    it('resolveRepoForSync returns the sole repo with decoded remotes', () => {
+    it('resolveRepoForSync returns the sole repo; its remotes read through repoRemotes', () => {
         const db = tempDB();
         seedRepo(db, 'plugin', '/ws/plugin', [
             { name: 'origin', provider: 'github', url: 'https://github.com/acme/plugin.git' },
@@ -125,7 +130,7 @@ describe('repos-centric schema (#155) — issue-scoped sync', () => {
         assert.ok(resolved);
         assert.equal(resolved.name, 'plugin');
         assert.equal(resolved.path, '/ws/plugin');
-        assert.equal(resolved.remotes[0].url, 'https://github.com/acme/plugin.git');
+        assert.equal(repoRemotes(db, resolved.name)[0].url, 'https://github.com/acme/plugin.git');
         db.close();
     });
     it('resolveRepoForSync returns null for an ambiguous multi-repo install', () => {
@@ -165,10 +170,10 @@ describe('repos-centric schema (#155) — issue-scoped sync', () => {
     it('issue_create on an unresolvable multi-repo install surfaces a named error', async () => {
         const db = tempDB();
         seedRepo(db, 'a', '/ws/a', [
-            { provider: 'github', url: 'https://github.com/acme/a.git' },
+            { name: 'origin', provider: 'github', url: 'https://github.com/acme/a.git' },
         ]);
         seedRepo(db, 'b', '/ws/b', [
-            { provider: 'github', url: 'https://github.com/acme/b.git' },
+            { name: 'origin', provider: 'github', url: 'https://github.com/acme/b.git' },
         ]);
         db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')
              ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
@@ -190,10 +195,10 @@ describe('repos-centric schema (#155) — issue-scoped sync', () => {
     it('issue_create targets the named repo when repo= is passed explicitly', async () => {
         const db = tempDB();
         seedRepo(db, 'a', '/ws/a', [
-            { provider: 'github', url: 'https://github.com/acme/a.git' },
+            { name: 'origin', provider: 'github', url: 'https://github.com/acme/a.git' },
         ]);
         seedRepo(db, 'b', '/ws/b', [
-            { provider: 'github', url: 'https://github.com/acme/b.git' },
+            { name: 'origin', provider: 'github', url: 'https://github.com/acme/b.git' },
         ]);
         db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')
              ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);

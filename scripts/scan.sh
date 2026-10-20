@@ -10,8 +10,16 @@
 #     "session_dir": "<absolute path>",
 #     "scanned_at": "<ISO timestamp>",
 #     "repos":  [ { name, path, file_count } ],
-#     "files":  [ { repo, path, size_bytes, content_md5, last_commit_sha } ]
+#     "files":  [ { repo, path, size_bytes, content_md5, last_commit_sha } ],
+#     "plugin_inventory": { status, note },
+#     "mcp_inventory": { status, note }
 #   }
+#
+# plugin_inventory.status: cli (read from `claude plugin list --json`),
+# fixture (read from TMB_SCAN_PLUGIN_JSON), unavailable (no plugin list; note
+# says why) or skipped (no trajectory DB with a cheatcodes table to record into).
+# mcp_inventory.status: home (read from ~/.claude.json mcpServers), fixture
+# (read from TMB_SCAN_MCP_JSON), unavailable (note says why) or skipped (as above).
 #
 # Determinism rules (per the user's design):
 #   - Drift detection is md5-only. No git diff. last_commit_sha is metadata,
@@ -28,10 +36,36 @@
 # Usage:
 #   bash scripts/scan.sh [session_dir]
 #   session_dir defaults to $PWD.
+#
+# Environment:
+#   TMB_SCAN_PLUGIN_JSON    path to a file holding `claude plugin list --json`
+#                           output; read in place of the CLI under the test
+#                           flags.
+#   TMB_SCAN_MCP_JSON       path to a file holding an `mcpServers` object (the
+#                           shape of ~/.claude.json's `.mcpServers`); read in
+#                           place of ~/.claude.json under the test flags.
+#   TMB_SCAN_DISCOVERY_TIMEOUT  seconds allowed for `claude plugin list` (4).
+#
+# Test flags: TMB_FORBID_LIVE_SYNC=1 or a set TMB_TEST_RUN_ID (tmb_test_flag in
+# hooks/lib/query-task.sh). Under either, the DB must resolve from
+# TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR (the shared resolver never walks up;
+# exit 2 otherwise), `claude` is never spawned and ~/.claude.json is never read.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/hooks/lib/query-task.sh"
+
+SCAN_TEST_MODE=0
+if tmb_test_flag >/dev/null; then
+  SCAN_TEST_MODE=1
+  if ! tmb_db_path >/dev/null; then
+    echo 'scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled) unless CLAUDE_PROJECT_DIR names a project with a DB' >&2
+    exit 2
+  fi
+fi
 
 SESSION_DIR="${1:-$PWD}"
 SESSION_DIR=$(cd "$SESSION_DIR" 2>/dev/null && pwd)
@@ -77,7 +111,8 @@ _batch_md5() {
   # xargs: -0 NUL-delimited (paths may contain spaces), -P4 parallel workers,
   # -n50 files per invocation.
   # BSD/GNU both produce "hash path" (md5 -r) or "hash  path" (md5sum).
-  # awk flips to "path\thash".
+  # awk flips to "path\thash". MD5_CMD ("md5 -r") splits into command + flag.
+  # shellcheck disable=SC2086
   while IFS= read -r p; do printf '%s\0' "$p"; done < "$abs_list_file" \
   | xargs -0 -P4 -n50 $MD5_CMD 2>/dev/null \
   | awk '{hash=$1; sub(/^[^ ]+ +/,""); print $0 "\t" hash}'
@@ -106,20 +141,74 @@ _batch_stat() {
   esac
 }
 
+# One scan_skipped audit row per skipped path and reason; a re-scan that skips
+# the same path writes nothing. Best-effort: no DB or no audit table, no row.
+_audit_skip() {
+  local path="$1" reason="$2" db content
+  # shellcheck source=scripts/hooks/lib/db-write.sh
+  . "$SCRIPT_DIR/hooks/lib/db-write.sh" 2>/dev/null || return 0
+  tmb_have_sqlite || return 0
+  db=$(tmb_db_path 2>/dev/null) || return 0
+  [ -n "$(tmb_sqlite_ro "$db" "SELECT name FROM sqlite_master WHERE type='table' AND name='audit';")" ] || return 0
+  content=$(jq -nc --arg path "$path" --arg reason "$reason" '{path:$path,reason:$reason}')
+  tmb_audit_append "$db" -1 '' "hook:scan" "scan_skipped" "$path: skipped ($reason)" "$content" '$.path' '$.reason'
+}
+
+# The reason a discovered repo below SESSION_DIR is left out of the scan, or
+# nothing when it is scanned: dot_dir (a dot-prefixed path segment below
+# SESSION_DIR), git_ignored (the nearest enclosing repo up to SESSION_DIR
+# ignores it) or no_commits (no HEAD commit).
+_skip_reason() {
+  local repo="$1" rel="${1#"$SESSION_DIR"/}" enclosing
+  case "/$rel" in
+    */.*) echo dot_dir; return ;;
+  esac
+  enclosing=$(dirname "$repo")
+  while :; do
+    if [ -e "$enclosing/.git" ]; then
+      git -C "$enclosing" check-ignore -q "$repo" 2>/dev/null && { echo git_ignored; return; }
+      break
+    fi
+    [ "$enclosing" = "$SESSION_DIR" ] && break
+    enclosing=$(dirname "$enclosing")
+  done
+  git -C "$repo" rev-parse --verify -q HEAD >/dev/null 2>&1 || echo no_commits
+}
+
 # Discover git repos under SESSION_DIR (max depth 4). Excludes worktrees and
-# common build artefacts.
+# common build artefacts below SESSION_DIR; the prune patterns match paths
+# relative to it, so a SESSION_DIR that itself sits under .claude/worktrees/
+# is still scanned (GH 1550). SESSION_DIR itself is always scanned; a repo
+# below it with a _skip_reason is left out and audited (GH 1551).
 discover_repos() {
-  find "$SESSION_DIR" -maxdepth 4 \
+  local repo reason
+  (cd "$SESSION_DIR" && find . -maxdepth 4 \
     \( -path '*/node_modules' -o -path '*/.claude/worktrees*' \
        -o -path '*/dist' -o -path '*/build' -o -path '*/.next' \
        -o -path '*/target' -o -path '*/.venv' -o -path '*/venv' \) -prune \
-    -o -name .git -print 2>/dev/null \
+    -o -name .git -print 2>/dev/null) \
   | sed 's:/\.git$::' \
-  | sort -u
+  | while IFS= read -r rel; do
+      case "$rel" in
+        .) printf '%s\n' "$SESSION_DIR" ;;
+        ./*) printf '%s/%s\n' "$SESSION_DIR" "${rel#./}" ;;
+      esac
+    done \
+  | sort -u \
+  | while IFS= read -r repo; do
+      if [ "$repo" != "$SESSION_DIR" ]; then
+        reason=$(_skip_reason "$repo")
+        if [ -n "$reason" ]; then
+          _audit_skip "$repo" "$reason" >/dev/null 2>&1 || true
+          continue
+        fi
+      fi
+      printf '%s\n' "$repo"
+    done
 }
 
-repos_jsonl=$(mktemp -t tmb-scan-repos.XXXXXX.jsonl)
-files_jsonl=$(mktemp -t tmb-scan-files.XXXXXX.jsonl)
+repos_jsonl=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-scan-repos.jsonl.XXXXXX")
+files_jsonl=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-scan-files.jsonl.XXXXXX")
 trap 'rm -f "$repos_jsonl" "$files_jsonl"' EXIT
 
 while IFS= read -r repo_root; do
@@ -140,7 +229,7 @@ while IFS= read -r repo_root; do
 
   # Single-pass git log: build relpath→sha map in one subprocess.
   # awk: 40-hex lines update current SHA; file lines record first (most-recent) SHA.
-  sha_map_file=$(mktemp -t tmb-shamap.XXXXXX)
+  sha_map_file=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-shamap.XXXXXX")
   git -C "$repo_root" -c core.quotePath=false log --format='%H' --name-only --no-renames 2>/dev/null \
   | awk '
       /^[0-9a-f]{40}$/ { cur = $0; next }
@@ -149,7 +238,7 @@ while IFS= read -r repo_root; do
     ' > "$sha_map_file"
 
   # Build absolute path list: sed prepends repo_root to each relpath.
-  abs_list_file=$(mktemp -t tmb-abslist.XXXXXX)
+  abs_list_file=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-abslist.XXXXXX")
   printf '%s\n' "$files_list" \
   | awk -v r="$repo_root" '{print r "/" $0}' \
   | while IFS= read -r abs; do
@@ -169,8 +258,8 @@ while IFS= read -r repo_root; do
   fi
 
   # Batch md5 and stat: each produces "path\tvalue" lines (unordered).
-  md5_map_file=$(mktemp -t tmb-md5map.XXXXXX)
-  size_map_file=$(mktemp -t tmb-sizemap.XXXXXX)
+  md5_map_file=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-md5map.XXXXXX")
+  size_map_file=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-sizemap.XXXXXX")
   _batch_md5 "$abs_list_file" > "$md5_map_file" 2>/dev/null || true
   _batch_stat "$abs_list_file" > "$size_map_file" 2>/dev/null || true
 
@@ -247,13 +336,19 @@ done < <(discover_repos)
 # yields origin=marketplace with source_url=<the ref>. A plugin's enabled flag
 # maps to status (enabled→active, else installed).
 #
-# Non-load-bearing: this never alters stdout (the world-model JSON below is
+# Non-load-bearing: it only sets plugin_inventory + mcp_inventory on stdout (the world-model JSON is
 # unchanged) and never fails the scan — every step is guarded and best-effort.
+PLUGIN_INVENTORY_STATUS=skipped
+PLUGIN_INVENTORY_NOTE="no trajectory DB with a cheatcodes table"
+MCP_INVENTORY_STATUS=skipped
+MCP_INVENTORY_NOTE="no trajectory DB with a cheatcodes table"
 discover_resources() {
   local lib="$SCRIPT_DIR/hooks/lib/query-task.sh"
   [ -f "$lib" ] || return 0
   # shellcheck source=scripts/hooks/lib/query-task.sh
   . "$lib" 2>/dev/null || return 0
+  # shellcheck source=scripts/hooks/lib/db-write.sh
+  . "$SCRIPT_DIR/hooks/lib/db-write.sh" 2>/dev/null || return 0
 
   tmb_have_sqlite || return 0
   local db
@@ -277,7 +372,7 @@ discover_resources() {
   }
 
   local now
-  now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  now=$(tmb_sql_quote "$(tmb_now_iso)")
 
   # A valid plugin/mcp/skill name is the marketplace identifier charset. Reject
   # anything else BEFORE the insert — this is the #150 guard that stops header
@@ -289,50 +384,72 @@ discover_resources() {
     esac
   }
 
-  # INSERT one discovered resource if it is not already a cheatcodes row
-  # (matched on name+kind). Emits a scan_discovered audit row on insert.
+  # Register one discovered resource, keyed on (name, kind). The INSERT is a
+  # no-op when the row exists, and the scan_discovered audit row is guarded on
+  # the INSERT having inserted, so a re-scan writes nothing. An existing row
+  # only gets its blank description / NULL version filled and a legacy
+  # 'mcp:<server>' source_url rewritten to the bundled 'mcp:<plugin>/<server>'.
   #   $1 kind   skill|mcp|plugin
   #   $2 name   validated against _valid_name (charset gate)
   #   $3 file_path  SKILL.md for skills, '' otherwise
   #   $4 origin     marketplace|external (provenance, never a lifecycle word)
   #   $5 source_url the candidate identity (e.g. <name>@<mkt>); '' → 'scan_discovered'
   #   $6 status     active|installed
+  #   $7 description  '' when the manifest has none
+  #   $8 version      '' → NULL
+  #   $9 trust_parent plugin whose trust_tier the row inherits ('' → NULL)
   _register() {
     local kind="$1" name="$2" file_path="$3" origin="${4:-external}" source_url="${5:-}" status="${6:-installed}"
+    local description="${7:-}" version="${8:-}" trust_parent="${9:-}"
     _valid_name "$name" || return 0
-    local safe_name safe_kind safe_origin safe_status
+    [ -n "$source_url" ] || source_url="scan_discovered"
+    local safe_name safe_kind safe_url safe_desc
     safe_name=$(tmb_sql_quote "$name")
     safe_kind=$(tmb_sql_quote "$kind")
-    safe_origin=$(tmb_sql_quote "$origin")
-    safe_status=$(tmb_sql_quote "$status")
+    safe_url=$(tmb_sql_quote "$source_url")
+    safe_desc=$(tmb_sql_quote "$description")
+    local version_sql="NULL"
+    [ -n "$version" ] && version_sql="'$(tmb_sql_quote "$version")'"
 
     local existing
     existing=$(tmb_sqlite_ro "$db" "
-      SELECT 1 FROM cheatcodes
+      SELECT CASE
+               WHEN (description = '' AND '$safe_desc' <> '')
+                 OR (version IS NULL AND $version_sql IS NOT NULL)
+                 OR (kind = 'mcp' AND source_url = 'mcp:' || name AND '$safe_url' LIKE 'mcp:%/%')
+               THEN 'stale' ELSE 'current' END
+        FROM cheatcodes
        WHERE name = '$safe_name' AND kind = '$safe_kind' LIMIT 1;")
-    [ -n "$existing" ] && return 0
-
-    [ -n "$source_url" ] || source_url="scan_discovered"
-    local safe_url
-    safe_url=$(tmb_sql_quote "$source_url")
+    if [ -n "$existing" ]; then
+      [ "$existing" = "stale" ] || return 0
+      tmb_db_write "$db" "UPDATE cheatcodes
+   SET description = CASE WHEN description = '' THEN '$safe_desc' ELSE description END,
+       version = COALESCE(version, $version_sql),
+       source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND '$safe_url' LIKE 'mcp:%/%'
+                         THEN '$safe_url' ELSE source_url END,
+       updated_at = '$now'
+ WHERE name = '$safe_name' AND kind = '$safe_kind';" >/dev/null || return 0
+      return 0
+    fi
 
     local fp_sql="NULL"
     if [ -n "$file_path" ]; then
       fp_sql="'$(tmb_sql_quote "$file_path")'"
     fi
-    local content_json
-    content_json=$(printf '{"name":"%s","kind":"%s","origin":"%s","source":"%s"}' \
-      "$safe_name" "$safe_kind" "$safe_origin" "$safe_url")
+    local trust_sql="NULL"
+    if [ -n "$trust_parent" ]; then
+      trust_sql="(SELECT trust_tier FROM cheatcodes WHERE kind = 'plugin' AND name = '$(tmb_sql_quote "$trust_parent")')"
+    fi
+    local content_json audit_sql
+    content_json=$(jq -nc --arg name "$name" --arg kind "$kind" --arg origin "$origin" --arg source "$source_url" \
+      '{name: $name, kind: $kind, origin: $origin, source: $source}')
+    audit_sql=$(tmb_audit_sql -1 '' "hook:scan" "scan_discovered" "$name ($kind): discovered" "$content_json" \
+      "(SELECT changes()) > 0") || return 0
 
-    sqlite3 "$db" <<SQL 2>/dev/null || true
-INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, scope, status, installed_at, created_at, updated_at)
-VALUES ('$safe_name', '$safe_kind', '$safe_origin', '$safe_url', $fp_sql, 'project-local', '$safe_status', '$now', '$now', '$now');
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, '', 'scan',
-        'scan_discovered',
-        '$safe_name ($safe_kind): discovered',
-        '$content_json', '$now');
-SQL
+    tmb_db_write "$db" "INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+VALUES ('$safe_name', '$safe_kind', '$(tmb_sql_quote "$origin")', '$safe_desc', '$safe_url', $fp_sql, $version_sql, $trust_sql, 'project-local', '$(tmb_sql_quote "$status")', '$now', '$now', '$now')
+ON CONFLICT (name, kind) DO NOTHING;
+$audit_sql" >/dev/null || return 0
   }
 
   # skills — project-local .claude/skills/<name>/SKILL.md. Builtin-shipped, so
@@ -354,39 +471,96 @@ SQL
   # <name>@<marketplace> → origin=marketplace, source_url=<the ref>, status from
   # `enabled`. Each entry's `mcpServers` object names the MCP servers a plugin
   # registers.
-  if command -v claude >/dev/null 2>&1; then
-    local plugin_json
-    plugin_json=$(_run_bounded claude plugin list --json)
-    if printf '%s' "$plugin_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-      # plugins: one TSV line per entry → name<TAB>ref<TAB>status. jq splits the
-      # id on '@' and maps enabled→active/installed; the shell loop validates +
-      # inserts. A blank name (malformed id) is dropped by _valid_name.
-      local pname pref pstatus
-      while IFS=$'\t' read -r pname pref pstatus; do
-        [ -n "$pname" ] || continue
-        _register plugin "$pname" "" marketplace "$pref" "$pstatus"
-      done < <(printf '%s' "$plugin_json" | jq -r '
-        .[]? | [ ((.id // "") | split("@")[0]),
-                 (.id // ""),
-                 (if .enabled == true then "active" else "installed" end) ]
-        | @tsv' 2>/dev/null)
-
-      # mcp servers contributed by each plugin's mcpServers object.
-      local mname
-      while IFS= read -r mname; do
-        [ -n "$mname" ] || continue
-        _register mcp "$mname" "" marketplace "mcp:$mname" active
-      done < <(printf '%s' "$plugin_json" | jq -r '
-        .[]?.mcpServers? // {} | keys[]?' 2>/dev/null | sort -u)
+  local plugin_json="" plugin_source="" plugin_note=""
+  if [ "$SCAN_TEST_MODE" = "1" ]; then
+    if [ -n "${TMB_SCAN_PLUGIN_JSON:-}" ] && [ -r "$TMB_SCAN_PLUGIN_JSON" ]; then
+      plugin_json=$(cat "$TMB_SCAN_PLUGIN_JSON")
+      plugin_source=fixture
+    else
+      plugin_note="TMB_FORBID_LIVE_SYNC=1 or TMB_TEST_RUN_ID set and no readable TMB_SCAN_PLUGIN_JSON: claude plugin list skipped"
     fi
+  elif command -v claude >/dev/null 2>&1; then
+    plugin_json=$(_run_bounded claude plugin list --json)
+    plugin_source=cli
+  else
+    plugin_note="claude CLI not on PATH"
+  fi
+  if [ -n "$plugin_source" ] && ! printf '%s' "$plugin_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    plugin_note="$plugin_source plugin list is not a JSON array"
+    plugin_source=""
+  fi
+  if [ -z "$plugin_source" ]; then
+    PLUGIN_INVENTORY_STATUS=unavailable
+    PLUGIN_INVENTORY_NOTE="$plugin_note"
+  else
+    PLUGIN_INVENTORY_STATUS="$plugin_source"
+    PLUGIN_INVENTORY_NOTE=""
+    # plugins: one line per entry → name, ref, status, version, description,
+    # installPath, separated by US (\x1f) so empty fields keep their place.
+    # jq splits the id on '@' and maps enabled→active/installed; the shell
+    # loop validates + inserts. A blank name (malformed id) is dropped by
+    # _valid_name. A description absent from the list entry is read from the
+    # installed plugin.json.
+    local pname pref pstatus pversion pdesc ppath
+    while IFS=$'\x1f' read -r pname pref pstatus pversion pdesc ppath; do
+      [ -n "$pname" ] || continue
+      if [ -z "$pdesc" ] && [ -n "$ppath" ] && [ -f "$ppath/.claude-plugin/plugin.json" ]; then
+        pdesc=$(jq -r '.description // ""' "$ppath/.claude-plugin/plugin.json" 2>/dev/null || true)
+      fi
+      _register plugin "$pname" "" marketplace "$pref" "$pstatus" "$pdesc" "$pversion"
+    done < <(printf '%s' "$plugin_json" | jq -r '
+      .[]? | [ ((.id // "") | split("@")[0]),
+               (.id // ""),
+               (if .enabled == true then "active" else "installed" end),
+               (.version // ""),
+               ((.description // "") | gsub("[\t\n\r]"; " ")),
+               (.installPath // "") ]
+      | join("\u001f")' 2>/dev/null)
+
+    # mcp servers bundled by each plugin's mcpServers object → plugin, server,
+    # version (US-separated). source_url mcp:<plugin>/<server> lets the
+    # health-check find the parent plugin.
+    local mplugin mname mversion
+    while IFS=$'\x1f' read -r mplugin mname mversion; do
+      [ -n "$mname" ] || continue
+      _valid_name "$mplugin" || continue
+      _register mcp "$mname" "" marketplace "mcp:$mplugin/$mname" active \
+        "$mname MCP server bundled by $mplugin" "$mversion" "$mplugin"
+    done < <(printf '%s' "$plugin_json" | jq -r '
+      .[]? | ((.id // "") | split("@")[0]) as $p | (.version // "") as $v
+      | (.mcpServers? // {} | keys[]?) | [ $p, ., $v ] | join("\u001f")' 2>/dev/null)
   fi
 
-  # mcp fallback — ~/.claude.json mcpServers keys (covers a stale/absent CLI).
-  if [ -f "$HOME/.claude.json" ]; then
+  # mcp fallback — the mcpServers object of ~/.claude.json (covers a
+  # stale/absent CLI); under the test flags, of TMB_SCAN_MCP_JSON instead.
+  local mcp_servers="" mcp_source="" mcp_note=""
+  if [ "$SCAN_TEST_MODE" = "1" ]; then
+    if [ -n "${TMB_SCAN_MCP_JSON:-}" ] && [ -r "$TMB_SCAN_MCP_JSON" ]; then
+      mcp_servers=$(cat "$TMB_SCAN_MCP_JSON")
+      mcp_source=fixture
+    else
+      mcp_note="TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID set and no readable TMB_SCAN_MCP_JSON: ~/.claude.json skipped"
+    fi
+  elif [ -f "$HOME/.claude.json" ]; then
+    mcp_servers=$(jq -c '.mcpServers // {}' "$HOME/.claude.json" 2>/dev/null || true)
+    mcp_source=home
+  else
+    mcp_note="no ~/.claude.json"
+  fi
+  if [ -n "$mcp_source" ] && ! printf '%s' "$mcp_servers" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    mcp_note="$mcp_source mcpServers is not a JSON object"
+    mcp_source=""
+  fi
+  if [ -z "$mcp_source" ]; then
+    MCP_INVENTORY_STATUS=unavailable
+    MCP_INVENTORY_NOTE="$mcp_note"
+  else
+    MCP_INVENTORY_STATUS="$mcp_source"
+    MCP_INVENTORY_NOTE=""
     local jkey
     while IFS= read -r jkey; do
       [ -n "$jkey" ] && _register mcp "$jkey" "" external "mcp:$jkey" active
-    done < <(jq -r '.mcpServers // {} | keys[]' "$HOME/.claude.json" 2>/dev/null || true)
+    done < <(printf '%s' "$mcp_servers" | jq -r 'keys[]' 2>/dev/null || true)
   fi
 
   return 0
@@ -401,4 +575,8 @@ jq -n \
   --arg scanned_at "$scanned_at" \
   --slurpfile repos "$repos_jsonl" \
   --slurpfile files "$files_jsonl" \
-  '{session_dir:$session_dir,scanned_at:$scanned_at,repos:$repos,files:$files}'
+  --arg plugin_status "$PLUGIN_INVENTORY_STATUS" \
+  --arg plugin_note "$PLUGIN_INVENTORY_NOTE" \
+  --arg mcp_status "$MCP_INVENTORY_STATUS" \
+  --arg mcp_note "$MCP_INVENTORY_NOTE" \
+  '{session_dir:$session_dir,scanned_at:$scanned_at,repos:$repos,files:$files,plugin_inventory:{status:$plugin_status,note:$plugin_note},mcp_inventory:{status:$mcp_status,note:$mcp_note}}'

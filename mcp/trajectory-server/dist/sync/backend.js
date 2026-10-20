@@ -34,9 +34,12 @@ export function detectAvailable(_spawnFn) {
     }
     return result;
 }
-export function detectPreferred() {
+// Which CLI the repo at `repoPath` (the issue's repos.path, else the project
+// root) points its origin at. A null path keeps the in-memory test behaviour.
+export function detectPreferred(repoPath) {
     try {
         const result = spawnSync('git', ['remote', 'get-url', 'origin'], {
+            ...(repoPath === null ? {} : { cwd: repoPath }),
             timeout: SUBPROCESS_TIMEOUT_MS,
             encoding: 'utf8',
         });
@@ -54,10 +57,12 @@ export function detectPreferred() {
         return null;
     }
 }
+function remoteSyncEnvDisabled() {
+    const v = process.env.TMB_DISABLE_REMOTE_SYNC;
+    return v === '1' || v?.toLowerCase() === 'true';
+}
 export function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
-    if (!hasSpawnFn &&
-        (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
-            process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true')) {
+    if (!hasSpawnFn && remoteSyncEnvDisabled()) {
         return null;
     }
     if (configValue === 'off')
@@ -69,7 +74,7 @@ export function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, ava
     if (configValue === 'both')
         return 'both';
     // 'auto' — derive the decision from the issue repo's configured remotes
-    // (repos.remotes), gated only by a CLI-availability check that confirms the
+    // (repo_remotes), gated only by a CLI-availability check that confirms the
     // chosen CLI is installed/authed. No process.cwd() git probe.
     const available = availability ?? detectAvailable();
     const ghUsable = (repoRemotes?.github ?? false) && available.gh;
@@ -81,5 +86,33 @@ export function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, ava
     if (glUsable)
         return 'glab';
     return null;
+}
+function readIssueSyncConfig(db) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+    if (!row)
+        return 'off';
+    try {
+        return String(JSON.parse(row.value_json));
+    }
+    catch {
+        return 'off';
+    }
+}
+// The one kill-switch every server-side remote write consults. The env var wins
+// over everything, including an injected spawn: a disabled workspace reaches no
+// remote. `repoRemotes` is the issue repo's configured providers; `spawnFn`,
+// when injected, also answers the gh/glab availability probe of 'auto'.
+export function remoteSyncGate(db, opts = {}) {
+    if (remoteSyncEnvDisabled())
+        return { enabled: false, reason: 'env_disabled' };
+    const config = readIssueSyncConfig(db);
+    if (config === 'off')
+        return { enabled: false, reason: 'issue_sync_off' };
+    const explicit = config === 'gh' || config === 'glab' || config === 'both';
+    const availability = explicit ? undefined : detectAvailable(opts.spawnFn);
+    const backend = resolveBackend(config, opts.repoRemotes ?? null, true, availability);
+    if (backend === null || backend === 'off')
+        return { enabled: false, reason: 'no_backend' };
+    return { enabled: true };
 }
 //# sourceMappingURL=backend.js.map

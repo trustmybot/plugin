@@ -1,11 +1,13 @@
-import { copyFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 28;
+import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
+import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
+import { AUDIT_EVENT_TYPES } from './audit-events.js';
+import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
+export const TARGET_SCHEMA_VERSION = 40;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -20,19 +22,7 @@ const TARGET_SCHEMA_VERSION = 28;
  * CC is invoking the server with a real plugin context.
  */
 export function resolvePluginName(env = process.env) {
-    const root = env['CLAUDE_PLUGIN_ROOT'];
-    if (!root)
-        return 'tmb';
-    try {
-        const manifest = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
-        if (typeof manifest.name === 'string' && manifest.name.length > 0) {
-            return manifest.name;
-        }
-    }
-    catch {
-        // Fall through to the default below.
-    }
-    return 'tmb';
+    return resolveClaudePluginName(env);
 }
 /**
  * Resolve the plugin version from CLAUDE_PLUGIN_ROOT's manifest. Returns null
@@ -40,78 +30,21 @@ export function resolvePluginName(env = process.env) {
  * the builtin-version backfill (#111) then leaves the column unchanged.
  */
 export function resolvePluginVersion(env = process.env) {
-    const root = env['CLAUDE_PLUGIN_ROOT'];
-    if (!root)
-        return null;
-    try {
-        const manifest = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
-        if (typeof manifest.version === 'string' && manifest.version.length > 0) {
-            return manifest.version;
-        }
-    }
-    catch {
-        // Fall through to null below.
-    }
-    return null;
+    return resolveClaudePluginVersion(env);
 }
 /**
- * Resolve the trajectory DB path.
- *
- * 1. Explicit `TRAJECTORY_DB_PATH` env override wins. Power-user / CI use.
- * 2. Walk up from cwd to find an existing `.claude/<plugin>/trajectory.db`.
- *    Workspace-pattern projects keep the live DB at the workspace root above
- *    the inner repos; without this walk-up, the hook (PWD = inner repo) and
- *    the MCP server (PWD = workspace root) would resolve different DBs and
- *    bro would see false 'first contact' on every turn (#2872).
- * 3. Fallback: `<cwd>/.claude/<plugin-name>/trajectory.db` — fresh-init.
+ * Resolve the trajectory DB path: the DB found by `findExistingClaudeDbUp`
+ * (platform.ts), else a fresh-init path under `CLAUDE_PROJECT_DIR` (or cwd). The rule is
+ * documented in docs/reference/TRAJECTORY_DB_LOCATION.md.
  */
 export function resolveDbPath(opts) {
-    const env = opts?.env ?? process.env;
-    const cwd = opts?.cwd ?? process.cwd();
-    const home = opts?.home ?? homedir();
-    const override = env['TRAJECTORY_DB_PATH'];
-    if (override && override.trim().length > 0)
-        return override;
-    const pluginName = resolvePluginName(env);
-    const found = findExistingDbUp(cwd, pluginName, { home });
-    if (found)
-        return found;
-    return join(cwd, '.claude', pluginName, 'trajectory.db');
-}
-function findExistingDbUp(startDir, pluginName, opts) {
-    const home = opts?.home ?? homedir();
-    let dir = startDir;
-    // Walk up at most 8 levels — enough for any reasonable workspace nesting,
-    // and bounds the cost when nothing exists.
-    for (let i = 0; i < 8; i++) {
-        // P0 guard: never traverse into the user's HOME via walk-up. Project
-        // state belongs to a project, not the user's profile. If the user
-        // launched from HOME itself (degenerate), the walk-up still checks
-        // the starting dir but never traverses upward into HOME from a
-        // descendant — that's how a stale ~/.claude/<plugin>/trajectory.db
-        // (left over from a prior buggy session or a test artifact) would
-        // otherwise be silently adopted as the live DB on every launch.
-        if (dir === home && startDir !== home)
-            return null;
-        const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
-        if (existsSync(candidate))
-            return candidate;
-        // Git-repo boundary: a dir containing a `.git` entry (a dir in a normal
-        // checkout, a FILE in a git worktree) is the repo root. Check it for the
-        // DB above, then STOP — never traverse above the repo root, so a spawned
-        // server (a worktree under another repo, an isolated subdir test) can't
-        // silently adopt a parent project's live DB.
-        if (existsSync(join(dir, '.git')))
-            break;
-        const parent = dirname(dir);
-        if (parent === dir)
-            break;
-        dir = parent;
-    }
-    return null;
+    return resolveClaudeDbPath(opts);
 }
 export class TrajectoryDB {
     db;
+    pluginVersion;
+    serverLog;
+    sqlLog;
     dbPath;
     /**
      * True when the DB opened with user tables present but NO plugin_meta table
@@ -121,18 +54,37 @@ export class TrajectoryDB {
      * degraded signal so the upgrade is not silent. Non-fatal.
      */
     legacyNoPluginMeta = false;
-    constructor(dbPath) {
+    constructor(dbPath, dependencies) {
         // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
         // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
         // unconditionally — it's required on 22 and a no-op on 24+.
+        const resolvedDependencies = resolveDependencies(dependencies);
         this.dbPath = dbPath;
+        this.pluginVersion = resolvedDependencies.pluginVersion;
+        this.serverLog = resolvedDependencies.serverLog;
+        this.sqlLog = resolvedDependencies.sqlLog;
+        if (dbPath !== ':memory:' &&
+            resolvedDependencies.trustedProjectRoot !== undefined) {
+            assertSafeProjectWritePath(resolvedDependencies.trustedProjectRoot, dbPath, 'Trajectory database', 'file');
+        }
         this.db = new DatabaseSync(dbPath);
-        this.db.exec('PRAGMA journal_mode = WAL');
-        this.db.exec('PRAGMA foreign_keys = ON');
-        this.db.exec('PRAGMA busy_timeout = 5000');
-        this.legacyNoPluginMeta = this.applySchema();
-        this.syncPluginVersion();
-        this.syncBuiltinVersions();
+        try {
+            this.db.exec('PRAGMA journal_mode = WAL');
+            this.db.exec('PRAGMA foreign_keys = ON');
+            this.db.exec('PRAGMA busy_timeout = 5000');
+            this.legacyNoPluginMeta = this.applySchema();
+            this.syncPluginVersion();
+            this.syncBuiltinVersions();
+        }
+        catch (error) {
+            try {
+                this.db.close();
+            }
+            catch {
+                // Preserve the initialization error if SQLite already closed itself.
+            }
+            throw error;
+        }
     }
     applySchema() {
         const schemaDir = dirname(fileURLToPath(import.meta.url));
@@ -168,7 +120,7 @@ export class TrajectoryDB {
                 .get();
             const isLegacy = userTableCount.n > 0;
             if (isLegacy) {
-                serverLog({
+                this.serverLog({
                     kind: 'legacy_db_no_plugin_meta',
                     level: 'warn',
                     db_path: this.dbPath,
@@ -214,17 +166,13 @@ export class TrajectoryDB {
         verifySeed();
         return false;
     }
-    syncPluginVersion(env = process.env) {
-        const root = env['CLAUDE_PLUGIN_ROOT'];
-        if (!root)
+    syncPluginVersion() {
+        if (!this.pluginVersion)
             return;
         try {
-            const manifest = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
-            if (typeof manifest.version !== 'string' || manifest.version.length === 0)
-                return;
             this.db
                 .prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`)
-                .run(manifest.version);
+                .run(this.pluginVersion);
         }
         catch {
             // Silent skip — leave existing value unchanged.
@@ -238,14 +186,13 @@ export class TrajectoryDB {
      * cheatcode_list surfaces a version for every row. Runs every startup against
      * the resolved plugin version; a no-op when the version is unresolvable.
      */
-    syncBuiltinVersions(env = process.env) {
-        const version = resolvePluginVersion(env);
-        if (!version)
+    syncBuiltinVersions() {
+        if (!this.pluginVersion)
             return;
         try {
             this.db
                 .prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`)
-                .run(version);
+                .run(this.pluginVersion);
         }
         catch {
             // Silent skip — a DB without the cheatcodes table leaves builtins untouched.
@@ -257,7 +204,7 @@ export class TrajectoryDB {
             const stmt = this.db.prepare(sql);
             const result = stmt.run(...(params ?? []));
             const out = { changes: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
-            sqlLog({
+            this.sqlLog({
                 kind: 'run',
                 sql,
                 params: params ?? [],
@@ -268,7 +215,7 @@ export class TrajectoryDB {
             return out;
         }
         catch (err) {
-            sqlLog({
+            this.sqlLog({
                 kind: 'run',
                 sql,
                 params: params ?? [],
@@ -284,7 +231,7 @@ export class TrajectoryDB {
         try {
             const stmt = this.db.prepare(sql);
             const row = stmt.get(...(params ?? []));
-            sqlLog({
+            this.sqlLog({
                 kind: 'get',
                 sql,
                 params: params ?? [],
@@ -295,7 +242,7 @@ export class TrajectoryDB {
             return row;
         }
         catch (err) {
-            sqlLog({
+            this.sqlLog({
                 kind: 'get',
                 sql,
                 params: params ?? [],
@@ -311,7 +258,7 @@ export class TrajectoryDB {
         try {
             const stmt = this.db.prepare(sql);
             const rows = stmt.all(...(params ?? []));
-            sqlLog({
+            this.sqlLog({
                 kind: 'all',
                 sql,
                 params: params ?? [],
@@ -322,7 +269,7 @@ export class TrajectoryDB {
             return rows;
         }
         catch (err) {
-            sqlLog({
+            this.sqlLog({
                 kind: 'all',
                 sql,
                 params: params ?? [],
@@ -356,9 +303,48 @@ export class TrajectoryDB {
             throw err;
         }
     }
+    get isOpen() {
+        return this.db.isOpen;
+    }
     close() {
         this.db.close();
     }
+}
+function resolveDependencies(dependencies) {
+    if (dependencies === undefined) {
+        return {
+            pluginVersion: resolvePluginVersion(process.env),
+            serverLog: noThrowTrajectoryLog(defaultServerLog),
+            sqlLog: noThrowTrajectoryLog(defaultSqlLog),
+        };
+    }
+    if (dependencies.pluginVersion !== null &&
+        (typeof dependencies.pluginVersion !== 'string' ||
+            dependencies.pluginVersion.trim().length === 0)) {
+        throw new TypeError('TrajectoryDB dependencies.pluginVersion must be a non-empty string or null');
+    }
+    if (typeof dependencies.serverLog !== 'function') {
+        throw new TypeError('TrajectoryDB dependencies.serverLog must be a function');
+    }
+    if (typeof dependencies.sqlLog !== 'function') {
+        throw new TypeError('TrajectoryDB dependencies.sqlLog must be a function');
+    }
+    return {
+        pluginVersion: dependencies.pluginVersion,
+        serverLog: noThrowTrajectoryLog(dependencies.serverLog),
+        sqlLog: noThrowTrajectoryLog(dependencies.sqlLog),
+        trustedProjectRoot: dependencies.trustedProjectRoot,
+    };
+}
+function noThrowTrajectoryLog(log) {
+    return (entry) => {
+        try {
+            log(entry);
+        }
+        catch {
+            // Observability must never change a database operation's result.
+        }
+    };
 }
 export function nowISO() {
     return new Date().toISOString();
@@ -482,6 +468,42 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 28 && toVersion >= 28) {
         migrateV27toV28(db);
     }
+    if (fromVersion < 29 && toVersion >= 29) {
+        migrateV28toV29(db);
+    }
+    if (fromVersion < 30 && toVersion >= 30) {
+        migrateV29toV30(db);
+    }
+    if (fromVersion < 31 && toVersion >= 31) {
+        migrateV30toV31(db);
+    }
+    if (fromVersion < 32 && toVersion >= 32) {
+        migrateV31toV32(db);
+    }
+    if (fromVersion < 33 && toVersion >= 33) {
+        migrateV32toV33(db);
+    }
+    if (fromVersion < 34 && toVersion >= 34) {
+        migrateV33toV34(db);
+    }
+    if (fromVersion < 35 && toVersion >= 35) {
+        migrateV34toV35(db);
+    }
+    if (fromVersion < 36 && toVersion >= 36) {
+        migrateV35toV36(db);
+    }
+    if (fromVersion < 37 && toVersion >= 37) {
+        migrateV36toV37(db);
+    }
+    if (fromVersion < 38 && toVersion >= 38) {
+        migrateV37toV38(db);
+    }
+    if (fromVersion < 39 && toVersion >= 39) {
+        migrateV38toV39(db);
+    }
+    if (fromVersion < 40 && toVersion >= 40) {
+        migrateV39toV40(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -492,6 +514,36 @@ function tableExists(db, table) {
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
         .get(table);
     return row !== undefined;
+}
+function readTableSql(db, table) {
+    const row = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+        .get(table);
+    return row?.sql ?? '';
+}
+// SQLite cannot ALTER a CHECK, a DEFAULT or a column's nullability in place, so
+// a table is rebuilt: create `<table>_new`, copy every row keeping ids (columns
+// missing from the old shape take their fallback expression), swap, and carry
+// the AUTOINCREMENT high-water mark over. Callers run it inside their own
+// transaction with foreign_keys OFF and re-create the table's indexes.
+function rebuildTable(db, table, createBody, columns) {
+    const scratch = `${table}_new`;
+    const select = columns
+        .map(([name, fallback]) => (hasColumn(db, table, name) ? name : `${fallback} AS ${name}`))
+        .join(', ');
+    const seqRow = tableExists(db, 'sqlite_sequence')
+        ? db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(table)
+        : undefined;
+    // LINT-ALLOW: scratch table for the SQLite table-rebuild swap.
+    db.exec(`DROP TABLE IF EXISTS ${scratch}`);
+    db.exec(`CREATE TABLE ${scratch} (${createBody})`);
+    db.exec(`INSERT INTO ${scratch} (${columns.map(([name]) => name).join(', ')}) SELECT ${select} FROM ${table}`);
+    // LINT-ALLOW: table-rebuild swap — rows already copied into the scratch table.
+    db.exec(`DROP TABLE ${table}`);
+    db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+    if (seqRow !== undefined) {
+        db.prepare('UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?').run(seqRow.seq, table);
+    }
 }
 function migrateV8toV9(db) {
     db.exec('BEGIN');
@@ -519,12 +571,6 @@ function migrateV8toV9(db) {
             // Drop the old unconditional index first, then create the new one.
             db.exec('DROP INDEX IF EXISTS idx_pr_review_runs_pr');
             db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0');
-            const auditIdxExists = db
-                .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_audit'")
-                .get();
-            if (!auditIdxExists) {
-                db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL');
-            }
             const taskIdxExists = db
                 .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_task'")
                 .get();
@@ -1012,9 +1058,1059 @@ function migrateV27toV28(db) {
         db.exec('ALTER TABLE issues ADD COLUMN labels TEXT');
     }
 }
+// v28→v29: closed-enum CHECKs, dead-column drops, cursor-only pr_review_runs.
+//
+//   tasks               — drop `attempts`; CHECK on status.
+//   issues              — drop `remote_iid` (gh_iid/gl_iid are canonical; any
+//                         row still carrying only remote_iid is backfilled
+//                         first); CHECK on status. The id=-1 system row and
+//                         every id survive the copy.
+//   validation_attempts — CHECK on verdict; mcp_available loses its DEFAULT.
+//   discussions         — CHECK on kind. The FTS5 triggers are recreated and
+//                         discussions_fts is rebuilt; embeddings are untouched.
+//   milestones          — CHECK on state.
+//   agents              — drop the never-read `status` column.
+//   pr_review_runs      — the pr_number=0 validation sentinels are deleted;
+//                         verdict/attempt_n go; pr_number>0 and repo<>'' are
+//                         enforced with a plain UNIQUE (pr_number, repo).
+//   plugin_config       — the drained `tmb_default_repo` residue is deleted.
+//
+// SQLite cannot ALTER a CHECK in, so each table is rebuilt (create _new, copy
+// keeping ids, swap) with foreign_keys OFF; foreign_key_check re-validates
+// before COMMIT. Rows that would violate a new constraint abort the migration
+// with one error naming every offending table.column and value. Each rebuild is
+// guarded on the old shape, so a re-run against a v29 shape is a no-op. The new
+// hot-path indexes live in schema.sql, which is re-applied after migration.
+function migrateV28toV29(db) {
+    const tableSql = (table) => readTableSql(db, table);
+    const needsRebuild = (table, checkMarker, droppedColumn) => tableExists(db, table) &&
+        ((droppedColumn !== undefined && hasColumn(db, table, droppedColumn)) ||
+            !tableSql(table).includes(checkMarker));
+    const rebuild = (table, createBody, columns) => rebuildTable(db, table, createBody, columns);
+    const TASK_STATUSES = "'pending','running','needs_validation','completed','closed','failed','escalated'";
+    const OPEN_CLOSED = "'open','closed'";
+    const VERDICTS = "'pass','fail','escalate'";
+    const DISCUSSION_KINDS = "'intent','question','answer','decision','note','analysis'";
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'pr_review_runs')) {
+            // LINT-ALLOW: v29 retires the validation_record audit sentinels; verdicts live in validation_attempts.
+            db.exec('DELETE FROM pr_review_runs WHERE pr_number = 0');
+        }
+        const probes = [
+            ['tasks', 'status', `status NOT IN (${TASK_STATUSES})`],
+            ['issues', 'status', `status NOT IN (${OPEN_CLOSED})`],
+            ['validation_attempts', 'verdict', `verdict NOT IN (${VERDICTS})`],
+            ['validation_attempts', 'mcp_available', 'mcp_available IS NULL'],
+            ['discussions', 'kind', `kind NOT IN (${DISCUSSION_KINDS})`],
+            ['milestones', 'state', `state NOT IN (${OPEN_CLOSED})`],
+            ['pr_review_runs', 'pr_number', 'pr_number IS NULL OR pr_number <= 0'],
+            ['pr_review_runs', 'repo', "repo IS NULL OR repo = ''"],
+        ];
+        const violations = [];
+        for (const [table, column, predicate] of probes) {
+            if (!tableExists(db, table) || !hasColumn(db, table, column))
+                continue;
+            const bad = db
+                .prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`)
+                .all();
+            if (bad.length > 0) {
+                violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(', ')}`);
+            }
+        }
+        if (violations.length > 0) {
+            throw new Error(`migrateV28toV29: rows violate the new v29 constraints — fix or delete them, then reopen: ${violations.join('; ')}`);
+        }
+        if (needsRebuild('tasks', 'CHECK (status IN', 'attempts')) {
+            rebuild('tasks', `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id          INTEGER NOT NULL REFERENCES issues(id),
+          branch_id         TEXT    NOT NULL,
+          parent_branch_id  TEXT,
+          title             TEXT    NOT NULL DEFAULT '',
+          description       TEXT    NOT NULL,
+          status            TEXT    NOT NULL DEFAULT 'pending'
+                              CHECK (status IN (${TASK_STATUSES})),
+          spec_body         TEXT    NOT NULL DEFAULT '',
+          commit_sha        TEXT,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+          files             TEXT    NOT NULL DEFAULT '[]',
+          verification      TEXT    NOT NULL DEFAULT '[]',
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          completed_at      TEXT
+        `, [
+                ['id', 'NULL'], ['issue_id', 'NULL'], ['branch_id', 'NULL'], ['parent_branch_id', 'NULL'],
+                ['title', "''"], ['description', "''"], ['status', "'pending'"], ['spec_body', "''"],
+                ['commit_sha', 'NULL'], ['repo', 'NULL'], ['prompt_bearing', '0'], ['files', "'[]'"],
+                ['verification', "'[]'"], ['created_at', 'NULL'], ['updated_at', 'NULL'], ['completed_at', 'NULL'],
+            ]);
+            db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)');
+        }
+        if (needsRebuild('issues', 'CHECK (status IN', 'remote_iid')) {
+            if (hasColumn(db, 'issues', 'remote_iid')) {
+                db.exec("UPDATE issues SET gh_iid = remote_iid WHERE remote_kind = 'github' AND remote_iid IS NOT NULL AND gh_iid IS NULL");
+                db.exec("UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL");
+            }
+            rebuild('issues', `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          objective         TEXT    NOT NULL,
+          description       TEXT    NOT NULL DEFAULT '',
+          status            TEXT    NOT NULL DEFAULT 'open' CHECK (status IN (${OPEN_CLOSED})),
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          closed_at         TEXT,
+          remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+          gh_iid            INTEGER,
+          gl_iid            INTEGER,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          milestone         TEXT,
+          labels            TEXT,
+          FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
+        `, [
+                ['id', 'NULL'], ['objective', "''"], ['description', "''"], ['status', "'open'"],
+                ['created_at', 'NULL'], ['updated_at', 'NULL'], ['closed_at', 'NULL'], ['remote_kind', 'NULL'],
+                ['gh_iid', 'NULL'], ['gl_iid', 'NULL'], ['repo', 'NULL'], ['milestone', 'NULL'], ['labels', 'NULL'],
+            ]);
+        }
+        if (needsRebuild('validation_attempts', 'CHECK (verdict IN')) {
+            rebuild('validation_attempts', `
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id             INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n           INTEGER NOT NULL,
+          agent               TEXT    NOT NULL DEFAULT '',
+          verdict             TEXT    NOT NULL CHECK (verdict IN (${VERDICTS})),
+          feedback            TEXT    NOT NULL DEFAULT '',
+          mcp_available       INTEGER NOT NULL,
+          subagent_session_id TEXT,
+          repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at          TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+        `, [
+                ['id', 'NULL'], ['task_id', 'NULL'], ['attempt_n', 'NULL'], ['agent', "''"], ['verdict', 'NULL'],
+                ['feedback', "''"], ['mcp_available', '1'], ['subagent_session_id', 'NULL'], ['repo', 'NULL'],
+                ['created_at', 'NULL'],
+            ]);
+        }
+        if (needsRebuild('discussions', 'CHECK (kind IN')) {
+            const embeddingsCount = () => tableExists(db, 'discussions_embeddings')
+                ? db.prepare('SELECT COUNT(*) AS n FROM discussions_embeddings').get().n
+                : 0;
+            const embeddingsBefore = embeddingsCount();
+            rebuild('discussions', `
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id       INTEGER NOT NULL REFERENCES issues(id),
+          author         TEXT    NOT NULL,
+          kind           TEXT    NOT NULL DEFAULT 'note'
+                           CHECK (kind IN (${DISCUSSION_KINDS})),
+          body           TEXT    NOT NULL,
+          repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at     TEXT    NOT NULL
+        `, [
+                ['id', 'NULL'], ['issue_id', 'NULL'], ['author', "''"], ['kind', "'note'"], ['body', "''"],
+                ['repo', 'NULL'], ['created_at', 'NULL'],
+            ]);
+            db.exec('CREATE INDEX IF NOT EXISTS idx_discussions_issue_created ON discussions(issue_id, created_at)');
+            if (tableExists(db, 'discussions_fts')) {
+                db.exec(`
+          CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
+            INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+          END;
+          CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
+            INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+          END;
+          CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
+            INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+            INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+          END;
+        `);
+                db.exec("INSERT INTO discussions_fts(discussions_fts) VALUES('rebuild')");
+            }
+            const embeddingsAfter = embeddingsCount();
+            if (embeddingsAfter !== embeddingsBefore) {
+                throw new Error(`migrateV28toV29: discussions_embeddings changed from ${embeddingsBefore} to ${embeddingsAfter} rows across the discussions rebuild`);
+            }
+        }
+        if (needsRebuild('milestones', 'CHECK (state IN')) {
+            rebuild('milestones', `
+          name   TEXT NOT NULL,
+          repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+          state  TEXT NOT NULL DEFAULT 'open' CHECK (state IN (${OPEN_CLOSED})),
+          PRIMARY KEY (name, repo)
+        `, [['name', 'NULL'], ['repo', 'NULL'], ['state', "'open'"]]);
+        }
+        if (tableExists(db, 'agents') && hasColumn(db, 'agents', 'status')) {
+            // LINT-ALLOW: v29 drops the never-read agents.status column.
+            db.exec('ALTER TABLE agents DROP COLUMN status');
+        }
+        if (needsRebuild('pr_review_runs', 'CHECK (pr_number > 0)', 'verdict')) {
+            rebuild('pr_review_runs', `
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          pr_number       INTEGER NOT NULL CHECK (pr_number > 0),
+          repo            TEXT    NOT NULL CHECK (repo <> ''),
+          last_fetched_at DATETIME NOT NULL,
+          last_comment_id TEXT,
+          task_id         INTEGER REFERENCES tasks(id),
+          UNIQUE (pr_number, repo)
+        `, [
+                ['id', 'NULL'], ['pr_number', 'NULL'], ['repo', 'NULL'], ['last_fetched_at', 'NULL'],
+                ['last_comment_id', 'NULL'], ['task_id', 'NULL'],
+            ]);
+            db.exec('CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id)');
+        }
+        // LINT-ALLOW: the partial and audit indexes are superseded by the table-level UNIQUE (v29).
+        db.exec('DROP INDEX IF EXISTS idx_pr_review_runs_pr');
+        // LINT-ALLOW: the audit index keyed the retired validation_record sentinel rows (v29).
+        db.exec('DROP INDEX IF EXISTS idx_pr_review_runs_audit');
+        if (tableExists(db, 'plugin_config')) {
+            // LINT-ALLOW: tmb_default_repo was drained into the repos table; the residue key is dead (v29).
+            db.exec("DELETE FROM plugin_config WHERE key = 'tmb_default_repo'");
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+const ISO_NOW_DEFAULT = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
+// Every timestamp column the trajectory schema owns. v30 normalizes them all to
+// the one ms-ISO format `YYYY-MM-DDTHH:MM:SS.sssZ` (24 chars).
+const TIMESTAMP_COLUMNS = [
+    ['audit', 'created_at'],
+    ['tasks', 'created_at'],
+    ['tasks', 'updated_at'],
+    ['tasks', 'completed_at'],
+    ['issues', 'created_at'],
+    ['issues', 'updated_at'],
+    ['issues', 'closed_at'],
+    ['discussions', 'created_at'],
+    ['validation_attempts', 'created_at'],
+    ['agent_runs', 'started_at'],
+    ['agent_runs', 'completed_at'],
+    ['roundtables', 'created_at'],
+    ['roundtables', 'closed_at'],
+    ['roundtable_votes', 'created_at'],
+    ['agents', 'created_at'],
+    ['agents', 'updated_at'],
+    ['cheatcodes', 'installed_at'],
+    ['cheatcodes', 'created_at'],
+    ['cheatcodes', 'updated_at'],
+    ['cheatcode_attachments', 'created_at'],
+    ['repos', 'last_scanned_at'],
+    ['pr_review_runs', 'last_fetched_at'],
+    ['discussions_embeddings', 'embedded_at'],
+    ['audit_embeddings', 'embedded_at'],
+];
+// v29→v30: agent_runs metering columns, discussions.remote_comment_id, one
+// timestamp format.
+//
+//   agent_runs  — rebuilt: the four token columns become nullable with no
+//                 DEFAULT (NULL = unmeasured); spawn_id / session_id /
+//                 usage_source (CHECKed) are added. Closed rows whose four token
+//                 columns are all 0 become NULL + 'unmeasured'; other closed rows
+//                 take 'transcript' (bro) or 'subagent_stop' (everything else);
+//                 open rows copy unchanged with usage_source NULL.
+//   discussions — remote_comment_id via ADD COLUMN (FTS + triggers untouched)
+//                 with a partial UNIQUE index on the non-NULL values.
+//   agents, cheatcodes, repos — rebuilt so their DEFAULTs write ms-ISO.
+//   every timestamp column — any non-24-char value strftime can parse (the
+//                 hook-written `YYYY-MM-DD HH:MM:SS` and `…SSZ`, microsecond or
+//                 offset stamps, date-only values) is rewritten to the 24-char
+//                 ms-ISO form; a value strftime cannot parse aborts the migration.
+//
+// Same rebuild discipline as v29: foreign_keys OFF, one transaction, rows that
+// would violate a rebuilt table's CHECKs abort up front with one error naming
+// them, and foreign_key_check re-validates before COMMIT. Each step is guarded
+// on the old shape, so a re-run against a v30 shape is a no-op.
+function migrateV29toV30(db) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        const probes = [
+            ['agents', 'kind', "kind NOT IN ('backbone','consultant')"],
+            ['agents', 'scope', "scope NOT IN ('global','template','project-local')"],
+            ['cheatcodes', 'kind', "kind NOT IN ('skill','mcp','plugin')"],
+            ['cheatcodes', 'origin', "origin NOT IN ('builtin','marketplace','external')"],
+            ['cheatcodes', 'scope', "scope NOT IN ('global','template','project-local')"],
+            ['cheatcodes', 'name', "kind = 'skill' AND file_path IS NULL"],
+            ['cheatcodes', 'name', "origin <> 'builtin' AND source_url IS NULL"],
+            ['cheatcodes', 'name', "origin = 'builtin' AND source_url IS NOT NULL"],
+        ];
+        const violations = [];
+        for (const [table, column, predicate] of probes) {
+            if (!tableExists(db, table) || !hasColumn(db, table, column))
+                continue;
+            const bad = db
+                .prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`)
+                .all();
+            if (bad.length > 0) {
+                violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(', ')} (${predicate})`);
+            }
+        }
+        if (violations.length > 0) {
+            throw new Error(`migrateV29toV30: rows violate the rebuilt v30 constraints — fix or delete them, then reopen: ${violations.join('; ')}`);
+        }
+        if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'usage_source')) {
+            rebuildTable(db, 'agent_runs', `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          tokens_total          INTEGER NOT NULL DEFAULT 0,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          usage_baseline_json   TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `, [
+                ['id', 'NULL'], ['task_id', 'NULL'], ['issue_id', 'NULL'], ['agent_type', "''"],
+                ['tokens_in', 'NULL'], ['tokens_out', 'NULL'], ['tokens_total', '0'], ['cache_read_tokens', 'NULL'],
+                ['cache_creation_tokens', 'NULL'], ['tool_uses', '0'], ['duration_ms', '0'], ['started_at', 'NULL'],
+                ['completed_at', 'NULL'], ['usage_baseline_json', 'NULL'], ['repo', 'NULL'], ['spawn_id', 'NULL'],
+                ['session_id', 'NULL'], ['usage_source', 'NULL'],
+            ]);
+            db.exec(`
+        UPDATE agent_runs
+           SET tokens_in = NULL, tokens_out = NULL, cache_read_tokens = NULL, cache_creation_tokens = NULL,
+               usage_source = 'unmeasured'
+         WHERE completed_at IS NOT NULL
+           AND tokens_in = 0 AND tokens_out = 0 AND cache_read_tokens = 0 AND cache_creation_tokens = 0
+      `);
+            db.exec(`
+        UPDATE agent_runs
+           SET usage_source = CASE agent_type WHEN 'bro' THEN 'transcript' ELSE 'subagent_stop' END
+         WHERE completed_at IS NOT NULL AND usage_source IS NULL
+      `);
+            db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+        }
+        if (tableExists(db, 'discussions') && !hasColumn(db, 'discussions', 'remote_comment_id')) {
+            db.exec('ALTER TABLE discussions ADD COLUMN remote_comment_id TEXT');
+            db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL');
+        }
+        const needsIsoDefault = (table) => tableExists(db, table) && !readTableSql(db, table).includes('strftime(');
+        if (needsIsoDefault('agents')) {
+            rebuildTable(db, 'agents', `
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL UNIQUE,
+          kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+          scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
+          file_path   TEXT    NOT NULL,
+          created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+        `, [
+                ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['scope', 'NULL'], ['file_path', "''"],
+                ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+            ]);
+        }
+        if (needsIsoDefault('cheatcodes')) {
+            rebuildTable(db, 'cheatcodes', `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+        `, [
+                ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['origin', "'external'"], ['description', "''"],
+                ['source_url', 'NULL'], ['file_path', 'NULL'], ['version', 'NULL'], ['trust_tier', 'NULL'],
+                ['scope', "'project-local'"], ['status', "'installed'"], ['installed_at', ISO_NOW_DEFAULT],
+                ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+            ]);
+        }
+        if (needsIsoDefault('repos')) {
+            rebuildTable(db, 'repos', `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT,
+          remotes            TEXT
+        `, [
+                ['name', 'NULL'], ['path', "''"], ['file_count', '0'], ['last_scanned_at', ISO_NOW_DEFAULT],
+                ['target_branch', 'NULL'], ['branching_model', 'NULL'], ['protected_branches', 'NULL'],
+                ['remotes', 'NULL'],
+            ]);
+        }
+        const presentTimestampColumns = TIMESTAMP_COLUMNS.filter(([table, column]) => tableExists(db, table) && hasColumn(db, table, column));
+        for (const [table, column] of presentTimestampColumns) {
+            db.exec(`UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
+          WHERE ${column} IS NOT NULL AND length(${column}) <> 24
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`);
+        }
+        const malformed = [];
+        for (const [table, column] of presentTimestampColumns) {
+            const bad = db
+                .prepare(`SELECT DISTINCT ${column} AS v FROM ${table}
+            WHERE ${column} IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NULL LIMIT 5`)
+                .all();
+            if (bad.length > 0) {
+                malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(', ')}`);
+            }
+        }
+        if (malformed.length > 0) {
+            throw new Error(`migrateV29toV30: timestamps that cannot be parsed into YYYY-MM-DDTHH:MM:SS.sssZ — fix them, then reopen: ${malformed.join('; ')}`);
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v30→v31: agent_runs drops tokens_total and usage_baseline_json. Tokens are
+// attributed by time window and recomputed absolutely, so no baseline is
+// stored, and the total is computed (in + out + cache_read + cache_creation)
+// rather than kept as a column that excluded cache.
+//
+// Same rebuild discipline as v30: foreign_keys OFF, one transaction,
+// foreign_key_check before COMMIT. Guarded on the old shape, so a re-run
+// against a v31 shape is a no-op.
+function migrateV30toV31(db) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'agent_runs') &&
+            (hasColumn(db, 'agent_runs', 'tokens_total') || hasColumn(db, 'agent_runs', 'usage_baseline_json'))) {
+            rebuildTable(db, 'agent_runs', `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `, [
+                ['id', 'NULL'], ['task_id', 'NULL'], ['issue_id', 'NULL'], ['agent_type', "''"],
+                ['tokens_in', 'NULL'], ['tokens_out', 'NULL'], ['cache_read_tokens', 'NULL'],
+                ['cache_creation_tokens', 'NULL'], ['tool_uses', '0'], ['duration_ms', '0'], ['started_at', 'NULL'],
+                ['completed_at', 'NULL'], ['repo', 'NULL'], ['spawn_id', 'NULL'], ['session_id', 'NULL'],
+                ['usage_source', 'NULL'],
+            ]);
+            db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// The MCP server this plugin bundles; its parent plugin row carries the
+// plugin's own name (resolvePluginName), not the server's.
+const OWN_MCP_SERVER_NAME = 'trajectory-server';
+// v31→v32: cheatcodes is keyed by (name, kind). A plugin and the MCP server it
+// bundles share a name (`linear` plugin → `linear` server); UNIQUE(name) made
+// scan.sh's insert of the server fail on every scan, and before the hook writes
+// were transactional each failure still committed a scan_discovered audit row.
+//
+//   1. Rebuild cheatcodes with UNIQUE (name, kind) instead of UNIQUE on name.
+//      Every CHECK is kept; cheatcode_attachments references cheatcodes(id),
+//      which the rebuild preserves.
+//   2. Bundled-server rows recorded as 'mcp:<server>' become
+//      'mcp:<plugin>/<server>' when the parent plugin row is known: a plugin
+//      row of the same name, or, for this plugin's own server, the plugin row
+//      named after this plugin.
+//   3. Delete scan_discovered audit rows whose content_json (name, kind) has no
+//      cheatcodes row. The audit_ad trigger removes their audit_fts entries;
+//      their audit_embeddings rows are deleted here because foreign keys are
+//      OFF during the rebuild, so the ON DELETE CASCADE does not fire. One
+//      scan_discovered_repair audit row records the count.
+//   4. mcp rows with an 'mcp:' source_url wrongly marked broken go back to
+//      installed; the cheatcode health-check re-derives their status.
+//
+// Guarded on the old shape for the rebuild; steps 2–4 are no-ops on a re-run.
+function migrateV31toV32(db) {
+    if (!tableExists(db, 'cheatcodes'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        if (!/UNIQUE\s*\(\s*name\s*,\s*kind\s*\)/.test(readTableSql(db, 'cheatcodes'))) {
+            rebuildTable(db, 'cheatcodes', `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL),
+          UNIQUE (name, kind)
+        `, [
+                ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['origin', "'external'"], ['description', "''"],
+                ['source_url', 'NULL'], ['file_path', 'NULL'], ['version', 'NULL'], ['trust_tier', 'NULL'],
+                ['scope', "'project-local'"], ['status', "'installed'"], ['installed_at', ISO_NOW_DEFAULT],
+                ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+            ]);
+        }
+        const pluginRow = db.prepare("SELECT 1 FROM cheatcodes WHERE kind = 'plugin' AND name = ? LIMIT 1");
+        const ownPlugin = resolvePluginName();
+        const legacyServers = db
+            .prepare("SELECT id, name FROM cheatcodes WHERE kind = 'mcp' AND source_url = 'mcp:' || name")
+            .all();
+        for (const server of legacyServers) {
+            let parent = null;
+            if (pluginRow.get(server.name) !== undefined) {
+                parent = server.name;
+            }
+            else if (server.name === OWN_MCP_SERVER_NAME && pluginRow.get(ownPlugin) !== undefined) {
+                parent = ownPlugin;
+            }
+            if (parent === null)
+                continue;
+            db.prepare('UPDATE cheatcodes SET source_url = ? WHERE id = ?').run(`mcp:${parent}/${server.name}`, server.id);
+        }
+        let phantoms = 0;
+        if (tableExists(db, 'audit')) {
+            const phantomIds = db
+                .prepare(`SELECT a.id FROM audit a
+            WHERE a.event_type = 'scan_discovered'
+              AND json_valid(a.content_json)
+              AND NOT EXISTS (
+                SELECT 1 FROM cheatcodes c
+                 WHERE c.name = json_extract(a.content_json, '$.name')
+                   AND c.kind = json_extract(a.content_json, '$.kind'))`)
+                .all();
+            phantoms = phantomIds.length;
+            if (phantoms > 0) {
+                const ids = JSON.stringify(phantomIds.map((r) => r.id));
+                if (tableExists(db, 'audit_embeddings')) {
+                    db.prepare(
+                    // LINT-ALLOW: v31→v32 removes the embeddings of phantom scan_discovered audit rows (GH 1200).
+                    'DELETE FROM audit_embeddings WHERE audit_id IN (SELECT value FROM json_each(?))').run(ids);
+                }
+                // LINT-ALLOW: v31→v32 deletes phantom scan_discovered audit rows (GH 1200).
+                db.prepare('DELETE FROM audit WHERE id IN (SELECT value FROM json_each(?))').run(ids);
+                db.prepare(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           SELECT -1, NULL, 'system', 'scan_discovered_repair', ?, ?, (SELECT repo FROM issues WHERE id = -1), strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE EXISTS (SELECT 1 FROM issues WHERE id = -1)`).run(`deleted ${phantoms} phantom scan_discovered audit row(s)`, JSON.stringify({ deleted: phantoms }));
+            }
+        }
+        db.exec(`
+      UPDATE cheatcodes
+         SET status = 'installed', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE kind = 'mcp' AND source_url LIKE 'mcp:%' AND status = 'broken'
+    `);
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV31toV32: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v32 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+const ISO_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+// v32→v33: run audit columns (GH 1249) and the GH 1212 lifecycle data repair.
+//
+//   1. Rebuild agent_runs with root_dir, model, host (CHECK claude|codex) and
+//      exit_reason (CHECK completed|failed|escalated|swept_orphan|swept_stale|
+//      issue_closed); usage_source also admits 'backfill'.
+//   2. Backfill: host = 'claude' on every existing row. A closed row's
+//      exit_reason comes from what closed it where that is derivable:
+//      swept_orphan for an unmeasured row, else the task status (closed or
+//      completed → completed, failed, escalated); otherwise NULL.
+//   3. Repair: a task still pending/running/needs_validation/completed whose
+//      issue is already closed becomes escalated, with one
+//      task_escalated_repair audit row (from_node system) each; its open
+//      agent_runs rows close with exit_reason issue_closed.
+//
+// The rebuild is guarded on the old shape; steps 2–3 are no-ops on a re-run.
+function migrateV32toV33(db) {
+    if (!tableExists(db, 'agent_runs'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        if (!hasColumn(db, 'agent_runs', 'exit_reason') || !/'backfill'/.test(readTableSql(db, 'agent_runs'))) {
+            rebuildTable(db, 'agent_runs', `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured','backfill')),
+          root_dir              TEXT,
+          model                 TEXT,
+          host                  TEXT CHECK (host IN ('claude','codex')),
+          exit_reason           TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed'))
+        `, [
+                ['id', 'NULL'], ['task_id', 'NULL'], ['issue_id', 'NULL'], ['agent_type', "''"],
+                ['tokens_in', 'NULL'], ['tokens_out', 'NULL'], ['cache_read_tokens', 'NULL'],
+                ['cache_creation_tokens', 'NULL'], ['tool_uses', '0'], ['duration_ms', '0'], ['started_at', 'NULL'],
+                ['completed_at', 'NULL'], ['repo', 'NULL'], ['spawn_id', 'NULL'], ['session_id', 'NULL'],
+                ['usage_source', 'NULL'], ['root_dir', 'NULL'], ['model', 'NULL'], ['host', 'NULL'], ['exit_reason', 'NULL'],
+            ]);
+            db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+        }
+        db.exec("UPDATE agent_runs SET host = 'claude' WHERE host IS NULL");
+        if (tableExists(db, 'tasks'))
+            db.exec(`
+      UPDATE agent_runs
+         SET exit_reason = CASE
+               WHEN usage_source = 'unmeasured' THEN 'swept_orphan'
+               ELSE (SELECT CASE t.status
+                              WHEN 'closed' THEN 'completed'
+                              WHEN 'completed' THEN 'completed'
+                              WHEN 'failed' THEN 'failed'
+                              WHEN 'escalated' THEN 'escalated'
+                            END
+                       FROM tasks t WHERE t.id = agent_runs.task_id)
+             END
+       WHERE completed_at IS NOT NULL AND exit_reason IS NULL
+    `);
+        if (tableExists(db, 'tasks') && tableExists(db, 'issues')) {
+            const leaked = db
+                .prepare(`SELECT t.id, t.issue_id, t.branch_id, t.status FROM tasks t JOIN issues i ON i.id = t.issue_id
+            WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed')
+            ORDER BY t.id`)
+                .all();
+            const insertRepairAudit = tableExists(db, 'audit')
+                ? db.prepare(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+             VALUES (?, ?, 'system', 'task_escalated_repair', ?, ?, (SELECT repo FROM issues WHERE id = ?), ${ISO_NOW_SQL})`)
+                : null;
+            const escalate = db.prepare(`UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ${ISO_NOW_SQL} WHERE id = ?`);
+            const closeRuns = db.prepare(`UPDATE agent_runs
+            SET completed_at = ${ISO_NOW_SQL},
+                duration_ms = CASE WHEN duration_ms = 0
+                                   THEN COALESCE(MAX(0, CAST(ROUND((julianday('now') - julianday(started_at)) * 86400000) AS INTEGER)), 0)
+                                   ELSE duration_ms END,
+                exit_reason = 'issue_closed'
+          WHERE task_id = ? AND completed_at IS NULL`);
+            for (const task of leaked) {
+                insertRepairAudit?.run(task.issue_id, task.branch_id, `task ${task.id} escalated: its issue ${task.issue_id} is closed (was ${task.status})`, JSON.stringify({ task_id: task.id, issue_id: task.issue_id, from_status: task.status }), task.issue_id);
+                escalate.run(task.id);
+                closeRuns.run(task.id);
+            }
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v33→v34: agents.file_path names the root its prompt file ships from (GH 1267).
+//
+//   1. A file_path without a root marker gains one from the legacy scope:
+//      global/template → 'plugin:', project-local → 'project:'. A row that
+//      already carries 'plugin:' or 'project:' keeps its path.
+//   2. Rebuild agents without the scope column; file_path gains
+//      CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%').
+//
+// Guarded on the old shape; a re-run against a v34 shape is a no-op.
+function migrateV33toV34(db) {
+    if (!tableExists(db, 'agents'))
+        return;
+    if (!hasColumn(db, 'agents', 'scope') && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db, 'agents')))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        const root = hasColumn(db, 'agents', 'scope')
+            ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END"
+            : "'plugin:'";
+        db.exec(`
+      UPDATE agents
+         SET file_path = ${root} || file_path
+       WHERE file_path NOT LIKE 'plugin:%' AND file_path NOT LIKE 'project:%'
+    `);
+        rebuildTable(db, 'agents', `
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT    NOT NULL UNIQUE,
+        kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+        file_path   TEXT    NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+      `, [
+            ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['file_path', "''"],
+            ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+        ]);
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV33toV34: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v34 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v34→v35: a repo's remotes become rows (GH 1225); audit.branch_id '' → NULL (GH 1221).
+//
+//   1. repo_remotes(repo → repos ON DELETE/UPDATE CASCADE, name, provider,
+//      url, is_primary, created_at, PK(repo, name)) is created and filled from
+//      each JSON value of the repos remotes column — an array of {name, provider, url} or a
+//      name → url map. provider comes from the URL host; `origin` (else the
+//      first remote) is primary. A value that does not parse, or entries that
+//      carry no url, leave one repo_remotes_migration_skipped audit row with
+//      the raw value on the system issue -1; the migration goes on.
+//   2. repos is rebuilt without the remotes column.
+//   3. validation_attempts gains reviewer_agent_id (GH 1226 writes it).
+//   4. audit.branch_id '' becomes NULL, the one "no branch" value.
+//
+// Guarded on the old shape; a re-run against a v35 shape is a no-op.
+function migrateV34toV35(db) {
+    if (!tableExists(db, 'repos'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        db.exec(`
+      CREATE TABLE IF NOT EXISTS repo_remotes (
+        repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+        name        TEXT    NOT NULL,
+        provider    TEXT    NOT NULL CHECK (provider IN ('github','gitlab','other')),
+        url         TEXT    NOT NULL,
+        is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        PRIMARY KEY (repo, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
+    `);
+        if (hasColumn(db, 'repos', 'remotes')) {
+            const rows = db
+                .prepare(`SELECT name, remotes AS legacy FROM repos WHERE remotes IS NOT NULL AND trim(remotes) <> '' ORDER BY name`)
+                .all();
+            const insertRemote = db.prepare(`INSERT OR IGNORE INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)`);
+            const canAudit = tableExists(db, 'audit') && tableExists(db, 'issues');
+            const skipped = (repo, raw, reason) => {
+                if (!canAudit)
+                    return;
+                db.exec(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+           VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', ${ISO_NOW_SQL}, ${ISO_NOW_SQL})`);
+                db.prepare(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           VALUES (-1, NULL, 'system', 'repo_remotes_migration_skipped', ?, ?, ?, ${ISO_NOW_SQL})`).run(`v35 migration skipped remotes of repo ${repo}: ${reason}`, JSON.stringify({ repo, reason, raw }), repo);
+            };
+            for (const row of rows) {
+                const parsed = parseLegacyRemotes(row.legacy);
+                if (!parsed.ok) {
+                    skipped(row.name, row.legacy, parsed.reason);
+                    continue;
+                }
+                const primary = primaryIndex(parsed.entries);
+                parsed.entries.forEach((r, i) => {
+                    insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0);
+                });
+                if (parsed.dropped > 0) {
+                    skipped(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? 'y' : 'ies'} without a url or with a duplicate name`);
+                }
+            }
+            rebuildTable(db, 'repos', `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT
+        `, [
+                ['name', 'NULL'], ['path', "''"], ['file_count', '0'], ['last_scanned_at', ISO_NOW_DEFAULT],
+                ['target_branch', 'NULL'], ['branching_model', 'NULL'], ['protected_branches', 'NULL'],
+            ]);
+        }
+        if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'reviewer_agent_id')) {
+            db.exec('ALTER TABLE validation_attempts ADD COLUMN reviewer_agent_id TEXT');
+        }
+        if (tableExists(db, 'audit')) {
+            db.exec(`UPDATE audit SET branch_id = NULL WHERE branch_id = ''`);
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV34toV35: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v35 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v35→v36: verification runs are recorded (GH 1294). Adds
+// verification_runs(task → tasks ON DELETE CASCADE, commit_sha, source
+// gate|manual, started_at, finished_at, exit_code, budget_s, timed_out,
+// created_at) with an index on (task_id, commit_sha, finished_at), and
+// verification_run_commands(run → verification_runs ON DELETE CASCADE,
+// ordinal, command, exit_code, elapsed_s, output_tail, PK(run_id, ordinal)).
+// New tables only; no existing row changes. A re-run is a no-op.
+function migrateV35toV36(db) {
+    if (!tableExists(db, 'tasks'))
+        return;
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS verification_runs (
+      id           INTEGER PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      commit_sha   TEXT    NOT NULL,
+      source       TEXT    NOT NULL CHECK (source IN ('gate','manual')),
+      started_at   TEXT    NOT NULL,
+      finished_at  TEXT,
+      exit_code    INTEGER,
+      budget_s     INTEGER NOT NULL,
+      timed_out    INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+      created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+    );
+    CREATE INDEX IF NOT EXISTS idx_verification_runs_task_commit
+      ON verification_runs(task_id, commit_sha, finished_at);
+    CREATE TABLE IF NOT EXISTS verification_run_commands (
+      run_id       INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+      ordinal      INTEGER NOT NULL,
+      command      TEXT    NOT NULL,
+      exit_code    INTEGER,
+      elapsed_s    REAL,
+      output_tail  TEXT,
+      PRIMARY KEY (run_id, ordinal)
+    );
+  `);
+}
+// v36→v37: typed effort (GH 1349). tasks.effort (low|medium|high, NOT NULL
+// DEFAULT 'medium') is the effort swe runs the task at; agent_runs.effort
+// (nullable) records the effort a run was spawned at. Existing task rows take
+// 'medium'; existing runs stay NULL. A re-run is a no-op.
+function migrateV36toV37(db) {
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'effort')) {
+            db.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
+        }
+        if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'effort')) {
+            db.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v37→v38: legacy audit event types (GH 1464). v1.0.x let audit_append write any
+// event_type; the closed AUDIT_EVENT_TYPES set (GH 1216) left such rows failing
+// the event_type_documented contract. Every audit row outside the set becomes
+// 'legacy_event'; its content_json keeps the original content (non-JSON content
+// is wrapped as {"legacy_content": ...}) and gains legacy_event_type, the old
+// type. The audit_au trigger keeps audit_fts consistent. A re-run touches nothing.
+function migrateV37toV38(db) {
+    if (!tableExists(db, 'audit'))
+        return;
+    const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
+    const placeholders = documented.map(() => '?').join(', ');
+    db.exec('BEGIN');
+    try {
+        db.prepare(`UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE event_type NOT IN (${placeholders})`).run(...documented);
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v38→v39: legacy duplicate verification waivers (GH 1492). Before the
+// swe-verification-gate hook became the one writer (one row per task and commit),
+// swe wrote verification_gate_waived rows itself, with no commit_sha and
+// sometimes twice. For each task, the lowest-id such row stays; every later one
+// becomes 'legacy_event' with the same remap as v38 (legacy_event_type keeps the
+// old type), so the audit log stays append-only. A re-run touches nothing.
+function migrateV38toV39(db) {
+    if (!tableExists(db, 'audit'))
+        return;
+    const legacyWaiver = (alias) => `${alias}.event_type = 'verification_gate_waived' AND ${alias}.from_node = 'swe'
+          AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
+    const taskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+    db.exec('BEGIN');
+    try {
+        db.exec(`UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE ${legacyWaiver('audit')}
+          AND EXISTS (SELECT 1 FROM audit k
+                       WHERE ${legacyWaiver('k')}
+                         AND ${taskId('k')} IS ${taskId('audit')}
+                         AND k.id < audit.id)`);
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v39→v40: repos.onboard_scan (GH 1575), the JSON evidence + recommendation the
+// /onboard pre-scan writes on every onboard_state_get. NULL until the first call.
+function migrateV39toV40(db) {
+    if (!tableExists(db, 'repos') || hasColumn(db, 'repos', 'onboard_scan'))
+        return;
+    db.exec('ALTER TABLE repos ADD COLUMN onboard_scan TEXT');
+}
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //
-//   1. repos.remotes — new column so issue-scoped sync resolves the per-repo
+//   1. repos gains a remotes column so issue-scoped sync resolves the per-repo
 //      remote. Populated by scan_run (#979) from each repo's git remotes.
 //   2. milestones(name, repo→repos, state, PK(name,repo)) — GitHub-style
 //      per-repo milestones; backfilled from distinct issues.milestone values.
@@ -1047,7 +2143,7 @@ function migrateV22toV23(db) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN');
     try {
-        // (1) repos.remotes — the per-repo remote list column. scan_run populates
+        // (1) the repos remotes column — the per-repo remote list. scan_run populates
         // it from each repo's actual git remotes (#979); migrateV26toV27 drains any
         // residual global plugin_config('remotes') before that key is removed.
         if (tableExists(db, 'repos')) {

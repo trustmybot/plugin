@@ -4,8 +4,8 @@
 # CC's PreToolUse hook contract does NOT support updatedInput (prompt mutation).
 # The deterministic fallback: block SWE from calling any trajectory-server MCP
 # tool other than task_brief — AND from calling Edit/Write/NotebookEdit — until
-# task_brief has been called for that task. When task_brief fires, write an
-# audit sentinel 'swe_brief_fetched' so subsequent calls are allowed.
+# task_brief has been called for that task. The task_brief handler writes the
+# audit sentinel 'swe_brief_fetched'; this hook only reads it.
 #
 # Fires on: PreToolUse — matchers:
 #   mcp__.*trajectory-server__.*   (original MCP gate)
@@ -21,9 +21,17 @@
 #
 # Decision logic (both matchers share the same sentinel check):
 #   1. Non-SWE caller             → allow (pass-through)
-#   2. Tool is task_brief          → write sentinel if not yet set, then allow
+#   2. Tool is task_brief          → bind the run row, then allow (the handler
+#                                    writes the sentinel)
 #   3. Sentinel exists             → allow (brief already fetched for this task)
 #   4. No sentinel + blocked tool  → DENY with recovery instruction
+#
+# Run binding (task_brief only, fail-open, never denies): the payload's
+# agent_id keys the spawn's swe agent_runs row. A row of the task already keyed
+# by that agent_id (a resumed spawn) is reopened (completed_at and exit_reason
+# NULL); otherwise the task's newest open swe row whose spawn_id is NULL or
+# tool_use:* (opened by record-swe-spawn.sh) is rebound to spawn_id = agent_id.
+# Either way task_brief's openSweRun finds an open row and inserts none.
 #
 # Skips:
 #   - Non-SWE callers (bro, pr-reviewer, etc.)
@@ -36,6 +44,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 INPUT=$(cat)
 
@@ -50,48 +62,15 @@ if [ -z "$DB" ] || ! tmb_have_sqlite; then
   exit 0
 fi
 
-# Extract task_id from transcript (first human turn contains 'task_id=N') or
-# from tool_input fields (task_update_status, task_get, etc. pass task_id directly).
-TASK_ID=""
-
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-  TASK_ID=$(jq -r '
-    .message.content // [] |
-    .[] | select(.type == "text") | .text // ""
-  ' "$TRANSCRIPT_PATH" 2>/dev/null \
-    | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-  case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-fi
+# The task_id comes from the swe's own spawn transcript (first human turn
+# contains 'task_id=N'; agent_transcript_path, else the subagents file beside
+# the session transcript) or from tool_input fields (task_update_status,
+# task_get, etc. pass task_id directly). Never from the cwd (GH 1550).
+TASK_ID=$(tmb_task_id_from_transcript "$(tmb_agent_transcript "$INPUT")")
 
 if [ -z "$TASK_ID" ]; then
   TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // empty' 2>/dev/null || true)
   case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-fi
-
-# Slug fallback: when transcript and tool_input provide no task_id, derive it
-# from the worktree root slug (same pattern as swe-boundary.sh).
-if [ -z "$TASK_ID" ]; then
-  WORKTREE_ROOT=""
-  case "$PWD" in
-    */.claude/worktrees/*)
-      WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-      ;;
-  esac
-  if [ -n "$WORKTREE_ROOT" ] && [ -n "$DB" ] && tmb_have_sqlite; then
-    WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-    if [ -n "$WORKTREE_SLUG" ]; then
-      SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
-      TASK_ID=$(tmb_sqlite_ro "$DB" "
-        SELECT id FROM tasks
-         WHERE branch_id LIKE '%/${SAFE_SLUG}'
-           AND status IN ('pending','running','completed')
-         ORDER BY id DESC
-         LIMIT 1;
-      " 2>/dev/null || true)
-      case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-    fi
-  fi
 fi
 
 if [ -z "$TASK_ID" ]; then
@@ -114,24 +93,18 @@ if [ -z "$IS_TASK_BRIEF" ] && [ -z "$IS_BLOCKED_MUTATION" ] && [ -z "$IS_MCP_TRA
 fi
 
 if [ "$IS_TASK_BRIEF" = "yes" ]; then
-  # Write sentinel on first task_brief call for this task.
-  ALREADY=$(tmb_sqlite_ro "$DB" "
-    SELECT COUNT(*) FROM audit
-     WHERE event_type = 'swe_brief_fetched'
-       AND json_extract(content_json, '\$.task_id') = ${TASK_ID}
-    LIMIT 1;
-  " 2>/dev/null || echo "0")
-  if [ "${ALREADY:-0}" -eq 0 ]; then
-    CONTENT_JSON="{\"task_id\":${TASK_ID},\"agent_type\":\"swe\"}"
-    CONTENT_JSON_SQL=${CONTENT_JSON//\'/\'\'}
-    sqlite3 "$DB" "
-      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-      SELECT COALESCE(t.issue_id, -1), t.branch_id, 'swe', 'swe_brief_fetched',
-             'SWE fetched task_brief for task_id=${TASK_ID}',
-             '${CONTENT_JSON_SQL}', datetime('now')
-        FROM tasks t WHERE t.id = ${TASK_ID}
-       LIMIT 1;
-    " 2>/dev/null || true
+  AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)
+  if [ -n "$AGENT_ID" ]; then
+    SAFE_AGENT_ID=$(tmb_sql_quote "$AGENT_ID")
+    tmb_db_write "$DB" "
+UPDATE agent_runs SET completed_at = NULL, exit_reason = NULL
+ WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND spawn_id = '${SAFE_AGENT_ID}';
+UPDATE agent_runs SET spawn_id = '${SAFE_AGENT_ID}'
+ WHERE (SELECT changes()) = 0
+   AND id = (SELECT id FROM agent_runs
+              WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL
+                AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+              ORDER BY id DESC LIMIT 1);" >/dev/null 2>&1 || true
   fi
   exit 0
 fi

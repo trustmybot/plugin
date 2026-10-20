@@ -1,7 +1,37 @@
 {
   "name": "tmb",
-  "version": "0.1.1",
-  "description": "PLACEHOLDER — TMB multi-agent workflow plugin for OpenAI Codex (not yet implemented).",
-  "_status": "placeholder",
-  "_see": "https://github.com/trustmybot/plugin/blob/main/docs/reference/MULTI_PLATFORM.md"
+  "version": "1.1.0",
+  "description": "Codex adapter for project-bound TMB planning and explicit installation of two advisory development Agents.",
+  "author": {
+    "name": "trustmybot",
+    "url": "https://github.com/trustmybot"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/trustmybot/plugin",
+  "homepage": "https://github.com/trustmybot/plugin",
+  "keywords": [
+    "agents",
+    "workflow",
+    "mcp",
+    "sqlite",
+    "orchestration"
+  ],
+  "mcpServers": "./adapters/codex/.mcp.json",
+  "hooks": "./hooks/codex/hooks.json",
+  "commands": [],
+  "skills": "./adapters/codex/skills/",
+  "interface": {
+    "displayName": "TMB",
+    "shortDescription": "Plan locally and install two project Agents",
+    "longDescription": "A bounded Codex adapter for local TMB planning plus explicit, reversible installation of project-level SWE and advisory reviewer Agents.",
+    "developerName": "trustmybot",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $tmb:tmb-bro for local planning, or $tmb:tmb-agent-setup to inspect, install, or remove the two project Agents."
+    ],
+    "websiteURL": "https://github.com/trustmybot/plugin"
+  }
 }

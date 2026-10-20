@@ -12,9 +12,10 @@ FAIL=0
 CHECKED=0
 
 while IFS= read -r cmd; do
-  rel="${cmd#\$\{CLAUDE_PLUGIN_ROOT\}/}"
-  [ "$rel" = "$cmd" ] && continue
-  rel="${rel%% *}"
+  unquoted="${cmd#\"}"
+  rel="${unquoted#\$\{CLAUDE_PLUGIN_ROOT\}/}"
+  [ "$rel" = "$unquoted" ] && continue
+  if [ "$unquoted" != "$cmd" ]; then rel="${rel%%\"*}"; else rel="${rel%% *}"; fi
   CHECKED=$((CHECKED + 1))
   mode=$(git ls-files -s -- "$rel" | awk '{print $1}')
   if [ -z "$mode" ]; then

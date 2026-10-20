@@ -9,6 +9,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/askuserquestion-length-lint.sh"
 
+# Pin the project so the hook never resolves one by walking up from the cwd.
+PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-askuserquestion-length-lint.XXXXXX")"
+trap 'rm -rf "$PROJECT"' EXIT
+export CLAUDE_PROJECT_DIR="$PROJECT"
+
 run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true
 }

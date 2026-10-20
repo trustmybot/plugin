@@ -2,31 +2,25 @@ import { spawnSync, SpawnSyncOptions } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { resolvePluginName } from '../db.js';
+import { resolveClaudeLogDir } from '../platform.js';
 
 function resolveLogDir(): string {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join(homedir(), '.claude', resolvePluginName(process.env), 'logs');
+  return resolveClaudeLogDir();
 }
 
-const logDir = resolveLogDir();
-const syncLogPath = join(logDir, 'issue-sync.log');
-
-try {
-  mkdirSync(logDir, { recursive: true });
-} catch {
-  // Log dir creation failed; logging becomes a no-op.
-}
+const readyLogDirs = new Set<string>();
 
 function syncLog(entry: Record<string, unknown>): void {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR
-    ? join(process.env.TMB_SYNC_LOG_DIR, 'issue-sync.log')
-    : syncLogPath;
   try {
+    const logDir = resolveLogDir();
+    if (!readyLogDirs.has(logDir)) {
+      mkdirSync(logDir, { recursive: true });
+      readyLogDirs.add(logDir);
+    }
     const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
-    appendFileSync(currentLogPath, line);
+    appendFileSync(join(logDir, 'issue-sync.log'), line);
   } catch {
     // Swallow all errors — logging must never break the caller.
   }
@@ -38,7 +32,7 @@ export type SpawnFn = (
   opts: SpawnSyncOptions,
 ) => { status: number | null; stdout: string; stderr: string };
 
-function defaultSpawnFn(
+export function defaultSpawnFn(
   cmd: string,
   args: string[],
   opts: SpawnSyncOptions,
@@ -209,28 +203,63 @@ async function fetchRemoteLabelNames(
   }
 }
 
-// Verify a remote issue exists before adopting its iid onto a local row (#36).
-// gh: `gh issue view <iid> --repo <slug> --json number,title,state` — a PR iid
-// makes `gh issue view` exit non-zero, so PRs are rejected implicitly. glab:
-// `glab issue view <iid> -R <slug>`, status-only (matching the close/read-back
-// path, which never parses glab JSON). Returns { ok:false, reason } on any
-// failure so the caller can surface a named error and create nothing.
+// Verify a remote issue exists before adopting its iid onto a local row (#36),
+// and read back its milestone title and label names for the adopt path.
+// gh: `gh issue view <iid> --repo <slug> --json number,title,state,milestone,labels`
+// — a PR iid makes `gh issue view` exit non-zero, so PRs are rejected
+// implicitly. glab: `glab issue view <iid> -R <slug> --output json`; a glab
+// stdout that is not JSON still verifies (existence is the exit status).
+// Returns { ok:false, reason } on any failure so the caller can surface a
+// named error and create nothing.
+export interface RemoteIssueVerification {
+  ok: boolean;
+  reason?: string;
+  milestone?: string | null;
+  labels?: string[];
+}
+
+function parseRemoteMetadata(stdout: string): { milestone: string | null; labels: string[] } | null {
+  let parsed: { milestone?: unknown; labels?: unknown };
+  try {
+    parsed = JSON.parse(stdout) as { milestone?: unknown; labels?: unknown };
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+  const m = parsed.milestone;
+  let milestone: string | null = null;
+  if (typeof m === 'string' && m !== '') milestone = m;
+  else if (m && typeof m === 'object' && typeof (m as { title?: unknown }).title === 'string') {
+    milestone = (m as { title: string }).title || null;
+  }
+  const labels: string[] = [];
+  if (Array.isArray(parsed.labels)) {
+    for (const l of parsed.labels) {
+      if (typeof l === 'string') labels.push(l);
+      else if (l && typeof l === 'object' && typeof (l as { name?: unknown }).name === 'string') {
+        labels.push((l as { name: string }).name);
+      }
+    }
+  }
+  return { milestone, labels };
+}
+
 export async function verifyRemoteIssue(
   backend: 'gh' | 'glab',
   iid: number,
   opts: { spawnFn?: SpawnFn; cwd?: string; repoSlug?: string } = {},
-): Promise<{ ok: boolean; reason?: string }> {
+): Promise<RemoteIssueVerification> {
   const spawnFn = opts.spawnFn ?? defaultSpawnFn;
   const spawnOpts: SpawnSyncOptions = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
   if (opts.cwd) spawnOpts.cwd = opts.cwd;
   try {
     let result: { status: number | null; stdout: string; stderr: string };
     if (backend === 'gh') {
-      const args = ['issue', 'view', String(iid), '--json', 'number,title,state'];
+      const args = ['issue', 'view', String(iid), '--json', 'number,title,state,milestone,labels'];
       if (opts.repoSlug) args.push('--repo', opts.repoSlug);
       result = spawnFn('gh', args, spawnOpts);
     } else {
-      const args = ['issue', 'view', String(iid)];
+      const args = ['issue', 'view', String(iid), '--output', 'json'];
       if (opts.repoSlug) args.push('-R', opts.repoSlug);
       result = spawnFn('glab', args, spawnOpts);
     }
@@ -244,7 +273,8 @@ export async function verifyRemoteIssue(
       }
       if (typeof parsed.number !== 'number') return { ok: false, reason: 'parse_failed' };
     }
-    return { ok: true };
+    const metadata = parseRemoteMetadata(result.stdout);
+    return metadata ? { ok: true, ...metadata } : { ok: true };
   } catch {
     return { ok: false, reason: 'spawn_error' };
   }
@@ -550,6 +580,59 @@ export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<SyncClos
       remote_iid,
       error: message,
     });
+    return { ok: false, reason: 'spawn_error', message };
+  }
+}
+
+export interface SyncIssueUpdateFields {
+  milestone?: string;
+  labels?: { add: string[]; remove: string[] };
+  title?: string;
+}
+
+export interface SyncIssueUpdateOpts {
+  spawnFn?: SpawnFn;
+  cwd?: string;
+  repoSlug?: string;
+}
+
+export async function syncIssueUpdate(
+  backend: 'gh' | 'glab',
+  iid: number,
+  fields: SyncIssueUpdateFields,
+  opts: SyncIssueUpdateOpts = {},
+): Promise<SyncCloseResult> {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts: SpawnSyncOptions = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+
+  const args: string[] = backend === 'gh' ? ['issue', 'edit', String(iid)] : ['issue', 'update', String(iid)];
+  if (opts.repoSlug) args.push(backend === 'gh' ? '--repo' : '-R', opts.repoSlug);
+  if (fields.milestone !== undefined) args.push(backend === 'gh' ? '--milestone' : '-m', fields.milestone);
+  if (fields.labels) {
+    const addFlag = backend === 'gh' ? '--add-label' : '--label';
+    const removeFlag = backend === 'gh' ? '--remove-label' : '--unlabel';
+    for (const l of fields.labels.add) args.push(addFlag, l);
+    for (const l of fields.labels.remove) args.push(removeFlag, l);
+  }
+  if (fields.title !== undefined) args.push(backend === 'gh' ? '--title' : '-t', fields.title);
+
+  try {
+    const result = spawnFn(backend, args, spawnOpts);
+    if (result.status !== 0) {
+      syncLog({ event: 'issue_update_failed', backend, remote_iid: iid, stderr: result.stderr, exit_code: result.status });
+      return {
+        ok: false,
+        reason: 'non_zero_exit',
+        stderr: result.stderr,
+        stdout: result.stdout,
+        exit_code: result.status ?? undefined,
+      };
+    }
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    syncLog({ event: 'issue_update_error', backend, remote_iid: iid, error: message });
     return { ok: false, reason: 'spawn_error', message };
   }
 }

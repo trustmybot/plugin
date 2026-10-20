@@ -1,13 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
+import { compositeTools } from '../tools/composites.js';
+import { configTools, readHighEffortPaths, resolveEffortDefaults } from '../tools/config.js';
 
 // Each git fixture is its OWN sandbox under the OS temp dir — never inside the
 // plugin tree / ambient cwd — so no git op can ever drift onto the caller's
@@ -85,6 +87,9 @@ describe('taskTools', () => {
     assert.equal(inserted[1].branch_id, 'feat/task-two');
     assert.equal(inserted[2].branch_id, 'feat/task-three');
     assert.ok(inserted.every((t) => (t as { status: string }).status === 'pending'));
+
+    const broRuns = db.get<{ c: number }>("SELECT COUNT(*) AS c FROM agent_runs WHERE agent_type = 'bro'")!.c;
+    assert.equal(broRuns, 0, 'bro is metered per session by the Stop hook, not per task');
 
     db.close();
   });
@@ -400,7 +405,9 @@ describe('taskTools', () => {
   });
 
   it('task_create_batch accepts parent_branch_id="dev"', async () => {
+    const repo = makeGitSubdir('parent-dev');
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES (?, ?, ?)`, [repo.name, repo.dir, 'dev']);
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
@@ -416,10 +423,13 @@ describe('taskTools', () => {
     assert.equal(inserted[0].parent_branch_id, 'dev');
 
     db.close();
+    repo.cleanup();
   });
 
   it('task_create_batch accepts parent_branch_id="main"', async () => {
+    const repo = makeGitSubdir('parent-main');
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, protected_branches) VALUES (?, ?, ?)`, [repo.name, repo.dir, JSON.stringify(['main'])]);
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
@@ -435,10 +445,13 @@ describe('taskTools', () => {
     assert.equal(inserted[0].parent_branch_id, 'main');
 
     db.close();
+    repo.cleanup();
   });
 
   it('task_create_batch accepts parent_branch_id="master"', async () => {
+    const repo = makeGitSubdir('parent-master');
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, protected_branches) VALUES (?, ?, ?)`, [repo.name, repo.dir, JSON.stringify(['master'])]);
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
@@ -454,6 +467,7 @@ describe('taskTools', () => {
     assert.equal(inserted[0].parent_branch_id, 'master');
 
     db.close();
+    repo.cleanup();
   });
 
   it('task_create_batch accepts parent_branch_id="feat/foo" (git-convention still works)', async () => {
@@ -473,6 +487,67 @@ describe('taskTools', () => {
     assert.equal(inserted[0].parent_branch_id, 'feat/foo');
 
     db.close();
+  });
+
+  it('task_create_batch accepts parent_branch_id="develop" when it is the repo target_branch', async () => {
+    const repo = makeGitSubdir('parent-extra');
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES (?, ?, 'develop')`, [repo.name, repo.dir]);
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/child-x', parent_branch_id: 'develop', description: 'child' }],
+    });
+    assert.ok(!result.isError, `Expected no error: ${result.content[0].text}`);
+    assert.equal(parseBatch(result)[0].parent_branch_id, 'develop');
+    db.close();
+    repo.cleanup();
+  });
+
+  it('task_create_batch rejects parent_branch_id="develop" when the repo does not name it', async () => {
+    const repo = makeGitSubdir('parent-extra');
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES (?, ?, 'main')`, [repo.name, repo.dir]);
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/child-x', parent_branch_id: 'develop', description: 'child' }],
+    });
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(parseResult(result).error, /Invalid branch_id "develop"/);
+    db.close();
+    repo.cleanup();
+  });
+
+  it('task_create_batch accepts parent_branch_id="trunk" when it exists as a local ref', async () => {
+    const repo = makeGitSubdir('parent-extra');
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repo.name, repo.dir]);
+    execFileSync('git', ['-C', repo.dir, 'branch', 'trunk']);
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/child-x', parent_branch_id: 'trunk', description: 'child' }],
+    });
+    assert.ok(!result.isError, `Expected no error: ${result.content[0].text}`);
+    assert.equal(parseBatch(result)[0].parent_branch_id, 'trunk');
+    db.close();
+    repo.cleanup();
   });
 
   it('task_create_batch rejects parent_branch_id="random-junk"', async () => {
@@ -1198,7 +1273,7 @@ describe('taskTools', () => {
       issue_id: String(issueId),
       from_node: 'bro',
       kind: 'event',
-      event_type: 'some_other_event',
+      event_type: 'planning_complete',
       summary: 'not a branch_id_proposed event',
     });
 
@@ -1674,6 +1749,68 @@ describe('taskTools', () => {
     db.close();
   });
 
+  it('task_create_batch waive_spec_shape: one per-task row in the require-task-spec shape on the task\'s issue, no batch-level row', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+    const reason = 'placeholder tasks — no Writer/Populated lines needed';
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+      waive_spec_shape: true, waive_spec_shape_reason: reason,
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/waived-a', description: 'a', spec_body: 'placeholder' },
+        { branch_id: 'feat/waived-b', description: 'b', spec_body: 'placeholder' },
+        { branch_id: 'feat/waived-c', description: 'c', spec_body: 'placeholder' },
+      ],
+    });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    const created = parseBatch(result);
+    assert.equal(created.length, 3);
+
+    const rows = db.all<{ issue_id: number; branch_id: string; from_node: string; content_json: string }>(
+      "SELECT issue_id, branch_id, from_node, content_json FROM audit WHERE event_type = 'spec_shape_gate_waived' ORDER BY id",
+    );
+    assert.equal(rows.length, 3, 'one row per created task, no batch-level row');
+    rows.forEach((row, i) => {
+      const task = created[i]!;
+      assert.equal(row.issue_id, issueId);
+      assert.equal(row.branch_id, task['branch_id']);
+      assert.equal(row.from_node, 'bro');
+      assert.deepEqual(JSON.parse(row.content_json), {
+        task_id: task['id'], gate: 'spec_shape', reason, waived_by: 'bro', source: 'task_create_batch',
+      });
+    });
+    db.close();
+  });
+
+  it('task_create_batch without waive_spec_shape writes no spec_shape_gate_waived row', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/unwaived', description: 'u', spec_body: '## Success Criteria\n- works' }],
+    });
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    assert.equal(
+      db.get<{ c: number }>("SELECT COUNT(*) AS c FROM audit WHERE event_type = 'spec_shape_gate_waived'")!.c,
+      0,
+    );
+    db.close();
+  });
+
   it('task_create_batch spec-shape gate: still accepts a spec that includes ## Files/## Verification (backward-compat)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
@@ -1824,6 +1961,33 @@ describe('taskTools', () => {
   it('task_create_batch auto-creates branch from parent_branch_id and emits tmb_branch_autocreated audit (#529)', async () => {
     const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
     try {
+      const parentCommitResult = spawnSync(
+        'git',
+        ['-C', repoDir, 'rev-parse', 'HEAD'],
+        { encoding: 'utf8' },
+      );
+      assert.equal(parentCommitResult.status, 0, 'Fixture HEAD must resolve');
+      const parentCommit = parentCommitResult.stdout.trim();
+      const parentRefResult = spawnSync(
+        'git',
+        ['-C', repoDir, 'branch', 'test/parent-base', parentCommit],
+        { encoding: 'utf8' },
+      );
+      assert.equal(parentRefResult.status, 0, 'Fixture test/parent-base ref must be created');
+      const advanceHeadResult = spawnSync(
+        'git',
+        ['-C', repoDir, 'commit', '--allow-empty', '-m', 'advance HEAD past parent'],
+        { encoding: 'utf8' },
+      );
+      assert.equal(advanceHeadResult.status, 0, 'Fixture HEAD must advance past test/parent-base');
+      const advancedHeadResult = spawnSync(
+        'git',
+        ['-C', repoDir, 'rev-parse', 'HEAD'],
+        { encoding: 'utf8' },
+      );
+      assert.equal(advancedHeadResult.status, 0, 'Advanced fixture HEAD must resolve');
+      assert.notEqual(advancedHeadResult.stdout.trim(), parentCommit, 'Fixture parent ref must differ from HEAD');
+
       const db = tempDB();
       db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-parent', repoDir]);
       const issueId = await createIssue(db);
@@ -1838,7 +2002,7 @@ describe('taskTools', () => {
         issue_id: String(issueId),
         tasks: [{
           branch_id: 'feat/new-from-parent',
-          parent_branch_id: 'master',
+          parent_branch_id: 'test/parent-base',
           description: 'auto-create from parent',
           repo: 'fixture-from-parent',
         }],
@@ -1847,13 +2011,18 @@ describe('taskTools', () => {
 
       const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/new-from-parent'], { encoding: 'utf8' });
       assert.equal(branchCheck.status, 0, 'Branch must have been created');
+      assert.equal(
+        branchCheck.stdout.trim(),
+        parentCommit,
+        'Branch must start from the caller-provided parent branch commit',
+      );
 
       const auditRow = db.get<{ summary: string; content_json: string }>(
         `SELECT summary, content_json FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`,
       );
       assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
       const content = JSON.parse(auditRow.content_json) as { start_point: string };
-      assert.equal(content.start_point, 'master', 'Start point must be parent_branch_id');
+      assert.equal(content.start_point, 'test/parent-base', 'Start point must be parent_branch_id');
 
       db.close();
     } finally {
@@ -1955,6 +2124,286 @@ describe('taskTools', () => {
       db.close();
     } finally {
       rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('effort (GH 1349)', () => {
+  const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+  const WAIVERS = {
+    waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+    waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+    waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+  };
+
+  // A project dir holding a git repo `app` with an origin/main ref, registered
+  // as the sole repo, plus one open issue.
+  function setup() {
+    const ws = mkdtempSync(join(tmpdir(), 'tmb-effort-'));
+    const repoRoot = join(ws, 'app');
+    mkdirSync(repoRoot, { recursive: true });
+    const git = (...a: string[]) => execFileSync('git', ['-C', repoRoot, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.t');
+    git('config', 'user.name', 't');
+    writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'));
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+    const config = configTools(db);
+    return { ws, db, composites, config, cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); } };
+  }
+
+  async function provision(
+    handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+    branchId: string,
+    effort?: unknown,
+  ): Promise<RawResult> {
+    return call(handlers, 'task_provision', {
+      agent: 'bro', issue_id: 1, branch_id: branchId, decision_body: 'Chosen approach: effort fixture.',
+      task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app', ...(effort === undefined ? {} : { effort }) },
+    });
+  }
+
+  const effortOf = (db: ReturnType<typeof tempDB>, id: unknown) =>
+    db.get<{ effort: string }>('SELECT effort FROM tasks WHERE id = ?', [id as number])!.effort;
+
+  it('task_provision stores swe_default_effort when effort is omitted: medium unset, low once configured', async () => {
+    const { db, composites, config, cleanup } = setup();
+    try {
+      const first = parseResult(await provision(composites.handlers, 'feat/default-effort'));
+      assert.equal(first.effort, 'medium', 'the spawn-ready shape names the effort');
+      assert.equal(effortOf(db, first.task_id), 'medium');
+
+      const set = await call(config.handlers, 'config_set', { agent: 'bro', key: 'swe_default_effort', value: 'low' });
+      assert.ok(!set.isError, JSON.stringify(parseResult(set)));
+      const second = parseResult(await provision(composites.handlers, 'feat/configured-effort'));
+      assert.equal(effortOf(db, second.task_id), 'low');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("task_provision stores an explicit effort; effort:'max' is a typed_field_violation and writes nothing", async () => {
+    const { db, composites, cleanup } = setup();
+    try {
+      const high = parseResult(await provision(composites.handlers, 'feat/high-effort', 'high'));
+      assert.equal(effortOf(db, high.task_id), 'high');
+
+      const bad = await provision(composites.handlers, 'feat/max-effort', 'max');
+      assert.equal(bad.isError, true);
+      assert.match(String(parseResult(bad).error), /^typed_field_violation: task\.effort must be one of low, medium, high/);
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/max-effort'`)!.c, 0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_create_batch applies the same default, explicit value and typed_field_violation; task_get returns effort', async () => {
+    const { db, config, cleanup } = setup();
+    try {
+      const tools = taskTools(db);
+      const created = parseBatch(await call(tools.handlers, 'task_create_batch', {
+        ...WAIVERS, agent: 'bro', issue_id: '1',
+        tasks: [
+          { branch_id: 'feat/batch-default', description: 'd' },
+          { branch_id: 'feat/batch-high', description: 'd', effort: 'high' },
+        ],
+      }));
+      assert.deepEqual(created.map((t) => t.effort), ['medium', 'high']);
+      assert.equal(effortOf(db, created[0]!.id), 'medium');
+      assert.equal(effortOf(db, created[1]!.id), 'high');
+      const got = parseResult(await call(tools.handlers, 'task_get', { agent: 'bro', task_id: String(created[1]!.id) }));
+      assert.equal(got.effort, 'high');
+
+      await call(config.handlers, 'config_set', { agent: 'bro', key: 'swe_default_effort', value: 'low' });
+      const low = parseBatch(await call(tools.handlers, 'task_create_batch', {
+        ...WAIVERS, agent: 'bro', issue_id: '1', tasks: [{ branch_id: 'feat/batch-low', description: 'd' }],
+      }));
+      assert.equal(effortOf(db, low[0]!.id), 'low');
+
+      const bad = await call(tools.handlers, 'task_create_batch', {
+        ...WAIVERS, agent: 'bro', issue_id: '1', tasks: [{ branch_id: 'feat/batch-max', description: 'd', effort: 'max' }],
+      });
+      assert.equal(bad.isError, true);
+      assert.match(JSON.stringify(parseResult(bad)), /typed_field_violation: task branch_id='feat\/batch-max' — 'effort' must be one of low, medium, high/);
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/batch-max'`)!.c, 0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('config_set validates both effort keys; resolveEffortDefaults reads medium/high when unset', async () => {
+    const { db, config, cleanup } = setup();
+    try {
+      assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'high' });
+      for (const key of ['swe_default_effort', 'reviewer_effort']) {
+        const bad = await call(config.handlers, 'config_set', { agent: 'bro', key, value: 'max' });
+        assert.equal(bad.isError, true, key);
+        assert.match(String(parseResult(bad).error), new RegExp(`typed_field_violation: config key "${key}" must be one of low, medium, high`));
+      }
+      await call(config.handlers, 'config_set', { agent: 'bro', key: 'reviewer_effort', value: 'medium' });
+      assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'medium' });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_reopen raises effort with one task_effort_raised row; an unchanged effort writes none', async () => {
+    const { db, composites, cleanup } = setup();
+    try {
+      const id = parseResult(await provision(composites.handlers, 'fix/rework-effort')).task_id as number;
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const r = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review failed', effort: 'high' });
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      assert.equal(parseResult(r).effort, 'high');
+      assert.equal(effortOf(db, id), 'high');
+      const raised = () => db.all<{ content_json: string; from_node: string }>(`SELECT content_json, from_node FROM audit WHERE event_type = 'task_effort_raised'`);
+      assert.equal(raised().length, 1);
+      assert.deepEqual(JSON.parse(raised()[0]!.content_json), { task_id: id, from: 'medium', to: 'high' });
+      assert.equal(raised()[0]!.from_node, 'bro');
+
+      await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'again', effort: 'high' });
+      assert.equal(raised().length, 1, 'same effort: no new row');
+
+      const bad = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x', effort: 'max' });
+      assert.equal(bad.isError, true);
+      assert.match(String(parseResult(bad).error), /^typed_field_violation: effort must be one of low, medium, high/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_reopen without effort runs the rework at high with one task_effort_raised row; an explicit medium keeps medium', async () => {
+    const { db, composites, cleanup } = setup();
+    try {
+      const id = parseResult(await provision(composites.handlers, 'fix/rework-computed')).task_id as number;
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const kept = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'explicit', effort: 'medium' });
+      assert.ok(!kept.isError, JSON.stringify(parseResult(kept)));
+      assert.equal(effortOf(db, id), 'medium');
+      const raised = () => db.all<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'task_effort_raised'`);
+      assert.equal(raised().length, 0);
+
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const r = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'rework' });
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      assert.equal(parseResult(r).effort, 'high');
+      assert.equal(effortOf(db, id), 'high');
+      assert.deepEqual(raised().map((row) => JSON.parse(row.content_json)), [{ task_id: id, from: 'medium', to: 'high' }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_provision computes effort: default, prompt_bearing, high_effort_paths in both prefix directions, explicit wins', async () => {
+    const { db, composites, config, cleanup } = setup();
+    try {
+      const provisionWith = async (branchId: string, files: string[], extra: Record<string, unknown> = {}) =>
+        parseResult(await call(composites.handlers, 'task_provision', {
+          agent: 'bro', issue_id: 1, branch_id: branchId, decision_body: 'Chosen approach: computed effort fixture.',
+          task: { description: 'd', spec_body: SPEC, files, verification: ['true'], repo: 'app', ...extra },
+        }));
+
+      const unset = await provisionWith('feat/ce-unset', ['scripts/hooks/x.sh']);
+      assert.deepEqual([unset.effort, unset.effort_reason], ['medium', 'default']);
+
+      const bearing = await provisionWith('feat/ce-bearing', ['docs/x.md'], { prompt_bearing: 1 });
+      assert.deepEqual([bearing.effort, bearing.effort_reason], ['high', 'prompt_bearing']);
+
+      const set = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value: ['scripts/hooks/', 'src/api'] });
+      assert.ok(!set.isError, JSON.stringify(parseResult(set)));
+
+      const hit = await provisionWith('feat/ce-hit', ['scripts/hooks/x.sh']);
+      assert.deepEqual([hit.effort, hit.effort_reason], ['high', 'high_effort_paths']);
+      assert.equal(effortOf(db, hit.task_id), 'high');
+
+      const broader = await provisionWith('feat/ce-broader', ['scripts/']);
+      assert.deepEqual([broader.effort, broader.effort_reason], ['high', 'high_effort_paths'], 'files[] entry is a directory prefix of the configured prefix');
+
+      const narrower = await provisionWith('feat/ce-narrower', ['src/api/users/get.ts']);
+      assert.deepEqual([narrower.effort, narrower.effort_reason], ['high', 'high_effort_paths'], 'configured prefix is a directory prefix of the files[] entry');
+
+      const miss = await provisionWith('feat/ce-miss', ['scripts/hooksy/x.sh', 'src/apis/x.ts']);
+      assert.deepEqual([miss.effort, miss.effort_reason], ['medium', 'default'], 'a sibling sharing only a name prefix is no overlap');
+
+      const explicit = await provisionWith('feat/ce-explicit', ['scripts/hooks/x.sh'], { effort: 'low' });
+      assert.deepEqual([explicit.effort, explicit.effort_reason], ['low', 'explicit']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_create_batch computes effort from prompt_bearing and high_effort_paths; explicit low wins', async () => {
+    const { db, config, cleanup } = setup();
+    try {
+      await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value: ['hooks/'] });
+      const tools = taskTools(db);
+      const created = parseBatch(await call(tools.handlers, 'task_create_batch', {
+        ...WAIVERS, agent: 'bro', issue_id: '1',
+        tasks: [
+          { branch_id: 'feat/cb-hit', description: 'd', files: ['hooks/hooks.json'] },
+          { branch_id: 'feat/cb-miss', description: 'd', files: ['src/a.ts'] },
+          { branch_id: 'feat/cb-bearing', description: 'd', prompt_bearing: 1 },
+          { branch_id: 'feat/cb-explicit', description: 'd', files: ['hooks/hooks.json'], effort: 'low' },
+        ],
+      }));
+      assert.deepEqual(created.map((t) => t.effort), ['high', 'medium', 'high', 'low']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('config_set high_effort_paths refuses a non-array and a non-string element, accepts [] and a prefix list', async () => {
+    const { db, config, cleanup } = setup();
+    try {
+      for (const value of ['scripts/', [1], ['ok', '']]) {
+        const bad = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value });
+        assert.equal(bad.isError, true, JSON.stringify(value));
+        assert.match(String(parseResult(bad).error), /^typed_field_violation: config key "high_effort_paths" must be an array of non-empty strings/);
+      }
+      assert.deepEqual(readHighEffortPaths(db), []);
+      for (const value of [[], ['src/api/']]) {
+        const ok = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value });
+        assert.ok(!ok.isError, JSON.stringify(parseResult(ok)));
+      }
+      assert.deepEqual(readHighEffortPaths(db), ['src/api/']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("task_retry keeps an explicit effort or runs the rework at high, auditing the raise; task_brief returns effort", async () => {
+    const { db, composites, cleanup } = setup();
+    try {
+      const id = parseResult(await provision(composites.handlers, 'fix/retry-effort', 'low')).task_id as number;
+      db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+      const explicit = parseResult(await call(composites.handlers, 'task_retry', {
+        agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v2', corrected_spec_body: SPEC,
+        retry_rationale: 'explicit', description: 'd', effort: 'low',
+      }));
+      assert.equal(effortOf(db, explicit.task_id), 'low');
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_effort_raised'`)!.c, 0);
+
+      const raised = parseResult(await call(composites.handlers, 'task_retry', {
+        agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v3', corrected_spec_body: SPEC,
+        retry_rationale: 'rework', description: 'd',
+      }));
+      assert.equal(raised.effort, 'high');
+      assert.equal(effortOf(db, raised.task_id), 'high');
+      const rows = db.all<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'task_effort_raised'`);
+      assert.deepEqual(rows.map((r) => JSON.parse(r.content_json)), [{ task_id: raised.task_id, from: 'low', to: 'high', failed_task_id: id }]);
+
+      const brief = parseResult(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: raised.task_id }));
+      assert.equal(brief.effort, 'high');
+    } finally {
+      cleanup();
     }
   });
 });

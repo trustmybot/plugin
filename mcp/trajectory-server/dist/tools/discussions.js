@@ -1,6 +1,9 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
+import { resolveIssueRepo } from './audit.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
 const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 const MAX_BODY_BYTES = 65_536;
 function ok(data) {
@@ -32,23 +35,14 @@ export function resolveDefaultIssueId(db) {
     const latest = db.get(`SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`);
     return latest?.id ?? -1;
 }
-/**
- * The single insert+embed path for discussions. Synchronously INSERTs the row
- * and returns its id, then fires `embedAndStore` for semantic discussion_search.
- *
- * The embed is intentionally NOT awaited: `embed()` yields to the event loop, so
- * the embedding-table write runs in a later turn — after a surrounding
- * synchronous `db.transaction()` callback has returned and COMMIT has executed,
- * making the row visible. The `.catch` keeps an embed failure non-fatal, so it
- * can never roll back a caller's transaction (a failed embed degrades to
- * FTS-only search). Callers inside a transaction therefore get the row id
- * immediately while the embed lands post-commit; callers outside one (e.g.
- * discussion_append) behave identically.
- */
 export function insertDiscussion(db, entry) {
     const createdAt = entry.created_at ?? nowISO();
-    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]);
+    const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]);
+    if (Number(res.changes) === 0)
+        return null;
     const id = Number(res.lastInsertRowid);
     void embedAndStore(db, 'discussions', id, entry.body).catch((e) => console.error('[embeddings] insertDiscussion embed failed:', e));
     return id;
@@ -172,7 +166,9 @@ export function discussionTools(db) {
             const kind = args['kind'] ?? null;
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
-            const fetchFtsRows = (limitK) => db.all(`SELECT
+            await backfillMissing(db, 'discussions');
+            const ftsQuery = toFtsQuery(query);
+            const fetchFtsRows = (limitK) => withFtsGuard(() => db.all(`SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
              bm25(discussions_fts) AS bm25_score,
@@ -183,7 +179,7 @@ export function discussionTools(db) {
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)
            ORDER BY bm25(discussions_fts) ASC
-           LIMIT ?`, [query, issueId, issueId, kind, kind, limitK]);
+           LIMIT ?`, [ftsQuery, issueId, issueId, kind, kind, limitK]));
             const fetchRowById = (id) => db.get(`SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
                   '' AS snippet,
                   0.0 AS bm25_score,
@@ -193,14 +189,14 @@ export function discussionTools(db) {
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)`, [id, issueId, issueId, kind, kind]);
             if (mode === 'keyword') {
-                const countRow = db.get(`SELECT COUNT(*) AS n
+                const countRow = withFtsGuard(() => db.get(`SELECT COUNT(*) AS n
            FROM discussions_fts
            JOIN discussions d ON d.id = discussions_fts.rowid
            WHERE discussions_fts MATCH ?
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-             AND (? IS NULL OR d.kind = ?)`, [query, issueId, issueId, kind, kind]);
+             AND (? IS NULL OR d.kind = ?)`, [ftsQuery, issueId, issueId, kind, kind]));
                 const total_matched = countRow?.n ?? 0;
-                const rows = db.all(`SELECT
+                const rows = withFtsGuard(() => db.all(`SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
              bm25(discussions_fts) AS bm25_score,
@@ -211,7 +207,7 @@ export function discussionTools(db) {
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)
            ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
-           LIMIT ?`, [query, issueId, issueId, kind, kind, alpha, alpha, k]);
+           LIMIT ?`, [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k]));
                 return ok({
                     results: rows.map((r) => ({
                         id: r.id,

@@ -1,12 +1,18 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph-db.js';
+import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
+import { serverLog } from '../logger.js';
+import { syncRepoMilestones } from './milestones.js';
+import { primaryIndex, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { projectRootFromDbPath } from './containment.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -48,9 +54,12 @@ function resolveScanScript() {
     }
     throw new Error('scan.sh not found — expected at <plugin>/scripts/scan.sh');
 }
-export function runScanWithScript(script, sessionDir, timeoutMs) {
+export function runScanWithScript(script, sessionDir, timeoutMs, dbPath = '') {
     return new Promise((resolve, reject) => {
+        const env = dbPath && dbPath !== ':memory:' ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
         const child = spawn('bash', [script, sessionDir], {
+            cwd: sessionDir,
+            env,
             detached: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -111,8 +120,8 @@ export function runScanWithScript(script, sessionDir, timeoutMs) {
         });
     });
 }
-function runScan(sessionDir, timeoutMs) {
-    return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+function runScan(sessionDir, timeoutMs, dbPath) {
+    return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath);
 }
 // Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
 // matches the historical un-tagged behavior (bro hit the registry-cold gate
@@ -167,6 +176,7 @@ export function detectStructuralChange(db, currentRepos, currentTopDirs) {
 const README_CANDIDATES = ['README.md', 'readme.md', 'README.rst', 'readme.rst'];
 const README_MAX_BYTES = 1024;
 const STRUCTURAL_LIST_MAX = 8;
+const STRUCTURAL_PURPOSES_MAX = 5;
 function basename(p) {
     const i = p.lastIndexOf('/');
     return i >= 0 ? p.slice(i + 1) : p;
@@ -203,7 +213,7 @@ function deriveDirectoryEntries(out) {
 // Deterministic summary for a directory with no README: a one-line digest of
 // its immediate file + subdir names. Gives world_model_search real tokens to
 // match and bro a structure-only sense of the dir without reading the tree.
-function buildStructuralSummary(dirPath, fileNames, subdirNames) {
+function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
     const leaf = dirPath === '' ? '(repo root)' : basename(dirPath);
     const join = (names) => {
         const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(', ');
@@ -211,8 +221,19 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames) {
         return extra > 0 ? `${shown}, +${extra} more` : shown;
     };
     const parts = [];
-    if (fileNames.length > 0) {
-        parts.push(`${fileNames.length} file${fileNames.length === 1 ? '' : 's'} (${join(fileNames.slice().sort())})`);
+    const fileCount = `${fileNames.length} file${fileNames.length === 1 ? '' : 's'}`;
+    if (filePurposes.length > 0) {
+        const shown = filePurposes
+            .slice()
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .slice(0, STRUCTURAL_PURPOSES_MAX)
+            .map((f) => `${f.name}: ${f.purpose}`);
+        // One line, so the depth-2 first-line trim in world_model_get keeps the
+        // whole frame.
+        parts.push(fileCount, frameUntrusted('file-purpose', shown.join('; ')).replace(/\n/g, ' '));
+    }
+    else if (fileNames.length > 0) {
+        parts.push(`${fileCount} (${join(fileNames.slice().sort())})`);
     }
     if (subdirNames.length > 0) {
         parts.push(`subdirs: ${join(subdirNames.slice().sort())}`);
@@ -238,7 +259,7 @@ export function readReadmeSummary(absDirPath) {
     }
     return null;
 }
-function persistDirectoriesGraph(graph, out, now) {
+function persistDirectoriesGraph(graph, out, now, purposesByDir = new Map()) {
     const repoPaths = new Map();
     for (const r of out.repos)
         repoPaths.set(r.name, r.path);
@@ -268,7 +289,7 @@ function persistDirectoriesGraph(graph, out, now) {
         const readmeSummary = readReadmeSummary(absDirPath);
         const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
         const summary = readmeSummary
-            ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
+            ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames, purposesByDir.get(`${entry.repo} ${entry.path}`) ?? []);
         graph.upsertDirectory({
             repo: entry.repo,
             path: entry.path,
@@ -290,6 +311,105 @@ function persistDirectoriesGraph(graph, out, now) {
         graph.upsertContains({ repo: entry.repo, path: entry.parent_path }, { repo: entry.repo, path: entry.path });
     }
     return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
+}
+export function readFileHead(absPath) {
+    let fd = null;
+    try {
+        fd = openSync(absPath, 'r');
+        const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
+        const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
+        return buf.subarray(0, n).toString('utf8');
+    }
+    catch {
+        return '';
+    }
+    finally {
+        if (fd !== null)
+            closeSync(fd);
+    }
+}
+function fileDir(relPath) {
+    const i = relPath.lastIndexOf('/');
+    return i >= 0 ? relPath.slice(0, i) : '';
+}
+// Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is; a
+// changed or new file is re-extracted from its first PURPOSE_HEAD_BYTES; a
+// purpose an swe wrote (purpose_source='swe') survives a content change.
+function planFiles(graph, out, now) {
+    const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+    const existing = new Map();
+    for (const r of out.repos) {
+        for (const f of graph.allFilesForRepo(r.name))
+            existing.set(f.path, f);
+    }
+    const plan = { nodes: [], writes: [], extracted: 0 };
+    for (const f of out.files) {
+        const repoPath = repoPaths.get(f.repo);
+        if (!repoPath)
+            continue;
+        const path = WorldModelGraph.fileKey(f.repo, f.path);
+        const prev = existing.get(path);
+        const md5 = f.content_md5 ?? '';
+        if (prev && md5 !== '' && prev.content_md5 === md5) {
+            plan.nodes.push(prev);
+            continue;
+        }
+        const facts = {
+            path,
+            repo: f.repo,
+            dir: fileDir(f.path),
+            content_md5: md5,
+            size_bytes: Number(f.size_bytes ?? 0),
+            last_commit_sha: f.last_commit_sha ?? '',
+            updated_at: now,
+        };
+        let node;
+        if (prev?.purpose_source === 'swe') {
+            node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
+        }
+        else {
+            const extracted = isPurposeCandidate(f.path)
+                ? extractPurpose(f.path, readFileHead(join(repoPath, f.path)))
+                : { purpose: '', source: 'none' };
+            node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
+            plan.extracted++;
+        }
+        plan.nodes.push(node);
+        plan.writes.push(node);
+    }
+    return plan;
+}
+function purposesByDirectory(nodes) {
+    const byDir = new Map();
+    for (const n of nodes) {
+        if (!n.purpose)
+            continue;
+        const key = `${n.repo} ${n.dir}`;
+        const entry = { name: basename(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+        const list = byDir.get(key);
+        if (list)
+            list.push(entry);
+        else
+            byDir.set(key, [entry]);
+    }
+    return byDir;
+}
+function persistFilesGraph(graph, out, plan) {
+    let files_retired = 0;
+    graph.transaction(() => {
+        for (const n of plan.writes)
+            graph.upsertFile(n);
+        for (const r of out.repos) {
+            const linked = graph.filePathsWithDirectory(r.name);
+            for (const n of plan.nodes) {
+                if (n.repo === r.name && !linked.has(n.path))
+                    graph.upsertHasFile(n.repo, n.dir, n.path);
+            }
+            const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
+            files_retired += graph.pruneFiles(r.name, keep);
+        }
+    });
+    return { files_upserted: plan.writes.length, files_retired };
 }
 // Read a repo's actual git remotes as {name, provider, url}[]. Mirrors
 // onboard.ts probeGit: `git -C <path> remote` then `git -C <path> remote
@@ -321,71 +441,167 @@ function readRepoRemotes(path) {
         return [];
     }
 }
-// Persist repos[] + directories[] from a scan output. Transactional.
-// File-level state lives entirely in the directories rows (file_count) and
-// the world model. Per-file md5/summary state was retired in schema v7
-// (ADR 0001) — leaf-zoom now happens via explicit Read on demand.
+function canonicalPath(p) {
+    try {
+        return realpathSync(p);
+    }
+    catch {
+        return p.replace(/\/+$/, '');
+    }
+}
+function normalizeRemoteUrl(url) {
+    return url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
+}
+function primaryRemoteUrl(remotes) {
+    const primary = remotes[primaryIndex(remotes)];
+    return primary ? normalizeRemoteUrl(primary.url) : null;
+}
+// A discovered repo with no row of its own whose canonical path or primary
+// remote URL matches an existing row that this scan did not rediscover is a
+// rename, not a new repo. It is surfaced for repo_rename, never applied here.
+function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
+    const scannedNames = new Set(discovered.map((r) => r.name));
+    const existingNames = new Set(existing.map((r) => r.name));
+    const orphaned = existing.filter((r) => !scannedNames.has(r.name));
+    const claimed = new Set();
+    const candidates = [];
+    for (const r of discovered) {
+        if (existingNames.has(r.name))
+            continue;
+        const path = canonicalPath(r.path);
+        const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
+        let match = null;
+        for (const row of orphaned) {
+            if (claimed.has(row.name))
+                continue;
+            if (canonicalPath(row.path) === path) {
+                match = { name: row.name, by: 'path' };
+                break;
+            }
+        }
+        if (!match && remote) {
+            for (const row of orphaned) {
+                if (claimed.has(row.name))
+                    continue;
+                if (primaryRemoteUrl(storedRemotes(row.name)) === remote) {
+                    match = { name: row.name, by: 'remote' };
+                    break;
+                }
+            }
+        }
+        if (match) {
+            claimed.add(match.name);
+            candidates.push({ old: match.name, new: r.name, by: match.by, path: r.path });
+        }
+    }
+    return candidates;
+}
+// Persist repos[] to SQLite (transactional) and Directory + File nodes to the
+// kuzu world model.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
-// falls under sessionDir but are absent from this scan's result are retired.
+// falls under sessionDir but are absent from this scan's result are retired,
+// unless a task or another row still references them; those are kept and
+// reported in repos_stale_kept (GH 1551).
 function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
-    const scannedNames = new Set(out.repos.map((r) => r.name));
     const normSession = sessionDir.replace(/\/+$/, '');
-    // Find repos in DB that were discovered under sessionDir but are absent now.
     const existing = db.all(`SELECT name, path FROM repos`);
+    const remotesByRepo = new Map();
+    for (const r of out.repos)
+        remotesByRepo.set(r.name, readRepoRemotes(r.path));
+    const rename_candidates = detectRenames(existing, out.repos, remotesByRepo, (repo) => repoRemotes(db, repo));
+    const renamedTo = new Set(rename_candidates.map((c) => c.new));
+    const renamedFrom = new Set(rename_candidates.map((c) => c.old));
+    const persisted = {
+        ...out,
+        repos: out.repos.filter((r) => !renamedTo.has(r.name)),
+        files: out.files.filter((f) => !renamedTo.has(f.repo)),
+    };
+    const scannedNames = new Set(persisted.repos.map((r) => r.name));
+    // Find repos in DB that were discovered under sessionDir but are absent now.
+    // A rename candidate's old row stays until repo_rename moves it.
     const toRetire = existing.filter((r) => {
         const normPath = r.path.replace(/\/+$/, '');
         const underSession = normPath === normSession || normPath.startsWith(normSession + '/');
-        return underSession && !scannedNames.has(r.name);
+        return underSession && !scannedNames.has(r.name) && !renamedFrom.has(r.name);
     });
     let repos_upserted = 0;
     let repos_retired = 0;
     let dirs_retired = 0;
     const retired = [];
+    const repos_stale_kept = [];
     db.transaction(() => {
-        for (const r of out.repos) {
-            const remotesJson = JSON.stringify(readRepoRemotes(r.path));
-            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
-         VALUES (?, ?, ?, ?, ?)
+        for (const r of persisted.repos) {
+            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           remotes = excluded.remotes`, [r.name, r.path, r.file_count, now, remotesJson]);
+           last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
+            upsertRepoRemotes(db, r.name, remotesByRepo.get(r.name) ?? []);
             repos_upserted++;
         }
         for (const r of toRetire) {
+            if (db.get(`SELECT 1 FROM tasks WHERE repo = ? LIMIT 1`, [r.name])) {
+                repos_stale_kept.push({ name: r.name, path: r.path, reason: 'task_referenced' });
+                continue;
+            }
+            // Milestones no issue references (e.g. a scan-seeded one) go with the
+            // repo; the savepoint restores them when the repo itself can't retire.
+            db.run(`SAVEPOINT retire_repo`);
             try {
+                db.run(`DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
+             (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`, [r.name]);
                 db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+                db.run(`RELEASE retire_repo`);
                 repos_retired++;
-                retired.push(r);
+                retired.push({ name: r.name, path: r.path });
             }
             catch {
                 // ON DELETE RESTRICT FK: the repo is still referenced (tasks/issues
                 // point at it). Keep its row and skip retiring it rather than failing
-                // the whole scan. SQLite rolls back only this statement, so the
-                // surrounding transaction stays open for the remaining repos.
+                // the whole scan; the surrounding transaction stays open for the
+                // remaining repos.
+                db.run(`ROLLBACK TO retire_repo`);
+                db.run(`RELEASE retire_repo`);
+                repos_stale_kept.push({ name: r.name, path: r.path, reason: 'row_referenced' });
             }
         }
+        for (const c of rename_candidates) {
+            insertAudit(db, {
+                issue_id: -1,
+                from_node: 'bro',
+                event_type: 'repo_rename_detected',
+                summary: `Scan: repo ${c.old} looks renamed to ${c.new} (matched by ${c.by}); run repo_rename to apply`,
+                content_json: JSON.stringify({ old: c.old, new: c.new, by: c.by }),
+                repo: c.old,
+            });
+        }
     });
+    let files_upserted = 0;
+    let files_extracted = 0;
+    let files_retired = 0;
     // Retire kuzu nodes for repos actually removed above (prune all their dirs).
     if (graph) {
         for (const r of retired) {
             const n = graph.pruneDirectories(r.name, new Set());
             dirs_retired += n;
+            files_retired += graph.pruneFiles(r.name, new Set());
         }
     }
     let dirs_upserted = 0;
     let dirs_readme_summarized = 0;
     let dirs_structural_summarized = 0;
     if (graph) {
-        const stats = persistDirectoriesGraph(graph, out, now);
+        const plan = planFiles(graph, persisted, now);
+        files_extracted = plan.extracted;
+        const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes));
         dirs_upserted = stats.dirs_upserted;
         dirs_readme_summarized = stats.dirs_readme_summarized;
         dirs_structural_summarized = stats.dirs_structural_summarized;
         // Prune stale directory nodes for each scanned repo (handles renames).
-        const dirMap = deriveDirectoryEntries(out);
-        for (const r of out.repos) {
+        const dirMap = deriveDirectoryEntries(persisted);
+        for (const r of persisted.repos) {
             const keepKeys = new Set();
             for (const [, entry] of dirMap) {
                 if (entry.repo === r.name) {
@@ -394,16 +610,72 @@ function persistScan(db, graph, out, sessionDir) {
             }
             graph.pruneDirectories(r.name, keepKeys);
         }
+        const fileStats = persistFilesGraph(graph, persisted, plan);
+        files_upserted = fileStats.files_upserted;
+        files_retired += fileStats.files_retired;
     }
     return {
         repos_discovered: out.repos.length,
         repos_upserted,
         repos_retired,
+        repos_stale_kept,
         dirs_upserted,
         dirs_retired,
         dirs_readme_summarized,
         dirs_structural_summarized,
+        files_upserted,
+        files_extracted,
+        files_retired,
+        rename_candidates,
     };
+}
+/**
+ * The one writer for a discovered resource, keyed on (name, kind) — the server
+ * twin of scripts/scan.sh `_register`. A new row is inserted with a
+ * scan_discovered audit row; an existing row only gets a blank description /
+ * NULL version filled and a legacy 'mcp:<server>' source_url rewritten to the
+ * bundled 'mcp:<plugin>/<server>' form, without an audit row.
+ */
+export function upsertDiscoveredCheatcode(db, r) {
+    const description = r.description ?? '';
+    const version = r.version ?? null;
+    return db.transaction(() => {
+        const now = nowISO();
+        const res = db.run(`INSERT INTO cheatcodes
+         (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?,
+               (SELECT trust_tier FROM cheatcodes WHERE kind = 'plugin' AND name = ?),
+               'project-local', ?, ?, ?, ?)
+       ON CONFLICT (name, kind) DO NOTHING`, [
+            r.name, r.kind, r.origin, description, r.source_url, r.file_path ?? null, version,
+            r.trust_parent ?? null, r.status, now, now, now,
+        ]);
+        if (res.changes > 0) {
+            insertAudit(db, {
+                issue_id: -1,
+                from_node: r.from_node ?? 'system',
+                event_type: 'scan_discovered',
+                summary: `${r.name} (${r.kind}): discovered`,
+                content_json: JSON.stringify({ name: r.name, kind: r.kind, origin: r.origin, source: r.source_url }),
+            });
+            return { id: Number(res.lastInsertRowid), inserted: true };
+        }
+        db.run(`UPDATE cheatcodes
+          SET description = CASE WHEN description = '' THEN ? ELSE description END,
+              version = COALESCE(version, ?),
+              source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
+                                THEN ? ELSE source_url END,
+              updated_at = ?
+        WHERE name = ? AND kind = ?
+          AND ((description = '' AND ? <> '')
+               OR (version IS NULL AND ? IS NOT NULL)
+               OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`, [
+            description, version, r.source_url, r.source_url, now, r.name, r.kind,
+            description, version, r.source_url,
+        ]);
+        const row = db.get('SELECT id FROM cheatcodes WHERE name = ? AND kind = ?', [r.name, r.kind]);
+        return { id: row.id, inserted: false };
+    });
 }
 const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout
 function readLock(lockPath) {
@@ -445,14 +717,14 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
     const definitions = [
         {
             name: 'scan_run',
-            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
+            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory + File nodes to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     session_dir: {
                         type: 'string',
-                        description: 'Absolute path to the session directory (workspace root). Defaults to the MCP server\'s CWD.',
+                        description: 'Absolute path to the session directory (workspace root). Defaults to the project root (the directory holding the trajectory DB\'s .claude/).',
                     },
                     source: {
                         type: 'string',
@@ -477,7 +749,10 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
     ];
     const handlers = {
         scan_run: requireRoles('scan_run', ['bro'], wrap(async (args) => {
-            const sessionDir = args['session_dir'] ?? process.cwd();
+            const sessionDir = args['session_dir'] ?? projectRootFromDbPath(dbPath);
+            if (!sessionDir) {
+                return err('session_dir is required: the project root is unknown for this trajectory DB');
+            }
             const rawSource = args['source'] ?? 'bro_auto_initial';
             const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
             // #590/#591: when the server lost the cold-start kuzu write-lock race
@@ -528,8 +803,20 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 }
             }
             try {
-                const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+                const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
                 const stats = persistScan(db, graph, out, sessionDir);
+                // Milestones: reconcile from each repo's remote, then seed one
+                // v<next-patch> where none exist. Never fails the scan.
+                const spawnFn = args['_spawnFn'];
+                const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
+                for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
+                    try {
+                        syncRepoMilestones(db, r.name, r.path, spawnFn);
+                    }
+                    catch (e) {
+                        serverLog({ event: 'milestone_sync_error', repo: r.name, error: e.message });
+                    }
+                }
                 // #2881: structural-change detection vs previous deep_scan_completed
                 // audit. The flag rides in the audit content_json so downstream
                 // tooling (the scan-side renderer pass, manual diagnostic queries)
@@ -538,10 +825,20 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 const structuralChange = detectStructuralChange(db, out.repos, topDirs);
                 // Emit deep_scan_completed audit row. Attach to the system issue
                 // (id=-1) — this is a session-level event, not work-issue scoped.
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
-                    `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
-                    JSON.stringify({
+                const pluginInventory = out.plugin_inventory ?? null;
+                const pluginNote = pluginInventory?.status === 'unavailable'
+                    ? `; plugins unavailable: ${pluginInventory.note}`
+                    : '';
+                const mcpInventory = out.mcp_inventory ?? null;
+                const mcpNote = mcpInventory?.status === 'unavailable'
+                    ? `; mcp servers unavailable: ${mcpInventory.note}`
+                    : '';
+                insertAudit(db, {
+                    issue_id: -1,
+                    from_node: 'bro',
+                    event_type: 'deep_scan_completed',
+                    summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ''}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
+                    content_json: JSON.stringify({
                         ...stats,
                         session_dir: out.session_dir,
                         scanned_at: out.scanned_at,
@@ -550,14 +847,15 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                         repos_seen: out.repos.map((r) => r.name),
                         top_dirs: Array.from(topDirs).sort(),
                     }),
-                    nowISO(),
-                ]);
+                });
                 return ok({
                     session_dir: out.session_dir,
                     scanned_at: out.scanned_at,
                     repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
                     source,
                     structural_change: structuralChange,
+                    plugin_inventory: pluginInventory,
+                    mcp_inventory: mcpInventory,
                     ...stats,
                 });
             }

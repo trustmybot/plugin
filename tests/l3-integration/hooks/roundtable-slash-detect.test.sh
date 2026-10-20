@@ -15,7 +15,7 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 unavailable"; exit 0; }
 command -v jq     >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
 
-TMPDIR_RT=$(mktemp -d)
+TMPDIR_RT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-roundtable-slash-detect.XXXXXX")
 trap 'rm -rf "$TMPDIR_RT"' EXIT
 
 DB="$TMPDIR_RT/.claude/tmb/trajectory.db"
@@ -37,7 +37,7 @@ assert_eq "1" "$COUNT" "one audit row must be inserted"
 
 test_case "audit row has correct columns (no kind column used)"
 ROW=$(sqlite3 -separator "|" "$DB" "SELECT from_node, event_type FROM audit WHERE event_type='roundtable_slash_invoked' LIMIT 1;")
-assert_eq "system|roundtable_slash_invoked" "$ROW" "from_node=system and event_type correct"
+assert_eq "hook:roundtable-slash-detect|roundtable_slash_invoked" "$ROW" "from_node=hook:roundtable-slash-detect and event_type correct"
 
 # ── non-/roundtable prompt is a no-op ─────────────────────────────────────────
 
@@ -53,13 +53,19 @@ run_hook "hey /roundtable on this topic"
 COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "1" "$COUNT" "mid-prompt /roundtable detected"
 
+test_case "GH 1199: a subagent hand-back quoting /roundtable writes no audit row"
+sqlite3 "$DB" "DELETE FROM audit;"
+run_hook "[Subagent hand-back] swe: bro may want /roundtable on this"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "0" "$COUNT" "a harness turn is not the Human typing /roundtable"
+
 # ── walk-up DB resolution (no TRAJECTORY_DB_PATH) ────────────────────────────
 # Plant the DB in a subdirectory and run from a child directory to exercise the
 # tmb_db_path walk-up. The hook sources lib/query-task.sh which implements it.
 
 test_case "/roundtable resolves DB via walk-up (no env var)"
-WALK_ROOT=$(mktemp -d -t tmb-rt-walk-XXXX)
-trap 'rm -rf "$WALK_ROOT"' EXIT
+WALK_ROOT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-rt-walk-XXXXXX")
+trap 'rm -rf "$TMPDIR_RT" "$WALK_ROOT"' EXIT
 WALK_DB="$WALK_ROOT/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WALK_DB")"
 sqlite3 "$WALK_DB" < "$SCHEMA" >/dev/null
@@ -69,7 +75,7 @@ PAYLOAD='{"prompt":"/roundtable walk-up test"}'
 COUNT_BEFORE=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 (
   cd "$CHILD_DIR" || exit 1
-  echo "$PAYLOAD" | bash "$HOOK" 2>&1 || true
+  echo "$PAYLOAD" | env -u CLAUDE_PROJECT_DIR -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC bash "$HOOK" 2>&1 || true
 )
 COUNT_AFTER=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "$((COUNT_BEFORE + 1))" "$COUNT_AFTER" "walk-up must find the DB and insert the row"
@@ -141,7 +147,7 @@ COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_s
 assert_eq "1" "$COUNT" "the retry must land the audit row once the lock releases"
 
 # ── bounded retry exhausted: lock outlasts every attempt ─────────────────────
-# The writer holds the lock longer than all three attempts (3 x 5s + sleeps).
+# The writer holds the lock longer than every attempt (2 x 5s + backoff).
 # The hook gives up, warns loudly on stderr, leaves no row, and still exits 0.
 
 test_case "/roundtable warns loudly and exits 0 when the lock outlasts all retries"
@@ -157,7 +163,7 @@ assert_eq "0" "$RC" "hook must exit 0 even when the INSERT never lands (fail-ope
 COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "0" "$COUNT" "no audit row when the lock outlasts every attempt"
 case "$OUT" in
-  *"FAILED to record roundtable_slash_invoked after 3 attempts"*) echo "  ✓ loud stderr warning emitted on final failure" ;;
+  *"FAILED to record roundtable_slash_invoked after retrying"*) echo "  ✓ loud stderr warning emitted on final failure" ;;
   *) echo "FAIL: expected FAILED warning on stderr, got: $OUT"; exit 1 ;;
 esac
 

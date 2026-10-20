@@ -8,9 +8,20 @@
 # proved that ceiling is 0/10 in both wording arms.
 #
 # Bro mode active when:
-#   - current prompt contains the word "bro" (case-insensitive), OR
+#   - the current prompt, typed by the Human (not a harness turn), contains
+#     the word "bro" (case-insensitive), OR
 #   - the transcript shows a prior "Entering bro mode." line AND no later
 #     "exit bro mode" / "stop being bro".
+#
+# MCP HALT: in bro mode the hook also checks that this plugin's
+# trajectory-server process is running. By UserPromptSubmit the session is up,
+# so an absent server is evidence (unlike a SessionStart sample): the context
+# then carries the HALT + recovery pointer (tmb_recovery §C).
+#
+# Session id: the context ends with session_id=<id> (the payload's session_id,
+# when it is 8–64 chars of [A-Za-z0-9_-]) so bro can pass it to task_provision /
+# task_create_batch / task_reopen / task_retry, which validate it; bro usage is
+# metered per session by the bro-turn-usage Stop hook.
 #
 # Silent no-op when:
 #   - not in bro mode
@@ -24,9 +35,10 @@ INPUT=$(cat)
 
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)
 
 contains_bro_word() {
-  echo "$1" | grep -qiE '\bbro\b'
+  echo "$1" | grep -iE '\bbro\b' >/dev/null
 }
 
 is_sticky_bro() {
@@ -44,47 +56,54 @@ is_sticky_bro() {
   return 1
 }
 
-if ! contains_bro_word "$PROMPT" && ! is_sticky_bro; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
+
+# A harness turn (notification, subagent hand-back, agent message) that merely
+# mentions bro does not activate bro mode; only the Human's own prompt or the
+# sticky transcript signal does.
+PROMPT_SAYS_BRO=0
+if ! tmb_is_harness_turn "$PROMPT" && contains_bro_word "$PROMPT"; then
+  PROMPT_SAYS_BRO=1
+fi
+if [ "$PROMPT_SAYS_BRO" = 0 ] && ! is_sticky_bro; then
   exit 0
 fi
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
+command -v jq >/dev/null 2>&1 || exit 0
+
+HALT_TEXT=""
+if command -v pgrep >/dev/null 2>&1; then
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+    _pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+  else
+    _pattern="trajectory-server/dist/index.js"
   fi
-  # #2872: walk up from PWD to find the live DB. Workspace-pattern projects
-  # keep .claude/<plugin>/trajectory.db at the workspace root above the
-  # inner repos; without walk-up the hook (PWD = inner repo) reads a stale
-  # empty seed and the MCP server reads the workspace one — false 'first
-  # contact' on every turn.
-  #
-  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
-  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or
-  # a test artifact) used to be silently adopted as the live DB on every
-  # launch from any project below HOME — project state escaped into the
-  # profile. Mirrors the corresponding fix in db.ts's findExistingDbUp.
-  dir="$PWD"
-  for _ in 1 2 3 4 5 6 7 8; do
-    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
-      break
-    fi
-    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
-    if [ -f "$candidate" ]; then
-      DB_PATH="$candidate"
-      break
-    fi
-    parent=$(dirname "$dir")
-    [ "$parent" = "$dir" ] && break
-    dir="$parent"
-  done
-  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
+  if [ "$({ pgrep -f "$_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')" = "0" ]; then
+    HALT_TEXT="⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §C and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads."
+  fi
 fi
 
-[ -f "$DB_PATH" ] || exit 0
-command -v sqlite3 >/dev/null 2>&1 || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+emit() {
+  jq -nc --arg ctx "$1" '{
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: $ctx
+    }
+  }'
+}
+
+halt_only() {
+  [ -n "$HALT_TEXT" ] && emit "$HALT_TEXT"
+  exit 0
+}
+
+DB_PATH=$(tmb_db_path_advisory activation-routine) || halt_only
+tmb_have_sqlite || halt_only
 
 ONBOARDED_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)
 PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
@@ -118,9 +137,10 @@ else
   CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${PENDING_LINE}"
 fi
 
-jq -nc --arg ctx "$CONTEXT" '{
-  hookSpecificOutput: {
-    hookEventName: "UserPromptSubmit",
-    additionalContext: $ctx
-  }
-}'
+if [ -n "$HALT_TEXT" ]; then
+  CONTEXT="${HALT_TEXT} ${CONTEXT}"
+fi
+if printf '%s' "$SESSION_ID" | grep -E '^[A-Za-z0-9_-]{8,64}$' >/dev/null; then
+  CONTEXT="${CONTEXT} session_id=${SESSION_ID}"
+fi
+emit "$CONTEXT"

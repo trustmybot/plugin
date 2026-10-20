@@ -1,13 +1,21 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { nowISO } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
-import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
-import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
+import { insertAudit } from './audit.js';
+import { claudeRunContext, closeOpenRunsForTask, openSweRun, parseRunSessionId, RUN_SESSION_ID_SCHEMA, sweepRunsOfTerminalTasks, } from './agent-runs.js';
+import { outsideProject } from './containment.js';
+import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
+import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields, validateIssueLabels, defaultSyncLabels, } from './issues.js';
+import { defaultSpawnFn } from '../sync/issue_sync.js';
+import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
-import { resolve, dirname } from 'node:path';
+import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
+import { latestVerificationRun } from './verification-runs.js';
+import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
 // entry is a path; its dirname is the directory ('' = repo root). task_brief
@@ -19,6 +27,24 @@ export function filesToDirs(files) {
         dirs.add(slash >= 0 ? path.slice(0, slash) : '');
     }
     return [...dirs];
+}
+// One task_effort_raised row: a rework (task_reopen) or retry (task_retry)
+// raised the effort swe runs the task at.
+function insertEffortRaised(db, task, from, to, agent, now, failedTaskId) {
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id,
+        from_node: agent,
+        event_type: 'task_effort_raised',
+        summary: `Task ${task.task_id} effort raised: ${from} → ${to}`,
+        content_json: JSON.stringify({
+            task_id: task.task_id,
+            from,
+            to,
+            ...(failedTaskId !== undefined ? { failed_task_id: failedTaskId } : {}),
+        }),
+        created_at: now,
+    });
 }
 // Parse the tasks.files JSON column into a string[] (empty on null/malformed).
 export function parseTaskFiles(filesJson) {
@@ -32,16 +58,58 @@ export function parseTaskFiles(filesJson) {
         return [];
     }
 }
-// Close-time files[] scope gate (#157): diff the commit's cumulative changed
-// files (baseRef...commitSha, three-dot → auto merge-base) against the task's
-// typed files[] and return the paths NOT covered. Coverage: a files[] entry
-// ending in '/' (or one that resolves to a directory under it) matches any path
-// beneath it (prefix); otherwise an exact path match. `checked:false` + a reason
-// when git can't resolve the repo or commit (caller fails CLOSED).
-export function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
+// The directory a files[] entry covers — the same rule as the edit-time
+// classifier (scripts/hooks/lib/scope-fence.sh): a trailing slash names the
+// directory itself, a nested path contributes its containing directory, a
+// root-level path covers itself. Any tests/ entry also covers all of tests/.
+function fileEntryDir(entry) {
+    if (entry.endsWith('/'))
+        return entry.replace(/\/+$/, '');
+    const slash = entry.lastIndexOf('/');
+    return slash >= 0 ? entry.slice(0, slash) : entry;
+}
+export function pathInFiles(path, files) {
+    const dirs = files.map(fileEntryDir).filter((d) => d.length > 0);
+    if (dirs.some((d) => d === 'tests' || d.startsWith('tests/')))
+        dirs.push('tests');
+    return dirs.some((d) => path === d || path.startsWith(`${d}/`));
+}
+export function scopeSurface(path) {
+    const slash = path.indexOf('/');
+    return slash > 0 ? path.slice(0, slash) : '<root>';
+}
+export function groupBySurface(paths) {
+    const groups = {};
+    for (const path of paths) {
+        const surface = scopeSurface(path);
+        const group = (groups[surface] ??= { count: 0, paths: [] });
+        group.count += 1;
+        group.paths.push(path);
+    }
+    return groups;
+}
+function gitOut(repoPath, args) {
+    return execFileSync('git', ['-C', repoPath, ...args], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+    })
+        .toString()
+        .trim();
+}
+// Close-time files[] scope gate: the task's own changes are
+// `git diff --name-only $(git merge-base <commit> <targetRef>) <commit>`, so
+// commits the PR target gained after the task branched never count. Returns
+// the changed paths files[] does not cover. `recordedBaseRef` (the task's
+// parent branch) gives `recordedBase` = merge-base(commit, recordedBaseRef);
+// `baseMoved` is true when it differs from the merge-base with the target.
+// `checked:false` + a reason when git can't resolve the repo or commit (the
+// caller fails CLOSED).
+export function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef = null) {
+    let mergeBase;
     let diffOut;
     try {
-        diffOut = execFileSync('git', ['-C', repoPath, 'diff', '--name-only', `${baseRef}...${commitSha}`], { stdio: ['ignore', 'pipe', 'pipe'], timeout: SUBPROCESS_TIMEOUT_MS }).toString();
+        mergeBase = gitOut(repoPath, ['merge-base', commitSha, targetRef]);
+        diffOut = gitOut(repoPath, ['diff', '--name-only', mergeBase, commitSha]);
     }
     catch (e) {
         return {
@@ -50,71 +118,32 @@ export function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
             reason: e.message.split('\n')[0] || 'git diff failed',
         };
     }
-    const changed = diffOut
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-    // Build the coverage matchers. A files[] entry that names a directory (ends in
-    // '/') becomes a prefix matcher; every entry doubles as an exact-path matcher.
-    // filesToDirs gives the per-file parent dirs but we want the entries
-    // themselves, so derive prefixes directly.
-    const exact = new Set();
-    const prefixes = [];
-    for (const entry of files) {
-        if (entry.endsWith('/')) {
-            prefixes.push(entry);
+    let recordedBase = mergeBase;
+    if (recordedBaseRef && recordedBaseRef !== targetRef) {
+        try {
+            recordedBase = gitOut(repoPath, ['merge-base', commitSha, recordedBaseRef]);
         }
-        else {
-            exact.add(entry);
-            prefixes.push(`${entry}/`);
+        catch {
+            recordedBase = null;
         }
     }
-    const outOfScope = changed.filter((path) => {
-        if (exact.has(path))
-            return false;
-        return !prefixes.some((p) => path.startsWith(p));
-    });
-    return { outOfScope, checked: true };
+    const outOfScope = diffOut
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0 && !pathInFiles(l, files));
+    return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
-// against the trajectory DB's directory). Sole-repo fallback applies when the
+// against the project root). Sole-repo fallback applies when the
 // task has no explicit repo. Returns null when no repo can be resolved.
-function resolveRepoPath(db, repoValue) {
+export function resolveRepoPath(db, repoValue) {
     const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
     if (!name)
         return null;
     const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [name]);
     if (!reposRow)
         return name;
-    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-    return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
-}
-// Resolve a base branch name to a concrete git ref, preferring the freshest
-// remote-tracking ref. Returns `origin/<base>` when it resolves (remote-present
-// repos — freshest-origin doctrine unchanged), else the local `<base>` when
-// refs/heads/<base> resolves (remoteless repos: L6 sandboxes, fresh local
-// projects, local-only stacked bases), else null when neither exists.
-function resolveBaseRef(repoPath, base) {
-    try {
-        execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${base}`], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: SUBPROCESS_TIMEOUT_MS,
-        });
-        return `origin/${base}`;
-    }
-    catch {
-        // origin/<base> absent — fall back to the local branch.
-    }
-    try {
-        execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${base}`], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: SUBPROCESS_TIMEOUT_MS,
-        });
-        return base;
-    }
-    catch {
-        return null;
-    }
+    return repoRowPath(db, reposRow.path);
 }
 // Read a repo's target_branch (pr_target) from the repos table — the sole
 // source of truth (#980). Falls back to the sole registered repo when repoValue
@@ -207,50 +236,202 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
 }
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass +
-// finalizing the bro agent_run row) and optionally close the parent issue when
-// this was its last open task. Returns whether the issue was closed so the
-// caller can mirror the close to the remote after the transaction commits.
-function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast) {
-    // 1. bro_verification_pass audit row.
-    db.run(`INSERT INTO audit
-       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-     VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`, [
-        task.issue_id,
-        task.branch_id,
-        verificationSummary.slice(0, 200),
-        JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-        now,
-    ]);
-    // 2. flip task to closed.
+// closing the task's open agent_runs rows) and optionally close the parent issue
+// under the issue_close rules. `bypassClosedBy` names a closer that is not
+// bro_atomic_close: once this close's bro_verification_pass row is written,
+// a task with no passing review for the commit gets one review_gate_bypassed
+// row. Returns whether the issue was closed (so the caller can mirror the
+// close to the remote after the transaction commits) and, when it was left
+// open, why.
+function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null, scope = null) {
+    // 1. bro_verification_pass audit row — the review anchor of this commit;
+    // bro_atomic_close adds the close-time scope record task_brief reads.
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id,
+        from_node: 'bro',
+        event_type: 'bro_verification_pass',
+        summary: verificationSummary.slice(0, 200),
+        content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, ...(scope ? { scope } : {}) }),
+        created_at: now,
+    });
+    // 2. review bypass for a non-atomic closer, judged against that anchor.
+    let reviewGateBypassed = false;
+    if (bypassClosedBy !== null) {
+        reviewGateBypassed = recordReviewBypassIfUnreviewed(db, { ...task, commit_sha: commitSha }, bypassClosedBy, 'bro', now);
+    }
+    // 3. flip task to closed.
     db.run(`UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
       WHERE id=?`, [commitSha, now, now, task.id]);
-    // 3. Bro-as-agent_run (#2886): finalize the bro row opened by
-    // task_create_batch. Only update the row that hasn't been completed yet
-    // (idempotent on re-close).
-    db.run(`UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = COALESCE(
-              (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
-              0
-            )
-      WHERE task_id = ?
-        AND agent_type = 'bro'
-        AND completed_at IS NULL`, [now, now, task.id]);
-    // 4. optional issue_close — only when this was the last open/active task.
+    // 4. close every open agent_runs row of the task (bro and swe).
+    closeOpenRunsForTask(db, task.id, now, 'completed');
+    // 5. optional issue close — the issue_close rules: never over a live task,
+    // never over a closed task without a review.
     let issueClosed = false;
+    let leftOpen = null;
     if (closeIssueIfLast) {
-        const remaining = db.get(`SELECT COUNT(*) AS c FROM tasks
-        WHERE issue_id = ?
-          AND status NOT IN ('closed', 'failed', 'escalated')`, [task.issue_id]);
-        if ((remaining?.c ?? 0) === 0) {
+        const live = liveTasksOfIssue(db, task.issue_id);
+        const unreviewed = live.length === 0 ? closedTasksWithoutReview(db, task.issue_id) : [];
+        if (live.length > 0) {
+            leftOpen = { reason: 'issue_has_open_tasks', tasks: live.map((t) => ({ task_id: t.id, status: t.status })) };
+        }
+        else if (unreviewed.length > 0) {
+            leftOpen = {
+                reason: 'tasks_without_review',
+                tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
+                review_pending: true,
+            };
+        }
+        else {
             db.run(`UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`, [now, now, task.issue_id]);
             issueClosed = true;
         }
     }
-    return { issue_closed: issueClosed };
+    return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
 }
-export function compositeTools(db, dbPath, graphHolder = null) {
+function outsideProjectResult(refusal) {
+    return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
+}
+// The worktree a task's swe runs in: <repo>/.claude/worktrees/<slug>, slug =
+// the branch_id after its type prefix (task_provision's layout).
+export function taskWorktreePath(repoPath, branchId) {
+    return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, '')}`;
+}
+function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {
+    return execFileSync('git', ['-C', repoPath, ...args], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout,
+    }).toString().trim();
+}
+function refSha(repoPath, ref) {
+    try {
+        return git(repoPath, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) || null;
+    }
+    catch {
+        return null;
+    }
+}
+function isAncestor(repoPath, ancestor, descendant) {
+    try {
+        git(repoPath, ['merge-base', '--is-ancestor', ancestor, descendant]);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+// Commits `ref` carries that `baseRef` lacks (ahead) and the reverse (behind).
+function refDistance(repoPath, baseRef, ref) {
+    try {
+        const [behind, ahead] = git(repoPath, ['rev-list', '--left-right', '--count', `${baseRef}...${ref}`])
+            .split(/\s+/)
+            .map((n) => Number.parseInt(n, 10));
+        if (!Number.isFinite(ahead) || !Number.isFinite(behind))
+            return null;
+        return { ahead: ahead, behind: behind };
+    }
+    catch {
+        return null;
+    }
+}
+// The registered worktree that has `refs/heads/<branchId>` checked out, if any.
+function worktreeOfBranch(repoPath, branchId) {
+    let list;
+    try {
+        list = git(repoPath, ['worktree', 'list', '--porcelain']);
+    }
+    catch {
+        return null;
+    }
+    let current = null;
+    for (const line of list.split('\n')) {
+        if (line.startsWith('worktree '))
+            current = line.slice('worktree '.length);
+        else if (line === `branch refs/heads/${branchId}` && current)
+            return current;
+    }
+    return null;
+}
+// Adds the task's worktree unless git already tracks one at that path (matched
+// by realpath: `git worktree list --porcelain` emits canonicalized paths, e.g.
+// /private/var/… for a /var/… symlink). Throws when `git worktree add` fails.
+function ensureTaskWorktree(repoPath, branchId) {
+    const worktreePath = taskWorktreePath(repoPath, branchId);
+    let reused = false;
+    if (existsSync(worktreePath)) {
+        const canonicalWt = realpathSync(worktreePath);
+        try {
+            reused = git(repoPath, ['worktree', 'list', '--porcelain'])
+                .split('\n')
+                .some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonicalWt);
+        }
+        catch {
+            reused = false;
+        }
+    }
+    if (!reused) {
+        git(repoPath, ['worktree', 'add', worktreePath, branchId], WORKTREE_TIMEOUT_MS);
+    }
+    return { worktreePath, reused };
+}
+// Open PRs/MRs whose head is `branchId`, read under the issue-sync gate
+// (plugin_config.issue_sync / TMB_DISABLE_REMOTE_SYNC). Read-only; any remote
+// failure yields no entry.
+function openChangeRequestsForBranch(db, repoName, repoPath, branchId, spawnFn) {
+    if (!repoName)
+        return [];
+    const { gated, targets } = resolveMilestoneTargets(db, repoName, spawnFn);
+    if (!gated)
+        return [];
+    const spawn = spawnFn ?? defaultSpawnFn;
+    const found = [];
+    for (const target of targets) {
+        const args = target.backend === 'gh'
+            ? ['pr', 'list', '--head', branchId, '--state', 'open', '--json', 'number,url', '--repo', target.slug]
+            : ['mr', 'list', '--source-branch', branchId, '--output', 'json', '-R', target.slug];
+        try {
+            const res = spawn(target.backend, args, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
+            if (res.status !== 0)
+                continue;
+            const rows = JSON.parse(res.stdout || '[]');
+            if (!Array.isArray(rows))
+                continue;
+            for (const row of rows) {
+                const number = Number(row['number'] ?? row['iid']);
+                const url = String(row['url'] ?? row['web_url'] ?? '');
+                if (Number.isFinite(number))
+                    found.push({ backend: target.backend, number, url });
+            }
+        }
+        catch {
+            continue;
+        }
+    }
+    return found;
+}
+function validateFenceAdditions(value, field) {
+    if (value === undefined || value === null)
+        return [];
+    if (!Array.isArray(value))
+        throw new Error(`${field} must be an array of strings.`);
+    for (const el of value) {
+        if (typeof el !== 'string' || el.trim().length === 0) {
+            throw new Error(`${field} entries must each be a non-empty string.`);
+        }
+    }
+    return value;
+}
+function appendUnique(existing, additions) {
+    const out = [...existing];
+    for (const a of additions)
+        if (!out.includes(a))
+            out.push(a);
+    return out;
+}
+const REOPENABLE_STATUSES = new Set(['pending', 'closed', 'failed', 'escalated', 'running']);
+const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
+export function compositeTools(db, dbPath, graphHolder = null, runContext = claudeRunContext(db, dbPath)) {
     const definitions = [
         {
             name: 'branch_id_propose',
@@ -296,6 +477,12 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     },
                     title: { type: 'string' },
                     description: { type: 'string' },
+                    effort: {
+                        type: 'string',
+                        enum: [...EFFORT_LEVELS],
+                        description: "Optional effort for the retry task (e.g. 'high'); omit to run the retry at high (rework).",
+                    },
+                    session_id: RUN_SESSION_ID_SCHEMA,
                 },
                 required: [
                     'agent',
@@ -320,6 +507,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
                     branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
                     repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create.' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row.' },
                 },
                 required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
             },
@@ -346,7 +534,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
         },
         {
             name: 'pr_monitor_worktree',
-            description: 'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.',
+            description: 'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -387,6 +575,9 @@ export function compositeTools(db, dbPath, graphHolder = null) {
         {
             name: 'bro_atomic_close',
             description: 'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
+                'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
+                'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
+                'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
                 'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
             inputSchema: {
                 type: 'object',
@@ -400,15 +591,21 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     },
                     close_issue_if_last_task: {
                         type: 'boolean',
-                        description: 'When true and this is the issue\'s last open task, also close the issue in the ' +
-                            'same transaction.',
+                        description: 'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
+                            'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
+                            'Before pr-reviewer has passed this task the issue stays open (tasks_without_review, review_pending).',
                     },
                     waive_scope_gate: {
                         type: 'boolean',
-                        description: 'When true, SKIP the server-side files[] scope gate (the close-time check that the ' +
-                            "commit's changed files all fall within the task's typed files[]) and record a waive " +
-                            'note. Use only when closing intentionally outside a resolvable git checkout, or when ' +
-                            'the out-of-scope paths are accepted. Default false (gate enforced, fail-closed).',
+                        description: "When true, accept the task's changed paths outside its typed files[] (the close-time scope gate " +
+                            'diffs merge-base(commit, origin/<pr_target>)..commit against files[]) and close; requires ' +
+                            'scope_waiver_reason. The scope_gate_waived audit row records accepted_paths, reason, base_moved, ' +
+                            'recorded_base, merge_base. Also closes when the repo/commit cannot be resolved. Default false ' +
+                            '(gate enforced, fail-closed).',
+                    },
+                    scope_waiver_reason: {
+                        type: 'string',
+                        description: 'Required with waive_scope_gate (at least 10 characters): why bro accepts the extra paths.',
                     },
                 },
                 required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
@@ -416,12 +613,14 @@ export function compositeTools(db, dbPath, graphHolder = null) {
         },
         {
             name: 'task_recover',
-            description: 'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op.',
+            description: 'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. ' +
+                'Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed. ' +
+                'Returns {tasks_swept, runs_swept, reported} (plus the recovery result when task_id is given).',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
-                    task_id: { type: 'string' },
+                    task_id: { type: 'string', description: 'Optional. Omit to run only the stale sweep.' },
                     commit_sha: {
                         type: 'string',
                         description: 'Optional 7..40-char hex SHA of the recovered work. Required to advance to closed.',
@@ -432,16 +631,16 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     },
                     close_issue_if_last_task: {
                         type: 'boolean',
-                        description: 'When true and this is the issue\'s last open task, also close the issue in the ' +
-                            'same transaction.',
+                        description: 'When true, also close the issue in the same transaction under the issue_close rules (no live task, ' +
+                            'no closed task without a passing review or recorded bypass); otherwise issue_left_open says why.',
                     },
                 },
-                required: ['agent', 'task_id'],
+                required: ['agent'],
             },
         },
         {
             name: 'task_provision',
-            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and creates the branch ref (idempotent) BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -454,8 +653,13 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     },
                     base: {
                         type: 'string',
-                        description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
+                        description: "Optional start-point for the branch ref. Defaults to the repo's target_branch, else its default branch (origin/HEAD).",
                     },
+                    reuse_existing: {
+                        type: 'boolean',
+                        description: 'Keep an existing branch_id that has diverged from base as-is instead of refusing with branch_exists_diverged.',
+                    },
+                    session_id: RUN_SESSION_ID_SCHEMA,
                     waive_registry_gate: {
                         type: 'boolean',
                         description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run.",
@@ -463,6 +667,14 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     waive_registry_gate_reason: {
                         type: 'string',
                         description: 'Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary.',
+                    },
+                    waive_spec_shape: {
+                        type: 'boolean',
+                        description: 'Record a spec_shape_gate_waived row for the task, which opens the require-task-spec spawn gate (Writer:/Populated: lines) for it.',
+                    },
+                    waive_spec_shape_reason: {
+                        type: 'string',
+                        description: 'Required when waive_spec_shape is true (min 10 chars): why the spec needs no Writer:/Populated: lines.',
                     },
                     task: {
                         type: 'object',
@@ -477,7 +689,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                             files: {
                                 type: 'array',
                                 items: { type: 'string' },
-                                description: 'Authoritative allowlist of paths SWE may edit (swe-scope-fence hook).',
+                                description: "The task's expected scope at directory granularity; writes outside it are noted to the swe and judged at bro_atomic_close.",
                             },
                             verification: {
                                 type: 'array',
@@ -492,6 +704,11 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                                 type: 'number',
                                 description: 'Set to 1 when this task intentionally edits prompt-surface files. Default 0.',
                             },
+                            effort: {
+                                type: 'string',
+                                enum: [...EFFORT_LEVELS],
+                                description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: default from plugin_config.swe_default_effort (medium when unset); high for prompt-bearing tasks, files[] touching plugin_config.high_effort_paths, and rework.',
+                            },
                         },
                         required: ['description', 'spec_body', 'files', 'verification'],
                     },
@@ -500,8 +717,56 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             },
         },
         {
+            name: 'task_reopen',
+            description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    task_id: { type: 'number', description: 'Task to reopen.' },
+                    reason: { type: 'string', description: 'Why the task is reopened (e.g. the review finding); stored on the decision discussion and the audit row.' },
+                    files_add: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Paths appended to the task files[] fence (duplicates ignored).',
+                    },
+                    verification_add: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Commands appended to the task verification[] list (duplicates ignored).',
+                    },
+                    effort: {
+                        type: 'string',
+                        enum: [...EFFORT_LEVELS],
+                        description: "Optional new effort for the rework (e.g. 'high'); omit to run the rework at high.",
+                    },
+                    session_id: RUN_SESSION_ID_SCHEMA,
+                },
+                required: ['agent', 'task_id', 'reason'],
+            },
+        },
+        {
+            name: 'task_update_spec',
+            description: "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (each optional, at least one), writes a kind='decision' discussion + a task_spec_amended audit row with an old→new summary. The scope fence and verification gate read the amended values on their next run. Returns {task_id, changed, files, verification}.",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    task_id: { type: 'number', description: 'Task to amend.' },
+                    reason: { type: 'string', description: 'Why the spec changes; stored on the decision discussion and the audit row.' },
+                    files: { type: 'array', items: { type: 'string' }, description: 'Replacement files[] fence (non-empty).' },
+                    verification: { type: 'array', items: { type: 'string' }, description: 'Replacement verification[] commands (non-empty).' },
+                    spec_body: {
+                        type: 'string',
+                        description: `Replacement spec_body; max ${SPEC_BODY_MAX_BYTES} chars, must contain a ## Success Criteria H2.`,
+                    },
+                },
+                required: ['agent', 'task_id', 'reason'],
+            },
+        },
+        {
             name: 'task_brief',
-            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
+            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -519,8 +784,12 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             const branchId = args['branch_id'];
             const decisionBody = args['decision_body'];
             const task = args['task'];
+            parseRunSessionId(args['session_id']);
             if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
                 return err('issue_id must be a number');
+            }
+            if (issueId === -1) {
+                return err('system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.');
             }
             if (!branchId || typeof branchId !== 'string') {
                 return err('branch_id must be a non-empty string');
@@ -571,7 +840,20 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 repoValue = resolveSoleRepo(db)?.name ?? null;
             }
             const promptBearing = typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+            if (task.effort !== undefined && task.effort !== null && !isEffort(task.effort)) {
+                return err(`typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(task.effort)}.`);
+            }
+            const { effort, reason: effortReason } = computeEffort(db, {
+                effort: task.effort,
+                prompt_bearing: promptBearing,
+                files,
+            });
             const slug = branchId.replace(/^[^/]+\//, '');
+            const specShapeWaived = args['waive_spec_shape'] === true;
+            const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '');
+            if (specShapeWaived && (typeof specShapeWaiverReason !== 'string' || specShapeWaiverReason.trim().length < 10)) {
+                return err('waive_spec_shape_reason must be a string ≥10 chars.');
+            }
             // --- World-model-cold registry gate (MCP-level enforcement) ---
             // /scan must have run at least once before bro can provision a task, so
             // planning reasons from a populated world model rather than an empty
@@ -609,16 +891,14 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             // Resolve the repo path + base ref and create the branch ref BEFORE
             // writing the task row. A git failure here returns an error and
             // persists NOTHING, so the same (issue_id, branch_id) retries cleanly
-            // — no orphan task row left occupying the UNIQUE constraint. The
-            // branch ref is created idempotently (reused when present), so a retry
-            // after a partial failure re-resolves to the same ref. Only the
-            // worktree stays fail-soft (recoverable, post-commit).
+            // — no orphan task row left occupying the UNIQUE constraint. A retry
+            // after a partial failure finds the ref at the base tip and reuses
+            // it. Only the worktree stays fail-soft (recoverable, post-commit).
             let repoPath = null;
             if (repoValue) {
                 const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [repoValue]);
                 if (reposRow) {
-                    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-                    repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+                    repoPath = repoRowPath(db, reposRow.path);
                 }
                 else {
                     // #1027: tasks.repo is a FK to repos(name) ON DELETE RESTRICT.
@@ -634,54 +914,110 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 return err(`task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ''}'); ` +
                     `pass task.repo or register a single repo. No task row was created — retry once the repo resolves.`);
             }
+            for (const path of [repoPath, taskWorktreePath(repoPath, branchId)]) {
+                const refusal = outsideProject('task_provision', runContext.projectRoot, path);
+                if (refusal)
+                    return outsideProjectResult(refusal);
+            }
             const base = args['base'] ??
-                (readRepoTargetBranch(db, repoValue) ?? 'dev');
-            let branchReused = true;
-            try {
-                execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branchId}`], {
-                    stdio: ['ignore', 'pipe', 'pipe'],
-                    timeout: SUBPROCESS_TIMEOUT_MS,
-                });
+                (readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath));
+            // Branch policy: a new ref is created from the base ('created'); an
+            // existing ref (local or origin) is reused only when it is an
+            // ancestor of / equal to the base tip, fast-forwarded to it
+            // ('reused'); a diverged ref is refused unless reuse_existing keeps it
+            // as-is ('reused').
+            const reuseExisting = args['reuse_existing'] === true;
+            const localRef = `refs/heads/${branchId}`;
+            const originRef = `refs/remotes/origin/${branchId}`;
+            const localSha = refSha(repoPath, localRef);
+            const originSha = refSha(repoPath, originRef);
+            const branchExists = localSha !== null || originSha !== null;
+            // Prefer origin/<base>, fall back to a local branch when no
+            // remote-tracking ref exists (remoteless repos), error when neither
+            // resolves — before anything is created.
+            const resolvedBaseRef = resolveBaseRef(repoPath, base);
+            if (!resolvedBaseRef && !(branchExists && reuseExisting)) {
+                return err(`task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
+                    `No task row was created — retry with a valid base and the same branch_id.`);
             }
-            catch {
-                branchReused = false;
-            }
-            if (!branchReused) {
-                // Pre-validate the base resolves before creating anything. Prefer
-                // origin/<base>, fall back to a local branch when no remote-tracking
-                // ref exists (remoteless repos), error when neither resolves.
-                const resolvedBaseRef = resolveBaseRef(repoPath, base);
-                if (!resolvedBaseRef) {
-                    return err(`task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
-                        `No task row was created — retry with a valid base and the same branch_id.`);
-                }
+            const gitFailure = (what, e) => err(`task_provision: ${what} in repo '${repoValue}' ` +
+                `(${e.message.split('\n')[0] || 'git failed'}). No task row was created — ` +
+                `retry with the same branch_id.`);
+            if (!branchExists) {
                 try {
-                    execFileSync('git', ['-C', repoPath, 'branch', branchId, resolvedBaseRef], {
-                        stdio: ['ignore', 'pipe', 'pipe'],
-                        timeout: SUBPROCESS_TIMEOUT_MS,
-                    });
+                    git(repoPath, ['branch', branchId, resolvedBaseRef]);
                 }
                 catch (e) {
-                    return err(`task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' ` +
-                        `(${e.message.split('\n')[0] || 'git branch failed'}). No task row was created — ` +
-                        `retry with the same branch_id.`);
+                    return gitFailure(`failed to create branch '${branchId}' from '${resolvedBaseRef}'`, e);
+                }
+            }
+            else {
+                const diverged = resolvedBaseRef
+                    ? [localSha ? localRef : null, originSha ? originRef : null]
+                        .filter((r) => r !== null)
+                        .find((r) => !isAncestor(repoPath, r, resolvedBaseRef))
+                    : undefined;
+                if (diverged && !reuseExisting) {
+                    const distance = refDistance(repoPath, resolvedBaseRef, diverged);
+                    const openPrs = openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn']);
+                    const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(', ')}.` : '';
+                    return {
+                        isError: true,
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify({
+                                    error: 'branch_exists_diverged',
+                                    branch_id: branchId,
+                                    ref: diverged,
+                                    base: resolvedBaseRef,
+                                    ahead: distance?.ahead ?? null,
+                                    behind: distance?.behind ?? null,
+                                    open_prs: openPrs,
+                                    message: `task_provision: branch '${branchId}' already exists and '${diverged}' has diverged from '${resolvedBaseRef}' ` +
+                                        `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
+                                        `Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is. ` +
+                                        `No task row was created.`,
+                                }),
+                            },
+                        ],
+                    };
+                }
+                try {
+                    if (diverged || !resolvedBaseRef) {
+                        if (!localSha)
+                            git(repoPath, ['branch', branchId, originRef]);
+                    }
+                    else if (!localSha) {
+                        git(repoPath, ['branch', branchId, resolvedBaseRef]);
+                    }
+                    else if (localSha !== refSha(repoPath, resolvedBaseRef)) {
+                        const checkedOutAt = worktreeOfBranch(repoPath, branchId);
+                        if (checkedOutAt)
+                            git(checkedOutAt, ['merge', '--ff-only', '--quiet', resolvedBaseRef]);
+                        else
+                            git(repoPath, ['branch', '-f', branchId, resolvedBaseRef]);
+                    }
+                }
+                catch (e) {
+                    return gitFailure(`failed to fast-forward existing branch '${branchId}' to '${resolvedBaseRef ?? base}'`, e);
                 }
             }
             // --- DB TRANSACTION (atomic) ---
             // The branch ref now exists. Write the decision (satisfies the decision
             // gate) + create the single task via the same INSERT path
-            // task_create_batch uses, with the bro agent_run row +
-            // planning_complete audit. The registry gate is enforced above; the
-            // intent/scope/branch/spec gates are waived internally: this composite
-            // IS bro's atomic planning, so those preconditions are subsumed here.
+            // task_create_batch uses, with the planning_complete audit. The
+            // registry gate is enforced above; the intent/scope/branch/spec gates
+            // are waived internally: this composite IS bro's atomic planning, so
+            // those preconditions are subsumed here.
             // Any DB error rolls back the whole transaction.
             const now = nowISO();
             const result = db.transaction(() => {
                 insertDiscussion(db, { issue_id: issueId, author: agent, kind: 'decision', body: decisionBody, created_at: now });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`, [
                     issueId,
                     branchId,
                     base,
@@ -692,35 +1028,35 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     promptBearing,
                     JSON.stringify(files),
                     JSON.stringify(verification),
+                    effort,
                     now,
                     now,
                 ]);
-                const row = db.get('SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()');
+                const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
-                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`, [row.id, issueId, now]);
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`, [
-                    issueId,
-                    branchId,
-                    agent,
-                    `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
-                    JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
-                    now,
-                ]);
+                insertAudit(db, {
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    from_node: agent,
+                    event_type: 'planning_complete',
+                    summary: `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
+                    content_json: JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
+                    created_at: now,
+                });
                 if (registryGateWaived) {
-                    db.run(`INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        branchId,
-                        agent,
-                        registryGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: branchId,
+                        from_node: agent,
+                        event_type: 'registry_gate_waived',
+                        summary: registryGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+                        created_at: now,
+                    });
+                }
+                if (specShapeWaived) {
+                    insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
                 }
                 return { task_id: row.id };
             });
@@ -730,38 +1066,12 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             // + a diagnostic without rolling back the task — bro can retry the
             // worktree setup. Idempotent: an existing worktree is reused, not
             // re-created.
-            let gitSetup = 'created';
+            let gitSetup = branchExists ? 'reused' : 'created';
+            let worktreeReused = false;
             let diagnostic;
-            const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
+            const worktreePath = taskWorktreePath(repoPath, branchId);
             try {
-                // Worktree: add only when absent (idempotent). Match by realpath —
-                // `git worktree list --porcelain` emits canonicalized paths (e.g.
-                // /private/var/… for a /var/… symlink), so a raw string compare
-                // against worktreePath would miss an existing linked worktree and
-                // re-trigger a failing `worktree add`.
-                let worktreeReused = false;
-                if (existsSync(worktreePath)) {
-                    const canonicalWt = realpathSync(worktreePath);
-                    try {
-                        const list = execFileSync('git', ['-C', repoPath, 'worktree', 'list', '--porcelain'], {
-                            stdio: ['ignore', 'pipe', 'pipe'],
-                            timeout: SUBPROCESS_TIMEOUT_MS,
-                        }).toString();
-                        worktreeReused = list
-                            .split('\n')
-                            .some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonicalWt);
-                    }
-                    catch {
-                        worktreeReused = false;
-                    }
-                }
-                if (!worktreeReused) {
-                    execFileSync('git', ['-C', repoPath, 'worktree', 'add', worktreePath, branchId], {
-                        stdio: ['ignore', 'pipe', 'pipe'],
-                        timeout: WORKTREE_TIMEOUT_MS,
-                    });
-                }
-                gitSetup = branchReused && worktreeReused ? 'reused' : 'created';
+                worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
             }
             catch (e) {
                 gitSetup = 'error';
@@ -772,21 +1082,238 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 branch_id: branchId,
                 repo: repoValue,
                 slug,
+                effort,
+                effort_reason: effortReason,
                 worktree_path: worktreePath,
                 git_setup: gitSetup,
+                worktree_reused: worktreeReused,
                 ...(diagnostic ? { diagnostic } : {}),
             });
+        })),
+        task_reopen: requireRoles('task_reopen', ['bro'], wrap(async (args) => {
+            const agent = args['agent'] ?? 'bro';
+            const taskId = Number(args['task_id']);
+            const reason = args['reason'];
+            if (!Number.isInteger(taskId))
+                return err('task_id must be a number');
+            if (typeof reason !== 'string' || reason.trim().length === 0) {
+                return err('reason must be a non-empty string');
+            }
+            parseRunSessionId(args['session_id']);
+            const filesAdd = validateFenceAdditions(args['files_add'], 'files_add');
+            const verificationAdd = validateFenceAdditions(args['verification_add'], 'verification_add');
+            const effortArg = args['effort'];
+            if (effortArg !== undefined && !isEffort(effortArg)) {
+                return err(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(effortArg)}.`);
+            }
+            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
+             FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`, [taskId]);
+            if (!task)
+                return err(`task_reopen: task ${taskId} not found`);
+            if (!REOPENABLE_STATUSES.has(task.status)) {
+                return err(`task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. ` +
+                    `Amend a live task's spec with task_update_spec.`);
+            }
+            if (task.issue_status === 'closed') {
+                return err(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+            }
+            const repoPath = resolveRepoPath(db, task.repo);
+            if (repoPath) {
+                for (const path of [repoPath, taskWorktreePath(repoPath, task.branch_id)]) {
+                    const refusal = outsideProject('task_reopen', runContext.projectRoot, path);
+                    if (refusal)
+                        return outsideProjectResult(refusal);
+                }
+            }
+            const files = appendUnique(parseTaskFiles(task.files), filesAdd);
+            const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+            const { effort } = computeEffort(db, {
+                effort: effortArg,
+                prompt_bearing: 0,
+                files,
+                rework: true,
+                current: task.effort,
+            });
+            const now = nowISO();
+            db.transaction(() => {
+                db.run(`UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL, updated_at = ? WHERE id = ?`, [JSON.stringify(files), JSON.stringify(verification), effort, now, taskId]);
+                const fenceLines = [
+                    filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
+                    verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
+                    effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
+                ].filter((l) => l !== null);
+                insertDiscussion(db, {
+                    issue_id: task.issue_id,
+                    author: agent,
+                    kind: 'decision',
+                    body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join('\n'),
+                    created_at: now,
+                });
+                insertAudit(db, {
+                    issue_id: task.issue_id,
+                    branch_id: task.branch_id,
+                    from_node: agent,
+                    event_type: 'task_reopened',
+                    summary: `Task ${taskId} reopened from ${task.status}: ${reason}`.slice(0, 200),
+                    content_json: JSON.stringify({
+                        task_id: taskId,
+                        from_status: task.status,
+                        reason,
+                        files_add: filesAdd,
+                        verification_add: verificationAdd,
+                    }),
+                    created_at: now,
+                });
+                if (effortRank(effort) > effortRank(task.effort)) {
+                    insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
+                }
+            });
+            let worktreePath = null;
+            let worktreeRecreated = false;
+            let diagnostic;
+            if (repoPath) {
+                try {
+                    if (!refSha(repoPath, `refs/heads/${task.branch_id}`) && refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
+                        git(repoPath, ['branch', task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
+                    }
+                    const wt = ensureTaskWorktree(repoPath, task.branch_id);
+                    worktreePath = wt.worktreePath;
+                    worktreeRecreated = !wt.reused;
+                }
+                catch (e) {
+                    worktreePath = taskWorktreePath(repoPath, task.branch_id);
+                    diagnostic = e.message;
+                }
+            }
+            else {
+                diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ''}'; worktree not checked`;
+            }
+            return ok({
+                task_id: taskId,
+                from_status: task.status,
+                status: 'running',
+                files,
+                verification,
+                effort,
+                worktree_path: worktreePath,
+                worktree_recreated: worktreeRecreated,
+                ...(diagnostic ? { diagnostic } : {}),
+            });
+        })),
+        task_update_spec: requireRoles('task_update_spec', ['bro'], wrap(async (args) => {
+            const agent = args['agent'] ?? 'bro';
+            const taskId = Number(args['task_id']);
+            const reason = args['reason'];
+            if (!Number.isInteger(taskId))
+                return err('task_id must be a number');
+            if (typeof reason !== 'string' || reason.trim().length === 0) {
+                return err('reason must be a non-empty string');
+            }
+            const replacement = (field) => {
+                if (args[field] === undefined)
+                    return undefined;
+                const value = validateFenceAdditions(args[field], field);
+                if (value.length === 0)
+                    throw new Error(`${field} must be a non-empty array of strings.`);
+                return value;
+            };
+            const newFiles = replacement('files');
+            const newVerification = replacement('verification');
+            const newSpec = args['spec_body'];
+            if (newSpec !== undefined) {
+                if (typeof newSpec !== 'string' || newSpec.trim().length === 0) {
+                    return err('spec_body must be a non-empty string');
+                }
+                if (newSpec.length > SPEC_BODY_MAX_BYTES) {
+                    return err(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
+                }
+                if (!/^## Success Criteria\s*$/m.test(newSpec)) {
+                    return err('spec_body must contain a ## Success Criteria H2 section.');
+                }
+            }
+            if (newFiles === undefined && newVerification === undefined && newSpec === undefined) {
+                return err('task_update_spec: pass at least one of files, verification, spec_body');
+            }
+            const task = db.get(`SELECT id, issue_id, branch_id, status, files, verification, spec_body FROM tasks WHERE id = ?`, [taskId]);
+            if (!task)
+                return err(`task_update_spec: task ${taskId} not found`);
+            if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
+                return err(`task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks ` +
+                    `are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`);
+            }
+            const oldFiles = parseTaskFiles(task.files);
+            const oldVerification = parseTaskFiles(task.verification);
+            const diffSummary = (oldList, newList) => ({
+                added: newList.filter((x) => !oldList.includes(x)),
+                removed: oldList.filter((x) => !newList.includes(x)),
+            });
+            const changes = {};
+            if (newFiles !== undefined)
+                changes['files'] = diffSummary(oldFiles, newFiles);
+            if (newVerification !== undefined)
+                changes['verification'] = diffSummary(oldVerification, newVerification);
+            if (newSpec !== undefined) {
+                changes['spec_body'] = { old_length: (task.spec_body ?? '').length, new_length: newSpec.length };
+            }
+            const changed = Object.keys(changes);
+            const summaryParts = changed.map((field) => {
+                const c = changes[field];
+                return field === 'spec_body'
+                    ? `spec_body ${c.old_length}→${c.new_length} chars`
+                    : `${field} +${c.added.length}/-${c.removed.length}`;
+            });
+            const files = newFiles ?? oldFiles;
+            const verification = newVerification ?? oldVerification;
+            const now = nowISO();
+            db.transaction(() => {
+                db.run(`UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`, [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now, taskId]);
+                insertDiscussion(db, {
+                    issue_id: task.issue_id,
+                    author: agent,
+                    kind: 'decision',
+                    body: `Task ${taskId} spec amended (${summaryParts.join('; ')}): ${reason}`,
+                    created_at: now,
+                });
+                insertAudit(db, {
+                    issue_id: task.issue_id,
+                    branch_id: task.branch_id,
+                    from_node: agent,
+                    event_type: 'task_spec_amended',
+                    summary: `Task ${taskId} spec amended: ${summaryParts.join('; ')}`.slice(0, 200),
+                    content_json: JSON.stringify({ task_id: taskId, status: task.status, reason, changes }),
+                    created_at: now,
+                });
+            });
+            return ok({ task_id: taskId, changed, files, verification });
         })),
         task_brief: requireRoles('task_brief', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
             const taskId = args['task_id'];
             if (taskId === undefined || taskId === null)
                 return err('task_id is required');
             const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  i.objective
+                  t.effort, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`, [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
+            if (normalizeAgent(args['agent']) === 'swe') {
+                const repoPath = resolveRepoPath(db, task.repo);
+                openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null);
+                const sentinel = db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`, [task.id]);
+                if (!sentinel || sentinel.n === 0) {
+                    insertAudit(db, {
+                        issue_id: task.issue_id,
+                        branch_id: task.branch_id,
+                        from_node: 'swe',
+                        writer: 'swe',
+                        event_type: 'swe_brief_fetched',
+                        summary: `SWE fetched task_brief for task_id=${task.id}`,
+                        content_json: JSON.stringify({ task_id: task.id, agent_type: 'swe' }),
+                        created_at: nowISO(),
+                        repo: task.repo,
+                    });
+                }
+            }
             // Resolve repo: task.repo, else the single-repo fallback (path-keyed
             // resolution — empty in multi-repo projects, which scope by task.repo).
             let repo = task.repo ?? '';
@@ -854,6 +1381,20 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     truncated: true,
                 };
             });
+            // The latest bro_atomic_close scope record (extras bro accepted, base
+            // moved) — pr-reviewer reads it instead of recomputing the diff.
+            const closeRow = db.get(`SELECT content_json FROM audit
+            WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
+              AND json_extract(content_json, '$.task_id') = ?
+            ORDER BY created_at DESC, id DESC LIMIT 1`, [task.id]);
+            const closeScope = closeRow?.content_json
+                ? (JSON.parse(closeRow.content_json).scope ?? null)
+                : null;
+            const scope = {
+                files: parseTaskFiles(task.files),
+                extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
+                base_moved: closeScope ? closeScope.base_moved === true : null,
+            };
             return ok({
                 task_id: task.id,
                 issue_id: task.issue_id,
@@ -863,9 +1404,12 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 status: task.status,
                 commit_sha: task.commit_sha,
                 repo,
+                effort: task.effort,
                 spec_body: task.spec_body,
                 files: parseTaskFiles(task.files),
                 verification: parseTaskFiles(task.verification),
+                scope,
+                verification_run: latestVerificationRun(db, task.id),
                 scope_world_model,
                 ...(world_model_warning ? { world_model_warning } : {}),
                 task_discussions,
@@ -887,6 +1431,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             return ok({ branch_id: branchId, confidence });
         })),
         task_retry: requireRoles('task_retry', ['bro'], wrap(async (args) => {
+            const agent = args['agent'] ?? 'bro';
             const failedTaskId = args['failed_task_id'];
             const newBranchId = args['new_branch_id'];
             const spec = args['corrected_spec_body'];
@@ -894,6 +1439,11 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             const description = args['description'];
             const title = args['title'] ?? '';
             const repoOverride = args['repo'] ?? null;
+            parseRunSessionId(args['session_id']);
+            const effortArg = args['effort'];
+            if (effortArg !== undefined && !isEffort(effortArg)) {
+                return err(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(effortArg)}.`);
+            }
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
             }
@@ -911,7 +1461,8 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     return err(`Invalid repo "${repoOverride}": must not start with "/".`);
                 }
             }
-            const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status
+            const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
+                  files, verification, prompt_bearing, effort
              FROM tasks WHERE id = ? LIMIT 1`, [failedTaskId]);
             if (!failed)
                 return err(`No task with id=${failedTaskId}`);
@@ -952,6 +1503,13 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                         `Use discussion_append(kind='question') to involve the Human before retrying further.`);
                 }
             }
+            const { effort } = computeEffort(db, {
+                effort: effortArg,
+                prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+                files: parseTaskFiles(failed.files),
+                rework: true,
+                current: failed.effort,
+            });
             const now = nowISO();
             const result = db.transaction(() => {
                 insertDiscussion(db, {
@@ -963,8 +1521,8 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`, [
                     failed.issue_id,
                     newBranchId,
                     failed.parent_branch_id ?? failed.branch_id,
@@ -972,32 +1530,35 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     description,
                     spec,
                     repoOverride ?? failed.repo,
+                    failed.prompt_bearing,
+                    failed.files,
+                    failed.verification,
+                    effort,
                     now,
                     now,
                 ]);
-                const newTask = db.get('SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()');
+                const newTask = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!newTask)
                     throw new Error('insert succeeded but row lookup failed');
-                // Bro-as-agent_run (#2886): open a bro row for the retry task,
-                // mirror of the task_create_batch case.
-                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`, [newTask.id, failed.issue_id, now]);
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`, [
-                    failed.issue_id,
-                    newBranchId,
-                    `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
-                    JSON.stringify({
+                insertAudit(db, {
+                    issue_id: failed.issue_id,
+                    branch_id: newBranchId,
+                    from_node: agent,
+                    event_type: 'task_retry_attempted',
+                    summary: `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
+                    content_json: JSON.stringify({
                         failed_task_id: failed.id,
                         new_task_id: newTask.id,
                         new_branch_id: newBranchId,
                     }),
-                    now,
-                ]);
+                    created_at: now,
+                });
+                if (effortRank(effort) > effortRank(failed.effort)) {
+                    insertEffortRaised(db, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, agent, now, failed.id);
+                }
                 return newTask;
             });
-            return ok({ task_id: result.id, branch_id: result.branch_id });
+            return ok({ task_id: result.id, branch_id: result.branch_id, effort });
         })),
         intent_start: requireRoles('intent_start', ['bro'], wrap(async (args) => {
             const objective = args['objective'];
@@ -1025,29 +1586,41 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     return err(`intent_start: repo "${explicitRepo}" has no matching repos row — run /scan or pass a valid repo.`);
                 }
             }
+            const suppliedLabels = args['labels'];
+            if (suppliedLabels !== undefined) {
+                const labelError = validateIssueLabels(db, suppliedLabels);
+                if (labelError !== null)
+                    return err(labelError);
+            }
+            const labels = suppliedLabels ?? defaultSyncLabels(db);
             const now = nowISO();
             // Resolve the issue's repo (explicit arg, else the sole registered repo)
             // so the milestone default + FK insert bind to the right repo (#15).
             const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
-            const milestone = resolveDefaultMilestone(db, null, issueRepo);
+            const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
+            const milestone = milestoneResolution.milestone;
             const result = db.transaction(() => {
-                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-             VALUES (?, '', 'open', ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo]);
+                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+             VALUES (?, '', 'open', ?, ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo, JSON.stringify(labels)]);
                 const row = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
                 if (!row)
                     throw new Error('intent_start: failed to retrieve inserted issue');
                 const issueId = row.id;
                 insertIntentAndNote(db, issueId, intentVerbatim, `Beginning planning on ${branchId}.`, now);
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`, [
-                    issueId,
-                    branchId,
-                    `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
-                    JSON.stringify({ branch_id: branchId, objective }),
-                    now,
-                ]);
-                return { issue_id: issueId, branch_id: branchId };
+                insertAudit(db, {
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    from_node: 'bro',
+                    event_type: 'branch_id_proposed',
+                    summary: `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
+                    content_json: JSON.stringify({ branch_id: branchId, objective }),
+                    created_at: now,
+                });
+                return {
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    ...milestoneDefaultFields(milestoneResolution),
+                };
             });
             return ok(result);
         })),
@@ -1072,15 +1645,15 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             const summary = `${whichCheck} — ${details.slice(0, 160)}`;
             const now = nowISO();
             db.transaction(() => {
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'bro_verification_fail', ?, ?, ?)`, [
-                    task.issue_id,
-                    task.branch_id,
+                insertAudit(db, {
+                    issue_id: task.issue_id,
+                    branch_id: task.branch_id,
+                    from_node: 'bro',
+                    event_type: 'bro_verification_fail',
                     summary,
-                    JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
-                    now,
-                ]);
+                    content_json: JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
+                    created_at: now,
+                });
                 insertDiscussion(db, {
                     issue_id: task.issue_id,
                     author: 'bro',
@@ -1104,7 +1677,10 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             if (!command || command.trim().length === 0) {
                 return err('command must be a non-empty string');
             }
-            const wtPath = `/tmp/pr-review-${commitSha}`;
+            const repoRefusal = outsideProject('pr_monitor_worktree', runContext.projectRoot, repoPath);
+            if (repoRefusal)
+                return outsideProjectResult(repoRefusal);
+            const wtPath = `${repoPath}/.claude/worktrees/pr-review-${commitSha}`;
             let stdout = '';
             let stderr = '';
             let exitCode = 0;
@@ -1241,42 +1817,82 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             }
             const closeIssueIfLast = args['close_issue_if_last_task'] === true;
             const waiveScopeGate = args['waive_scope_gate'] === true;
-            const task = db.get('SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            const task = db.get('SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files FROM tasks WHERE id = ? LIMIT 1', [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
             if (task.status !== 'completed' && task.status !== 'needs_validation') {
                 return err(`Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
                     `bro_atomic_close runs after SWE flips status to completed.`);
             }
-            // --- Close-time files[] scope gate (#157) ---
-            // Deterministic, un-skippable: diff the commit's cumulative changes
-            // against the task's typed files[] and REFUSE to close on any
-            // out-of-scope path. Fail-CLOSED when the repo/commit can't be resolved.
-            // waive_scope_gate=true skips the gate and records an audit note.
-            // task_recover's shared close path is intentionally NOT gated.
+            // --- Close-time files[] scope gate ---
+            // The task's own changes (merge-base with origin/<pr_target> .. commit)
+            // against its typed files[]. Extras refuse the close, grouped by
+            // surface, unless bro accepts them with waive_scope_gate +
+            // scope_waiver_reason; the acceptance lands in scope_gate_waived.
+            // Fail-CLOSED when the repo/commit can't be resolved. task_recover's
+            // shared close path is intentionally NOT gated.
             const now = nowISO();
+            const scopeWaiverReason = typeof args['scope_waiver_reason'] === 'string' ? args['scope_waiver_reason'].trim() : '';
+            if (waiveScopeGate && scopeWaiverReason.length < 10) {
+                return err('bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.');
+            }
+            const repoPath = resolveRepoPath(db, task.repo);
+            const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter((b) => typeof b === 'string' && b.length > 0);
+            let targetRef = null;
+            if (repoPath) {
+                for (const candidate of targetCandidates) {
+                    targetRef = resolveBaseRef(repoPath, candidate);
+                    if (targetRef)
+                        break;
+                }
+            }
+            const recordedBaseRef = repoPath && task.parent_branch_id ? resolveBaseRef(repoPath, task.parent_branch_id) : null;
+            const scope = repoPath && targetRef
+                ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
+                : {
+                    outOfScope: [],
+                    checked: false,
+                    reason: repoPath
+                        ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
+                        : `cannot resolve a path for repo '${task.repo ?? ''}'`,
+                };
+            const baseMoved = scope.baseMoved === true;
+            const scopeRecord = {
+                extras_accepted: waiveScopeGate ? scope.outOfScope : [],
+                base_moved: baseMoved,
+                recorded_base: scope.recordedBase ?? null,
+                merge_base: scope.mergeBase ?? null,
+            };
             if (!waiveScopeGate) {
-                const repoPath = resolveRepoPath(db, task.repo);
-                const base = task.parent_branch_id || 'dev';
-                const baseRef = repoPath ? resolveBaseRef(repoPath, base) : null;
-                const scope = repoPath && baseRef
-                    ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files))
-                    : {
-                        outOfScope: [],
-                        checked: false,
-                        reason: repoPath
-                            ? `base does not resolve as 'origin/${base}' or local '${base}'`
-                            : `cannot resolve a path for repo '${task.repo ?? ''}'`,
-                    };
                 if (!scope.checked) {
                     return err(`bro_atomic_close scope gate: cannot resolve ${task.repo ?? '<repo>'}@${commitSha} to verify ` +
-                        `files[] scope (${scope.reason ?? 'unknown'}). Pass waive_scope_gate=true if this close ` +
+                        `files[] scope (${scope.reason ?? 'unknown'}). Pass waive_scope_gate=true with scope_waiver_reason if this close ` +
                         `is intentional outside a git checkout.`);
                 }
                 if (scope.outOfScope.length > 0) {
-                    return err(`bro_atomic_close scope gate: these committed files are outside the task's files[] fence: ` +
-                        `${scope.outOfScope.join(', ')}. Add them to files[] (re-plan) or revert them, then retry. ` +
-                        `Pass waive_scope_gate=true to override.`);
+                    const groups = groupBySurface(scope.outOfScope);
+                    const listing = Object.entries(groups)
+                        .map(([surface, g]) => `${surface} (${g.count}): ${g.paths.join(', ')}`)
+                        .join('; ');
+                    const moved = baseMoved
+                        ? ` The task's recorded base (${scope.recordedBase ?? 'unresolved'}) differs from the merge-base ${scope.mergeBase}: some paths may come from the moved base.`
+                        : '';
+                    return {
+                        isError: true,
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify({
+                                    error: `bro_atomic_close scope gate: ${scope.outOfScope.length} committed path(s) outside the task's files[]: ${listing}.${moved} ` +
+                                        `Revert them, or accept them with waive_scope_gate=true and scope_waiver_reason.`,
+                                    extras_by_surface: groups,
+                                    base_moved: baseMoved,
+                                    recorded_base: scopeRecord.recorded_base,
+                                    merge_base: scopeRecord.merge_base,
+                                }),
+                            },
+                        ],
+                    };
                 }
             }
             const result = db.transaction(() => {
@@ -1284,33 +1900,49 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 // task_create_batch) so a failed close can't leave a phantom waiver
                 // audit with no corresponding close.
                 if (waiveScopeGate) {
-                    db.run(`INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`, [
-                        task.issue_id,
-                        task.branch_id,
-                        `bro_atomic_close scope gate waived for task ${task.id}`,
-                        JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: task.issue_id,
+                        branch_id: task.branch_id,
+                        from_node: 'bro',
+                        event_type: 'scope_gate_waived',
+                        summary: scopeWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({
+                            skill: 'bro_atomic_close',
+                            task_id: task.id,
+                            commit_sha: commitSha,
+                            accepted_paths: scope.outOfScope,
+                            reason: scopeWaiverReason,
+                            base_moved: baseMoved,
+                            recorded_base: scopeRecord.recorded_base,
+                            merge_base: scopeRecord.merge_base,
+                        }),
+                        created_at: now,
+                    });
                 }
-                const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
-                return { task_id: task.id, issue_closed };
+                const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
+                return {
+                    task_id: task.id,
+                    issue_closed: closed.issue_closed,
+                    review_pending: true,
+                    base_moved: baseMoved,
+                    ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
+                    ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),
+                    ...(closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}),
+                };
             });
             // Mirror the close to the linked remote(s) — same path issue_close
             // uses — so closing the last task via the composite doesn't leave the
             // GitHub/GitLab issue open (#277). Runs after the local transaction
             // commits because the sync spawns gh/glab (async, can't sit inside the
             // synchronous db.transaction).
-            if (result.issue_closed) {
-                await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
-            }
-            return ok(result);
+            const remote = result.issue_closed
+                ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'])
+                : undefined;
+            return ok(remote ? { ...result, remote } : result);
         })),
         task_recover: requireRoles('task_recover', ['bro'], wrap(async (args) => {
-            const taskId = args['task_id'];
-            if (!taskId)
-                return err('Missing required arg: task_id');
+            const taskArg = args['task_id'];
+            const taskId = taskArg === undefined || taskArg === null || taskArg === '' ? null : String(taskArg);
             const commitArg = args['commit_sha'];
             let commitSha = null;
             if (commitArg !== undefined && commitArg !== null && commitArg !== '') {
@@ -1326,18 +1958,30 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 ? args['verification_summary']
                 : `task_recover: stuck-pending recovery for task ${taskId}`;
             const closeIssueIfLast = args['close_issue_if_last_task'] === true;
-            const task = db.get('SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1', [taskId]);
-            if (!task)
+            const task = taskId === null
+                ? null
+                : db.get('SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            if (taskId !== null && !task)
                 return err(`No task with id=${taskId}`);
+            const sweep = sweepStaleTasks(db, nowISO());
+            const sweepResult = {
+                tasks_swept: sweep.tasks_swept,
+                runs_swept: sweep.runs_swept + sweepRunsOfTerminalTasks(db, nowISO()),
+                reported: sweep.reported,
+            };
+            if (!task)
+                return ok(sweepResult);
+            const current = db.get('SELECT status FROM tasks WHERE id = ?', [task.id]);
             // Idempotent: already-closed (or any non-recoverable status) → no-op
             // naming the status. Never throws on an already-recovered task.
-            if (task.status !== 'pending' && task.status !== 'completed') {
+            if (current.status !== 'pending' && current.status !== 'completed') {
                 return ok({
                     recovered: false,
                     action: 'noop',
                     task_id: task.id,
-                    status: task.status,
-                    reason: `task is "${task.status}" — not in a recoverable (pending/completed) state`,
+                    status: current.status,
+                    reason: `task is "${current.status}" — not in a recoverable (pending/completed) state`,
+                    ...sweepResult,
                 });
             }
             // Pending with no commit: the work isn't there to recover — directive.
@@ -1347,32 +1991,36 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     action: 're-dispatch',
                     task_id: task.id,
                     reason: 'no commit on a pending task — re-dispatch SWE',
+                    ...sweepResult,
                 });
             }
             const now = nowISO();
             const result = db.transaction(() => {
                 // task_recovered audit row — records the deterministic recovery.
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_recovered', ?, ?, ?)`, [
-                    task.issue_id,
-                    task.branch_id,
-                    `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-                    JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
-                    now,
-                ]);
-                const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
-                return { task_id: task.id, issue_closed };
+                insertAudit(db, {
+                    issue_id: task.issue_id,
+                    branch_id: task.branch_id,
+                    from_node: 'bro',
+                    event_type: 'task_recovered',
+                    summary: `Recovered stuck-${current.status} task ${task.id} at ${commitSha}`,
+                    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: current.status }),
+                    created_at: now,
+                });
+                return closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, 'task_recover');
             });
-            if (result.issue_closed) {
-                await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
-            }
+            const remote = result.issue_closed
+                ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'])
+                : undefined;
             return ok({
                 recovered: true,
                 action: 'closed',
                 task_id: task.id,
                 commit_sha: commitSha,
                 issue_closed: result.issue_closed,
+                review_gate_bypassed: result.review_gate_bypassed,
+                ...(result.issue_left_open ? { issue_left_open: result.issue_left_open } : {}),
+                ...(remote ? { remote } : {}),
+                ...sweepResult,
             });
         })),
     };

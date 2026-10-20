@@ -15,6 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
+. "$HERE/fixtures/wal-no-holder.sh"
 
 # ----- helpers ----------------------------------------------------------
 
@@ -22,7 +23,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
 # Returns the repo path. Sets globals SHA1, SHA2 to the last two commit SHAs.
 setup_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-push-guard-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-push-guard-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -513,6 +514,197 @@ test_case "#1016: false-positive — 'bash -c \"echo git push\"' is NOT a push"
 setup_repo
 out=$(run_hook_as_swe 'bash -c "echo git push done"' "/nonexistent.db" "tmb:swe")
 assert_not_contains "$out" '"permissionDecision":"deny"' "echo of git push inside a wrapper must not fire"
+cleanup
+
+test_case "unreadable trajectory DB: push gate fails closed (tmb_gate_read __ERR__)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+chmod 000 "$db"
+out=$(run_hook "git push origin main" "$db")
+chmod 644 "$db"
+assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, not allow"
+assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
+cleanup
+
+# First push of a feature branch cut from dev: the repos row's target_branch
+# (dev, read by tmb_repo_resolve) bounds the range to the signed feature
+# commit. An empty read falls back to main and pulls in dev's unsigned commit.
+setup_repo
+db=$(setup_db "$REPO_PATH")
+git -C "$REPO_PATH" checkout -q -b dev
+git -C "$REPO_PATH" push -q origin dev
+git -C "$REPO_PATH" checkout -q -b feat/wal
+echo "feat C" > "$REPO_PATH/c.txt"
+git -C "$REPO_PATH" add c.txt
+git -C "$REPO_PATH" commit -qm "feat: C"
+SHA3=$(git -C "$REPO_PATH" rev-parse HEAD)
+insert_task "$db" 1 "$SHA2"
+insert_task "$db" 3 "$SHA3"
+sign_task   "$db" 3
+sqlite3 "$db" "INSERT INTO repos (name, path, target_branch) VALUES ('wal', '$REPO_PATH', 'dev');"
+out=$(run_hook "git push origin feat/wal" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "WAL fixture precondition: the push of the signed feature commit is allowed"
+wal_gate_cases "git-push-guard" "$HOOK" "$db" "$REPO_PATH" \
+  "$(jq -cn '{tool_input:{command:"git push origin feat/wal"}}')" "" '"permissionDecision":"deny"' "$REPO_PATH"
+cleanup
+
+# ----- GH 1196: role from identity, dir from the command ----------------
+# A real linked worktree; the payload cwd sits inside it (bro's persistent
+# shell left there) while the command names the main checkout.
+
+run_hook_payload() {
+  local agent="$1" cwd="$2" cmd="$3" db="${4:-/nonexistent.db}" payload
+  payload=$(jq -cn --arg a "$agent" --arg d "$cwd" --arg c "$cmd" \
+    'if $a == "" then {cwd:$d,tool_input:{command:$c}} else {agent_type:$a,cwd:$d,tool_input:{command:$c}} end')
+  (cd "$REPO_PATH" && printf '%s' "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true)
+}
+
+setup_repo_with_worktree() {
+  setup_repo
+  git -C "$REPO_PATH" branch feat/wt
+  git -C "$REPO_PATH" worktree add -q "$REPO_PATH/.claude/worktrees/wt" feat/wt
+  WT_PATH="$REPO_PATH/.claude/worktrees/wt"
+}
+
+test_case "GH 1196: bro 'git -C <main> push' with payload cwd inside a worktree → allowed"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_payload "" "$WT_PATH" "git -C $REPO_PATH push origin main" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro pushing the main checkout by -C is not an SWE push nor a worktree push"
+cleanup
+
+test_case "GH 1196: bro 'cd <main> && git push' with payload cwd inside a worktree → allowed"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_payload "" "$WT_PATH" "cd $REPO_PATH && git push origin main" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the leading cd decides the dir"
+cleanup
+
+test_case "GH 1196: bro bare 'git push' while worktrees exist → ambiguous_git_target, not an SWE rule"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+out=$(run_hook_payload "" "$REPO_PATH" "git push origin main" "$db")
+assert_contains "$out" "ambiguous_git_target" "the deny names the real reason"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+assert_not_contains "$out" "SWE must never push" "bro is never told an SWE rule"
+cleanup
+
+test_case "GH 1196: SWE push is denied by identity, whatever the dir"
+setup_repo_with_worktree
+out=$(run_hook_payload "swe" "$REPO_PATH" "git -C $REPO_PATH push origin main")
+assert_contains "$out" "SWE must never push" "identity decides the role"
+cleanup
+
+test_case "GH 1196: a heredoc that writes markdown mentioning git push is not a push"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+HEREDOC_CMD=$(printf '%s\n' "cat > $WT_PATH/notes.md <<'EOF'" 'then git push origin main' 'EOF')
+out=$(run_hook_payload "swe" "$REPO_PATH" "$HEREDOC_CMD" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "heredoc content is data"
+cleanup
+
+# ----- GH 1518: rebased task commits need a verification run ------------
+# feat/r holds task 5's reviewed commit RSHA, cut from origin/main. feat/r-rebased
+# replays it onto main (SHA1, SHA2): REBASED has RSHA's patch-id but is no
+# task's commit_sha. feat/other holds an unrelated commit on main.
+
+setup_rebased_repo() {
+  setup_repo
+  db=$(setup_db "$REPO_PATH")
+  git -C "$REPO_PATH" checkout -q -b feat/r origin/main
+  echo "feat R" > "$REPO_PATH/r.txt"
+  git -C "$REPO_PATH" add r.txt
+  git -C "$REPO_PATH" commit -qm "feat: R"
+  RSHA=$(git -C "$REPO_PATH" rev-parse HEAD)
+  git -C "$REPO_PATH" checkout -q -b feat/r-rebased main
+  git -C "$REPO_PATH" cherry-pick "$RSHA" >/dev/null
+  REBASED=$(git -C "$REPO_PATH" rev-parse HEAD)
+  git -C "$REPO_PATH" checkout -q -b feat/other main
+  echo "other" > "$REPO_PATH/o.txt"
+  git -C "$REPO_PATH" add o.txt
+  git -C "$REPO_PATH" commit -qm "feat: other"
+  insert_task "$db" 5 "$RSHA"
+  sign_task   "$db" 5
+}
+
+record_run() {
+  local db="$1" sha="$2" rc="$3"
+  sqlite3 "$db" "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
+    VALUES (5, '$sha', 'manual', '2026-10-19T00:00:00.000Z', '2026-10-19T00:01:00.000Z', $rc, 900);" >/dev/null
+}
+
+test_case "GH 1518: the reviewed task commit itself → allowed"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q feat/r
+out=$(run_hook "git push origin feat/r" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the reviewed SHA is covered by its review"
+cleanup
+
+test_case "GH 1518: an integrated rebase (passing run on its SHA) → allowed"
+setup_rebased_repo
+record_run "$db" "$REBASED" 0
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a rebased SHA with a passing verification run ships"
+cleanup
+
+test_case "GH 1518: a rebased SHA with the reviewed patch-id and no run → BLOCKED"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "an unverified rebase must block"
+assert_contains "$out" "$REBASED" "the deny names the rebased SHA"
+assert_contains "$out" "task_id=5" "the deny names the reviewed task"
+assert_contains "$out" "integrate.sh" "the deny points at integrate.sh"
+cleanup
+
+test_case "GH 1518: a rebased SHA whose only run failed → BLOCKED"
+setup_rebased_repo
+record_run "$db" "$REBASED" 1
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "a failing run does not cover the rebase"
+cleanup
+
+test_case "GH 1518: an unrelated commit beside a reviewed task → allowed"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q feat/other
+out=$(run_hook "git push origin feat/other" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a commit matching no reviewed patch-id keeps today's behaviour"
+cleanup
+
+test_case "GH 1518: a rebase of an unreviewed task's commit → BLOCKED even with a passing run"
+setup_rebased_repo
+sqlite3 "$db" "DELETE FROM validation_attempts WHERE task_id = 5;" >/dev/null
+record_run "$db" "$REBASED" 0
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "an unreviewed task's rebased commit must block"
+assert_contains "$out" "$REBASED" "the deny names the rebased SHA"
+assert_contains "$out" "task_id=5" "the deny names the task"
+assert_contains "$out" "no passing review" "the deny says the task is unreviewed"
+cleanup
+
+test_case "GH 1518: a rebase matching a reviewed and an unreviewed task is judged by the reviewed one"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q -b feat/r-again origin/main
+git -C "$REPO_PATH" cherry-pick "$RSHA" >/dev/null
+git -C "$REPO_PATH" commit -q --amend -m "feat: R again"
+insert_task "$db" 4 "$(git -C "$REPO_PATH" rev-parse HEAD)"
+record_run "$db" "$REBASED" 0
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the reviewed task's integrated rebase ships"
 cleanup
 
 summarize

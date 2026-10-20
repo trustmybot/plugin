@@ -23,7 +23,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
 # Sets globals: REPO_PATH, FEATURE_SHA
 setup_first_push_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-first-push-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-first-push-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
@@ -184,9 +184,84 @@ db=$(setup_db "$REPO_PATH")
 set_pr_target "$db" "dev"
 insert_task "$db" 1 "$FEATURE_SHA"
 # Run from a DIFFERENT cwd; the cd prefix names the real repo.
-out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && git push -u origin feat/my-feature" '{tool_input:{command:$c}}')" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true) )
+ELSEWHERE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-first-push-elsewhere.XXXXXX")
+out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && git push -u origin feat/my-feature" '{tool_input:{command:$c}}')" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true) )
 assert_contains "$out" '"permissionDecision":"deny"' "cd target must be resolved for the first-push base"
 assert_contains "$out" "task_id=1" "block message must list the unsigned task"
+rm -rf "$ELSEWHERE"
+cleanup
+
+# ----- target resolution without a repos row for this repo -----
+# main sits at the init commit; dev carries one more commit D (task 2) and the
+# feature branch adds C (task 1). Target dev gates {C}; target main gates {D, C}.
+setup_two_base_repo() {
+  local dir
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-first-push-XXXXXX")
+  (
+    cd "$dir" || exit 1
+    git init -q -b dev
+    git config user.email "test@example.com"
+    git config user.name  "Test"
+    git init --bare -q upstream.git
+    git remote add origin "$dir/upstream.git"
+    echo "init" > README.md
+    git add README.md
+    git commit -qm "init"
+    git branch -q main
+    git push -q origin main dev
+    echo d > dev.txt
+    git add dev.txt
+    git commit -qm "dev work"
+    git push -q origin dev
+    git rev-parse HEAD > .dev_sha
+    git switch -q -c feat/my-feature
+    echo "feature work" > feature.txt
+    git add feature.txt
+    git commit -qm "feat: add feature"
+    git rev-parse HEAD > .feature_sha
+  )
+  REPO_PATH="$dir"
+  DEV_SHA=$(cat "$dir/.dev_sha")
+  FEATURE_SHA=$(cat "$dir/.feature_sha")
+}
+
+setup_unregistered_db() {
+  local db="$REPO_PATH/.claude/tmb/trajectory.db"
+  mkdir -p "$(dirname "$db")"
+  sqlite3 "$db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  insert_task "$db" 1 "$FEATURE_SHA"
+  sqlite3 "$db" "
+    INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, commit_sha, created_at, updated_at)
+      VALUES (2, 1, 'feat/dev-work', 'task 2', 'd', 'closed', '## body', '$DEV_SHA', datetime('now'), datetime('now'));
+  " >/dev/null
+  echo "$db"
+}
+
+test_case "first-push target: no row for this repo, sole registered repo → its target_branch"
+setup_two_base_repo
+db=$(setup_unregistered_db)
+sqlite3 "$db" "INSERT INTO repos (name, path, target_branch) VALUES ('other', '/elsewhere/other', 'main');" >/dev/null
+out=$(run_hook "git push -u origin feat/my-feature" "$db")
+assert_contains "$out" "task_id=1" "the feature commit is gated"
+assert_contains "$out" "task_id=2" "the sole repo's target main also gates the dev commit"
+cleanup
+
+test_case "first-push target: no repos rows → the remote's default branch"
+setup_two_base_repo
+db=$(setup_unregistered_db)
+git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/dev
+out=$(run_hook "git push -u origin feat/my-feature" "$db")
+assert_contains "$out" "task_id=1" "the feature commit is gated"
+assert_not_contains "$out" "task_id=2" "origin/HEAD → dev: the dev commit is the base, not gated"
+cleanup
+
+test_case "first-push target: no repos rows, no origin/HEAD → main"
+setup_two_base_repo
+db=$(setup_unregistered_db)
+git -C "$REPO_PATH" symbolic-ref --delete refs/remotes/origin/HEAD 2>/dev/null || true
+out=$(run_hook "git push -u origin feat/my-feature" "$db")
+assert_contains "$out" "task_id=1" "the feature commit is gated"
+assert_contains "$out" "task_id=2" "main is the base, so the dev commit is gated too"
 cleanup
 
 summarize

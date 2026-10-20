@@ -5,12 +5,41 @@ set -uo pipefail
 
 # shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../scripts/hooks/lib/resolve-install.sh"
+
+_FLOW_HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# tmb_test_state_dir <plugin_root>: <project>/.claude/<plugin>, where test
+# harness artifacts live. <project> is CLAUDE_PROJECT_DIR, else the main
+# checkout of the plugin repo holding this file (a worktree resolves to its
+# main checkout); <plugin> is the manifest name at <plugin_root>.
+tmb_test_state_dir() {
+  local plugin_root="$1" project="${CLAUDE_PROJECT_DIR:-}" common plugin
+  if [ -z "$project" ]; then
+    common=$(git -C "$_FLOW_HELPERS_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
+    [ -n "$common" ] && project=$(dirname "$common")
+  fi
+  if [ -z "$project" ]; then
+    printf 'tmb_test_state_dir: CLAUDE_PROJECT_DIR is unset and %s is not inside a git repo\n' "$_FLOW_HELPERS_DIR" >&2
+    return 1
+  fi
+  plugin=$(CLAUDE_PLUGIN_ROOT="$plugin_root" _tmb_install_plugin_name)
+  printf '%s/.claude/%s\n' "$project" "$plugin"
+}
+
+# l5_init_state_dir <project_dir>: creates <project>/.claude/tmb plus an empty
+# `standalone` marker, so DB discovery stops at this project instead of walking
+# up to a parent workspace's live trajectory.db (GH 1553).
+l5_init_state_dir() {
+  mkdir -p "$1/.claude/tmb" && : > "$1/.claude/tmb/standalone"
+}
 
 # l5_setup_scratch_project: creates a fresh Docker-isolated scratch dir,
 # initializes git, sets test identity. Returns the absolute path on stdout.
 l5_setup_scratch_project() {
   local dir
-  dir=$(mktemp -d -t tmb-l5-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-l5-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -19,8 +48,8 @@ l5_setup_scratch_project() {
     echo "init" > README.md
     printf '.claude/\n' > .gitignore
     git add . && git commit -qm init
-    mkdir -p .claude/tmb
   )
+  l5_init_state_dir "$dir"
   echo "$dir"
 }
 
@@ -33,17 +62,21 @@ l5_seed_db() {
     printf "  ✗ fixture not found: %s\n" "$fixture_path" >&2
     return 1
   fi
+  # shellcheck disable=SC2153 # PLUGIN_ROOT is set by the runner that sources this file
   local schema_path="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$schema_path"
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$fixture_path"
 }
 
 # l5_preserve_trajectory <project_dir> <flow_name> <run_id>: copies
-# trajectory.jsonl and trajectory.db to ~/.claude/tmb/l5-trajectories/<flow>/<run_id>/
-# before the scratch dir is removed. Always returns 0 (best-effort).
+# trajectory.jsonl and trajectory.db to
+# <project>/.claude/<plugin>/l5-trajectories/<flow>/<run_id>/ (see
+# tmb_test_state_dir) before the scratch dir is removed. Always returns 0
+# (best-effort).
 l5_preserve_trajectory() {
-  local project="$1" flow="$2" run_id="$3"
-  local dest="${HOME}/.claude/tmb/l5-trajectories/${flow}/${run_id}"
+  local project="$1" flow="$2" run_id="$3" state dest
+  state=$(tmb_test_state_dir "$PLUGIN_ROOT") || return 0
+  dest="$state/l5-trajectories/${flow}/${run_id}"
   mkdir -p "$dest" 2>/dev/null || return 0
   [ -f "$project/trajectory.jsonl" ] && cp "$project/trajectory.jsonl" "$dest/trajectory.jsonl" 2>/dev/null || true
   [ -f "$project/.claude/tmb/trajectory.db" ] && cp "$project/.claude/tmb/trajectory.db" "$dest/trajectory.db" 2>/dev/null || true
@@ -67,9 +100,13 @@ l5_preserve_trajectory() {
 # by the L1 auq-shape lint.
 _l5_test_prompt_prefix() {
   cat <<'EOF'
-[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
+[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose. If the onboard flow asks its Bash sandbox question, answer No: pass `sandbox_enforcement: 'no'` to `onboard_apply`.
 
 EOF
+}
+
+l5_compose_test_prompt() {
+  printf '%s\n\n%s' "$(_l5_test_prompt_prefix)" "$1"
 }
 
 # _l5_write_pre_run_git_snapshot <project_dir>: snapshot pre-run git state so
@@ -81,7 +118,7 @@ _l5_write_pre_run_git_snapshot() {
     local pre_head pre_branch
     pre_head=$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo "")
     pre_branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    mkdir -p "$dir/.claude/tmb"
+    l5_init_state_dir "$dir"
     printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
       > "$dir/.claude/tmb/_l5_pre_run_git.json"
   fi
@@ -91,7 +128,7 @@ l5_run_claude() {
   local dir="$1" prompt="$2"
   local jsonl="$dir/trajectory.jsonl"
   local full_prompt
-  full_prompt="$(_l5_test_prompt_prefix)$prompt"
+  full_prompt="$(l5_compose_test_prompt "$prompt")"
 
   _l5_write_pre_run_git_snapshot "$dir"
 
@@ -139,6 +176,7 @@ l5_run_claude() {
 #   7. git                  — git-state invariants (opt-in via outcome-git.json) — catches base-branch contamination + worktree-on-wrong-branch
 #   8. usage                — skill/plugin usage from the stream-json run log (opt-in via outcome-usage.json) — replaces skill_invocations (#118/#119)
 #   9. materialized         — on-disk consuming-agent materialization (opt-in via outcome-materialized.json) — proves a targeted cheatcode install copied the agent md + skill header (#95)
+#  10. no_sandbox           — always on: no sandbox block or sandbox_enforcement=yes in the scratch project (TEST MODE pins it to no, GH 1549)
 l5_score_flow() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local total_fail=0
@@ -152,6 +190,7 @@ l5_score_flow() {
   l5_score_git                  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_usage                "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_materialized         "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_no_sandbox           "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
 
   return "$total_fail"
 }

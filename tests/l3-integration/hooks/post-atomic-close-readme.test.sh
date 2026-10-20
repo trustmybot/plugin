@@ -19,7 +19,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not available"; exit 0; }
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not available"; exit 0; }
 [ -f "$SCHEMA" ] || { echo "SKIP: schema.sql not found at $SCHEMA"; exit 0; }
 
-TMPDIR_R=$(mktemp -d)
+TMPDIR_R=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-post-atomic-close-readme.XXXXXX")
 trap 'rm -rf "$TMPDIR_R"' EXIT
 
 # ── Fixture: workspace with a git repo + a trajectory DB ───────────────────────
@@ -52,11 +52,12 @@ COMMIT=$(git -C "$REPO" rev-parse HEAD)
 # Force src/README.md to be older than the commit (commit epoch is "now").
 touch -t 200001010000 "$REPO/src/README.md"
 
-# DB at workspace root so the hook resolves WORKSPACE_ROOT=$WS, repo=repo-a.
+# The DB sits at the workspace root; repo-a is registered in repos by path.
 DB="$WS/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
 sqlite3 "$DB" < "$SCHEMA"
 sqlite3 "$DB" "
+  INSERT INTO repos (name, path) VALUES ('repo-a', '${REPO}');
   INSERT INTO issues (id, objective, description, status, created_at, updated_at)
   VALUES (1, 'test issue', '', 'open', datetime('now'), datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, commit_sha, created_at, updated_at)
@@ -147,5 +148,25 @@ test_case "TMB_DISABLE_README_STALENESS_HOOK=1 → no-op"
 sqlite3 "$DB" "UPDATE tasks SET commit_sha='${COMMIT}' WHERE id=1;"
 OUTB=$(_payload 1 | TRAJECTORY_DB_PATH="$DB" TMB_DISABLE_README_STALENESS_HOOK=1 bash "$HOOK" 2>/dev/null || true)
 assert_not_contains "$OUTB" "additionalContext" "bypass emits no nudge"
+
+# ── Test: repo path comes from repos.path, not <workspace>/<name> ──────────────
+test_case "repo registered outside the workspace → resolved through repos.path"
+ELSEWHERE="$TMPDIR_R/elsewhere/checkout"
+mkdir -p "$ELSEWHERE/lib"
+git -C "$ELSEWHERE" init -q -b main
+git -C "$ELSEWHERE" config user.email t@t.io
+git -C "$ELSEWHERE" config user.name t
+echo v1 > "$ELSEWHERE/lib/x.txt"
+git -C "$ELSEWHERE" add .
+git -C "$ELSEWHERE" commit -qm "lib"
+COMMIT_E=$(git -C "$ELSEWHERE" rev-parse HEAD)
+sqlite3 "$DB" "
+  INSERT INTO repos (name, path) VALUES ('repo-b', '${ELSEWHERE}');
+  INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, commit_sha, created_at, updated_at)
+  VALUES (2, 1, 'feat/y', 'd', 'closed', 'repo-b', '${COMMIT_E}', datetime('now'), datetime('now'));
+"
+OUTR=$(_payload 2 | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null || true)
+CTXR=$(echo "$OUTR" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+assert_contains "$CTXR" "lib" "nudge names the dir in the registered checkout"
 
 summarize

@@ -14,7 +14,7 @@ The verdict row is always authored by pr-reviewer itself — via `validation_rec
 
 **Clean spawn prompt example:**
 ```
-task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>
+task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin repo_path=<repo path> attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>
 
 Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```
@@ -33,15 +33,20 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
+Each Agent call carries `effort` equal to the configured `reviewer_effort` (default `high`); the spawn gate denies a mismatch. The reviewer's job is catching fail-open misses, so it is the one place lower effort costs more than it saves.
+
 Read the verdict + `mcp_available` off each task's validation row via `validation_history` (the typed source of truth) — never parse the reviewer's reply text:
 - `mcp_available = 1` — the reviewer wrote `validation_record` itself.
 - `mcp_available = 0` — the reviewer wrote the row through the `tmb_review` fallback script (honor-system, MCP was unavailable).
 
 ### Outcomes
 
-- All-pass → `git push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
+`<repo path>` is the task's repo `path` from `repos_list`; `<slug>` is that repo's `owner/name` from `git -C <repo path> remote get-url origin`.
+
+- All-pass → `git -C <repo path> push origin <feature>`, then `gh pr create -R <slug> --head <feature> --base <pr_target>` / `glab mr create -R <slug> --source-branch <feature> --target-branch <pr_target>`, surface URL. After merge, run post-merge cleanup below.
 - Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`.
+- Rework on a branch with an open PR → `git -C <repo path> push origin <feature>`, then confirm `git -C <repo path> rev-parse origin/<feature>` equals the local tip (`git -C <repo path> rev-parse <feature>`) before telling the Human the PR is updated.
 
 ### Post-merge cleanup
 
-`git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The cleanup-on-task-close hook removes the SWE worktree automatically on task close.
+`git -C <repo path> switch <pr_target> && git -C <repo path> pull --ff-only && git -C <repo path> branch -d <feature>`. The SWE worktree stays through task close and is removed automatically once pr-reviewer passes the task or the branch merges, so a failed review reworks in place.

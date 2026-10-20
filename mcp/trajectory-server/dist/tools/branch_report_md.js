@@ -24,6 +24,10 @@ function wrapHandler(fn) {
         }
     };
 }
+// A completed task still waits on bro_atomic_close; only closed counts as done.
+function statusLabel(status) {
+    return status === 'completed' ? 'completed (awaiting close)' : status;
+}
 export function branchReportMdTools(db) {
     const definitions = [
         {
@@ -71,6 +75,10 @@ export function branchReportMdTools(db) {
             lines.push('');
             lines.push(`**Issue objective:** ${issue.objective}`);
             lines.push('');
+            const doneCount = tasks.filter((t) => t.status === 'closed').length;
+            const awaitingClose = tasks.filter((t) => t.status === 'completed').length;
+            lines.push(`**Done:** ${doneCount} of ${tasks.length} closed, ${awaitingClose} awaiting close`);
+            lines.push('');
             if (mode === 'summary') {
                 lines.push('## Tasks on this branch');
                 lines.push('');
@@ -79,7 +87,7 @@ export function branchReportMdTools(db) {
                 for (const t of tasks) {
                     const title = t.title || t.description.slice(0, 60);
                     const commit = t.commit_sha || '—';
-                    lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} |`);
+                    lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} |`);
                 }
                 lines.push('');
                 const auditCount = (db.get('SELECT COUNT(*) AS n FROM audit WHERE issue_id = ? AND branch_id = ?', [issueId, branchId]))?.n ?? 0;
@@ -112,8 +120,8 @@ export function branchReportMdTools(db) {
             for (const t of tasks) {
                 const title = t.title || t.description.slice(0, 60);
                 const commit = t.commit_sha || '—';
-                const closed = t.completed_at || '—';
-                lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} | ${t.created_at} | ${closed} |`);
+                const closed = t.status === 'closed' && t.completed_at ? t.completed_at : '—';
+                lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} | ${t.created_at} | ${closed} |`);
             }
             lines.push('');
             lines.push('## Audit events');

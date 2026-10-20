@@ -1,8 +1,19 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
-import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
+import {
+  AUDIT_EVENT_TYPES,
+  assertAuditEventType,
+  auditEventWriters,
+  isAuditEventType,
+  isAuditEventWritableBy,
+  type AuditEventType,
+  type Writer,
+} from '../audit-events.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -16,6 +27,23 @@ function err(message: string): CallToolResult {
   return {
     content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
     isError: true,
+  };
+}
+
+function writerRefused(eventType: AuditEventType, role: Writer): CallToolResult {
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          error: 'audit_event_not_writable_by_role',
+          event_type: eventType,
+          caller_role: role,
+          allowed_writers: auditEventWriters(eventType),
+        }),
+      },
+    ],
   };
 }
 
@@ -49,6 +77,69 @@ function decodeCursor(cursor: string): { created_at: string; id: number } | null
 
 function encodeCursor(row: { created_at: string; id: number }): string {
   return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString('base64');
+}
+
+export function resolveIssueRepo(db: TrajectoryDB, issueId: number | string): string | null {
+  return db.get<{ repo: string | null }>('SELECT repo FROM issues WHERE id = ?', [issueId])?.repo ?? null;
+}
+
+export interface AuditEntry {
+  issue_id: number | string;
+  branch_id?: string | null;
+  from_node: string;
+  event_type: AuditEventType;
+  summary: string;
+  content_json?: string;
+  created_at?: string;
+  repo?: string | null;
+  writer?: Writer;
+}
+
+export class AuditWriterError extends Error {
+  constructor(
+    readonly eventType: AuditEventType,
+    readonly writer: Writer,
+  ) {
+    super(
+      `audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${auditEventWriters(eventType).join(', ')})`,
+    );
+  }
+}
+
+/**
+ * The single insert+embed path for audit rows. `repo` defaults to the parent
+ * issue's repo. The embed is fire-and-forget so the helper is safe inside
+ * `db.transaction()` callbacks — see `insertDiscussion` in discussions.ts for
+ * the full reasoning. With `writer` set, the event must list that writer
+ * (`AuditWriterError` otherwise).
+ */
+export function insertAudit(db: TrajectoryDB, entry: AuditEntry): number {
+  assertAuditEventType(entry.event_type);
+  if (entry.writer !== undefined && !isAuditEventWritableBy(entry.event_type, entry.writer)) {
+    throw new AuditWriterError(entry.event_type, entry.writer);
+  }
+  const contentJson = entry.content_json ?? '{}';
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+  const res = db.run(
+    `INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.issue_id,
+      entry.branch_id ?? null,
+      entry.from_node,
+      entry.event_type,
+      entry.summary,
+      contentJson,
+      entry.created_at ?? nowISO(),
+      repo,
+    ],
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db, 'audit', id, auditEmbedText(entry.summary, contentJson)).catch((e) =>
+    console.error('[embeddings] insertAudit embed failed:', e),
+  );
+  return id;
 }
 
 // Audit table is event-only — every row is a lifecycle event with
@@ -94,19 +185,19 @@ export function auditTools(db: TrajectoryDB): {
     {
       name: 'audit_append',
       description:
-        'Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.',
+        'Insert an audit lifecycle event. event_type must be in its closed enum and list the calling role among its writers (else audit_event_not_writable_by_role); from_node is set to the calling agent.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
           branch_id: { type: 'string' },
-          from_node: { type: 'string' },
-          event_type: { type: 'string', description: 'Required. Lifecycle event identifier (e.g. planning_complete).' },
+          from_node: { type: 'string', description: 'Optional. Recorded as the calling agent; any other value is refused.' },
+          event_type: { type: 'string', enum: AUDIT_EVENT_TYPES.map((e) => e.type), description: 'Required. Lifecycle event identifier from the closed audit event set (e.g. planning_complete).' },
           summary: { type: 'string', description: 'Required. One-line human-readable summary.' },
           content_json: { type: 'string', description: 'Optional. JSON string with structured event payload, max 1 MB.' },
         },
-        required: ['agent', 'issue_id', 'from_node', 'event_type', 'summary'],
+        required: ['agent', 'issue_id', 'event_type', 'summary'],
       },
     },
     {
@@ -142,6 +233,8 @@ export function auditTools(db: TrajectoryDB): {
       const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
 
+      await backfillMissing(db, 'audit');
+
       let eventTypeFilter = '';
       let eventTypeParams: unknown[] = [];
       if (eventTypes && eventTypes.length > 0) {
@@ -175,6 +268,8 @@ export function auditTools(db: TrajectoryDB): {
         score: number;
       };
 
+      const ftsQuery = toFtsQuery(query);
+
       const fetchFtsRows = (limitK: number): MatchRow[] => {
         const sql =
           'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
@@ -187,7 +282,7 @@ export function auditTools(db: TrajectoryDB): {
           'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
           eventTypeFilter +
           ' ORDER BY bm25(audit_fts) ASC LIMIT ?';
-        return db.all<MatchRow>(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
+        return withFtsGuard(() => db.all<MatchRow>(sql, [ftsQuery, issueId, issueId, ...eventTypeParams, limitK]));
       };
 
       const fetchRowById = (id: number): MatchRow | undefined => {
@@ -208,7 +303,7 @@ export function auditTools(db: TrajectoryDB): {
           'WHERE audit_fts MATCH ? ' +
           'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
           eventTypeFilter;
-        const countRow = db.get<{ n: number }>(countSql, [query, issueId, issueId, ...eventTypeParams]);
+        const countRow = withFtsGuard(() => db.get<{ n: number }>(countSql, [ftsQuery, issueId, issueId, ...eventTypeParams]));
         const total_matched = countRow?.n ?? 0;
         const searchSql =
           'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
@@ -221,7 +316,7 @@ export function auditTools(db: TrajectoryDB): {
           'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
           eventTypeFilter +
           ' ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?';
-        const rows = db.all<MatchRow>(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
+        const rows = withFtsGuard(() => db.all<MatchRow>(searchSql, [ftsQuery, issueId, issueId, ...eventTypeParams, alpha, alpha, k]));
         return ok({
           results: rows.map((r) => ({
             id: r.id, issue_id: r.issue_id, branch_id: r.branch_id,
@@ -295,18 +390,27 @@ export function auditTools(db: TrajectoryDB): {
     }),
 
     audit_append: requireRoles('audit_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
-      requireArg(args, 'agent');
+      const agentName = String(requireArg(args, 'agent')).toLowerCase();
+      const role = normalizeAgent(agentName) as Exclude<Writer, 'server' | 'hook'>;
+      const fromNode = role === 'consultant' ? agentName : role;
       const issueId = requireArg(args, 'issue_id') as string;
-      requireArg(args, 'from_node');
-
-      const fromNode = args['from_node'] as string;
       const branchId = (args['branch_id'] as string | undefined) ?? null;
       const now = nowISO();
 
       requireArg(args, 'event_type');
       requireArg(args, 'summary');
 
-      const eventType = args['event_type'] as string;
+      const eventType = args['event_type'];
+      if (!isAuditEventType(eventType)) {
+        return err(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(', ')}`);
+      }
+      if (!isAuditEventWritableBy(eventType, role)) {
+        return writerRefused(eventType, role);
+      }
+      const claimedFrom = args['from_node'];
+      if (claimedFrom !== undefined && claimedFrom !== null && claimedFrom !== fromNode) {
+        return err(`from_node '${String(claimedFrom)}' does not match the calling agent; audit_append records from_node '${fromNode}' itself (omit from_node)`);
+      }
       const summary = args['summary'] as string;
 
       const contentJson = (args['content_json'] as string | undefined) ?? '{}';
@@ -316,25 +420,18 @@ export function auditTools(db: TrajectoryDB): {
         return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
       }
 
-      db.run(
-        `INSERT INTO audit
-           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [issueId, branchId, fromNode, eventType, summary, contentJson, now],
-      );
+      const id = insertAudit(db, {
+        issue_id: issueId,
+        branch_id: branchId,
+        from_node: fromNode,
+        event_type: eventType,
+        summary,
+        content_json: contentJson,
+        created_at: now,
+        writer: role,
+      });
 
-      const row = db.get<Record<string, unknown> & { id: number }>(
-        'SELECT * FROM audit WHERE rowid = last_insert_rowid()',
-      );
-
-      if (row) {
-        const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
-        await embedAndStore(db, 'audit', row.id, embedText).catch((e) =>
-          console.error('[embeddings] audit_append embed failed:', e),
-        );
-      }
-
-      return ok(row);
+      return ok(db.get<Record<string, unknown>>('SELECT * FROM audit WHERE id = ?', [id]));
     })),
 
     audit_list: wrapHandler(async (args) => {

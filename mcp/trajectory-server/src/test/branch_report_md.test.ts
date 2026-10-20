@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -77,8 +77,8 @@ function insertTaskDirect(
 ): number {
   const now = nowISO();
   const result = db.run(
-    `INSERT INTO tasks (issue_id, branch_id, title, description, status, attempts, spec_body, created_at, updated_at)
-     VALUES (?, ?, '', 'Direct insert for unit test', 'pending', 0, '', ?, ?)`,
+    `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+     VALUES (?, ?, '', 'Direct insert for unit test', 'pending', '', ?, ?)`,
     [issueId, branchId, now, now],
   );
   return Number(result.lastInsertRowid);
@@ -96,12 +96,13 @@ describe('branchReportMdTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
-      from_node: 'swe',
+      from_node: 'bro',
       kind: 'event',
-      event_type: 'task_started',
+      event_type: 'planning_complete',
       summary: 'SWE began work on feature',
     });
 
+    seedReviewerObservation(db, taskId, 1);
     const validation = validationTools(db);
     await call(validation.handlers, 'validation_record', {
       agent: 'pr-reviewer',
@@ -295,18 +296,18 @@ describe('branchReportMdTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: targetBranch,
-      from_node: 'swe',
+      from_node: 'bro',
       kind: 'event',
-      event_type: 'task_started',
+      event_type: 'planning_complete',
       summary: 'Started target branch work',
     });
     await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: siblingBranch,
-      from_node: 'swe',
+      from_node: 'bro',
       kind: 'event',
-      event_type: 'task_started',
+      event_type: 'planning_complete',
       summary: 'Started sibling branch work',
     });
 

@@ -29,7 +29,7 @@ check_frontmatter_tool() {
   local file="$1" tool="$2"
   local fm
   fm="$(extract_frontmatter "$file")"
-  if ! printf '%s\n' "$fm" | grep -q "tools:.*${tool}"; then
+  if ! printf '%s\n' "$fm" | grep "tools:.*${tool}" >/dev/null; then
     printf "local-agent-primitives FAIL: %s missing primitive '%s' (e.g. expected reference to '%s')\n" \
       "$file" "$tool" "$tool"
     return 1
@@ -87,7 +87,7 @@ run_self_test() {
   printf '\n[self-test] case: swe-missing-task-brief (expect exit 1, mentions task_brief)\n'
   local out2
   out2="$(run_lint_against "$FIXTURES_DIR/swe-missing-task-brief" 2>&1)" || true
-  if printf '%s\n' "$out2" | grep -q "task_brief"; then
+  if printf '%s\n' "$out2" | grep "task_brief" >/dev/null; then
     printf '[self-test] PASS: message mentions task_brief\n'
   else
     printf '[self-test] FAIL: expected mention of task_brief in output\n  got: %s\n' "$out2"
@@ -106,7 +106,7 @@ run_self_test() {
   printf '\n[self-test] case: swe-missing-mcp-tool (expect exit 1, mentions mcp__plugin_tmb_trajectory-server)\n'
   local out3
   out3="$(run_lint_against "$FIXTURES_DIR/swe-missing-mcp-tool" 2>&1)" || true
-  if printf '%s\n' "$out3" | grep -q "mcp__plugin_tmb_trajectory-server"; then
+  if printf '%s\n' "$out3" | grep "mcp__plugin_tmb_trajectory-server" >/dev/null; then
     printf '[self-test] PASS: message mentions mcp__plugin_tmb_trajectory-server\n'
   else
     printf '[self-test] FAIL: expected mention of mcp__plugin_tmb_trajectory-server in output\n  got: %s\n' "$out3"
@@ -125,7 +125,7 @@ run_self_test() {
   printf '\n[self-test] case: pr-reviewer-missing-validation-record (expect exit 1, mentions validation_record)\n'
   local out4
   out4="$(run_lint_against "$FIXTURES_DIR/pr-reviewer-missing-validation-record" 2>&1)" || true
-  if printf '%s\n' "$out4" | grep -q "validation_record"; then
+  if printf '%s\n' "$out4" | grep "validation_record" >/dev/null; then
     printf '[self-test] PASS: message mentions validation_record\n'
   else
     printf '[self-test] FAIL: expected mention of validation_record in output\n  got: %s\n' "$out4"

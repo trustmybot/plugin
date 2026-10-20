@@ -13,7 +13,7 @@
 #
 # CRITICAL INVARIANT — project-scoped only.
 #   Other projects may legitimately run a DIFFERENT TMB version, each with its
-#   own cache dir, MCP process, and trajectory.db. Those are NOT orphans. This
+#   own cache dir, MCP process, and trajectory DB. Those are NOT orphans. This
 #   hook never enumerates, reports, or touches another project's DB, process,
 #   or pinned cache version. The ONLY cross-project action permitted is
 #   removing a cache version that NO installed_plugins entry pins.
@@ -35,11 +35,12 @@ _within_deadline() { [ "$(date +%s)" -lt "$SCAN_DEADLINE" ]; }
 
 CLEAN="${TMB_ORPHAN_SCAN_CLEAN:-0}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
 # --- plugin name ------------------------------------------------------------
-PLUGIN_NAME="tmb"
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-  PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-fi
+PLUGIN_NAME=$(tmb_plugin_name)
 
 # Required tooling — degrade silently if absent.
 command -v jq >/dev/null 2>&1 || exit 0
@@ -48,11 +49,27 @@ command -v jq >/dev/null 2>&1 || exit 0
 # Test override: TMB_ORPHAN_SCAN_PROJECT_DIR pins the project root and
 # TMB_ORPHAN_SCAN_HOME pins the HOME used for ~/.claude lookups so tests run
 # fully sandboxed.
-PROJECT_DIR="${TMB_ORPHAN_SCAN_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 SCAN_HOME="${TMB_ORPHAN_SCAN_HOME:-$HOME}"
 
-# Live DB for THIS project. Always kept; the anchor for everything below.
-LIVE_DB="$PROJECT_DIR/.claude/$PLUGIN_NAME/trajectory.db"
+# Live DB for THIS project (the one DB-path rule). Always kept; the anchor for everything below. Unresolved =
+# not onboarded yet: the live DB is where the project root would hold it.
+if [ -n "${TMB_ORPHAN_SCAN_PROJECT_DIR:-}" ]; then
+  LIVE_DB=$(CLAUDE_PROJECT_DIR="$TMB_ORPHAN_SCAN_PROJECT_DIR" tmb_db_path || true)
+  PROJECT_DIR="$TMB_ORPHAN_SCAN_PROJECT_DIR"
+else
+  LIVE_DB=$(tmb_db_path || true)
+  PROJECT_DIR=$(tmb_project_root)
+  [ -n "$LIVE_DB" ] && [ -z "${TRAJECTORY_DB_PATH:-}" ] && PROJECT_DIR=$(dirname "$(dirname "$(dirname "$LIVE_DB")")")
+fi
+[ -n "$PROJECT_DIR" ] || exit 0
+[ -n "$LIVE_DB" ] || LIVE_DB=$(tmb_db_location "$PROJECT_DIR")
+LIVE_READ=""
+if [ -e "$LIVE_DB" ]; then
+  LIVE_READ=$(tmb_gate_read "$LIVE_DB" 'SELECT count(*) FROM sqlite_master;')
+fi
+if [ "$LIVE_READ" = "__ERR__" ]; then
+  printf 'orphan-scan: trajectory DB unavailable (%s) — scan continues without its schema version\n' "$LIVE_DB" >&2
+fi
 
 # Project slug for ~/.claude/projects/<slug>: absolute path with every
 # non-alphanumeric run collapsed to a single '-' (CC's slug convention).
@@ -102,9 +119,9 @@ consider_stale_db() {
 # ~/.claude/<plugin>/ DB ONLY if it maps to this project (i.e. there is no
 # other project that could own it — the legacy single-location path predates
 # multi-project, so it belongs to whichever project is resolving it).
-consider_stale_db "$PROJECT_HISTORY_DIR/trajectory.db"
-consider_stale_db "$PROJECT_HISTORY_DIR/memory/trajectory.db"
-LEGACY_DB="$SCAN_HOME/.claude/$PLUGIN_NAME/trajectory.db"
+consider_stale_db "$PROJECT_HISTORY_DIR/$TMB_DB_FILENAME"
+consider_stale_db "$PROJECT_HISTORY_DIR/memory/$TMB_DB_FILENAME"
+LEGACY_DB=$(tmb_db_location "$SCAN_HOME")
 # Legacy DB is only THIS project's when the live DB is absent (pre-migration
 # state). If a live per-project DB exists, the legacy path is ambiguous and we
 # leave it alone.
@@ -134,7 +151,7 @@ if [ -f "$INSTALLED_JSON" ] && [ -d "$CACHE_ROOT" ] && _within_deadline; then
     [ -d "$vdir" ] || continue
     _within_deadline || break
     # Pinned if any installed_plugins entry's installPath equals this dir.
-    if printf '%s\n' "$PINNED_PATHS" | grep -qxF "$vdir"; then
+    if printf '%s\n' "$PINNED_PATHS" | grep -xF "$vdir" >/dev/null; then
       continue
     fi
     UNUSED_CACHE+=("$vdir")
@@ -220,7 +237,7 @@ if [ -s "$LIVE_DB" ] && _within_deadline; then
   while IFS= read -r pid; do
     [ -n "$pid" ] || continue
     # Confirm it is a trajectory-server node proc (not an unrelated reader).
-    ps -p "$pid" -o command= 2>/dev/null | grep -q 'trajectory-server' || continue
+    ps -p "$pid" -o command= 2>/dev/null | grep 'trajectory-server' >/dev/null || continue
     # Never flag the current session's own server.
     chain_contains "$pid" "$OWN_CC" && continue
     # Classify by owner liveness.
@@ -270,7 +287,7 @@ if [ "$CLEAN" = "1" ]; then
   for pid in "${STALE_PROCS[@]:-}"; do
     [ -n "$pid" ] || continue
     # Liveness check then terminate only the confirmed stale duplicate.
-    if kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep -q 'trajectory-server'; then
+    if kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep 'trajectory-server' >/dev/null; then
       if kill "$pid" 2>/dev/null; then
         CLEANED="${CLEANED}terminated stale duplicate trajectory-server: pid $pid
 "

@@ -10,7 +10,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`l0-install/install-smoke.Dockerfile`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`), an upgrade smoke from a real-shape v1.0.2 DB, plus an isolated local Codex installer smoke | [`l0-install/`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn, a v1.0.2 DB failing trajectory-doctor after the upgrade, Codex Skill selection, accidental Claude command migration |
 | **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`l1-lint/*.sh`](./l1-lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
@@ -63,7 +63,7 @@ tests/
 │   ├── mcp/                    ← L3 real server subprocess + JSON-RPC
 │   └── hooks/                  ← L3 hook script tests
 ├── l4-workflow-sim/            ← L4 MCP-only multi-step workflow tests
-├── lib/                        ← shared shell-assert helpers
+├── lib/                        ← shared shell-assert helpers + assert-sql.sh (wrapper for the shipped dry-run helper)
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
@@ -82,6 +82,29 @@ bash tests/run-all.sh
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
 
+L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so `scripts/scan.sh` reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.sh` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
+
+Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
+inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
+a fixed-SHA artifact:
+
+```bash
+bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
+CODEX_BIN=/path/to/codex bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
+```
+
+It verifies that the manifest-selected Codex Skill directory contains exactly
+`tmb-bro` and `tmb-agent-setup`, that no `source-command-*` migration appears,
+and that the root Claude `commands/` regular files plus `skills/` directories
+and regular files survive installation unchanged. Symlink packaging remains the
+installer's responsibility. The smoke never reads or writes the user's normal
+Codex home.
+
+## Test-environment posture
+
+- **Issue sync is off by default.** `run-all.sh` exports `TMB_DISABLE_REMOTE_SYNC=1`. A test of the sync feature itself keeps sync on and injects a fake spawn function (`_spawnFn` / `makeSpawnFn` in `mcp/trajectory-server/src/test/sync-issue.test.ts`), so no real remote is hit.
+- **CI is not your laptop.** GitHub runners have no `rg`, so scripts and lints use `grep`. `l1-lint/no-grep-q-in-pipelines.sh` is textual: even a string literal, such as a fixture's verify command, must use `| grep PAT >/dev/null`. `gh --jq` separates expressions with `,`.
+
 ## Run an individual suite
 
 ```bash
@@ -99,7 +122,7 @@ bash tests/l3-integration/mcp/run.sh
 bash tests/l3-integration/hooks/run.sh
 
 # L4 — Workflow simulation
-bun test tests/l4-workflow-sim/*.test.mjs
+bun test --timeout 30000 tests/l4-workflow-sim/*.test.mjs
 ```
 
 ## Run L5 (per-flow)
@@ -128,12 +151,17 @@ The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs ag
 ```bash
 # Chained run — walks all 15 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
-# Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
+# Per-step logs land at $L6C_RUNS_DIR/<run-id>/ when set, else
+# <project>/.claude/tmb/l6-chain-runs/<run-id>/ (<project> = CLAUDE_PROJECT_DIR,
+# else the repo root); the chain runs in the project <run-dir>/project/.
 # See tests/l5-l6/l6-chain/README.md.
 bash tests/l5-l6/run-l6-chain.sh                  # full chain
 bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
+bash tests/l5-l6/run-l6-chain.sh --self-test      # run-dir + HOME isolation check, no model calls
 ```
+
+The chain runs with `HOME=<run-dir>/home`; the model cache, mise installs and the OAuth token stay reachable through env (`TMB_MODEL_CACHE_DIR`/`HF_HOME`/`TRANSFORMERS_CACHE`, `MISE_DATA_DIR`/`MISE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`). The run fails at exit, listing the entries, if that HOME holds anything but `.cache/huggingface`.
 
 Run L6 locally before tagging a release candidate; rc tag policy gates on 15/15 chain pass.
 
@@ -177,8 +205,8 @@ Three opt-in / always-on diagnostic surfaces. Used together they cover the "what
 | Mode | Surface | Trigger | Purpose |
 |---|---|---|---|
 | Trajectory capture | `debug_trajectory` SQL table inside the trajectory DB | `TMB_DEBUG_TRAJECTORY=1` | Capture canonical L5 expected-sequence |
-| MCP server log | `~/.claude/tmb/logs/mcp-server.log` (JSONL, file-based) | always-on | Forensics: lifecycle (startup/shutdown/error) + per-tool entry/exit; survives MCP/CC crash |
-| SQL query log | `~/.claude/tmb/logs/sql.log` (JSONL, file-based) | `TMB_DEBUG_SQL=1` | Every `run`/`get`/`all` with sql, params, duration_ms; verbose, off by default |
+| MCP server log | `<project>/.claude/<plugin>/logs/mcp-server.log` (JSONL, file-based) | always-on | Forensics: lifecycle (startup/shutdown/error) + per-tool entry/exit; survives MCP/CC crash |
+| SQL query log | `<project>/.claude/<plugin>/logs/sql.log` (JSONL, file-based) | `TMB_DEBUG_SQL=1` | Every `run`/`get`/`all` with sql, params, duration_ms; verbose, off by default |
 
 `mcp-server.log` and `sql.log` are file-based by design — they survive MCP-child or CC-host death, which is the failure mode where the SQL `debug_trajectory` table becomes unreadable.
 
@@ -259,6 +287,23 @@ Assertion helpers (`tests/lib/assert.sh`):
 - `assert_not_contains <haystack> <needle> [label]`
 - `assert_exit_code <expected> <actual> [label]`
 - `summarize` — prints pass/fail summary; returns non-zero if any assertion failed.
+
+### Dry runs as assertions (`assert-sql.sh`)
+
+A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and pr-reviewer re-run it. The helper ships with the plugin at `skills/tmb_planning/scripts/assert-sql.sh`; point it at a `cp` of the reference data, not the live trajectory DB. In a user project, call it through the plugin root:
+
+```bash
+mkdir -p .claude/tmb/tmp && cp .claude/tmb/trajectory.db .claude/tmb/tmp/ref.db
+bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
+```
+
+In this repo, `tests/lib/assert-sql.sh` is a wrapper that runs the same script, so `verification[]` entries can use the short path:
+
+```bash
+bash tests/lib/assert-sql.sh .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
+```
+
+`assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]` queries a private snapshot of the DB with `sqlite3 -readonly`, so the file you name is never opened (copy `trajectory.db-wal` alongside as `ref.db-wal` when it exists and its rows are folded in too), requires the query to return a single value, and compares it to `<expected>`: `eq` (default) as strings, `ge` / `le` numerically. It prints one `PASS` / `FAIL` line and exits 0 on a match, 1 on a mismatch or a NULL / no-row result (`got NULL or no rows`, under every op), 2 on a usage error, a missing DB or a SQL error (a write statement fails here too). The snapshot is removed on exit, including when the run is interrupted (INT or TERM). `bash tests/lib/assert-sql.sh --self-test` covers eq/ge/le, mismatches, NULL and no-row results, a WAL-mode copy without `-shm`, a missing DB, the read-only guarantee (the DB's mtime is unchanged) and a SIGINT that leaves no temp copy. A spec's `Populated:` line is usually one of these commands.
 
 ## L5/L6 sandbox
 

@@ -89,6 +89,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq missing"}' >&2; exit 1; }
+[ -n "${TMB_PROJECT_ROOT:-}" ] || { echo '{"error":"TMB_PROJECT_ROOT is unset — the trajectory server sets it to the project root"}' >&2; exit 1; }
 
 # Normalize the candidate into a single JSON object regardless of which input
 # form was used. --candidate wins; the discrete flags fill in otherwise.
@@ -137,14 +138,14 @@ owner_repo() {
 }
 
 # Resolve the fixture path. The env var wins when set. When it is unset/empty,
-# probe the deterministic default path "$PWD/.tmb-cheatcode-vet-fixture.json"
-# (the path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# probe the deterministic default path "$TMB_PROJECT_ROOT/.tmb-cheatcode-vet-fixture.json"
+# (the path the row setup-l5.sh stages in the project) and use it if present —
 # this lets the L6 chain reach the fixture even though the runner's subshell
 # export of the env var never reaches the step's `claude -p`. When neither the
 # env nor the default file is present, the live / no-fixture path is unchanged.
 VET_FIXTURE_PATH="${TMB_CHEATCODE_VET_FIXTURE:-}"
-if [ -z "$VET_FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-vet-fixture.json" ]; then
-  VET_FIXTURE_PATH="$PWD/.tmb-cheatcode-vet-fixture.json"
+if [ -z "$VET_FIXTURE_PATH" ] && [ -f "$TMB_PROJECT_ROOT/.tmb-cheatcode-vet-fixture.json" ]; then
+  VET_FIXTURE_PATH="$TMB_PROJECT_ROOT/.tmb-cheatcode-vet-fixture.json"
 fi
 
 # Acquire signal inputs. Fixture path (test hook) takes precedence over any live

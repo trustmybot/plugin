@@ -4,7 +4,7 @@ How TMB answers "which repo does this operation belong to" in a single- or multi
 
 ## Context
 
-A workspace can hold more than one inner git repo (siblings or submodules) under one trajectory DB. Each discovered repo gets a `repos` row (written by `/scan`), keyed by `name` with an authoritative `path`. The canonical resolvers — `mcp/utils/repo-paths.ts` and `scripts/hooks/lib/resolve-repo.sh` — both resolve by `repos.path` / cwd git-root.
+A workspace can hold more than one inner git repo (siblings or submodules) under one trajectory DB. Each discovered repo gets a `repos` row (written by `/scan`), keyed by `name` with an authoritative `path`. The canonical resolvers — `mcp/trajectory-server/src/utils/repo-paths.ts` and `scripts/hooks/lib/resolve-repo.sh` — both resolve by `repos.path` / cwd git-root.
 
 A name-keyed global default forced one repo to be "the" repo and made the git guards string-join `<workspace>/<name>` to decide what to enforce on. That breaks the moment a second repo enters the workspace, and it duplicates state the `repos` table already holds path-first.
 

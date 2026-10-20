@@ -1,214 +1,131 @@
 #!/usr/bin/env bash
-# MCP trajectory-server health check (GL #22 + #25 + #2888 mitigation).
+# SessionStart: MCP trajectory-server presence sample + install notices.
 #
-# Fires on SessionStart + UserPromptSubmit.
-#
-# Purpose:
-#   1. Detects whether the trajectory-server MCP process is alive and emits
-#      an additionalContext warning when it is absent. Distinguishes:
-#        Mode A — MCP never spawned this session (CC's plugin MCP-config
-#                 cache wasn't invalidated; /reload-plugins + full quit do
-#                 NOT recover; see issue #2888). Strong halt directive.
-#        Mode B — MCP died mid-session (was alive earlier; existing kill
-#                 zombies + relaunch doctrine).
-#   2. Writes a forensic JSONL line on EVERY fire to:
-#        ${HOME}/.claude/<plugin-name>/logs/mcp-health.log
-#      so last-hook-fire evidence survives a Claude Code host crash (GL #25).
-#
-# Cross-fire state: ${HOME}/.claude/<plugin-name>/logs/mcp-health.state (JSON, single
-# object) tracks `last_session_id` + `last_alive_at_session_start`. SessionStart
-# resets it; UserPromptSubmit reads it to classify Mode A vs B.
-#
-# Detection: pgrep -f 'trajectory-server/dist/index.js' | wc -l
-#
-# Behavior matrix:
-#   pgrep missing  → JSONL written (mcp_alive:null, mode:null), silent exit 0
-#   pgrep_count>0  → JSONL written (mcp_alive:true,  mode:null), silent exit 0
-#   pgrep_count=0  → JSONL written (mcp_alive:false, mode:"A"|"B"),
-#                    additionalContext warning per mode, exit 0
+# 1. Samples `pgrep` for this plugin's trajectory-server up to
+#    TMB_MCP_HEALTH_SAMPLES times (default 3), TMB_MCP_HEALTH_INTERVAL_S apart
+#    (default 1.2 s) — CC may not have spawned the server yet when SessionStart
+#    fires. Still absent after the last sample → one soft additionalContext
+#    note. A pgrep sample is not evidence the server failed, so this hook never
+#    halts the session; the evidence-based HALT lives in activation-routine.sh.
+# 2. Install-scope notice, once per session (marker
+#    <project>/.claude/<plugin>/sessions/<session_id>.install-notice when the
+#    project has a TMB state dir): a user-scope install beside this project's
+#    install is ignored; a user-scope install alone gets a `--scope project`
+#    recommendation. Read from installed_plugins.json via lib/resolve-install.sh.
+# 3. Warns when more than one enabled copy of this plugin applies to the
+#    project (tmb_duplicate_installs): Claude Code loads the hooks of only one.
+# 4. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
+#    mcp-health.log when the project has a TMB state dir. Nothing is written
+#    under $HOME.
 
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh
-. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
-PLUGIN_NAME=$(tmb_resolve_plugin_name)
-
-LOG_DIR="${HOME}/.claude/${PLUGIN_NAME}/logs"
-LOG_FILE="${LOG_DIR}/mcp-health.log"
-STATE_FILE="${LOG_DIR}/mcp-health.state"
-mkdir -p "$LOG_DIR" 2>/dev/null || true
-
-db_path="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/${PLUGIN_NAME}/trajectory.db"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+. "$SCRIPT_DIR/lib/resolve-install.sh"
 
 INPUT=$(cat)
-# CC sends snake_case `hook_event_name` on stdin (per
-# https://code.claude.com/docs/en/hooks). Pre-rc.6 this parser used
-# `.hookEventName` (camelCase) and silently fell through to "unknown",
-# which CC's output schema then rejected — see #2889. Keep camelCase +
-# `.event` as fallbacks for our own test harness shapes.
-event=$(echo "$INPUT" | jq -r '.hook_event_name // .hookEventName // .event // "unknown"' 2>/dev/null || true)
+command -v jq >/dev/null 2>&1 || exit 0
+
+event=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // .hookEventName // .event // "unknown"' 2>/dev/null || true)
 [ -n "$event" ] || event="unknown"
+session_id=$(printf '%s' "$INPUT" | jq -r '.session_id // .sessionId // empty' 2>/dev/null || true)
 
-session_id=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty' 2>/dev/null || true)
-[ -n "$session_id" ] || session_id="${CLAUDE_SESSION_ID:-unknown}"
+SAMPLES="${TMB_MCP_HEALTH_SAMPLES:-3}"
+INTERVAL="${TMB_MCP_HEALTH_INTERVAL_S:-1.2}"
+case "$SAMPLES" in ''|*[!0-9]*) SAMPLES=3 ;; esac
 
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  pgrep_pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+else
+  pgrep_pattern="trajectory-server/dist/index.js"
+fi
+
+pgrep_count=-1
+samples_taken=0
 if command -v pgrep >/dev/null 2>&1; then
-  # Scope pgrep to the plugin-root-specific path when CLAUDE_PLUGIN_ROOT is
-  # available (#370): prevents a trajectory-server from another CC project
-  # satisfying the check while this session's MCP is dead.
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    _pgrep_pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+  pgrep_count=0
+  while [ "$samples_taken" -lt "$SAMPLES" ]; do
+    [ "$samples_taken" -gt 0 ] && sleep "$INTERVAL"
+    samples_taken=$((samples_taken + 1))
+    pgrep_count=$({ pgrep -f "$pgrep_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')
+    [ -n "$pgrep_count" ] || pgrep_count=0
+    [ "$pgrep_count" -gt 0 ] && break
+  done
+fi
+
+CONTEXT=""
+if [ "$pgrep_count" -eq 0 ]; then
+  CONTEXT="trajectory-server not detected yet at SessionStart; if a trajectory tool returns is_error, load tmb_recovery §C"
+fi
+
+# --- Install-scope notice, once per session ---------------------------------
+install_version() {
+  local line="$1" v
+  v=$(printf '%s\n' "$line" | cut -f5)
+  [ -n "$v" ] && [ "$v" != "-" ] || v=$(basename "$(printf '%s\n' "$line" | cut -f3)")
+  printf '%s\n' "$v"
+}
+user_install=$(tmb_user_installs 2>/dev/null | sed -n 1p)
+if [ -n "$user_install" ]; then
+  project_install=$(tmb_project_installs 2>/dev/null | sed -n 1p)
+  if [ -n "$project_install" ]; then
+    NOTICE="TMB: user-scope TMB v$(install_version "$user_install") ignored — project install v$(install_version "$project_install") in use."
   else
-    _pgrep_pattern="trajectory-server/dist/index.js"
+    NOTICE="TMB installed at user scope; \`--scope project\` is recommended (see ${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/}docs/reference/INSTALL.md)."
   fi
-  pgrep_count=$({ pgrep -f "$_pgrep_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')
-  [ -z "$pgrep_count" ] && pgrep_count=0
-else
-  pgrep_count=-1
-fi
-
-if [ "$pgrep_count" -eq -1 ]; then
-  mcp_alive_json="null"
-elif [ "$pgrep_count" -gt 0 ]; then
-  mcp_alive_json="true"
-else
-  mcp_alive_json="false"
-fi
-
-# --- Mode classification -----------------------------------------------------
-# SessionStart with mcp_alive=false  → Mode A (and write state so subsequent
-#                                       UserPromptSubmit fires in this session
-#                                       keep classifying as A).
-# SessionStart with mcp_alive=true   → reset state to alive.
-# UserPromptSubmit with mcp_alive=false:
-#   - read state; if same session_id AND last_alive_at_session_start=false → A
-#   - else → B
-mode_json="null"
-if [ "$mcp_alive_json" = "false" ]; then
-  if [ "$event" = "SessionStart" ]; then
-    mode_json='"A"'
-  else
-    if [ -f "$STATE_FILE" ]; then
-      # `// empty` would treat false as falsy and fall through — read raw and
-      # default to a sentinel string only when the field is null or missing.
-      last_sid=$(jq -r 'if has("last_session_id") then .last_session_id else "" end' "$STATE_FILE" 2>/dev/null || true)
-      last_alive_ss=$(jq -r 'if has("last_alive_at_session_start") then .last_alive_at_session_start else "missing" end' "$STATE_FILE" 2>/dev/null || true)
-      if [ "$last_sid" = "$session_id" ] && [ "$last_alive_ss" = "false" ]; then
-        mode_json='"A"'
-      else
-        mode_json='"B"'
+  case "$session_id" in
+    ''|*/*|.*) NOTICE_MARKER="" ;;
+    *)
+      NOTICE_MARKER=""
+      if STATE_DIR=$(tmb_state_dir 2>/dev/null); then
+        NOTICE_MARKER="$STATE_DIR/sessions/$session_id.install-notice"
       fi
-    else
-      mode_json='"B"'
+      ;;
+  esac
+  if [ -n "$NOTICE_MARKER" ] && [ -e "$NOTICE_MARKER" ]; then
+    NOTICE=""
+  elif [ -n "$NOTICE_MARKER" ] && [ "$event" = "SessionStart" ]; then
+    if mkdir -p "$(dirname "$NOTICE_MARKER")" 2>/dev/null; then
+      find "$(dirname "$NOTICE_MARKER")" -maxdepth 1 -type f -name '*.install-notice' -mmin +1440 -delete 2>/dev/null || true
+      : > "$NOTICE_MARKER" 2>/dev/null
     fi
   fi
-fi
+  if [ -n "$NOTICE" ]; then
+    CONTEXT="${CONTEXT:+$CONTEXT
 
-# --- Update state on SessionStart -------------------------------------------
-if [ "$event" = "SessionStart" ] && [ "$mcp_alive_json" != "null" ]; then
-  alive_ss="false"
-  [ "$mcp_alive_json" = "true" ] && alive_ss="true"
-  tmp_state="${STATE_FILE}.tmp.$$"
-  if jq -nc --arg sid "$session_id" --argjson alive "$alive_ss" \
-      '{last_session_id: $sid, last_alive_at_session_start: $alive}' \
-      > "$tmp_state" 2>/dev/null; then
-    mv -f "$tmp_state" "$STATE_FILE" 2>/dev/null || rm -f "$tmp_state"
-  else
-    rm -f "$tmp_state" 2>/dev/null || true
+}${NOTICE}"
   fi
 fi
 
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# --- Duplicate enabled copies (read only) -----------------------------------
+dup_installs=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-}" 2>/dev/null || true)
+if [ -n "$dup_installs" ]; then
+  DUP_TEXT="TMB WARNING: $(printf '%s\n' "$dup_installs" | grep -c .) copies of the $(_tmb_install_plugin_name) plugin are enabled for this project ($(tmb_duplicate_installs_names "$dup_installs")). Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors, so TMB's gates may be missing while its MCP tools still work. Remedy: run /plugin and disable the extra copy."
+  CONTEXT="${CONTEXT:+$CONTEXT
 
-# Rotate mcp-health.log at 1 MB (single .1 generation) to prevent unbounded growth (#389).
-if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
-  mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
+}${DUP_TEXT}"
 fi
 
-jq -cn --arg ts "$ts" --arg ev "$event" \
-  --argjson alive "$mcp_alive_json" \
-  --argjson count "$pgrep_count" \
-  --argjson mode "$mode_json" \
-  --arg sid "$session_id" --arg db "$db_path" \
-  '{ts:$ts,event:$ev,mcp_alive:$alive,pgrep_count:$count,mode:$mode,session_id:$sid,db_path:$db}' \
-  >> "$LOG_FILE" 2>/dev/null || true
-
-if [ "$pgrep_count" -eq -1 ]; then
-  exit 0
-fi
-
-if [ "$mcp_alive_json" = "true" ]; then
-  exit 0
-fi
-
-# --- Resolve plugin source path (best-effort) -------------------------------
-plugin_source="${CLAUDE_PLUGIN_ROOT:-}"
-if [ -z "$plugin_source" ]; then
-  script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
-  if [ -n "$script_dir" ]; then
-    candidate="$(cd "$script_dir/../.." 2>/dev/null && pwd || true)"
-    if [ -n "$candidate" ] && [ -f "$candidate/.claude-plugin/plugin.json" ]; then
-      plugin_source="$candidate"
-    fi
+# --- Forensic log, project-local ---------------------------------------------
+if STATE_DIR=$(tmb_state_dir 2>/dev/null) && mkdir -p "$STATE_DIR/logs" 2>/dev/null; then
+  LOG_FILE="$STATE_DIR/logs/mcp-health.log"
+  if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+    mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
   fi
-fi
-[ -n "$plugin_source" ] || plugin_source="<plugin-source-path>"
-
-MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
-
-# --- Emit additionalContext per mode ----------------------------------------
-if [ "$mode_json" = '"A"' ]; then
-  # STABLE text first, VOLATILE paths (db_path, plugin_source) last — cache-friendly ordering.
-  CONTEXT="🚨 MCP trajectory-server NEVER STARTED this Claude Code session.
-
-This is the CC plugin MCP-config cache bug (issue #2888):
-  - /plugin disable + re-enable or auto-update sometimes leaves the
-    MCP config out of CC's resolved-plugin list.
-  - /reload-plugins does NOT fix this. Full quit + relaunch does NOT
-    fix this either.
-  - The DB (path on the last line) is INTACT. Nothing has been lost.
-
-To recover, try IN ORDER (stop at the first one that brings MCP back):
-
-  1. claude --plugin-dir <plugin-source, last line>   (cache-bust via inline)
-  2. /plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_OWNER}   (then relaunch, reinstall)
-  3. rm -rf ~/.claude/plugins/cache/${MARKETPLACE_OWNER}     (then reinstall)
-
-Full recovery doctrine: skills/tmb_recovery/SKILL.md § C.
-
-⛔ Bro: HALT. Do not dispatch real work. State-writing tools are unreachable.
-   Read-only sqlite3 fallback (bro-sqlite-readonly.sh) remains available
-   for emergency reads.
-DB: ${db_path}  plugin-source: ${plugin_source}"
-else
-  # STABLE text first, VOLATILE path (db_path) last — cache-friendly ordering.
-  CONTEXT="⚠️ MCP trajectory-server is no longer reachable (was alive earlier this session).
-
-This is a mid-session disconnect — typically:
-  - The MCP server process crashed or was killed
-  - The DB (path on the last line) may still be intact
-
-Recovery:
-  1. pkill -f 'node.*trajectory-server'   (clean zombies)
-  2. Quit Claude Code fully (⌘Q) and relaunch.
-  3. If MCP doesn't come back after relaunch → it's now Mode A (CC cache bug);
-     see skills/tmb_recovery/SKILL.md § C.
-
-⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns.
-DB: ${db_path}"
+  alive=null
+  [ "$pgrep_count" -gt 0 ] && alive=true
+  [ "$pgrep_count" -eq 0 ] && alive=false
+  jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg ev "$event" --argjson alive "$alive" \
+    --argjson count "$pgrep_count" --argjson samples "$samples_taken" --arg sid "$session_id" \
+    --arg db "$(tmb_db_path 2>/dev/null)" \
+    '{ts:$ts,event:$ev,mcp_alive:$alive,pgrep_count:$count,samples:$samples,session_id:$sid,db_path:$db}' \
+    >> "$LOG_FILE" 2>/dev/null || true
 fi
 
-# Per CC docs, both SessionStart and UserPromptSubmit accept additionalContext
-# in hookSpecificOutput. Mirror the actual event so CC's output schema
-# (which validates hookEventName against the known set) accepts it. Guard
-# against emitting when the event couldn't be parsed — CC rejects "unknown"
-# as Invalid input.
-if [ "$event" = "SessionStart" ] || [ "$event" = "UserPromptSubmit" ]; then
-  jq -nc --arg ctx "$CONTEXT" --arg ev "$event" '{
-    hookSpecificOutput: {
-      hookEventName: $ev,
-      additionalContext: $ctx
-    }
-  }'
+if [ -n "$CONTEXT" ] && [ "$event" = "SessionStart" ]; then
+  jq -nc --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}'
 fi
+exit 0

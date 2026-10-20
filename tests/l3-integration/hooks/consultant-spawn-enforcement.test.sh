@@ -26,7 +26,7 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — required dependency for this security-gate test"; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "FAIL: jq unavailable — required dependency for this security-gate test"; exit 1; }
 
-TMPDIR_CS=$(mktemp -d)
+TMPDIR_CS=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-consultant-spawn-enforcement.XXXXXX")
 trap 'rm -rf "$TMPDIR_CS"' EXIT
 cd "$TMPDIR_CS" || exit 1
 
@@ -68,7 +68,7 @@ assert_eq "1" "$(nudged_count)" "one audit row per nudge"
 
 test_case "audit row carries the enforcement from_node"
 ROW=$(sqlite3 -separator "|" "$DB" "SELECT from_node, event_type FROM audit WHERE event_type='consultant_spawn_nudged' LIMIT 1;")
-assert_eq "consultant-spawn-enforcement|consultant_spawn_nudged" "$ROW" "from_node + event_type correct"
+assert_eq "hook:prompt-intent-hints|consultant_spawn_nudged" "$ROW" "from_node + event_type correct"
 
 # ========================================================
 # Case 2: non-triggering prompt → no nudge, no audit row
@@ -101,7 +101,7 @@ assert_contains "$out" "consultant-spawn enforcement" "advisory nudge still emit
 # ========================================================
 
 test_case "consultant nudge resolves DB via walk-up (no env var) and writes the row"
-WALK_ROOT=$(mktemp -d -t tmb-cs-walk-XXXX)
+WALK_ROOT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cs-walk-XXXXXX")
 WALK_DB="$WALK_ROOT/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WALK_DB")"
 sqlite3 "$WALK_DB" < "$SCHEMA" >/dev/null
@@ -111,7 +111,7 @@ PAYLOAD=$(jq -cn '{prompt:"Should we move from JSON to SQLite as the CLI scales?
 BEFORE=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='consultant_spawn_nudged';")
 (
   cd "$CHILD_DIR" || exit 1
-  printf '%s' "$PAYLOAD" | TMB_DISABLE_CONSULTANT_HINT=0 bash "$HOOK" >/dev/null 2>&1 || true
+  printf '%s' "$PAYLOAD" | env -u CLAUDE_PROJECT_DIR -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC TMB_DISABLE_CONSULTANT_HINT=0 bash "$HOOK" >/dev/null 2>&1 || true
 )
 AFTER=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='consultant_spawn_nudged';")
 rm -rf "$WALK_ROOT"

@@ -12,13 +12,15 @@
 #   concerns-protocol — doubt-class / weaken-gate phrases
 #   push-intent      — push/ship phrases (DB query on match)
 #   reonboard-intent — remote-setup / host-on phrases (DB query on match)
+#   headless-intent  — claude -p / headless / CI-run phrases (DB query on match)
 #   resume-intent    — keep-going / pick-up / continue phrases (DB query on match)
-#   adr-required     — architectural intent (two-token checks)
+#   adr-required     — architectural intent (phrases + word-proximity checks)
+#   audit-intent     — audit / verify / check / double-check / architecture as whole words
 #
 # Bypass env vars forwarded: TMB_DISABLE_CHEATCODE_INSTALL_HINT,
 # TMB_DISABLE_CONSULTANT_HINT, TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
-# TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_RESUME_HINT,
-# TMB_DISABLE_ADR_HINT.
+# TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_HEADLESS_HINT,
+# TMB_DISABLE_RESUME_HINT, TMB_DISABLE_ADR_HINT, TMB_DISABLE_AUDIT_HINT.
 #
 # Silent on failure; advisory hooks never exit non-zero.
 
@@ -27,6 +29,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
+. "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh disable=SC1091
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -34,16 +40,18 @@ command -v jq >/dev/null 2>&1 || exit 0
 PROMPT_RAW=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 [ -n "$PROMPT_RAW" ] || exit 0
 
-# Synthetic-turn early-exit — harness-generated turns (subagent reports,
-# system notifications) carry embedded content ("bun install", plugin/mcp
-# paths) that trips the matchers, but no hint class applies to them: every
-# hint class describes HUMAN intent. Markers are case-sensitive as produced
-# by the harness. Exit before any matcher.
-case "$PROMPT_RAW" in
-  *"<task-notification>"*|*"[SYSTEM NOTIFICATION"*) exit 0 ;;
-esac
+# Harness-turn early-exit — task/system notifications, subagent hand-backs,
+# agent and cross-session messages (tmb_is_harness_turn) carry embedded
+# content that trips the matchers, but every hint class describes HUMAN
+# intent. Exit before any matcher.
+tmb_is_harness_turn "$PROMPT_RAW" && exit 0
+
+tmb_db_path_advisory prompt-intent-hints >/dev/null || true
 
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
+# The prompt with backticked and quoted spans removed: concerns, push, resume,
+# architectural and audit hints match only what the Human wrote, not text they quote.
+LOWER_OPEN=$(tmb_strip_quoted_spans "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 
 emit_context() {
   local ctx="$1"
@@ -59,7 +67,8 @@ emit_context() {
 # Write a deterministic audit row recording that the consultant-spawn nudge
 # fired. Gates the 10-consultant L6 row on the enforcement mechanism (this row)
 # rather than bro's non-deterministic compliance with the advisory nudge.
-# Fail-open: DB/sqlite3 absent → silent skip; never blocks or crashes the hook.
+# Fail-open: DB/sqlite3 absent → silent skip; a failed write is reported on
+# stderr and never blocks the hook.
 audit_consultant_spawn_nudged() {
   local detail="$1"
   command -v sqlite3 >/dev/null 2>&1 || return 0
@@ -67,13 +76,9 @@ audit_consultant_spawn_nudged() {
   db=$(tmb_db_path 2>/dev/null || true)
   [ -n "$db" ] || return 0
   [ -f "$db" ] || return 0
-  local safe_detail
-  safe_detail=$(tmb_sql_quote "$(printf '%s' "$detail" | head -c 200)")
-  sqlite3 "$db" >/dev/null 2>&1 <<SQL || true
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'consultant-spawn-enforcement', 'consultant_spawn_nudged',
-        'Consultant-spawn nudge emitted: ${safe_detail}', '{}', datetime('now'));
-SQL
+  tmb_audit_append "$db" -1 '' "hook:prompt-intent-hints" "consultant_spawn_nudged" \
+    "Consultant-spawn nudge emitted: $(printf '%s' "$detail" | head -c 200)" '{}' \
+    || return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -121,7 +126,7 @@ if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
       DB=$(tmb_db_path 2>/dev/null || true)
       if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
         CONSULTANT_ROLES=$(sqlite3 "$DB" \
-          "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+          "SELECT name FROM agents WHERE kind='consultant';" \
           2>/dev/null || true)
         while IFS= read -r role; do
           [ -n "$role" ] || continue
@@ -154,9 +159,9 @@ EOF
       # Word-bounded install intent: an `install`/`installing` token AND a
       # capability object noun, EXCLUDING package-manager installs
       # (npm/bun/pip/... install → dependencies, never a cheatcode).
-      if printf '%s' "$LOWER" | grep -qE '\b(install|installing)\b' \
-        && printf '%s' "$LOWER" | grep -qE '\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\b' \
-        && ! printf '%s' "$LOWER" | grep -qE '\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)[[:space:]]+install(ing)?\b'; then
+      if printf '%s' "$LOWER" | grep -E '\b(install|installing)\b' >/dev/null \
+        && printf '%s' "$LOWER" | grep -E '\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\b' >/dev/null \
+        && ! printf '%s' "$LOWER" | grep -E '\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)[[:space:]]+install(ing)?\b' >/dev/null; then
         cheatcode_install_match="install capability"
       fi
       ;;
@@ -182,7 +187,7 @@ if [ "${TMB_DISABLE_CONSULTANT_HINT:-0}" != "1" ]; then
   DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
     CONSULTANT_NAMES=$(sqlite3 "$DB" \
-      "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+      "SELECT name FROM agents WHERE kind='consultant';" \
       2>/dev/null || true)
     while IFS= read -r role; do
       [ -n "$role" ] || continue
@@ -311,7 +316,7 @@ if [ "${TMB_DISABLE_CONCERNS_HINT:-0}" != "1" ]; then
     'weaken the assertion' 'loosen the check' 'just delete' 'just remove' \
     'switch to approxequal' 'use approxequal' 'replace exact equality' \
     'change to approx' 'approxequal with tolerance'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -334,7 +339,7 @@ if [ "${TMB_DISABLE_PUSH_INTENT_HINT:-0}" != "1" ]; then
     'git push' 'push it' 'push the work' 'push the branch' 'push the change' \
     'push up' 'push them up' 'push my work' 'ship it' 'ship the work' \
     'send it up' 'time to push'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -372,7 +377,7 @@ Before \`git push\`, spawn pr-reviewer for each pending task via \`Agent(subagen
 fi
 
 # ---------------------------------------------------------------------------
-# 5. reonboard-intent — remote-setup phrases; DB query on match
+# 5. reonboard-intent — remote-setup, issue-tracker and branching-policy phrases; DB query on match
 # ---------------------------------------------------------------------------
 if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
   case "$LOWER" in
@@ -389,7 +394,12 @@ if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
         'live on a remote' 'live on github' 'live on gitlab' \
         'lives on a remote' 'lives on github' 'lives on gitlab' \
         'needs to live on' 'needs a remote' \
-        'change my issue tracker' 'switch issue tracker'; do
+        'change my issue tracker' 'switch issue tracker' \
+        'switch to gitflow' 'switch to git-flow' 'switch to github-flow' \
+        'switch to github flow' 'change branching model' \
+        'change the branching model' 'switch branching model' \
+        'change pr target' 'change the pr target' 'update pr target' \
+        'update the pr target'; do
         case "$LOWER" in
           *"$pat"*)
             matched="$pat"
@@ -419,6 +429,59 @@ Then reply pointing the Human to \`/onboard\`. Do NOT spawn code work (no \`task
 fi
 
 # ---------------------------------------------------------------------------
+# 5b. headless-intent — claude -p / headless / CI-run phrases; DB query on match
+# ---------------------------------------------------------------------------
+# The number of PreToolUse entries the headless shim writes, from the shim's
+# own countShimEntries; empty when node or the built server is missing.
+headless_shim_entries() {
+  local root="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+  local mod="$root/mcp/trajectory-server/dist/tools/onboard-hooks-shim.js"
+  command -v node >/dev/null 2>&1 || return 0
+  [ -f "$mod" ] || return 0
+  node --input-type=module -e 'const [mod, root] = process.argv.slice(1); const { countShimEntries } = await import(mod); process.stdout.write(String(countShimEntries(root)));' "$mod" "$root" 2>/dev/null || true
+}
+
+if [ "${TMB_DISABLE_HEADLESS_HINT:-0}" != "1" ]; then
+  case "$LOWER" in
+    */onboard*) : ;;
+    *)
+      matched=""
+      for pat in \
+        'claude -p' 'claude --print' 'headless' 'non-interactive' 'noninteractive' \
+        'in ci' 'ci run' 'ci pipeline' 'github actions' 'gitlab ci'; do
+        re="(^|[^a-z0-9_])${pat}([^a-z0-9_]|\$)"
+        if [[ "$LOWER" =~ $re ]]; then
+          matched="$pat"
+          break
+        fi
+      done
+
+      if [ -n "$matched" ]; then
+        DB=$(tmb_db_path 2>/dev/null || true)
+        if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+          WANTED=$(sqlite3 "$DB" "SELECT 1 WHERE EXISTS (SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true') AND NOT EXISTS (SELECT 1 FROM plugin_config WHERE key='headless_enforcement' AND value_json='\"yes\"');" 2>/dev/null || true)
+          if [ "$WANTED" = "1" ]; then
+            PROJECT=$(tmb_project_root)
+            SETTINGS="${PROJECT:-<project>}/.claude/settings.local.json"
+            ENTRIES=$(headless_shim_entries)
+            WHAT="TMB's PreToolUse gate entries"
+            [ -n "$ENTRIES" ] && WHAT="${ENTRIES} PreToolUse gate entries"
+            CTX="🤖 headless-intent hint: the user's prompt contains '${matched}'. Plugin hooks do not fire in non-interactive \`claude -p\` runs, and headless enforcement is off for this project.
+
+Ask ONE \`AskUserQuestion\` consent before anything else: may TMB write ${WHAT} into \`${SETTINGS}\` so its gates also run in \`claude -p\`? Name that file and the entry count in the question; if TMB creates the file in a git work tree, it is added to \`.gitignore\`.
+- Yes → call \`onboard_apply(agent='bro', headless_enforcement='yes')\` and report \`applied.headless_shim\`.
+- No → write nothing and carry on with the request.
+
+Never call \`onboard_apply\` for this without the Human's answer."
+            emit_context "$CTX"
+          fi
+        fi
+      fi
+      ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
 # 6. resume-intent — keep-going / pick-up / continue phrases; DB query on match
 # ---------------------------------------------------------------------------
 if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
@@ -428,7 +491,7 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
     "let's continue" 'continue the work' 'continue with' 'resume' \
     'finish that' 'finish the' 'finish it' 'wrap that up' 'wrap up' \
     'still pending' 'still open' 'still waiting'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -467,7 +530,7 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
 
 Required workflow:
 1. Call \`task_get(task_id=${task_id})\` to load the spec.
-2. \`git switch ${branch_id}\` (or create from main if missing) and spawn SWE via \`Agent(subagent_type='swe')\` with the existing task_id.
+2. If the task has no worktree yet, call \`task_reopen(task_id=${task_id}, reason=\"resume planned task\")\`, which creates it; then spawn SWE via \`Agent(subagent_type='swe')\` with \`task_id=${task_id}\` in the prompt. Leave the main checkout on its current branch.
 3. Do NOT call \`issue_create\` or \`task_create_batch\` — replanning is forbidden when planning_complete already exists for this work."
         emit_context "$CTX"
       fi
@@ -496,7 +559,7 @@ if [ "${TMB_DISABLE_ADR_HINT:-0}" != "1" ]; then
     'storage backend' 'backend interface' 'pluggable backend' \
     'pluggable storage' 'swap between' 'plugin loader' \
     'plugin architecture' 'dependency inversion'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -504,30 +567,44 @@ if [ "${TMB_DISABLE_ADR_HINT:-0}" != "1" ]; then
     esac
   done
 
-  # Two-token checks (replacing dead 'rewrite ... in' / 'port ... to' literal globs).
-  # Match "rewrite" anywhere AND " in " or " in" at end of string.
-  # Match "port " (noun-form, not "report") AND " to " or " to" at end.
+  # Proximity checks on the unquoted prompt: the word `port` followed within
+  # 6 words by `to`, the word `rewrite` followed within 6 words by `in`
+  # ("report … to" and quoted text never match).
   if [ -z "$matched" ]; then
-    case "$LOWER" in
-      *"rewrite"*)
-        case "$LOWER" in
-          *" in "*|*" in") matched="rewrite ... in" ;;
-        esac
-        ;;
-    esac
-    if [ -z "$matched" ]; then
-      case "$LOWER" in
-        *"port "*)
-          case "$LOWER" in
-            *" to "*|*" to") matched="port ... to" ;;
-          esac
-          ;;
-      esac
-    fi
+    matched=$(printf '%s' "$LOWER_OPEN" | tr '\n' ' ' | awk '
+      {
+        n = split($0, w, /[^a-z0-9]+/)
+        for (i = 1; i <= n; i++) {
+          if (w[i] == "port" || w[i] == "rewrite") {
+            want = (w[i] == "port") ? "to" : "in"
+            for (j = i + 1; j <= n && j <= i + 6; j++) if (w[j] == want) { print w[i] " ... " want; exit }
+          }
+        }
+      }
+    ')
   fi
 
   if [ -n "$matched" ]; then
     CTX="🏛️  architectural-change hint: the user's prompt contains '${matched}'. This change crosses TMB's architectural threshold — load \`tmb_planning\` and follow §\"Architectural changes\" before speccing the work."
+    emit_context "$CTX"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 8. audit-intent — an ask to audit, verify, check or review an architecture;
+#    whole-word match on the unquoted prompt ("verification" never matches)
+# ---------------------------------------------------------------------------
+if [ "${TMB_DISABLE_AUDIT_HINT:-0}" != "1" ]; then
+  matched=""
+  for word in audit verify double-check check architecture; do
+    if has_word "$word" "$LOWER_OPEN"; then
+      matched="$word"
+      break
+    fi
+  done
+
+  if [ -n "$matched" ]; then
+    CTX="🔍 audit-intent hint: the user's prompt contains '${matched}'. Load \`tmb_audit\` and work outputs-first: name the component and the invariants its outputs must satisfy, test each against live data or a dry run before reading code, and report violations architecture-first with their evidence."
     emit_context "$CTX"
   fi
 fi

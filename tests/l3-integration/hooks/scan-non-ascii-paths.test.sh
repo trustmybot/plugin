@@ -8,8 +8,20 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 
-WORKSPACE=$(mktemp -d)
+WORKSPACE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-scan-non-ascii-paths.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
+
+# Scan shells out to `claude plugin list`; a stub keeps the run hermetic (the
+# real CLI writes its own state under HOME).
+mkdir -p "$WORKSPACE/stub-bin"
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$WORKSPACE/stub-bin/claude"
+chmod +x "$WORKSPACE/stub-bin/claude"
+export PATH="$WORKSPACE/stub-bin:$PATH"
+
+# Under the runner's TMB_TEST_RUN_ID scan.sh requires a pinned DB; an empty one
+# keeps resource discovery off the project's trajectory DB.
+export TRAJECTORY_DB_PATH="$WORKSPACE/trajectory.db"
+: > "$TRAJECTORY_DB_PATH"
 
 REPO="$WORKSPACE/testrepo"
 mkdir -p "$REPO/subdir"

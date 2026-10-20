@@ -6,27 +6,44 @@ allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp
 
 # PR-reviewer protocol (push gate)
 
-Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, and the changed dirs' world-model scope.
+Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, the changed dirs' world-model scope, `scope` (bro's close-time scope judgment) and `verification_run` (the gate's latest recorded run, null when none).
 
 ## Worktree discipline
 
 The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-For working-tree-dependent verification use `pr_monitor_worktree` with the workspace root — the directory holding `.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
+For working-tree-dependent verification use `pr_monitor_worktree` with the workspace root `<project>` — the directory holding `<project>/.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
 
-Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
+Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <sha>`, `git -C <repo path> diff <sha>~1..<sha>`, `git -C <repo path> ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
+
+## Read the records
+
+Trust the swe's checklist of what changed, and take the facts from the records:
+
+- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s` — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
+- **Scope** comes from `task_brief.scope`: `files`, the `extras_accepted` bro accepted at close, and `base_moved`. Read it as given.
 
 ## Review the diff against its spec
 
 Diff the commit against its parent and judge the diff itself — cite line numbers for every finding:
 
-- Does the diff do what the spec's `## Description` says, and nothing the typed `files[]` doesn't name?
+- Does the diff do what the spec's `## Description` says?
 - Is each `## Success Criteria` bullet visible in the diff (not just claimed)?
 - Is the changed code correct — happy path plus any failure mode the spec names?
 - Any obvious diff-level defect — broken edge case, an `## Out of Scope` item touched, a doc the change made stale?
 
+## Probe what the gate did not
+
+Spend the review budget on checks that complement the recorded run:
+
+- Adversarial inputs against the changed code paths.
+- Dry runs on a `cp` of the data, leaving the live DB untouched.
+- Cross-file semantics — callers and readers of whatever the diff renamed or reshaped agree with it.
+- Doc/code agreement — the docs describing the change say what the code now does.
+- For each new column or output the spec declares, run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
+
 ## Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n` and your `subagent_session_id`. Which path you take depends on your tool list. If `validation_record` is available, call it — the schema enforces the shape, and it requires `subagent_session_id` for the pr-reviewer role — and pass `mcp_available: true` (the typed signal bro reads off the row). If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you.
+After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row); the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you.
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->

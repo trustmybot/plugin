@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS debug_trajectory (
     tokens_in        INTEGER NOT NULL DEFAULT 0,
     tokens_out       INTEGER NOT NULL DEFAULT 0,
     latency_ms       INTEGER NOT NULL DEFAULT 0,
-    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_debug_trajectory_session
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS eval_results (
     -- 'A' / 'B' / etc. and scenario to a stable identifier (e.g. 'claude-md-slim').
     arm           TEXT    NOT NULL DEFAULT 'control',
     scenario      TEXT,
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_eval_results_run

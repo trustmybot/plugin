@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-TMPDIR_BASE=$(mktemp -d -t tmb-pr-monitor-XXXX)
+TMPDIR_BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-pr-monitor-XXXXXX")
 trap 'rm -rf "$TMPDIR_BASE"' EXIT
 
 # ── Helper: create a mock gh/glab bin directory ────────────────────────────
@@ -103,7 +103,7 @@ PATH="$MOCK_BIN:$PATH" TRAJECTORY_DB_PATH="$DB1" \
     const { prMonitorTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/pr_monitor.js');
     const db = new TrajectoryDB('$DB1');
     const tools = prMonitorTools(db);
-    await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42 });
+    await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42, repo: 'owner/repo' });
     db.close();
   " 2>&1 || true
 
@@ -135,12 +135,16 @@ test_case "empty PR fetch returns empty comments array"
 DB3="$TMPDIR_BASE/db3.db"
 setup_db "$DB3"
 sqlite3 "$DB3" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '\"gh\"')"
+sqlite3 "$DB3" "INSERT INTO repos (name, path) VALUES ('repo', '$TMPDIR_BASE/repo3');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES ('repo', 'origin', 'github', 'https://github.com/owner/repo.git', 1);"
+GH3_ARGS="$TMPDIR_BASE/gh3.args"
 
 EMPTY_GH_OUTPUT='{"state":"OPEN","comments":[],"reviews":[]}'
 MOCK_BIN3="$TMPDIR_BASE/bin3"
 mkdir -p "$MOCK_BIN3"
 cat > "$MOCK_BIN3/gh" <<GHEOF
 #!/usr/bin/env bash
+echo "\$*" >> "$GH3_ARGS"
 echo '$EMPTY_GH_OUTPUT'
 exit 0
 GHEOF
@@ -159,6 +163,7 @@ EMPTY_RESULT=$(PATH="$MOCK_BIN3:$PATH" TRAJECTORY_DB_PATH="$DB3" \
   " 2>&1 || echo '{"count":-1}')
 
 assert_contains "$EMPTY_RESULT" '"count":0' "empty fetch returns zero comments"
+assert_contains "$(cat "$GH3_ARGS" 2>/dev/null)" '-R github.com/owner/repo' "gh called with slug from seeded repo_remotes row"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Test 4: arch-impact heuristic — tasks touching schema.sql are flagged
@@ -182,7 +187,7 @@ NON_ARCH_PATHS=(
 
 is_arch_impact() {
   local path="$1"
-  echo "$path" | grep -qE '(mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' && return 0
+  echo "$path" | grep -E '(mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' >/dev/null && return 0
   return 1
 }
 

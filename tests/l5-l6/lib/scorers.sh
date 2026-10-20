@@ -89,7 +89,9 @@ l5_score_outcome() {
 #     when that file exists; if the query returns any row the requirement is
 #     waived (pre-state condition already satisfied — the tool is only needed
 #     when the pre-state lacks the resource). In L5 mode (no pre-step DB) the
-#     condition is ignored and the tool remains required.
+#     condition is ignored and the tool remains required, or
+#   - an object {"any_of":["toolA","toolB"]} satisfied when at least one of the
+#     listed tools was called (missing is reported as any_of(toolA|toolB)).
 # Asserts every non-waived tool was called at least once (superset semantics
 # per LangSmith docs). Order-agnostic. Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_required() {
@@ -120,6 +122,21 @@ l5_score_trajectory_required() {
       local entry_type tool skip_sql
       entry_type=$(jq -r ".[$i] | type" "$req_path" 2>/dev/null)
 
+      if [ "$entry_type" = "object" ] && [ "$(jq -r ".[$i] | has(\"any_of\")" "$req_path" 2>/dev/null)" = "true" ]; then
+        local alts alt any_hit="" any_label
+        alts=$(jq -r ".[$i].any_of[]" "$req_path" 2>/dev/null)
+        any_label=$(jq -r ".[$i].any_of | join(\"|\")" "$req_path" 2>/dev/null)
+        while IFS= read -r alt; do
+          [ -z "$alt" ] && continue
+          if echo "$tools_called" | grep -Fx "$alt" >/dev/null; then
+            any_hit="1"
+            break
+          fi
+        done <<< "$alts"
+        [ -z "$any_hit" ] && missing="${missing}; any_of($any_label)"
+        continue
+      fi
+
       if [ "$entry_type" = "string" ]; then
         tool=$(jq -r ".[$i]" "$req_path")
         skip_sql=""
@@ -139,7 +156,7 @@ l5_score_trajectory_required() {
         fi
       fi
 
-      if ! echo "$tools_called" | grep -qFx "$tool"; then
+      if ! echo "$tools_called" | grep -Fx "$tool" >/dev/null; then
         missing="${missing}; $tool"
       fi
     done
@@ -175,14 +192,14 @@ l5_score_trajectory_forbidden() {
   fi
 
   local tools_called
-  tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
+  tools_called=$(jq -r 'select(.type=="assistant" and .parent_tool_use_id == null) | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
 
   local forbidden violation=""
   forbidden=$(jq -r '.[]' "$forb_path")
 
   while IFS= read -r tool; do
     [ -z "$tool" ] && continue
-    if echo "$tools_called" | grep -qFx "$tool"; then
+    if echo "$tools_called" | grep -Fx "$tool" >/dev/null; then
       violation="${violation}; $tool"
     fi
   done <<< "$forbidden"
@@ -680,4 +697,30 @@ l5_score_materialized() {
     l5_record_score "$db" "$run_id" "$flow" "materialized" 0 "missing" "$missing"
     return 1
   fi
+}
+
+# l5_score_no_sandbox <project_dir> <flow> <scorer_dir> <run_id>
+# TEST MODE pins /onboard's sandbox answer to no (GH 1549): a sandbox block in
+# the project's .claude/settings.local.json, or a stored sandbox_enforcement of
+# yes, means the default leaked into a scratch project. Always on.
+l5_score_no_sandbox() {
+  local project="$1" flow="$2" run_id="$4"
+  local db="$project/.claude/tmb/trajectory.db"
+  local settings="$project/.claude/settings.local.json"
+  local found=""
+
+  if [ -f "$settings" ] && jq -e 'has("sandbox")' "$settings" >/dev/null 2>&1; then
+    found="sandbox block in .claude/settings.local.json"
+  fi
+  if [ -f "$db" ] && [ "$(sqlite3 "$db" "SELECT value_json FROM plugin_config WHERE key = 'sandbox_enforcement';" 2>/dev/null)" = '"yes"' ]; then
+    found="${found:+$found; }sandbox_enforcement = yes"
+  fi
+
+  if [ -z "$found" ]; then
+    echo "  ✓ no_sandbox: no sandbox block"
+    return 0
+  fi
+  echo "  ✗ no_sandbox: $found (TEST MODE pins the sandbox answer to no)" >&2
+  l5_record_score "$db" "$run_id" "$flow" "no_sandbox" 0 "present" "$found"
+  return 1
 }

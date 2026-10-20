@@ -9,7 +9,9 @@
 # This test drives health.sh against self-contained fixtures (a temp DB seeded
 # with plugin_meta/tasks/repos/plugin_config, a fake mcp-server.log, a fake
 # cache tree) and asserts the right PASS/FAIL + remediation per scenario across
-# all 7 checks, including the three kuzu sub-diagnoses:
+# all 7 checks, plus the duplicate-plugin and legacy-user-hooks warnings,
+# including the three kuzu
+# sub-diagnoses:
 #   - lock-contention   (another process holds the single-writer lock)
 #   - postinstall-skip   (native binding not installed)
 #   - missing-graph      (graph file gone → /scan)
@@ -40,7 +42,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-SANDBOX=$(mktemp -d)
+SANDBOX=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-health.XXXXXX")
 cd "$SANDBOX"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"
 
@@ -152,7 +154,8 @@ reset_scenario() {
   # Graph file present (sibling of DB) so the world-model FS fallback is happy.
   : > "$root/.claude/tmb/world-model.kuzu"
   # Server log logs a successful graph open.
-  printf '{"kind":"graph_db_open","ok":true}\n' > "$F_LOG"
+  printf '{"kind":"graph_db_open","ok":true,"path":"%s"}\n' \
+    "$root/.claude/tmb/world-model.kuzu" > "$F_LOG"
 }
 
 # Extract the remediation block (the `-> ...` lines) that follow a given FAIL
@@ -247,7 +250,8 @@ assert_contains "$rem" "/reload-plugins does NOT restart the server" "schema for
 # ============================================================================
 test_case "check4a world-model: lock-contention → FAIL"
 reset_scenario kuzu-lock
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu"}\n' > "$F_LOG"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
 out=$(run_health)
 assert_contains "$out" "FAIL  world-model: kuzu open FAILED — graph file is locked" "kuzu lock FAIL line"
 
@@ -265,7 +269,8 @@ assert_not_contains "$rem" "/reload-plugins" "lock remediation never mentions /r
 # ============================================================================
 test_case "check4b world-model: postinstall-skipped (binding missing) → FAIL"
 reset_scenario kuzu-postinstall
-printf '{"kind":"graph_db_open_failed","error_message":"Cannot find module kuzu"}\n' > "$F_LOG"
+printf '{"kind":"graph_db_open_failed","error_message":"Cannot find module kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
 # Rebuild cache WITHOUT the kuzu native binding.
 rm -rf "$F_CACHE"
 make_cache "$F_CACHE" "$TARGET_SCHEMA" no
@@ -294,6 +299,79 @@ assert_contains "$out" "FAIL  world-model: graph file missing" "kuzu missing-gra
 test_case "check4c world-model missing: remediation = run /scan"
 rem=$(remediation_after "$out" "FAIL  world-model")
 assert_contains "$rem" "run /scan" "missing-graph remediation prescribes /scan"
+
+# ============================================================================
+# Server log default — beside the trajectory DB, never under $HOME
+# ============================================================================
+test_case "server-log default: resolves to <db-dir>/logs/mcp-server.log"
+reset_scenario log-default
+F_LOG=""
+mkdir -p "$ROOT/.claude/tmb/logs"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$ROOT/.claude/tmb/logs/mcp-server.log"
+out=$(run_health)
+assert_contains "$out" "server-log:$ROOT/.claude/tmb/logs/mcp-server.log" "default server log sits beside the DB"
+assert_not_contains "$out" "$SANDBOX/home" "default server log is not under HOME"
+
+test_case "server-log default: graph_db_open_failed is read from the project log"
+assert_contains "$out" "FAIL  world-model: kuzu open FAILED — graph file is locked" "project log drives the kuzu diagnosis"
+
+# ============================================================================
+# Check 4 — custom DB names map one-to-one to <db>.world-model.kuzu
+# ============================================================================
+test_case "check4d world-model: custom DB uses its own graph path"
+reset_scenario kuzu-custom
+custom_db="$ROOT/.claude/tmb/custom.db"
+mv "$F_DB" "$custom_db"
+F_DB="$custom_db"
+rm -f "$ROOT/.claude/tmb/world-model.kuzu"
+: > "$custom_db.world-model.kuzu"
+: > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "PASS  world-model" "custom DB graph path PASS"
+
+test_case "check4d world-model: custom DB does not share the standard graph path"
+rm -f "$custom_db.world-model.kuzu"
+: > "$ROOT/.claude/tmb/world-model.kuzu"
+out=$(run_health)
+assert_contains "$out" "FAIL  world-model: graph file missing" "custom DB ignores standard graph path"
+
+test_case "check4d world-model: ignores a successful log event for another graph"
+printf '{"kind":"graph_db_open","ok":true,"path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "FAIL  world-model: graph file missing" "old graph success cannot make current graph PASS"
+
+test_case "check4d world-model: ignores a failed log event for another graph"
+: > "$custom_db.world-model.kuzu"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on old graph","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "PASS  world-model" "old graph failure cannot make current graph FAIL"
+
+# ============================================================================
+# Check 4 — in-memory and reserved graph-path behavior
+# ============================================================================
+test_case "check4e world-model: :memory: needs no graph file"
+reset_scenario kuzu-memory
+F_DB=":memory:"
+: > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "db:        :memory:" ":memory: override is preserved"
+assert_contains "$out" "PASS  world-model" ":memory: graph is healthy without a file"
+assert_not_contains "$out" "FAIL  world-model" ":memory: is never checked with -e"
+
+test_case "check4f world-model: graph-shaped trajectory DB names are rejected"
+reset_scenario kuzu-reserved-db
+reserved_db="$ROOT/.claude/tmb/world-model.kuzu"
+rm -f "$reserved_db"
+mv "$F_DB" "$reserved_db"
+F_DB="$reserved_db"
+: > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "FAIL  world-model: trajectory DB filename is reserved for graph storage" "reserved DB name FAIL line"
+rem=$(remediation_after "$out" "FAIL  world-model")
+assert_contains "$rem" "Choose a different trajectory DB filename" "reserved DB remediation"
 
 # ============================================================================
 # Check 5 — label-config: unset issue_classification_labels → FAIL
@@ -373,10 +451,100 @@ assert_eq "" "$residual" "schema-state remediation has no positive /reload-plugi
 
 test_case "sweep: world-model-unavailable (lock) emits NO /reload-plugins at all"
 reset_scenario sweep-kuzu
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu"}\n' > "$F_LOG"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
 out=$(run_health)
 rem=$(remediation_after "$out" "FAIL  world-model")
 assert_not_contains "$rem" "/reload-plugins" "world-model remediation never mentions /reload-plugins"
+
+# ============================================================================
+# duplicate-plugin warning — two enabled copies: WARN naming both, exit 0
+# ============================================================================
+test_case "duplicate-plugin: two enabled copies warn, naming both; exit code unchanged"
+reset_scenario duplicate-plugin
+mkdir -p "$ROOT/.claude"
+printf '{"plugins":{"tmb@trustmybot-dev":[{"scope":"local","projectPath":"%s","installPath":"/c/dev","version":"1.0.3"}],"tmb@trustmybot-rc":[{"scope":"local","projectPath":"%s","installPath":"/c/rc","version":"1.0.2-rc.3"}]}}' "$ROOT" "$ROOT" > "$ROOT/installed.json"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$ROOT/.claude/settings.local.json"
+dup_health() {
+  env -i PATH="$PATH" HOME="$SANDBOX/home" \
+    TRAJECTORY_DB_PATH="$F_DB" TMB_HEALTH_SERVER_LOG="$F_LOG" \
+    TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+    TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+    CLAUDE_PROJECT_DIR="$ROOT" bash "$HEALTH" 2>&1
+}
+set +e
+out=$(dup_health)
+rc=$?
+set -e
+assert_contains "$out" "WARN  duplicate-plugin: 2 enabled tmb copies" "WARN line"
+assert_contains "$out" "trustmybot-dev@1.0.3, trustmybot-rc@1.0.2-rc.3" "names both copies"
+assert_contains "$out" "Run /plugin and disable the extra copy" "remedy"
+assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
+assert_exit_code 0 "$rc" "exit code unchanged"
+
+test_case "duplicate-plugin: one enabled copy prints nothing"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' > "$ROOT/.claude/settings.local.json"
+out=$(dup_health || true)
+assert_not_contains "$out" "WARN  duplicate-plugin" "no warning"
+
+test_case "duplicate-plugin: no DB and no CLAUDE_PROJECT_DIR is reported, never guessed from the cwd"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$ROOT/.claude/settings.local.json"
+out=$(cd "$ROOT" && env -i PATH="$PATH" HOME="$SANDBOX/home" TMB_TEST_RUN_ID=health-unresolved \
+  TMB_HEALTH_SERVER_LOG="$F_LOG" TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+  TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+  bash "$HEALTH" 2>&1 || true)
+assert_contains "$out" "WARN  duplicate-plugin: skipped — no project resolves" "unresolved project reported"
+assert_not_contains "$out" "enabled tmb copies for" "cwd not used as the project"
+
+# ============================================================================
+# legacy-user-hooks warning — pre-1.1.0 resolve-hook.sh and _tmb_managed
+# entries in the user settings.json: WARN naming file, lines and hooks; files
+# untouched; exit 0
+# ============================================================================
+test_case "legacy-user-hooks: resolve-hook.sh and _tmb_managed entries warn with lines, hooks and old projects; files unchanged"
+reset_scenario legacy-user-hooks
+mkdir -p "$ROOT/home/.claude" "$ROOT/old-project"
+OLD_REAL=$(cd "$ROOT/old-project" && pwd -P)
+cp "$HERE/hooks/fixtures/legacy-user-settings.json" "$ROOT/home/.claude/settings.json"
+printf '{"plugins":{"tmb@trustmybot-dev":[{"scope":"local","projectPath":"%s","installPath":"/c/old","version":"1.0.2"},{"scope":"local","projectPath":"%s","installPath":"/c/new","version":"1.1.0"}]}}' \
+  "$ROOT/old-project" "$ROOT" > "$ROOT/installed.json"
+legacy_health() {
+  env -i PATH="$PATH" HOME="$ROOT/home" \
+    TRAJECTORY_DB_PATH="$F_DB" TMB_HEALTH_SERVER_LOG="$F_LOG" \
+    TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+    TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+    CLAUDE_PROJECT_DIR="$ROOT" bash "$HEALTH" 2>&1
+}
+legacy_sums() { cksum "$ROOT/home/.claude/settings.json" "$ROOT/installed.json" 2>/dev/null; }
+BEFORE=$(legacy_sums)
+set +e
+out=$(legacy_health)
+rc=$?
+set -e
+assert_contains "$out" "WARN  legacy-user-hooks: $ROOT/home/.claude/settings.json holds 3 pre-1.1.0 TMB hook(s): line 10 git-guards, line 23 agent-spawn-dispatch, line 33 swe-scope-guard" "WARN line"
+assert_eq "1" "$(printf '%s\n' "$out" | grep -c 'WARN  legacy-user-hooks')" "one warning"
+assert_contains "$out" "Remove them by hand: docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks" "points to UPGRADE.md"
+assert_contains "$out" "Projects on TMB < 1.1.0 lose them too: $OLD_REAL (1.0.2)" "names the old project only"
+assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
+assert_exit_code 0 "$rc" "exit code unchanged"
+assert_eq "$BEFORE" "$(legacy_sums)" "settings.json and installed_plugins.json unchanged"
+cmp "$HERE/hooks/fixtures/legacy-user-settings.json" "$ROOT/home/.claude/settings.json" >/dev/null && same=yes || same=no
+assert_eq "yes" "$same" "settings.json byte-identical"
+
+test_case "legacy-user-hooks: a _tmb_managed entry without resolve-hook.sh warns by line and --hook name"
+printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"bash ~/.claude/tmb-hooks/dispatch.sh --hook bash-guard","_tmb_managed":true}]}]}}\n' > "$ROOT/home/.claude/settings.json"
+out=$(legacy_health || true)
+assert_contains "$out" "holds 1 pre-1.1.0 TMB hook(s): line 1 bash-guard" "WARN line"
+
+test_case "legacy-user-hooks: clean or missing settings print nothing"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"},{"type":"command","command":"echo also-mine","_tmb_managed":false}]}]}}\n' > "$ROOT/home/.claude/settings.json"
+BEFORE=$(legacy_sums)
+out=$(legacy_health || true)
+assert_not_contains "$out" "WARN  legacy-user-hooks" "clean settings: no warning"
+assert_eq "$BEFORE" "$(legacy_sums)" "clean settings: files unchanged"
+rm -f "$ROOT/home/.claude/settings.json"
+out=$(legacy_health || true)
+assert_not_contains "$out" "WARN  legacy-user-hooks" "missing settings: no warning"
 
 # ============================================================================
 # Exit-code contract

@@ -3,7 +3,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -39,23 +41,23 @@ interface Agent {
   id: number;
   name: string;
   kind: string;
-  scope: string;
   file_path: string;
-  status: string;
   created_at: string;
   updated_at: string;
 }
 
+type AgentRoot = 'plugin' | 'project';
+
 const VALID_KINDS = new Set(['backbone', 'consultant']);
-const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
+const VALID_ROOTS = new Set<AgentRoot>(['plugin', 'project']);
 
 // 'bro' is permanently reserved — it is the orchestrator persona loaded at
 // bro-session start; registering it as an agent would shadow the persona.
-// 'swe' and 'pr-reviewer' are backbone roles whose scope is fixed at 'global';
-// a project-local registration with the same name would silently deactivate
-// the global backbone, so we reject exact-name + scope-mismatch combinations.
+// 'swe' and 'pr-reviewer' are backbone roles that ship with the plugin; a
+// project: registration with the same name would shadow the plugin's file and
+// silently deactivate the backbone, so only a plugin: path is accepted for them.
 const RESERVED_NAME = 'bro';
-const BACKBONE_GLOBAL_ONLY = new Set(['swe', 'pr-reviewer']);
+const BACKBONE_PLUGIN_ONLY = new Set(['swe', 'pr-reviewer']);
 
 // Plugin root holds templates/agents/<name>.md. CC always sets
 // CLAUDE_PLUGIN_ROOT to the installed plugin's source root (L6 sets it via
@@ -84,6 +86,32 @@ function resolveWorkspaceRoot(dbPath: string): string {
   return dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '');
 }
 
+function parseMarkedPath(filePath: string): { root: AgentRoot; rel: string } {
+  const m = /^(plugin|project):(.+)$/.exec(filePath);
+  if (!m) {
+    throw new Error(
+      `invalid_file_path: '${filePath}' carries no root marker. ` +
+      `Use 'plugin:<path under the plugin root>' (e.g. 'plugin:templates/agents/cto.md') ` +
+      `or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/cto.md').`,
+    );
+  }
+  return { root: m[1] as AgentRoot, rel: m[2]! };
+}
+
+function resolveMarkedPath(filePath: string, workspaceRoot: string): string | null {
+  const { root, rel } = parseMarkedPath(filePath);
+  if (root === 'plugin') return join(PLUGIN_ROOT, rel);
+  return workspaceRoot ? join(workspaceRoot, rel) : null;
+}
+
+function backboneShadowError(tool: string, name: string): Error {
+  return new Error(
+    `${tool} rejected: '${name}' is a backbone agent whose file_path must be plugin:. ` +
+    `A project: '${name}' would shadow the backbone and disable it. ` +
+    `To extend ${name}, create a differently-named consultant agent instead.`,
+  );
+}
+
 function validateAgentName(name: string): void {
   if (name === RESERVED_NAME) {
     throw new Error(
@@ -91,12 +119,8 @@ function validateAgentName(name: string): void {
       `Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`,
     );
   }
-  if (BACKBONE_GLOBAL_ONLY.has(name)) {
-    throw new Error(
-      `agent_resolve rejected: '${name}' is a backbone agent whose scope must be 'global'. ` +
-      `A project-local '${name}' would shadow the backbone and disable it. ` +
-      `To extend ${name}, create a differently-named consultant agent instead.`,
-    );
+  if (BACKBONE_PLUGIN_ONLY.has(name)) {
+    throw backboneShadowError('agent_resolve', name);
   }
   if (!/^[a-z][a-z0-9-]*$/.test(name)) {
     throw new Error(
@@ -112,29 +136,28 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
   const definitions: Tool[] = [
     {
       name: 'agent_list',
-      description: 'List registered agents, optionally filtered by scope.',
+      description: 'List registered agents, optionally filtered by the root their file_path ships from. Each row carries resolved_path.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
-          scope: { type: 'string', enum: ['global', 'template', 'project-local'] },
+          root: { type: 'string', enum: ['plugin', 'project'] },
         },
         required: ['agent'],
       },
     },
     {
       name: 'agent_register',
-      description: 'Register a new agent. Promotes a template-seeded row to project-local when called with scope=project-local; emits tmb_agent_created audit on insert or promotion. True idempotent re-registration (already project-local) is a silent no-op.',
+      description: "Register a new agent. file_path carries its root: 'plugin:<path>' or 'project:<path>'. A project: path promotes a plugin: consultant row; emits tmb_agent_created on a project: consultant insert or promotion. Re-registration is a no-op. Returns the row with resolved_path.",
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           name: { type: 'string' },
           kind: { type: 'string', enum: ['backbone', 'consultant'] },
-          scope: { type: 'string', enum: ['global', 'template', 'project-local'] },
-          file_path: { type: 'string' },
+          file_path: { type: 'string', description: "'plugin:<path>' or 'project:<path>'." },
         },
-        required: ['agent', 'name', 'kind', 'scope', 'file_path'],
+        required: ['agent', 'name', 'kind', 'file_path'],
       },
     },
     {
@@ -142,44 +165,50 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
       description:
         'Read-only: resolves creation mode for /tmb:agent-create. ' +
         'Validates the name, then returns one of three modes: ' +
-        '"collision" (target path exists — bro runs collision dialog); ' +
+        '"collision" (resolved_path exists — bro runs collision dialog); ' +
         '"template-copy" (plugin template found — bro Writes the file then calls agent_register); ' +
         '"from-scratch" (no template — bro scaffolds from templates/agents/template.md then calls agent_register). ' +
-        'Paths returned are absolute. bro owns the file Write and the agent_register call.',
+        'Returns file_path (marked, pass it to agent_register) and its absolute resolved_path. bro owns the file Write and the agent_register call.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           name: { type: 'string', description: 'Kebab-case agent name to resolve.' },
+          file_path: { type: 'string', description: "Target 'plugin:<path>' or 'project:<path>'; default 'project:.claude/agents/<name>.md'." },
         },
         required: ['agent', 'name'],
       },
     },
   ];
 
+  const workspaceRoot = resolveWorkspaceRoot(dbPath);
+  const withResolvedPath = (row: Agent): Agent & { resolved_path: string | null } => ({
+    ...row,
+    resolved_path: resolveMarkedPath(row.file_path, workspaceRoot),
+  });
+
   const handlers: Record<string, Fn> = {
     agent_list: wrapHandler(async (args) => {
       requireArg(args, 'agent');
-      const scope = args['scope'] as string | undefined;
+      const root = args['root'] as string | undefined;
 
-      if (scope !== undefined && !VALID_SCOPES.has(scope)) {
+      if (root !== undefined && !VALID_ROOTS.has(root as AgentRoot)) {
         throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(', ')}`,
+          `Invalid root: "${root}". Allowed values: ${[...VALID_ROOTS].join(', ')}`,
         );
       }
 
-      const rows = scope
-        ? db.all<Agent>('SELECT * FROM agents WHERE scope = ? ORDER BY name', [scope])
+      const rows = root
+        ? db.all<Agent>('SELECT * FROM agents WHERE file_path LIKE ? ORDER BY name', [`${root}:%`])
         : db.all<Agent>('SELECT * FROM agents ORDER BY name');
 
-      return ok({ agents: rows });
+      return ok({ agents: rows.map(withResolvedPath) });
     }),
 
     agent_register: wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const name = requireArg(args, 'name') as string;
       const kind = requireArg(args, 'kind') as string;
-      const scope = requireArg(args, 'scope') as string;
       const filePath = requireArg(args, 'file_path') as string;
 
       if (!VALID_KINDS.has(kind)) {
@@ -187,11 +216,7 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
           `Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(', ')}`,
         );
       }
-      if (!VALID_SCOPES.has(scope)) {
-        throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(', ')}`,
-        );
-      }
+      const { root } = parseMarkedPath(filePath);
 
       if (name === RESERVED_NAME) {
         throw new Error(
@@ -199,48 +224,45 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
           `Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`,
         );
       }
-      if (BACKBONE_GLOBAL_ONLY.has(name) && scope !== 'global') {
-        throw new Error(
-          `agent_register rejected: '${name}' is a backbone agent whose scope must be 'global'. ` +
-          `A project-local '${name}' would shadow the backbone and disable it. ` +
-          `To extend ${name}, create a differently-named consultant agent instead.`,
-        );
+      if (BACKBONE_PLUGIN_ONLY.has(name) && root !== 'plugin') {
+        throw backboneShadowError('agent_register', name);
       }
 
       const existing = db.get<Agent>('SELECT * FROM agents WHERE name = ?', [name]);
 
       let promoted = false;
       if (existing) {
-        if (scope === 'project-local' && (existing.scope === 'template')) {
+        if (root === 'project' && existing.kind === 'consultant' && existing.file_path.startsWith('plugin:')) {
           db.run(
-            `UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = datetime('now')
+            `UPDATE agents SET kind = ?, file_path = ?, updated_at = ?
              WHERE name = ?`,
-            [scope, kind, filePath, name],
+            [kind, filePath, nowISO(), name],
           );
           promoted = true;
         }
-        // already project-local or other idempotent case: silent no-op
       } else {
         db.run(
-          `INSERT INTO agents (name, kind, scope, file_path)
-           VALUES (?, ?, ?, ?)`,
-          [name, kind, scope, filePath],
+          `INSERT INTO agents (name, kind, file_path)
+           VALUES (?, ?, ?)`,
+          [name, kind, filePath],
         );
       }
 
       const row = db.get<Agent>('SELECT * FROM agents WHERE name = ?', [name]);
 
       const inserted = !existing && (db.get<{ n: number }>('SELECT changes() AS n', [])?.n ?? 0) > 0;
-      if (scope === 'project-local' && kind === 'consultant' && (inserted || promoted) && row) {
+      if (root === 'project' && kind === 'consultant' && (inserted || promoted) && row) {
         const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
-        db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`,
-          [String(args['agent']), `Agent registered: ${name}`, contentJson],
-        );
+        insertAudit(db, {
+          issue_id: -1,
+          from_node: String(args['agent']),
+          event_type: 'tmb_agent_created',
+          summary: `Agent registered: ${name}`,
+          content_json: contentJson,
+        });
       }
 
-      return ok(row);
+      return ok(row ? withResolvedPath(row) : row);
     }),
 
     agent_resolve: requireRoles(
@@ -252,30 +274,21 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
 
         validateAgentName(name);
 
-        const workspaceRoot = resolveWorkspaceRoot(dbPath);
-        const targetPath = workspaceRoot
-          ? join(workspaceRoot, '.claude', 'agents', `${name}.md`)
-          : join('.claude', 'agents', `${name}.md`);
+        const filePath = (args['file_path'] as string | undefined) ?? `project:.claude/agents/${name}.md`;
+        const resolvedPath = resolveMarkedPath(filePath, workspaceRoot);
+        const target = { file_path: filePath, resolved_path: resolvedPath };
 
-        if (workspaceRoot && existsSync(targetPath)) {
-          return ok({ mode: 'collision', existing_path: targetPath });
+        if (resolvedPath && existsSync(resolvedPath)) {
+          return ok({ mode: 'collision', ...target });
         }
 
         const templatePath = join(PLUGIN_ROOT, 'templates', 'agents', `${name}.md`);
         if (existsSync(templatePath)) {
-          return ok({
-            mode: 'template-copy',
-            source_path: templatePath,
-            target_path: targetPath,
-          });
+          return ok({ mode: 'template-copy', source_path: templatePath, ...target });
         }
 
         const scaffoldPath = join(PLUGIN_ROOT, 'templates', 'agents', 'template.md');
-        return ok({
-          mode: 'from-scratch',
-          scaffold_path: scaffoldPath,
-          target_path: targetPath,
-        });
+        return ok({ mode: 'from-scratch', scaffold_path: scaffoldPath, ...target });
       }),
     ),
   };

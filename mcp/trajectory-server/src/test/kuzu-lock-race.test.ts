@@ -1,12 +1,15 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB } from './helpers.js';
 import { isKuzuLockError, WorldModelGraph, GraphHolder } from '../graph-db.js';
 import { scanTools } from '../tools/scan.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -137,7 +140,10 @@ describe('scan_run — kuzu-open failure surfaces as graph_db_open_failed (#591)
       mkRepo(ws, 'app');
       const db = tempDB();
       // A null holder = no graph, no lock error = kuzu binding missing/sandboxed.
-      const tools = scanTools(db, null, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+      mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+      writeFileSync(dbPath, '');
+      const tools = scanTools(db, null, dbPath);
       const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!result.isError, `scan_run must stay clean when kuzu is absent: ${JSON.stringify(result)}`);
       db.close();

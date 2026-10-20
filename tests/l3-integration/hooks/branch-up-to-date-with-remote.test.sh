@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/branch-up-to-date-with-remote.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-branch-up-to-date-with-remote.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Set up an "origin" bare repo + a clone with a TMB DB.
@@ -79,11 +79,10 @@ out=$(echo "$(input 'git worktree add .claude/worktrees/y stale-branch')" \
 assert_eq "" "$out" "env bypass works"
 
 test_case "no DB (not a TMB project): pass"
-unset TRAJECTORY_DB_PATH
 mv "$DB" "$DB.bak"
-out=$(run_hook "$(input 'git worktree add .claude/worktrees/y stale-branch')")
+out=$(input 'git worktree add .claude/worktrees/y stale-branch' \
+  | env -u TRAJECTORY_DB_PATH CLAUDE_PROJECT_DIR="$WORK" bash "$HOOK" 2>&1 || true)
 mv "$DB.bak" "$DB"
-export TRAJECTORY_DB_PATH="$DB"
 assert_eq "" "$out" "no DB allow"
 
 test_case "branch doesn't exist locally: pass (let git's own error fire)"
@@ -127,5 +126,13 @@ test_case "multi-repo: a fresh branch in the sibling passes (resolution is corre
 git -C "$SIB" branch sib-fresh origin/main
 out=$(run_hook "$(input "cd $SIB && git worktree add .claude/worktrees/z2 sib-fresh")")
 assert_eq "" "$out" "up-to-date sibling branch allowed"
+
+test_case "GH 1196: heredoc mentioning a worktree add of a stale branch: silent pass"
+out=$(run_hook "$(input "$(printf '%s\n' "cat > notes.md <<'EOF'" "cd $SIB && git worktree add .claude/worktrees/z sib-stale" 'EOF')")")
+assert_eq "" "$out" "heredoc content is not a worktree add"
+
+test_case "GH 1196: 'git -C <sibling> worktree add <stale>' resolves the sibling and blocks"
+out=$(run_hook "$(input "git -C $SIB worktree add .claude/worktrees/z3 sib-stale")")
+assert_contains "$out" 'behind origin/main' "the -C target decides the repo"
 
 summarize

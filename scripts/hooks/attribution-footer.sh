@@ -33,7 +33,7 @@ normalize_footer() {
   ')
 
   # Already carries the exact TMB footer → idempotent, return as-is.
-  if printf '%s' "$stripped" | grep -qF -- "$TMB_FOOTER"; then
+  if printf '%s' "$stripped" | grep -F -- "$TMB_FOOTER" >/dev/null; then
     printf '%s' "$stripped"
     return 0
   fi
@@ -77,16 +77,16 @@ RESP=$(printf '%s' "$INPUT" | jq -r '.tool_response | if type == "string" then .
 # glab-mr glab-issue. NUMBER is the parsed artifact number.
 KIND=""
 NUMBER=""
-if printf '%s' "$CMD" | grep -Eq '(^|[^[:alnum:]_-])gh[[:space:]]+pr[[:space:]]+create([^[:alnum:]_-]|$)'; then
+if printf '%s' "$CMD" | grep -E '(^|[^[:alnum:]_-])gh[[:space:]]+pr[[:space:]]+create([^[:alnum:]_-]|$)' >/dev/null; then
   KIND="gh-pr"
   NUMBER=$(printf '%s' "$RESP" | grep -oE 'https://[^[:space:]"]+/pull/[0-9]+' | grep -oE '[0-9]+$' | head -n1)
-elif printf '%s' "$CMD" | grep -Eq '(^|[^[:alnum:]_-])gh[[:space:]]+issue[[:space:]]+create([^[:alnum:]_-]|$)'; then
+elif printf '%s' "$CMD" | grep -E '(^|[^[:alnum:]_-])gh[[:space:]]+issue[[:space:]]+create([^[:alnum:]_-]|$)' >/dev/null; then
   KIND="gh-issue"
   NUMBER=$(printf '%s' "$RESP" | grep -oE 'https://[^[:space:]"]+/issues/[0-9]+' | grep -oE '[0-9]+$' | head -n1)
-elif printf '%s' "$CMD" | grep -Eq '(^|[^[:alnum:]_-])glab[[:space:]]+mr[[:space:]]+create([^[:alnum:]_-]|$)'; then
+elif printf '%s' "$CMD" | grep -E '(^|[^[:alnum:]_-])glab[[:space:]]+mr[[:space:]]+create([^[:alnum:]_-]|$)' >/dev/null; then
   KIND="glab-mr"
   NUMBER=$(printf '%s' "$RESP" | grep -oE 'https://[^[:space:]"]+/-/merge_requests/[0-9]+' | grep -oE '[0-9]+$' | head -n1)
-elif printf '%s' "$CMD" | grep -Eq '(^|[^[:alnum:]_-])glab[[:space:]]+issue[[:space:]]+create([^[:alnum:]_-]|$)'; then
+elif printf '%s' "$CMD" | grep -E '(^|[^[:alnum:]_-])glab[[:space:]]+issue[[:space:]]+create([^[:alnum:]_-]|$)' >/dev/null; then
   KIND="glab-issue"
   NUMBER=$(printf '%s' "$RESP" | grep -oE 'https://[^[:space:]"]+/-/issues/[0-9]+' | grep -oE '[0-9]+$' | head -n1)
 fi

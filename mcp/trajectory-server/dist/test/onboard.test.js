@@ -1,11 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
+import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { removeProjectSandbox, SANDBOX_NETWORK_PROBE, sandboxToolEnv, TMB_ALLOWED_DOMAINS, } from '../tools/onboard-sandbox.js';
+// No onboard test may reach the real ~/.claude: HOME is a fresh temp dir and no
+// inherited plugin root survives, so os.homedir() and resolvePluginRoot() land
+// in a sandbox even for apply calls that pass no shim environment.
+const ISOLATED_HOME = mkdtempSync(join(tmpdir(), 'onboard-home-'));
+process.env['HOME'] = ISOLATED_HOME;
+delete process.env['CLAUDE_PLUGIN_ROOT'];
+delete process.env['CLAUDE_CONFIG_DIR'];
 function call(handlers, name, args) {
     return handlers[name]({ agent: 'bro', ...args });
 }
@@ -31,14 +41,30 @@ describe('onboard tools', () => {
         });
         it('reports repo-scoped policy from the repos table (#980)', async () => {
             const db = tempDB();
-            db.run(`INSERT INTO repos (path, name, target_branch, branching_model, protected_branches, remotes)
-         VALUES ('/repo/x', 'x', 'dev', 'gitflow', '["main","dev"]', '[]')`);
+            db.run(`INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+         VALUES ('/repo/x', 'x', 'dev', 'gitflow', '["main","dev"]')`);
             const tools = onboardTools(db);
             const result = await call(tools.handlers, 'onboard_state_get', {});
             const current = parse(result).current;
             assert.equal(current.branching_model, 'gitflow');
             assert.equal(current.pr_target, 'dev');
             assert.deepEqual(current.protected_branches, ['main', 'dev']);
+            assert.deepEqual(current.remotes, []);
+            db.close();
+        });
+        it('reports the repo\'s remotes from repo_remotes as {name, provider, url}, primary first', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/x', 'x')`);
+            upsertRepoRemotes(db, 'x', [
+                { name: 'upstream', provider: 'github', url: 'https://github.com/up/x.git' },
+                { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/x.git' },
+            ]);
+            const tools = onboardTools(db);
+            const current = parse(await call(tools.handlers, 'onboard_state_get', {})).current;
+            assert.deepEqual(current.remotes, [
+                { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/x.git' },
+                { name: 'upstream', provider: 'github', url: 'https://github.com/up/x.git' },
+            ]);
             db.close();
         });
         it('reports first_run=false once identity row has been written', async () => {
@@ -304,19 +330,6 @@ describe('onboard tools', () => {
             assert.match(String(data.error), /unknown repo 'nope'/);
             db.close();
         });
-        it('per-repo param requires shape=remote', async () => {
-            const db = tempDB();
-            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
-            const tools = onboardTools(db);
-            const result = await call(tools.handlers, 'onboard_get_questions', {
-                shape: 'local',
-                round: 'main',
-                repo: 'a',
-            });
-            const data = parse(result);
-            assert.match(String(data.error), /requires shape='remote'/);
-            db.close();
-        });
     });
     describe('onboard_apply', () => {
         it('local shape: marks onboarded, defaults branching to github-flow, pr_target to main, remotes=[], issue_sync=off', async () => {
@@ -451,30 +464,6 @@ describe('onboard tools', () => {
             assert.equal(remotes[0].provider, 'gitlab');
             db.close();
         });
-        it('remote shape rejects when remote arg is missing', async () => {
-            const db = tempDB();
-            const tools = onboardTools(db);
-            const result = await call(tools.handlers, 'onboard_apply', {
-                shape: 'remote',
-                branching_model: 'github-flow',
-            });
-            const data = parse(result);
-            assert.match(String(data.error), /'remote' is required when shape='remote'/);
-            db.close();
-        });
-        it('remote shape rejects empty array', async () => {
-            const db = tempDB();
-            const tools = onboardTools(db);
-            const result = await call(tools.handlers, 'onboard_apply', {
-                shape: 'remote',
-                branching_model: 'github-flow',
-                remote: [],
-                issue_sync: 'auto',
-            });
-            const data = parse(result);
-            assert.match(String(data.error), /at least one/);
-            db.close();
-        });
         it('remote shape rejects unknown provider in array', async () => {
             const db = tempDB();
             const tools = onboardTools(db);
@@ -558,14 +547,14 @@ describe('onboard tools', () => {
             assert.equal(applied.issue_sync, 'auto');
             db.close();
         });
-        it('issue_sync label resolves: "Off — local DB only" → off', async () => {
+        it('issue_sync label resolves: "Off — issues stay on this computer" → off', async () => {
             const db = tempDB();
             const tools = onboardTools(db);
             const result = await call(tools.handlers, 'onboard_apply', {
                 shape: 'remote',
                 branching_model: 'github-flow',
                 remote: ['github'],
-                issue_sync: 'Off — local DB only',
+                issue_sync: 'Off — issues stay on this computer',
             });
             const data = parse(result);
             assert.equal(data.ok, true);
@@ -632,19 +621,6 @@ describe('onboard tools', () => {
                 assert.equal(row.branching_model, 'gitflow');
                 assert.equal(row.protected_branches, JSON.stringify(['main', 'dev']));
             }
-            db.close();
-        });
-        it('re-onboard with different model overwrites all repos rows (no stale values)', async () => {
-            const db = tempDB();
-            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
-            const tools = onboardTools(db);
-            await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'github-flow' });
-            await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
-            const row = db.get(`SELECT target_branch, branching_model, protected_branches FROM repos WHERE path = '/repo/a'`);
-            assert.ok(row, 'repos row should exist');
-            assert.equal(row.target_branch, 'dev');
-            assert.equal(row.branching_model, 'gitflow');
-            assert.equal(row.protected_branches, JSON.stringify(['main', 'dev']));
             db.close();
         });
         it('onboard_apply with empty repos table does not error', async () => {
@@ -759,10 +735,8 @@ describe('onboard tools', () => {
                     remote: ['github'],
                     issue_sync: 'auto',
                 });
-                const a = db.get(`SELECT remotes FROM repos WHERE name='alpha'`);
-                const b = db.get(`SELECT remotes FROM repos WHERE name='beta'`);
-                const aRemotes = JSON.parse(a.remotes);
-                const bRemotes = JSON.parse(b.remotes);
+                const aRemotes = repoRemotes(db, 'alpha');
+                const bRemotes = repoRemotes(db, 'beta');
                 assert.equal(aRemotes[0].url, 'https://github.com/acme/alpha.git');
                 assert.equal(bRemotes[0].url, 'https://github.com/acme/beta.git');
                 db.close();
@@ -789,11 +763,10 @@ describe('onboard tools', () => {
                 const applied = parse(result).applied;
                 assert.equal(applied.branching_model, 'gitflow');
                 assert.equal(applied.pr_target, 'dev');
-                const row = db.get(`SELECT target_branch, branching_model, remotes FROM repos WHERE name='solo'`);
+                const row = db.get(`SELECT target_branch, branching_model FROM repos WHERE name='solo'`);
                 assert.equal(row.branching_model, 'gitflow');
                 assert.equal(row.target_branch, 'dev');
-                const remotes = JSON.parse(row.remotes);
-                assert.equal(remotes[0].url, 'https://github.com/acme/solo.git');
+                assert.equal(repoRemotes(db, 'solo')[0].url, 'https://github.com/acme/solo.git');
                 db.close();
             }
             finally {
@@ -889,6 +862,998 @@ describe('onboard tools', () => {
             assert.equal(rowA.branching_model, 'github-flow');
             db.close();
         });
+    });
+    describe('sandbox_enforcement', () => {
+        function project() {
+            const base = mkdtempSync(join(tmpdir(), 'onboard-sandbox-'));
+            const proj = join(base, 'proj');
+            mkdirSync(proj);
+            return { base, proj, dbPath: join(proj, '.claude', 'tmb', 'trajectory.db'), settings: join(proj, '.claude', 'settings.local.json') };
+        }
+        it('round=sandbox returns one question, default No off the probed platform', async () => {
+            const db = tempDB();
+            const { base, dbPath } = project();
+            const data = parse(await call(onboardTools(db, dbPath, { platform: 'linux' }).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
+            assert.equal(q.header, 'Sandbox');
+            assert.equal(q.options[q.default_index].wire, 'no');
+            assert.ok(!q.options.some((o) => /Recommended/.test(o.label)));
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('default apply writes no sandbox block', async () => {
+            const db = tempDB();
+            const { base, dbPath, settings } = project();
+            const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_apply', { shape: 'local' }));
+            assert.equal(data.applied.sandbox_enforcement, 'no');
+            assert.ok(!existsSync(settings));
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('yes writes the sandbox block with the project and model cache; no removes only what TMB added', async () => {
+            const db = tempDB();
+            const { base, proj, dbPath, settings } = project();
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            writeFileSync(settings, JSON.stringify({ model: 'x', sandbox: { filesystem: { allowWrite: ['/user/own'] } } }));
+            const tools = onboardTools(db, dbPath, { platform: 'darwin' });
+            const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
+            const applied = data.applied;
+            assert.equal(applied.sandbox_enforcement, 'yes');
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.equal(written.model, 'x', 'other keys kept');
+            assert.equal(written.sandbox.enabled, true);
+            assert.equal(written.sandbox.filesystem.allowWrite[0], '/user/own', 'the user entry is kept first');
+            assert.ok(written.sandbox.filesystem.allowWrite.includes(proj), 'the project is writable');
+            assert.equal(written.sandbox.filesystem.allowWrite.length, 3, 'project + model cache added');
+            assert.equal(written.sandbox.enableWeakerNetworkIsolation, true, 'macOS: gh can reach the TLS trust service');
+            assert.deepEqual(written.env, {
+                npm_config_cache: join(proj, '.claude', 'tmb', 'cache', 'npm'),
+                BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun'),
+            });
+            for (const value of Object.values(written.env)) {
+                assert.ok(value.startsWith(proj + '/'), `${value} is inside the project`);
+            }
+            const sandboxResult = applied.sandbox;
+            assert.deepEqual(sandboxResult.env, written.env);
+            assert.equal(sandboxResult.weaker_network_isolation, true);
+            await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'No' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { model: 'x', sandbox: { filesystem: { allowWrite: ['/user/own'] } } }, 'purge leaves exactly the user settings');
+            const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(state.current.sandbox_enforcement, 'no');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('on linux the block carries the cache env but not the macOS-only enableWeakerNetworkIsolation', async () => {
+            const db = tempDB();
+            const { base, proj, dbPath, settings } = project();
+            const tools = onboardTools(db, dbPath, { platform: 'linux' });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.equal(written.sandbox.enableWeakerNetworkIsolation, undefined);
+            assert.deepEqual(written.env, sandboxToolEnv(join(proj, '.claude', 'tmb', 'cache')));
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'no' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {}, 'no leaves nothing TMB wrote');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it("yes keeps the user's env values and enableWeakerNetworkIsolation; no removes only TMB's", async () => {
+            const db = tempDB();
+            const { base, proj, dbPath, settings } = project();
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            const user = {
+                env: { npm_config_cache: '/user/npm-cache', FOO: 'bar' },
+                sandbox: { enableWeakerNetworkIsolation: false },
+            };
+            writeFileSync(settings, JSON.stringify(user));
+            const tools = onboardTools(db, dbPath, { platform: 'darwin' });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.equal(written.env.npm_config_cache, '/user/npm-cache', "the user's npm cache is kept");
+            assert.equal(written.env.FOO, 'bar');
+            assert.equal(written.env.BUN_INSTALL_CACHE_DIR, join(proj, '.claude', 'tmb', 'cache', 'bun'));
+            assert.equal(written.sandbox.enableWeakerNetworkIsolation, false, "the user's explicit false is kept");
+            const record = sandboxRecord(db);
+            assert.deepEqual(record.env, { BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun') });
+            assert.equal(record.weaker_network_isolation_set, false);
+            await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply is idempotent');
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'no' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), user, 'no leaves exactly the user settings');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('no keeps an env value the user changed after TMB wrote it', () => {
+            const { base, proj, settings } = project();
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            writeFileSync(settings, JSON.stringify({
+                sandbox: { enabled: true, enableWeakerNetworkIsolation: true },
+                env: { npm_config_cache: '/edited', BUN_INSTALL_CACHE_DIR: '/tmb/bun' },
+            }));
+            const result = removeProjectSandbox({
+                projectRoot: proj,
+                record: {
+                    enabled_set: true,
+                    allow_write: [],
+                    weaker_network_isolation_set: true,
+                    env: { npm_config_cache: '/tmb/npm', BUN_INSTALL_CACHE_DIR: '/tmb/bun' },
+                },
+            });
+            assert.equal(result.removed, true);
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { env: { npm_config_cache: '/edited' } });
+            rmSync(base, { recursive: true, force: true });
+        });
+        it('writes nothing without a project derived from the DB path', async () => {
+            const db = tempDB();
+            const data = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
+            assert.equal(data.applied.sandbox.written, false);
+            db.close();
+        });
+        function gitProject(origin) {
+            const p = project();
+            const gitOpts = { cwd: p.proj, encoding: 'utf8' };
+            spawnSync('git', ['init', '-q', '-b', 'main'], gitOpts);
+            spawnSync('git', ['remote', 'add', 'origin', origin], gitOpts);
+            return p;
+        }
+        function sandboxRecord(db) {
+            const row = db.get("SELECT value_json FROM plugin_config WHERE key='sandbox_settings'");
+            return JSON.parse(row.value_json);
+        }
+        it("yes merges the network allow-list with each HTTPS remote's host; no removes only TMB's domains", async () => {
+            const db = tempDB();
+            const { base, proj, dbPath, settings } = gitProject('https://gitlab.example.com/acme/app.git');
+            db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [proj]);
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            const user = {
+                sandbox: { excludedCommands: ['docker'], network: { allowedDomains: ['example.org', 'github.com'] } },
+            };
+            writeFileSync(settings, JSON.stringify(user));
+            const tools = onboardTools(db, dbPath, { platform: 'darwin' });
+            const data = parse(await call(tools.handlers, 'onboard_apply', {
+                shape: 'remote',
+                branching_model: 'github-flow',
+                remote: ['gitlab'],
+                issue_sync: 'off',
+                sandbox_enforcement: 'yes',
+            }));
+            assert.equal(data.ok, true);
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.deepEqual(written.sandbox.excludedCommands, ['docker'], 'the user excludedCommands is kept');
+            assert.deepEqual(written.sandbox.network.allowedDomains, [
+                'example.org',
+                'github.com',
+                'api.github.com',
+                '*.githubusercontent.com',
+                'registry.npmjs.org',
+                'gitlab.example.com',
+            ]);
+            const record = sandboxRecord(db);
+            assert.ok(record.allowed_domains && record.allowed_domains.length > 0, 'allowed_domains is populated');
+            assert.ok(record.allowed_domains.includes('gitlab.example.com'), "the HTTPS remote's host is recorded");
+            assert.ok(!record.allowed_domains.includes('github.com'), 'a domain the user had is not TMB-owned');
+            await call(tools.handlers, 'onboard_apply', { shape: 'remote', branching_model: 'github-flow', remote: ['gitlab'], issue_sync: 'off' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
+            await call(tools.handlers, 'onboard_apply', {
+                shape: 'remote',
+                branching_model: 'github-flow',
+                remote: ['gitlab'],
+                issue_sync: 'off',
+                sandbox_enforcement: 'no',
+            });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), user, 'no leaves exactly the user settings');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('yes never writes excludedCommands and accepts the Recommended label', async () => {
+            const db = tempDB();
+            const { base, dbPath, settings } = project();
+            await call(onboardTools(db, dbPath).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'Yes (Recommended)' });
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.equal(written.sandbox.excludedCommands, undefined);
+            assert.deepEqual(written.sandbox.network.allowedDomains, [...TMB_ALLOWED_DOMAINS]);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('the recorded probe names its platform, CC version and date', () => {
+            assert.equal(SANDBOX_NETWORK_PROBE.platform, 'darwin');
+            assert.match(SANDBOX_NETWORK_PROBE.cc_version, /^\d+\.\d+\.\d+$/);
+            assert.match(SANDBOX_NETWORK_PROBE.date, /^\d{4}-\d{2}-\d{2}$/);
+            assert.deepEqual([...SANDBOX_NETWORK_PROBE.failed], []);
+        });
+        it('the fresh default on the probed platform with an HTTPS remote is Yes (Recommended)', async () => {
+            const db = tempDB();
+            const { base, dbPath } = gitProject('https://github.com/acme/app.git');
+            const tools = onboardTools(db, dbPath, { platform: SANDBOX_NETWORK_PROBE.platform });
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
+            assert.equal(q.options[q.default_index].wire, 'yes');
+            assert.equal(q.options[q.default_index].label, 'Yes (Recommended)');
+            assert.match(q.options[q.default_index].description, /gh needs macOS's TLS trust service, which slightly weakens isolation/);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('the fresh default on linux with an HTTPS remote stays No', async () => {
+            const db = tempDB();
+            const { base, dbPath } = gitProject('https://github.com/acme/app.git');
+            const data = parse(await call(onboardTools(db, dbPath, { platform: 'linux' }).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
+            assert.equal(q.options[q.default_index].wire, 'no');
+            assert.ok(!q.options.some((o) => /Recommended/.test(o.label)));
+            assert.doesNotMatch(q.options.find((o) => o.wire === 'yes').description, /trust service/);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('an SSH remote keeps the fresh default at No and the Yes option says why', async () => {
+            const db = tempDB();
+            const { base, dbPath } = gitProject('git@github.com:acme/app.git');
+            const tools = onboardTools(db, dbPath, { platform: SANDBOX_NETWORK_PROBE.platform });
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
+            assert.equal(q.options[q.default_index].wire, 'no');
+            assert.match(q.options.find((o) => o.wire === 'yes').description, /\. Git over SSH bypasses the sandbox proxy/);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('re-onboard defaults to keeping the stored value', async () => {
+            const db = tempDB();
+            const { base, dbPath } = project();
+            const tools = onboardTools(db, dbPath);
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
+            assert.equal(q.options[q.default_index].label, 'Keep "yes"');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('a record from before GH 1252 (no allowed_domains) still removes cleanly', () => {
+            const { base, proj, settings } = project();
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            writeFileSync(settings, JSON.stringify({ sandbox: { enabled: true, network: { allowedDomains: ['example.org'] } } }));
+            const result = removeProjectSandbox({ projectRoot: proj, record: { enabled_set: true, allow_write: [] } });
+            assert.equal(result.removed, true);
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { sandbox: { network: { allowedDomains: ['example.org'] } } });
+            rmSync(base, { recursive: true, force: true });
+        });
+    });
+    describe('headless_enforcement', () => {
+        const HOOKS_JSON = {
+            hooks: {
+                PreToolUse: [
+                    { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-guards.sh', timeout: 10 }] },
+                    { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh', timeout: 5 }] },
+                ],
+            },
+        };
+        function sandbox() {
+            const base = mkdtempSync(join(tmpdir(), 'onboard-headless-'));
+            const pluginRoot = join(base, 'claude-home', 'plugins', 'cache', 'trustmybot', 'tmb', '1.0.0');
+            mkdirSync(join(pluginRoot, 'hooks'), { recursive: true });
+            mkdirSync(join(pluginRoot, 'scripts', 'lib'), { recursive: true });
+            writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
+            writeFileSync(join(pluginRoot, 'scripts', 'lib', 'resolve-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
+            const project = join(base, 'proj');
+            mkdirSync(project);
+            const dbPath = join(project, '.claude', 'tmb', 'trajectory.db');
+            const settings = join(project, '.claude', 'settings.local.json');
+            return { base, pluginRoot, project, dbPath, settings };
+        }
+        it("round='headless' is not an /onboard round", async () => {
+            const db = tempDB();
+            const { base, pluginRoot, dbPath } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
+            const result = (await call(tools.handlers, 'onboard_get_questions', { round: 'headless' }));
+            assert.equal(result.isError, true);
+            assert.match(String(parse(result).error), /unknown round 'headless'/);
+            const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
+            const roundSchema = (def?.inputSchema.properties)['round'];
+            assert.deepEqual(roundSchema.enum, ['shape', 'main', 'sync', 'sandbox']);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('headless_enforcement alone on an onboarded project writes the row and the shim', async () => {
+            const db = tempDB();
+            const { base, pluginRoot, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+            const data = parse(await call(tools.handlers, 'onboard_apply', { headless_enforcement: 'yes' }));
+            const applied = data.applied;
+            assert.equal(applied.headless_enforcement, 'yes');
+            assert.equal(applied.headless_shim.written, true);
+            const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(state.current.headless_enforcement, 'yes');
+            const entries = JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse.flatMap((g) => g.hooks);
+            assert.equal(entries.length, 2);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('headless_enforcement alone before onboarding is refused, naming /onboard', async () => {
+            const db = tempDB();
+            const { base, pluginRoot, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
+            const result = (await call(tools.handlers, 'onboard_apply', { headless_enforcement: 'yes' }));
+            assert.equal(result.isError, true);
+            assert.match(String(parse(result).error), /\/onboard/);
+            assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'headless_enforcement'`), undefined);
+            assert.ok(!existsSync(settings));
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('the sandbox question names the settings file and the keys it writes', async () => {
+            const db = tempDB();
+            const { base, pluginRoot, dbPath } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot, platform: 'linux' });
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
+            for (const key of [
+                '.claude/settings.local.json',
+                'sandbox.enabled',
+                'sandbox.filesystem.allowWrite',
+                'sandbox.network.allowedDomains',
+                'sandbox.enableWeakerNetworkIsolation',
+                'env.npm_config_cache',
+                'env.BUN_INSTALL_CACHE_DIR',
+                '.gitignore',
+            ]) {
+                assert.ok(q.question.includes(key), `question names ${key}`);
+            }
+            for (const o of q.options)
+                assert.doesNotMatch(o.description, /allow-list|egress|seatbelt/i);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('default apply never writes the shim and stores no', async () => {
+            const db = tempDB();
+            const { base, pluginRoot, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
+            const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+            const applied = data.applied;
+            assert.equal(applied.headless_enforcement, 'no');
+            assert.ok(!existsSync(settings), 'neither the shim nor a sandbox block is written by default');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('yes writes project-tagged --shim entries into the project; yes→no purges them', async () => {
+            const db = tempDB();
+            const { base, pluginRoot, project, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            const entries = written.hooks.PreToolUse.flatMap((g) => g.hooks);
+            assert.equal(entries.length, 2);
+            for (const e of entries) {
+                assert.equal(e._tmb_project, project);
+                assert.ok(e.command.endsWith(`--shim --project ${project}`), e.command);
+            }
+            assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
+            const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+            assert.equal(state.current.headless_enforcement, 'yes');
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'no' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {});
+            assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('re-onboard without an answer keeps a stored yes', async () => {
+            const db = tempDB();
+            const { base, pluginRoot, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'Yes' });
+            const before = readFileSync(settings, 'utf8');
+            const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+            assert.equal(data.applied.headless_enforcement, 'yes');
+            assert.equal(readFileSync(settings, 'utf8'), before);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('the isolated HOME stays empty across every onboard test', () => {
+            assert.deepEqual(readdirSync(ISOLATED_HOME), []);
+        });
+    });
+    describe('persona stays out of onboard_apply', () => {
+        function fixture() {
+            const base = mkdtempSync(join(tmpdir(), 'onboard-persona-'));
+            const pluginRoot = join(base, 'plugin');
+            const proj = join(base, 'proj');
+            mkdirSync(join(pluginRoot, '.claude-plugin'), { recursive: true });
+            mkdirSync(proj);
+            writeFileSync(join(pluginRoot, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb', version: '1.1.0' }));
+            writeFileSync(join(pluginRoot, 'CLAUDE.md'), '# You are bro\n');
+            return { base, pluginRoot, proj, dbPath: join(proj, '.claude', 'tmb', 'trajectory.db'), claudeMd: join(proj, 'CLAUDE.md') };
+        }
+        const personaRows = (db) => db.all(`SELECT id FROM audit WHERE event_type = 'persona_block_written'`).length;
+        it('the onboard_apply input schema has no persona property', () => {
+            const def = onboardTools(tempDB()).definitions.find((d) => d.name === 'onboard_apply');
+            assert.ok(def, 'onboard_apply is defined');
+            const props = def.inputSchema.properties;
+            assert.equal('persona' in props, false);
+        });
+        for (const persona of [true, false]) {
+            it(`a call passing persona: ${persona} is rejected with persona_input_removed and writes nothing`, async () => {
+                const db = tempDB();
+                const fx = fixture();
+                const tools = onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot });
+                const result = (await call(tools.handlers, 'onboard_apply', { shape: 'local', persona }));
+                assert.equal(result.isError, true);
+                assert.match(String(parse(result).error), /^persona_input_removed:/);
+                assert.equal(existsSync(fx.claudeMd), false);
+                assert.equal(db.get(`SELECT value_json FROM plugin_config WHERE key = 'onboarded'`), undefined);
+                rmSync(fx.base, { recursive: true, force: true });
+                db.close();
+            });
+        }
+        it('creates no project CLAUDE.md and writes no persona audit row', async () => {
+            const db = tempDB();
+            const fx = fixture();
+            const data = parse(await call(onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local' }));
+            assert.equal(data.ok, true);
+            assert.equal('persona' in data, false);
+            assert.equal(existsSync(fx.claudeMd), false);
+            assert.equal(personaRows(db), 0);
+            rmSync(fx.base, { recursive: true, force: true });
+            db.close();
+        });
+        it('leaves an existing project CLAUDE.md byte-identical, old persona block included', async () => {
+            const db = tempDB();
+            const fx = fixture();
+            const human = '# My project\r\n\r\n<!-- tmb:persona start v1.0.2 -->\r\n# You are bro\r\n<!-- tmb:persona end -->\r\n';
+            writeFileSync(fx.claudeMd, human, { mode: 0o640 });
+            const tools = onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
+            assert.equal(readFileSync(fx.claudeMd, 'utf8'), human);
+            assert.equal(statSync(fx.claudeMd).mode & 0o777, 0o640);
+            assert.equal(personaRows(db), 0);
+            rmSync(fx.base, { recursive: true, force: true });
+            db.close();
+        });
+    });
+    describe('Round 0: a session nested below the workspace DB (GH 1553)', () => {
+        function nest() {
+            const base = realpathSync(mkdtempSync(join(tmpdir(), 'onboard-nest-')));
+            const ws = join(base, 'ws');
+            const session = join(ws, 'a', 'b');
+            mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+            mkdirSync(join(session, '.claude', 'tmb'), { recursive: true });
+            const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+            const stray = join(session, '.claude', 'tmb', 'trajectory.db');
+            new TrajectoryDB(stray).close();
+            return { base, ws, session, dbPath, stray, db: tempDB({ path: dbPath }) };
+        }
+        const auditRows = (db, type) => db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = ?`, [type])?.n ?? 0;
+        const rowCount = (db) => ['issues', 'tasks', 'audit', 'plugin_config', 'repos']
+            .map((t) => db.get(`SELECT COUNT(*) AS n FROM ${t}`)?.n ?? 0)
+            .reduce((a, b) => a + b, 0);
+        it('onboard_state_get reports nested:true and the stray DB with its counts', async () => {
+            const fx = nest();
+            try {
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const nesting = parse(await call(tools.handlers, 'onboard_state_get', {})).nesting;
+                assert.equal(nesting.session_dir, fx.session);
+                assert.equal(nesting.project_root, fx.ws);
+                assert.equal(nesting.nested, true);
+                assert.deepEqual(nesting.other_dbs, [{ path: fx.stray, issues: 0, tasks: 0, empty: true }]);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('a session at the project root is not nested', async () => {
+            const fx = nest();
+            try {
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.ws });
+                const nesting = parse(await call(tools.handlers, 'onboard_state_get', {})).nesting;
+                assert.equal(nesting.nested, false);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('Cancel (state read, no apply) writes nothing', async () => {
+            const fx = nest();
+            try {
+                const before = rowCount(fx.db);
+                await call(onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session }).handlers, 'onboard_state_get', {});
+                assert.equal(rowCount(fx.db), before);
+                assert.ok(existsSync(fx.stray));
+                assert.ok(!existsSync(join(fx.session, '.claude', 'tmb', 'standalone')));
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs deletes an empty stray DB and its state dir, with one stray_db_removed row', async () => {
+            const fx = nest();
+            try {
+                writeFileSync(`${fx.stray}-wal`, '');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray] }));
+                assert.deepEqual(data.stray_dbs, { removed: [fx.stray], refused: [] });
+                assert.ok(!existsSync(fx.stray));
+                assert.ok(!existsSync(`${fx.stray}-wal`));
+                assert.ok(!existsSync(join(fx.session, '.claude', 'tmb')));
+                assert.ok(existsSync(fx.dbPath));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 1);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses a non-empty stray DB, the current DB and a path outside the project', async () => {
+            const fx = nest();
+            try {
+                const stray = new TrajectoryDB(fx.stray);
+                stray.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('kept', 'open', 'x', 'x')`);
+                stray.close();
+                const outside = join(fx.base, 'other', '.claude', 'tmb', 'trajectory.db');
+                mkdirSync(join(fx.base, 'other', '.claude', 'tmb'), { recursive: true });
+                new TrajectoryDB(outside).close();
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray, fx.dbPath, outside, 'relative.db'] }));
+                const result = data.stray_dbs;
+                assert.deepEqual(result.removed, []);
+                assert.deepEqual(result.refused.map((r) => r.path), [fx.stray, fx.dbPath, outside, 'relative.db']);
+                assert.match(result.refused[0].reason, /not empty \(1 issues, 0 tasks\)/);
+                assert.ok(existsSync(fx.stray));
+                assert.ok(existsSync(outside));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses a stray reached through a symlinked .claude or plugin dir and deletes nothing outside', async () => {
+            const fx = nest();
+            try {
+                const elsewhere = join(fx.base, 'elsewhere');
+                mkdirSync(join(elsewhere, '.claude', 'tmb'), { recursive: true });
+                const target = join(elsewhere, '.claude', 'tmb', 'trajectory.db');
+                new TrajectoryDB(target).close();
+                mkdirSync(join(fx.ws, 'c'), { recursive: true });
+                symlinkSync(join(elsewhere, '.claude'), join(fx.ws, 'c', '.claude'));
+                mkdirSync(join(fx.ws, 'd', '.claude'), { recursive: true });
+                symlinkSync(join(elsewhere, '.claude', 'tmb'), join(fx.ws, 'd', '.claude', 'tmb'));
+                const viaClaude = join(fx.ws, 'c', '.claude', 'tmb', 'trajectory.db');
+                const viaPlugin = join(fx.ws, 'd', '.claude', 'tmb', 'trajectory.db');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [viaClaude, viaPlugin] }));
+                const result = data.stray_dbs;
+                assert.deepEqual(result.removed, []);
+                assert.deepEqual(result.refused, [
+                    { path: viaClaude, reason: `${join(fx.ws, 'c', '.claude')} is a symlink` },
+                    { path: viaPlugin, reason: `${join(fx.ws, 'd', '.claude', 'tmb')} is a symlink` },
+                ]);
+                assert.ok(existsSync(target));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses an empty standalone project', async () => {
+            const fx = nest();
+            try {
+                writeFileSync(join(fx.session, '.claude', 'tmb', 'standalone'), '');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray] }));
+                assert.deepEqual(data.stray_dbs, {
+                    removed: [],
+                    refused: [{ path: fx.stray, reason: 'a standalone TMB project' }],
+                });
+                assert.ok(existsSync(fx.stray));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('standalone=true makes the session dir its own project, with one project_made_standalone row', async () => {
+            const fx = nest();
+            try {
+                rmSync(join(fx.session, '.claude'), { recursive: true, force: true });
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { standalone: true }));
+                const marker = join(fx.session, '.claude', 'tmb', 'standalone');
+                const newDb = join(fx.session, '.claude', 'tmb', 'trajectory.db');
+                assert.equal(data.restart_required, true);
+                assert.deepEqual(data.standalone, { session_dir: fx.session, db_path: newDb, marker });
+                assert.ok(existsSync(marker));
+                assert.ok(existsSync(newDb));
+                assert.equal(auditRows(fx.db, 'project_made_standalone'), 1);
+                const atRoot = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.ws });
+                const refused = parse(await call(atRoot.handlers, 'onboard_apply', { standalone: true }));
+                assert.match(String(refused.error), /below the project root/);
+                const mixed = parse(await call(tools.handlers, 'onboard_apply', { standalone: true, shape: 'local' }));
+                assert.match(String(mixed.error), /applied alone/);
+                assert.equal(auditRows(fx.db, 'project_made_standalone'), 1);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+    });
+});
+describe('onboard questions quote the scan evidence (GH 1575)', () => {
+    const GIT_ENV = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_AUTHOR_NAME: 'scan',
+        GIT_AUTHOR_EMAIL: 'scan@example.com',
+        GIT_COMMITTER_NAME: 'scan',
+        GIT_COMMITTER_EMAIL: 'scan@example.com',
+    };
+    function gitRepo(branch) {
+        const dir = mkdtempSync(join(tmpdir(), 'onboard-evidence-'));
+        for (const args of [['init', '-q', '-b', branch], ['commit', '-q', '--allow-empty', '-m', 'c1']]) {
+            const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ENV });
+            assert.equal(r.status, 0, r.stderr);
+        }
+        return dir;
+    }
+    function scanJson(recommendation) {
+        return JSON.stringify({ name: 'a', in_git: true, recommendation });
+    }
+    const GITFLOW_DEV = {
+        branching_model: 'gitflow',
+        pr_target: 'dev',
+        confidence: 'high',
+        reason: 'merges favour dev: 6 vs 1 into main',
+        evidence: ['6 merges into dev, 1 into main', 'origin/HEAD is dev'],
+    };
+    async function repoQuestions(db, repo = 'a') {
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { shape: 'remote', round: 'main', repo }));
+        return data.questions;
+    }
+    const picked = (q) => q.options[q.default_index];
+    it('a repo whose scan says merges land on dev defaults to Git Flow and dev, with evidence and a reason', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(GITFLOW_DEV)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        for (const q of [branching, prTarget]) {
+            assert.deepEqual(q.evidence, GITFLOW_DEV.evidence);
+            assert.match(String(q.recommended_reason), /\bdev\b/);
+            assert.equal(q.default_index, 0);
+            assert.equal(picked(q).recommended, true);
+            assert.equal(q.options.filter((o) => o.recommended).length, 1);
+        }
+        assert.equal(picked(branching).wire, 'gitflow');
+        assert.equal(picked(branching).label, 'Git Flow');
+        assert.equal(picked(prTarget).wire, 'dev');
+        db.close();
+    });
+    it('a repo with only main defaults to GitHub Flow and main', async () => {
+        const db = tempDB();
+        const rec = {
+            branching_model: 'github-flow',
+            pr_target: 'main',
+            confidence: 'high',
+            reason: 'only one long-lived branch',
+            evidence: ['only long-lived branch: main', '2 merges into main'],
+        };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        assert.equal(picked(branching).wire, 'github-flow');
+        assert.equal(picked(branching).recommended, true);
+        assert.equal(picked(prTarget).wire, 'main');
+        assert.equal(picked(prTarget).recommended, true);
+        db.close();
+    });
+    it('a NULL or malformed onboard_scan yields the old defaults and no evidence', async () => {
+        for (const stored of [null, '{not json', JSON.stringify({ recommendation: null }), JSON.stringify({ recommendation: 'x' })]) {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [stored]);
+            const [branching, prTarget] = await repoQuestions(db);
+            assert.deepEqual(branching.options.map((o) => o.wire), ['github-flow', 'gitflow']);
+            assert.equal(picked(branching).wire, 'github-flow');
+            assert.deepEqual(prTarget.options.map((o) => o.wire), ['main', 'dev', 'develop']);
+            assert.equal(picked(prTarget).wire, 'main');
+            for (const q of [branching, prTarget]) {
+                assert.deepEqual(q.evidence, []);
+                assert.equal(q.recommended_reason, null);
+                assert.ok(!q.options.some((o) => 'recommended' in o), `${String(stored)}: no option is recommended`);
+            }
+            db.close();
+        }
+    });
+    it('low confidence lists the evidence and reason but keeps the old defaults', async () => {
+        const db = tempDB();
+        const rec = {
+            branching_model: 'gitflow',
+            pr_target: 'dev',
+            confidence: 'low',
+            reason: 'merges split 3/3, no clear pattern',
+            evidence: ['3 merges into dev, 3 into main'],
+        };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        assert.deepEqual(branching.evidence, rec.evidence);
+        assert.equal(branching.recommended_reason, rec.reason);
+        assert.equal(picked(branching).wire, 'github-flow');
+        assert.equal(picked(prTarget).wire, 'main');
+        assert.ok(![...branching.options, ...prTarget.options].some((o) => o.recommended));
+        db.close();
+    });
+    it('none confidence behaves as if there were no scan', async () => {
+        const db = tempDB();
+        const rec = { branching_model: null, pr_target: null, confidence: 'none', reason: 'no long-lived branch', evidence: ['no main'] };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [branching] = await repoQuestions(db);
+        assert.deepEqual(branching.evidence, []);
+        assert.equal(branching.recommended_reason, null);
+        db.close();
+    });
+    it('on re-onboard Keep stays first and the default; the recommended option follows it', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name, target_branch, branching_model, onboard_scan) VALUES ('/repo/a', 'a', 'main', 'github-flow', ?)`, [scanJson(GITFLOW_DEV)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        for (const q of [branching, prTarget]) {
+            assert.equal(q.default_index, 0);
+            assert.equal(q.options[0].wire, '__keep__');
+            assert.equal(q.options[1].recommended, true);
+        }
+        assert.equal(branching.options[1].wire, 'gitflow');
+        assert.equal(prTarget.options[1].wire, 'dev');
+        db.close();
+    });
+    it('a recommended target outside main/dev/develop is offered and preselected', async () => {
+        const db = tempDB();
+        const rec = { branching_model: 'github-flow', pr_target: 'master', confidence: 'high', reason: 'only one long-lived branch', evidence: ['only long-lived branch: master'] };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [, prTarget] = await repoQuestions(db);
+        assert.equal(picked(prTarget).wire, 'master');
+        assert.equal(picked(prTarget).recommended, true);
+        db.close();
+    });
+    it('round=shape defaults to Local-only when no repo has a remote, quoting the scan summary', async () => {
+        const dirs = [gitRepo('main'), gitRepo('main')];
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'a'), (?, 'b')`, dirs);
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { round: 'shape' }));
+        const q = data.questions[0];
+        assert.equal(picked(q).wire, 'local');
+        assert.equal(picked(q).recommended, true);
+        assert.deepEqual(q.evidence, ['Found 2 git repositories under this folder; 2 have no remote.']);
+        assert.match(String(q.recommended_reason), /no repository has a remote/);
+        for (const d of dirs)
+            rmSync(d, { recursive: true, force: true });
+        db.close();
+    });
+    it('the workspace round=main seeds from the single repo\'s live scan', async () => {
+        const dir = gitRepo('dev');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'solo')`, [dir]);
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { shape: 'remote', round: 'main' }));
+        const [branching, prTarget] = data.questions;
+        assert.equal(picked(branching).wire, 'github-flow');
+        assert.equal(picked(prTarget).wire, 'dev');
+        assert.equal(picked(prTarget).recommended, true);
+        assert.ok(prTarget.evidence.some((e) => /dev/.test(e)));
+        rmSync(dir, { recursive: true, force: true });
+        db.close();
+    });
+    it('the workspace round=main does not seed when the repos point different ways', async () => {
+        const dirs = [gitRepo('dev'), gitRepo('main')];
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'a'), (?, 'b')`, dirs);
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { shape: 'remote', round: 'main' }));
+        const [branching, prTarget] = data.questions;
+        assert.equal(picked(prTarget).wire, 'main');
+        assert.deepEqual(branching.evidence, []);
+        assert.ok(![...branching.options, ...prTarget.options].some((o) => o.recommended));
+        for (const d of dirs)
+            rmSync(d, { recursive: true, force: true });
+        db.close();
+    });
+    it('every question in every round carries evidence and recommended_reason', async () => {
+        const db = tempDB();
+        const tools = onboardTools(db, '', { platform: 'linux' });
+        for (const args of [
+            { round: 'shape' },
+            { shape: 'remote', round: 'main' },
+            { shape: 'remote', round: 'sync' },
+            { round: 'sandbox' },
+        ]) {
+            const questions = parse(await call(tools.handlers, 'onboard_get_questions', args)).questions;
+            assert.ok(questions.length > 0);
+            for (const q of questions) {
+                assert.ok(Array.isArray(q.evidence), `${q.header}: evidence is an array`);
+                assert.ok(q.recommended_reason === null || typeof q.recommended_reason === 'string', `${q.header}: recommended_reason`);
+                for (const o of q.options) {
+                    assert.ok(o.recommended === undefined || o.recommended === true, `${q.header}/${o.label}: recommended flag`);
+                }
+            }
+        }
+        db.close();
+    });
+});
+describe('onboard_apply workspace vs per-repo writers (GH 1580)', () => {
+    const GIT_ENV = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@example.com',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@example.com',
+    };
+    const dirs = [];
+    function tempDir(prefix) {
+        const dir = mkdtempSync(join(tmpdir(), prefix));
+        dirs.push(dir);
+        return dir;
+    }
+    function gitRepo(opts = {}) {
+        const dir = tempDir('onboard-1580-');
+        const run = (args) => {
+            const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ENV });
+            assert.equal(r.status, 0, r.stderr);
+        };
+        run(['init', '-q', '-b', opts.branch ?? 'main']);
+        run(['commit', '-q', '--allow-empty', '-m', 'init']);
+        for (const b of opts.branches ?? [])
+            run(['branch', b]);
+        if (opts.origin)
+            run(['remote', 'add', 'origin', opts.origin]);
+        return dir;
+    }
+    function nonGitDbPath() {
+        return join(tempDir('onboard-1580-ws-'), '.claude', 'tmb', 'trajectory.db');
+    }
+    function policyRows(db) {
+        return db
+            .all(`SELECT name, target_branch, branching_model, protected_branches FROM repos ORDER BY name`)
+            .map((r) => ({ ...r }));
+    }
+    function row(db, name) {
+        return policyRows(db).find((r) => r.name === name);
+    }
+    const apply = async (tools, args) => parse(await call(tools.handlers, 'onboard_apply', args));
+    it('the workspace apply after per-repo applies succeeds without branching_model/pr_target/remote and leaves both rows byte-identical', async () => {
+        const repoA = gitRepo({ branches: ['dev'], origin: 'https://github.com/acme/alpha.git' });
+        const repoB = gitRepo({ origin: 'https://github.com/acme/beta.git' });
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'a'), (?, 'b')`, [repoA, repoB]);
+        const tools = onboardTools(db, nonGitDbPath());
+        assert.equal((await apply(tools, { shape: 'remote', repo: 'a', branching_model: 'gitflow', pr_target: 'dev' })).ok, true);
+        assert.equal((await apply(tools, { shape: 'remote', repo: 'b', branching_model: 'github-flow', pr_target: 'main' })).ok, true);
+        const before = policyRows(db);
+        const data = await apply(tools, { shape: 'remote', issue_sync: 'auto' });
+        assert.equal(data.ok, true, String(data.error));
+        assert.deepEqual(policyRows(db), before);
+        assert.equal(row(db, 'a').branching_model, 'gitflow');
+        assert.equal(row(db, 'a').target_branch, 'dev');
+        assert.equal(row(db, 'b').branching_model, 'github-flow');
+        assert.equal(row(db, 'b').target_branch, 'main');
+        const onboarded = db.get("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+        assert.equal(onboarded?.value_json, 'true');
+        assert.equal(repoRemotes(db, 'a')[0].url, 'https://github.com/acme/alpha.git');
+        assert.equal(repoRemotes(db, 'b')[0].url, 'https://github.com/acme/beta.git');
+        db.close();
+    });
+    it('explicit branching_model/pr_target on the workspace apply never change a populated row and fill only a NULL one', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+       VALUES ('/repo/a', 'a', 'main', 'github-flow', '["main"]'),
+              ('/repo/b', 'b', 'develop', 'gitflow', '["main","develop"]')`);
+        db.run(`INSERT INTO repos (path, name) VALUES ('/repo/c', 'c')`);
+        const before = policyRows(db).filter((r) => r.name !== 'c');
+        const tools = onboardTools(db);
+        const data = await apply(tools, { shape: 'local', branching_model: 'gitflow', pr_target: 'dev' });
+        assert.equal(data.ok, true, String(data.error));
+        assert.deepEqual(policyRows(db).filter((r) => r.name !== 'c'), before);
+        assert.deepEqual(row(db, 'c'), {
+            name: 'c',
+            target_branch: 'dev',
+            branching_model: 'gitflow',
+            protected_branches: JSON.stringify(['main', 'dev']),
+        });
+        db.close();
+    });
+    it('a second workspace apply with a different model leaves the rows the first one seeded', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+        const tools = onboardTools(db);
+        await apply(tools, { shape: 'local', branching_model: 'github-flow' });
+        const data = await apply(tools, { shape: 'local', branching_model: 'gitflow' });
+        assert.equal(row(db, 'a').branching_model, 'github-flow');
+        assert.equal(row(db, 'a').target_branch, 'main');
+        const applied = data.applied;
+        assert.equal(applied.branching_model, 'github-flow', 'applied reports the representative row after the apply');
+        assert.equal(applied.pr_target, 'main');
+        db.close();
+    });
+    it('shape=local with no answers seeds NULL rows with github-flow and each repo\'s real default branch', async () => {
+        const trunk = gitRepo({ branch: 'trunk' });
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'git-trunk'), ('/repo/nogit', 'nogit')`, [trunk]);
+        const data = await apply(onboardTools(db), { shape: 'local' });
+        assert.equal(data.ok, true, String(data.error));
+        assert.deepEqual(row(db, 'git-trunk'), {
+            name: 'git-trunk',
+            target_branch: 'trunk',
+            branching_model: 'github-flow',
+            protected_branches: JSON.stringify(['trunk']),
+        });
+        assert.equal(row(db, 'nogit').target_branch, 'main');
+        assert.equal(row(db, 'nogit').branching_model, 'github-flow');
+        db.close();
+    });
+    for (const remote of [undefined, []]) {
+        it(`shape=remote with remote=${JSON.stringify(remote) ?? 'omitted'} and no git remote anywhere succeeds with a warning`, async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name) VALUES (?, 'widget')`, [tempDir('onboard-1580-nogit-')]);
+            const data = await apply(onboardTools(db, nonGitDbPath()), {
+                shape: 'remote',
+                issue_sync: 'auto',
+                ...(remote !== undefined ? { remote } : {}),
+            });
+            assert.equal(data.ok, true, String(data.error));
+            assert.match(String(data.warning), /no git remote detected on any repo; issues will not sync/);
+            const applied = data.applied;
+            assert.deepEqual(applied.remotes, []);
+            assert.equal(applied.issue_sync, 'auto');
+            assert.deepEqual(repoRemotes(db, 'widget'), []);
+            db.close();
+        });
+    }
+    it('shape=remote with remote omitted probes the repo\'s GitHub origin into applied.remotes and repo_remotes', async () => {
+        const solo = gitRepo({ origin: 'https://github.com/acme/solo.git' });
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'solo')`, [solo]);
+        const data = await apply(onboardTools(db, nonGitDbPath()), { shape: 'remote', issue_sync: 'auto' });
+        assert.equal(data.ok, true, String(data.error));
+        assert.equal(data.warning, undefined);
+        const applied = data.applied;
+        assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/solo.git' }]);
+        assert.equal(repoRemotes(db, 'solo')[0].url, 'https://github.com/acme/solo.git');
+        db.close();
+    });
+    it('a non-empty remote is still validated', async () => {
+        const db = tempDB();
+        const data = await apply(onboardTools(db), { shape: 'remote', remote: ['bitbucket'], issue_sync: 'auto' });
+        assert.match(String(data.error), /'github' or 'gitlab'/);
+        db.close();
+    });
+    it('per-repo round=main accepts shape=local and returns the branching + PR target pair', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+        const tools = onboardTools(db);
+        for (const shape of ['local', 'remote']) {
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { shape, round: 'main', repo: 'a' }));
+            const questions = data.questions;
+            assert.deepEqual(questions.map((q) => q.header), ['Branching', 'PR target'], shape);
+        }
+        db.close();
+    });
+    it('a half-populated row offers Keep for branching only, defaults PR target to dev, and a Keep apply writes dev', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name, branching_model) VALUES ('/repo/a', 'a', 'gitflow')`);
+        const tools = onboardTools(db);
+        const data = parse(await call(tools.handlers, 'onboard_get_questions', { shape: 'local', round: 'main', repo: 'a' }));
+        const [branching, prTarget] = data.questions;
+        assert.equal(branching.options[0].wire, '__keep__');
+        assert.equal(branching.options[0].label, 'Keep "gitflow"');
+        assert.ok(!prTarget.options.some((o) => o.wire === '__keep__'), 'no Keep for a target that is not stored');
+        assert.equal(prTarget.options[prTarget.default_index].wire, 'dev');
+        const applied = await apply(tools, { shape: 'remote', repo: 'a', pr_target: '__keep__' });
+        assert.equal(applied.ok, true, String(applied.error));
+        assert.equal(row(db, 'a').target_branch, 'dev');
+        assert.equal(row(db, 'a').branching_model, 'gitflow');
+        db.close();
+    });
+    it('cleans up its temp repos', () => {
+        for (const d of dirs.splice(0))
+            rmSync(d, { recursive: true, force: true });
     });
 });
 //# sourceMappingURL=onboard.test.js.map

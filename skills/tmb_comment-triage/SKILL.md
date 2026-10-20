@@ -10,9 +10,9 @@ allowed-tools: Task, AskUserQuestion, mcp__plugin_tmb_trajectory-server
 
 ## Resolve the PR
 
-If the Human named a PR number, use it. Otherwise:
-- GitHub: `gh pr view --json number`
-- GitLab: `glab mr list --source-branch <branch> --json`
+If the Human named a PR number, use it. Otherwise, with `<branch>` the task's `branch_id` and `<slug>` the `owner/name` from `git -C <repo path> remote get-url origin` (`<repo path>` from `repos_list`):
+- GitHub: `gh pr view <branch> -R <slug> --json number`
+- GitLab: `glab mr list -R <slug> --source-branch <branch> --json`
 
 Empty result → ask the Human which PR/MR number to monitor (free-text answer).
 
@@ -20,7 +20,7 @@ Empty result → ask the Human which PR/MR number to monitor (free-text answer).
 
 Call `pr_monitor_comments_get` with the PR number.
 
-Carrier: resolve the linked issue with `branch_report_md` for the current branch rather than reading the DB directly. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
+Carrier: resolve the linked issue with `branch_report_md` for the PR's head branch (or the task's `branch_id`), not the current checkout, rather than reading the DB directly. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
 
 ## Triage (judgment)
 

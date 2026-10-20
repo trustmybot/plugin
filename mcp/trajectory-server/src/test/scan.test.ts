@@ -1,11 +1,52 @@
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, renameSync, realpathSync, readFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
-import { scanTools, runScanWithScript } from '../tools/scan.js';
+import { pinScanEnv, runGraphScript, tempDB, type ScanEnvPin } from './helpers.js';
+import { TrajectoryDB } from '../db.js';
+import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
+import { renameRepo } from '../tools/repos.js';
+import { remotesView, repoRemotes } from '../repos/remotes.js';
+
+// scan.sh never spawns `claude` here: pinScanEnv sets TMB_FORBID_LIVE_SYNC=1 and
+// points TRAJECTORY_DB_PATH at an empty DB (no cheatcodes table) so resource
+// discovery writes nowhere unless a test supplies its own DB; the plugin
+// inventory comes from a fixture file.
+const PLUGIN_LIST_FIXTURE = [
+  {
+    id: 'alpha@tmb-test-market',
+    version: '1.2.0',
+    enabled: true,
+    description: 'Alpha test plugin',
+    mcpServers: { 'alpha-server': { command: 'node' } },
+  },
+  { id: 'beta@tmb-test-market', version: '0.3.1', enabled: false, description: 'Beta test plugin' },
+];
+const SCAN_ENV_KEYS = ['TMB_SCAN_PLUGIN_JSON', 'PATH'] as const;
+const savedScanEnv: Record<string, string | undefined> = {};
+let fixtureDir = '';
+let pluginListFixture = '';
+let scanPin: ScanEnvPin;
+
+before(() => {
+  for (const k of SCAN_ENV_KEYS) savedScanEnv[k] = process.env[k];
+  scanPin = pinScanEnv();
+  fixtureDir = mkdtempSync(join(tmpdir(), 'scan-plugin-fixture-'));
+  pluginListFixture = join(fixtureDir, 'claude-plugin-list.json');
+  writeFileSync(pluginListFixture, JSON.stringify(PLUGIN_LIST_FIXTURE));
+  process.env['TMB_SCAN_PLUGIN_JSON'] = pluginListFixture;
+});
+
+after(() => {
+  for (const k of SCAN_ENV_KEYS) {
+    if (savedScanEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedScanEnv[k];
+  }
+  scanPin.restore();
+  rmSync(fixtureDir, { recursive: true, force: true });
+});
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -276,7 +317,7 @@ describe('scan_run — workspace discovery + persistence', () => {
   });
 });
 
-describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
+describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
   it('captures a repo\'s real remote as {name, provider, url} with classifyUrl provider', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-'));
     try {
@@ -288,9 +329,9 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
 
-      const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
+      const row = remotesView(repoRemotes(db, 'app'));
       assert.ok(row, 'app repo row should exist');
-      const remotes = JSON.parse(row!.remotes) as Array<{ name: string; provider: string; url: string }>;
+      const remotes = row;
       assert.deepEqual(remotes, [
         { name: 'origin', provider: 'github', url: 'git@github.com:acme/app.git' },
       ]);
@@ -311,9 +352,9 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
 
-      const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='noremote'`);
+      const row = remotesView(repoRemotes(db, 'noremote'));
       assert.ok(row, 'noremote repo row should exist');
-      assert.deepEqual(JSON.parse(row!.remotes), []);
+      assert.deepEqual(row, []);
 
       db.close();
     } finally {
@@ -334,12 +375,12 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
 
-      const appRow = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
-      const libRow = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='lib'`);
-      assert.deepEqual(JSON.parse(appRow!.remotes), [
+      const appRow = remotesView(repoRemotes(db, 'app'));
+      const libRow = remotesView(repoRemotes(db, 'lib'));
+      assert.deepEqual(appRow, [
         { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
       ]);
-      assert.deepEqual(JSON.parse(libRow!.remotes), [
+      assert.deepEqual(libRow, [
         { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/acme/lib.git' },
       ]);
 
@@ -357,14 +398,14 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const db = tempDB();
       const tools = scanTools(db, null);
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const before = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
-      assert.deepEqual(JSON.parse(before!.remotes), []);
+      const before = remotesView(repoRemotes(db, 'app'));
+      assert.deepEqual(before, []);
 
       // Add a remote, re-scan: the row reflects the new state, no duplication.
       execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: root });
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const after = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
-      assert.deepEqual(JSON.parse(after!.remotes), [
+      const after = remotesView(repoRemotes(db, 'app'));
+      assert.deepEqual(after, [
         { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
       ]);
 
@@ -387,8 +428,8 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       // Simulate a stale/unreadable repo path: insert a row whose path no longer
       // resolves to a git repo, then re-scan over the live workspace — the scan
       // must not throw, and the unreadable row degrades to [] on its own read.
-      const goodRow = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='good'`);
-      assert.deepEqual(JSON.parse(goodRow!.remotes), []);
+      const goodRow = remotesView(repoRemotes(db, 'good'));
+      assert.deepEqual(goodRow, []);
 
       db.close();
     } finally {
@@ -407,8 +448,72 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const tools = scanTools(db, null);
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
-      const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='plain'`);
-      assert.deepEqual(JSON.parse(row!.remotes), []);
+      const row = remotesView(repoRemotes(db, 'plain'));
+      assert.deepEqual(row, []);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan_run — rename detection', () => {
+  it('a repo renamed on disk with the same remote is surfaced, never duplicated; a new repo still inserts', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-rename-'));
+    try {
+      const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
+      execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/app.git'], { cwd: root });
+      const db = tempDB();
+      const tools = scanTools(db, null);
+      const first = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!first.isError, JSON.stringify(first));
+      db.run(
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, repo) VALUES ('o', 'd', 'open', datetime('now'), datetime('now'), 'app')`,
+      );
+
+      renameSync(root, join(ws, 'app-renamed'));
+      mkRepo(ws, 'lib', { 'core.ts': 'export const x = 1;\n' });
+      const second = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!second.isError, JSON.stringify(second));
+      const out = parse(second);
+      assert.deepEqual(out['rename_candidates'], [
+        { old: 'app', new: 'app-renamed', by: 'remote', path: join(ws, 'app-renamed') },
+      ]);
+
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((r) => r.name);
+      assert.deepEqual(names, ['app', 'lib'], 'no duplicate row for the renamed repo; the new repo inserts');
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'repo_rename_detected'`,
+      );
+      assert.ok(audit, 'repo_rename_detected audit row');
+      assert.deepEqual(JSON.parse(audit!.content_json), { old: 'app', new: 'app-renamed', by: 'remote' });
+
+      renameRepo(db, null, { old: 'app', new: 'app-renamed', reason: 'dir renamed' });
+      const third = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.deepEqual(parse(third)['rename_candidates'], [], 'no candidate once applied');
+      const row = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = 'app-renamed'`);
+      assert.equal(row?.path, join(ws, 'app-renamed'), 'next scan refreshes the renamed row');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a row whose path matches a discovered repo under another name is a path rename candidate', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-rename-path-'));
+    try {
+      const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('legacy', ?)`, [realpathSync(root)]);
+      const r = await call(scanTools(db, null).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, JSON.stringify(r));
+      const candidates = parse(r)['rename_candidates'] as Array<Record<string, unknown>>;
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0]!['old'], 'legacy');
+      assert.equal(candidates[0]!['new'], 'app');
+      assert.equal(candidates[0]!['by'], 'path');
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((x) => x.name);
+      assert.deepEqual(names, ['legacy'], 'legacy kept, app not inserted');
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
@@ -434,6 +539,7 @@ describe('scan_run lock contention + release (#339)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     try {
       mkRepo(ws, 'r');
       const db = tempDB();
@@ -453,6 +559,7 @@ describe('scan_run lock contention + release (#339)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     try {
       mkRepo(ws, 'r');
       const db = tempDB();
@@ -478,6 +585,7 @@ describe('scan_run lock contention + release (#339)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     try {
       mkRepo(ws, 'r');
       const db = tempDB();
@@ -542,6 +650,41 @@ describe('scan_run retired repos + dirs (#340)', () => {
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  it('retires a stale row under the session dir and keeps and reports one a task references (GH 1551)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-stale-'));
+    try {
+      mkRepo(ws, 'live');
+      const db = tempDB();
+      const now = new Date().toISOString();
+      const seedRepo = (name: string) =>
+        db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at) VALUES (?, ?, 0, ?)`, [name, join(ws, '.tmp-l6', name), now]);
+      seedRepo('gone');
+      seedRepo('held');
+      db.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('stale', 'open', ?, ?)`, [now, now]);
+      const issueId = db.get<{ id: number }>('SELECT MAX(id) AS id FROM issues')!.id;
+      db.run(
+        `INSERT INTO tasks (issue_id, branch_id, description, status, repo, created_at, updated_at)
+         VALUES (?, 'fix/held', 'd', 'closed', 'held', ?, ?)`,
+        [issueId, now, now],
+      );
+
+      const r = await call(scanTools(db, null).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan failed: ${JSON.stringify(r)}`);
+      const d = parse(r);
+      assert.equal(d['repos_retired'], 1, 'the unreferenced stale row is retired');
+      assert.deepEqual(
+        d['repos_stale_kept'],
+        [{ name: 'held', path: join(ws, '.tmp-l6', 'held'), reason: 'task_referenced' }],
+        'the task-referenced stale row is kept and reported',
+      );
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((row) => row.name);
+      assert.deepEqual(names, ['held', 'live']);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('scan_run async spawn + timeout (#398)', () => {
@@ -569,6 +712,7 @@ describe('scan_run async spawn + timeout (#398)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     const lockPath = join(dbDir, 'scan.lock');
     try {
       const stubScript = join(ws, 'hang.sh');
@@ -604,3 +748,424 @@ describe('scan_run async spawn + timeout (#398)', () => {
   });
 });
 
+describe('scan_run targets the project root, not the server cwd (GH 1553)', () => {
+  it('runScanWithScript hands scan.sh the server DB as TRAJECTORY_DB_PATH and runs it in the session dir', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-env-'));
+    try {
+      const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+      const stubScript = join(ws, 'echo-env.sh');
+      writeFileSync(
+        stubScript,
+        '#!/usr/bin/env bash\njq -n --arg db "$TRAJECTORY_DB_PATH" --arg cwd "$(pwd -P)" \'{session_dir: $cwd, scanned_at: "", repos: [], files: [], db: $db, cwd: $cwd}\'\n',
+        { mode: 0o755 },
+      );
+      const out = (await runScanWithScript(stubScript, ws, 5000, dbPath)) as unknown as Record<string, unknown>;
+      assert.equal(out['db'], dbPath, 'scan.sh receives the server DB path');
+      assert.equal(out['cwd'], realpathSync(ws), 'scan.sh runs in the session dir');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('scan_run with no session_dir scans the project root even when the cwd is elsewhere', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'scan-root-'));
+    const originalCwd = process.cwd();
+    try {
+      const project = join(base, 'project');
+      const unrelatedCwd = join(base, 'unrelated-cwd');
+      mkdirSync(join(project, '.claude', 'tmb'), { recursive: true });
+      const dbPath = join(project, '.claude', 'tmb', 'trajectory.db');
+      writeFileSync(dbPath, '');
+      mkRepo(project, 'app', { 'README.md': 'app\n' });
+      mkRepo(unrelatedCwd, 'decoy', { 'README.md': 'decoy\n' });
+      process.chdir(unrelatedCwd);
+
+      const db = tempDB();
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro' });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((x) => x.name);
+      assert.deepEqual(names, ['app'], 'the project root is scanned, never the cwd');
+      db.close();
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('scan_run with no session_dir and no project root returns a named error', async () => {
+    const db = tempDB();
+    const r = await call(scanTools(db, null).handlers, 'scan_run', { agent: 'bro' });
+    assert.ok(r.isError, 'no project root and no session_dir must error');
+    assert.match(String(parse(r)['error']), /session_dir is required/);
+    db.close();
+  });
+});
+
+describe('upsertDiscoveredCheatcode — the (name, kind) discovery writer', () => {
+  const discoveredCount = (db: ReturnType<typeof tempDB>): number =>
+    db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'scan_discovered'")!.n;
+
+  it('registers a plugin and its same-named bundled server once each, auditing each insert', () => {
+    const db = tempDB();
+    const plugin = upsertDiscoveredCheatcode(db, {
+      name: 'linear', kind: 'plugin', origin: 'marketplace', source_url: 'linear@claude-plugins-official',
+      status: 'active', description: 'Linear issue tracking', version: '1.2.3',
+    });
+    db.run("UPDATE cheatcodes SET trust_tier = 'reputable' WHERE id = ?", [plugin.id]);
+    const server = upsertDiscoveredCheatcode(db, {
+      name: 'linear', kind: 'mcp', origin: 'marketplace', source_url: 'mcp:linear/linear', status: 'active',
+      description: 'linear MCP server bundled by linear', version: '1.2.3', trust_parent: 'linear',
+    });
+    assert.equal(plugin.inserted, true);
+    assert.equal(server.inserted, true);
+    assert.notEqual(plugin.id, server.id);
+    const row = db.get<{ source_url: string; version: string; trust_tier: string }>(
+      "SELECT source_url, version, trust_tier FROM cheatcodes WHERE name = 'linear' AND kind = 'mcp'",
+    )!;
+    assert.deepEqual({ ...row }, { source_url: 'mcp:linear/linear', version: '1.2.3', trust_tier: 'reputable' });
+    assert.equal(discoveredCount(db), 2);
+
+    const again = upsertDiscoveredCheatcode(db, {
+      name: 'linear', kind: 'mcp', origin: 'marketplace', source_url: 'mcp:linear/linear', status: 'active',
+    });
+    assert.deepEqual(again, { id: server.id, inserted: false });
+    assert.equal(discoveredCount(db), 2, 'an existing row is not audited again');
+    db.close();
+  });
+
+  it('fills blanks and rewrites a legacy mcp:<server> source_url on an existing row without auditing', () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO cheatcodes (name, kind, origin, source_url, scope, status, installed_at)
+       VALUES ('trajectory-server', 'mcp', 'marketplace', 'mcp:trajectory-server', 'project-local', 'active', 'x')`,
+    );
+    const res = upsertDiscoveredCheatcode(db, {
+      name: 'trajectory-server', kind: 'mcp', origin: 'marketplace', source_url: 'mcp:tmb/trajectory-server',
+      status: 'active', description: 'trajectory-server MCP server bundled by tmb', version: '1.0.2',
+    });
+    assert.equal(res.inserted, false);
+    const row = db.get<{ source_url: string; description: string; version: string }>(
+      "SELECT source_url, description, version FROM cheatcodes WHERE name = 'trajectory-server'",
+    )!;
+    assert.deepEqual({ ...row }, {
+      source_url: 'mcp:tmb/trajectory-server',
+      description: 'trajectory-server MCP server bundled by tmb',
+      version: '1.0.2',
+    });
+    assert.equal(discoveredCount(db), 0);
+    db.close();
+  });
+});
+
+
+describe('scan_run plugin inventory under TMB_FORBID_LIVE_SYNC=1', () => {
+  function withFileDb(prefix: string): { ws: string; dbPath: string; db: TrajectoryDB } {
+    const ws = mkdtempSync(join(tmpdir(), prefix));
+    mkRepo(ws, 'r', { 'README.md': 'r\n' });
+    const dbDir = join(ws, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'trajectory.db');
+    return { ws, dbPath, db: new TrajectoryDB(dbPath) };
+  }
+
+  it('ingests the TMB_SCAN_PLUGIN_JSON fixture: an enabled and a disabled plugin plus the bundled server', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-plugin-fixture-ws-');
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      assert.deepEqual(parse(r)['plugin_inventory'], { status: 'fixture', note: '' });
+      const plugins = db.all<{ name: string; source_url: string; status: string; version: string; description: string }>(
+        "SELECT name, source_url, status, version, description FROM cheatcodes WHERE kind = 'plugin' ORDER BY name",
+      ).map((row) => ({ ...row }));
+      assert.deepEqual(plugins, [
+        { name: 'alpha', source_url: 'alpha@tmb-test-market', status: 'active', version: '1.2.0', description: 'Alpha test plugin' },
+        { name: 'beta', source_url: 'beta@tmb-test-market', status: 'installed', version: '0.3.1', description: 'Beta test plugin' },
+      ]);
+      const servers = db.all<{ name: string; source_url: string }>(
+        "SELECT name, source_url FROM cheatcodes WHERE kind = 'mcp' ORDER BY name",
+      ).map((row) => ({ ...row }));
+      assert.deepEqual(servers, [{ name: 'alpha-server', source_url: 'mcp:alpha/alpha-server' }]);
+    } finally {
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('reports plugins unavailable and spawns no claude when no fixture is set', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-plugin-nofixture-ws-');
+    const stubDir = join(ws, 'stub-bin');
+    const sentinel = join(ws, 'claude-calls');
+    mkdirSync(stubDir);
+    writeFileSync(join(stubDir, 'claude'), `#!/usr/bin/env bash\necho "claude $*" >> "${sentinel}"\nexit 97\n`);
+    chmodSync(join(stubDir, 'claude'), 0o755);
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    process.env['PATH'] = `${stubDir}:${savedScanEnv['PATH'] ?? ''}`;
+    delete process.env['TMB_SCAN_PLUGIN_JSON'];
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const inventory = parse(r)['plugin_inventory'] as { status: string; note: string };
+      assert.equal(inventory.status, 'unavailable');
+      assert.match(inventory.note, /TMB_FORBID_LIVE_SYNC=1/);
+      assert.ok(!existsSync(sentinel), `claude was spawned: ${existsSync(sentinel) ? readFileSync(sentinel, 'utf8') : ''}`);
+      const plugins = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM cheatcodes WHERE kind = 'plugin'")!.n;
+      assert.equal(plugins, 0);
+      const summary = db.get<{ summary: string }>(
+        "SELECT summary FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1",
+      )!.summary;
+      assert.match(summary, /; plugins unavailable: TMB_FORBID_LIVE_SYNC=1/);
+    } finally {
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      process.env['PATH'] = savedScanEnv['PATH'];
+      process.env['TMB_SCAN_PLUGIN_JSON'] = pluginListFixture;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan.sh under the test flags: pinned DB, MCP fixture', () => {
+  const scanSh = new URL('../../../../scripts/scan.sh', import.meta.url).pathname;
+
+  function runScanSh(cwd: string, env: NodeJS.ProcessEnv): { status: number; stderr: string } {
+    try {
+      execFileSync('bash', [scanSh, cwd], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      return { status: 0, stderr: '' };
+    } catch (e: unknown) {
+      const se = e as { status?: number; stderr?: string };
+      return { status: se.status ?? -1, stderr: se.stderr ?? '' };
+    }
+  }
+
+  function flaggedEnv(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env['TMB_FORBID_LIVE_SYNC'];
+    delete env['TMB_TEST_RUN_ID'];
+    delete env['TRAJECTORY_DB_PATH'];
+    delete env['CLAUDE_PROJECT_DIR'];
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === undefined) delete env[k];
+      else env[k] = v;
+    }
+    return env;
+  }
+
+  const REQUIRED = /scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC\/TMB_TEST_RUN_ID \(walk-up discovery disabled\)/;
+
+  it('exits 2 with the message when TRAJECTORY_DB_PATH is unset or missing under either flag', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-flag-nodb-'));
+    try {
+      for (const flag of [{ TMB_FORBID_LIVE_SYNC: '1' }, { TMB_TEST_RUN_ID: 'tmb-unit-1' }]) {
+        const unset = runScanSh(ws, flaggedEnv(flag));
+        assert.equal(unset.status, 2, JSON.stringify(flag));
+        assert.match(unset.stderr, REQUIRED);
+        const missing = runScanSh(ws, flaggedEnv({ ...flag, TRAJECTORY_DB_PATH: join(ws, 'nope', 'trajectory.db') }));
+        assert.equal(missing.status, 2, JSON.stringify(flag));
+        assert.match(missing.stderr, REQUIRED);
+      }
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('runs when TRAJECTORY_DB_PATH names an existing file', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-flag-db-'));
+    try {
+      const r = runScanSh(ws, flaggedEnv({ TMB_TEST_RUN_ID: 'tmb-unit-2', TRAJECTORY_DB_PATH: scanPin.dbPath }));
+      assert.equal(r.status, 0, r.stderr);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  function withFileDb(prefix: string): { ws: string; dbPath: string; db: TrajectoryDB } {
+    const ws = mkdtempSync(join(tmpdir(), prefix));
+    mkRepo(ws, 'r', { 'README.md': 'r\n' });
+    const dbDir = join(ws, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'trajectory.db');
+    return { ws, dbPath, db: new TrajectoryDB(dbPath) };
+  }
+
+  function mcpRows(db: TrajectoryDB): Array<{ name: string; origin: string; source_url: string }> {
+    return db.all<{ name: string; origin: string; source_url: string }>(
+      "SELECT name, origin, source_url FROM cheatcodes WHERE kind = 'mcp' AND origin = 'external' ORDER BY name",
+    ).map((row) => ({ ...row }));
+  }
+
+  it('ingests the TMB_SCAN_MCP_JSON fixture and never reads ~/.claude.json', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-mcp-fixture-ws-');
+    const home = join(ws, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'home-only-server': { command: 'x' } } }));
+    const mcpFixture = join(ws, 'mcp-servers.json');
+    writeFileSync(mcpFixture, JSON.stringify({ 'fixture-mcp': { command: 'node' } }));
+    const savedHome = process.env['HOME'];
+    process.env['HOME'] = home;
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    process.env['TMB_SCAN_MCP_JSON'] = mcpFixture;
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      assert.deepEqual(parse(r)['mcp_inventory'], { status: 'fixture', note: '' });
+      assert.deepEqual(mcpRows(db), [{ name: 'fixture-mcp', origin: 'external', source_url: 'mcp:fixture-mcp' }]);
+    } finally {
+      if (savedHome === undefined) delete process.env['HOME'];
+      else process.env['HOME'] = savedHome;
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      process.env['TMB_SCAN_MCP_JSON'] = scanPin.mcpJsonPath;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('records mcp_inventory unavailable when no TMB_SCAN_MCP_JSON is set', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-mcp-nofixture-ws-');
+    const home = join(ws, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'home-only-server': { command: 'x' } } }));
+    const savedHome = process.env['HOME'];
+    process.env['HOME'] = home;
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    delete process.env['TMB_SCAN_MCP_JSON'];
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const inventory = parse(r)['mcp_inventory'] as { status: string; note: string };
+      assert.equal(inventory.status, 'unavailable');
+      assert.match(inventory.note, /no readable TMB_SCAN_MCP_JSON/);
+      assert.deepEqual(mcpRows(db), []);
+      const summary = db.get<{ summary: string }>(
+        "SELECT summary FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1",
+      )!.summary;
+      assert.match(summary, /; mcp servers unavailable: TMB_FORBID_LIVE_SYNC\/TMB_TEST_RUN_ID set/);
+    } finally {
+      if (savedHome === undefined) delete process.env['HOME'];
+      else process.env['HOME'] = savedHome;
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      process.env['TMB_SCAN_MCP_JSON'] = scanPin.mcpJsonPath;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan_run — File nodes with hash-keyed purposes', () => {
+  it('upserts File nodes + HAS_FILE edges, re-extracts only changed files, keeps swe purposes, prunes deleted files', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-files-'));
+    try {
+      const repoRoot = mkRepo(ws, 'app', {
+        'package.json': '{"name":"app","description":"Fixture app for the scanner."}\n',
+        'src/a.ts': '// Parses inbound webhook payloads.\nexport const a = 1;\n',
+        'src/b.py': '"""Retry queue for failed jobs."""\n',
+        'src/notes.txt': 'plain notes\n',
+        'src/blob.ts': 'abc\u0000def',
+        'docs/guide.md': '# Guide\n\nHow to run the app. More.\n',
+      });
+      const out = runGraphScript(`
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tempDB } from '$DIST/test/helpers.js';
+import { WorldModelGraph, GraphHolder } from '$DIST/graph-db.js';
+import { scanTools } from '$DIST/tools/scan.js';
+
+const ws = ${JSON.stringify(ws)};
+const repoRoot = ${JSON.stringify(repoRoot)};
+const db = tempDB();
+const graph = new WorldModelGraph(ws + '/world-model.kuzu');
+const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
+const git = (...a) => execFileSync('git', ['-C', repoRoot, ...a], { encoding: 'utf8' });
+const md5 = (rel) => createHash('md5').update(readFileSync(repoRoot + '/' + rel)).digest('hex');
+const snapshot = () => Object.fromEntries(graph.allFilesForRepo('app').map((f) => [f.path, f]));
+
+const r1 = await tools.handlers.scan_run({ agent: 'bro', session_dir: ws });
+if (r1.isError) { console.log(JSON.stringify({ error: r1.content[0].text })); process.exit(0); }
+const tracked = git('ls-files').trim().split('\\n');
+const first = snapshot();
+const linked = [...graph.filePathsWithDirectory('app')].sort();
+const expectedMd5 = Object.fromEntries(tracked.map((p) => ['app/' + p, md5(p)]));
+const srcSummary = graph.allDirectoriesForRepo('app').find((d) => d.path === 'src').summary;
+const rootSummary = graph.allDirectoriesForRepo('app').find((d) => d.path === '').summary;
+const stats1 = JSON.parse(r1.content[0].text);
+
+graph.upsertFile({ ...first['app/src/b.py'], purpose: 'Hand-written by swe.', purpose_source: 'swe' });
+await new Promise((r) => setTimeout(r, 5));
+writeFileSync(repoRoot + '/src/a.ts', '// Validates inbound webhook signatures.\\nexport const a = 2;\\n');
+writeFileSync(repoRoot + '/src/b.py', '"""Retry queue, now with backoff."""\\n');
+rmSync(repoRoot + '/docs/guide.md');
+git('add', '-A');
+git('commit', '-qm', 'change');
+
+const r2 = await tools.handlers.scan_run({ agent: 'bro', session_dir: ws });
+if (r2.isError) { console.log(JSON.stringify({ error: r2.content[0].text })); process.exit(0); }
+const second = snapshot();
+const stats2 = JSON.parse(r2.content[0].text);
+const md5After = { a: md5('src/a.ts'), b: md5('src/b.py') };
+graph.close();
+db.close();
+console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, rootSummary, stats1, second, stats2, md5After }));
+`);
+      assert.equal(out['error'], undefined, `scan failed: ${String(out['error'])}`);
+      const tracked = out['tracked'] as string[];
+      const first = out['first'] as Record<string, Record<string, unknown>>;
+      const second = out['second'] as Record<string, Record<string, unknown>>;
+      const expectedMd5 = out['expectedMd5'] as Record<string, string>;
+
+      assert.deepEqual(Object.keys(first).sort(), tracked.map((p) => `app/${p}`).sort(), 'one File node per tracked file');
+      for (const [path, md5] of Object.entries(expectedMd5)) {
+        assert.equal(first[path]!['content_md5'], md5, `${path} carries scan.sh's content_md5`);
+      }
+      assert.deepEqual(out['linked'], Object.keys(first).sort(), 'every File has a HAS_FILE edge');
+      assert.equal(first['app/src/a.ts']!['dir'], 'src');
+      assert.equal(first['app/src/a.ts']!['purpose'], 'Parses inbound webhook payloads.');
+      assert.equal(first['app/src/a.ts']!['purpose_source'], 'comment');
+      assert.equal(first['app/package.json']!['purpose_source'], 'manifest');
+      assert.equal(first['app/docs/guide.md']!['purpose_source'], 'heading');
+      assert.equal(first['app/src/blob.ts']!['purpose_source'], 'none', 'binary head → none');
+      assert.equal(first['app/src/notes.txt']!['purpose_source'], 'none');
+      assert.equal((out['stats1'] as Record<string, unknown>)['files_extracted'], tracked.length);
+
+      const srcSummary = out['srcSummary'] as string;
+      assert.match(srcSummary, /^src\/ — 4 files; /, 'structural summary leads with the file count');
+      assert.ok(srcSummary.includes('a.ts: Parses inbound webhook payloads.'), srcSummary);
+      assert.ok(srcSummary.includes('b.py: Retry queue for failed jobs.'), srcSummary);
+      assert.match(
+        srcSummary,
+        /^src\/ — 4 files; <untrusted-content source="file-purpose"> a\.ts: [^\n]*; b\.py: [^\n]* <\/untrusted-content>$/,
+        'the purpose roll-up is framed once, on one line, after the count prefix',
+      );
+      assert.equal(
+        out['rootSummary'],
+        '(repo root)/ — 1 file; <untrusted-content source="file-purpose"> package.json: Fixture app for the scanner. </untrusted-content>; subdirs: docs, src',
+        'the subdirs suffix stays outside the frame',
+      );
+      for (const node of Object.values(first)) {
+        assert.ok(!String(node['purpose']).includes('untrusted-content'), `${String(node['path'])}: stored purpose is unframed`);
+      }
+
+      const stats2 = out['stats2'] as Record<string, unknown>;
+      assert.equal(stats2['files_extracted'], 1, 'only the changed non-swe file is re-extracted');
+      assert.equal(stats2['files_upserted'], 2, 'a.ts re-extracted + b.py facts refreshed');
+      assert.equal(stats2['files_retired'], 1);
+
+      assert.equal(second['app/src/a.ts']!['purpose'], 'Validates inbound webhook signatures.');
+      assert.notEqual(second['app/src/a.ts']!['updated_at'], first['app/src/a.ts']!['updated_at']);
+      for (const path of ['app/package.json', 'app/src/notes.txt', 'app/src/blob.ts']) {
+        assert.deepEqual(second[path], first[path], `${path} is untouched (updated_at kept)`);
+      }
+
+      const md5After = out['md5After'] as { a: string; b: string };
+      assert.equal(second['app/src/a.ts']!['content_md5'], md5After.a);
+      assert.equal(second['app/src/b.py']!['purpose'], 'Hand-written by swe.', 'swe purpose survives a content change');
+      assert.equal(second['app/src/b.py']!['purpose_source'], 'swe');
+      assert.equal(second['app/src/b.py']!['content_md5'], md5After.b, 'swe row still tracks the new md5');
+
+      assert.equal(second['app/docs/guide.md'], undefined, 'deleted file node removed');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,6 +1,6 @@
 ---
 name: tmb_concerns-protocol
-description: How bro raises a concern when doubting the Human's plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement. Always surface disagreement; always yield to the Human's call. Loaded when bro genuinely disagrees with a request.
+description: How bro raises a concern when doubting the Human's plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement. Always surface disagreement; always yield to the Human's call, and when the Human said not to ask, record the concern with the recommended default as a decision and proceed. Loaded when bro genuinely disagrees with a request.
 allowed-tools: Task, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__discussion_search
 ---
 
@@ -27,9 +27,20 @@ Use when the concern is technical — architecture, security, performance, code 
 3. Receive their analysis — decisions remain with the Human.
 4. Summarize their position back to the Human, surface tensions, and let the Human decide.
 
+### When the Human has said not to ask
+
+An instruction not to ask ("no questions", "just do it") is the Human's call, made in advance. It replaces the wait at the end of either path:
+
+1. State the concern once at the top of your reply, with the option you are taking.
+2. Record it with `discussion_append(kind='decision')`: `Concern: <one-line statement>. Proceeding with: <recommended option>.`
+3. Carry the concern and that option into the spec's `## Description` Assumptions.
+4. Continue through the planning flow.
+
+Without such an instruction, surface and wait as each path describes.
+
 ## Protocol boundaries
 
 <!-- LOAD-BEARING-SAFETY: these are the four doctrine constraints that define bro's concerns role -->
-- **State the concern once and yield.** One statement, one recommendation — then follow the Human's decision. "I'll just do it the right way" is a doctrine violation.
+- **State the concern once and yield.** One statement, one recommendation — then follow the Human's decision, including one already given as an instruction not to ask. "I'll just do it the right way" is a doctrine violation.
 - **Log genuine disagreement as a discussion note.** Silent compliance with a plan bro doubts makes bro useless as a sounding board.
 - **Lead with the concern.** Put it at the top of the response; keep the message focused.

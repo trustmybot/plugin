@@ -1,0 +1,7 @@
+{
+  "expected_writes": {
+    "tasks WHERE branch_id = 'feat/add-count-subcommand'": "=1",
+    "audit WHERE event_type = 'task_reopened'": ">=1",
+    "validation_attempts": ">=2"
+  }
+}

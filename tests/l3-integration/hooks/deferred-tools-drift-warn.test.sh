@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/deferred-tools-drift-warn.sh"
 
-TMPDIR_BASE=$(mktemp -d)
+TMPDIR_BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-deferred-tools-drift-warn.XXXXXX")
 PIDS_TO_KILL=()
 cleanup() {
   for p in "${PIDS_TO_KILL[@]:-}"; do
@@ -19,6 +19,8 @@ cleanup() {
   rm -rf "$TMPDIR_BASE"
 }
 trap cleanup EXIT
+# Pin the project so the hook never resolves one by walking up from the cwd.
+export CLAUDE_PROJECT_DIR="$TMPDIR_BASE"
 
 TOOL_DIR="$TMPDIR_BASE/dist/tools"
 mkdir -p "$TOOL_DIR"

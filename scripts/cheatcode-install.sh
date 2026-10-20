@@ -24,7 +24,7 @@
 # The marketplace call is abstracted behind TMB_CHEATCODE_INSTALL_FIXTURE: when
 # that env var points at a JSON file, the install result is read from it (the
 # test hook — no network). When the env is unset/empty the script falls back to
-# the deterministic default path "$PWD/.tmb-cheatcode-install-fixture.json" and
+# the deterministic default path "$TMB_PROJECT_ROOT/.tmb-cheatcode-install-fixture.json" and
 # uses it if present (so the L6 chain, whose runner cannot pass the env var into
 # the step, still reaches the staged fixture). Otherwise the marketplace adapter
 # below runs. Either way the output shape is identical, so tests exercise the real
@@ -51,7 +51,9 @@
 #   or the discrete flags:
 #   --source-url <url>  --kind <skill|mcp|plugin>  [--name <n>]  [--tier <1|2>]
 #   --scope <local|global>  install scope (default local) — echoed in the output
-#       and persisted on the cheatcodes row by the caller.
+#       and persisted on the cheatcodes row by the caller. Every `claude` call
+#       runs with `--scope project`; `global` (a user-wide install) is refused
+#       with an `outside_project` error before any `claude` call.
 #
 # Output shape on stdout:
 #   {
@@ -87,11 +89,16 @@ while [ "$#" -gt 0 ]; do
 done
 
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq missing"}' >&2; exit 1; }
+[ -n "${TMB_PROJECT_ROOT:-}" ] || { echo '{"error":"TMB_PROJECT_ROOT is unset — the trajectory server sets it to the project root"}' >&2; exit 1; }
 
 case "$SCOPE" in
   local|global) : ;;
   *) echo "{\"error\":\"--scope must be local|global (got '${SCOPE}')\"}" >&2; exit 1 ;;
 esac
+if [ "$SCOPE" = "global" ]; then
+  echo '{"error":"outside_project","scope":"global","message":"scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-run with --scope local."}' >&2
+  exit 1
+fi
 
 # Normalize the candidate into a single JSON object regardless of input form.
 # --candidate wins; the discrete flags fill in otherwise.
@@ -133,16 +140,6 @@ esac
 
 INSTALL_TIMEOUT=30
 
-# Map the script's local|global scope onto the CLI's user|project|local scope.
-# The CLI's `--scope` accepts user|project|local; the script's "global" is a
-# user-wide install (user) and "local" is project-scoped (project).
-cli_scope() {
-  case "$SCOPE" in
-    global) printf 'user' ;;
-    *)      printf 'project' ;;
-  esac
-}
-
 # Detect whether $src_url already resolves inside a REGISTERED marketplace, so
 # the install can skip `marketplace add` entirely (#148). Two cases resolve:
 #   1. a marketplace-relative ref — `./plugins/...` or `<name>@<marketplace>` —
@@ -159,13 +156,13 @@ resolve_registered_marketplace() {
       # registered one; let the bare-name install resolve it (no add needed).
       printf '' ; return ;;
   esac
-  if printf '%s' "$src_url" | grep -qE '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$'; then
+  if printf '%s' "$src_url" | grep -E '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$' >/dev/null; then
     printf '%s' "$src_url" | sed -E 's/^[^@]+@//'
     return
   fi
   command -v claude >/dev/null 2>&1 || { printf '' ; return; }
   local list slug
-  list=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace list --json 2>/dev/null || true)
+  list=$(cd "$TMB_PROJECT_ROOT" && timeout "$INSTALL_TIMEOUT" claude plugin marketplace list --json 2>/dev/null || true)
   printf '%s' "$list" | jq -e 'type == "array"' >/dev/null 2>&1 || { printf '' ; return; }
   slug=$(printf '%s' "$src_url" | sed -E 's#^[a-z]+://[^/]+/##i; s#\.git$##')
   printf '%s' "$list" | jq -r \
@@ -197,7 +194,7 @@ resolve_marketplace_name() {
   # (strip scheme/host and a trailing .git) and match against each entry's repo
   # or url. Whichever matches yields the registered marketplace name.
   local list slug
-  list=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace list --json 2>/dev/null || true)
+  list=$(cd "$TMB_PROJECT_ROOT" && timeout "$INSTALL_TIMEOUT" claude plugin marketplace list --json 2>/dev/null || true)
   printf '%s' "$list" | jq -e 'type == "array"' >/dev/null 2>&1 || return
   slug=$(printf '%s' "$src_url" | sed -E 's#^[a-z]+://[^/]+/##i; s#\.git$##')
   printf '%s' "$list" | jq -r \
@@ -225,8 +222,7 @@ marketplace_install() {
     jq -nc '{installed: false, version: null, error: "marketplace CLI unavailable"}'
     return
   fi
-  local scope add_out rc mkt ref
-  scope=$(cli_scope)
+  local add_out rc mkt ref
   # Step 1: register the repo URL as a marketplace — UNLESS it already resolves
   # inside a registered one (#148). A marketplace-relative ref / a name@mkt ref /
   # a repo already in `marketplace list` skips the add and installs directly;
@@ -234,7 +230,7 @@ marketplace_install() {
   # degrade soft (never crash) so the caller can roll back the phantom row.
   mkt=$(resolve_registered_marketplace)
   if [ -z "$mkt" ]; then
-    add_out=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope "$scope" 2>&1); rc=$?
+    add_out=$(cd "$TMB_PROJECT_ROOT" && timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope project 2>&1); rc=$?
     if [ "$rc" -ne 0 ]; then
       jq -nc --arg e "marketplace add failed (exit $rc)" \
         '{installed: false, version: null, error: $e}'
@@ -250,7 +246,7 @@ marketplace_install() {
     ref="$cand_name"
   fi
   local out
-  out=$(timeout "$INSTALL_TIMEOUT" claude plugin install "$ref" --scope "$scope" 2>/dev/null); rc=$?
+  out=$(cd "$TMB_PROJECT_ROOT" && timeout "$INSTALL_TIMEOUT" claude plugin install "$ref" --scope project 2>/dev/null); rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "marketplace install failed (exit $rc)" \
       '{installed: false, version: null, error: $e}'
@@ -262,11 +258,11 @@ marketplace_install() {
   jq -nc --arg v "$ver" '{installed: true, version: (if ($v | length) > 0 then $v else null end), error: null}'
 }
 
-# MCP register adapter (mcp kind). Adds the server to the Claude Code MCP config
-# via `claude mcp add <name> ...`, mirroring the uninstall side's mcp_deregister
-# (`claude mcp remove`). Best-effort: prints {installed, version, error} and
-# degrades to installed=false with an error note if the CLI is absent or the add
-# fails, never crashes. NOTE: a faithful MCP add needs the server's run-command
+# MCP register adapter (mcp kind). Adds the server to the project's .mcp.json
+# via `claude mcp add --scope project <name> ...`, mirroring the uninstall
+# side's mcp_deregister (`claude mcp remove`). Best-effort: prints {installed,
+# version, error} and degrades to installed=false with an error note if the CLI
+# is absent or the add fails, never crashes. NOTE: a faithful MCP add needs the server's run-command
 # (e.g. `uvx --from git+<url> <name> start-mcp-server`), which the cheatcode
 # record (name + source_url only) does not carry — full run-command resolution is
 # a follow-up (needs reading the repo's mcp config).
@@ -280,7 +276,7 @@ mcp_register() {
     return
   fi
   local rc
-  timeout "$INSTALL_TIMEOUT" claude mcp add "$cand_name" "$src_url" >/dev/null 2>&1; rc=$?
+  (cd "$TMB_PROJECT_ROOT" && timeout "$INSTALL_TIMEOUT" claude mcp add --scope project "$cand_name" "$src_url") >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc '{installed: false, version: null, error: "mcp add needs a run-command (source_url only) — see follow-up"}'
     return
@@ -289,14 +285,14 @@ mcp_register() {
 }
 
 # Resolve the fixture path. The env var wins when set. When it is unset/empty,
-# probe the deterministic default path "$PWD/.tmb-cheatcode-install-fixture.json"
-# (the path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# probe the deterministic default path "$TMB_PROJECT_ROOT/.tmb-cheatcode-install-fixture.json"
+# (the path the row setup-l5.sh stages in the project) and use it if present —
 # this lets the L6 chain reach the fixture even though the runner's subshell
 # export of the env var never reaches the step's `claude -p`. When neither the env
 # nor the default file is present, the live / no-fixture path is unchanged.
 FIXTURE_PATH="${TMB_CHEATCODE_INSTALL_FIXTURE:-}"
-if [ -z "$FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-install-fixture.json" ]; then
-  FIXTURE_PATH="$PWD/.tmb-cheatcode-install-fixture.json"
+if [ -z "$FIXTURE_PATH" ] && [ -f "$TMB_PROJECT_ROOT/.tmb-cheatcode-install-fixture.json" ]; then
+  FIXTURE_PATH="$TMB_PROJECT_ROOT/.tmb-cheatcode-install-fixture.json"
 fi
 
 # Acquire the install result. Fixture path (test hook) takes precedence over any

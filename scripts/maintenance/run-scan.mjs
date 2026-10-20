@@ -4,28 +4,35 @@
 //
 // Reads the same scan_run logic as the MCP tool, so pruning / summary
 // preservation behave identically. Silent on failure — the hook never
-// blocks bro's response.
+// blocks bro's response. The DB is resolved and checked before any tool
+// module is imported: with no trajectory DB it exits 2 and creates nothing.
+//
+// Usage: run-scan.mjs [project-root]. The project root is the argument, else
+// CLAUDE_PROJECT_DIR (set on every Claude Code hook) — never the working
+// directory, which may be a worktree or a subdirectory. Neither → exit 2.
 
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
-import { TrajectoryDB, resolveDbPath, resolvePluginName } from '../../mcp/trajectory-server/dist/db.js';
-import { GraphHolder, WorldModelGraph, resolveGraphDbPath, isKuzuLockError } from '../../mcp/trajectory-server/dist/graph-db.js';
-import { scanTools } from '../../mcp/trajectory-server/dist/tools/scan.js';
+import { resolve } from 'node:path';
+import { TrajectoryDB, resolveDbPath } from '../../mcp/trajectory-server/dist/db.js';
 
-// Derive the session_dir by walking up from cwd to find the directory that
-// holds the .claude/<plugin>/trajectory.db. This handles the workspace-pattern
-// where the MCP server's cwd is the workspace root but post-close-rescan.sh
-// runs with PWD set to an inner worktree path.
-function resolveSessionDir() {
-  const dbPath = resolveDbPath();
-  if (!dbPath || dbPath === ':memory:') return process.cwd();
-  // dbPath is <sessionDir>/.claude/<plugin>/trajectory.db — walk up three dirs.
-  return dirname(dirname(dirname(dbPath)));
+function resolveProjectRoot() {
+  const root = process.argv[2] || process.env.CLAUDE_PROJECT_DIR;
+  return root ? resolve(root) : null;
 }
 
 async function main() {
-  const dbPath = resolveDbPath();
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    console.error('[post-close-rescan] no project root: pass it as the first argument or set CLAUDE_PROJECT_DIR; nothing scanned');
+    process.exit(2);
+  }
+  const dbPath = resolveDbPath({ env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot }, cwd: projectRoot });
+  if (dbPath === ':memory:' || !existsSync(dbPath)) {
+    console.error(`[post-close-rescan] no trajectory DB at ${dbPath}; nothing scanned`);
+    process.exit(2);
+  }
+  const { GraphHolder, WorldModelGraph, resolveGraphDbPath, isKuzuLockError } = await import('../../mcp/trajectory-server/dist/graph-db.js');
+  const { scanTools } = await import('../../mcp/trajectory-server/dist/tools/scan.js');
   const db = new TrajectoryDB(dbPath);
 
   let graph = null;
@@ -47,11 +54,9 @@ async function main() {
     // holder — no lazy re-open is wanted.
     const tools = scanTools(db, GraphHolder.fixed(graph, openError), dbPath);
     const handler = tools.handlers.scan_run;
-    const sessionDir = resolveSessionDir();
-
     const result = await handler({
       agent: 'bro',
-      session_dir: sessionDir,
+      session_dir: projectRoot,
       source: 'bro_auto_post_close',
     });
     if (result.isError) {

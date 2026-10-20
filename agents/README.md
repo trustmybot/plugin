@@ -1,6 +1,6 @@
 # agents
 
-The plugin's shipped subagents — the roles bro dispatches a code-touching task to. Each file is a Claude Code agent definition: YAML frontmatter (name, model, tool allow-list, attached skills) followed by the persona prompt. bro itself is defined by the plugin-root `CLAUDE.md`, so it lives outside this directory; only the agents bro spawns are here.
+The plugin's shipped subagents — the roles bro dispatches a code-touching task to. Each file is a Claude Code agent definition: YAML frontmatter (name, model, tool allow-list, attached skills) followed by the persona prompt. bro itself is defined by the plugin-root `CLAUDE.md`, which the `session-start-persona.sh` (SessionStart) and `user-prompt-persona.sh` (UserPromptSubmit) hooks inject into each session (Claude Code never loads a plugin's `CLAUDE.md`), so it lives outside this directory; only the agents bro spawns are here.
 
 ## Agents
 
@@ -9,11 +9,11 @@ The plugin's shipped subagents — the roles bro dispatches a code-touching task
 | `swe.md` | Executor — implements one task spec in an isolated git worktree, then closes it atomically. Every production code change routes through swe. | Read/Glob/Grep/Bash/Write/Edit plus `task_brief` + `task_update_status`; attached skills `tmb_swe-checklist`, `tmb_docs-conventions`. |
 | `pr-reviewer.md` | Push gate — independently reviews a committed task against its spec and records the `validation_record` verdict that gates the push. Read-only on files by design (no Write/Edit). | Read/Glob/Grep/Bash/Task plus the review + audit MCP tools; attached skill `tmb_review`. |
 
-Both carry `tmb_owner: bro` in frontmatter, marking them plugin-managed.
+Both carry `tmb_owner: bro` in frontmatter, marking them plugin-managed. Each also declares its Claude Code subagent prompt-cache TTL under `experimental.cacheTtl`: `1h` for swe, which idles through multi-minute builds and test suites, and `5m` for pr-reviewer; a user's `subagentPromptCacheTtl` setting or env var still overrides it.
 
 ## Consultants
 
-Domain experts (security, performance, legal, and the like) are not shipped here. The Human creates them on demand with the `/tmb:agent-create` command, which writes the new agent into the project's own `.claude/agents/` directory and registers it. A project may also place a local override of `swe` or `pr-reviewer` at that same path.
+Domain experts (security, performance, legal, and the like) are not shipped here. The Human creates them on demand with the `/tmb:agent-create` command, which writes the new agent into the project's own `<project>/.claude/agents/` directory and registers it. A project may also place a local override of `swe` or `pr-reviewer` at that same path.
 
 ## How it fits
 

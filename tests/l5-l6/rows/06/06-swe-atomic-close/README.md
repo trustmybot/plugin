@@ -24,9 +24,9 @@ Two production bug classes captured:
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `tasks` ≥1; **no** tasks at `pending`; `agent_runs` ≥1 with non-null `task_id` |
+| `outcome.sql` | `tasks` ≥1; **no** tasks at `pending`; `agent_runs` ≥1 with non-null `task_id`; ≥1 completed `swe` run, and none missing `effort`/`model`/`root_dir` |
 | `outcome-coherence.json` | `tasks`: `>=1`; `tasks WHERE status='pending'`: `=0`; `agent_runs`: `>=1`; `agent_runs WHERE task_id IS NOT NULL`: `>=1` |
-| `tools-required.json` | `Agent`, `bro_atomic_close` |
+| `tools-required.json` | `Agent`, `bro_atomic_close`; both waived in L6 when the pre-step DB already holds a closed task with a `swe` run (step 5 carried the work through) |
 | `cost-budget.json` | Soft 200K / 900s |
 
 **Failure modes captured:** (a) bro stops without spawning SWE — caught by tools-required (`Agent` missing) + coherence (`pending != 0`); (b) bro skips `bro_atomic_close` after SWE returns — caught by tools-required (`bro_atomic_close` missing) + coherence (`pending != 0`); (c) SWE ran but `agent_runs` stayed empty — caught by `agent_runs >= 1`.

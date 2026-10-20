@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook on task_create_batch. After bro creates tasks, injects
-# `additionalContext` reminding bro to spawn SWE via the Agent tool for
-# each new task — the next required step in the planning chain.
+# `additionalContext` reminding bro to spawn every new task's SWE in one
+# turn, one Agent call each — the next required step in the planning chain.
 #
 # Captures L6 scenario 14: production showed tasks stuck at `pending`
 # because bro called task_create_batch then stopped without dispatching
@@ -14,8 +14,10 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -44,36 +46,31 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '.tool_response.content[0].text // ""' 2>/
 TASK_LIST=$(echo "$RESPONSE_TEXT" | jq -r 'if type == "array" then map("  - task_id=\(.id) branch_id=\(.branch_id)") | join("\n") else "" end' 2>/dev/null)
 [ -n "$TASK_LIST" ] || exit 0
 
-# Resolve workspace_root from the trajectory DB path: DB lives at
-# <workspace_root>/.claude/<plugin>/trajectory.db, so dirname 3 times.
-WORKSPACE_ROOT=""
+# Each task's worktree is <repos.path>/.claude/worktrees/<slug>, read from the
+# trajectory DB (tmb_task_location) — never derived from the cwd.
 _DB=$(tmb_db_path 2>/dev/null || true)
-if [ -n "$_DB" ]; then
-  WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$_DB")")")"
-fi
-
-# Build per-task worktree path entries. For each task, slug = branch_id
-# minus its type/ prefix (e.g. feat/my-feature → my-feature).
-TASK_LIST_WITH_PATHS=$(echo "$RESPONSE_TEXT" | jq -r --arg ws "$WORKSPACE_ROOT" '
-  if type == "array" then
-    map(
-      . as $t |
-      ($t.branch_id | ltrimstr("feat/") | ltrimstr("fix/") | ltrimstr("chore/") | ltrimstr("docs/") | ltrimstr("test/") | ltrimstr("refactor/")) as $slug |
-      (if $ws != "" then $ws + "/.claude/worktrees/" + $slug else ".claude/worktrees/" + $slug end) as $wt |
-      "  - task_id=\($t.id) branch_id=\($t.branch_id) worktree=\($wt)"
-    ) | join("\n")
-  else "" end
-' 2>/dev/null)
+TASK_LIST_WITH_PATHS=""
+while IFS="$(printf '\t')" read -r _id _branch; do
+  if [ -z "$_DB" ]; then
+    _wt="unresolved (no trajectory DB)"
+  elif tmb_task_location "$_DB" "$_id"; then
+    _wt="$TMB_CTX_WORKTREE"
+  else
+    _wt="unresolved (${TMB_CTX_MISSING})"
+  fi
+  TASK_LIST_WITH_PATHS="${TASK_LIST_WITH_PATHS:+$TASK_LIST_WITH_PATHS
+}  - task_id=${_id} branch_id=${_branch} worktree=${_wt}"
+done < <(echo "$RESPONSE_TEXT" | jq -r '.[] | "\(.id)\t\(.branch_id)"' 2>/dev/null)
 [ -n "$TASK_LIST_WITH_PATHS" ] || TASK_LIST_WITH_PATHS="$TASK_LIST"
 
-REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 4, the next step is to spawn SWE via the Agent tool for each task — production sessions where this step was skipped left tasks stuck at status='pending' forever.
+REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.
 
 Tasks created:
 ${TASK_LIST_WITH_PATHS}
 
 For each task, run the two-step proven flow:
 1. Pre-create the worktree: \`printf '{\"branch\":\"<branch_id>\"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` — capture the printed path.
-2. Spawn SWE: \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
+2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug."
 

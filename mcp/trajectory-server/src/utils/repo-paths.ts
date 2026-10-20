@@ -1,25 +1,32 @@
+import { dirname, isAbsolute, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
+import { projectRootFromDbPath } from '../tools/containment.js';
+
+// A repos.path as an absolute directory: a relative path resolves against the
+// project root (the directory holding .claude/<plugin>/trajectory.db). A DB
+// outside that layout resolves against its own directory; `:memory:` against
+// the server's working directory.
+export function repoRowPath(db: TrajectoryDB, path: string): string {
+  if (isAbsolute(path)) return path;
+  const base =
+    db.dbPath === ':memory:' ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname(db.dbPath);
+  return resolve(base, path);
+}
 
 export function resolveSoleRepoPath(db: TrajectoryDB): string | undefined {
   return resolveSoleRepo(db)?.path;
 }
 
-export interface RepoRemote {
-  name?: string;
-  provider: string;
-  url: string;
-}
-
 export interface ResolvedRepoSync {
   name: string;
   path: string;
-  remotes: RepoRemote[];
 }
 
 // Issue-scoped repo resolution for the sync path (#155/#146). Resolve the repo
-// an issue belongs to, returning its on-disk path AND the per-repo remotes
-// drained into repos.remotes. The sync caller uses `path` as the explicit cwd
-// and `remotes` to pick the gh --repo / glab -R target — never process.cwd().
+// an issue belongs to, returning its name and on-disk path. The sync caller
+// uses `path` as the explicit cwd and reads the repo's remotes through
+// repoRemotes(db, name) to pick the gh --repo / glab -R target — never
+// process.cwd().
 //
 // Resolution order:
 //   1. An explicit repo name (the issue's repo column) → that repos row.
@@ -30,32 +37,14 @@ export function resolveRepoForSync(
   db: TrajectoryDB,
   repoName?: string | null,
 ): ResolvedRepoSync | null {
-  const decodeRemotes = (raw: string | null): RepoRemote[] => {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) return parsed as RepoRemote[];
-    } catch {
-      // malformed remotes blob — treat as none
-    }
-    return [];
-  };
-
   if (repoName) {
-    const row = db.get<{ name: string; path: string; remotes: string | null }>(
-      `SELECT name, path, remotes FROM repos WHERE name = ?`,
-      [repoName],
-    );
-    if (!row) return null;
-    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
+    const row = db.get<{ name: string; path: string }>(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: repoRowPath(db, row.path) } : null;
   }
 
-  const rows = db.all<{ name: string; path: string; remotes: string | null }>(
-    `SELECT name, path, remotes FROM repos`,
-  );
+  const rows = db.all<{ name: string; path: string }>(`SELECT name, path FROM repos`);
   if (rows.length !== 1) return null;
-  const sole = rows[0]!;
-  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
+  return { name: rows[0]!.name, path: repoRowPath(db, rows[0]!.path) };
 }
 
 // Path-keyed repo resolution. There is no name-keyed global default — callers
@@ -72,11 +61,11 @@ export function resolveSoleRepo(
       `SELECT path FROM repos WHERE name = ?`,
       [name],
     );
-    return repoRow?.path ? { name, path: repoRow.path } : undefined;
+    return repoRow?.path ? { name, path: repoRowPath(db, repoRow.path) } : undefined;
   }
 
   const repos = db.all<{ name: string; path: string }>(
     `SELECT name, path FROM repos`,
   );
-  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : undefined;
+  return repos.length === 1 ? { name: repos[0].name, path: repoRowPath(db, repos[0].path) } : undefined;
 }

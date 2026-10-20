@@ -19,3 +19,14 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 | [`lib/`](./lib/) | Shared shell helpers — flow/chain helpers, scorers, sandbox, stubs, timeout shim |
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |
 | [`inspect-trajectory.sh`](./inspect-trajectory.sh) | Helper to inspect a run's trajectory DB |
+
+## When a row fails
+
+- **Fix at the trigger.** When a row flips, localize what triggers it (fixture text, seeded DB state, deny-message text, the row's own prompt) and fix there; a `prompt.txt` change needs Human approval. Never tune the shared TEST MODE preamble for one row: it reaches every row. A deny remedy an agent runs verbatim must be correct for the repo it names.
+- **Classify from the run dir, not the summary table.** Read `<run-dir>/step-*/scorers.txt`, the tail of `bro-response.txt` and the token counts:
+
+| Class | Signature | Action |
+|---|---|---|
+| Network kill | tokens ~0, connection error | Rerun |
+| Judgment flake | passes at the same SHA elsewhere | Make the go-path deterministic |
+| Regression | reproduces every run, green at the last rc | Fix |

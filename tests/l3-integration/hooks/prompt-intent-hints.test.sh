@@ -2,9 +2,10 @@
 # Tests for scripts/hooks/prompt-intent-hints.sh
 # Covers positive (fires) and negative (false-positive guard) cases for
 # every pattern class: consultant-spawn, search-grounding, concerns-protocol,
-# push-intent, reonboard-intent, resume-intent, adr-required.
+# push-intent, reonboard-intent, headless-intent, resume-intent, adr-required,
+# audit-intent.
 #
-# DB-backed classes (push-intent, reonboard-intent, resume-intent,
+# DB-backed classes (push-intent, reonboard-intent, headless-intent, resume-intent,
 # consultant-spawn named-role) are tested without a live DB — the hook must
 # exit silently (no additionalContext) when the DB is absent or the query
 # returns nothing.
@@ -29,8 +30,10 @@ run_hook() {
       TMB_DISABLE_CONCERNS_HINT=0 \
       TMB_DISABLE_PUSH_INTENT_HINT=0 \
       TMB_DISABLE_REONBOARD_HINT=0 \
+      TMB_DISABLE_HEADLESS_HINT=0 \
       TMB_DISABLE_RESUME_HINT=0 \
       TMB_DISABLE_ADR_HINT=0 \
+      TMB_DISABLE_AUDIT_HINT=0 \
       TRAJECTORY_DB_PATH=/nonexistent.db \
       bash "$HOOK" 2>&1 || true
   )
@@ -359,5 +362,162 @@ for prompt in "" "ls" "why is this slow" "delete the test" "migrate to postgres"
   fi
 done
 _pass 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# GH 1199: harness hand-back turns are silent; hints read only unquoted text
+# ---------------------------------------------------------------------------
+
+HINT_TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-prompt-intent-hints.XXXXXX")
+trap 'rm -rf "$HINT_TMP"' EXIT
+HINT_DB="$HINT_TMP/trajectory.db"
+sqlite3 "$HINT_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$HINT_DB" "
+  INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (1, 'auth work', 'd', 'open', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, commit_sha, created_at, updated_at)
+    VALUES (1, 1, 'feat/done', 'done task', 'd', 'completed', '', 'abc123', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+    VALUES (2, 1, 'feat/next', 'next task', 'd', 'pending', '', datetime('now'), datetime('now'));
+  INSERT INTO audit (issue_id, event_type, summary, created_at)
+    VALUES (1, 'planning_complete', 'planned', datetime('now'));
+" >/dev/null
+
+run_hook_db() {
+  local payload
+  payload=$(jq -cn --arg p "$1" '{prompt:$p}')
+  (cd "$HINT_TMP" && printf '%s' "$payload" | TRAJECTORY_DB_PATH="$HINT_DB" bash "$HOOK" 2>&1 || true)
+}
+
+for framing in \
+  '<task-notification>swe finished; git push origin feat/done next; port the parser to Rust</task-notification>' \
+  '[SYSTEM NOTIFICATION - NOT USER INPUT] still open: push it' \
+  'Another Claude session sent a message: push it, keep going' \
+  '[Subagent hand-back] swe: done. Next: git push origin feat/done; tasks still open.' \
+  '<agent-message from="swe">rewrite the scanner in Go; push it</agent-message>' \
+  '<cross-session-message from="bro">ship it and keep going</cross-session-message>'; do
+  test_case "GH 1199: hand-back framing is silent: ${framing:0:40}"
+  out=$(run_hook_db "$framing")
+  assert_eq "" "$out" "a harness turn emits no hint"
+done
+
+test_case "GH 1199: 'report the result to the user' → no architectural hint"
+out=$(run_hook "report the result to the user")
+assert_not_contains "$out" "architectural-change hint" "report … to is not port … to"
+
+test_case "GH 1199: 'port the parser to Rust' → architectural hint"
+out=$(run_hook "port the parser to Rust")
+assert_contains "$out" "architectural-change hint" "port within 6 words of to"
+
+test_case "GH 1199: 'port' too far from 'to' → no architectural hint"
+out=$(run_hook "port number nine on the old box was later moved to staging")
+assert_not_contains "$out" "architectural-change hint" "more than 6 words apart"
+
+test_case "GH 1199: a quoted git push inside a report → no push hint"
+out=$(run_hook_db 'The guard said "BLOCKED: run git push from the main checkout" — what does that mean?')
+assert_not_contains "$out" "push-intent hint" "quoted hook text is not push intent"
+out=$(run_hook_db 'what does `git push --force-with-lease` do?')
+assert_not_contains "$out" "push-intent hint" "backticked command is not push intent"
+
+test_case "GH 1199: 'push it' → push hint"
+out=$(run_hook_db "looks good, push it")
+assert_contains "$out" "push-intent hint" "unquoted push intent fires"
+assert_contains "$out" "feat/done" "the unsigned task is listed"
+
+test_case "GH 1199: 'still open' inside a quoted report → no resume hint"
+out=$(run_hook_db "swe said 'two tasks still open' — is that right?")
+assert_not_contains "$out" "resume-intent hint" "quoted report text is not resume intent"
+
+test_case "GH 1199: unquoted 'keep going' → resume hint"
+out=$(run_hook_db "keep going")
+assert_contains "$out" "resume-intent hint" "unquoted resume intent fires"
+assert_contains "$out" "task_reopen(task_id=2" "resume hint routes the pending task through task_reopen"
+assert_not_contains "$out" "git switch" "resume hint never switches the main checkout"
+
+sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');" >/dev/null
+
+test_case "reonboard-intent: 'switch to gitflow' on an onboarded project → hint names onboard_state_get"
+out=$(run_hook_db "I want to switch to gitflow — what's the right way to reconfigure?")
+assert_contains "$out" "reonboard-intent hint" "branching-model switch fires"
+assert_contains "$out" "onboard_state_get" "CTX names the required first action"
+
+test_case "reonboard-intent: 'change pr target to main' fires"
+out=$(run_hook_db "change pr target to main")
+assert_contains "$out" "reonboard-intent hint" "PR-target change fires"
+
+test_case "reonboard-intent: 'gitflow is a popular model' does NOT fire"
+out=$(run_hook_db "gitflow is a popular model")
+assert_not_contains "$out" "reonboard-intent hint" "no verb phrase, no hint"
+
+test_case "headless-intent: 'claude -p' on an onboarded project → consent hint names the settings file"
+out=$(run_hook_db 'how do I run this under `claude -p` in CI?')
+assert_contains "$out" "headless-intent hint" "claude -p fires"
+assert_contains "$out" ".claude/settings.local.json" "CTX names the file the shim writes"
+assert_contains "$out" "headless_enforcement='yes'" "CTX names the apply call"
+
+test_case "headless-intent: TMB_DISABLE_HEADLESS_HINT=1 suppresses"
+out=$(
+  payload=$(jq -cn '{prompt:"run it with claude -p"}')
+  cd "$HINT_TMP" || exit 1
+  printf '%s' "$payload" | TMB_DISABLE_HEADLESS_HINT=1 TRAJECTORY_DB_PATH="$HINT_DB" bash "$HOOK" 2>&1 || true
+)
+assert_not_contains "$out" "headless-intent hint" "TMB_DISABLE_HEADLESS_HINT=1 must suppress"
+
+test_case "headless-intent: a /onboard prompt is silent"
+out=$(run_hook_db "/onboard — I want gates in headless runs too")
+assert_not_contains "$out" "headless-intent hint" "/onboard prompt must be skipped"
+
+test_case "headless-intent: 'the main circuit' does NOT fire (whole words)"
+out=$(run_hook_db "the main circuit board")
+assert_not_contains "$out" "headless-intent hint" "in ci needs word boundaries"
+
+test_case "headless-intent: headless_enforcement already yes → silent"
+sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('headless_enforcement', '\"yes\"');" >/dev/null
+out=$(run_hook_db "run it with claude -p")
+assert_not_contains "$out" "headless-intent hint" "an enabled project needs no hint"
+sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('headless_enforcement', '\"no\"');" >/dev/null
+
+test_case "GH 1199: quoted 'skip validation' → no concerns hint; unquoted → hint"
+out=$(run_hook 'the log line "skip validation: off" confused me')
+assert_not_contains "$out" "concerns-protocol hint" "quoted text is not a doubt-class request"
+out=$(run_hook "skip validation for this one")
+assert_contains "$out" "concerns-protocol hint" "unquoted doubt-class request fires"
+
+# ---------------------------------------------------------------------------
+# audit-intent: whole-word audit / verify / check / double-check / architecture
+# ---------------------------------------------------------------------------
+
+for prompt in \
+  "audit the trajectory DB writes" \
+  "verify that the scraper output is right" \
+  "check the job-post extractor" \
+  "double-check the importer for me" \
+  "walk me through the architecture of the scanner"; do
+  test_case "audit-intent: '$prompt' fires"
+  out=$(run_hook "$prompt")
+  assert_contains "$out" "audit-intent hint" "audit keyword fires"
+  assert_contains "$out" "tmb_audit" "hint names tmb_audit"
+  assert_contains "$out" "outputs-first" "hint asks for outputs-first work"
+done
+
+test_case "audit-intent: 'verification' alone does NOT fire (whole word)"
+out=$(run_hook "the verification step looks slow today")
+assert_not_contains "$out" "audit-intent hint" "verification is not verify"
+
+test_case "audit-intent: quoted 'audit' does NOT fire"
+out=$(run_hook 'the log line "audit row written" confused me')
+assert_not_contains "$out" "audit-intent hint" "quoted text is not audit intent"
+
+test_case "adr-required: 'report back to me' does NOT fire"
+out=$(run_hook "report back to me when it is done")
+assert_not_contains "$out" "architectural-change hint" "report … to is not port … to"
+
+test_case "TMB_DISABLE_AUDIT_HINT=1 suppresses audit-intent"
+out=$(
+  payload=$(jq -cn '{prompt:"audit the importer"}')
+  cd "$PLUGIN_ROOT" || exit 1
+  printf '%s' "$payload" \
+  | TMB_DISABLE_AUDIT_HINT=1 TRAJECTORY_DB_PATH=/nonexistent.db bash "$HOOK" 2>&1 || true
+)
+assert_not_contains "$out" "audit-intent hint" "TMB_DISABLE_AUDIT_HINT=1 must suppress"
 
 summarize

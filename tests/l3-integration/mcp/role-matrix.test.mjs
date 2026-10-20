@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from './harness.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startClient, call, seedReviewerObservation } from './harness.mjs';
 
 // Role matrix coverage for tools that currently wrap handlers with `requireRoles`.
 // Tools without requireRoles (task_*, validation_*, issue_*, audit_*, audit_*,
@@ -202,13 +205,19 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   const broClose = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: 'abc1234',
     verification_summary: 'role-matrix: verified, closing via composite',
-    waive_scope_gate: true,
+    waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
   assert.equal(broClose.ok, true, `bro should close verified work via bro_atomic_close; got ${JSON.stringify(broClose)}`);
+  assert.equal(broClose.data.base_moved, false, `the close result carries base_moved; got ${JSON.stringify(broClose)}`);
+
+  // task_brief carries the latest close's scope record for pr-reviewer.
+  const brief = await call(client, 'task_brief', { agent: 'pr-reviewer', task_id: taskId });
+  assert.equal(brief.ok, true, `pr-reviewer reads task_brief; got ${JSON.stringify(brief)}`);
+  assert.deepEqual(brief.data.scope, { files: [], extras_accepted: [], base_moved: false });
 });
 
 test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd', labels: ['Feature', 'Priority: Medium'] });
@@ -232,11 +241,21 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
     assert.equal(res.error?.error, 'forbidden');
   }
 
+  const unobserved = await call(client, 'validation_record', {
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    subagent_session_id: 'role-matrix-test-session',
+  });
+  assert.equal(unobserved.ok, false, 'pr-reviewer without an observed identity must be refused');
+  assert.match(String(unobserved.error?.error), /^subagent_session_unavailable/);
+
+  seedReviewerObservation(dbPath, taskId, 1, { agentId: 'role-matrix-reviewer', sessionId: 'role-matrix-main' });
   const ok = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
-  assert.equal(ok.ok, true, `pr-reviewer should record; got ${JSON.stringify(ok)}`);
+  assert.equal(ok.ok, true, `pr-reviewer should record after an observed row; got ${JSON.stringify(ok)}`);
+  assert.equal(ok.data?.reviewer_agent_id, 'role-matrix-reviewer');
+  assert.equal(ok.data?.subagent_session_id, 'role-matrix-main', 'caller value ignored');
 });
 
 // pr_monitor_runs_list — read-side companion to pr_monitor_comments_get's cursor
@@ -254,4 +273,151 @@ test('pr_monitor_runs_list — bro allowed, others forbidden', async (t) => {
   const ok = await call(client, 'pr_monitor_runs_list', { agent: 'bro' });
   assert.equal(ok.ok, true, `bro should be allowed; got ${JSON.stringify(ok)}`);
   assert.equal(ok.data.count, 0, 'fresh DB has no cursors yet');
+});
+
+// task_reopen / task_update_spec amend a task's fences and lifecycle: bro only.
+test('task_reopen + task_update_spec — bro only; swe/pr-reviewer/architect forbidden', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const tool of ['task_reopen', 'task_update_spec']) {
+    for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+      const res = await call(client, tool, { agent: wrongRole, task_id: 1, reason: 'x', files: ['a'] });
+      assert.equal(res.ok, false, `${wrongRole} must be forbidden from ${tool}`);
+      assert.equal(res.error?.error, 'forbidden');
+    }
+    const bro = await call(client, tool, { agent: 'bro', task_id: 999999, reason: 'x', files: ['a'] });
+    assert.equal(bro.ok, false, `${tool} on a missing task is an error`);
+    assert.notEqual(bro.error?.error, 'forbidden', `bro passes the role gate on ${tool}`);
+  }
+});
+
+// agent_runs_backfill rewrites metering history: bro only; a dry run writes nothing.
+test('agent_runs_backfill — bro only; dry run over an empty transcripts dir reports zero', async (t) => {
+  const { client, close } = await startClient();
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-l3-backfill-'));
+  t.after(async () => { await close(); rmSync(dir, { recursive: true, force: true }); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'agent_runs_backfill', { agent: wrongRole, transcripts_dir: dir });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from agent_runs_backfill`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+  const bro = await call(client, 'agent_runs_backfill', { agent: 'bro', transcripts_dir: dir });
+  assert.equal(bro.ok, true, `bro should be allowed; got ${JSON.stringify(bro)}`);
+  assert.equal(bro.data.dry_run, true);
+  assert.equal(bro.data.transcripts_seen, 0);
+  assert.equal(bro.data.rows_inserted, 0);
+});
+
+test('trajectory_doctor — bro only; read-only unless record:true', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'trajectory_doctor', { agent: wrongRole });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from trajectory_doctor`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+
+  const allowed = await call(client, 'trajectory_doctor', { agent: 'bro' });
+  assert.equal(allowed.ok, true, `bro should run trajectory_doctor; got ${JSON.stringify(allowed)}`);
+  assert.equal(typeof allowed.data?.healthy, 'boolean');
+  assert.ok(Array.isArray(allowed.data?.violations));
+  assert.ok(Array.isArray(allowed.data?.skipped));
+  assert.equal(allowed.data?.audit_id, undefined, 'record defaults to false');
+
+  const recorded = await call(client, 'trajectory_doctor', { agent: 'bro', record: true, ids: ['fk_check_empty'] });
+  assert.equal(recorded.ok, true, `record:true should succeed; got ${JSON.stringify(recorded)}`);
+  assert.equal(typeof recorded.data?.audit_id, 'number');
+});
+
+// agent_resolve is bro only; agent_register / agent_list take a root-marked
+// file_path and every returned agent row carries resolved_path, never scope.
+test('agent_resolve — bro only; agent_register/agent_list speak plugin:/project: file_path with resolved_path', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'agent_resolve', { agent: wrongRole, name: 'legal-reviewer' });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from agent_resolve`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+  const resolved = await call(client, 'agent_resolve', { agent: 'bro', name: 'legal-reviewer' });
+  assert.equal(resolved.ok, true, `bro should be allowed; got ${JSON.stringify(resolved)}`);
+  assert.equal(resolved.data.file_path, 'project:.claude/agents/legal-reviewer.md');
+  assert.ok('resolved_path' in resolved.data);
+
+  const unmarked = await call(client, 'agent_register', {
+    agent: 'bro', name: 'legal-reviewer', kind: 'consultant', file_path: '.claude/agents/legal-reviewer.md',
+  });
+  assert.equal(unmarked.ok, false);
+  assert.match(unmarked.error?.error ?? '', /^invalid_file_path:/);
+
+  const shadow = await call(client, 'agent_register', {
+    agent: 'bro', name: 'swe', kind: 'backbone', file_path: 'project:.claude/agents/swe.md',
+  });
+  assert.equal(shadow.ok, false);
+  assert.match(shadow.error?.error ?? '', /backbone agent whose file_path must be plugin:/);
+
+  const registered = await call(client, 'agent_register', {
+    agent: 'bro', name: 'legal-reviewer', kind: 'consultant', file_path: 'project:.claude/agents/legal-reviewer.md',
+  });
+  assert.equal(registered.ok, true, `agent_register: ${JSON.stringify(registered)}`);
+  assert.equal(registered.data.file_path, 'project:.claude/agents/legal-reviewer.md');
+  assert.ok(!('scope' in registered.data), 'agent_register row carries no scope key');
+
+  const listed = await call(client, 'agent_list', { agent: 'bro' });
+  assert.equal(listed.ok, true, `agent_list: ${JSON.stringify(listed)}`);
+  assert.equal(listed.data.agents.length, 7);
+  for (const row of listed.data.agents) {
+    assert.ok(!('scope' in row), `${row.name} carries no scope key`);
+    assert.ok('resolved_path' in row, `${row.name} carries resolved_path`);
+    assert.match(row.file_path, /^(plugin|project):/);
+  }
+  const swe = listed.data.agents.find((a) => a.name === 'swe');
+  assert.match(swe.resolved_path, /\/agents\/swe\.md$/);
+
+  const plugin = await call(client, 'agent_list', { agent: 'bro', root: 'plugin' });
+  assert.equal(plugin.data.agents.length, 6);
+  const project = await call(client, 'agent_list', { agent: 'bro', root: 'project' });
+  assert.deepEqual(project.data.agents.map((a) => a.name), ['legal-reviewer']);
+});
+
+// audit_append admits a caller only for events whose writers list its role,
+// and records from_node as that caller.
+test('audit_append — per-event writers decide who may write; from_node is the caller', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const bro = await call(client, 'audit_append', {
+    agent: 'bro', issue_id: '-1', event_type: 'scope_gate_waived', summary: 'bro waiver',
+  });
+  assert.equal(bro.ok, true, JSON.stringify(bro));
+  assert.equal(bro.data.from_node, 'bro');
+
+  for (const agent of ['pr-reviewer', 'swe', 'architect']) {
+    const res = await call(client, 'audit_append', {
+      agent, issue_id: '-1', from_node: 'bro', event_type: 'scope_gate_waived', summary: 'forged waiver',
+    });
+    assert.equal(res.ok, false, `${agent} must not write scope_gate_waived`);
+    assert.equal(res.error?.error, 'audit_event_not_writable_by_role');
+    assert.deepEqual(res.error?.allowed_writers, ['bro']);
+  }
+
+  const spoof = await call(client, 'audit_append', {
+    agent: 'bro', issue_id: '-1', from_node: 'hook:swe-verification-gate', event_type: 'scope_gate_waived', summary: 'x',
+  });
+  assert.equal(spoof.ok, false, 'from_node other than the caller is refused');
+
+  const hookOnly = await call(client, 'audit_append', {
+    agent: 'bro', issue_id: '-1', event_type: 'verification_gate_waived', summary: 'x',
+  });
+  assert.equal(hookOnly.error?.error, 'audit_event_not_writable_by_role');
+
+  const reviewer = await call(client, 'audit_append', {
+    agent: 'pr-reviewer', issue_id: '-1', event_type: 'mcp_unavailable_fallback_invoked', summary: 'fallback',
+  });
+  assert.equal(reviewer.ok, true, JSON.stringify(reviewer));
+  assert.equal(reviewer.data.from_node, 'pr-reviewer');
 });

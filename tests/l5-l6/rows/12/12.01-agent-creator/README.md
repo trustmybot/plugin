@@ -11,8 +11,8 @@
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `tmb_agent_created` audit event with architect name + template-copy mode |
+| `outcome.sql` | `tmb_agent_created` audit event with architect name + agent_id |
 | `outcome-files.json` | `.claude/agents/architect.md` exists and ≥100 bytes |
-| `tools-required.json` | `audit_append`, `Write` |
+| `tools-required.json` | `agent_resolve`, `agent_register` (skipped when a project-local architect pre-exists), `Agent` |
 | `tools-forbidden.json` | `task_update_status`, `validation_record`, `task_create_batch` |
 | `cost-budget.json` | Soft 80K / 90s |

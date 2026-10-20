@@ -20,35 +20,47 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/no-remote-auth-guard.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-no-remote-auth-guard.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 DB="$TMPDIR/trajectory.db"
 
-# repos schema (post-#987): repos.remotes is the sole source of truth. A single
+# repos + repo_remotes schema (v35): repo_remotes is the sole source of truth. A single
 # registered repo lets tmb_repo_remotes resolve via the single-repo fallback
 # regardless of cwd/git-root.
 _repos_schema="CREATE TABLE repos (
   name TEXT PRIMARY KEY, path TEXT NOT NULL,
   file_count INTEGER NOT NULL DEFAULT 0,
   last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
-  target_branch TEXT, branching_model TEXT, protected_branches TEXT,
-  remotes TEXT
+  target_branch TEXT, branching_model TEXT, protected_branches TEXT
+);
+CREATE TABLE repo_remotes (
+  repo TEXT NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+  name TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('github','gitlab','other')),
+  url TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (repo, name)
 );"
 
 # Fixture: a single repos row whose remotes have no usable url.
 sqlite3 "$DB" "
   $_repos_schema
-  INSERT INTO repos (name, path, remotes) VALUES
-    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+  INSERT INTO repos (name, path) VALUES
+    ('repo', '/tmp/repo');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES
+    ('repo', 'origin', 'github', '', 1);
 "
 
 # Fixture DB: a single repos row with a usable url.
 DB_WITH_REMOTE="$TMPDIR/trajectory-with-remote.db"
 sqlite3 "$DB_WITH_REMOTE" "
   $_repos_schema
-  INSERT INTO repos (name, path, remotes) VALUES
-    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
+  INSERT INTO repos (name, path) VALUES
+    ('repo', '/tmp/repo');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES
+    ('repo', 'origin', 'github', 'https://github.com/org/repo.git', 1);
 "
 
 input_bash() {
@@ -164,6 +176,33 @@ out_nr=$(echo "$(input_bash 'gh auth login')" | TRAJECTORY_DB_PATH="$DB_NO_REMOT
 assert_eq "" "$out_nr" "no repos row → allow"
 
 # ============================================================================
+# repo_remotes (v35): a registered repo with no rows has no remote → deny; a
+# pre-v35 DB without the table → fail-open; a non-origin remote with a url and
+# a blank origin → allow (any row with a url counts)
+# ============================================================================
+test_case "registered repo with no repo_remotes rows: deny"
+DB_ZERO_ROWS="$TMPDIR/trajectory-zero-rows.db"
+sqlite3 "$DB_ZERO_ROWS" "$_repos_schema INSERT INTO repos (name, path) VALUES ('repo', '/tmp/repo');"
+out_zr=$(run_hook "$(input_bash 'gh auth login')" "$DB_ZERO_ROWS")
+assert_contains "$out_zr" '"permissionDecision":"deny"' "no remote rows → deny"
+
+test_case "pre-v35 DB without the repo_remotes table: fail-open (allow)"
+DB_PRE_V35="$TMPDIR/trajectory-pre-v35.db"
+sqlite3 "$DB_PRE_V35" "CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, remotes TEXT);
+  INSERT INTO repos (name, path, remotes) VALUES ('repo', '/tmp/repo', '[]');"
+out_pre=$(run_hook "$(input_bash 'gh auth login')" "$DB_PRE_V35")
+assert_eq "" "$out_pre" "unreadable remotes → allow"
+
+test_case "blank origin plus an upstream with a url: allow"
+DB_UPSTREAM="$TMPDIR/trajectory-upstream.db"
+sqlite3 "$DB_UPSTREAM" "$_repos_schema INSERT INTO repos (name, path) VALUES ('repo', '/tmp/repo');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES
+    ('repo', 'origin', 'github', '', 1),
+    ('repo', 'upstream', 'gitlab', 'https://gitlab.com/org/repo.git', 0);"
+out_up=$(run_hook "$(input_bash 'gh auth login')" "$DB_UPSTREAM")
+assert_eq "" "$out_up" "a remote row with a url → allow"
+
+# ============================================================================
 # Subshell-wrapped forms: (gh auth login) / (glab auth login) → deny
 # ============================================================================
 test_case "subshell (gh auth login): deny"
@@ -195,9 +234,12 @@ _WITH_REAL=$(git -C "$WITH" rev-parse --show-toplevel)
 _NORM_REAL=$(git -C "$NORM" rev-parse --show-toplevel)
 sqlite3 "$MR_DB" "
   $_repos_schema
-  INSERT INTO repos (name, path, remotes) VALUES
-    ('with', '$_WITH_REAL', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/with.git\"}]'),
-    ('norm', '$_NORM_REAL', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+  INSERT INTO repos (name, path) VALUES
+    ('with', '$_WITH_REAL'),
+    ('norm', '$_NORM_REAL');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES
+    ('with', 'origin', 'github', 'https://github.com/org/with.git', 1),
+    ('norm', 'origin', 'github', '', 1);
 "
 
 test_case "(H6) cd into the no-remote sibling → deny (resolved from cd target, not \$PWD)"
@@ -207,5 +249,13 @@ assert_contains "$out_mr" '"permissionDecision":"deny"' "no-remote sibling must 
 test_case "(H6) cd into the with-remote sibling → allow (resolved from cd target, not \$PWD)"
 out_mr2=$( (cd "$NORM" && echo "$(input_bash "cd $WITH && gh auth login")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
 assert_eq "" "$out_mr2" "with-remote sibling must allow even when \$PWD has no remote"
+
+test_case "GH 1196: heredoc mentioning gh auth login → allow (data, not a login)"
+out_hd=$( (cd "$NORM" && echo "$(input_bash "$(printf '%s\n' "cat > notes.md <<'EOF'" 'gh auth login' 'EOF')")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_eq "" "$out_hd" "heredoc content is not a login"
+
+test_case "GH 1196: payload cwd names the with-remote sibling → allow (no false no-remote claim)"
+out_cwd=$( (cd "$NORM" && jq -cn --arg d "$WITH" '{tool_name:"Bash",cwd:$d,tool_input:{command:"gh auth login"}}' | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_eq "" "$out_cwd" "the payload cwd's repo has a remote"
 
 summarize

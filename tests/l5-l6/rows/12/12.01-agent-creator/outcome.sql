@@ -16,7 +16,7 @@ FROM audit
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'audit-event-has-template-copy-mode (got ' || COUNT(*) || ')' AS description
+  'audit-event-has-agent-id (got ' || COUNT(*) || ')' AS description
 FROM audit
   WHERE event_type = 'tmb_agent_created'
-  AND content_json LIKE '%"mode":"template-copy"%';
+  AND content_json LIKE '%"agent_id":%';

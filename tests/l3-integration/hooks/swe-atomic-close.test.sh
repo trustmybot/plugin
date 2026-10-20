@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/swe-atomic-close.sh.
-# Hook contract: SubagentStop for swe agents. Inspects git state for the
-# most-recent task in (pending, needs_validation, completed), reads the task's
-# detached-HEAD worktree HEAD, and either auto-closes pending tasks or records
-# metrics-only for pre-flipped tasks. Always writes agent_runs.
-# Silent no-op when subagent is not swe, no matching tasks, or DB/git unavailable.
+# Hook contract: SubagentStop for swe agents. Binds the task named by
+# task_id=<N> in the spawn transcript (any status), reads the task's worktree
+# HEAD, and either auto-closes a pending task or records metrics only. A spawn
+# with no resolvable task id writes an agent_runs_capture_skipped audit row and
+# touches no task. Silent no-op when subagent is not swe or DB/git unavailable.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-atomic-close.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Step out of the plugin checkout before any git work so a stray bare git call
@@ -20,6 +20,60 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # below targets its sandbox via `git -C "$REPO"`; this is belt-and-suspenders.
 cd "$TMPDIR"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"
+
+# Minimal trajectory schema: the columns the hook reads and writes.
+min_schema() {
+  cat <<'SQL'
+CREATE TABLE tasks (
+  id INTEGER PRIMARY KEY,
+  issue_id INTEGER NOT NULL DEFAULT 1,
+  branch_id TEXT NOT NULL,
+  parent_branch_id TEXT,
+  title TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  spec_body TEXT NOT NULL DEFAULT '',
+  commit_sha TEXT,
+  repo TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT,
+  effort TEXT NOT NULL DEFAULT 'medium'
+);
+CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+CREATE TABLE issues (id INTEGER PRIMARY KEY, repo TEXT);
+INSERT INTO issues (id) VALUES (-1), (1);
+CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL, branch_id TEXT, from_node TEXT NOT NULL, event_type TEXT NOT NULL, summary TEXT NOT NULL, content_json TEXT NOT NULL DEFAULT '{}', repo TEXT, created_at TEXT NOT NULL);
+CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, issue_id INTEGER, agent_type TEXT NOT NULL, tokens_in INTEGER, tokens_out INTEGER, cache_read_tokens INTEGER, cache_creation_tokens INTEGER, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT, repo TEXT, spawn_id TEXT, session_id TEXT, usage_source TEXT, root_dir TEXT, model TEXT, host TEXT, exit_reason TEXT, effort TEXT);
+CREATE UNIQUE INDEX idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '""');
+INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '"dev"');
+SQL
+}
+
+# spawn_transcript <task_id>: a fresh SWE transcript whose spawn prompt (plain
+# string content, as CC writes it) names the task. Prints its path.
+spawn_transcript() {
+  local f
+  f=$(mktemp "$TMPDIR/spawn-XXXXXX")
+  printf '%s\n' \
+    '{"type":"user","timestamp":"2026-04-01T00:00:00.000Z","message":{"role":"user","content":"task_id='"$1"' You are swe. Implement the spec."}}' \
+    '{"type":"assistant","timestamp":"2026-04-01T00:00:02.000Z","message":{"role":"assistant","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}' \
+    > "$f"
+  printf '%s\n' "$f"
+}
+
+# spawn_input <task_id> [<agent_type>]: a SubagentStop payload for one fresh spawn.
+spawn_input() {
+  local tp
+  tp=$(spawn_transcript "$1")
+  jq -n --arg tp "$tp" --arg id "${tp##*/}" --arg at "${2:-swe}" \
+    '{agent_type: $at, agent_id: $id, agent_transcript_path: $tp, hook_event_name: "SubagentStop", session_id: "sess-test"}'
+}
+
+skipped_count() {
+  sqlite3 "$1" "SELECT COUNT(*) FROM audit WHERE event_type='agent_runs_capture_skipped' AND from_node='hook:swe-atomic-close';"
+}
 
 # ---- Fixture: bare git remote (plays the role of origin) -----------------
 REMOTE="$TMPDIR/remote.git"
@@ -40,51 +94,11 @@ git -C "$REPO" push -q origin dev
 
 DB="$REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
+sqlite3 "$DB" "$(min_schema)"
 sqlite3 "$DB" "
-  CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY,
-    issue_id INTEGER NOT NULL DEFAULT 1,
-    branch_id TEXT NOT NULL,
-    parent_branch_id TEXT,
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    spec_body TEXT NOT NULL DEFAULT '',
-    commit_sha TEXT,
-    repo TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at TEXT
-  );
-  CREATE TABLE repos (
-    name TEXT PRIMARY KEY,
-    path TEXT NOT NULL,
-    file_count INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at TEXT NOT NULL DEFAULT ''
-  );
-  CREATE TABLE agent_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    issue_id INTEGER,
-    agent_type TEXT NOT NULL DEFAULT 'swe',
-    tokens_in INTEGER NOT NULL DEFAULT 0,
-    tokens_out INTEGER NOT NULL DEFAULT 0,
-    tokens_total INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-    tool_uses INTEGER NOT NULL DEFAULT 0,
-    duration_ms INTEGER NOT NULL DEFAULT 0,
-    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE plugin_config (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL DEFAULT '\"\"'
-  );
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (42, 'fix/test-branch', 'dev', 'pending', datetime('now', '+10 seconds'));
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (43, 'fix/other-branch', 'dev', 'completed', datetime('now'));
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (44, 'fix/nv-branch', 'dev', 'needs_validation', datetime('now'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
@@ -101,7 +115,7 @@ git -C "$REPO" branch fix/nv-branch HEAD
 git -C "$REPO" worktree add -q "$WT_NV_PATH" fix/nv-branch
 
 swe_input() {
-  jq -n '{subagent_type: "swe"}'
+  spawn_input "${1:-42}"
 }
 
 non_swe_input() {
@@ -164,7 +178,6 @@ assert_eq "$WT_HEAD" "$sha_after" "commit_sha written from worktree HEAD"
 # ========================================================
 
 test_case "swe + completed task → metrics-only, no additionalContext"
-# Task 42 is now 'completed'. Ensure it's the most-recently-updated so the hook selects it.
 sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+20 seconds') WHERE id=42;"
 AR_COUNT_BEFORE_COMPLETED=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=42;")
 out=$(run_hook "$(swe_input)")
@@ -184,13 +197,12 @@ make_nv_commit() {
   (cd "$WT_NV_PATH" && echo "$RANDOM" >> nv-work.txt && git add nv-work.txt && git commit -qm "feat: nv work")
 }
 
-# Reset task 44 freshness so it's the most-recently-updated.
 sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+30 seconds') WHERE id=44;"
 make_nv_commit
 
 test_case "needs_validation + worktree commit → no additionalContext"
 AR_COUNT_NV_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=44;")
-out=$(run_hook "$(swe_input)")
+out=$(run_hook "$(swe_input 44)")
 assert_eq "" "$out" "no additionalContext for metrics-only"
 
 test_case "needs_validation + worktree commit → status stays needs_validation"
@@ -216,7 +228,7 @@ sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+35 seconds') WHERE 
 
 test_case "needs_validation + no commit → no additionalContext"
 AR_COUNT_NV2_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=44;")
-out=$(run_hook "$(swe_input)")
+out=$(run_hook "$(swe_input 44)")
 assert_eq "" "$out" "no additionalContext even with no commits"
 
 test_case "needs_validation + no commit → status stays needs_validation"
@@ -230,7 +242,7 @@ assert_eq "$((AR_COUNT_NV2_BEFORE + 1))" "$AR_COUNT_NV2_AFTER" "agent_runs writt
 # ---- Test: entry-log fires for non-swe subagent (regression for #94) ----
 echo '--- Test: entry-log fires regardless of subagent_type ---'
 
-LOG="$HOME/.claude/tmb/logs/mcp-health.log"
+LOG="$REPO/.claude/tmb/logs/mcp-health.log"
 LOG_BEFORE=$(wc -l < "$LOG" 2>/dev/null || echo 0)
 
 run_hook "$(non_swe_input)" >/dev/null
@@ -241,11 +253,11 @@ DIFF=$((LOG_AFTER - LOG_BEFORE))
 assert_eq "1" "$DIFF" "non-swe input should write exactly 1 entry-log line"
 
 LAST_LINE=$(tail -1 "$LOG")
-if ! echo "$LAST_LINE" | grep -q '"kind":"swe-atomic-close-entry"'; then
+if ! echo "$LAST_LINE" | grep '"kind":"swe-atomic-close-entry"' >/dev/null; then
   echo "FAIL: last log line is not entry-log: $LAST_LINE" >&2
   exit 1
 fi
-if ! echo "$LAST_LINE" | grep -q '"agent_type_resolved":"architect"'; then
+if ! echo "$LAST_LINE" | grep '"agent_type_resolved":"architect"' >/dev/null; then
   echo "FAIL: entry-log missing resolved agent_type architect: $LAST_LINE" >&2
   exit 1
 fi
@@ -256,11 +268,13 @@ echo '--- Test: hook recognizes real CC payload (.agent_type=tmb:swe) ---'
 
 # Real CC SubagentStop payload shape captured 2026-04-28T17:07:31Z (#94's diagnostic).
 real_cc_swe_input() {
-  jq -n '{
-    agent_id: "test-id",
-    agent_transcript_path: "/tmp/t",
+  local tp
+  tp=$(spawn_transcript 42)
+  jq -n --arg tp "$tp" --arg cwd "$REPO" '{
+    agent_id: "test-id-real-cc",
+    agent_transcript_path: $tp,
     agent_type: "tmb:swe",
-    cwd: "'"$REPO"'",
+    cwd: $cwd,
     hook_event_name: "SubagentStop",
     last_assistant_message: "",
     permission_mode: "default",
@@ -269,8 +283,7 @@ real_cc_swe_input() {
   }'
 }
 
-# Reset task #42 to pending and make it the most-recently-updated task.
-# Use +60s to guarantee task 42 sorts above task 44 (whose NV-test update used +5s).
+# Reset task #42 to pending.
 sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-103" >> work-103.txt && git add work-103.txt && git commit -qm 'feat: 103 work')
 
@@ -283,7 +296,7 @@ echo '  ok'
 sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-bare" >> work-bare.txt && git add work-bare.txt && git commit -qm 'feat: bare swe work')
 bare_swe_input() {
-  jq -n '{agent_type: "swe", hook_event_name: "SubagentStop"}'
+  spawn_input 42 swe
 }
 out=$(run_hook "$(bare_swe_input)")
 NEW_STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")
@@ -315,12 +328,13 @@ transcript_input() {
 
 out=$(run_hook "$(transcript_input "$TRANSCRIPT")")
 
-AR_ROW=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tokens_total, tool_uses, duration_ms FROM agent_runs ORDER BY id DESC LIMIT 1;")
+AR_ROW=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tool_uses, duration_ms, started_at, usage_source FROM agent_runs ORDER BY id DESC LIMIT 1;")
 AR_TI=$(echo "$AR_ROW" | cut -d'|' -f1)
 AR_TO=$(echo "$AR_ROW" | cut -d'|' -f2)
-AR_TT=$(echo "$AR_ROW" | cut -d'|' -f3)
-AR_TU=$(echo "$AR_ROW" | cut -d'|' -f4)
-AR_DM=$(echo "$AR_ROW" | cut -d'|' -f5)
+AR_TU=$(echo "$AR_ROW" | cut -d'|' -f3)
+AR_DM=$(echo "$AR_ROW" | cut -d'|' -f4)
+AR_SA=$(echo "$AR_ROW" | cut -d'|' -f5)
+AR_US=$(echo "$AR_ROW" | cut -d'|' -f6)
 
 test_case "transcript parsed: tokens_in=300"
 assert_eq "300" "$AR_TI" "tokens_in"
@@ -328,8 +342,9 @@ assert_eq "300" "$AR_TI" "tokens_in"
 test_case "transcript parsed: tokens_out=125"
 assert_eq "125" "$AR_TO" "tokens_out"
 
-test_case "transcript parsed: tokens_total=425"
-assert_eq "425" "$AR_TT" "tokens_total"
+test_case "transcript parsed: started_at = first transcript timestamp, usage_source=subagent_stop"
+assert_eq "2026-04-01T00:00:00.000Z" "$AR_SA" "started_at"
+assert_eq "subagent_stop" "$AR_US" "usage_source"
 
 test_case "transcript parsed: tool_uses=1"
 assert_eq "1" "$AR_TU" "tool_uses"
@@ -342,10 +357,10 @@ else
 fi
 
 # ========================================================
-# edge case: no agent_transcript_path → zeros
+# no task id → capture-skipped audit row; no task or agent_runs write
 # ========================================================
 
-echo '--- Test: no agent_transcript_path → agent_runs zeros ---'
+echo '--- Test: no agent_transcript_path → never guesses a task ---'
 
 sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-nopath" >> work-nopath.txt && git add work-nopath.txt && git commit -qm 'feat: nopath work')
@@ -354,63 +369,32 @@ no_transcript_input() {
   jq -n '{subagent_type: "swe"}'
 }
 
-run_hook "$(no_transcript_input)" >/dev/null
+AR_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")
+SKIP_BEFORE=$(skipped_count "$DB")
+out=$(run_hook "$(no_transcript_input)")
 
-AR_ROW2=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tokens_total, tool_uses, duration_ms FROM agent_runs ORDER BY id DESC LIMIT 1;")
-AR_TI2=$(echo "$AR_ROW2" | cut -d'|' -f1)
-AR_TO2=$(echo "$AR_ROW2" | cut -d'|' -f2)
-AR_TT2=$(echo "$AR_ROW2" | cut -d'|' -f3)
+test_case "no transcript path: no output, task 42 stays pending (no updated_at guess)"
+assert_eq "" "$out" "no additionalContext"
+assert_eq "pending" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")" "most recently updated task untouched"
 
-test_case "no transcript path: tokens_in=0"
-assert_eq "0" "$AR_TI2" "tokens_in when no transcript"
+test_case "no transcript path: agent_runs_capture_skipped audit row, no agent_runs write"
+assert_eq "$((SKIP_BEFORE + 1))" "$(skipped_count "$DB")" "one capture-skipped audit row"
+assert_eq "$AR_BEFORE" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")" "no agent_runs row"
+assert_eq "-1|hook:swe-atomic-close" "$(sqlite3 "$DB" "SELECT issue_id, from_node FROM audit WHERE event_type='agent_runs_capture_skipped' ORDER BY id DESC LIMIT 1;")" "audit row on the system issue, written as the hook"
 
-test_case "no transcript path: tokens_out=0"
-assert_eq "0" "$AR_TO2" "tokens_out when no transcript"
-
-test_case "no transcript path: tokens_total=0"
-assert_eq "0" "$AR_TT2" "tokens_total when no transcript"
-
-# ========================================================
-# edge case: agent_transcript_path points to missing file → zeros + parse-failed log
-# ========================================================
-
-echo '--- Test: missing transcript file → zeros + parse-failed log entry ---'
-
-sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
-(cd "$WT_PATH" && echo "$RANDOM-missing" >> work-missing.txt && git add work-missing.txt && git commit -qm 'feat: missing file work')
+echo '--- Test: missing transcript file → never guesses a task ---'
 
 missing_transcript_input() {
   jq -n '{subagent_type: "swe", agent_transcript_path: "/tmp/does-not-exist-tmb-test.jsonl"}'
 }
 
-LOG="$HOME/.claude/tmb/logs/mcp-health.log"
-LOG_BEFORE=$(wc -l < "$LOG" 2>/dev/null || echo 0)
-
+SKIP_BEFORE=$(skipped_count "$DB")
 run_hook "$(missing_transcript_input)" >/dev/null
 
-AR_ROW3=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tokens_total FROM agent_runs ORDER BY id DESC LIMIT 1;")
-AR_TI3=$(echo "$AR_ROW3" | cut -d'|' -f1)
-AR_TO3=$(echo "$AR_ROW3" | cut -d'|' -f2)
-AR_TT3=$(echo "$AR_ROW3" | cut -d'|' -f3)
-
-test_case "missing file: tokens_in=0"
-assert_eq "0" "$AR_TI3" "tokens_in when file missing"
-
-test_case "missing file: tokens_out=0"
-assert_eq "0" "$AR_TO3" "tokens_out when file missing"
-
-test_case "missing file: tokens_total=0"
-assert_eq "0" "$AR_TT3" "tokens_total when file missing"
-
-LOG_AFTER=$(wc -l < "$LOG" 2>/dev/null || echo 0)
-PARSE_FAILED_LINES=$(grep '"kind":"agent-runs-stats-parse-failed"' "$LOG" 2>/dev/null | wc -l | tr -d ' ')
-
-test_case "missing file: parse-failed diagnostic written to log"
-if [ "$PARSE_FAILED_LINES" -ge 1 ]; then
-  _pass
-else
-  _fail "expected at least 1 agent-runs-stats-parse-failed log line, got $PARSE_FAILED_LINES"
-fi
+test_case "missing file: capture-skipped audit row, task 42 untouched, no agent_runs write"
+assert_eq "$((SKIP_BEFORE + 1))" "$(skipped_count "$DB")" "one capture-skipped audit row"
+assert_eq "pending" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")" "task untouched"
+assert_eq "$AR_BEFORE" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")" "no agent_runs row"
 
 # ========================================================
 # no-worktree fallback: SWE commits in REPO_ROOT on task branch
@@ -429,50 +413,10 @@ git -C "$NW_REPO" commit -qm "base"
 
 NW_DB="$NW_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$NW_DB")"
+sqlite3 "$NW_DB" "$(min_schema)"
 sqlite3 "$NW_DB" "
-  CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY,
-    issue_id INTEGER NOT NULL DEFAULT 1,
-    branch_id TEXT NOT NULL,
-    parent_branch_id TEXT,
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    spec_body TEXT NOT NULL DEFAULT '',
-    commit_sha TEXT,
-    repo TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at TEXT
-  );
-  CREATE TABLE repos (
-    name TEXT PRIMARY KEY,
-    path TEXT NOT NULL,
-    file_count INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at TEXT NOT NULL DEFAULT ''
-  );
-  CREATE TABLE agent_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    issue_id INTEGER,
-    agent_type TEXT NOT NULL DEFAULT 'swe',
-    tokens_in INTEGER NOT NULL DEFAULT 0,
-    tokens_out INTEGER NOT NULL DEFAULT 0,
-    tokens_total INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-    tool_uses INTEGER NOT NULL DEFAULT 0,
-    duration_ms INTEGER NOT NULL DEFAULT 0,
-    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE plugin_config (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL DEFAULT '\"\"'
-  );
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
     VALUES (100, 'feat/test-branch', 'dev', 'pending', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # SWE checks out the feature branch in REPO_ROOT (no worktree).
@@ -483,7 +427,7 @@ git -C "$NW_REPO" commit -qm "feat: swe work"
 NW_HEAD=$(git -C "$NW_REPO" rev-parse HEAD)
 
 nw_swe_input() {
-  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+  spawn_input "$1" tmb:swe
 }
 
 run_hook_in_dir() {
@@ -494,7 +438,7 @@ run_hook_in_dir() {
 }
 
 test_case "no-worktree: REPO_ROOT on task branch + commits ahead → auto-completed"
-out=$(run_hook_in_dir "$NW_REPO" "$(nw_swe_input)" "$NW_DB")
+out=$(run_hook_in_dir "$NW_REPO" "$(nw_swe_input 100)" "$NW_DB")
 assert_eq "" "$out" "no additionalContext on auto-close"
 nw_status=$(sqlite3 "$NW_DB" "SELECT status FROM tasks WHERE id=100;")
 assert_eq "completed" "$nw_status" "task auto-closed"
@@ -517,13 +461,9 @@ git -C "$NW2_REPO" commit -qm "base"
 
 NW2_DB="$NW2_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$NW2_DB")"
+sqlite3 "$NW2_DB" "$(min_schema)"
 sqlite3 "$NW2_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (101, 'feat/test-branch', 'dev', 'pending', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # REPO_ROOT stays on 'dev' (wrong branch — task is for feat/test-branch).
@@ -533,7 +473,7 @@ git -C "$NW2_REPO" add .
 git -C "$NW2_REPO" commit -qm "chore: dev commit"
 
 test_case "no-worktree: REPO_ROOT on wrong branch → warn-no-commits, task stays pending"
-out=$(run_hook_in_dir "$NW2_REPO" "$(nw_swe_input)" "$NW2_DB")
+out=$(run_hook_in_dir "$NW2_REPO" "$(nw_swe_input 101)" "$NW2_DB")
 assert_contains "$out" "stopped without committing" "warn body present"
 nw2_status=$(sqlite3 "$NW2_DB" "SELECT status FROM tasks WHERE id=101;")
 assert_eq "pending" "$nw2_status" "task stays pending"
@@ -554,20 +494,16 @@ git -C "$NW3_REPO" commit -qm "base"
 
 NW3_DB="$NW3_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$NW3_DB")"
+sqlite3 "$NW3_DB" "$(min_schema)"
 sqlite3 "$NW3_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (102, 'feat/test-branch', 'dev', 'pending', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # REPO_ROOT on the task branch but HEAD == dev tip (no SWE commits yet).
 git -C "$NW3_REPO" checkout -q -b feat/test-branch
 
 test_case "no-worktree: REPO_ROOT on task branch but no commits ahead → warn-no-commits, task stays pending"
-out=$(run_hook_in_dir "$NW3_REPO" "$(nw_swe_input)" "$NW3_DB")
+out=$(run_hook_in_dir "$NW3_REPO" "$(nw_swe_input 102)" "$NW3_DB")
 assert_contains "$out" "stopped without committing" "warn body present"
 nw3_status=$(sqlite3 "$NW3_DB" "SELECT status FROM tasks WHERE id=102;")
 assert_eq "pending" "$nw3_status" "task stays pending"
@@ -592,16 +528,12 @@ git -C "$PARALLEL_REPO" commit -qm "base"
 
 PAR_DB="$PARALLEL_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$PAR_DB")"
+sqlite3 "$PAR_DB" "$(min_schema)"
 sqlite3 "$PAR_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
     VALUES (200, 'fix/swe-a-task', 'dev', 'pending', datetime('now', '+1 second'));
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
     VALUES (201, 'fix/swe-b-task', 'dev', 'pending', datetime('now', '+99 seconds'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # SWE-A worktree for task 200.
@@ -660,13 +592,9 @@ git -C "$INJ_REPO" commit -qm "base"
 
 INJ_DB="$INJ_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$INJ_DB")"
+sqlite3 "$INJ_DB" "$(min_schema)"
 sqlite3 "$INJ_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (300, 'fix/inj-branch', 'dev', 'pending', datetime('now', '+99 seconds'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 INJ_TRANSCRIPT="$TMPDIR/inj-transcript.jsonl"
@@ -685,17 +613,16 @@ test_case "injection in transcript task_id: tasks table not dropped"
 TABLE_OK=$(sqlite3 "$INJ_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tasks';" 2>/dev/null || echo 0)
 assert_eq "1" "$TABLE_OK" "tasks table must survive injection attempt"
 
-test_case "injection in transcript task_id: task 300 still pending (hook took fallback path)"
-# Hook either used the fallback (most-recent task) or skipped; task 300 may be auto-completed
-# by the fallback path if no worktree exists. Either way the tasks table must exist.
-# The key assertion is: no SQL error / no table drop.
-assert_eq "1" "$TABLE_OK" "tasks table intact (re-check after hook ran)"
+test_case "injection in transcript task_id: binds task 1 (no row) → capture skipped, task 300 untouched"
+assert_eq "pending" "$(sqlite3 "$INJ_DB" "SELECT status FROM tasks WHERE id=300;")" "no fallback to the most recently updated task"
+assert_eq "1" "$(skipped_count "$INJ_DB")" "capture-skipped audit row"
+assert_eq "0" "$(sqlite3 "$INJ_DB" "SELECT COUNT(*) FROM agent_runs;")" "no agent_runs row"
 
 # ========================================================
-# Slug fallback: no transcript + worktree cwd → resolves by branch_id slug
+# No transcript + a worktree cwd: the slug is never used to guess the task
 # ========================================================
 
-echo '--- Test: slug fallback: no transcript + worktree cwd → resolves task ---'
+echo '--- Test: no transcript + matching worktree cwd → task not guessed ---'
 
 SLUG_REPO="$TMPDIR/slug-repo"
 git init -q -b dev "$SLUG_REPO"
@@ -707,13 +634,9 @@ git -C "$SLUG_REPO" commit -qm "base"
 
 SLUG_DB="$SLUG_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$SLUG_DB")"
+sqlite3 "$SLUG_DB" "$(min_schema)"
 sqlite3 "$SLUG_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (500, 'fix/slug-task', 'dev', 'pending', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 SLUG_WT="$SLUG_REPO/.claude/worktrees/slug-task"
@@ -722,62 +645,24 @@ git -C "$SLUG_REPO" worktree add -q "$SLUG_WT" fix/slug-task
 
 # Make a commit in the worktree so auto-close fires.
 (cd "$SLUG_WT" && echo "$RANDOM" >> slug-work.txt && git add slug-work.txt && git commit -qm "feat: slug work")
-SLUG_WT_HEAD=$(git -C "$SLUG_WT" rev-parse HEAD)
 
 slug_swe_input_with_cwd() {
   local cwd="$1"
   jq -n --arg cwd "$cwd" '{agent_type: "tmb:swe", hook_event_name: "SubagentStop", cwd: $cwd}'
 }
 
-test_case "slug fallback: no transcript + matching worktree cwd → auto-completed"
+test_case "no transcript + matching worktree cwd → task 500 stays pending, capture skipped"
 out=$(run_hook_in_dir "$SLUG_REPO" "$(slug_swe_input_with_cwd "$SLUG_WT")" "$SLUG_DB")
-assert_eq "" "$out" "no additionalContext on auto-close via slug"
-slug_status=$(sqlite3 "$SLUG_DB" "SELECT status FROM tasks WHERE id=500;")
-assert_eq "completed" "$slug_status" "task 500 auto-closed via slug resolution"
-slug_sha=$(sqlite3 "$SLUG_DB" "SELECT commit_sha FROM tasks WHERE id=500;")
-assert_eq "$SLUG_WT_HEAD" "$slug_sha" "commit_sha written from slug-resolved worktree HEAD"
+assert_eq "" "$out" "no additionalContext"
+assert_eq "pending" "$(sqlite3 "$SLUG_DB" "SELECT status FROM tasks WHERE id=500;")" "task 500 not resolved from the cwd slug"
+assert_eq "" "$(sqlite3 "$SLUG_DB" "SELECT COALESCE(commit_sha, '') FROM tasks WHERE id=500;")" "no commit_sha written"
+assert_eq "1" "$(skipped_count "$SLUG_DB")" "capture-skipped audit row"
 
 # ========================================================
-# Slug fallback: no match → falls through to existing fallback
+# Transcript present + a cwd naming another worktree → the transcript binds
 # ========================================================
 
-echo '--- Test: slug fallback: no matching task for slug → existing fallback behavior ---'
-
-NOMATCH_REPO="$TMPDIR/nomatch-repo"
-git init -q -b dev "$NOMATCH_REPO"
-git -C "$NOMATCH_REPO" config user.email t@t.io
-git -C "$NOMATCH_REPO" config user.name t
-echo base > "$NOMATCH_REPO/base.txt"
-git -C "$NOMATCH_REPO" add .
-git -C "$NOMATCH_REPO" commit -qm "base"
-
-NOMATCH_DB="$NOMATCH_REPO/.claude/tmb/trajectory.db"
-mkdir -p "$(dirname "$NOMATCH_DB")"
-sqlite3 "$NOMATCH_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
-  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (501, 'fix/other-task', 'dev', 'pending', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
-"
-
-# The cwd slug 'no-such-slug' does not match any branch_id.
-# The most-recently-updated fallback (task 501) should be used.
-# That task has no worktree, so HAS_COMMITS=false → warn-no-commits.
-FAKE_SLUG_PATH="$NOMATCH_REPO/.claude/worktrees/no-such-slug"
-
-test_case "slug fallback: no slug match → falls through, most-recent task selected (warn-no-commits)"
-out=$(run_hook_in_dir "$NOMATCH_REPO" "$(slug_swe_input_with_cwd "$FAKE_SLUG_PATH")" "$NOMATCH_DB")
-assert_contains "$out" "stopped without committing" "existing fallback: warn-no-commits emitted"
-nomatch_status=$(sqlite3 "$NOMATCH_DB" "SELECT status FROM tasks WHERE id=501;")
-assert_eq "pending" "$nomatch_status" "task 501 still pending (warn, not auto-closed)"
-
-# ========================================================
-# Slug fallback: transcript present → transcript path unchanged, slug not consulted
-# ========================================================
-
-echo '--- Test: slug fallback: transcript present → transcript resolution takes priority ---'
+echo '--- Test: transcript task_id binds even when cwd names another worktree ---'
 
 TXFIRST_REPO="$TMPDIR/txfirst-repo"
 git init -q -b dev "$TXFIRST_REPO"
@@ -789,14 +674,10 @@ git -C "$TXFIRST_REPO" commit -qm "base"
 
 TXFIRST_DB="$TXFIRST_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$TXFIRST_DB")"
+sqlite3 "$TXFIRST_DB" "$(min_schema)"
 sqlite3 "$TXFIRST_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (600, 'fix/tx-task', 'dev', 'pending', datetime('now', '+1 second'));
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (601, 'fix/slug-other-task', 'dev', 'pending', datetime('now', '+2 seconds'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # Worktree for task 600.
@@ -815,7 +696,7 @@ cat > "$TXFIRST_TRANSCRIPT" <<JSONL
 {"timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50},"content":[]}}
 JSONL
 
-# cwd slug 'slug-other-task' matches task 601 — if slug fallback fires, wrong task gets closed.
+# cwd slug 'slug-other-task' matches task 601 — the cwd must never pick the task.
 TXFIRST_OTHER_WT="$TXFIRST_REPO/.claude/worktrees/slug-other-task"
 txfirst_input() {
   local tp="$1"
@@ -824,15 +705,15 @@ txfirst_input() {
     '{agent_type:"tmb:swe",hook_event_name:"SubagentStop",agent_transcript_path:$tp,cwd:$cwd}'
 }
 
-test_case "slug fallback: transcript present → transcript wins; correct task (600) auto-completed"
+test_case "transcript binds task 600 (auto-completed) despite a cwd naming task 601"
 out=$(run_hook_in_dir "$TXFIRST_REPO" "$(txfirst_input "$TXFIRST_TRANSCRIPT" "$TXFIRST_OTHER_WT")" "$TXFIRST_DB")
 assert_eq "" "$out" "no additionalContext on auto-close"
 txfirst_status_600=$(sqlite3 "$TXFIRST_DB" "SELECT status FROM tasks WHERE id=600;")
-assert_eq "completed" "$txfirst_status_600" "task 600 auto-closed via transcript (not slug)"
+assert_eq "completed" "$txfirst_status_600" "task 600 auto-closed via transcript"
 txfirst_sha=$(sqlite3 "$TXFIRST_DB" "SELECT commit_sha FROM tasks WHERE id=600;")
 assert_eq "$TXFIRST_WT_HEAD" "$txfirst_sha" "commit_sha from task 600 worktree HEAD"
 
-test_case "slug fallback: transcript present → task 601 NOT touched (slug not consulted)"
+test_case "task 601 NOT touched by the cwd"
 txfirst_status_601=$(sqlite3 "$TXFIRST_DB" "SELECT status FROM tasks WHERE id=601;")
 assert_eq "pending" "$txfirst_status_601" "task 601 untouched when transcript resolves task 600"
 
@@ -866,51 +747,11 @@ git -C "$INNER_REPO" add .
 git -C "$INNER_REPO" commit -qm "base"
 INNER_REPO_ROOT=$(git -C "$INNER_REPO" rev-parse --show-toplevel)
 
+sqlite3 "$WS_DB" "$(min_schema)"
 sqlite3 "$WS_DB" "
-  CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY,
-    issue_id INTEGER NOT NULL DEFAULT 1,
-    branch_id TEXT NOT NULL,
-    parent_branch_id TEXT,
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    spec_body TEXT NOT NULL DEFAULT '',
-    commit_sha TEXT,
-    repo TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at TEXT
-  );
-  CREATE TABLE repos (
-    name TEXT PRIMARY KEY,
-    path TEXT NOT NULL,
-    file_count INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at TEXT NOT NULL DEFAULT ''
-  );
-  CREATE TABLE agent_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    issue_id INTEGER,
-    agent_type TEXT NOT NULL DEFAULT 'swe',
-    tokens_in INTEGER NOT NULL DEFAULT 0,
-    tokens_out INTEGER NOT NULL DEFAULT 0,
-    tokens_total INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-    tool_uses INTEGER NOT NULL DEFAULT 0,
-    duration_ms INTEGER NOT NULL DEFAULT 0,
-    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE plugin_config (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL DEFAULT '\"\"'
-  );
   INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_REPO_ROOT');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
     VALUES (700, 'fix/ws-task', 'dev', 'pending', 'plugin', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # Worktree is REPO-ROOTED inside the inner repo (the canonical layout).
@@ -922,7 +763,7 @@ git -C "$INNER_REPO" worktree add -q "$WS_WT" fix/ws-task
 WS_WT_HEAD=$(git -C "$WS_WT" rev-parse HEAD)
 
 ws_swe_input() {
-  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+  spawn_input 700 tmb:swe
 }
 
 test_case "nested-repo: repo-rooted worktree under <ws>/plugin → no workspace-rooted path exists"
@@ -959,15 +800,11 @@ EP_REPO_ROOT=$(git -C "$EP_REPO" rev-parse --show-toplevel)
 
 EP_DB="$EP_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$EP_DB")"
+sqlite3 "$EP_DB" "$(min_schema)"
 sqlite3 "$EP_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-repo', '$EP_REPO_ROOT', 'dev');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
     VALUES (800, 'fix/ep-task', NULL, 'pending', 'empty-parent-repo', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # Attached worktree owns the feature ref — SWE's commit advances refs/heads/fix/ep-task
@@ -979,11 +816,11 @@ git -C "$EP_REPO" worktree add -q "$EP_WT" fix/ep-task
 EP_WT_HEAD=$(git -C "$EP_WT" rev-parse HEAD)
 
 ep_swe_input() {
-  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+  spawn_input "$1" tmb:swe
 }
 
 test_case "empty parent_branch_id + attached-worktree commit → auto-completed"
-out=$(run_hook_in_dir "$EP_REPO" "$(ep_swe_input)" "$EP_DB")
+out=$(run_hook_in_dir "$EP_REPO" "$(ep_swe_input 800)" "$EP_DB")
 assert_eq "" "$out" "no additionalContext on auto-close"
 ep_status=$(sqlite3 "$EP_DB" "SELECT status FROM tasks WHERE id=800;")
 assert_eq "completed" "$ep_status" "task 800 auto-closed despite empty parent_branch_id"
@@ -1008,15 +845,11 @@ EP2_REPO_ROOT=$(git -C "$EP2_REPO" rev-parse --show-toplevel)
 
 EP2_DB="$EP2_REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$EP2_DB")"
+sqlite3 "$EP2_DB" "$(min_schema)"
 sqlite3 "$EP2_DB" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
-  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
   INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-nocommit-repo', '$EP2_REPO_ROOT', 'dev');
   INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
     VALUES (801, 'fix/ep2-task', NULL, 'pending', 'empty-parent-nocommit-repo', datetime('now', '+1 second'));
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
 # Worktree at the base tip — no SWE commits yet.
@@ -1025,9 +858,100 @@ git -C "$EP2_REPO" branch fix/ep2-task HEAD
 git -C "$EP2_REPO" worktree add -q "$EP2_WT" fix/ep2-task
 
 test_case "empty parent_branch_id + no commit ahead → warn-no-commits, task stays pending"
-out=$(run_hook_in_dir "$EP2_REPO" "$(ep_swe_input)" "$EP2_DB")
+out=$(run_hook_in_dir "$EP2_REPO" "$(ep_swe_input 801)" "$EP2_DB")
 assert_contains "$out" "stopped without committing" "warn body present"
 ep2_status=$(sqlite3 "$EP2_DB" "SELECT status FROM tasks WHERE id=801;")
 assert_eq "pending" "$ep2_status" "task 801 stays pending (no false-positive auto-close)"
+
+# ========================================================
+# GH 1511: commits are counted by ancestry against the local AND origin parent
+# tips. A worktree provisioned from origin/<parent> while the local <parent>
+# is stale (or the reverse) carries zero commits and must never auto-complete.
+# ========================================================
+
+# anc_repo <name>: a repo on dev with a bare origin, dev pushed. Prints its path.
+anc_repo() {
+  local repo="$TMPDIR/$1" remote="$TMPDIR/$1-remote.git"
+  git init -q --bare "$remote"
+  git init -q -b dev "$repo"
+  git -C "$repo" config user.email t@t.io
+  git -C "$repo" config user.name t
+  git -C "$repo" remote add origin "$remote"
+  echo base > "$repo/base.txt"
+  git -C "$repo" add .
+  git -C "$repo" commit -qm base
+  git -C "$repo" push -q origin dev
+  mkdir -p "$repo/.claude/tmb"
+  sqlite3 "$repo/.claude/tmb/trajectory.db" "$(min_schema)"
+  printf '%s\n' "$repo"
+}
+
+# anc_commits <repo> <n>: n commits on the repo's checked-out branch.
+anc_commits() {
+  local i
+  for i in $(seq 1 "$2"); do
+    echo "$i-$RANDOM" >> "$1/dev-$i.txt"
+    git -C "$1" add "dev-$i.txt"
+    git -C "$1" commit -qm "dev $i"
+  done
+}
+
+auto_completed_rows() {
+  sqlite3 "$1" "SELECT COUNT(*) FROM audit WHERE event_type='swe_atomic_close_auto_completed' AND json_extract(content_json, '\$.task_id')=$2;"
+}
+
+echo '--- Test: GH 1511: local parent 3 behind origin, worktree from origin/<parent> ---'
+
+STALE_REPO=$(anc_repo stale-parent-repo)
+STALE_DB="$STALE_REPO/.claude/tmb/trajectory.db"
+anc_commits "$STALE_REPO" 3
+git -C "$STALE_REPO" push -q origin dev
+git -C "$STALE_REPO" reset -q --hard HEAD~3
+STALE_LOCAL_TIP=$(git -C "$STALE_REPO" rev-parse refs/heads/dev)
+STALE_ORIGIN_TIP=$(git -C "$STALE_REPO" rev-parse refs/remotes/origin/dev)
+sqlite3 "$STALE_DB" "INSERT INTO tasks (id, branch_id, parent_branch_id, status) VALUES (900, 'fix/stale-task', 'dev', 'running');"
+STALE_WT="$STALE_REPO/.claude/worktrees/stale-task"
+git -C "$STALE_REPO" branch -q --no-track fix/stale-task origin/dev
+git -C "$STALE_REPO" worktree add -q "$STALE_WT" fix/stale-task
+
+test_case "GH 1511 (a): fixture — local dev is 3 commits behind origin/dev"
+assert_eq "3" "$(git -C "$STALE_REPO" rev-list --count "$STALE_LOCAL_TIP..$STALE_ORIGIN_TIP")" "origin/dev 3 ahead of local dev"
+assert_eq "0" "$(git -C "$STALE_REPO" rev-list --count "$STALE_ORIGIN_TIP..$STALE_LOCAL_TIP")" "local dev not ahead"
+
+test_case "GH 1511 (a): zero swe commits → warn-no-commits, task stays running, no commit_sha, no audit row"
+out=$(run_hook_in_dir "$STALE_REPO" "$(spawn_input 900 tmb:swe)" "$STALE_DB")
+assert_contains "$out" "stopped without committing" "bro warning emitted"
+assert_eq "running" "$(sqlite3 "$STALE_DB" "SELECT status FROM tasks WHERE id=900;")" "task not completed"
+assert_eq "1" "$(sqlite3 "$STALE_DB" "SELECT commit_sha IS NULL FROM tasks WHERE id=900;")" "commit_sha stays NULL"
+assert_eq "0" "$(auto_completed_rows "$STALE_DB" 900)" "no swe_atomic_close_auto_completed row"
+
+test_case "GH 1511 (b): one swe commit on the same setup → completed at that commit, one audit row"
+(cd "$STALE_WT" && echo "$RANDOM" >> stale-work.txt && git add stale-work.txt && git commit -qm "feat: stale work")
+STALE_WT_HEAD=$(git -C "$STALE_WT" rev-parse HEAD)
+out=$(run_hook_in_dir "$STALE_REPO" "$(spawn_input 900 tmb:swe)" "$STALE_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+assert_eq "completed" "$(sqlite3 "$STALE_DB" "SELECT status FROM tasks WHERE id=900;")" "task auto-completed"
+assert_eq "$STALE_WT_HEAD" "$(sqlite3 "$STALE_DB" "SELECT commit_sha FROM tasks WHERE id=900;")" "commit_sha is the swe commit"
+assert_eq "1" "$(auto_completed_rows "$STALE_DB" 900)" "one swe_atomic_close_auto_completed row"
+STALE_AUDIT=$(sqlite3 "$STALE_DB" "SELECT json_extract(content_json, '\$.commit_sha') || '|' || json_extract(content_json, '\$.parent_tip_local') || '|' || json_extract(content_json, '\$.parent_tip_origin') || '|' || from_node || '|' || branch_id || '|' || issue_id FROM audit WHERE event_type='swe_atomic_close_auto_completed';")
+assert_eq "$STALE_WT_HEAD|$STALE_LOCAL_TIP|$STALE_ORIGIN_TIP|hook:swe-atomic-close|fix/stale-task|1" "$STALE_AUDIT" "content_json carries the commit sha and both parent tips"
+
+echo '--- Test: GH 1511: local parent ahead of origin, zero commits ---'
+
+AHEAD_REPO=$(anc_repo ahead-parent-repo)
+AHEAD_DB="$AHEAD_REPO/.claude/tmb/trajectory.db"
+anc_commits "$AHEAD_REPO" 2
+sqlite3 "$AHEAD_DB" "INSERT INTO tasks (id, branch_id, parent_branch_id, status) VALUES (901, 'fix/ahead-task', 'dev', 'running');"
+AHEAD_WT="$AHEAD_REPO/.claude/worktrees/ahead-task"
+git -C "$AHEAD_REPO" branch -q --no-track fix/ahead-task origin/dev
+git -C "$AHEAD_REPO" worktree add -q "$AHEAD_WT" fix/ahead-task
+
+test_case "GH 1511 (c): local dev ahead of origin/dev + zero swe commits → not completed"
+assert_eq "2" "$(git -C "$AHEAD_REPO" rev-list --count origin/dev..dev)" "fixture: local dev 2 ahead of origin"
+out=$(run_hook_in_dir "$AHEAD_REPO" "$(spawn_input 901 tmb:swe)" "$AHEAD_DB")
+assert_contains "$out" "stopped without committing" "bro warning emitted"
+assert_eq "running" "$(sqlite3 "$AHEAD_DB" "SELECT status FROM tasks WHERE id=901;")" "task not completed"
+assert_eq "1" "$(sqlite3 "$AHEAD_DB" "SELECT commit_sha IS NULL FROM tasks WHERE id=901;")" "commit_sha stays NULL"
+assert_eq "0" "$(auto_completed_rows "$AHEAD_DB" 901)" "no swe_atomic_close_auto_completed row"
 
 summarize

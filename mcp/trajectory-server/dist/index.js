@@ -5,7 +5,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -96,7 +100,7 @@ var require_code = __commonJS({
     }
     exports._ = _;
     var plus = new _Code("+");
-    function str(strs, ...args) {
+    function str2(strs, ...args) {
       const expr = [safeStringify(strs[0])];
       let i = 0;
       while (i < args.length) {
@@ -107,7 +111,7 @@ var require_code = __commonJS({
       optimize(expr);
       return new _Code(expr);
     }
-    exports.str = str;
+    exports.str = str2;
     function addCodeArg(code, arg) {
       if (arg instanceof _Code)
         code.push(...arg._items);
@@ -150,7 +154,7 @@ var require_code = __commonJS({
       return;
     }
     function strConcat(c1, c2) {
-      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str`${c1}${c2}`;
+      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str2`${c1}${c2}`;
     }
     exports.strConcat = strConcat;
     function interpolate(x) {
@@ -405,11 +409,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -426,10 +430,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -490,8 +494,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants) {
-        this.code = optimizeExpr(this.code, names, constants);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -520,12 +524,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -578,12 +582,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a2;
-        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants);
-        if (!(super.optimizeNames(names, constants) || this.else))
+        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -606,10 +610,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -645,10 +649,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -690,11 +694,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a2, _b;
-        super.optimizeNames(names, constants);
-        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
+        super.optimizeNames(names, constants2);
+        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -995,7 +999,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1010,14 +1014,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -1112,22 +1116,22 @@ var require_util = __commonJS({
       return (0, codegen_1._)`${topSchemaRef}${schemaPath}${(0, codegen_1.getProperty)(keyword)}`;
     }
     exports.schemaRefOrVal = schemaRefOrVal;
-    function unescapeFragment(str) {
-      return unescapeJsonPointer(decodeURIComponent(str));
+    function unescapeFragment(str2) {
+      return unescapeJsonPointer(decodeURIComponent(str2));
     }
     exports.unescapeFragment = unescapeFragment;
-    function escapeFragment(str) {
-      return encodeURIComponent(escapeJsonPointer(str));
+    function escapeFragment(str2) {
+      return encodeURIComponent(escapeJsonPointer(str2));
     }
     exports.escapeFragment = escapeFragment;
-    function escapeJsonPointer(str) {
-      if (typeof str == "number")
-        return `${str}`;
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPointer(str2) {
+      if (typeof str2 == "number")
+        return `${str2}`;
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
     exports.escapeJsonPointer = escapeJsonPointer;
-    function unescapeJsonPointer(str) {
-      return str.replace(/~1/g, "/").replace(/~0/g, "~");
+    function unescapeJsonPointer(str2) {
+      return str2.replace(/~1/g, "/").replace(/~0/g, "~");
     }
     exports.unescapeJsonPointer = unescapeJsonPointer;
     function eachItem(xs, f) {
@@ -1297,21 +1301,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err18 = gen.name("err");
+      const err20 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err18, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err18}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err18}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err18}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err20, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err20}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err20}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err20}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err18}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err18}.data`, data);
+          gen.assign((0, codegen_1._)`${err20}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err20}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err18 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err18}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err18})`);
+      const err20 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err20}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err20})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -1359,12 +1363,12 @@ var require_errors = __commonJS({
       }
       return [E.schemaPath, schPath];
     }
-    function extraErrorProps(cxt, { params, message }, keyValues) {
+    function extraErrorProps(cxt, { params, message: message2 }, keyValues) {
       const { keyword, data, schemaValue, it } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it;
       keyValues.push([E.keyword, keyword], [E.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E.message, typeof message2 == "function" ? message2(cxt) : message2]);
       }
       if (opts.verbose) {
         keyValues.push([E.schema, schemaValue], [E.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
@@ -1512,8 +1516,8 @@ var require_dataType = __commonJS({
       return types;
     }
     exports.getSchemaTypes = getSchemaTypes;
-    function getJSONTypes(ts) {
-      const types = Array.isArray(ts) ? ts : ts ? [ts] : [];
+    function getJSONTypes(ts2) {
+      const types = Array.isArray(ts2) ? ts2 : ts2 ? [ts2] : [];
       if (types.every(rules_1.isJSONType))
         return types;
       throw new Error("type must be JSONType or JSONType[]: " + types.join(","));
@@ -1920,10 +1924,10 @@ var require_keyword = __commonJS({
       if (def.async && !schemaEnv.$async)
         throw new Error("async keyword in sync schema");
     }
-    function useKeyword(gen, keyword, result) {
-      if (result === void 0)
+    function useKeyword(gen, keyword, result2) {
+      if (result2 === void 0)
         throw new Error(`keyword "${keyword}" failed to compile`);
-      return gen.scopeValue("keyword", typeof result == "function" ? { ref: result } : { ref: result, code: (0, codegen_1.stringify)(result) });
+      return gen.scopeValue("keyword", typeof result2 == "function" ? { ref: result2 } : { ref: result2, code: (0, codegen_1.stringify)(result2) });
     }
     function validSchemaType(schema, schemaType, allowUndefined = false) {
       return !schemaType.length || schemaType.some((st) => st === "array" ? Array.isArray(schema) : st === "object" ? schema && typeof schema == "object" && !Array.isArray(schema) : typeof schema == st || allowUndefined && typeof schema == "undefined");
@@ -2152,8 +2156,8 @@ var require_json_schema_traverse = __commonJS({
         post(schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema, keyIndex);
       }
     }
-    function escapeJsonPtr(str) {
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPtr(str2) {
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
   }
 });
@@ -2555,18 +2559,18 @@ var require_validate = __commonJS({
       });
       narrowSchemaTypes(it, types);
     }
-    function checkMultipleTypes(it, ts) {
-      if (ts.length > 1 && !(ts.length === 2 && ts.includes("null"))) {
+    function checkMultipleTypes(it, ts2) {
+      if (ts2.length > 1 && !(ts2.length === 2 && ts2.includes("null"))) {
         strictTypesError(it, "use allowUnionTypes to allow union type keyword");
       }
     }
-    function checkKeywordTypes(it, ts) {
+    function checkKeywordTypes(it, ts2) {
       const rules = it.self.RULES.all;
       for (const keyword in rules) {
         const rule = rules[keyword];
         if (typeof rule == "object" && (0, applicability_1.shouldUseRule)(it.schema, rule)) {
           const { type } = rule.definition;
-          if (type.length && !type.some((t) => hasApplicableType(ts, t))) {
+          if (type.length && !type.some((t) => hasApplicableType(ts2, t))) {
             strictTypesError(it, `missing type "${type.join(",")}" for keyword "${keyword}"`);
           }
         }
@@ -2575,18 +2579,18 @@ var require_validate = __commonJS({
     function hasApplicableType(schTs, kwdT) {
       return schTs.includes(kwdT) || kwdT === "number" && schTs.includes("integer");
     }
-    function includesType(ts, t) {
-      return ts.includes(t) || t === "integer" && ts.includes("number");
+    function includesType(ts2, t) {
+      return ts2.includes(t) || t === "integer" && ts2.includes("number");
     }
     function narrowSchemaTypes(it, withTypes) {
-      const ts = [];
+      const ts2 = [];
       for (const t of it.dataTypes) {
         if (includesType(withTypes, t))
-          ts.push(t);
+          ts2.push(t);
         else if (withTypes.includes("integer") && t === "number")
-          ts.push("integer");
+          ts2.push("integer");
       }
-      it.dataTypes = ts;
+      it.dataTypes = ts2;
     }
     function strictTypesError(it, msg) {
       const schemaPath = it.schemaEnv.baseId + it.errSchemaPath;
@@ -2979,7 +2983,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve5.call(this, root, ref);
+      let _sch = resolve3.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3006,7 +3010,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve5(root, ref) {
+    function resolve3(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3214,10 +3218,10 @@ var require_utils = __commonJS({
         return { host, isIPV6: false };
       }
     }
-    function findToken(str, token) {
+    function findToken(str2, token) {
       let ind = 0;
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] === token) ind++;
+      for (let i = 0; i < str2.length; i++) {
+        if (str2[i] === token) ind++;
       }
       return ind;
     }
@@ -3574,62 +3578,62 @@ var require_fast_uri = __commonJS({
     function normalize(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
-        serialize(parse3(uri, options), options);
+        serialize(parse4(uri, options), options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse3(serialize(uri, options), options);
+        parse4(serialize(uri, options), options);
       }
       return uri;
     }
-    function resolve5(baseURI, relativeURI, options) {
+    function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
+      const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative, options, skipNormalization) {
+    function resolveComponent(base, relative3, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse3(serialize(base, options), options);
-        relative = parse3(serialize(relative, options), options);
+        base = parse4(serialize(base, options), options);
+        relative3 = parse4(serialize(relative3, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative.scheme) {
-        target.scheme = relative.scheme;
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (!options.tolerant && relative3.scheme) {
+        target.scheme = relative3.scheme;
+        target.userinfo = relative3.userinfo;
+        target.host = relative3.host;
+        target.port = relative3.port;
+        target.path = removeDotSegments(relative3.path || "");
+        target.query = relative3.query;
       } else {
-        if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-          target.userinfo = relative.userinfo;
-          target.host = relative.host;
-          target.port = relative.port;
-          target.path = removeDotSegments(relative.path || "");
-          target.query = relative.query;
+        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
+          target.userinfo = relative3.userinfo;
+          target.host = relative3.host;
+          target.port = relative3.port;
+          target.path = removeDotSegments(relative3.path || "");
+          target.query = relative3.query;
         } else {
-          if (!relative.path) {
+          if (!relative3.path) {
             target.path = base.path;
-            if (relative.query !== void 0) {
-              target.query = relative.query;
+            if (relative3.query !== void 0) {
+              target.query = relative3.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative.path[0] === "/") {
-              target.path = removeDotSegments(relative.path);
+            if (relative3.path[0] === "/") {
+              target.path = removeDotSegments(relative3.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative.path;
+                target.path = "/" + relative3.path;
               } else if (!base.path) {
-                target.path = relative.path;
+                target.path = relative3.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative.query;
+            target.query = relative3.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3637,19 +3641,19 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative.fragment;
+      target.fragment = relative3.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
       if (typeof uriA === "string") {
         uriA = unescape(uriA);
-        uriA = serialize(normalizeComponentEncoding(parse3(uriA, options), true), { ...options, skipEscape: true });
+        uriA = serialize(normalizeComponentEncoding(parse4(uriA, options), true), { ...options, skipEscape: true });
       } else if (typeof uriA === "object") {
         uriA = serialize(normalizeComponentEncoding(uriA, true), { ...options, skipEscape: true });
       }
       if (typeof uriB === "string") {
         uriB = unescape(uriB);
-        uriB = serialize(normalizeComponentEncoding(parse3(uriB, options), true), { ...options, skipEscape: true });
+        uriB = serialize(normalizeComponentEncoding(parse4(uriB, options), true), { ...options, skipEscape: true });
       } else if (typeof uriB === "object") {
         uriB = serialize(normalizeComponentEncoding(uriB, true), { ...options, skipEscape: true });
       }
@@ -3718,7 +3722,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-    function parse3(uri, opts) {
+    function parse4(uri, opts) {
       const options = Object.assign({}, opts);
       const parsed = {
         scheme: void 0,
@@ -3808,11 +3812,11 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve5,
+      resolve: resolve3,
       resolveComponent,
       equal,
       serialize,
-      parse: parse3
+      parse: parse4
     };
     module.exports = fastUri;
     module.exports.default = fastUri;
@@ -3870,7 +3874,7 @@ var require_core = __commonJS({
     var util_1 = require_util();
     var $dataRefSchema = require_data();
     var uri_1 = require_uri();
-    var defaultRegExp = (str, flags) => new RegExp(str, flags);
+    var defaultRegExp = (str2, flags) => new RegExp(str2, flags);
     defaultRegExp.code = "new RegExp";
     var META_IGNORE_OPTIONS = ["removeAdditional", "useDefaults", "coerceTypes"];
     var EXT_SCOPE_NAMES = /* @__PURE__ */ new Set([
@@ -4097,11 +4101,11 @@ var require_core = __commonJS({
         }
         const valid = this.validate($schema, schema);
         if (!valid && throwOrLogError) {
-          const message = "schema is invalid: " + this.errorsText();
+          const message2 = "schema is invalid: " + this.errorsText();
           if (this.opts.validateSchema === "log")
-            this.logger.error(message);
+            this.logger.error(message2);
           else
-            throw new Error(message);
+            throw new Error(message2);
         }
         return valid;
       }
@@ -4665,16 +4669,16 @@ var require_ucs2length = __commonJS({
   "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    function ucs2length(str) {
-      const len = str.length;
+    function ucs2length(str2) {
+      const len = str2.length;
       let length = 0;
       let pos = 0;
       let value;
       while (pos < len) {
         length++;
-        value = str.charCodeAt(pos++);
+        value = str2.charCodeAt(pos++);
         if (value >= 55296 && value <= 56319 && pos < len) {
-          value = str.charCodeAt(pos);
+          value = str2.charCodeAt(pos);
           if ((value & 64512) === 56320)
             pos++;
         }
@@ -6557,8 +6561,8 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date4(str) {
-      const matches = DATE.exec(str);
+    function date4(str2) {
+      const matches = DATE.exec(str2);
       if (!matches)
         return false;
       const year = +matches[1];
@@ -6577,8 +6581,8 @@ var require_formats = __commonJS({
     }
     var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
     function getTime(strictTimeZone) {
-      return function time3(str) {
-        const matches = TIME.exec(str);
+      return function time3(str2) {
+        const matches = TIME.exec(str2);
         if (!matches)
           return false;
         const hr = +matches[1];
@@ -6624,8 +6628,8 @@ var require_formats = __commonJS({
     var DATE_TIME_SEPARATOR = /t|\s/i;
     function getDateTime(strictTimeZone) {
       const time3 = getTime(strictTimeZone);
-      return function date_time(str) {
-        const dateTime = str.split(DATE_TIME_SEPARATOR);
+      return function date_time(str2) {
+        const dateTime = str2.split(DATE_TIME_SEPARATOR);
         return dateTime.length === 2 && date4(dateTime[0]) && time3(dateTime[1]);
       };
     }
@@ -6650,13 +6654,13 @@ var require_formats = __commonJS({
     }
     var NOT_URI_FRAGMENT = /\/|:/;
     var URI = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
-    function uri(str) {
-      return NOT_URI_FRAGMENT.test(str) && URI.test(str);
+    function uri(str2) {
+      return NOT_URI_FRAGMENT.test(str2) && URI.test(str2);
     }
     var BYTE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/gm;
-    function byte(str) {
+    function byte(str2) {
       BYTE.lastIndex = 0;
-      return BYTE.test(str);
+      return BYTE.test(str2);
     }
     var MIN_INT32 = -(2 ** 31);
     var MAX_INT32 = 2 ** 31 - 1;
@@ -6670,11 +6674,11 @@ var require_formats = __commonJS({
       return true;
     }
     var Z_ANCHOR = /[^\\]\\Z/;
-    function regex(str) {
-      if (Z_ANCHOR.test(str))
+    function regex(str2) {
+      if (Z_ANCHOR.test(str2))
         return false;
       try {
-        new RegExp(str);
+        new RegExp(str2);
         return true;
       } catch (e) {
         return false;
@@ -6799,8 +6803,8 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync7, readFileSync as readFileSync5 } from "node:fs";
-import { performance as performance2 } from "node:perf_hooks";
+import { mkdirSync as mkdirSync9, readFileSync as readFileSync11 } from "node:fs";
+import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -7052,104 +7056,104 @@ ZodError.create = (issues) => {
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
 var errorMap = (issue2, _ctx) => {
-  let message;
+  let message2;
   switch (issue2.code) {
     case ZodIssueCode.invalid_type:
       if (issue2.received === ZodParsedType.undefined) {
-        message = "Required";
+        message2 = "Required";
       } else {
-        message = `Expected ${issue2.expected}, received ${issue2.received}`;
+        message2 = `Expected ${issue2.expected}, received ${issue2.received}`;
       }
       break;
     case ZodIssueCode.invalid_literal:
-      message = `Invalid literal value, expected ${JSON.stringify(issue2.expected, util.jsonStringifyReplacer)}`;
+      message2 = `Invalid literal value, expected ${JSON.stringify(issue2.expected, util.jsonStringifyReplacer)}`;
       break;
     case ZodIssueCode.unrecognized_keys:
-      message = `Unrecognized key(s) in object: ${util.joinValues(issue2.keys, ", ")}`;
+      message2 = `Unrecognized key(s) in object: ${util.joinValues(issue2.keys, ", ")}`;
       break;
     case ZodIssueCode.invalid_union:
-      message = `Invalid input`;
+      message2 = `Invalid input`;
       break;
     case ZodIssueCode.invalid_union_discriminator:
-      message = `Invalid discriminator value. Expected ${util.joinValues(issue2.options)}`;
+      message2 = `Invalid discriminator value. Expected ${util.joinValues(issue2.options)}`;
       break;
     case ZodIssueCode.invalid_enum_value:
-      message = `Invalid enum value. Expected ${util.joinValues(issue2.options)}, received '${issue2.received}'`;
+      message2 = `Invalid enum value. Expected ${util.joinValues(issue2.options)}, received '${issue2.received}'`;
       break;
     case ZodIssueCode.invalid_arguments:
-      message = `Invalid function arguments`;
+      message2 = `Invalid function arguments`;
       break;
     case ZodIssueCode.invalid_return_type:
-      message = `Invalid function return type`;
+      message2 = `Invalid function return type`;
       break;
     case ZodIssueCode.invalid_date:
-      message = `Invalid date`;
+      message2 = `Invalid date`;
       break;
     case ZodIssueCode.invalid_string:
       if (typeof issue2.validation === "object") {
         if ("includes" in issue2.validation) {
-          message = `Invalid input: must include "${issue2.validation.includes}"`;
+          message2 = `Invalid input: must include "${issue2.validation.includes}"`;
           if (typeof issue2.validation.position === "number") {
-            message = `${message} at one or more positions greater than or equal to ${issue2.validation.position}`;
+            message2 = `${message2} at one or more positions greater than or equal to ${issue2.validation.position}`;
           }
         } else if ("startsWith" in issue2.validation) {
-          message = `Invalid input: must start with "${issue2.validation.startsWith}"`;
+          message2 = `Invalid input: must start with "${issue2.validation.startsWith}"`;
         } else if ("endsWith" in issue2.validation) {
-          message = `Invalid input: must end with "${issue2.validation.endsWith}"`;
+          message2 = `Invalid input: must end with "${issue2.validation.endsWith}"`;
         } else {
           util.assertNever(issue2.validation);
         }
       } else if (issue2.validation !== "regex") {
-        message = `Invalid ${issue2.validation}`;
+        message2 = `Invalid ${issue2.validation}`;
       } else {
-        message = "Invalid";
+        message2 = "Invalid";
       }
       break;
     case ZodIssueCode.too_small:
       if (issue2.type === "array")
-        message = `Array must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `more than`} ${issue2.minimum} element(s)`;
+        message2 = `Array must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `more than`} ${issue2.minimum} element(s)`;
       else if (issue2.type === "string")
-        message = `String must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `over`} ${issue2.minimum} character(s)`;
+        message2 = `String must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `over`} ${issue2.minimum} character(s)`;
       else if (issue2.type === "number")
-        message = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
+        message2 = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
       else if (issue2.type === "bigint")
-        message = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
+        message2 = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
       else if (issue2.type === "date")
-        message = `Date must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${new Date(Number(issue2.minimum))}`;
+        message2 = `Date must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${new Date(Number(issue2.minimum))}`;
       else
-        message = "Invalid input";
+        message2 = "Invalid input";
       break;
     case ZodIssueCode.too_big:
       if (issue2.type === "array")
-        message = `Array must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `less than`} ${issue2.maximum} element(s)`;
+        message2 = `Array must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `less than`} ${issue2.maximum} element(s)`;
       else if (issue2.type === "string")
-        message = `String must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `under`} ${issue2.maximum} character(s)`;
+        message2 = `String must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `under`} ${issue2.maximum} character(s)`;
       else if (issue2.type === "number")
-        message = `Number must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
+        message2 = `Number must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
       else if (issue2.type === "bigint")
-        message = `BigInt must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
+        message2 = `BigInt must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
       else if (issue2.type === "date")
-        message = `Date must be ${issue2.exact ? `exactly` : issue2.inclusive ? `smaller than or equal to` : `smaller than`} ${new Date(Number(issue2.maximum))}`;
+        message2 = `Date must be ${issue2.exact ? `exactly` : issue2.inclusive ? `smaller than or equal to` : `smaller than`} ${new Date(Number(issue2.maximum))}`;
       else
-        message = "Invalid input";
+        message2 = "Invalid input";
       break;
     case ZodIssueCode.custom:
-      message = `Invalid input`;
+      message2 = `Invalid input`;
       break;
     case ZodIssueCode.invalid_intersection_types:
-      message = `Intersection results could not be merged`;
+      message2 = `Intersection results could not be merged`;
       break;
     case ZodIssueCode.not_multiple_of:
-      message = `Number must be a multiple of ${issue2.multipleOf}`;
+      message2 = `Number must be a multiple of ${issue2.multipleOf}`;
       break;
     case ZodIssueCode.not_finite:
-      message = "Number must be finite";
+      message2 = "Number must be finite";
       break;
     default:
-      message = _ctx.defaultError;
+      message2 = _ctx.defaultError;
       util.assertNever(issue2);
   }
-  return { message };
+  return { message: message2 };
 };
 var en_default = errorMap;
 
@@ -7271,8 +7275,8 @@ var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
-  errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
-  errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
+  errorUtil2.errToObj = (message2) => typeof message2 === "string" ? { message: message2 } : message2 || {};
+  errorUtil2.toString = (message2) => typeof message2 === "string" ? message2 : message2?.message;
 })(errorUtil || (errorUtil = {}));
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
@@ -7295,9 +7299,9 @@ var ParseInputLazyPath = class {
     return this._cachedPath;
   }
 };
-var handleResult = (ctx, result) => {
-  if (isValid(result)) {
-    return { success: true, data: result.value };
+var handleResult = (ctx, result2) => {
+  if (isValid(result2)) {
+    return { success: true, data: result2.value };
   } else {
     if (!ctx.common.issues.length) {
       throw new Error("Validation failed but no issues detected.");
@@ -7324,16 +7328,16 @@ function processCreateParams(params) {
   if (errorMap2)
     return { errorMap: errorMap2, description };
   const customMap = (iss, ctx) => {
-    const { message } = params;
+    const { message: message2 } = params;
     if (iss.code === "invalid_enum_value") {
-      return { message: message ?? ctx.defaultError };
+      return { message: message2 ?? ctx.defaultError };
     }
     if (typeof ctx.data === "undefined") {
-      return { message: message ?? required_error ?? ctx.defaultError };
+      return { message: message2 ?? required_error ?? ctx.defaultError };
     }
     if (iss.code !== "invalid_type")
       return { message: ctx.defaultError };
-    return { message: message ?? invalid_type_error ?? ctx.defaultError };
+    return { message: message2 ?? invalid_type_error ?? ctx.defaultError };
   };
   return { errorMap: customMap, description };
 }
@@ -7368,21 +7372,21 @@ var ZodType = class {
     };
   }
   _parseSync(input) {
-    const result = this._parse(input);
-    if (isAsync(result)) {
+    const result2 = this._parse(input);
+    if (isAsync(result2)) {
       throw new Error("Synchronous parse encountered promise.");
     }
-    return result;
+    return result2;
   }
   _parseAsync(input) {
-    const result = this._parse(input);
-    return Promise.resolve(result);
+    const result2 = this._parse(input);
+    return Promise.resolve(result2);
   }
   parse(data, params) {
-    const result = this.safeParse(data, params);
-    if (result.success)
-      return result.data;
-    throw result.error;
+    const result2 = this.safeParse(data, params);
+    if (result2.success)
+      return result2.data;
+    throw result2.error;
   }
   safeParse(data, params) {
     const ctx = {
@@ -7397,8 +7401,8 @@ var ZodType = class {
       data,
       parsedType: getParsedType(data)
     };
-    const result = this._parseSync({ data, path: ctx.path, parent: ctx });
-    return handleResult(ctx, result);
+    const result2 = this._parseSync({ data, path: ctx.path, parent: ctx });
+    return handleResult(ctx, result2);
   }
   "~validate"(data) {
     const ctx = {
@@ -7414,14 +7418,14 @@ var ZodType = class {
     };
     if (!this["~standard"].async) {
       try {
-        const result = this._parseSync({ data, path: [], parent: ctx });
-        return isValid(result) ? {
-          value: result.value
+        const result2 = this._parseSync({ data, path: [], parent: ctx });
+        return isValid(result2) ? {
+          value: result2.value
         } : {
           issues: ctx.common.issues
         };
-      } catch (err18) {
-        if (err18?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err20) {
+        if (err20?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -7430,17 +7434,17 @@ var ZodType = class {
         };
       }
     }
-    return this._parseAsync({ data, path: [], parent: ctx }).then((result) => isValid(result) ? {
-      value: result.value
+    return this._parseAsync({ data, path: [], parent: ctx }).then((result2) => isValid(result2) ? {
+      value: result2.value
     } : {
       issues: ctx.common.issues
     });
   }
   async parseAsync(data, params) {
-    const result = await this.safeParseAsync(data, params);
-    if (result.success)
-      return result.data;
-    throw result.error;
+    const result2 = await this.safeParseAsync(data, params);
+    if (result2.success)
+      return result2.data;
+    throw result2.error;
   }
   async safeParseAsync(data, params) {
     const ctx = {
@@ -7456,27 +7460,27 @@ var ZodType = class {
       parsedType: getParsedType(data)
     };
     const maybeAsyncResult = this._parse({ data, path: ctx.path, parent: ctx });
-    const result = await (isAsync(maybeAsyncResult) ? maybeAsyncResult : Promise.resolve(maybeAsyncResult));
-    return handleResult(ctx, result);
+    const result2 = await (isAsync(maybeAsyncResult) ? maybeAsyncResult : Promise.resolve(maybeAsyncResult));
+    return handleResult(ctx, result2);
   }
-  refine(check2, message) {
+  refine(check2, message2) {
     const getIssueProperties = (val) => {
-      if (typeof message === "string" || typeof message === "undefined") {
-        return { message };
-      } else if (typeof message === "function") {
-        return message(val);
+      if (typeof message2 === "string" || typeof message2 === "undefined") {
+        return { message: message2 };
+      } else if (typeof message2 === "function") {
+        return message2(val);
       } else {
-        return message;
+        return message2;
       }
     };
     return this._refinement((val, ctx) => {
-      const result = check2(val);
+      const result2 = check2(val);
       const setError = () => ctx.addIssue({
         code: ZodIssueCode.custom,
         ...getIssueProperties(val)
       });
-      if (typeof Promise !== "undefined" && result instanceof Promise) {
-        return result.then((data) => {
+      if (typeof Promise !== "undefined" && result2 instanceof Promise) {
+        return result2.then((data) => {
           if (!data) {
             setError();
             return false;
@@ -7485,7 +7489,7 @@ var ZodType = class {
           }
         });
       }
-      if (!result) {
+      if (!result2) {
         setError();
         return false;
       } else {
@@ -8002,11 +8006,11 @@ var ZodString = class _ZodString2 extends ZodType {
     }
     return { status: status.value, value: input.data };
   }
-  _regex(regex, validation, message) {
+  _regex(regex, validation, message2) {
     return this.refinement((data) => regex.test(data), {
       validation,
       code: ZodIssueCode.invalid_string,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   _addCheck(check2) {
@@ -8015,37 +8019,37 @@ var ZodString = class _ZodString2 extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  email(message) {
-    return this._addCheck({ kind: "email", ...errorUtil.errToObj(message) });
+  email(message2) {
+    return this._addCheck({ kind: "email", ...errorUtil.errToObj(message2) });
   }
-  url(message) {
-    return this._addCheck({ kind: "url", ...errorUtil.errToObj(message) });
+  url(message2) {
+    return this._addCheck({ kind: "url", ...errorUtil.errToObj(message2) });
   }
-  emoji(message) {
-    return this._addCheck({ kind: "emoji", ...errorUtil.errToObj(message) });
+  emoji(message2) {
+    return this._addCheck({ kind: "emoji", ...errorUtil.errToObj(message2) });
   }
-  uuid(message) {
-    return this._addCheck({ kind: "uuid", ...errorUtil.errToObj(message) });
+  uuid(message2) {
+    return this._addCheck({ kind: "uuid", ...errorUtil.errToObj(message2) });
   }
-  nanoid(message) {
-    return this._addCheck({ kind: "nanoid", ...errorUtil.errToObj(message) });
+  nanoid(message2) {
+    return this._addCheck({ kind: "nanoid", ...errorUtil.errToObj(message2) });
   }
-  cuid(message) {
-    return this._addCheck({ kind: "cuid", ...errorUtil.errToObj(message) });
+  cuid(message2) {
+    return this._addCheck({ kind: "cuid", ...errorUtil.errToObj(message2) });
   }
-  cuid2(message) {
-    return this._addCheck({ kind: "cuid2", ...errorUtil.errToObj(message) });
+  cuid2(message2) {
+    return this._addCheck({ kind: "cuid2", ...errorUtil.errToObj(message2) });
   }
-  ulid(message) {
-    return this._addCheck({ kind: "ulid", ...errorUtil.errToObj(message) });
+  ulid(message2) {
+    return this._addCheck({ kind: "ulid", ...errorUtil.errToObj(message2) });
   }
-  base64(message) {
-    return this._addCheck({ kind: "base64", ...errorUtil.errToObj(message) });
+  base64(message2) {
+    return this._addCheck({ kind: "base64", ...errorUtil.errToObj(message2) });
   }
-  base64url(message) {
+  base64url(message2) {
     return this._addCheck({
       kind: "base64url",
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   jwt(options) {
@@ -8075,8 +8079,8 @@ var ZodString = class _ZodString2 extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  date(message) {
-    return this._addCheck({ kind: "date", message });
+  date(message2) {
+    return this._addCheck({ kind: "date", message: message2 });
   }
   time(options) {
     if (typeof options === "string") {
@@ -8092,14 +8096,14 @@ var ZodString = class _ZodString2 extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  duration(message) {
-    return this._addCheck({ kind: "duration", ...errorUtil.errToObj(message) });
+  duration(message2) {
+    return this._addCheck({ kind: "duration", ...errorUtil.errToObj(message2) });
   }
-  regex(regex, message) {
+  regex(regex, message2) {
     return this._addCheck({
       kind: "regex",
       regex,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   includes(value, options) {
@@ -8110,46 +8114,46 @@ var ZodString = class _ZodString2 extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  startsWith(value, message) {
+  startsWith(value, message2) {
     return this._addCheck({
       kind: "startsWith",
       value,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  endsWith(value, message) {
+  endsWith(value, message2) {
     return this._addCheck({
       kind: "endsWith",
       value,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  min(minLength, message) {
+  min(minLength, message2) {
     return this._addCheck({
       kind: "min",
       value: minLength,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  max(maxLength, message) {
+  max(maxLength, message2) {
     return this._addCheck({
       kind: "max",
       value: maxLength,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  length(len, message) {
+  length(len, message2) {
     return this._addCheck({
       kind: "length",
       value: len,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   /**
    * Equivalent to `.min(1)`
    */
-  nonempty(message) {
-    return this.min(1, errorUtil.errToObj(message));
+  nonempty(message2) {
+    return this.min(1, errorUtil.errToObj(message2));
   }
   trim() {
     return new _ZodString2({
@@ -8342,19 +8346,19 @@ var ZodNumber = class _ZodNumber extends ZodType {
     }
     return { status: status.value, value: input.data };
   }
-  gte(value, message) {
-    return this.setLimit("min", value, true, errorUtil.toString(message));
+  gte(value, message2) {
+    return this.setLimit("min", value, true, errorUtil.toString(message2));
   }
-  gt(value, message) {
-    return this.setLimit("min", value, false, errorUtil.toString(message));
+  gt(value, message2) {
+    return this.setLimit("min", value, false, errorUtil.toString(message2));
   }
-  lte(value, message) {
-    return this.setLimit("max", value, true, errorUtil.toString(message));
+  lte(value, message2) {
+    return this.setLimit("max", value, true, errorUtil.toString(message2));
   }
-  lt(value, message) {
-    return this.setLimit("max", value, false, errorUtil.toString(message));
+  lt(value, message2) {
+    return this.setLimit("max", value, false, errorUtil.toString(message2));
   }
-  setLimit(kind, value, inclusive, message) {
+  setLimit(kind, value, inclusive, message2) {
     return new _ZodNumber({
       ...this._def,
       checks: [
@@ -8363,7 +8367,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
           kind,
           value,
           inclusive,
-          message: errorUtil.toString(message)
+          message: errorUtil.toString(message2)
         }
       ]
     });
@@ -8374,68 +8378,68 @@ var ZodNumber = class _ZodNumber extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  int(message) {
+  int(message2) {
     return this._addCheck({
       kind: "int",
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  positive(message) {
+  positive(message2) {
     return this._addCheck({
       kind: "min",
       value: 0,
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  negative(message) {
+  negative(message2) {
     return this._addCheck({
       kind: "max",
       value: 0,
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonpositive(message) {
+  nonpositive(message2) {
     return this._addCheck({
       kind: "max",
       value: 0,
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonnegative(message) {
+  nonnegative(message2) {
     return this._addCheck({
       kind: "min",
       value: 0,
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  multipleOf(value, message) {
+  multipleOf(value, message2) {
     return this._addCheck({
       kind: "multipleOf",
       value,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  finite(message) {
+  finite(message2) {
     return this._addCheck({
       kind: "finite",
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  safe(message) {
+  safe(message2) {
     return this._addCheck({
       kind: "min",
       inclusive: true,
       value: Number.MIN_SAFE_INTEGER,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     })._addCheck({
       kind: "max",
       inclusive: true,
       value: Number.MAX_SAFE_INTEGER,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minValue() {
@@ -8558,19 +8562,19 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
     });
     return INVALID;
   }
-  gte(value, message) {
-    return this.setLimit("min", value, true, errorUtil.toString(message));
+  gte(value, message2) {
+    return this.setLimit("min", value, true, errorUtil.toString(message2));
   }
-  gt(value, message) {
-    return this.setLimit("min", value, false, errorUtil.toString(message));
+  gt(value, message2) {
+    return this.setLimit("min", value, false, errorUtil.toString(message2));
   }
-  lte(value, message) {
-    return this.setLimit("max", value, true, errorUtil.toString(message));
+  lte(value, message2) {
+    return this.setLimit("max", value, true, errorUtil.toString(message2));
   }
-  lt(value, message) {
-    return this.setLimit("max", value, false, errorUtil.toString(message));
+  lt(value, message2) {
+    return this.setLimit("max", value, false, errorUtil.toString(message2));
   }
-  setLimit(kind, value, inclusive, message) {
+  setLimit(kind, value, inclusive, message2) {
     return new _ZodBigInt({
       ...this._def,
       checks: [
@@ -8579,7 +8583,7 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
           kind,
           value,
           inclusive,
-          message: errorUtil.toString(message)
+          message: errorUtil.toString(message2)
         }
       ]
     });
@@ -8590,43 +8594,43 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  positive(message) {
+  positive(message2) {
     return this._addCheck({
       kind: "min",
       value: BigInt(0),
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  negative(message) {
+  negative(message2) {
     return this._addCheck({
       kind: "max",
       value: BigInt(0),
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonpositive(message) {
+  nonpositive(message2) {
     return this._addCheck({
       kind: "max",
       value: BigInt(0),
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonnegative(message) {
+  nonnegative(message2) {
     return this._addCheck({
       kind: "min",
       value: BigInt(0),
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  multipleOf(value, message) {
+  multipleOf(value, message2) {
     return this._addCheck({
       kind: "multipleOf",
       value,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minValue() {
@@ -8749,18 +8753,18 @@ var ZodDate = class _ZodDate extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  min(minDate, message) {
+  min(minDate, message2) {
     return this._addCheck({
       kind: "min",
       value: minDate.getTime(),
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  max(maxDate, message) {
+  max(maxDate, message2) {
     return this._addCheck({
       kind: "max",
       value: maxDate.getTime(),
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minDate() {
@@ -8980,38 +8984,38 @@ var ZodArray = class _ZodArray extends ZodType {
     if (ctx.common.async) {
       return Promise.all([...ctx.data].map((item, i) => {
         return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
-      })).then((result2) => {
-        return ParseStatus.mergeArray(status, result2);
+      })).then((result3) => {
+        return ParseStatus.mergeArray(status, result3);
       });
     }
-    const result = [...ctx.data].map((item, i) => {
+    const result2 = [...ctx.data].map((item, i) => {
       return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
     });
-    return ParseStatus.mergeArray(status, result);
+    return ParseStatus.mergeArray(status, result2);
   }
   get element() {
     return this._def.type;
   }
-  min(minLength, message) {
+  min(minLength, message2) {
     return new _ZodArray({
       ...this._def,
-      minLength: { value: minLength, message: errorUtil.toString(message) }
+      minLength: { value: minLength, message: errorUtil.toString(message2) }
     });
   }
-  max(maxLength, message) {
+  max(maxLength, message2) {
     return new _ZodArray({
       ...this._def,
-      maxLength: { value: maxLength, message: errorUtil.toString(message) }
+      maxLength: { value: maxLength, message: errorUtil.toString(message2) }
     });
   }
-  length(len, message) {
+  length(len, message2) {
     return new _ZodArray({
       ...this._def,
-      exactLength: { value: len, message: errorUtil.toString(message) }
+      exactLength: { value: len, message: errorUtil.toString(message2) }
     });
   }
-  nonempty(message) {
-    return this.min(1, message);
+  nonempty(message2) {
+    return this.min(1, message2);
   }
 };
 ZodArray.create = (schema, params) => {
@@ -9154,17 +9158,17 @@ var ZodObject = class _ZodObject extends ZodType {
   get shape() {
     return this._def.shape();
   }
-  strict(message) {
+  strict(message2) {
     errorUtil.errToObj;
     return new _ZodObject({
       ...this._def,
       unknownKeys: "strict",
-      ...message !== void 0 ? {
+      ...message2 !== void 0 ? {
         errorMap: (issue2, ctx) => {
           const defaultError = this._def.errorMap?.(issue2, ctx).message ?? ctx.defaultError;
           if (issue2.code === "unrecognized_keys")
             return {
-              message: errorUtil.errToObj(message).message ?? defaultError
+              message: errorUtil.errToObj(message2).message ?? defaultError
             };
           return {
             message: defaultError
@@ -9393,18 +9397,18 @@ var ZodUnion = class extends ZodType {
     const { ctx } = this._processInputParams(input);
     const options = this._def.options;
     function handleResults(results) {
-      for (const result of results) {
-        if (result.result.status === "valid") {
-          return result.result;
+      for (const result2 of results) {
+        if (result2.result.status === "valid") {
+          return result2.result;
         }
       }
-      for (const result of results) {
-        if (result.result.status === "dirty") {
-          ctx.common.issues.push(...result.ctx.common.issues);
-          return result.result;
+      for (const result2 of results) {
+        if (result2.result.status === "dirty") {
+          ctx.common.issues.push(...result2.ctx.common.issues);
+          return result2.result;
         }
       }
-      const unionErrors = results.map((result) => new ZodError(result.ctx.common.issues));
+      const unionErrors = results.map((result2) => new ZodError(result2.ctx.common.issues));
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_union,
         unionErrors
@@ -9442,15 +9446,15 @@ var ZodUnion = class extends ZodType {
           },
           parent: null
         };
-        const result = option._parseSync({
+        const result2 = option._parseSync({
           data: ctx.data,
           path: ctx.path,
           parent: childCtx
         });
-        if (result.status === "valid") {
-          return result;
-        } else if (result.status === "dirty" && !dirty) {
-          dirty = { result, ctx: childCtx };
+        if (result2.status === "valid") {
+          return result2;
+        } else if (result2.status === "dirty" && !dirty) {
+          dirty = { result: result2, ctx: childCtx };
         }
         if (childCtx.common.issues.length) {
           issues.push(childCtx.common.issues);
@@ -9920,23 +9924,23 @@ var ZodSet = class _ZodSet extends ZodType {
       return finalizeSet(elements);
     }
   }
-  min(minSize, message) {
+  min(minSize, message2) {
     return new _ZodSet({
       ...this._def,
-      minSize: { value: minSize, message: errorUtil.toString(message) }
+      minSize: { value: minSize, message: errorUtil.toString(message2) }
     });
   }
-  max(maxSize, message) {
+  max(maxSize, message2) {
     return new _ZodSet({
       ...this._def,
-      maxSize: { value: maxSize, message: errorUtil.toString(message) }
+      maxSize: { value: maxSize, message: errorUtil.toString(message2) }
     });
   }
-  size(size, message) {
-    return this.min(size, message).max(size, message);
+  size(size, message2) {
+    return this.min(size, message2).max(size, message2);
   }
-  nonempty(message) {
-    return this.min(1, message);
+  nonempty(message2) {
+    return this.min(1, message2);
   }
 };
 ZodSet.create = (valueType, params) => {
@@ -9995,9 +9999,9 @@ var ZodFunction = class _ZodFunction extends ZodType {
           error2.addIssue(makeArgsIssue(args, e));
           throw error2;
         });
-        const result = await Reflect.apply(fn, this, parsedArgs);
-        const parsedReturns = await me._def.returns._def.type.parseAsync(result, params).catch((e) => {
-          error2.addIssue(makeReturnsIssue(result, e));
+        const result2 = await Reflect.apply(fn, this, parsedArgs);
+        const parsedReturns = await me._def.returns._def.type.parseAsync(result2, params).catch((e) => {
+          error2.addIssue(makeReturnsIssue(result2, e));
           throw error2;
         });
         return parsedReturns;
@@ -10009,10 +10013,10 @@ var ZodFunction = class _ZodFunction extends ZodType {
         if (!parsedArgs.success) {
           throw new ZodError([makeArgsIssue(args, parsedArgs.error)]);
         }
-        const result = Reflect.apply(fn, this, parsedArgs.data);
-        const parsedReturns = me._def.returns.safeParse(result, params);
+        const result2 = Reflect.apply(fn, this, parsedArgs.data);
+        const parsedReturns = me._def.returns.safeParse(result2, params);
         if (!parsedReturns.success) {
-          throw new ZodError([makeReturnsIssue(result, parsedReturns.error)]);
+          throw new ZodError([makeReturnsIssue(result2, parsedReturns.error)]);
         }
         return parsedReturns.data;
       });
@@ -10264,43 +10268,43 @@ var ZodEffects = class extends ZodType {
         return Promise.resolve(processed).then(async (processed2) => {
           if (status.value === "aborted")
             return INVALID;
-          const result = await this._def.schema._parseAsync({
+          const result2 = await this._def.schema._parseAsync({
             data: processed2,
             path: ctx.path,
             parent: ctx
           });
-          if (result.status === "aborted")
+          if (result2.status === "aborted")
             return INVALID;
-          if (result.status === "dirty")
-            return DIRTY(result.value);
+          if (result2.status === "dirty")
+            return DIRTY(result2.value);
           if (status.value === "dirty")
-            return DIRTY(result.value);
-          return result;
+            return DIRTY(result2.value);
+          return result2;
         });
       } else {
         if (status.value === "aborted")
           return INVALID;
-        const result = this._def.schema._parseSync({
+        const result2 = this._def.schema._parseSync({
           data: processed,
           path: ctx.path,
           parent: ctx
         });
-        if (result.status === "aborted")
+        if (result2.status === "aborted")
           return INVALID;
-        if (result.status === "dirty")
-          return DIRTY(result.value);
+        if (result2.status === "dirty")
+          return DIRTY(result2.value);
         if (status.value === "dirty")
-          return DIRTY(result.value);
-        return result;
+          return DIRTY(result2.value);
+        return result2;
       }
     }
     if (effect.type === "refinement") {
       const executeRefinement = (acc) => {
-        const result = effect.refinement(acc, checkCtx);
+        const result2 = effect.refinement(acc, checkCtx);
         if (ctx.common.async) {
-          return Promise.resolve(result);
+          return Promise.resolve(result2);
         }
-        if (result instanceof Promise) {
+        if (result2 instanceof Promise) {
           throw new Error("Async refinement encountered during synchronous parse operation. Use .parseAsync instead.");
         }
         return acc;
@@ -10338,18 +10342,18 @@ var ZodEffects = class extends ZodType {
         });
         if (!isValid(base))
           return INVALID;
-        const result = effect.transform(base.value, checkCtx);
-        if (result instanceof Promise) {
+        const result2 = effect.transform(base.value, checkCtx);
+        if (result2 instanceof Promise) {
           throw new Error(`Asynchronous transform encountered during synchronous parse operation. Use .parseAsync instead.`);
         }
-        return { status: status.value, value: result };
+        return { status: status.value, value: result2 };
       } else {
         return this._def.schema._parseAsync({ data: ctx.data, path: ctx.path, parent: ctx }).then((base) => {
           if (!isValid(base))
             return INVALID;
-          return Promise.resolve(effect.transform(base.value, checkCtx)).then((result) => ({
+          return Promise.resolve(effect.transform(base.value, checkCtx)).then((result2) => ({
             status: status.value,
-            value: result
+            value: result2
           }));
         });
       }
@@ -10446,18 +10450,18 @@ var ZodCatch = class extends ZodType {
         issues: []
       }
     };
-    const result = this._def.innerType._parse({
+    const result2 = this._def.innerType._parse({
       data: newCtx.data,
       path: newCtx.path,
       parent: {
         ...newCtx
       }
     });
-    if (isAsync(result)) {
-      return result.then((result2) => {
+    if (isAsync(result2)) {
+      return result2.then((result3) => {
         return {
           status: "valid",
-          value: result2.status === "valid" ? result2.value : this._def.catchValue({
+          value: result3.status === "valid" ? result3.value : this._def.catchValue({
             get error() {
               return new ZodError(newCtx.common.issues);
             },
@@ -10468,7 +10472,7 @@ var ZodCatch = class extends ZodType {
     } else {
       return {
         status: "valid",
-        value: result.status === "valid" ? result.value : this._def.catchValue({
+        value: result2.status === "valid" ? result2.value : this._def.catchValue({
           get error() {
             return new ZodError(newCtx.common.issues);
           },
@@ -10510,7 +10514,6 @@ ZodNaN.create = (params) => {
     ...processCreateParams(params)
   });
 };
-var BRAND = Symbol("zod_brand");
 var ZodBranded = class extends ZodType {
   _parse(input) {
     const { ctx } = this._processInputParams(input);
@@ -10582,14 +10585,14 @@ var ZodPipeline = class _ZodPipeline extends ZodType {
 };
 var ZodReadonly = class extends ZodType {
   _parse(input) {
-    const result = this._def.innerType._parse(input);
+    const result2 = this._def.innerType._parse(input);
     const freeze = (data) => {
       if (isValid(data)) {
         data.value = Object.freeze(data.value);
       }
       return data;
     };
-    return isAsync(result) ? result.then((data) => freeze(data)) : freeze(result);
+    return isAsync(result2) ? result2.then((data) => freeze(data)) : freeze(result2);
   }
   unwrap() {
     return this._def.innerType;
@@ -10735,7 +10738,6 @@ function $constructor(name, initializer3, params) {
   Object.defineProperty(_, "name", { value: name });
   return _;
 }
-var $brand = Symbol("zod_brand");
 var $ZodAsyncError = class extends Error {
   constructor() {
     super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
@@ -10882,7 +10884,7 @@ function floatSafeRemainder2(val, step) {
   const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
-var EVALUATING = Symbol("evaluating");
+var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
 function defineLazy(object3, key, getter) {
   let value = void 0;
   Object.defineProperty(object3, key, {
@@ -10945,14 +10947,14 @@ function promiseAllObject(promisesObj) {
 }
 function randomString(length = 10) {
   const chars = "abcdefghijklmnopqrstuvwxyz";
-  let str = "";
+  let str2 = "";
   for (let i = 0; i < length; i++) {
-    str += chars[Math.floor(Math.random() * chars.length)];
+    str2 += chars[Math.floor(Math.random() * chars.length)];
   }
-  return str;
+  return str2;
 }
-function esc(str) {
-  return JSON.stringify(str);
+function esc(str2) {
+  return JSON.stringify(str2);
 }
 function slugify(input) {
   return input.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -11052,8 +11054,8 @@ var getParsedType2 = (data) => {
 };
 var propertyKeyTypes = /* @__PURE__ */ new Set(["string", "number", "symbol"]);
 var primitiveTypes = /* @__PURE__ */ new Set(["string", "number", "bigint", "boolean", "symbol", "undefined"]);
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function escapeRegex(str2) {
+  return str2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function clone(inst, def, params) {
   const cl = new inst._zod.constr(def ?? inst._zod.def);
@@ -11321,14 +11323,14 @@ function prefixIssues(path2, issues) {
     return iss;
   });
 }
-function unwrapMessage(message) {
-  return typeof message === "string" ? message : message?.message;
+function unwrapMessage(message2) {
+  return typeof message2 === "string" ? message2 : message2?.message;
 }
 function finalizeIssue(iss, ctx, config2) {
   const full = { ...iss, path: iss.path ?? [] };
   if (!iss.message) {
-    const message = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
-    full.message = message;
+    const message2 = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
+    full.message = message2;
   }
   delete full.inst;
   delete full.continue;
@@ -11502,52 +11504,52 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
-  const result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise) {
+  const result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise) {
     throw new $ZodAsyncError();
   }
-  if (result.issues.length) {
-    const e = new (_params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+  if (result2.issues.length) {
+    const e = new (_params?.Err ?? _Err)(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())));
     captureStackTrace(e, _params?.callee);
     throw e;
   }
-  return result.value;
+  return result2.value;
 };
 var parse = /* @__PURE__ */ _parse($ZodRealError);
 var _parseAsync = (_Err) => async (schema, value, _ctx, params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: true }) : { async: true };
-  let result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise)
-    result = await result;
-  if (result.issues.length) {
-    const e = new (params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+  let result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise)
+    result2 = await result2;
+  if (result2.issues.length) {
+    const e = new (params?.Err ?? _Err)(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())));
     captureStackTrace(e, params?.callee);
     throw e;
   }
-  return result.value;
+  return result2.value;
 };
 var parseAsync = /* @__PURE__ */ _parseAsync($ZodRealError);
 var _safeParse = (_Err) => (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
-  const result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise) {
+  const result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise) {
     throw new $ZodAsyncError();
   }
-  return result.issues.length ? {
+  return result2.issues.length ? {
     success: false,
-    error: new (_Err ?? $ZodError)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-  } : { success: true, data: result.value };
+    error: new (_Err ?? $ZodError)(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+  } : { success: true, data: result2.value };
 };
 var safeParse = /* @__PURE__ */ _safeParse($ZodRealError);
 var _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: true }) : { async: true };
-  let result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise)
-    result = await result;
-  return result.issues.length ? {
+  let result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise)
+    result2 = await result2;
+  return result2.issues.length ? {
     success: false,
-    error: new _Err(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-  } : { success: true, data: result.value };
+    error: new _Err(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+  } : { success: true, data: result2.value };
 };
 var safeParseAsync = /* @__PURE__ */ _safeParseAsync($ZodRealError);
 var _encode = (_Err) => (schema, value, _ctx) => {
@@ -12240,22 +12242,22 @@ var $ZodCheckEndsWith = /* @__PURE__ */ $constructor("$ZodCheckEndsWith", (inst,
     });
   };
 });
-function handleCheckPropertyResult(result, payload, property) {
-  if (result.issues.length) {
-    payload.issues.push(...prefixIssues(property, result.issues));
+function handleCheckPropertyResult(result2, payload, property) {
+  if (result2.issues.length) {
+    payload.issues.push(...prefixIssues(property, result2.issues));
   }
 }
 var $ZodCheckProperty = /* @__PURE__ */ $constructor("$ZodCheckProperty", (inst, def) => {
   $ZodCheck.init(inst, def);
   inst._zod.check = (payload) => {
-    const result = def.schema._zod.run({
+    const result2 = def.schema._zod.run({
       value: payload.value[def.property],
       issues: []
     }, {});
-    if (result instanceof Promise) {
-      return result.then((result2) => handleCheckPropertyResult(result2, payload, def.property));
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => handleCheckPropertyResult(result3, payload, def.property));
     }
-    handleCheckPropertyResult(result, payload, def.property);
+    handleCheckPropertyResult(result2, payload, def.property);
     return;
   };
 });
@@ -12415,13 +12417,13 @@ var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
         }
         return handleCanaryResult(canary, payload, ctx);
       }
-      const result = inst._zod.parse(payload, ctx);
-      if (result instanceof Promise) {
+      const result2 = inst._zod.parse(payload, ctx);
+      if (result2 instanceof Promise) {
         if (ctx.async === false)
           throw new $ZodAsyncError();
-        return result.then((result2) => runChecks(result2, checks, ctx));
+        return result2.then((result3) => runChecks(result3, checks, ctx));
       }
-      return runChecks(result, checks, ctx);
+      return runChecks(result2, checks, ctx);
     };
   }
   defineLazy(inst, "~standard", () => ({
@@ -12930,11 +12932,11 @@ var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
     return payload;
   };
 });
-function handleArrayResult(result, final, index) {
-  if (result.issues.length) {
-    final.issues.push(...prefixIssues(index, result.issues));
+function handleArrayResult(result2, final, index) {
+  if (result2.issues.length) {
+    final.issues.push(...prefixIssues(index, result2.issues));
   }
-  final.value[index] = result.value;
+  final.value[index] = result2.value;
 }
 var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
   $ZodType.init(inst, def);
@@ -12953,14 +12955,14 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
     const proms = [];
     for (let i = 0; i < input.length; i++) {
       const item = input[i];
-      const result = def.element._zod.run({
+      const result2 = def.element._zod.run({
         value: item,
         issues: []
       }, ctx);
-      if (result instanceof Promise) {
-        proms.push(result.then((result2) => handleArrayResult(result2, payload, i)));
+      if (result2 instanceof Promise) {
+        proms.push(result2.then((result3) => handleArrayResult(result3, payload, i)));
       } else {
-        handleArrayResult(result, payload, i);
+        handleArrayResult(result2, payload, i);
       }
     }
     if (proms.length) {
@@ -12969,19 +12971,19 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
     return payload;
   };
 });
-function handlePropertyResult(result, final, key, input, isOptionalOut) {
-  if (result.issues.length) {
+function handlePropertyResult(result2, final, key, input, isOptionalOut) {
+  if (result2.issues.length) {
     if (isOptionalOut && !(key in input)) {
       return;
     }
-    final.issues.push(...prefixIssues(key, result.issues));
+    final.issues.push(...prefixIssues(key, result2.issues));
   }
-  if (result.value === void 0) {
+  if (result2.value === void 0) {
     if (key in input) {
       final.value[key] = void 0;
     }
   } else {
-    final.value[key] = result.value;
+    final.value[key] = result2.value;
   }
 }
 function normalizeDef(def) {
@@ -13063,13 +13065,13 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     }
     return propValues;
   });
-  const isObject2 = isObject;
+  const isObject3 = isObject;
   const catchall = def.catchall;
   let value;
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject2(input)) {
+    if (!isObject3(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -13167,7 +13169,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     return (payload, ctx) => fn(shape, payload, ctx);
   };
   let fastpass;
-  const isObject2 = isObject;
+  const isObject3 = isObject;
   const jit = !globalConfig.jitless;
   const allowsEval2 = allowsEval;
   const fastEnabled = jit && allowsEval2.value;
@@ -13176,7 +13178,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject2(input)) {
+    if (!isObject3(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -13197,9 +13199,9 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   };
 });
 function handleUnionResults(results, final, inst, ctx) {
-  for (const result of results) {
-    if (result.issues.length === 0) {
-      final.value = result.value;
+  for (const result2 of results) {
+    if (result2.issues.length === 0) {
+      final.value = result2.value;
       return final;
     }
   }
@@ -13212,7 +13214,7 @@ function handleUnionResults(results, final, inst, ctx) {
     code: "invalid_union",
     input: final.value,
     inst,
-    errors: results.map((result) => result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+    errors: results.map((result2) => result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
   });
   return final;
 }
@@ -13242,17 +13244,17 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
     let async = false;
     const results = [];
     for (const option of def.options) {
-      const result = option._zod.run({
+      const result2 = option._zod.run({
         value: payload.value,
         issues: []
       }, ctx);
-      if (result instanceof Promise) {
-        results.push(result);
+      if (result2 instanceof Promise) {
+        results.push(result2);
         async = true;
       } else {
-        if (result.issues.length === 0)
-          return result;
-        results.push(result);
+        if (result2.issues.length === 0)
+          return result2;
+        results.push(result2);
       }
     }
     if (!async)
@@ -13273,7 +13275,7 @@ function handleExclusiveUnionResults(results, final, inst, ctx) {
       code: "invalid_union",
       input: final.value,
       inst,
-      errors: results.map((result) => result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+      errors: results.map((result2) => result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
     });
   } else {
     final.issues.push({
@@ -13298,15 +13300,15 @@ var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
     let async = false;
     const results = [];
     for (const option of def.options) {
-      const result = option._zod.run({
+      const result2 = option._zod.run({
         value: payload.value,
         issues: []
       }, ctx);
-      if (result instanceof Promise) {
-        results.push(result);
+      if (result2 instanceof Promise) {
+        results.push(result2);
         async = true;
       } else {
-        results.push(result);
+        results.push(result2);
       }
     }
     if (!async)
@@ -13441,7 +13443,7 @@ function mergeValues2(a, b) {
   }
   return { valid: false, mergeErrorPath: [] };
 }
-function handleIntersectionResults(result, left, right) {
+function handleIntersectionResults(result2, left, right) {
   const unrecKeys = /* @__PURE__ */ new Map();
   let unrecIssue;
   for (const iss of left.issues) {
@@ -13453,7 +13455,7 @@ function handleIntersectionResults(result, left, right) {
         unrecKeys.get(k).l = true;
       }
     } else {
-      result.issues.push(iss);
+      result2.issues.push(iss);
     }
   }
   for (const iss of right.issues) {
@@ -13464,21 +13466,21 @@ function handleIntersectionResults(result, left, right) {
         unrecKeys.get(k).r = true;
       }
     } else {
-      result.issues.push(iss);
+      result2.issues.push(iss);
     }
   }
   const bothKeys = [...unrecKeys].filter(([, f]) => f.l && f.r).map(([k]) => k);
   if (bothKeys.length && unrecIssue) {
-    result.issues.push({ ...unrecIssue, keys: bothKeys });
+    result2.issues.push({ ...unrecIssue, keys: bothKeys });
   }
-  if (aborted(result))
-    return result;
+  if (aborted(result2))
+    return result2;
   const merged = mergeValues2(left.value, right.value);
   if (!merged.valid) {
     throw new Error(`Unmergable intersection. Error path: ${JSON.stringify(merged.mergeErrorPath)}`);
   }
-  result.value = merged.data;
-  return result;
+  result2.value = merged.data;
+  return result2;
 }
 var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
   $ZodType.init(inst, def);
@@ -13518,28 +13520,28 @@ var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
         if (i >= optStart)
           continue;
       }
-      const result = item._zod.run({
+      const result2 = item._zod.run({
         value: input[i],
         issues: []
       }, ctx);
-      if (result instanceof Promise) {
-        proms.push(result.then((result2) => handleTupleResult(result2, payload, i)));
+      if (result2 instanceof Promise) {
+        proms.push(result2.then((result3) => handleTupleResult(result3, payload, i)));
       } else {
-        handleTupleResult(result, payload, i);
+        handleTupleResult(result2, payload, i);
       }
     }
     if (def.rest) {
       const rest = input.slice(items.length);
       for (const el of rest) {
         i++;
-        const result = def.rest._zod.run({
+        const result2 = def.rest._zod.run({
           value: el,
           issues: []
         }, ctx);
-        if (result instanceof Promise) {
-          proms.push(result.then((result2) => handleTupleResult(result2, payload, i)));
+        if (result2 instanceof Promise) {
+          proms.push(result2.then((result3) => handleTupleResult(result3, payload, i)));
         } else {
-          handleTupleResult(result, payload, i);
+          handleTupleResult(result2, payload, i);
         }
       }
     }
@@ -13548,11 +13550,11 @@ var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
     return payload;
   };
 });
-function handleTupleResult(result, final, index) {
-  if (result.issues.length) {
-    final.issues.push(...prefixIssues(index, result.issues));
+function handleTupleResult(result2, final, index) {
+  if (result2.issues.length) {
+    final.issues.push(...prefixIssues(index, result2.issues));
   }
-  final.value[index] = result.value;
+  final.value[index] = result2.value;
 }
 var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
   $ZodType.init(inst, def);
@@ -13575,19 +13577,19 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
       for (const key of values) {
         if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
           recordKeys.add(typeof key === "number" ? key.toString() : key);
-          const result = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
-          if (result instanceof Promise) {
-            proms.push(result.then((result2) => {
-              if (result2.issues.length) {
-                payload.issues.push(...prefixIssues(key, result2.issues));
+          const result2 = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
+          if (result2 instanceof Promise) {
+            proms.push(result2.then((result3) => {
+              if (result3.issues.length) {
+                payload.issues.push(...prefixIssues(key, result3.issues));
               }
-              payload.value[key] = result2.value;
+              payload.value[key] = result3.value;
             }));
           } else {
-            if (result.issues.length) {
-              payload.issues.push(...prefixIssues(key, result.issues));
+            if (result2.issues.length) {
+              payload.issues.push(...prefixIssues(key, result2.issues));
             }
-            payload.value[key] = result.value;
+            payload.value[key] = result2.value;
           }
         }
       }
@@ -13640,19 +13642,19 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
           }
           continue;
         }
-        const result = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
-        if (result instanceof Promise) {
-          proms.push(result.then((result2) => {
-            if (result2.issues.length) {
-              payload.issues.push(...prefixIssues(key, result2.issues));
+        const result2 = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
+        if (result2 instanceof Promise) {
+          proms.push(result2.then((result3) => {
+            if (result3.issues.length) {
+              payload.issues.push(...prefixIssues(key, result3.issues));
             }
-            payload.value[keyResult.value] = result2.value;
+            payload.value[keyResult.value] = result3.value;
           }));
         } else {
-          if (result.issues.length) {
-            payload.issues.push(...prefixIssues(key, result.issues));
+          if (result2.issues.length) {
+            payload.issues.push(...prefixIssues(key, result2.issues));
           }
-          payload.value[keyResult.value] = result.value;
+          payload.value[keyResult.value] = result2.value;
         }
       }
     }
@@ -13739,22 +13741,22 @@ var $ZodSet = /* @__PURE__ */ $constructor("$ZodSet", (inst, def) => {
     const proms = [];
     payload.value = /* @__PURE__ */ new Set();
     for (const item of input) {
-      const result = def.valueType._zod.run({ value: item, issues: [] }, ctx);
-      if (result instanceof Promise) {
-        proms.push(result.then((result2) => handleSetResult(result2, payload)));
+      const result2 = def.valueType._zod.run({ value: item, issues: [] }, ctx);
+      if (result2 instanceof Promise) {
+        proms.push(result2.then((result3) => handleSetResult(result3, payload)));
       } else
-        handleSetResult(result, payload);
+        handleSetResult(result2, payload);
     }
     if (proms.length)
       return Promise.all(proms).then(() => payload);
     return payload;
   };
 });
-function handleSetResult(result, final) {
-  if (result.issues.length) {
-    final.issues.push(...result.issues);
+function handleSetResult(result2, final) {
+  if (result2.issues.length) {
+    final.issues.push(...result2.issues);
   }
-  final.value.add(result.value);
+  final.value.add(result2.value);
 }
 var $ZodEnum = /* @__PURE__ */ $constructor("$ZodEnum", (inst, def) => {
   $ZodType.init(inst, def);
@@ -13834,11 +13836,11 @@ var $ZodTransform = /* @__PURE__ */ $constructor("$ZodTransform", (inst, def) =>
     return payload;
   };
 });
-function handleOptionalResult(result, input) {
-  if (result.issues.length && input === void 0) {
+function handleOptionalResult(result2, input) {
+  if (result2.issues.length && input === void 0) {
     return { issues: [], value: void 0 };
   }
-  return result;
+  return result2;
 }
 var $ZodOptional = /* @__PURE__ */ $constructor("$ZodOptional", (inst, def) => {
   $ZodType.init(inst, def);
@@ -13853,10 +13855,10 @@ var $ZodOptional = /* @__PURE__ */ $constructor("$ZodOptional", (inst, def) => {
   });
   inst._zod.parse = (payload, ctx) => {
     if (def.innerType._zod.optin === "optional") {
-      const result = def.innerType._zod.run(payload, ctx);
-      if (result instanceof Promise)
-        return result.then((r) => handleOptionalResult(r, payload.value));
-      return handleOptionalResult(result, payload.value);
+      const result2 = def.innerType._zod.run(payload, ctx);
+      if (result2 instanceof Promise)
+        return result2.then((r) => handleOptionalResult(r, payload.value));
+      return handleOptionalResult(result2, payload.value);
     }
     if (payload.value === void 0) {
       return payload;
@@ -13901,11 +13903,11 @@ var $ZodDefault = /* @__PURE__ */ $constructor("$ZodDefault", (inst, def) => {
       payload.value = def.defaultValue;
       return payload;
     }
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => handleDefaultResult(result2, def));
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => handleDefaultResult(result3, def));
     }
-    return handleDefaultResult(result, def);
+    return handleDefaultResult(result2, def);
   };
 });
 function handleDefaultResult(payload, def) {
@@ -13935,11 +13937,11 @@ var $ZodNonOptional = /* @__PURE__ */ $constructor("$ZodNonOptional", (inst, def
     return v ? new Set([...v].filter((x) => x !== void 0)) : void 0;
   });
   inst._zod.parse = (payload, ctx) => {
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => handleNonOptionalResult(result2, inst));
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => handleNonOptionalResult(result3, inst));
     }
-    return handleNonOptionalResult(result, inst);
+    return handleNonOptionalResult(result2, inst);
   };
 });
 function handleNonOptionalResult(payload, inst) {
@@ -13959,14 +13961,14 @@ var $ZodSuccess = /* @__PURE__ */ $constructor("$ZodSuccess", (inst, def) => {
     if (ctx.direction === "backward") {
       throw new $ZodEncodeError("ZodSuccess");
     }
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => {
-        payload.value = result2.issues.length === 0;
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => {
+        payload.value = result3.issues.length === 0;
         return payload;
       });
     }
-    payload.value = result.issues.length === 0;
+    payload.value = result2.issues.length === 0;
     return payload;
   };
 });
@@ -13979,15 +13981,15 @@ var $ZodCatch = /* @__PURE__ */ $constructor("$ZodCatch", (inst, def) => {
     if (ctx.direction === "backward") {
       return def.innerType._zod.run(payload, ctx);
     }
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => {
-        payload.value = result2.value;
-        if (result2.issues.length) {
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => {
+        payload.value = result3.value;
+        if (result3.issues.length) {
           payload.value = def.catchValue({
             ...payload,
             error: {
-              issues: result2.issues.map((iss) => finalizeIssue(iss, ctx, config()))
+              issues: result3.issues.map((iss) => finalizeIssue(iss, ctx, config()))
             },
             input: payload.value
           });
@@ -13996,12 +13998,12 @@ var $ZodCatch = /* @__PURE__ */ $constructor("$ZodCatch", (inst, def) => {
         return payload;
       });
     }
-    payload.value = result.value;
-    if (result.issues.length) {
+    payload.value = result2.value;
+    if (result2.issues.length) {
       payload.value = def.catchValue({
         ...payload,
         error: {
-          issues: result.issues.map((iss) => finalizeIssue(iss, ctx, config()))
+          issues: result2.issues.map((iss) => finalizeIssue(iss, ctx, config()))
         },
         input: payload.value
       });
@@ -14076,24 +14078,24 @@ var $ZodCodec = /* @__PURE__ */ $constructor("$ZodCodec", (inst, def) => {
     }
   };
 });
-function handleCodecAResult(result, def, ctx) {
-  if (result.issues.length) {
-    result.aborted = true;
-    return result;
+function handleCodecAResult(result2, def, ctx) {
+  if (result2.issues.length) {
+    result2.aborted = true;
+    return result2;
   }
   const direction = ctx.direction || "forward";
   if (direction === "forward") {
-    const transformed = def.transform(result.value, result);
+    const transformed = def.transform(result2.value, result2);
     if (transformed instanceof Promise) {
-      return transformed.then((value) => handleCodecTxResult(result, value, def.out, ctx));
+      return transformed.then((value) => handleCodecTxResult(result2, value, def.out, ctx));
     }
-    return handleCodecTxResult(result, transformed, def.out, ctx);
+    return handleCodecTxResult(result2, transformed, def.out, ctx);
   } else {
-    const transformed = def.reverseTransform(result.value, result);
+    const transformed = def.reverseTransform(result2.value, result2);
     if (transformed instanceof Promise) {
-      return transformed.then((value) => handleCodecTxResult(result, value, def.in, ctx));
+      return transformed.then((value) => handleCodecTxResult(result2, value, def.in, ctx));
     }
-    return handleCodecTxResult(result, transformed, def.in, ctx);
+    return handleCodecTxResult(result2, transformed, def.in, ctx);
   }
 }
 function handleCodecTxResult(left, value, nextSchema, ctx) {
@@ -14113,11 +14115,11 @@ var $ZodReadonly = /* @__PURE__ */ $constructor("$ZodReadonly", (inst, def) => {
     if (ctx.direction === "backward") {
       return def.innerType._zod.run(payload, ctx);
     }
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then(handleReadonlyResult);
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then(handleReadonlyResult);
     }
-    return handleReadonlyResult(result);
+    return handleReadonlyResult(result2);
   };
 });
 function handleReadonlyResult(payload) {
@@ -14179,11 +14181,11 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
     }
     return function(...args) {
       const parsedArgs = inst._def.input ? parse(inst._def.input, args) : args;
-      const result = Reflect.apply(func, this, parsedArgs);
+      const result2 = Reflect.apply(func, this, parsedArgs);
       if (inst._def.output) {
-        return parse(inst._def.output, result);
+        return parse(inst._def.output, result2);
       }
-      return result;
+      return result2;
     };
   };
   inst.implementAsync = (func) => {
@@ -14192,11 +14194,11 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
     }
     return async function(...args) {
       const parsedArgs = inst._def.input ? await parseAsync(inst._def.input, args) : args;
-      const result = await Reflect.apply(func, this, parsedArgs);
+      const result2 = await Reflect.apply(func, this, parsedArgs);
       if (inst._def.output) {
-        return await parseAsync(inst._def.output, result);
+        return await parseAsync(inst._def.output, result2);
       }
-      return result;
+      return result2;
     };
   };
   inst._zod.parse = (payload, _ctx) => {
@@ -14280,8 +14282,8 @@ var $ZodCustom = /* @__PURE__ */ $constructor("$ZodCustom", (inst, def) => {
     return;
   };
 });
-function handleRefineResult(result, payload, input, inst) {
-  if (!result) {
+function handleRefineResult(result2, payload, input, inst) {
+  if (!result2) {
     const _iss = {
       code: "custom",
       input,
@@ -14409,8 +14411,6 @@ function en_default2() {
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
 var _a;
-var $output = Symbol("ZodOutput");
-var $input = Symbol("ZodInput");
 var $ZodRegistry = class {
   constructor() {
     this._map = /* @__PURE__ */ new WeakMap();
@@ -15295,11 +15295,11 @@ function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
     }
     return seen.schema;
   }
-  const result = { schema: {}, count: 1, cycle: void 0, path: _params.path };
-  ctx.seen.set(schema, result);
+  const result2 = { schema: {}, count: 1, cycle: void 0, path: _params.path };
+  ctx.seen.set(schema, result2);
   const overrideSchema = schema._zod.toJSONSchema?.();
   if (overrideSchema) {
-    result.schema = overrideSchema;
+    result2.schema = overrideSchema;
   } else {
     const params = {
       ..._params,
@@ -15307,9 +15307,9 @@ function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
       path: _params.path
     };
     if (schema._zod.processJSONSchema) {
-      schema._zod.processJSONSchema(ctx, result.schema, params);
+      schema._zod.processJSONSchema(ctx, result2.schema, params);
     } else {
-      const _json = result.schema;
+      const _json = result2.schema;
       const processor = ctx.processors[def.type];
       if (!processor) {
         throw new Error(`[toJSONSchema]: Non-representable type encountered: ${def.type}`);
@@ -15318,22 +15318,22 @@ function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
     }
     const parent = schema._zod.parent;
     if (parent) {
-      if (!result.ref)
-        result.ref = parent;
+      if (!result2.ref)
+        result2.ref = parent;
       process2(parent, ctx, params);
       ctx.seen.get(parent).isParent = true;
     }
   }
   const meta3 = ctx.metadataRegistry.get(schema);
   if (meta3)
-    Object.assign(result.schema, meta3);
+    Object.assign(result2.schema, meta3);
   if (ctx.io === "input" && isTransforming(schema)) {
-    delete result.schema.examples;
-    delete result.schema.default;
+    delete result2.schema.examples;
+    delete result2.schema.default;
   }
-  if (ctx.io === "input" && result.schema._prefault)
-    (_a2 = result.schema).default ?? (_a2.default = result.schema._prefault);
-  delete result.schema._prefault;
+  if (ctx.io === "input" && result2.schema._prefault)
+    (_a2 = result2.schema).default ?? (_a2.default = result2.schema._prefault);
+  delete result2.schema._prefault;
   const _result = ctx.seen.get(schema);
   return _result.schema;
 }
@@ -15496,13 +15496,13 @@ function finalize(ctx, schema) {
   for (const entry of [...ctx.seen.entries()].reverse()) {
     flattenRef(entry[0]);
   }
-  const result = {};
+  const result2 = {};
   if (ctx.target === "draft-2020-12") {
-    result.$schema = "https://json-schema.org/draft/2020-12/schema";
+    result2.$schema = "https://json-schema.org/draft/2020-12/schema";
   } else if (ctx.target === "draft-07") {
-    result.$schema = "http://json-schema.org/draft-07/schema#";
+    result2.$schema = "http://json-schema.org/draft-07/schema#";
   } else if (ctx.target === "draft-04") {
-    result.$schema = "http://json-schema.org/draft-04/schema#";
+    result2.$schema = "http://json-schema.org/draft-04/schema#";
   } else if (ctx.target === "openapi-3.0") {
   } else {
   }
@@ -15510,9 +15510,9 @@ function finalize(ctx, schema) {
     const id = ctx.external.registry.get(schema)?.id;
     if (!id)
       throw new Error("Schema is missing an `id` property");
-    result.$id = ctx.external.uri(id);
+    result2.$id = ctx.external.uri(id);
   }
-  Object.assign(result, root.def ?? root.schema);
+  Object.assign(result2, root.def ?? root.schema);
   const defs = ctx.external?.defs ?? {};
   for (const entry of ctx.seen.entries()) {
     const seen = entry[1];
@@ -15524,14 +15524,14 @@ function finalize(ctx, schema) {
   } else {
     if (Object.keys(defs).length > 0) {
       if (ctx.target === "draft-2020-12") {
-        result.$defs = defs;
+        result2.$defs = defs;
       } else {
-        result.definitions = defs;
+        result2.definitions = defs;
       }
     }
   }
   try {
-    const finalized = JSON.parse(JSON.stringify(result));
+    const finalized = JSON.parse(JSON.stringify(result2));
     Object.defineProperty(finalized, "~standard", {
       value: {
         ...schema["~standard"],
@@ -16096,12 +16096,12 @@ function isZ4Schema(s) {
 }
 function safeParse2(schema, data) {
   if (isZ4Schema(schema)) {
-    const result2 = safeParse(schema, data);
-    return result2;
+    const result3 = safeParse(schema, data);
+    return result3;
   }
   const v3Schema = schema;
-  const result = v3Schema.safeParse(data);
-  return result;
+  const result2 = v3Schema.safeParse(data);
+  return result2;
 }
 function getObjectShape(schema) {
   if (!schema)
@@ -19033,8 +19033,8 @@ var ServerResultSchema = union([
   CreateTaskResultSchema
 ]);
 var McpError = class _McpError extends Error {
-  constructor(code, message, data) {
-    super(`MCP error ${code}: ${message}`);
+  constructor(code, message2, data) {
+    super(`MCP error ${code}: ${message2}`);
     this.code = code;
     this.data = data;
     this.name = "McpError";
@@ -19042,19 +19042,19 @@ var McpError = class _McpError extends Error {
   /**
    * Factory method to create the appropriate error type based on the error code and data
    */
-  static fromError(code, message, data) {
+  static fromError(code, message2, data) {
     if (code === ErrorCode.UrlElicitationRequired && data) {
       const errorData = data;
       if (errorData.elicitations) {
-        return new UrlElicitationRequiredError(errorData.elicitations, message);
+        return new UrlElicitationRequiredError(errorData.elicitations, message2);
       }
     }
-    return new _McpError(code, message, data);
+    return new _McpError(code, message2, data);
   }
 };
 var UrlElicitationRequiredError = class extends McpError {
-  constructor(elicitations, message = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
-    super(ErrorCode.UrlElicitationRequired, message, {
+  constructor(elicitations, message2 = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
+    super(ErrorCode.UrlElicitationRequired, message2, {
       elicitations
     });
   }
@@ -19067,9 +19067,6 @@ var UrlElicitationRequiredError = class extends McpError {
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
-
-// node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/Options.js
-var ignoreOverride = Symbol("Let zodToJsonSchema decide on which parser to use");
 
 // node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
@@ -19088,11 +19085,11 @@ function getMethodLiteral(schema) {
   return value;
 }
 function parseWithCompat(schema, data) {
-  const result = safeParse2(schema, data);
-  if (!result.success) {
-    throw result.error;
+  const result2 = safeParse2(schema, data);
+  if (!result2.success) {
+    throw result2.error;
   }
-  return result.data;
+  return result2.data;
 }
 
 // node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
@@ -19140,15 +19137,15 @@ var Protocol = class {
             let queuedMessage;
             while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId)) {
               if (queuedMessage.type === "response" || queuedMessage.type === "error") {
-                const message = queuedMessage.message;
-                const requestId = message.id;
+                const message2 = queuedMessage.message;
+                const requestId = message2.id;
                 const resolver = this._requestResolvers.get(requestId);
                 if (resolver) {
                   this._requestResolvers.delete(requestId);
                   if (queuedMessage.type === "response") {
-                    resolver(message);
+                    resolver(message2);
                   } else {
-                    const errorMessage = message;
+                    const errorMessage = message2;
                     const error2 = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error2);
                   }
@@ -19170,12 +19167,12 @@ var Protocol = class {
             return await handleTaskResult();
           }
           if (isTerminal(task.status)) {
-            const result = await this._taskStore.getTaskResult(taskId, extra.sessionId);
+            const result2 = await this._taskStore.getTaskResult(taskId, extra.sessionId);
             this._clearTaskQueue(taskId);
             return {
-              ...result,
+              ...result2,
               _meta: {
-                ...result._meta,
+                ...result2._meta,
                 [RELATED_TASK_META_KEY]: {
                   taskId
                 }
@@ -19287,16 +19284,16 @@ var Protocol = class {
       this._onerror(error2);
     };
     const _onmessage = this._transport?.onmessage;
-    this._transport.onmessage = (message, extra) => {
-      _onmessage?.(message, extra);
-      if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-        this._onresponse(message);
-      } else if (isJSONRPCRequest(message)) {
-        this._onrequest(message, extra);
-      } else if (isJSONRPCNotification(message)) {
-        this._onnotification(message);
+    this._transport.onmessage = (message2, extra) => {
+      _onmessage?.(message2, extra);
+      if (isJSONRPCResultResponse(message2) || isJSONRPCErrorResponse(message2)) {
+        this._onresponse(message2);
+      } else if (isJSONRPCRequest(message2)) {
+        this._onrequest(message2, extra);
+      } else if (isJSONRPCNotification(message2)) {
+        this._onnotification(message2);
       } else {
-        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message2)}`));
       }
     };
     await this._transport.start();
@@ -19400,12 +19397,12 @@ var Protocol = class {
       if (taskCreationParams) {
         this.assertTaskHandlerCapability(request.method);
       }
-    }).then(() => handler(request, fullExtra)).then(async (result) => {
+    }).then(() => handler(request, fullExtra)).then(async (result2) => {
       if (abortController.signal.aborted) {
         return;
       }
       const response = {
-        result,
+        result: result2,
         jsonrpc: "2.0",
         id: request.id
       };
@@ -19491,9 +19488,9 @@ var Protocol = class {
     this._cleanupTimeout(messageId);
     let isTaskResponse = false;
     if (isJSONRPCResultResponse(response) && response.result && typeof response.result === "object") {
-      const result = response.result;
-      if (result.task && typeof result.task === "object") {
-        const task = result.task;
+      const result2 = response.result;
+      if (result2.task && typeof result2.task === "object") {
+        const task = result2.task;
         if (typeof task.taskId === "string") {
           isTaskResponse = true;
           this._taskProgressTokens.set(task.taskId, messageId);
@@ -19550,8 +19547,8 @@ var Protocol = class {
     const { task } = options ?? {};
     if (!task) {
       try {
-        const result = await this.request(request, resultSchema, options);
-        yield { type: "result", result };
+        const result2 = await this.request(request, resultSchema, options);
+        yield { type: "result", result: result2 };
       } catch (error2) {
         yield {
           type: "error",
@@ -19574,8 +19571,8 @@ var Protocol = class {
         yield { type: "taskStatus", task: task2 };
         if (isTerminal(task2.status)) {
           if (task2.status === "completed") {
-            const result = await this.getTaskResult({ taskId }, resultSchema, options);
-            yield { type: "result", result };
+            const result2 = await this.getTaskResult({ taskId }, resultSchema, options);
+            yield { type: "result", result: result2 };
           } else if (task2.status === "failed") {
             yield {
               type: "error",
@@ -19590,12 +19587,12 @@ var Protocol = class {
           return;
         }
         if (task2.status === "input_required") {
-          const result = await this.getTaskResult({ taskId }, resultSchema, options);
-          yield { type: "result", result };
+          const result2 = await this.getTaskResult({ taskId }, resultSchema, options);
+          yield { type: "result", result: result2 };
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
+        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -19612,7 +19609,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve3, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19690,7 +19687,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve5(parseResult.data);
+            resolve3(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19906,12 +19903,12 @@ var Protocol = class {
    * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
    * simply propagates the error.
    */
-  async _enqueueTaskMessage(taskId, message, sessionId) {
+  async _enqueueTaskMessage(taskId, message2, sessionId) {
     if (!this._taskStore || !this._taskMessageQueue) {
       throw new Error("Cannot enqueue task message: taskStore and taskMessageQueue are not configured");
     }
     const maxQueueSize = this._options?.maxTaskQueueSize;
-    await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+    await this._taskMessageQueue.enqueue(taskId, message2, sessionId, maxQueueSize);
   }
   /**
    * Clears the message queue for a task and rejects any pending request resolvers.
@@ -19921,9 +19918,9 @@ var Protocol = class {
   async _clearTaskQueue(taskId, sessionId) {
     if (this._taskMessageQueue) {
       const messages = await this._taskMessageQueue.dequeueAll(taskId, sessionId);
-      for (const message of messages) {
-        if (message.type === "request" && isJSONRPCRequest(message.message)) {
-          const requestId = message.message.id;
+      for (const message2 of messages) {
+        if (message2.type === "request" && isJSONRPCRequest(message2.message)) {
+          const requestId = message2.message.id;
           const resolver = this._requestResolvers.get(requestId);
           if (resolver) {
             resolver(new McpError(ErrorCode.InternalError, "Task cancelled or completed"));
@@ -19951,12 +19948,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve3, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve5, interval);
+      const timeoutId = setTimeout(resolve3, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -19985,8 +19982,8 @@ var Protocol = class {
         }
         return task;
       },
-      storeTaskResult: async (taskId, status, result) => {
-        await taskStore.storeTaskResult(taskId, status, result, sessionId);
+      storeTaskResult: async (taskId, status, result2) => {
+        await taskStore.storeTaskResult(taskId, status, result2, sessionId);
         const task = await taskStore.getTask(taskId, sessionId);
         if (task) {
           const notification = TaskStatusNotificationSchema.parse({
@@ -20033,20 +20030,20 @@ function isPlainObject2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function mergeCapabilities(base, additional) {
-  const result = { ...base };
+  const result2 = { ...base };
   for (const key in additional) {
     const k = key;
     const addValue = additional[k];
     if (addValue === void 0)
       continue;
-    const baseValue = result[k];
+    const baseValue = result2[k];
     if (isPlainObject2(baseValue) && isPlainObject2(addValue)) {
-      result[k] = { ...baseValue, ...addValue };
+      result2[k] = { ...baseValue, ...addValue };
     } else {
-      result[k] = addValue;
+      result2[k] = addValue;
     }
   }
-  return result;
+  return result2;
 }
 
 // node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
@@ -20453,16 +20450,16 @@ var Server = class extends Protocol {
           throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
         }
         const { params } = validatedRequest.data;
-        const result = await Promise.resolve(handler(request, extra));
+        const result2 = await Promise.resolve(handler(request, extra));
         if (params.task) {
-          const taskValidationResult = safeParse2(CreateTaskResultSchema, result);
+          const taskValidationResult = safeParse2(CreateTaskResultSchema, result2);
           if (!taskValidationResult.success) {
             const errorMessage = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
             throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
           }
           return taskValidationResult.data;
         }
-        const validationResult = safeParse2(CallToolResultSchema, result);
+        const validationResult = safeParse2(CallToolResultSchema, result2);
         if (!validationResult.success) {
           const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
           throw new McpError(ErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
@@ -20671,11 +20668,11 @@ var Server = class extends Protocol {
           throw new Error("Client does not support form elicitation.");
         }
         const formParams = params.mode === "form" ? params : { ...params, mode: "form" };
-        const result = await this.request({ method: "elicitation/create", params: formParams }, ElicitResultSchema, options);
-        if (result.action === "accept" && result.content && formParams.requestedSchema) {
+        const result2 = await this.request({ method: "elicitation/create", params: formParams }, ElicitResultSchema, options);
+        if (result2.action === "accept" && result2.content && formParams.requestedSchema) {
           try {
             const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema);
-            const validationResult = validator(result.content);
+            const validationResult = validator(result2.content);
             if (!validationResult.valid) {
               throw new McpError(ErrorCode.InvalidParams, `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`);
             }
@@ -20686,7 +20683,7 @@ var Server = class extends Protocol {
             throw new McpError(ErrorCode.InternalError, `Error validating elicitation response: ${error2 instanceof Error ? error2.message : String(error2)}`);
           }
         }
-        return result;
+        return result2;
       }
     }
   }
@@ -20772,8 +20769,8 @@ var ReadBuffer = class {
 function deserializeMessage(line) {
   return JSONRPCMessageSchema.parse(JSON.parse(line));
 }
-function serializeMessage(message) {
-  return JSON.stringify(message) + "\n";
+function serializeMessage(message2) {
+  return JSON.stringify(message2) + "\n";
 }
 
 // node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
@@ -20805,11 +20802,11 @@ var StdioServerTransport = class {
   processReadBuffer() {
     while (true) {
       try {
-        const message = this._readBuffer.readMessage();
-        if (message === null) {
+        const message2 = this._readBuffer.readMessage();
+        if (message2 === null) {
           break;
         }
-        this.onmessage?.(message);
+        this.onmessage?.(message2);
       } catch (error2) {
         this.onerror?.(error2);
       }
@@ -20825,116 +20822,640 @@ var StdioServerTransport = class {
     this._readBuffer.clear();
     this.onclose?.();
   }
-  send(message) {
-    return new Promise((resolve5) => {
-      const json2 = serializeMessage(message);
+  send(message2) {
+    return new Promise((resolve3) => {
+      const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve5();
+        resolve3();
       } else {
-        this._stdout.once("drain", resolve5);
+        this._stdout.once("drain", resolve3);
       }
     });
   }
 };
 
 // src/db.ts
-import { copyFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, join as join2, dirname } from "node:path";
+import { copyFileSync, readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
+import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir as homedir2 } from "node:os";
-import { performance } from "node:perf_hooks";
-import { DatabaseSync } from "node:sqlite";
+import { performance as performance2 } from "node:perf_hooks";
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
 // src/logger.ts
-import { appendFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-var logDir = join(homedir(), ".claude", resolvePluginName(process.env), "logs");
-var logDirReady = false;
-try {
-  mkdirSync(logDir, { recursive: true });
-  logDirReady = true;
-} catch {
-}
-var serverLogPath = join(logDir, "mcp-server.log");
-var sqlLogPath = join(logDir, "sql.log");
-var sqlEnabled = process.env["TMB_DEBUG_SQL"] === "1";
-function serverLog(entry) {
-  if (!logDirReady) return;
-  try {
-    const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync(serverLogPath, line);
-  } catch {
-  }
-}
-var serverLogSync = serverLog;
-var sqlLog = sqlEnabled ? (entry) => {
-  if (!logDirReady) return;
-  try {
-    const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync(sqlLogPath, line);
-  } catch {
-  }
-} : () => {
-};
+import {
+  appendFileSync,
+  closeSync,
+  constants,
+  lstatSync as lstatSync2,
+  mkdirSync,
+  openSync
+} from "node:fs";
+import { join as join2 } from "node:path";
 
-// src/db.ts
-var TARGET_SCHEMA_VERSION = 28;
-function resolvePluginName(env = process.env) {
-  const root = env["CLAUDE_PLUGIN_ROOT"];
-  if (!root) return "tmb";
+// src/platform.ts
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  sep
+} from "node:path";
+var UnsafeProjectWritePathError = class extends Error {
+  constructor(message2) {
+    super(message2);
+    this.name = "UnsafeProjectWritePathError";
+  }
+};
+function readClaudePluginMetadata(env = process.env) {
+  const root = env["CLAUDE_PLUGIN_ROOT"] ?? null;
+  if (!root) {
+    return freezePlugin({ root: null, name: "tmb", version: null });
+  }
   try {
     const manifest = JSON.parse(
-      readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
+      readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")
     );
-    if (typeof manifest.name === "string" && manifest.name.length > 0) {
-      return manifest.name;
-    }
+    const name = typeof manifest.name === "string" && manifest.name.length > 0 ? manifest.name : "tmb";
+    const version2 = typeof manifest.version === "string" && manifest.version.length > 0 ? manifest.version : null;
+    return freezePlugin({ root, name, version: version2 });
   } catch {
+    return freezePlugin({ root, name: "tmb", version: null });
   }
-  return "tmb";
 }
-function resolvePluginVersion(env = process.env) {
-  const root = env["CLAUDE_PLUGIN_ROOT"];
-  if (!root) return null;
-  try {
-    const manifest = JSON.parse(
-      readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
-    );
-    if (typeof manifest.version === "string" && manifest.version.length > 0) {
-      return manifest.version;
-    }
-  } catch {
-  }
-  return null;
+function resolveClaudePluginName(env = process.env) {
+  return readClaudePluginMetadata(env).name;
 }
-function resolveDbPath(opts) {
+function resolveClaudePluginVersion(env = process.env) {
+  return readClaudePluginMetadata(env).version;
+}
+function resolveClaudeProjectRoot(env = process.env) {
+  const root = env["CLAUDE_PROJECT_DIR"];
+  return root && root.trim().length > 0 ? root : null;
+}
+function resolveClaudeSessionDir(env = process.env, cwd = process.cwd()) {
+  return resolveClaudeProjectRoot(env) ?? cwd;
+}
+function resolveClaudeDbPath(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
-  const home = opts?.home ?? homedir2();
+  const home = opts?.home ?? homedir();
+  const pluginName2 = resolveClaudePluginName(env);
+  return resolveClaudeDbPathForPlugin(pluginName2, { env, cwd, home });
+}
+function resolveClaudeDbPathForPlugin(pluginName2, opts) {
+  const { env, cwd, home } = opts;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) return override;
-  const pluginName = resolvePluginName(env);
-  const found = findExistingDbUp(cwd, pluginName, { home });
+  const projectRoot = resolveClaudeProjectRoot(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName2, { home, env, projectRoot });
   if (found) return found;
-  return join2(cwd, ".claude", pluginName, "trajectory.db");
+  return claudeDbLocation(projectRoot ?? cwd, pluginName2);
 }
-function findExistingDbUp(startDir, pluginName, opts) {
-  const home = opts?.home ?? homedir2();
-  let dir = startDir;
-  for (let i = 0; i < 8; i++) {
-    if (dir === home && startDir !== home) return null;
-    const candidate = join2(dir, ".claude", pluginName, "trajectory.db");
-    if (existsSync(candidate)) return candidate;
-    if (existsSync(join2(dir, ".git"))) break;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+var CLAUDE_STATE_HOST_DIR = ".claude";
+function claudeDbLocation(root, pluginName2) {
+  return join(root, CLAUDE_STATE_HOST_DIR, pluginName2, "trajectory.db");
+}
+function claudeLogDirFor(trajectoryDb, pluginName2) {
+  if (trajectoryDb === ":memory:") return join(tmpdir(), `${pluginName2}-memory-logs`);
+  return join(dirname(trajectoryDb), "logs");
+}
+function resolveClaudeLogDir(opts) {
+  const env = opts?.env ?? process.env;
+  const cwd = opts?.cwd ?? process.cwd();
+  const home = opts?.home ?? homedir();
+  const pluginName2 = resolveClaudePluginName(env);
+  return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName2, { env, cwd, home }), pluginName2);
+}
+function resolveGraphDbPath(trajectoryDbPath) {
+  if (trajectoryDbPath === ":memory:") return ":memory:";
+  const dbName = basename(trajectoryDbPath);
+  const normalizedDbName = dbName.toLowerCase();
+  if (normalizedDbName === "world-model.kuzu" || normalizedDbName.endsWith(".world-model.kuzu")) {
+    throw new Error(
+      `Trajectory DB filename "${dbName}" is reserved for graph storage`
+    );
+  }
+  const graphName = dbName === "trajectory.db" ? "world-model.kuzu" : `${dbName}.world-model.kuzu`;
+  return join(dirname(trajectoryDbPath), graphName);
+}
+function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable path", expectedKind = "either") {
+  if (!isAbsolute(projectRoot)) {
+    throw new UnsafeProjectWritePathError(
+      `${label} project root must be an absolute path`
+    );
+  }
+  if (!isAbsolute(path2)) {
+    throw new UnsafeProjectWritePathError(`${label} must be an absolute path`);
+  }
+  let rootStat;
+  try {
+    rootStat = lstatSync(projectRoot);
+  } catch {
+    throw new UnsafeProjectWritePathError(
+      `${label} project root must remain an existing directory`
+    );
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new UnsafeProjectWritePathError(
+      `${label} project root must remain a real directory`
+    );
+  }
+  const canonicalRoot = realpathSync(projectRoot);
+  if (canonicalRoot !== projectRoot) {
+    throw new UnsafeProjectWritePathError(
+      `${label} project root changed after canonicalization`
+    );
+  }
+  assertPathContained(canonicalRoot, path2, label);
+  assertExistingAncestorContained(
+    canonicalRoot,
+    path2,
+    label,
+    expectedKind
+  );
+}
+function probeClaudeDb(path2) {
+  let db2 = null;
+  try {
+    db2 = new DatabaseSync(path2, { readOnly: true });
+    const cols = db2.prepare("SELECT name FROM pragma_table_info('tasks')").all();
+    return cols.some((c) => c.name === "prompt_bearing") ? "current" : "stale";
+  } catch {
+    return "error";
+  } finally {
+    try {
+      db2?.close();
+    } catch {
+    }
+  }
+}
+var CLAUDE_STANDALONE_MARKER = "standalone";
+function claudeStateDir(root, pluginName2) {
+  return join(root, CLAUDE_STATE_HOST_DIR, pluginName2);
+}
+function isStandaloneClaudeDb(dbPath2) {
+  return existsSync(join(dirname(dbPath2), CLAUDE_STANDALONE_MARKER));
+}
+function walkClaudeDbs(start, pluginName2, opts) {
+  const home = opts?.home ?? homedir();
+  const probe = opts?.probe ?? probeClaudeDb;
+  const found = [];
+  for (let dir = start; dirname(dir) !== dir; dir = dirname(dir)) {
+    if (dir === home && start !== home) break;
+    const candidate = claudeDbLocation(dir, pluginName2);
+    if (!existsSync(candidate) || probe(candidate) === "stale") continue;
+    found.push(candidate);
+    if (isStandaloneClaudeDb(candidate)) break;
+  }
+  return { resolved: found.length === 0 ? null : found[found.length - 1], candidates: found };
+}
+function claudeProjectRootOfDb(dbPath2) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  const hostDir = dirname(dirname(dbPath2));
+  return basename(hostDir) === CLAUDE_STATE_HOST_DIR ? dirname(hostDir) : null;
+}
+function canonicalExisting(path2) {
+  try {
+    return realpathSync(path2);
+  } catch {
+    return path2;
+  }
+}
+function isPathWithin(parent, child) {
+  const rel = relative(parent, child);
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+var STRAY_DB_MAX_DEPTH = 4;
+function countRows(conn, table) {
+  try {
+    const row = conn.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE id > 0`).get();
+    return row === void 0 ? null : Number(row.n);
+  } catch {
+    return null;
+  }
+}
+function claudeDbCounts(path2) {
+  let conn = null;
+  try {
+    conn = new DatabaseSync(path2, { readOnly: true });
+    return { issues: countRows(conn, "issues"), tasks: countRows(conn, "tasks") };
+  } catch {
+    return { issues: null, tasks: null };
+  } finally {
+    try {
+      conn?.close();
+    } catch {
+    }
+  }
+}
+function claudeDbsBelow(root, pluginName2, maxDepth, probe) {
+  const found = [];
+  let level = [root];
+  for (let depth = 1; depth <= maxDepth && level.length > 0; depth += 1) {
+    const next = [];
+    for (const dir of level) {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+        const child = join(dir, entry.name);
+        const candidate = claudeDbLocation(child, pluginName2);
+        if (existsSync(candidate) && isStandaloneClaudeDb(candidate)) continue;
+        next.push(child);
+        if (existsSync(candidate) && probe(candidate) !== "stale") found.push(candidate);
+      }
+    }
+    level = next;
+  }
+  return found;
+}
+function otherClaudeDbs(dbPath2, opts) {
+  const root = claudeProjectRootOfDb(dbPath2);
+  if (root === null) return null;
+  const pluginName2 = basename(dirname(dbPath2));
+  const probe = opts.probe ?? probeClaudeDb;
+  const seen = /* @__PURE__ */ new Set([canonicalExisting(dbPath2)]);
+  const paths = [];
+  const add = (path2) => {
+    const key = canonicalExisting(path2);
+    if (seen.has(key)) return;
+    seen.add(key);
+    paths.push(path2);
+  };
+  if (isPathWithin(canonicalExisting(root), canonicalExisting(opts.sessionDir))) {
+    walkClaudeDbs(opts.sessionDir, pluginName2, { home: opts.home, probe }).candidates.forEach(add);
+  }
+  claudeDbsBelow(root, pluginName2, STRAY_DB_MAX_DEPTH, probe).forEach(add);
+  return paths.map((path2) => {
+    const { issues, tasks } = claudeDbCounts(path2);
+    return { path: path2, issues, tasks, empty: issues === 0 && tasks === 0 };
+  });
+}
+function findExistingClaudeDbUp(startDir, pluginName2, opts) {
+  const env = opts?.env ?? process.env;
+  const override = env["TRAJECTORY_DB_PATH"];
+  if (override && override.trim().length > 0) {
+    return existsSync(override) ? override : null;
+  }
+  const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
+  return walkClaudeDbs(projectRoot ?? startDir, pluginName2, opts).resolved;
+}
+function assertPathContained(root, path2, label) {
+  const rel = relative(root, path2);
+  if (rel === "" || !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel)) {
+    return;
+  }
+  throw new UnsafeProjectWritePathError(
+    `${label} escapes the trusted project root`
+  );
+}
+function assertExistingAncestorContained(root, path2, label, expectedKind) {
+  const rel = relative(root, path2);
+  const parts = rel === "" ? [] : rel.split(sep);
+  let current = root;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = join(current, parts[index]);
+    let currentStat;
+    try {
+      currentStat = lstatSync(current);
+    } catch (error2) {
+      if (error2.code === "ENOENT") {
+        return;
+      }
+      throw error2;
+    }
+    if (currentStat.isSymbolicLink()) {
+      throw new UnsafeProjectWritePathError(
+        `${label} contains a symbolic link in writable state`
+      );
+    }
+    if (index === parts.length - 1) {
+      if (expectedKind === "file" && !currentStat.isFile()) {
+        throw new UnsafeProjectWritePathError(
+          `${label} must be a regular file`
+        );
+      }
+      if (expectedKind === "directory" && !currentStat.isDirectory()) {
+        throw new UnsafeProjectWritePathError(
+          `${label} must be a directory`
+        );
+      }
+      if (currentStat.isFile() && currentStat.nlink !== 1) {
+        throw new UnsafeProjectWritePathError(
+          `${label} must not be a multiply linked writable file`
+        );
+      }
+    }
+    if (index < parts.length - 1 && !currentStat.isDirectory()) {
+      throw new UnsafeProjectWritePathError(
+        `${label} has a non-directory ancestor`
+      );
+    }
+  }
+  if (parts.length > 0) {
+    assertPathContained(root, realpathSync(path2), label);
+  }
+}
+function freezePlugin(plugin) {
+  return Object.freeze(plugin);
+}
+
+// src/logger.ts
+function createLogger(opts, ensureLogDir, appendLine) {
+  let logDirState = "pending";
+  const logDirReady = () => {
+    if (logDirState === "pending") {
+      try {
+        ensureLogDir();
+        logDirState = "ready";
+      } catch {
+        logDirState = "failed";
+      }
+    }
+    return logDirState === "ready";
+  };
+  const serverLogPath = join2(opts.logDir, "mcp-server.log");
+  const sqlLogPath = join2(opts.logDir, "sql.log");
+  const serverLog2 = (entry) => {
+    if (!logDirReady()) return;
+    try {
+      const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+      appendLine(serverLogPath, line);
+    } catch {
+    }
+  };
+  const sqlLog2 = opts.sqlEnabled === true ? (entry) => {
+    if (!logDirReady()) return;
+    try {
+      const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+      appendLine(sqlLogPath, line);
+    } catch {
+    }
+  } : () => {
+  };
+  return Object.freeze({
+    logDir: opts.logDir,
+    serverLog: serverLog2,
+    serverLogSync: serverLog2,
+    sqlLog: sqlLog2
+  });
+}
+var defaultLogger = null;
+function getDefaultLogger() {
+  if (defaultLogger === null) {
+    const logDir = resolveClaudeLogDir();
+    defaultLogger = createLogger(
+      { logDir, sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1" },
+      () => mkdirSync(logDir, { recursive: true }),
+      appendFileSync
+    );
+  }
+  return defaultLogger;
+}
+function serverLog(entry) {
+  getDefaultLogger().serverLog(entry);
+}
+var serverLogSync = serverLog;
+function sqlLog(entry) {
+  getDefaultLogger().sqlLog(entry);
+}
+
+// src/audit-events.ts
+var AUDIT_EVENT_TYPES = [
+  { type: "agent_arg_mismatch", writers: ["hook"], description: "`agent-arg-matches-caller` denied a trajectory-server call whose `agent` argument named another role than the caller (the payload's `agent_type`, or bro for the main session); one row per denial on the task's issue when `tool_input` carries a `task_id`, else the system issue `-1`, from_node `hook:agent-arg-matches-caller`; `content_json` carries `tool`, `given`, `actual`, `task_id`. `audit_append` refuses this event" },
+  { type: "agent_runs_capture_skipped", writers: ["hook"], description: "`swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id`" },
+  { type: "agent_runs_backfilled", writers: ["bro"], description: "`agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` \u2014 up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added`" },
+  { type: "agent_runs_claimed", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `bro-turn-usage` claimed per-task bro `agent_runs` rows opened without a `session_id` for its session; bro is now metered per session, so nothing writes it and `audit_append` refuses it; `content_json` carries `run_ids`, `session_id`", reserved: true },
+  { type: "branch_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason" },
+  { type: "branch_id_proposed", writers: ["bro"], description: "`intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it" },
+  { type: "bro_verification_fail", writers: ["bro"], description: "Bro task-gate found a V1/V2/V3 check that failed" },
+  { type: "bro_verification_pass", writers: ["bro"], description: "Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads" },
+  { type: "cheatcode_activate", writers: ["bro"], description: "`cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status" },
+  { type: "cheatcode_approved", writers: ["bro"], description: "`cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it" },
+  { type: "cheatcode_healthcheck", writers: ["bro", "server"], description: "`cheatcode_reconcile` (bro) or the server startup reconcile (server) moved a cheatcode's status (e.g. `active` \u2192 `broken`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `from`, `to`" },
+  { type: "cheatcode_install", writers: ["bro"], description: "`cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome" },
+  { type: "cheatcode_installed", writers: ["bro"], description: "`cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id`" },
+  { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
+  { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
+  { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
+  { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
+  { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
+  { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
+  { type: "decision_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
+  { type: "deep_scan_completed", writers: ["bro"], description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
+  { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
+  { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back; one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
+  { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
+  { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
+  { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
+  { type: "issue_adopted", writers: ["bro"], description: "`issue_create` or `issue_adopt_remote` adopted an existing remote issue as the local issue's twin; `content_json` carries `issue_id`, `backend`, `remote_iid`" },
+  { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
+  { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
+  { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
+  { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation" },
+  { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
+  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
+  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
+  { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
+  { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
+  { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
+  { type: "milestones_reconciled", writers: ["bro"], description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
+  { type: "persona_block_written", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version`", reserved: true },
+  { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
+  { type: "project_made_standalone", writers: ["bro"], description: "`onboard_apply(standalone=true)` made the session directory, nested below the workspace, its own TMB project: it wrote the `standalone` marker and a fresh trajectory DB in `<session_dir>/.claude/<plugin>/`, which the DB walk-up then picks over the workspace DB; filed under the system issue `-1` in the workspace DB; `content_json` carries `session_dir`, `db_path`, `marker`" },
+  { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
+  { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
+  { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
+  { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
+  { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
+  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
+  { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
+  { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
+  { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
+  { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
+  { type: "scan_skipped", writers: ["hook"], description: "`scan.sh` left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+  { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
+  { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
+  { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
+  { type: "stray_db_removed", writers: ["bro"], description: "`onboard_apply(remove_stray_dbs)` deleted an empty trajectory DB (0 issues, 0 tasks) below the project root, with its `-wal`/`-shm` files and its state dir, on the Human's yes; one row per DB on the system issue `-1`; `content_json` carries `path`, `state_dir`, `project_root`" },
+  { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
+  { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
+  { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
+  { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
+  { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
+  { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
+  { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
+  { type: "task_retry_attempted", writers: ["bro"], description: "`task_retry` created a retry task for a failed one; `content_json` carries `failed_task_id`, `new_task_id`, `new_branch_id`" },
+  { type: "task_spec_amended", writers: ["bro"], description: "`task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; `content_json` carries `task_id`, `status`, `reason`, `changes`" },
+  { type: "task_stale_swept", writers: ["bro"], description: "`task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours`" },
+  { type: "tmb_agent_created", writers: ["server", "bro"], description: "`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`" },
+  { type: "tmb_branch_autocreated", writers: ["bro"], description: "`task_create_batch` created the task's feature branch ref" },
+  { type: "tmb_skill_created", writers: ["bro"], description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
+  { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
+  { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
+  { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
+];
+var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
+var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
+function isAuditEventType(value) {
+  return typeof value === "string" && KNOWN.has(value);
+}
+function auditEventWriters(type) {
+  return WRITERS.get(type) ?? [];
+}
+function isAuditEventWritableBy(type, writer) {
+  return auditEventWriters(type).includes(writer);
+}
+function assertAuditEventType(value) {
+  if (isAuditEventType(value)) return value;
+  throw new Error(
+    `unknown audit event_type '${String(value)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(", ")}`
+  );
+}
+
+// src/utils/classify-url.ts
+function extractHost(url2) {
+  const scpMatch = url2.match(/^[^@]+@([^:/]+)[:/]/);
+  if (scpMatch) return scpMatch[1].toLowerCase();
+  try {
+    const parsed = new URL(url2);
+    if (parsed.hostname) return parsed.hostname.toLowerCase();
+  } catch {
   }
   return null;
+}
+function classifyHost(host) {
+  if (host === "github.com" || host.endsWith(".github.com")) return "github";
+  if (host === "gitlab.com" || /(?:^|\.)gitlab\./i.test(host)) return "gitlab";
+  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
+  if (host === "codeberg.org" || host.endsWith(".codeberg.org")) return "codeberg";
+  if (host === "dev.azure.com" || host.endsWith(".dev.azure.com")) return "azuredev";
+  return "other";
+}
+function classifyUrl(url2) {
+  const host = extractHost(url2);
+  if (!host) return "other";
+  return classifyHost(host);
+}
+
+// src/repos/remotes.ts
+function remoteProvider(url2, declared) {
+  const fromHost = classifyUrl(url2);
+  if (fromHost === "github" || fromHost === "gitlab") return fromHost;
+  if (declared === "github" || declared === "gitlab") return declared;
+  return "other";
+}
+function primaryIndex(remotes) {
+  if (remotes.length === 0) return -1;
+  const origin = remotes.findIndex((r) => r.name === "origin");
+  return origin >= 0 ? origin : 0;
+}
+function parseLegacyRemotes(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return { ok: false, reason: `invalid JSON: ${e.message}` };
+  }
+  let entries;
+  if (Array.isArray(parsed)) {
+    entries = parsed.map(
+      (e) => e !== null && typeof e === "object" ? {
+        name: e["name"],
+        url: e["url"],
+        provider: e["provider"]
+      } : { name: void 0, url: void 0, provider: void 0 }
+    );
+  } else if (parsed !== null && typeof parsed === "object") {
+    entries = Object.entries(parsed).map(([name, url2]) => ({ name, url: url2, provider: void 0 }));
+  } else {
+    return { ok: false, reason: `expected an array or an object, got ${parsed === null ? "null" : typeof parsed}` };
+  }
+  const remotes = [];
+  const seen = /* @__PURE__ */ new Set();
+  let dropped = 0;
+  entries.forEach((e, i) => {
+    if (typeof e.url !== "string") {
+      dropped++;
+      return;
+    }
+    const name = typeof e.name === "string" && e.name.trim() !== "" ? e.name.trim() : i === 0 ? "origin" : `remote-${i}`;
+    if (seen.has(name)) {
+      dropped++;
+      return;
+    }
+    seen.add(name);
+    remotes.push({ name, url: e.url.trim(), provider: typeof e.provider === "string" ? e.provider : null });
+  });
+  return { ok: true, entries: remotes, dropped };
+}
+function repoRemotes(db2, repo) {
+  return db2.all(
+    `SELECT name, provider, url, is_primary FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
+    [repo]
+  ).map((r) => ({ name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1 }));
+}
+function remotesView(remotes) {
+  return remotes.map(({ name, provider, url: url2 }) => ({ name, provider, url: url2 }));
+}
+function upsertRepoRemotes(db2, repo, remotes) {
+  const unique = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const r of remotes) {
+    if (seen.has(r.name)) continue;
+    seen.add(r.name);
+    unique.push(r);
+  }
+  const primary = primaryIndex(unique);
+  db2.run(
+    `DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`,
+    [repo, JSON.stringify(unique.map((r) => r.name))]
+  );
+  unique.forEach((r, i) => {
+    db2.run(
+      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0]
+    );
+  });
+}
+
+// src/db.ts
+var TARGET_SCHEMA_VERSION = 40;
+function resolvePluginName(env = process.env) {
+  return resolveClaudePluginName(env);
+}
+function resolvePluginVersion(env = process.env) {
+  return resolveClaudePluginVersion(env);
+}
+function resolveDbPath(opts) {
+  return resolveClaudeDbPath(opts);
 }
 var TrajectoryDB = class {
   db;
+  pluginVersion;
+  serverLog;
+  sqlLog;
   dbPath;
   /**
    * True when the DB opened with user tables present but NO plugin_meta table
@@ -20944,22 +21465,42 @@ var TrajectoryDB = class {
    * degraded signal so the upgrade is not silent. Non-fatal.
    */
   legacyNoPluginMeta = false;
-  constructor(dbPath2) {
+  constructor(dbPath2, dependencies) {
+    const resolvedDependencies = resolveDependencies(dependencies);
     this.dbPath = dbPath2;
-    this.db = new DatabaseSync(dbPath2);
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA foreign_keys = ON");
-    this.db.exec("PRAGMA busy_timeout = 5000");
-    this.legacyNoPluginMeta = this.applySchema();
-    this.syncPluginVersion();
-    this.syncBuiltinVersions();
+    this.pluginVersion = resolvedDependencies.pluginVersion;
+    this.serverLog = resolvedDependencies.serverLog;
+    this.sqlLog = resolvedDependencies.sqlLog;
+    if (dbPath2 !== ":memory:" && resolvedDependencies.trustedProjectRoot !== void 0) {
+      assertSafeProjectWritePath(
+        resolvedDependencies.trustedProjectRoot,
+        dbPath2,
+        "Trajectory database",
+        "file"
+      );
+    }
+    this.db = new DatabaseSync2(dbPath2);
+    try {
+      this.db.exec("PRAGMA journal_mode = WAL");
+      this.db.exec("PRAGMA foreign_keys = ON");
+      this.db.exec("PRAGMA busy_timeout = 5000");
+      this.legacyNoPluginMeta = this.applySchema();
+      this.syncPluginVersion();
+      this.syncBuiltinVersions();
+    } catch (error2) {
+      try {
+        this.db.close();
+      } catch {
+      }
+      throw error2;
+    }
   }
   applySchema() {
-    const schemaDir = dirname(fileURLToPath(import.meta.url));
-    const sql = readFileSync(join2(schemaDir, "schema.sql"), "utf8");
+    const schemaDir = dirname2(fileURLToPath(import.meta.url));
+    const sql = readFileSync2(join3(schemaDir, "schema.sql"), "utf8");
     const applyEvalIfNeeded = () => {
       if (process.env["TMB_EVAL_MODE"] === "1") {
-        const evalSql = readFileSync(join2(schemaDir, "schema-eval.sql"), "utf8");
+        const evalSql = readFileSync2(join3(schemaDir, "schema-eval.sql"), "utf8");
         this.db.exec(evalSql);
       }
     };
@@ -20978,7 +21519,7 @@ var TrajectoryDB = class {
       ).get();
       const isLegacy = userTableCount.n > 0;
       if (isLegacy) {
-        serverLog({
+        this.serverLog({
           kind: "legacy_db_no_plugin_meta",
           level: "warn",
           db_path: this.dbPath,
@@ -21018,15 +21559,10 @@ var TrajectoryDB = class {
     verifySeed();
     return false;
   }
-  syncPluginVersion(env = process.env) {
-    const root = env["CLAUDE_PLUGIN_ROOT"];
-    if (!root) return;
+  syncPluginVersion() {
+    if (!this.pluginVersion) return;
     try {
-      const manifest = JSON.parse(
-        readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
-      );
-      if (typeof manifest.version !== "string" || manifest.version.length === 0) return;
-      this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(manifest.version);
+      this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(this.pluginVersion);
     } catch {
     }
   }
@@ -21038,91 +21574,90 @@ var TrajectoryDB = class {
    * cheatcode_list surfaces a version for every row. Runs every startup against
    * the resolved plugin version; a no-op when the version is unresolvable.
    */
-  syncBuiltinVersions(env = process.env) {
-    const version2 = resolvePluginVersion(env);
-    if (!version2) return;
+  syncBuiltinVersions() {
+    if (!this.pluginVersion) return;
     try {
-      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(version2);
+      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(this.pluginVersion);
     } catch {
     }
   }
   run(sql, params) {
-    const start = performance.now();
+    const start = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
-      const result = stmt.run(...params ?? []);
-      const out = { changes: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
-      sqlLog({
+      const result2 = stmt.run(...params ?? []);
+      const out = { changes: Number(result2.changes), lastInsertRowid: result2.lastInsertRowid };
+      this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         rows_affected: out.changes,
         ok: true
       });
       return out;
-    } catch (err18) {
-      sqlLog({
+    } catch (err20) {
+      this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err18;
+      throw err20;
     }
   }
   get(sql, params) {
-    const start = performance.now();
+    const start = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const row = stmt.get(...params ?? []);
-      sqlLog({
+      this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         row_count: row === void 0 ? 0 : 1,
         ok: true
       });
       return row;
-    } catch (err18) {
-      sqlLog({
+    } catch (err20) {
+      this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err18;
+      throw err20;
     }
   }
   all(sql, params) {
-    const start = performance.now();
+    const start = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const rows = stmt.all(...params ?? []);
-      sqlLog({
+      this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         row_count: rows.length,
         ok: true
       });
       return rows;
-    } catch (err18) {
-      sqlLog({
+    } catch (err20) {
+      this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err18;
+      throw err20;
     }
   }
   /**
@@ -21133,31 +21668,68 @@ var TrajectoryDB = class {
   transaction(fn) {
     this.db.exec("BEGIN");
     try {
-      const result = fn();
+      const result2 = fn();
       this.db.exec("COMMIT");
-      return result;
-    } catch (err18) {
+      return result2;
+    } catch (err20) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err18;
+      throw err20;
     }
+  }
+  get isOpen() {
+    return this.db.isOpen;
   }
   close() {
     this.db.close();
   }
 };
+function resolveDependencies(dependencies) {
+  if (dependencies === void 0) {
+    return {
+      pluginVersion: resolvePluginVersion(process.env),
+      serverLog: noThrowTrajectoryLog(serverLog),
+      sqlLog: noThrowTrajectoryLog(sqlLog)
+    };
+  }
+  if (dependencies.pluginVersion !== null && (typeof dependencies.pluginVersion !== "string" || dependencies.pluginVersion.trim().length === 0)) {
+    throw new TypeError(
+      "TrajectoryDB dependencies.pluginVersion must be a non-empty string or null"
+    );
+  }
+  if (typeof dependencies.serverLog !== "function") {
+    throw new TypeError("TrajectoryDB dependencies.serverLog must be a function");
+  }
+  if (typeof dependencies.sqlLog !== "function") {
+    throw new TypeError("TrajectoryDB dependencies.sqlLog must be a function");
+  }
+  return {
+    pluginVersion: dependencies.pluginVersion,
+    serverLog: noThrowTrajectoryLog(dependencies.serverLog),
+    sqlLog: noThrowTrajectoryLog(dependencies.sqlLog),
+    trustedProjectRoot: dependencies.trustedProjectRoot
+  };
+}
+function noThrowTrajectoryLog(log) {
+  return (entry) => {
+    try {
+      log(entry);
+    } catch {
+    }
+  };
+}
 function nowISO() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
   if (!dbPath2 || dbPath2 === ":memory:") return;
-  const dir = dirname(dbPath2);
-  const base = basename(dbPath2);
+  const dir = dirname2(dbPath2);
+  const base = basename2(dbPath2);
   const prefix = `${base}.pre-v${targetVersion}.`;
   try {
-    const existing = readdirSync(dir).some(
+    const existing = readdirSync2(dir).some(
       (f) => f.startsWith(prefix) && f.endsWith(".bak")
     );
     if (existing) return;
@@ -21253,6 +21825,42 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 28 && toVersion >= 28) {
     migrateV27toV28(db2);
   }
+  if (fromVersion < 29 && toVersion >= 29) {
+    migrateV28toV29(db2);
+  }
+  if (fromVersion < 30 && toVersion >= 30) {
+    migrateV29toV30(db2);
+  }
+  if (fromVersion < 31 && toVersion >= 31) {
+    migrateV30toV31(db2);
+  }
+  if (fromVersion < 32 && toVersion >= 32) {
+    migrateV31toV32(db2);
+  }
+  if (fromVersion < 33 && toVersion >= 33) {
+    migrateV32toV33(db2);
+  }
+  if (fromVersion < 34 && toVersion >= 34) {
+    migrateV33toV34(db2);
+  }
+  if (fromVersion < 35 && toVersion >= 35) {
+    migrateV34toV35(db2);
+  }
+  if (fromVersion < 36 && toVersion >= 36) {
+    migrateV35toV36(db2);
+  }
+  if (fromVersion < 37 && toVersion >= 37) {
+    migrateV36toV37(db2);
+  }
+  if (fromVersion < 38 && toVersion >= 38) {
+    migrateV37toV38(db2);
+  }
+  if (fromVersion < 39 && toVersion >= 39) {
+    migrateV38toV39(db2);
+  }
+  if (fromVersion < 40 && toVersion >= 40) {
+    migrateV39toV40(db2);
+  }
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -21261,6 +21869,25 @@ function hasColumn(db2, table, column) {
 function tableExists(db2, table) {
   const row = db2.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
   return row !== void 0;
+}
+function readTableSql(db2, table) {
+  const row = db2.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  return row?.sql ?? "";
+}
+function rebuildTable(db2, table, createBody, columns) {
+  const scratch = `${table}_new`;
+  const select = columns.map(([name, fallback]) => hasColumn(db2, table, name) ? name : `${fallback} AS ${name}`).join(", ");
+  const seqRow = tableExists(db2, "sqlite_sequence") ? db2.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table) : void 0;
+  db2.exec(`DROP TABLE IF EXISTS ${scratch}`);
+  db2.exec(`CREATE TABLE ${scratch} (${createBody})`);
+  db2.exec(
+    `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(", ")}) SELECT ${select} FROM ${table}`
+  );
+  db2.exec(`DROP TABLE ${table}`);
+  db2.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+  if (seqRow !== void 0) {
+    db2.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?").run(seqRow.seq, table);
+  }
 }
 function migrateV8toV9(db2) {
   db2.exec("BEGIN");
@@ -21287,12 +21914,6 @@ function migrateV8toV9(db2) {
       db2.exec(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0"
       );
-      const auditIdxExists = db2.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_audit'").get();
-      if (!auditIdxExists) {
-        db2.exec(
-          "CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL"
-        );
-      }
       const taskIdxExists = db2.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_task'").get();
       if (!taskIdxExists) {
         db2.exec(
@@ -21301,12 +21922,12 @@ function migrateV8toV9(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV9toV10(db2) {
@@ -21318,12 +21939,12 @@ function migrateV9toV10(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV10toV11(db2) {
@@ -21341,12 +21962,12 @@ function migrateV10toV11(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV11toV12(db2) {
@@ -21358,12 +21979,12 @@ function migrateV11toV12(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV12toV13(db2) {
@@ -21378,12 +21999,12 @@ function migrateV12toV13(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV13toV14(db2) {
@@ -21415,12 +22036,12 @@ function migrateV13toV14(db2) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV14toV15(db2) {
@@ -21430,12 +22051,12 @@ function migrateV14toV15(db2) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV15toV16(db2) {
@@ -21444,12 +22065,12 @@ function migrateV15toV16(db2) {
     db2.exec("DROP TABLE IF EXISTS rule_invocations");
     db2.exec("DROP TABLE IF EXISTS rules");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV16toV17(db2) {
@@ -21457,12 +22078,12 @@ function migrateV16toV17(db2) {
   try {
     db2.exec("DROP TABLE IF EXISTS commands");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV17toV18(db2) {
@@ -21500,12 +22121,12 @@ function migrateV17toV18(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21600,12 +22221,12 @@ function migrateV18toV19(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21633,12 +22254,12 @@ function migrateV19toV20(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV20toV21(db2) {
@@ -21653,6 +22274,1088 @@ function migrateV27toV28(db2) {
   if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "labels")) {
     db2.exec("ALTER TABLE issues ADD COLUMN labels TEXT");
   }
+}
+function migrateV28toV29(db2) {
+  const tableSql = (table) => readTableSql(db2, table);
+  const needsRebuild = (table, checkMarker, droppedColumn) => tableExists(db2, table) && (droppedColumn !== void 0 && hasColumn(db2, table, droppedColumn) || !tableSql(table).includes(checkMarker));
+  const rebuild = (table, createBody, columns) => rebuildTable(db2, table, createBody, columns);
+  const TASK_STATUSES = "'pending','running','needs_validation','completed','closed','failed','escalated'";
+  const OPEN_CLOSED = "'open','closed'";
+  const VERDICTS = "'pass','fail','escalate'";
+  const DISCUSSION_KINDS = "'intent','question','answer','decision','note','analysis'";
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "pr_review_runs")) {
+      db2.exec("DELETE FROM pr_review_runs WHERE pr_number = 0");
+    }
+    const probes = [
+      ["tasks", "status", `status NOT IN (${TASK_STATUSES})`],
+      ["issues", "status", `status NOT IN (${OPEN_CLOSED})`],
+      ["validation_attempts", "verdict", `verdict NOT IN (${VERDICTS})`],
+      ["validation_attempts", "mcp_available", "mcp_available IS NULL"],
+      ["discussions", "kind", `kind NOT IN (${DISCUSSION_KINDS})`],
+      ["milestones", "state", `state NOT IN (${OPEN_CLOSED})`],
+      ["pr_review_runs", "pr_number", "pr_number IS NULL OR pr_number <= 0"],
+      ["pr_review_runs", "repo", "repo IS NULL OR repo = ''"]
+    ];
+    const violations = [];
+    for (const [table, column, predicate] of probes) {
+      if (!tableExists(db2, table) || !hasColumn(db2, table, column)) continue;
+      const bad = db2.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
+      if (bad.length > 0) {
+        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV28toV29: rows violate the new v29 constraints \u2014 fix or delete them, then reopen: ${violations.join("; ")}`
+      );
+    }
+    if (needsRebuild("tasks", "CHECK (status IN", "attempts")) {
+      rebuild(
+        "tasks",
+        `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id          INTEGER NOT NULL REFERENCES issues(id),
+          branch_id         TEXT    NOT NULL,
+          parent_branch_id  TEXT,
+          title             TEXT    NOT NULL DEFAULT '',
+          description       TEXT    NOT NULL,
+          status            TEXT    NOT NULL DEFAULT 'pending'
+                              CHECK (status IN (${TASK_STATUSES})),
+          spec_body         TEXT    NOT NULL DEFAULT '',
+          commit_sha        TEXT,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+          files             TEXT    NOT NULL DEFAULT '[]',
+          verification      TEXT    NOT NULL DEFAULT '[]',
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          completed_at      TEXT
+        `,
+        [
+          ["id", "NULL"],
+          ["issue_id", "NULL"],
+          ["branch_id", "NULL"],
+          ["parent_branch_id", "NULL"],
+          ["title", "''"],
+          ["description", "''"],
+          ["status", "'pending'"],
+          ["spec_body", "''"],
+          ["commit_sha", "NULL"],
+          ["repo", "NULL"],
+          ["prompt_bearing", "0"],
+          ["files", "'[]'"],
+          ["verification", "'[]'"],
+          ["created_at", "NULL"],
+          ["updated_at", "NULL"],
+          ["completed_at", "NULL"]
+        ]
+      );
+      db2.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)");
+    }
+    if (needsRebuild("issues", "CHECK (status IN", "remote_iid")) {
+      if (hasColumn(db2, "issues", "remote_iid")) {
+        db2.exec(
+          "UPDATE issues SET gh_iid = remote_iid WHERE remote_kind = 'github' AND remote_iid IS NOT NULL AND gh_iid IS NULL"
+        );
+        db2.exec(
+          "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL"
+        );
+      }
+      rebuild(
+        "issues",
+        `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          objective         TEXT    NOT NULL,
+          description       TEXT    NOT NULL DEFAULT '',
+          status            TEXT    NOT NULL DEFAULT 'open' CHECK (status IN (${OPEN_CLOSED})),
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          closed_at         TEXT,
+          remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+          gh_iid            INTEGER,
+          gl_iid            INTEGER,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          milestone         TEXT,
+          labels            TEXT,
+          FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
+        `,
+        [
+          ["id", "NULL"],
+          ["objective", "''"],
+          ["description", "''"],
+          ["status", "'open'"],
+          ["created_at", "NULL"],
+          ["updated_at", "NULL"],
+          ["closed_at", "NULL"],
+          ["remote_kind", "NULL"],
+          ["gh_iid", "NULL"],
+          ["gl_iid", "NULL"],
+          ["repo", "NULL"],
+          ["milestone", "NULL"],
+          ["labels", "NULL"]
+        ]
+      );
+    }
+    if (needsRebuild("validation_attempts", "CHECK (verdict IN")) {
+      rebuild(
+        "validation_attempts",
+        `
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id             INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n           INTEGER NOT NULL,
+          agent               TEXT    NOT NULL DEFAULT '',
+          verdict             TEXT    NOT NULL CHECK (verdict IN (${VERDICTS})),
+          feedback            TEXT    NOT NULL DEFAULT '',
+          mcp_available       INTEGER NOT NULL,
+          subagent_session_id TEXT,
+          repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at          TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["attempt_n", "NULL"],
+          ["agent", "''"],
+          ["verdict", "NULL"],
+          ["feedback", "''"],
+          ["mcp_available", "1"],
+          ["subagent_session_id", "NULL"],
+          ["repo", "NULL"],
+          ["created_at", "NULL"]
+        ]
+      );
+    }
+    if (needsRebuild("discussions", "CHECK (kind IN")) {
+      const embeddingsCount = () => tableExists(db2, "discussions_embeddings") ? db2.prepare("SELECT COUNT(*) AS n FROM discussions_embeddings").get().n : 0;
+      const embeddingsBefore = embeddingsCount();
+      rebuild(
+        "discussions",
+        `
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id       INTEGER NOT NULL REFERENCES issues(id),
+          author         TEXT    NOT NULL,
+          kind           TEXT    NOT NULL DEFAULT 'note'
+                           CHECK (kind IN (${DISCUSSION_KINDS})),
+          body           TEXT    NOT NULL,
+          repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at     TEXT    NOT NULL
+        `,
+        [
+          ["id", "NULL"],
+          ["issue_id", "NULL"],
+          ["author", "''"],
+          ["kind", "'note'"],
+          ["body", "''"],
+          ["repo", "NULL"],
+          ["created_at", "NULL"]
+        ]
+      );
+      db2.exec(
+        "CREATE INDEX IF NOT EXISTS idx_discussions_issue_created ON discussions(issue_id, created_at)"
+      );
+      if (tableExists(db2, "discussions_fts")) {
+        db2.exec(`
+          CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
+            INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+          END;
+          CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
+            INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+          END;
+          CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
+            INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+            INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+          END;
+        `);
+        db2.exec("INSERT INTO discussions_fts(discussions_fts) VALUES('rebuild')");
+      }
+      const embeddingsAfter = embeddingsCount();
+      if (embeddingsAfter !== embeddingsBefore) {
+        throw new Error(
+          `migrateV28toV29: discussions_embeddings changed from ${embeddingsBefore} to ${embeddingsAfter} rows across the discussions rebuild`
+        );
+      }
+    }
+    if (needsRebuild("milestones", "CHECK (state IN")) {
+      rebuild(
+        "milestones",
+        `
+          name   TEXT NOT NULL,
+          repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+          state  TEXT NOT NULL DEFAULT 'open' CHECK (state IN (${OPEN_CLOSED})),
+          PRIMARY KEY (name, repo)
+        `,
+        [["name", "NULL"], ["repo", "NULL"], ["state", "'open'"]]
+      );
+    }
+    if (tableExists(db2, "agents") && hasColumn(db2, "agents", "status")) {
+      db2.exec("ALTER TABLE agents DROP COLUMN status");
+    }
+    if (needsRebuild("pr_review_runs", "CHECK (pr_number > 0)", "verdict")) {
+      rebuild(
+        "pr_review_runs",
+        `
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          pr_number       INTEGER NOT NULL CHECK (pr_number > 0),
+          repo            TEXT    NOT NULL CHECK (repo <> ''),
+          last_fetched_at DATETIME NOT NULL,
+          last_comment_id TEXT,
+          task_id         INTEGER REFERENCES tasks(id),
+          UNIQUE (pr_number, repo)
+        `,
+        [
+          ["id", "NULL"],
+          ["pr_number", "NULL"],
+          ["repo", "NULL"],
+          ["last_fetched_at", "NULL"],
+          ["last_comment_id", "NULL"],
+          ["task_id", "NULL"]
+        ]
+      );
+      db2.exec("CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id)");
+    }
+    db2.exec("DROP INDEX IF EXISTS idx_pr_review_runs_pr");
+    db2.exec("DROP INDEX IF EXISTS idx_pr_review_runs_audit");
+    if (tableExists(db2, "plugin_config")) {
+      db2.exec("DELETE FROM plugin_config WHERE key = 'tmb_default_repo'");
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+var ISO_NOW_DEFAULT = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
+var TIMESTAMP_COLUMNS = [
+  ["audit", "created_at"],
+  ["tasks", "created_at"],
+  ["tasks", "updated_at"],
+  ["tasks", "completed_at"],
+  ["issues", "created_at"],
+  ["issues", "updated_at"],
+  ["issues", "closed_at"],
+  ["discussions", "created_at"],
+  ["validation_attempts", "created_at"],
+  ["agent_runs", "started_at"],
+  ["agent_runs", "completed_at"],
+  ["roundtables", "created_at"],
+  ["roundtables", "closed_at"],
+  ["roundtable_votes", "created_at"],
+  ["agents", "created_at"],
+  ["agents", "updated_at"],
+  ["cheatcodes", "installed_at"],
+  ["cheatcodes", "created_at"],
+  ["cheatcodes", "updated_at"],
+  ["cheatcode_attachments", "created_at"],
+  ["repos", "last_scanned_at"],
+  ["pr_review_runs", "last_fetched_at"],
+  ["discussions_embeddings", "embedded_at"],
+  ["audit_embeddings", "embedded_at"]
+];
+function migrateV29toV30(db2) {
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    const probes = [
+      ["agents", "kind", "kind NOT IN ('backbone','consultant')"],
+      ["agents", "scope", "scope NOT IN ('global','template','project-local')"],
+      ["cheatcodes", "kind", "kind NOT IN ('skill','mcp','plugin')"],
+      ["cheatcodes", "origin", "origin NOT IN ('builtin','marketplace','external')"],
+      ["cheatcodes", "scope", "scope NOT IN ('global','template','project-local')"],
+      ["cheatcodes", "name", "kind = 'skill' AND file_path IS NULL"],
+      ["cheatcodes", "name", "origin <> 'builtin' AND source_url IS NULL"],
+      ["cheatcodes", "name", "origin = 'builtin' AND source_url IS NOT NULL"]
+    ];
+    const violations = [];
+    for (const [table, column, predicate] of probes) {
+      if (!tableExists(db2, table) || !hasColumn(db2, table, column)) continue;
+      const bad = db2.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
+      if (bad.length > 0) {
+        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")} (${predicate})`);
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV29toV30: rows violate the rebuilt v30 constraints \u2014 fix or delete them, then reopen: ${violations.join("; ")}`
+      );
+    }
+    if (tableExists(db2, "agent_runs") && !hasColumn(db2, "agent_runs", "usage_source")) {
+      rebuildTable(
+        db2,
+        "agent_runs",
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          tokens_total          INTEGER NOT NULL DEFAULT 0,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          usage_baseline_json   TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["issue_id", "NULL"],
+          ["agent_type", "''"],
+          ["tokens_in", "NULL"],
+          ["tokens_out", "NULL"],
+          ["tokens_total", "0"],
+          ["cache_read_tokens", "NULL"],
+          ["cache_creation_tokens", "NULL"],
+          ["tool_uses", "0"],
+          ["duration_ms", "0"],
+          ["started_at", "NULL"],
+          ["completed_at", "NULL"],
+          ["usage_baseline_json", "NULL"],
+          ["repo", "NULL"],
+          ["spawn_id", "NULL"],
+          ["session_id", "NULL"],
+          ["usage_source", "NULL"]
+        ]
+      );
+      db2.exec(`
+        UPDATE agent_runs
+           SET tokens_in = NULL, tokens_out = NULL, cache_read_tokens = NULL, cache_creation_tokens = NULL,
+               usage_source = 'unmeasured'
+         WHERE completed_at IS NOT NULL
+           AND tokens_in = 0 AND tokens_out = 0 AND cache_read_tokens = 0 AND cache_creation_tokens = 0
+      `);
+      db2.exec(`
+        UPDATE agent_runs
+           SET usage_source = CASE agent_type WHEN 'bro' THEN 'transcript' ELSE 'subagent_stop' END
+         WHERE completed_at IS NOT NULL AND usage_source IS NULL
+      `);
+      db2.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+    if (tableExists(db2, "discussions") && !hasColumn(db2, "discussions", "remote_comment_id")) {
+      db2.exec("ALTER TABLE discussions ADD COLUMN remote_comment_id TEXT");
+      db2.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL"
+      );
+    }
+    const needsIsoDefault = (table) => tableExists(db2, table) && !readTableSql(db2, table).includes("strftime(");
+    if (needsIsoDefault("agents")) {
+      rebuildTable(
+        db2,
+        "agents",
+        `
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL UNIQUE,
+          kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+          scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
+          file_path   TEXT    NOT NULL,
+          created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+        `,
+        [
+          ["id", "NULL"],
+          ["name", "NULL"],
+          ["kind", "NULL"],
+          ["scope", "NULL"],
+          ["file_path", "''"],
+          ["created_at", ISO_NOW_DEFAULT],
+          ["updated_at", ISO_NOW_DEFAULT]
+        ]
+      );
+    }
+    if (needsIsoDefault("cheatcodes")) {
+      rebuildTable(
+        db2,
+        "cheatcodes",
+        `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+        `,
+        [
+          ["id", "NULL"],
+          ["name", "NULL"],
+          ["kind", "NULL"],
+          ["origin", "'external'"],
+          ["description", "''"],
+          ["source_url", "NULL"],
+          ["file_path", "NULL"],
+          ["version", "NULL"],
+          ["trust_tier", "NULL"],
+          ["scope", "'project-local'"],
+          ["status", "'installed'"],
+          ["installed_at", ISO_NOW_DEFAULT],
+          ["created_at", ISO_NOW_DEFAULT],
+          ["updated_at", ISO_NOW_DEFAULT]
+        ]
+      );
+    }
+    if (needsIsoDefault("repos")) {
+      rebuildTable(
+        db2,
+        "repos",
+        `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT,
+          remotes            TEXT
+        `,
+        [
+          ["name", "NULL"],
+          ["path", "''"],
+          ["file_count", "0"],
+          ["last_scanned_at", ISO_NOW_DEFAULT],
+          ["target_branch", "NULL"],
+          ["branching_model", "NULL"],
+          ["protected_branches", "NULL"],
+          ["remotes", "NULL"]
+        ]
+      );
+    }
+    const presentTimestampColumns = TIMESTAMP_COLUMNS.filter(
+      ([table, column]) => tableExists(db2, table) && hasColumn(db2, table, column)
+    );
+    for (const [table, column] of presentTimestampColumns) {
+      db2.exec(
+        `UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
+          WHERE ${column} IS NOT NULL AND length(${column}) <> 24
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`
+      );
+    }
+    const malformed = [];
+    for (const [table, column] of presentTimestampColumns) {
+      const bad = db2.prepare(
+        `SELECT DISTINCT ${column} AS v FROM ${table}
+            WHERE ${column} IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NULL LIMIT 5`
+      ).all();
+      if (bad.length > 0) {
+        malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
+      }
+    }
+    if (malformed.length > 0) {
+      throw new Error(
+        `migrateV29toV30: timestamps that cannot be parsed into YYYY-MM-DDTHH:MM:SS.sssZ \u2014 fix them, then reopen: ${malformed.join("; ")}`
+      );
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV30toV31(db2) {
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "agent_runs") && (hasColumn(db2, "agent_runs", "tokens_total") || hasColumn(db2, "agent_runs", "usage_baseline_json"))) {
+      rebuildTable(
+        db2,
+        "agent_runs",
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["issue_id", "NULL"],
+          ["agent_type", "''"],
+          ["tokens_in", "NULL"],
+          ["tokens_out", "NULL"],
+          ["cache_read_tokens", "NULL"],
+          ["cache_creation_tokens", "NULL"],
+          ["tool_uses", "0"],
+          ["duration_ms", "0"],
+          ["started_at", "NULL"],
+          ["completed_at", "NULL"],
+          ["repo", "NULL"],
+          ["spawn_id", "NULL"],
+          ["session_id", "NULL"],
+          ["usage_source", "NULL"]
+        ]
+      );
+      db2.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+var OWN_MCP_SERVER_NAME = "trajectory-server";
+function migrateV31toV32(db2) {
+  if (!tableExists(db2, "cheatcodes")) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (!/UNIQUE\s*\(\s*name\s*,\s*kind\s*\)/.test(readTableSql(db2, "cheatcodes"))) {
+      rebuildTable(
+        db2,
+        "cheatcodes",
+        `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL),
+          UNIQUE (name, kind)
+        `,
+        [
+          ["id", "NULL"],
+          ["name", "NULL"],
+          ["kind", "NULL"],
+          ["origin", "'external'"],
+          ["description", "''"],
+          ["source_url", "NULL"],
+          ["file_path", "NULL"],
+          ["version", "NULL"],
+          ["trust_tier", "NULL"],
+          ["scope", "'project-local'"],
+          ["status", "'installed'"],
+          ["installed_at", ISO_NOW_DEFAULT],
+          ["created_at", ISO_NOW_DEFAULT],
+          ["updated_at", ISO_NOW_DEFAULT]
+        ]
+      );
+    }
+    const pluginRow = db2.prepare("SELECT 1 FROM cheatcodes WHERE kind = 'plugin' AND name = ? LIMIT 1");
+    const ownPlugin = resolvePluginName();
+    const legacyServers = db2.prepare("SELECT id, name FROM cheatcodes WHERE kind = 'mcp' AND source_url = 'mcp:' || name").all();
+    for (const server2 of legacyServers) {
+      let parent = null;
+      if (pluginRow.get(server2.name) !== void 0) {
+        parent = server2.name;
+      } else if (server2.name === OWN_MCP_SERVER_NAME && pluginRow.get(ownPlugin) !== void 0) {
+        parent = ownPlugin;
+      }
+      if (parent === null) continue;
+      db2.prepare("UPDATE cheatcodes SET source_url = ? WHERE id = ?").run(`mcp:${parent}/${server2.name}`, server2.id);
+    }
+    let phantoms = 0;
+    if (tableExists(db2, "audit")) {
+      const phantomIds = db2.prepare(
+        `SELECT a.id FROM audit a
+            WHERE a.event_type = 'scan_discovered'
+              AND json_valid(a.content_json)
+              AND NOT EXISTS (
+                SELECT 1 FROM cheatcodes c
+                 WHERE c.name = json_extract(a.content_json, '$.name')
+                   AND c.kind = json_extract(a.content_json, '$.kind'))`
+      ).all();
+      phantoms = phantomIds.length;
+      if (phantoms > 0) {
+        const ids = JSON.stringify(phantomIds.map((r) => r.id));
+        if (tableExists(db2, "audit_embeddings")) {
+          db2.prepare(
+            // LINT-ALLOW: v31→v32 removes the embeddings of phantom scan_discovered audit rows (GH 1200).
+            "DELETE FROM audit_embeddings WHERE audit_id IN (SELECT value FROM json_each(?))"
+          ).run(ids);
+        }
+        db2.prepare("DELETE FROM audit WHERE id IN (SELECT value FROM json_each(?))").run(ids);
+        db2.prepare(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           SELECT -1, NULL, 'system', 'scan_discovered_repair', ?, ?, (SELECT repo FROM issues WHERE id = -1), strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE EXISTS (SELECT 1 FROM issues WHERE id = -1)`
+        ).run(
+          `deleted ${phantoms} phantom scan_discovered audit row(s)`,
+          JSON.stringify({ deleted: phantoms })
+        );
+      }
+    }
+    db2.exec(`
+      UPDATE cheatcodes
+         SET status = 'installed', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE kind = 'mcp' AND source_url LIKE 'mcp:%' AND status = 'broken'
+    `);
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV31toV32: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v32 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+var ISO_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+function migrateV32toV33(db2) {
+  if (!tableExists(db2, "agent_runs")) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (!hasColumn(db2, "agent_runs", "exit_reason") || !/'backfill'/.test(readTableSql(db2, "agent_runs"))) {
+      rebuildTable(
+        db2,
+        "agent_runs",
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured','backfill')),
+          root_dir              TEXT,
+          model                 TEXT,
+          host                  TEXT CHECK (host IN ('claude','codex')),
+          exit_reason           TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed'))
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["issue_id", "NULL"],
+          ["agent_type", "''"],
+          ["tokens_in", "NULL"],
+          ["tokens_out", "NULL"],
+          ["cache_read_tokens", "NULL"],
+          ["cache_creation_tokens", "NULL"],
+          ["tool_uses", "0"],
+          ["duration_ms", "0"],
+          ["started_at", "NULL"],
+          ["completed_at", "NULL"],
+          ["repo", "NULL"],
+          ["spawn_id", "NULL"],
+          ["session_id", "NULL"],
+          ["usage_source", "NULL"],
+          ["root_dir", "NULL"],
+          ["model", "NULL"],
+          ["host", "NULL"],
+          ["exit_reason", "NULL"]
+        ]
+      );
+      db2.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+    db2.exec("UPDATE agent_runs SET host = 'claude' WHERE host IS NULL");
+    if (tableExists(db2, "tasks")) db2.exec(`
+      UPDATE agent_runs
+         SET exit_reason = CASE
+               WHEN usage_source = 'unmeasured' THEN 'swept_orphan'
+               ELSE (SELECT CASE t.status
+                              WHEN 'closed' THEN 'completed'
+                              WHEN 'completed' THEN 'completed'
+                              WHEN 'failed' THEN 'failed'
+                              WHEN 'escalated' THEN 'escalated'
+                            END
+                       FROM tasks t WHERE t.id = agent_runs.task_id)
+             END
+       WHERE completed_at IS NOT NULL AND exit_reason IS NULL
+    `);
+    if (tableExists(db2, "tasks") && tableExists(db2, "issues")) {
+      const leaked = db2.prepare(
+        `SELECT t.id, t.issue_id, t.branch_id, t.status FROM tasks t JOIN issues i ON i.id = t.issue_id
+            WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed')
+            ORDER BY t.id`
+      ).all();
+      const insertRepairAudit = tableExists(db2, "audit") ? db2.prepare(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+             VALUES (?, ?, 'system', 'task_escalated_repair', ?, ?, (SELECT repo FROM issues WHERE id = ?), ${ISO_NOW_SQL})`
+      ) : null;
+      const escalate = db2.prepare(
+        `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ${ISO_NOW_SQL} WHERE id = ?`
+      );
+      const closeRuns = db2.prepare(
+        `UPDATE agent_runs
+            SET completed_at = ${ISO_NOW_SQL},
+                duration_ms = CASE WHEN duration_ms = 0
+                                   THEN COALESCE(MAX(0, CAST(ROUND((julianday('now') - julianday(started_at)) * 86400000) AS INTEGER)), 0)
+                                   ELSE duration_ms END,
+                exit_reason = 'issue_closed'
+          WHERE task_id = ? AND completed_at IS NULL`
+      );
+      for (const task of leaked) {
+        insertRepairAudit?.run(
+          task.issue_id,
+          task.branch_id,
+          `task ${task.id} escalated: its issue ${task.issue_id} is closed (was ${task.status})`,
+          JSON.stringify({ task_id: task.id, issue_id: task.issue_id, from_status: task.status }),
+          task.issue_id
+        );
+        escalate.run(task.id);
+        closeRuns.run(task.id);
+      }
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV33toV34(db2) {
+  if (!tableExists(db2, "agents")) return;
+  if (!hasColumn(db2, "agents", "scope") && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db2, "agents"))) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    const root = hasColumn(db2, "agents", "scope") ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END" : "'plugin:'";
+    db2.exec(`
+      UPDATE agents
+         SET file_path = ${root} || file_path
+       WHERE file_path NOT LIKE 'plugin:%' AND file_path NOT LIKE 'project:%'
+    `);
+    rebuildTable(
+      db2,
+      "agents",
+      `
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT    NOT NULL UNIQUE,
+        kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+        file_path   TEXT    NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+      `,
+      [
+        ["id", "NULL"],
+        ["name", "NULL"],
+        ["kind", "NULL"],
+        ["file_path", "''"],
+        ["created_at", ISO_NOW_DEFAULT],
+        ["updated_at", ISO_NOW_DEFAULT]
+      ]
+    );
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV33toV34: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v34 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV34toV35(db2) {
+  if (!tableExists(db2, "repos")) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS repo_remotes (
+        repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+        name        TEXT    NOT NULL,
+        provider    TEXT    NOT NULL CHECK (provider IN ('github','gitlab','other')),
+        url         TEXT    NOT NULL,
+        is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        PRIMARY KEY (repo, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
+    `);
+    if (hasColumn(db2, "repos", "remotes")) {
+      const rows = db2.prepare(`SELECT name, remotes AS legacy FROM repos WHERE remotes IS NOT NULL AND trim(remotes) <> '' ORDER BY name`).all();
+      const insertRemote = db2.prepare(
+        `INSERT OR IGNORE INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)`
+      );
+      const canAudit = tableExists(db2, "audit") && tableExists(db2, "issues");
+      const skipped = (repo, raw, reason) => {
+        if (!canAudit) return;
+        db2.exec(
+          `INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+           VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', ${ISO_NOW_SQL}, ${ISO_NOW_SQL})`
+        );
+        db2.prepare(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           VALUES (-1, NULL, 'system', 'repo_remotes_migration_skipped', ?, ?, ?, ${ISO_NOW_SQL})`
+        ).run(`v35 migration skipped remotes of repo ${repo}: ${reason}`, JSON.stringify({ repo, reason, raw }), repo);
+      };
+      for (const row of rows) {
+        const parsed = parseLegacyRemotes(row.legacy);
+        if (!parsed.ok) {
+          skipped(row.name, row.legacy, parsed.reason);
+          continue;
+        }
+        const primary = primaryIndex(parsed.entries);
+        parsed.entries.forEach((r, i) => {
+          insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0);
+        });
+        if (parsed.dropped > 0) {
+          skipped(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? "y" : "ies"} without a url or with a duplicate name`);
+        }
+      }
+      rebuildTable(
+        db2,
+        "repos",
+        `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT
+        `,
+        [
+          ["name", "NULL"],
+          ["path", "''"],
+          ["file_count", "0"],
+          ["last_scanned_at", ISO_NOW_DEFAULT],
+          ["target_branch", "NULL"],
+          ["branching_model", "NULL"],
+          ["protected_branches", "NULL"]
+        ]
+      );
+    }
+    if (tableExists(db2, "validation_attempts") && !hasColumn(db2, "validation_attempts", "reviewer_agent_id")) {
+      db2.exec("ALTER TABLE validation_attempts ADD COLUMN reviewer_agent_id TEXT");
+    }
+    if (tableExists(db2, "audit")) {
+      db2.exec(`UPDATE audit SET branch_id = NULL WHERE branch_id = ''`);
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV34toV35: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v35 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV35toV36(db2) {
+  if (!tableExists(db2, "tasks")) return;
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS verification_runs (
+      id           INTEGER PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      commit_sha   TEXT    NOT NULL,
+      source       TEXT    NOT NULL CHECK (source IN ('gate','manual')),
+      started_at   TEXT    NOT NULL,
+      finished_at  TEXT,
+      exit_code    INTEGER,
+      budget_s     INTEGER NOT NULL,
+      timed_out    INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+      created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+    );
+    CREATE INDEX IF NOT EXISTS idx_verification_runs_task_commit
+      ON verification_runs(task_id, commit_sha, finished_at);
+    CREATE TABLE IF NOT EXISTS verification_run_commands (
+      run_id       INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+      ordinal      INTEGER NOT NULL,
+      command      TEXT    NOT NULL,
+      exit_code    INTEGER,
+      elapsed_s    REAL,
+      output_tail  TEXT,
+      PRIMARY KEY (run_id, ordinal)
+    );
+  `);
+}
+function migrateV36toV37(db2) {
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "tasks") && !hasColumn(db2, "tasks", "effort")) {
+      db2.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
+    }
+    if (tableExists(db2, "agent_runs") && !hasColumn(db2, "agent_runs", "effort")) {
+      db2.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV37toV38(db2) {
+  if (!tableExists(db2, "audit")) return;
+  const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
+  const placeholders = documented.map(() => "?").join(", ");
+  db2.exec("BEGIN");
+  try {
+    db2.prepare(
+      `UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE event_type NOT IN (${placeholders})`
+    ).run(...documented);
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV38toV39(db2) {
+  if (!tableExists(db2, "audit")) return;
+  const legacyWaiver = (alias) => `${alias}.event_type = 'verification_gate_waived' AND ${alias}.from_node = 'swe'
+          AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
+  const taskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+  db2.exec("BEGIN");
+  try {
+    db2.exec(
+      `UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE ${legacyWaiver("audit")}
+          AND EXISTS (SELECT 1 FROM audit k
+                       WHERE ${legacyWaiver("k")}
+                         AND ${taskId("k")} IS ${taskId("audit")}
+                         AND k.id < audit.id)`
+    );
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV39toV40(db2) {
+  if (!tableExists(db2, "repos") || hasColumn(db2, "repos", "onboard_scan")) return;
+  db2.exec("ALTER TABLE repos ADD COLUMN onboard_scan TEXT");
 }
 function migrateV22toV23(db2) {
   const soleRepo = () => {
@@ -21830,12 +23533,12 @@ function migrateV22toV23(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21902,12 +23605,12 @@ function migrateV23toV24(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21939,12 +23642,12 @@ function migrateV24toV25(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV25toV26(db2) {
@@ -21987,12 +23690,12 @@ function migrateV25toV26(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22042,12 +23745,12 @@ function migrateV26toV27(db2) {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV7toV8(db2) {
@@ -22063,12 +23766,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV6toV7(db2) {
@@ -22083,12 +23786,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV5toV6(db2) {
@@ -22122,12 +23825,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV4toV5(db2) {
@@ -22148,12 +23851,12 @@ function migrateV4toV5(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV3toV4(db2) {
@@ -22202,12 +23905,12 @@ function migrateV3toV4(db2) {
       `);
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV2toV3(db2) {
@@ -22304,12 +24007,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 function migrateV1toV2(db2) {
@@ -22489,12 +24192,12 @@ function migrateV1toV2(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err20;
   }
 }
 
@@ -22554,39 +24257,139 @@ function redactValidationRow(row, agent, scope) {
 }
 
 // src/embeddings/model.ts
-import { homedir as homedir3 } from "node:os";
-import { join as join3 } from "node:path";
-var pipelinePromise = null;
-var loadFailed = false;
-async function embed(text) {
-  if (loadFailed) return null;
-  if (!pipelinePromise) {
+import { homedir as homedir2 } from "node:os";
+import { join as join4 } from "node:path";
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join4(homedir2(), ".cache", "huggingface");
+var MODEL_ID = "Xenova/bge-small-en-v1.5";
+var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
+var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
+async function defaultLoader() {
+  const { pipeline, env } = await import("@huggingface/transformers");
+  env.cacheDir = TMB_MODEL_CACHE_DIR;
+  return await pipeline("feature-extraction", MODEL_ID);
+}
+var now = Date.now;
+var loader = defaultLoader;
+var pipePromise = null;
+var loadingSince = null;
+var readySince = null;
+var consecutiveFailures = 0;
+var degraded = null;
+var retrying = false;
+var listeners = /* @__PURE__ */ new Set();
+function embedRetryDelayMs(retries, env = process.env) {
+  const raw = env["TMB_EMBED_RETRY_MS"];
+  const override = raw === void 0 || raw === "" ? NaN : Number(raw);
+  if (Number.isFinite(override) && override >= 0) return override;
+  return EMBED_RETRY_SCHEDULE_MS[Math.min(retries, EMBED_RETRY_SCHEDULE_MS.length - 1)];
+}
+function embedFailThreshold(env = process.env) {
+  const raw = Number(env["TMB_EMBED_FAIL_THRESHOLD"]);
+  return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
+}
+function onEmbeddingTransition(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+function emit(t) {
+  for (const l of listeners) {
     try {
-      const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join3(homedir3(), ".cache", "huggingface");
-      pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
-      pipelinePromise.catch(() => {
-        loadFailed = true;
-        pipelinePromise = null;
-      });
+      l(t);
     } catch (e) {
-      console.error("[embeddings] model load failed:", e);
-      loadFailed = true;
-      return null;
+      console.error("[embeddings] transition listener failed:", e);
     }
   }
+}
+function message(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function loadPipe() {
+  if (!pipePromise) {
+    loadingSince = new Date(now()).toISOString();
+    readySince = null;
+    const p = loader();
+    pipePromise = p;
+    p.then(
+      () => {
+        if (pipePromise === p) readySince = new Date(now()).toISOString();
+      },
+      () => {
+        if (pipePromise === p) pipePromise = null;
+      }
+    );
+  }
+  return pipePromise;
+}
+function enterDegraded(reason) {
+  if (degraded) return;
+  degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
+  emit({ kind: "degraded", reason, consecutive_failures: consecutiveFailures });
+}
+async function retry(text) {
+  const d = degraded;
+  retrying = true;
+  pipePromise = null;
   try {
-    const pipe2 = await pipelinePromise;
-    const result = await pipe2(text, { pooling: "mean", normalize: true });
-    return new Float32Array(result.data);
+    const pipe2 = await loadPipe();
+    const result2 = await pipe2(text, { pooling: "mean", normalize: true });
+    consecutiveFailures = 0;
+    degraded = null;
+    emit({ kind: "recovered", degraded_since: d.since, reason: d.reason, retries: d.retries + 1 });
+    return new Float32Array(result2.data);
+  } catch (e) {
+    console.error("[embeddings] re-attempt failed:", e);
+    consecutiveFailures++;
+    d.retries++;
+    d.reason = `re-attempt failed: ${message(e)}`;
+    d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
+    return null;
+  } finally {
+    retrying = false;
+  }
+}
+async function embed(text) {
+  if (degraded) {
+    if (retrying || now() < degraded.nextRetryAt) return null;
+    return retry(text);
+  }
+  let pipe2;
+  try {
+    pipe2 = await loadPipe();
+  } catch (e) {
+    if (degraded) return null;
+    console.error("[embeddings] model load failed:", e);
+    consecutiveFailures++;
+    enterDegraded(`model load failed: ${message(e)}`);
+    return null;
+  }
+  try {
+    const result2 = await pipe2(text, { pooling: "mean", normalize: true });
+    consecutiveFailures = 0;
+    return new Float32Array(result2.data);
   } catch (e) {
     console.error("[embeddings] embed failed:", e);
-    loadFailed = true;
-    pipelinePromise = null;
+    if (degraded) return null;
+    consecutiveFailures++;
+    if (consecutiveFailures >= embedFailThreshold()) {
+      enterDegraded(`${consecutiveFailures} consecutive embed failures: ${message(e)}`);
+    }
     return null;
   }
 }
-var MODEL_ID = "Xenova/bge-small-en-v1.5";
+function embeddingStatus() {
+  if (degraded) {
+    return {
+      state: "degraded",
+      since: degraded.since,
+      reason: degraded.reason,
+      consecutive_failures: consecutiveFailures,
+      ...retrying ? {} : { next_retry_at: new Date(degraded.nextRetryAt).toISOString() }
+    };
+  }
+  if (readySince) return { state: "ready", since: readySince, consecutive_failures: consecutiveFailures };
+  if (pipePromise) return { state: "loading", since: loadingSince ?? void 0, consecutive_failures: consecutiveFailures };
+  return { state: "disabled", consecutive_failures: consecutiveFailures };
+}
 
 // src/embeddings/store.ts
 function packEmbedding(v) {
@@ -22611,9 +24414,12 @@ var SELECT_SQL = {
   discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
   audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?"
 };
+function auditEmbedText(summary, contentJson) {
+  return contentJson && contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
+}
 async function embedAndStore(db2, table, rowid, text) {
   const v = await embed(text);
-  if (v === null) return;
+  if (v === null || !db2.isOpen) return;
   const sql = INSERT_SQL[table];
   db2.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
 }
@@ -22631,16 +24437,89 @@ async function topKByCosine(db2, table, query, k) {
   return scored.slice(0, k);
 }
 
-// src/tools/discussions.ts
-var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
-var MAX_BODY_BYTES = 65536;
+// src/embeddings/backfill.ts
+var MISSING_SQL = {
+  discussions: "SELECT id, body AS text FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings) ORDER BY id DESC LIMIT ?",
+  audit: "SELECT id, summary AS text, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings) ORDER BY id DESC LIMIT ?"
+};
+async function backfillMissing(db2, table, limit = 50, onRow) {
+  const rows = db2.all(MISSING_SQL[table], [limit]);
+  for (const r of rows) {
+    const text = table === "audit" ? auditEmbedText(r.text, r.content_json ?? null) : r.text;
+    await embedAndStore(db2, table, r.id, text).catch(
+      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+    );
+    onRow?.();
+  }
+  return rows.length;
+}
+async function startBackfill(db2) {
+  const counts = db2.get(
+    `SELECT
+      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
+      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`
+  );
+  if (!counts) return;
+  const total = counts.discussions + counts.audit;
+  serverLog({ event: "embeddings_backfill_start", total });
+  if (total === 0) return;
+  (async () => {
+    let done = 0;
+    const progress = () => {
+      done++;
+      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
+    };
+    await backfillMissing(db2, "discussions", -1, progress);
+    await backfillMissing(db2, "audit", -1, progress);
+    serverLog({ event: "embeddings_backfill_complete", done });
+  })().catch((e) => console.error("[embeddings] backfill error:", e));
+}
+
+// src/fts-query.ts
+function toFtsQuery(raw) {
+  const tokens = Array.from(
+    raw.matchAll(/"([^"]*)"|\S+/g),
+    (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()
+  ).filter((token) => token.length > 0).map((token) => `"${token.replace(/"/g, '""')}"`);
+  return tokens.length > 0 ? tokens.join(" ") : '""';
+}
+function withFtsGuard(run) {
+  try {
+    return run();
+  } catch (e) {
+    const message2 = e instanceof Error ? e.message : String(e);
+    if (/fts5|no such column/i.test(message2)) {
+      throw new Error(`fts_query_invalid: ${message2}`);
+    }
+    throw e;
+  }
+}
+
+// src/tools/audit.ts
+var MAX_CONTENT_BYTES = 1e6;
 function ok(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err(message) {
+function err(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
+  };
+}
+function writerRefused(eventType, role) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "audit_event_not_writable_by_role",
+          event_type: eventType,
+          caller_role: role,
+          allowed_writers: auditEventWriters(eventType)
+        })
+      }
+    ]
   };
 }
 function requireArg(args, name) {
@@ -22658,6 +24537,372 @@ function wrapHandler(fn) {
     }
   };
 }
+function decodeCursor(cursor) {
+  try {
+    return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+function encodeCursor(row) {
+  return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString("base64");
+}
+function resolveIssueRepo(db2, issueId) {
+  return db2.get("SELECT repo FROM issues WHERE id = ?", [issueId])?.repo ?? null;
+}
+var AuditWriterError = class extends Error {
+  constructor(eventType, writer) {
+    super(
+      `audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${auditEventWriters(eventType).join(", ")})`
+    );
+    this.eventType = eventType;
+    this.writer = writer;
+  }
+  eventType;
+  writer;
+};
+function insertAudit(db2, entry) {
+  assertAuditEventType(entry.event_type);
+  if (entry.writer !== void 0 && !isAuditEventWritableBy(entry.event_type, entry.writer)) {
+    throw new AuditWriterError(entry.event_type, entry.writer);
+  }
+  const contentJson = entry.content_json ?? "{}";
+  const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
+  const res = db2.run(
+    `INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.issue_id,
+      entry.branch_id ?? null,
+      entry.from_node,
+      entry.event_type,
+      entry.summary,
+      contentJson,
+      entry.created_at ?? nowISO(),
+      repo
+    ]
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db2, "audit", id, auditEmbedText(entry.summary, contentJson)).catch(
+    (e) => console.error("[embeddings] insertAudit embed failed:", e)
+  );
+  return id;
+}
+function auditTools(db2) {
+  const definitions = [
+    {
+      name: "audit_search",
+      description: "Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          query: {
+            type: "string",
+            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
+          },
+          mode: {
+            type: "string",
+            enum: ["keyword", "semantic", "hybrid"],
+            description: "Search mode. Default: hybrid."
+          },
+          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
+          event_types: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional \u2014 restrict to specific event types."
+          },
+          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
+          recency_alpha: {
+            type: "number",
+            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
+          }
+        },
+        required: ["agent", "query"]
+      }
+    },
+    {
+      name: "audit_append",
+      description: "Insert an audit lifecycle event. event_type must be in its closed enum and list the calling role among its writers (else audit_event_not_writable_by_role); from_node is set to the calling agent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" },
+          branch_id: { type: "string" },
+          from_node: { type: "string", description: "Optional. Recorded as the calling agent; any other value is refused." },
+          event_type: { type: "string", enum: AUDIT_EVENT_TYPES.map((e) => e.type), description: "Required. Lifecycle event identifier from the closed audit event set (e.g. planning_complete)." },
+          summary: { type: "string", description: "Required. One-line human-readable summary." },
+          content_json: { type: "string", description: "Optional. JSON string with structured event payload, max 1 MB." }
+        },
+        required: ["agent", "issue_id", "event_type", "summary"]
+      }
+    },
+    {
+      name: "audit_list",
+      description: "Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['id','event_type','summary'] to return only requested columns (unknown fields return a named error).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" },
+          branch_id: { type: "string" },
+          limit: { type: "number", description: "Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor." },
+          offset: { type: "number", description: "Row offset for pagination (default 0)" },
+          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
+          fields: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns."
+          }
+        },
+        required: ["agent", "issue_id"]
+      }
+    }
+  ];
+  const handlers = {
+    audit_search: wrapHandler(async (args) => {
+      requireArg(args, "agent");
+      const query = requireArg(args, "query");
+      const mode = args["mode"] ?? "hybrid";
+      const issueId = args["issue_id"] ?? null;
+      const eventTypes = args["event_types"] ?? null;
+      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
+      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+      await backfillMissing(db2, "audit");
+      let eventTypeFilter = "";
+      let eventTypeParams = [];
+      if (eventTypes && eventTypes.length > 0) {
+        const placeholders = eventTypes.map(() => "?").join(", ");
+        eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
+        eventTypeParams = eventTypes;
+      }
+      const ftsQuery = toFtsQuery(query);
+      const fetchFtsRows = (limitK) => {
+        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY bm25(audit_fts) ASC LIMIT ?";
+        return withFtsGuard(() => db2.all(sql, [ftsQuery, issueId, issueId, ...eventTypeParams, limitK]));
+      };
+      const fetchRowById = (id) => {
+        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, '' AS snippet, 0.0 AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit a WHERE a.id = ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
+        return db2.get(sql, [id, issueId, issueId, ...eventTypeParams]);
+      };
+      if (mode === "keyword") {
+        const countSql = "SELECT COUNT(*) AS n FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
+        const countRow = withFtsGuard(() => db2.get(countSql, [ftsQuery, issueId, issueId, ...eventTypeParams]));
+        const total_matched = countRow?.n ?? 0;
+        const searchSql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?";
+        const rows = withFtsGuard(() => db2.all(searchSql, [ftsQuery, issueId, issueId, ...eventTypeParams, alpha, alpha, k]));
+        return ok({
+          results: rows.map((r) => ({
+            id: r.id,
+            issue_id: r.issue_id,
+            branch_id: r.branch_id,
+            from_node: r.from_node,
+            event_type: r.event_type,
+            summary: r.summary,
+            created_at: r.created_at,
+            snippet: r.snippet,
+            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
+          })),
+          total_matched
+        });
+      }
+      if (mode === "semantic") {
+        const cosineResults2 = await topKByCosine(db2, "audit", query, k);
+        if (cosineResults2.length === 0) {
+          return ok({ results: [], total_matched: 0, warning: "semantic_unavailable" });
+        }
+        const results2 = [];
+        for (const cr of cosineResults2) {
+          const row = fetchRowById(cr.rowid);
+          if (row) {
+            results2.push({
+              id: row.id,
+              issue_id: row.issue_id,
+              branch_id: row.branch_id,
+              from_node: row.from_node,
+              event_type: row.event_type,
+              summary: row.summary,
+              created_at: row.created_at,
+              snippet: row.snippet,
+              score: cr.score
+            });
+          }
+        }
+        return ok({ results: results2, total_matched: results2.length });
+      }
+      const RRF_K = 60;
+      const ftsRows = fetchFtsRows(k * 4);
+      const cosineResults = await topKByCosine(db2, "audit", query, k * 4);
+      const semanticAvailable = cosineResults.length > 0;
+      const scoreMap = /* @__PURE__ */ new Map();
+      ftsRows.forEach((r, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(r.id);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          scoreMap.set(r.id, { rrf, row: r });
+        }
+      });
+      cosineResults.forEach((cr, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(cr.rowid);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          const row = fetchRowById(cr.rowid);
+          if (row) scoreMap.set(cr.rowid, { rrf, row });
+        }
+      });
+      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
+        row,
+        score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha))
+      }));
+      combined.sort((a, b) => b.score - a.score);
+      const topRows = combined.slice(0, k);
+      const results = topRows.map(({ row, score }) => ({
+        id: row.id,
+        issue_id: row.issue_id,
+        branch_id: row.branch_id,
+        from_node: row.from_node,
+        event_type: row.event_type,
+        summary: row.summary,
+        created_at: row.created_at,
+        snippet: row.snippet,
+        score
+      }));
+      const response = { results, total_matched: results.length };
+      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
+      return ok(response);
+    }),
+    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args) => {
+      const agentName = String(requireArg(args, "agent")).toLowerCase();
+      const role = normalizeAgent(agentName);
+      const fromNode = role === "consultant" ? agentName : role;
+      const issueId = requireArg(args, "issue_id");
+      const branchId = args["branch_id"] ?? null;
+      const now2 = nowISO();
+      requireArg(args, "event_type");
+      requireArg(args, "summary");
+      const eventType = args["event_type"];
+      if (!isAuditEventType(eventType)) {
+        return err(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(", ")}`);
+      }
+      if (!isAuditEventWritableBy(eventType, role)) {
+        return writerRefused(eventType, role);
+      }
+      const claimedFrom = args["from_node"];
+      if (claimedFrom !== void 0 && claimedFrom !== null && claimedFrom !== fromNode) {
+        return err(`from_node '${String(claimedFrom)}' does not match the calling agent; audit_append records from_node '${fromNode}' itself (omit from_node)`);
+      }
+      const summary = args["summary"];
+      const contentJson = args["content_json"] ?? "{}";
+      const byteLength = Buffer.byteLength(contentJson, "utf8");
+      if (byteLength > MAX_CONTENT_BYTES) {
+        return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
+      }
+      const id = insertAudit(db2, {
+        issue_id: issueId,
+        branch_id: branchId,
+        from_node: fromNode,
+        event_type: eventType,
+        summary,
+        content_json: contentJson,
+        created_at: now2,
+        writer: role
+      });
+      return ok(db2.get("SELECT * FROM audit WHERE id = ?", [id]));
+    })),
+    audit_list: wrapHandler(async (args) => {
+      requireArg(args, "agent");
+      const issueId = requireArg(args, "issue_id");
+      const branchId = args["branch_id"] ?? null;
+      const limitArg = args["limit"];
+      const cursorArg = args["cursor"];
+      const offset = Math.max(0, args["offset"] ?? 0);
+      const fieldsArg = args["fields"];
+      const ALLOWED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "branch_id", "from_node", "event_type", "summary", "content_json", "created_at"]);
+      if (fieldsArg !== void 0) {
+        const unknown2 = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
+        if (unknown2.length > 0) {
+          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
+        }
+      }
+      function projectRow(row) {
+        if (!fieldsArg) return row;
+        const out = {};
+        for (const f of fieldsArg) out[f] = row[f];
+        return out;
+      }
+      const conditions = ["issue_id = ?"];
+      const baseParams = [issueId];
+      if (branchId !== null) {
+        conditions.push("branch_id = ?");
+        baseParams.push(branchId);
+      }
+      const whereClause = "WHERE " + conditions.join(" AND ");
+      if (limitArg === void 0 || limitArg === null) {
+        const rows2 = db2.all(
+          "SELECT * FROM audit " + whereClause + " ORDER BY id ASC LIMIT 500 OFFSET ?",
+          [...baseParams, offset]
+        );
+        return ok(rows2.map(projectRow));
+      }
+      const limit = Math.min(Math.max(1, limitArg), 500);
+      let cursorFilter = "";
+      let cursorParams = [];
+      if (cursorArg) {
+        const decoded = decodeCursor(cursorArg);
+        if (decoded) {
+          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
+          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+        }
+      }
+      const sql = "SELECT * FROM audit " + whereClause + " " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
+      const fetchedRows = db2.all(sql, [
+        ...baseParams,
+        ...cursorParams,
+        limit + 1
+      ]);
+      const hasMore = fetchedRows.length > limit;
+      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+      const last = rows[rows.length - 1];
+      const next_cursor = hasMore && last ? encodeCursor(last) : void 0;
+      return ok({ rows: rows.map(projectRow), next_cursor });
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/discussions.ts
+var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
+var MAX_BODY_BYTES = 65536;
+function ok2(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err2(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function requireArg2(args, name) {
+  if (args[name] === void 0 || args[name] === null) {
+    throw new Error(`Missing required arg: ${name}`);
+  }
+  return args[name];
+}
+function wrapHandler2(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err2(e.message);
+    }
+  };
+}
 function resolveDefaultIssueId(db2) {
   const latest = db2.get(
     `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`
@@ -22666,11 +24911,14 @@ function resolveDefaultIssueId(db2) {
 }
 function insertDiscussion(db2, entry) {
   const createdAt = entry.created_at ?? nowISO();
+  const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
   const res = db2.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]
   );
+  if (Number(res.changes) === 0) return null;
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db2, "discussions", id, entry.body).catch(
     (e) => console.error("[embeddings] insertDiscussion embed failed:", e)
@@ -22789,15 +25037,17 @@ function discussionTools(db2) {
     );
   }
   const handlers = {
-    discussion_search: wrapHandler(async (args) => {
+    discussion_search: wrapHandler2(async (args) => {
       normalizeAgent(args["agent"]);
-      const query = requireArg(args, "query");
+      const query = requireArg2(args, "query");
       const mode = args["mode"] ?? "hybrid";
       const issueId = args["issue_id"] ?? null;
       const kind = args["kind"] ?? null;
       const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
-      const fetchFtsRows = (limitK) => db2.all(
+      await backfillMissing(db2, "discussions");
+      const ftsQuery = toFtsQuery(query);
+      const fetchFtsRows = (limitK) => withFtsGuard(() => db2.all(
         `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -22810,8 +25060,8 @@ function discussionTools(db2) {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY bm25(discussions_fts) ASC
            LIMIT ?`,
-        [query, issueId, issueId, kind, kind, limitK]
-      );
+        [ftsQuery, issueId, issueId, kind, kind, limitK]
+      ));
       const fetchRowById = (id) => db2.get(
         `SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
                   '' AS snippet,
@@ -22824,17 +25074,17 @@ function discussionTools(db2) {
         [id, issueId, issueId, kind, kind]
       );
       if (mode === "keyword") {
-        const countRow = db2.get(
+        const countRow = withFtsGuard(() => db2.get(
           `SELECT COUNT(*) AS n
            FROM discussions_fts
            JOIN discussions d ON d.id = discussions_fts.rowid
            WHERE discussions_fts MATCH ?
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)`,
-          [query, issueId, issueId, kind, kind]
-        );
+          [ftsQuery, issueId, issueId, kind, kind]
+        ));
         const total_matched = countRow?.n ?? 0;
-        const rows = db2.all(
+        const rows = withFtsGuard(() => db2.all(
           `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -22847,9 +25097,9 @@ function discussionTools(db2) {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
            LIMIT ?`,
-          [query, issueId, issueId, kind, kind, alpha, alpha, k]
-        );
-        return ok({
+          [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k]
+        ));
+        return ok2({
           results: rows.map((r) => ({
             id: r.id,
             issue_id: r.issue_id,
@@ -22865,7 +25115,7 @@ function discussionTools(db2) {
       if (mode === "semantic") {
         const cosineResults2 = await topKByCosine(db2, "discussions", query, k);
         if (cosineResults2.length === 0) {
-          return ok({ results: [], total_matched: 0, warning: "semantic_unavailable" });
+          return ok2({ results: [], total_matched: 0, warning: "semantic_unavailable" });
         }
         const results2 = [];
         for (const cr of cosineResults2) {
@@ -22882,7 +25132,7 @@ function discussionTools(db2) {
             });
           }
         }
-        return ok({ results: results2, total_matched: results2.length });
+        return ok2({ results: results2, total_matched: results2.length });
       }
       const RRF_K = 60;
       const ftsRows = fetchFtsRows(k * 4);
@@ -22926,24 +25176,24 @@ function discussionTools(db2) {
       }));
       const response = { results, total_matched: results.length };
       if (!semanticAvailable) response["warning"] = "semantic_unavailable";
-      return ok(response);
+      return ok2(response);
     }),
     discussion_append: requireRoles(
       "discussion_append",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler(async (args) => {
+      wrapHandler2(async (args) => {
         normalizeAgent(args["agent"]);
         const rawIssueId = args["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db2));
-        const author = requireArg(args, "author");
-        const body = requireArg(args, "body");
+        const author = requireArg2(args, "author");
+        const body = requireArg2(args, "body");
         const kind = args["kind"] ?? "note";
         const bodyBytes = Buffer.byteLength(body, "utf8");
         if (bodyBytes > MAX_BODY_BYTES) {
-          return err(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
+          return err2(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
         }
         if (!ALLOWED_KINDS.has(kind)) {
-          return err(
+          return err2(
             `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(", ")}`
           );
         }
@@ -22960,15 +25210,15 @@ function discussionTools(db2) {
         if (!issue2) {
           throw new Error(`Not found: issue ${issueId}`);
         }
-        const now = nowISO();
-        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now });
+        const now2 = nowISO();
+        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now2 });
         const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
-        return ok(row);
+        return ok2(row);
       })
     ),
-    discussion_list: wrapHandler(async (args) => {
+    discussion_list: wrapHandler2(async (args) => {
       normalizeAgent(args["agent"]);
-      const issueId = requireArg(args, "issue_id");
+      const issueId = requireArg2(args, "issue_id");
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
       const rawOffset = args["offset"] ?? 0;
@@ -22977,7 +25227,7 @@ function discussionTools(db2) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
+          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
@@ -22988,7 +25238,7 @@ function discussionTools(db2) {
       }
       const issue2 = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
       if (!issue2) {
-        return ok({ discussions: [], warning: "issue not found" });
+        return ok2({ discussions: [], warning: "issue not found" });
       }
       if (limitArg === void 0 || limitArg === null) {
         const offset = Math.max(0, rawOffset);
@@ -22996,7 +25246,7 @@ function discussionTools(db2) {
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`,
           [issueId, offset]
         );
-        return ok(rows2.map(projectRow));
+        return ok2(rows2.map(projectRow));
       }
       const limit = Math.min(Math.max(1, limitArg), 200);
       let cursorFilter = "";
@@ -23014,11 +25264,11 @@ function discussionTools(db2) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? encodeCursor2(last) : void 0;
-      return ok({ rows: rows.map(projectRow), next_cursor });
+      return ok2({ rows: rows.map(projectRow), next_cursor });
     }),
-    issue_get_with_discussions: wrapHandler(async (args) => {
+    issue_get_with_discussions: wrapHandler2(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg(args, "issue_id");
+      const issueId = requireArg2(args, "issue_id");
       const includeFull = args["include_full"] ?? false;
       const lastNArg = args["last_n"];
       const limitArg = args["limit"];
@@ -23037,7 +25287,7 @@ function discussionTools(db2) {
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
           [issueId]
         );
-        return ok({ issue: redactedIssue, discussions: discussions2, tasks });
+        return ok2({ issue: redactedIssue, discussions: discussions2, tasks });
       }
       const totalCount = db2.get(
         `SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?`,
@@ -23063,7 +25313,7 @@ function discussionTools(db2) {
       const oldest = sliced[sliced.length - 1];
       const next_cursor = hasMore && oldest ? encodeCursor2(oldest) : void 0;
       const discussions = sliced.slice().reverse();
-      return ok({
+      return ok2({
         issue: redactedIssue,
         discussions,
         tasks,
@@ -23077,33 +25327,99 @@ function discussionTools(db2) {
 }
 
 // src/utils/repo-paths.ts
+import { dirname as dirname3, isAbsolute as isAbsolute3, resolve } from "node:path";
+
+// src/tools/containment.ts
+import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
+import { isAbsolute as isAbsolute2, join as join5, parse as parse3, relative as relative2, sep as sep2 } from "node:path";
+function projectRootFromDbPath(dbPath2) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  const segments = dbPath2.split(sep2);
+  const idx = segments.lastIndexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+function projectSpawnOptions(projectRoot) {
+  return { cwd: projectRoot, env: { ...process.env, TMB_PROJECT_ROOT: projectRoot } };
+}
+function canonicalPath(path2, projectRoot) {
+  if (!isAbsolute2(path2) && (projectRoot === void 0 || !isAbsolute2(projectRoot))) {
+    throw new Error(`canonicalPath: relative path '${path2}' needs an absolute project root`);
+  }
+  const absolute = isAbsolute2(path2) ? path2 : join5(projectRoot, path2);
+  const root = parse3(absolute).root;
+  const pending = absolute.slice(root.length).split(sep2);
+  const real = [];
+  const tail = [];
+  let hops = 0;
+  while (pending.length > 0) {
+    const part = pending.shift();
+    if (part === "" || part === ".") continue;
+    if (tail.length > 0) {
+      if (part === "..") tail.pop();
+      else tail.push(part);
+      continue;
+    }
+    if (part === "..") {
+      real.pop();
+      continue;
+    }
+    const candidate = join5(root, ...real, part);
+    let stat;
+    try {
+      stat = lstatSync3(candidate);
+    } catch {
+      tail.push(part);
+      continue;
+    }
+    if (stat.isSymbolicLink() && hops < 40) {
+      hops += 1;
+      const target = readlinkSync(candidate);
+      if (isAbsolute2(target)) real.length = 0;
+      pending.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
+      continue;
+    }
+    real.push(part);
+  }
+  let head = join5(root, ...real);
+  try {
+    head = realpathSync2(head);
+  } catch {
+  }
+  return tail.length > 0 ? join5(head, ...tail) : head;
+}
+function isWithinRoot(root, path2) {
+  if (!isAbsolute2(root)) return false;
+  const rel = relative2(canonicalPath(root), canonicalPath(path2, root));
+  return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
+}
+function outsideProject(tool, projectRoot, path2) {
+  if (projectRoot === null || isWithinRoot(projectRoot, path2)) return null;
+  return {
+    error: "outside_project",
+    message: `${tool}: ${path2} is outside the project ${projectRoot}; TMB writes only under the project.`,
+    path: path2,
+    project_root: projectRoot
+  };
+}
+
+// src/utils/repo-paths.ts
+function repoRowPath(db2, path2) {
+  if (isAbsolute3(path2)) return path2;
+  const base = db2.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db2.dbPath) ?? dirname3(db2.dbPath);
+  return resolve(base, path2);
+}
 function resolveSoleRepoPath(db2) {
   return resolveSoleRepo(db2)?.path;
 }
 function resolveRepoForSync(db2, repoName) {
-  const decodeRemotes = (raw) => {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-    }
-    return [];
-  };
   if (repoName) {
-    const row = db2.get(
-      `SELECT name, path, remotes FROM repos WHERE name = ?`,
-      [repoName]
-    );
-    if (!row) return null;
-    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
+    const row = db2.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: repoRowPath(db2, row.path) } : null;
   }
-  const rows = db2.all(
-    `SELECT name, path, remotes FROM repos`
-  );
+  const rows = db2.all(`SELECT name, path FROM repos`);
   if (rows.length !== 1) return null;
-  const sole = rows[0];
-  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
+  return { name: rows[0].name, path: repoRowPath(db2, rows[0].path) };
 }
 function resolveSoleRepo(db2, name) {
   if (name) {
@@ -23111,12 +25427,12 @@ function resolveSoleRepo(db2, name) {
       `SELECT path FROM repos WHERE name = ?`,
       [name]
     );
-    return repoRow?.path ? { name, path: repoRow.path } : void 0;
+    return repoRow?.path ? { name, path: repoRowPath(db2, repoRow.path) } : void 0;
   }
   const repos = db2.all(
     `SELECT name, path FROM repos`
   );
-  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
+  return repos.length === 1 ? { name: repos[0].name, path: repoRowPath(db2, repos[0].path) } : void 0;
 }
 
 // src/sync/backend.ts
@@ -23136,31 +25452,6 @@ function liveCliBlockedMessage(reason, cmd, args) {
   return `live CLI blocked in test context (${reason}) \u2014 refused to spawn "${cmd} ${args.join(" ")}"; inject _spawnFn`;
 }
 
-// src/utils/classify-url.ts
-function extractHost(url2) {
-  const scpMatch = url2.match(/^[^@]+@([^:/]+)[:/]/);
-  if (scpMatch) return scpMatch[1].toLowerCase();
-  try {
-    const parsed = new URL(url2);
-    if (parsed.hostname) return parsed.hostname.toLowerCase();
-  } catch {
-  }
-  return null;
-}
-function classifyHost(host) {
-  if (host === "github.com" || host.endsWith(".github.com")) return "github";
-  if (host === "gitlab.com" || /(?:^|\.)gitlab\./i.test(host)) return "gitlab";
-  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
-  if (host === "codeberg.org" || host.endsWith(".codeberg.org")) return "codeberg";
-  if (host === "dev.azure.com" || host.endsWith(".dev.azure.com")) return "azuredev";
-  return "other";
-}
-function classifyUrl(url2) {
-  const host = extractHost(url2);
-  if (!host) return "other";
-  return classifyHost(host);
-}
-
 // src/sync/backend.ts
 var _availabilityCache = null;
 function detectAvailable(_spawnFn) {
@@ -23170,33 +25461,34 @@ function detectAvailable(_spawnFn) {
   const check2 = (cmd, args) => {
     try {
       if (_spawnFn) {
-        const result3 = _spawnFn(cmd, args);
-        return result3.status === 0;
+        const result4 = _spawnFn(cmd, args);
+        return result4.status === 0;
       }
       if (liveCliBlockReason()) return false;
-      const result2 = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
-      return result2.status === 0;
+      const result3 = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      return result3.status === 0;
     } catch {
       return false;
     }
   };
-  const result = {
+  const result2 = {
     gh: check2("gh", ["auth", "status"]),
     glab: check2("glab", ["auth", "status"])
   };
   if (_spawnFn === void 0) {
-    _availabilityCache = result;
+    _availabilityCache = result2;
   }
-  return result;
+  return result2;
 }
-function detectPreferred() {
+function detectPreferred(repoPath) {
   try {
-    const result = spawnSync("git", ["remote", "get-url", "origin"], {
+    const result2 = spawnSync("git", ["remote", "get-url", "origin"], {
+      ...repoPath === null ? {} : { cwd: repoPath },
       timeout: SUBPROCESS_TIMEOUT_MS,
       encoding: "utf8"
     });
-    if (result.status !== 0) return null;
-    const url2 = (result.stdout ?? "").trim();
+    if (result2.status !== 0) return null;
+    const url2 = (result2.stdout ?? "").trim();
     const provider = classifyUrl(url2);
     if (provider === "github") return "gh";
     if (provider === "gitlab") return "glab";
@@ -23205,8 +25497,12 @@ function detectPreferred() {
     return null;
   }
 }
-function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
-  if (!hasSpawnFn && (process.env.TMB_DISABLE_REMOTE_SYNC === "1" || process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === "true")) {
+function remoteSyncEnvDisabled() {
+  const v = process.env.TMB_DISABLE_REMOTE_SYNC;
+  return v === "1" || v?.toLowerCase() === "true";
+}
+function resolveBackend(configValue, repoRemotes2, hasSpawnFn = false, availability) {
+  if (!hasSpawnFn && remoteSyncEnvDisabled()) {
     return null;
   }
   if (configValue === "off") return "off";
@@ -23214,49 +25510,66 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
   if (configValue === "glab") return "glab";
   if (configValue === "both") return "both";
   const available = availability ?? detectAvailable();
-  const ghUsable = (repoRemotes?.github ?? false) && available.gh;
-  const glUsable = (repoRemotes?.gitlab ?? false) && available.glab;
+  const ghUsable = (repoRemotes2?.github ?? false) && available.gh;
+  const glUsable = (repoRemotes2?.gitlab ?? false) && available.glab;
   if (ghUsable && glUsable) return "both";
   if (ghUsable) return "gh";
   if (glUsable) return "glab";
   return null;
 }
+function readIssueSyncConfig(db2) {
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  if (!row) return "off";
+  try {
+    return String(JSON.parse(row.value_json));
+  } catch {
+    return "off";
+  }
+}
+function remoteSyncGate(db2, opts = {}) {
+  if (remoteSyncEnvDisabled()) return { enabled: false, reason: "env_disabled" };
+  const config2 = readIssueSyncConfig(db2);
+  if (config2 === "off") return { enabled: false, reason: "issue_sync_off" };
+  const explicit = config2 === "gh" || config2 === "glab" || config2 === "both";
+  const availability = explicit ? void 0 : detectAvailable(opts.spawnFn);
+  const backend = resolveBackend(config2, opts.repoRemotes ?? null, true, availability);
+  if (backend === null || backend === "off") return { enabled: false, reason: "no_backend" };
+  return { enabled: true };
+}
 
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join4 } from "node:path";
+import { join as join6 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join4(homedir4(), ".claude", resolvePluginName(process.env), "logs");
+  return resolveClaudeLogDir();
 }
-var logDir2 = resolveLogDir();
-var syncLogPath = join4(logDir2, "issue-sync.log");
-try {
-  mkdirSync2(logDir2, { recursive: true });
-} catch {
-}
+var readyLogDirs = /* @__PURE__ */ new Set();
 function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join4(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
   try {
+    const logDir = resolveLogDir();
+    if (!readyLogDirs.has(logDir)) {
+      mkdirSync2(logDir, { recursive: true });
+      readyLogDirs.add(logDir);
+    }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(currentLogPath, line);
+    appendFileSync2(join6(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
 function defaultSpawnFn(cmd, args, opts) {
   const blockReason = liveCliBlockReason();
   if (blockReason) {
-    const message = liveCliBlockedMessage(blockReason, cmd, args);
+    const message2 = liveCliBlockedMessage(blockReason, cmd, args);
     syncLog({ event: "live_cli_blocked", cmd, args, reason: blockReason });
-    return { status: null, stdout: "", stderr: message };
+    return { status: null, stdout: "", stderr: message2 };
   }
-  const result = spawnSync2(cmd, args, opts);
+  const result2 = spawnSync2(cmd, args, opts);
   return {
-    status: result.status,
-    stdout: result.stdout ? String(result.stdout) : "",
-    stderr: result.stderr ? String(result.stderr) : ""
+    status: result2.status,
+    stdout: result2.stdout ? String(result2.stdout) : "",
+    stderr: result2.stderr ? String(result2.stderr) : ""
   };
 }
 function parseRemoteIid(stdout, _kind) {
@@ -23291,23 +25604,23 @@ function extractRemoteHostAndRepo(remoteUrl) {
 }
 async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
   try {
-    let result;
+    let result2;
     if (backend === "gh") {
       const args = ["issue", "view", String(iid), "--json", "number,url"];
       if (repoSlug) args.push("--repo", repoSlug);
-      result = spawnFn("gh", args, spawnOpts);
+      result2 = spawnFn("gh", args, spawnOpts);
     } else {
       const args = ["issue", "view", String(iid)];
       if (repoSlug) args.push("-R", repoSlug);
-      result = spawnFn("glab", args, spawnOpts);
+      result2 = spawnFn("glab", args, spawnOpts);
     }
-    if (result.status !== 0) {
+    if (result2.status !== 0) {
       return { ok: false, reason: "read_back_non_zero_exit" };
     }
     if (backend === "gh") {
       let parsed;
       try {
-        parsed = JSON.parse(result.stdout);
+        parsed = JSON.parse(result2.stdout);
       } catch {
         return { ok: false, reason: "read_back_parse_failed" };
       }
@@ -23328,20 +25641,20 @@ function repoSlugFromRemoteUrl(remoteUrl) {
 }
 async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
   try {
-    let result;
+    let result2;
     if (backend === "gh") {
       const args = ["label", "list", "--json", "name"];
       if (repoSlug) args.push("--repo", repoSlug);
-      result = spawnFn("gh", args, spawnOpts);
+      result2 = spawnFn("gh", args, spawnOpts);
     } else {
       const args = ["label", "list", "-F", "json"];
       if (repoSlug) args.push("-R", repoSlug);
-      result = spawnFn("glab", args, spawnOpts);
+      result2 = spawnFn("glab", args, spawnOpts);
     }
-    if (result.status !== 0) return null;
+    if (result2.status !== 0) return null;
     let parsed;
     try {
-      parsed = JSON.parse(result.stdout);
+      parsed = JSON.parse(result2.stdout);
     } catch {
       return null;
     }
@@ -23357,32 +25670,58 @@ async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
     return null;
   }
 }
+function parseRemoteMetadata(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const m = parsed.milestone;
+  let milestone = null;
+  if (typeof m === "string" && m !== "") milestone = m;
+  else if (m && typeof m === "object" && typeof m.title === "string") {
+    milestone = m.title || null;
+  }
+  const labels = [];
+  if (Array.isArray(parsed.labels)) {
+    for (const l of parsed.labels) {
+      if (typeof l === "string") labels.push(l);
+      else if (l && typeof l === "object" && typeof l.name === "string") {
+        labels.push(l.name);
+      }
+    }
+  }
+  return { milestone, labels };
+}
 async function verifyRemoteIssue(backend, iid, opts = {}) {
   const spawnFn = opts.spawnFn ?? defaultSpawnFn;
   const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
   if (opts.cwd) spawnOpts.cwd = opts.cwd;
   try {
-    let result;
+    let result2;
     if (backend === "gh") {
-      const args = ["issue", "view", String(iid), "--json", "number,title,state"];
+      const args = ["issue", "view", String(iid), "--json", "number,title,state,milestone,labels"];
       if (opts.repoSlug) args.push("--repo", opts.repoSlug);
-      result = spawnFn("gh", args, spawnOpts);
+      result2 = spawnFn("gh", args, spawnOpts);
     } else {
-      const args = ["issue", "view", String(iid)];
+      const args = ["issue", "view", String(iid), "--output", "json"];
       if (opts.repoSlug) args.push("-R", opts.repoSlug);
-      result = spawnFn("glab", args, spawnOpts);
+      result2 = spawnFn("glab", args, spawnOpts);
     }
-    if (result.status !== 0) return { ok: false, reason: "not_found_or_error" };
+    if (result2.status !== 0) return { ok: false, reason: "not_found_or_error" };
     if (backend === "gh") {
       let parsed;
       try {
-        parsed = JSON.parse(result.stdout);
+        parsed = JSON.parse(result2.stdout);
       } catch {
         return { ok: false, reason: "parse_failed" };
       }
       if (typeof parsed.number !== "number") return { ok: false, reason: "parse_failed" };
     }
-    return { ok: true };
+    const metadata = parseRemoteMetadata(result2.stdout);
+    return metadata ? { ok: true, ...metadata } : { ok: true };
   } catch {
     return { ok: false, reason: "spawn_error" };
   }
@@ -23443,37 +25782,37 @@ async function createOnBackend(backend, opts, spawnFn) {
     }
   }
   try {
-    const result = spawnFn(cmd, args, spawnOpts);
-    if (result.status !== 0) {
+    const result2 = spawnFn(cmd, args, spawnOpts);
+    if (result2.status !== 0) {
       syncLog({
         event: "issue_create_failed",
         backend,
         issueId: opts.issueId,
-        stderr: result.stderr,
-        exit_code: result.status
+        stderr: result2.stderr,
+        exit_code: result2.status
       });
       return {
         ok: false,
         reason: "non_zero_exit",
         backend,
-        stderr: result.stderr,
-        stdout: result.stdout,
-        exit_code: result.status ?? void 0
+        stderr: result2.stderr,
+        stdout: result2.stdout,
+        exit_code: result2.status ?? void 0
       };
     }
-    const parsed = parseRemoteIid(result.stdout, kind);
+    const parsed = parseRemoteIid(result2.stdout, kind);
     if (parsed === null) {
       syncLog({
         event: "issue_create_parse_failed",
         backend,
         issueId: opts.issueId,
-        stdout: result.stdout
+        stdout: result2.stdout
       });
       return {
         ok: false,
         reason: "parse_failed",
         backend,
-        stdout: result.stdout,
+        stdout: result2.stdout,
         message: `could not parse remote issue id from "${cmd} ${args.join(" ")}" output`
       };
     }
@@ -23492,13 +25831,13 @@ async function createOnBackend(backend, opts, spawnFn) {
             parsed_repo: parsed.repoPath,
             configured_host: configured.host,
             configured_repo: configured.repoPath,
-            stdout: result.stdout
+            stdout: result2.stdout
           });
           return {
             ok: false,
             reason: "verify_failed",
             backend,
-            stdout: result.stdout,
+            stdout: result2.stdout,
             message: `remote iid host/repo mismatch: got ${parsed.host}/${parsed.repoPath}, expected ${configured.host}/${configured.repoPath}`
           };
         }
@@ -23512,13 +25851,13 @@ async function createOnBackend(backend, opts, spawnFn) {
         issueId: opts.issueId,
         reason: verifyResult.reason,
         iid: parsed.iid,
-        stdout: result.stdout
+        stdout: result2.stdout
       });
       return {
         ok: false,
         reason: "verify_failed",
         backend,
-        stdout: result.stdout,
+        stdout: result2.stdout,
         message: `read-back verify failed for iid ${parsed.iid}: ${verifyResult.reason}`
       };
     }
@@ -23527,7 +25866,7 @@ async function createOnBackend(backend, opts, spawnFn) {
       backend,
       issueId: opts.issueId,
       iid: parsed.iid,
-      stdout: result.stdout
+      stdout: result2.stdout
     });
     return {
       remote_iid: parsed.iid,
@@ -23535,18 +25874,18 @@ async function createOnBackend(backend, opts, spawnFn) {
       unknown_labels: unknownLabels.length > 0 ? unknownLabels : void 0
     };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message2 = e instanceof Error ? e.message : String(e);
     syncLog({
       event: "issue_create_error",
       backend,
       issueId: opts.issueId,
-      error: message
+      error: message2
     });
     return {
       ok: false,
       reason: "spawn_error",
       backend,
-      message
+      message: message2
     };
   }
 }
@@ -23603,34 +25942,271 @@ async function syncIssueClose(opts) {
     }
   }
   try {
-    const result = spawnFn(cmd, args, spawnOpts);
-    if (result.status !== 0) {
+    const result2 = spawnFn(cmd, args, spawnOpts);
+    if (result2.status !== 0) {
       syncLog({
         event: "issue_close_failed",
         remote_kind,
         remote_iid,
-        stderr: result.stderr,
-        exit_code: result.status
+        stderr: result2.stderr,
+        exit_code: result2.status
       });
       return {
         ok: false,
         reason: "non_zero_exit",
-        stderr: result.stderr,
-        stdout: result.stdout,
-        exit_code: result.status ?? void 0
+        stderr: result2.stderr,
+        stdout: result2.stdout,
+        exit_code: result2.status ?? void 0
       };
     }
     return { ok: true };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message2 = e instanceof Error ? e.message : String(e);
     syncLog({
       event: "issue_close_error",
       remote_kind,
       remote_iid,
-      error: message
+      error: message2
     });
-    return { ok: false, reason: "spawn_error", message };
+    return { ok: false, reason: "spawn_error", message: message2 };
   }
+}
+async function syncIssueUpdate(backend, iid, fields, opts = {}) {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  const args = backend === "gh" ? ["issue", "edit", String(iid)] : ["issue", "update", String(iid)];
+  if (opts.repoSlug) args.push(backend === "gh" ? "--repo" : "-R", opts.repoSlug);
+  if (fields.milestone !== void 0) args.push(backend === "gh" ? "--milestone" : "-m", fields.milestone);
+  if (fields.labels) {
+    const addFlag = backend === "gh" ? "--add-label" : "--label";
+    const removeFlag = backend === "gh" ? "--remove-label" : "--unlabel";
+    for (const l of fields.labels.add) args.push(addFlag, l);
+    for (const l of fields.labels.remove) args.push(removeFlag, l);
+  }
+  if (fields.title !== void 0) args.push(backend === "gh" ? "--title" : "-t", fields.title);
+  try {
+    const result2 = spawnFn(backend, args, spawnOpts);
+    if (result2.status !== 0) {
+      syncLog({ event: "issue_update_failed", backend, remote_iid: iid, stderr: result2.stderr, exit_code: result2.status });
+      return {
+        ok: false,
+        reason: "non_zero_exit",
+        stderr: result2.stderr,
+        stdout: result2.stdout,
+        exit_code: result2.status ?? void 0
+      };
+    }
+    return { ok: true };
+  } catch (e) {
+    const message2 = e instanceof Error ? e.message : String(e);
+    syncLog({ event: "issue_update_error", backend, remote_iid: iid, error: message2 });
+    return { ok: false, reason: "spawn_error", message: message2 };
+  }
+}
+
+// src/tools/agent-runs.ts
+var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["closed", "failed", "escalated"]);
+function claudeRunContext(db2, dbPath2 = db2.dbPath) {
+  return { host: "claude", projectRoot: projectRootFromDbPath(dbPath2 || db2.dbPath) };
+}
+function exitReasonForStatus(status) {
+  if (status === "failed") return "failed";
+  if (status === "escalated") return "escalated";
+  return "completed";
+}
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var UNBOUND_SWE_RUN_SQL = "(spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')";
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+function closeOpenRunsForTask(db2, taskId, now2, exitReason) {
+  return db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ?
+      WHERE task_id = ?
+        AND completed_at IS NULL`,
+    [now2, now2, exitReason, taskId]
+  ).changes;
+}
+function sweepRunsOfTerminalTasks(db2, now2) {
+  const placeholders = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
+  return db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured'
+                               THEN 'swept_orphan' ELSE 'swept_stale' END
+      WHERE completed_at IS NULL
+        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+    [now2, now2, ...TERMINAL_TASK_STATUSES]
+  ).changes;
+}
+var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+var RUN_SESSION_ID_SCHEMA = {
+  type: "string",
+  pattern: "^[A-Za-z0-9_-]{8,64}$",
+  description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Validated and otherwise unused: bro usage is metered per session by the bro-turn-usage Stop hook, not per task."
+};
+function parseRunSessionId(value) {
+  if (value === void 0 || value === null) return null;
+  if (typeof value !== "string" || !RUN_SESSION_ID_RE.test(value)) {
+    throw new Error("session_id must be 8\u201364 characters of [A-Za-z0-9_-].");
+  }
+  return value;
+}
+function openSweRun(db2, task, now2, ctx, rootDir) {
+  const orphanBefore = new Date(Date.parse(now2) - SWE_ORPHAN_AFTER_MS).toISOString();
+  db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = 'swept_orphan'
+      WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
+        AND ${UNBOUND_SWE_RUN_SQL}
+        AND started_at IS NOT NULL AND started_at < ?`,
+    [now2, now2, task.id, orphanBefore]
+  );
+  const open = db2.get(
+    `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,
+    [task.id]
+  );
+  if (open) return false;
+  db2.run(
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
+     VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
+    [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host]
+  );
+  return true;
+}
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+function liveTasksOfIssue(db2, issueId) {
+  return db2.all(
+    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
+      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+    [issueId]
+  );
+}
+function reviewStateAt(db2, taskId, commitSha) {
+  const row = db2.get(
+    `SELECT ${HAS_PASS_SQL} AS pass, ${GATE_SKIP_RECORDED_SQL} AS skip
+       FROM (SELECT id, ? AS commit_sha FROM tasks WHERE id = ?) t`,
+    [commitSha, taskId]
+  );
+  return { pass: row?.pass === 1, skipRecorded: row?.skip === 1 };
+}
+function closedTasksWithoutReview(db2, issueId) {
+  return db2.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
+      WHERE t.issue_id = ? AND t.status = 'closed'
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
+      ORDER BY t.id`,
+    [issueId]
+  );
+}
+function recordReviewBypassIfUnreviewed(db2, task, closedBy, fromNode, now2) {
+  const state = reviewStateAt(db2, task.id, task.commit_sha);
+  if (state.pass || state.skipRecorded) return false;
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: fromNode,
+    event_type: "review_gate_bypassed",
+    summary: `Task ${task.id} closed by ${closedBy} without a passing review`,
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: task.commit_sha, closed_by: closedBy }),
+    created_at: now2
+  });
+  return true;
+}
+function escalateLiveTasksForIssueClose(db2, tasks, reason, now2) {
+  for (const task of tasks) {
+    db2.run(
+      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
+      [now2, task.id]
+    );
+    insertAudit(db2, {
+      issue_id: task.issue_id,
+      branch_id: task.branch_id,
+      from_node: "bro",
+      event_type: "task_escalated_by_issue_close",
+      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
+      created_at: now2
+    });
+    closeOpenRunsForTask(db2, task.id, now2, "issue_closed");
+  }
+}
+function markIssueClosed(db2, issueId, now2) {
+  db2.run(
+    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    [now2, now2, issueId]
+  );
+}
+var STALE_RUNNING_HOURS_DEFAULT = 6;
+var STALE_PENDING_DAYS = 7;
+function staleRunningHours(env = process.env) {
+  const raw = Number(env["TMB_STALE_RUNNING_HOURS"]);
+  return Number.isFinite(raw) && raw > 0 ? raw : STALE_RUNNING_HOURS_DEFAULT;
+}
+function sweepStaleTasks(db2, now2) {
+  const nowMs = Date.parse(now2);
+  const hours = staleRunningHours();
+  const runningCutoff = new Date(nowMs - hours * 36e5).toISOString();
+  const pendingCutoff = new Date(nowMs - STALE_PENDING_DAYS * 864e5).toISOString();
+  const stale = db2.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha, t.updated_at FROM tasks t
+      WHERE t.status = 'running' AND t.updated_at < ?
+        AND NOT EXISTS (SELECT 1 FROM agent_runs r
+                         WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)
+      ORDER BY t.id`,
+    [runningCutoff]
+  );
+  let runsSwept = 0;
+  if (stale.length > 0) {
+    db2.transaction(() => {
+      for (const task of stale) {
+        db2.run(`UPDATE tasks SET status = 'failed', completed_at = NULL, updated_at = ? WHERE id = ?`, [now2, task.id]);
+        insertAudit(db2, {
+          issue_id: task.issue_id,
+          branch_id: task.branch_id,
+          from_node: "bro",
+          event_type: "task_stale_swept",
+          summary: `Running task ${task.id} with no live swe since ${task.updated_at} swept to failed`,
+          content_json: JSON.stringify({
+            task_id: task.id,
+            from_status: "running",
+            last_updated_at: task.updated_at,
+            stale_after_hours: hours
+          }),
+          created_at: now2
+        });
+        runsSwept += closeOpenRunsForTask(db2, task.id, now2, "swept_stale");
+      }
+    });
+  }
+  const reported = db2.all(
+    `SELECT id AS task_id, issue_id, status, updated_at FROM tasks
+      WHERE status = 'pending' AND updated_at < ? ORDER BY id`,
+    [pendingCutoff]
+  );
+  return { tasks_swept: stale.map((t) => t.id), runs_swept: runsSwept, reported };
 }
 
 // src/tools/issues.ts
@@ -23679,8 +26255,8 @@ function defaultSyncLabels(db2) {
   if (priorityLabels.length > 0) labels.push(priorityLabels[0]);
   return labels;
 }
-function validateIssueLabels(db2, labels) {
-  const { classification, priorityLabels } = resolveLabelTaxonomy(db2);
+function validateIssueLabels(db2, labels, taxonomy, tool = "issue_create") {
+  const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db2);
   const classificationSet = new Set(classification);
   const prioritySet = new Set(priorityLabels);
   const hasPriority = labels.some((l) => prioritySet.has(l));
@@ -23693,7 +26269,7 @@ function validateIssueLabels(db2, labels) {
   if (!hasPriority) {
     missing.push(`a priority label (one of: ${priorityLabels.join(", ")})`);
   }
-  return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
+  return `missing_required_labels: ${tool} requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
 }
 function ensureMilestoneRow(db2, milestone, repo) {
   if (repo === null) return;
@@ -23706,14 +26282,25 @@ function ensureMilestoneRow(db2, milestone, repo) {
 function resolveDefaultMilestone(db2, explicitMilestone, repo) {
   if (explicitMilestone !== null && explicitMilestone !== "") {
     ensureMilestoneRow(db2, explicitMilestone, repo);
-    return explicitMilestone;
+    return { milestone: explicitMilestone, milestone_default: "explicit" };
   }
-  if (repo === null) return null;
+  if (repo === null) return { milestone: null, milestone_default: "none_open" };
   const open = db2.all(
-    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open' ORDER BY name`,
     [repo]
   );
-  return open.length === 1 ? open[0].name : null;
+  if (open.length === 1) return { milestone: open[0].name, milestone_default: "applied" };
+  if (open.length === 0) return { milestone: null, milestone_default: "none_open" };
+  return {
+    milestone: null,
+    milestone_default: "multiple_open",
+    open_milestones: open.map((m) => m.name)
+  };
+}
+function milestoneDefaultFields(resolution) {
+  const fields = { milestone_default: resolution.milestone_default };
+  if (resolution.open_milestones) fields["open_milestones"] = resolution.open_milestones;
+  return fields;
 }
 var DEDUP_THRESHOLD = 0.6;
 function normalizeObjective(text) {
@@ -23734,27 +26321,33 @@ function objectiveSimilarity(a, b) {
 function decodeIssue(row) {
   return { ...row };
 }
-function ok2(data) {
+function ok3(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err2(message) {
+function err3(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg2(args, name) {
+function refusal(code, detail) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: code, ...detail }) }],
+    isError: true
+  };
+}
+function requireArg3(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler2(fn) {
+function wrapHandler3(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err2(e.message);
+      return err3(e.message);
     }
   };
 }
@@ -23766,7 +26359,7 @@ function resolveIssueSyncContext(db2, repoName) {
     cwd: resolved.path,
     remoteFor(backend) {
       const provider = backend === "gh" ? "github" : "gitlab";
-      const entry = resolved.remotes.find((r) => r.provider === provider);
+      const entry = repoRemotes(db2, resolved.name).find((r) => r.provider === provider);
       if (!entry) return null;
       return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
     }
@@ -23802,35 +26395,51 @@ async function verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid,
       error: `remote_verify_failed: ${backend} issue #${remoteIid} not found or not viewable (${verify.reason ?? "unknown"})`
     };
   }
-  return { ok: true, backend };
+  return { ok: true, backend, milestone: verify.milestone ?? null, labels: verify.labels ?? [] };
 }
 async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
   const remoteRow = db2.get(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
+    `SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId]
   );
-  const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
-  const closeCwd = closeCtx?.cwd;
-  const closeTargets = [];
+  const targets = [];
   if (remoteRow?.gh_iid != null) {
-    closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: "github" });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "github") {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "github" });
+    targets.push({ remote_kind: "github", remote_iid: remoteRow.gh_iid, closed: false });
   }
   if (remoteRow?.gl_iid != null) {
-    closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: "gitlab" });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "gitlab") {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "gitlab" });
+    targets.push({ remote_kind: "gitlab", remote_iid: remoteRow.gl_iid, closed: false });
   }
-  for (const target of closeTargets) {
+  if (targets.length === 0) return { synced: false, remotes: [] };
+  const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
+  const gate = remoteSyncGate(db2, {
+    repoRemotes: closeCtx ? { github: closeCtx.remoteFor("gh") !== null, gitlab: closeCtx.remoteFor("glab") !== null } : null,
+    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+  });
+  if (!gate.enabled) {
+    const reason = gate.reason ?? "no_backend";
+    insertAudit(db2, {
+      issue_id: issueId,
+      from_node: "trajectory-server",
+      event_type: "issue_close_remote_skipped",
+      summary: `issue ${issueId} closed locally; remote close skipped (${reason})`,
+      content_json: JSON.stringify({
+        reason,
+        remotes: targets.map(({ remote_kind, remote_iid }) => ({ remote_kind, remote_iid }))
+      }),
+      created_at: nowISO()
+    });
+    return { synced: false, skipped: reason, remotes: targets };
+  }
+  for (const target of targets) {
     const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
-      _cwd: closeCwd,
+      _cwd: closeCtx?.cwd,
       _repoSlug: closeSlug,
       _spawnFn: spawnFn
     });
+    target.closed = closeResult.ok;
     if (!closeResult.ok) {
       serverLog({
         event: "issue_close_sync_failed",
@@ -23844,8 +26453,9 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
       });
     }
   }
+  return { synced: targets.every((t) => t.closed), remotes: targets };
 }
-function issueTools(db2, dbPath2 = "") {
+function issueTools(db2, dbPath2 = "", options = {}) {
   const definitions = [
     {
       name: "issue_create",
@@ -23861,7 +26471,8 @@ function issueTools(db2, dbPath2 = "") {
           repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
           allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." },
           remote_iid: { type: "number", description: "Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing." },
-          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." }
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "objective", "labels"]
       }
@@ -23893,19 +26504,35 @@ function issueTools(db2, dbPath2 = "") {
     },
     {
       name: "issue_close",
-      description: "Close an issue by setting its status to closed.",
+      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          issue_id: { type: "string" }
+          issue_id: { type: "string" },
+          cascade: {
+            type: "boolean",
+            description: "When true, escalate every live task of the issue (pending/running/needs_validation/completed) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live."
+          },
+          reason: {
+            type: "string",
+            description: "Optional reason stored on each task_escalated_by_issue_close audit row when cascade=true."
+          },
+          waive_review: {
+            type: "boolean",
+            description: "When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
+          },
+          waive_review_reason: {
+            type: "string",
+            description: "Required when waive_review is true (min 10 chars): why the review is skipped."
+          }
         },
         required: ["agent", "issue_id"]
       }
     },
     {
       name: "issue_get_phase",
-      description: "Return the current workflow phase and task completion counts for an issue.",
+      description: "Return the current workflow phase and task counts for an issue. tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks the SWE reported completed that bro has not closed yet. phase is ready_to_close once every task is closed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -23927,6 +26554,7 @@ function issueTools(db2, dbPath2 = "") {
             enum: ["open", "closed"],
             description: "Optional status filter. Omit to return all issues."
           },
+          milestone: { type: "string", description: "Optional milestone filter: a milestone name, or 'none' for issues with no milestone." },
           limit: { type: "number", description: "Max rows. Default 50, max 200." },
           offset: { type: "number", description: "Row offset. Default 0." },
           fields: {
@@ -23946,9 +26574,26 @@ function issueTools(db2, dbPath2 = "") {
         properties: {
           agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
           issue_id: { type: "string", description: "Issue ID as string" },
-          description: { type: "string", description: "Full markdown description (no length cap)" }
+          description: { type: "string", description: "Full markdown description (no length cap)" },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "description"]
+      }
+    },
+    {
+      name: "issue_update",
+      description: "Change an issue's milestone, labels or objective after creation and mirror the change to the linked remote issue when issue sync is on. Bro only. At least one of milestone, labels, objective is required; labels are validated like issue_create (one classification + one priority) and replace the whole set; objective maps to the remote title.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Issue ID as string" },
+          milestone: { type: "string", description: "Milestone name; its milestones row is created for the issue repo when missing" },
+          labels: { type: "array", items: { type: "string" }, description: "Full replacement label set; must include one classification and one priority label" },
+          objective: { type: "string", description: "New objective (the remote issue title)" },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
+        },
+        required: ["agent", "issue_id"]
       }
     },
     {
@@ -23972,7 +26617,9 @@ function issueTools(db2, dbPath2 = "") {
           agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
           issue_id: { type: "string", description: "Local issue ID" },
           remote_iid: { type: "number", description: "Remote issue number to adopt" },
-          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." }
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." },
+          repo: { type: "string", description: "Optional repo name (matches a repos row) to verify against. Required when the issue has no repo and several repos exist; backfills a null issue repo on success." },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "remote_iid"]
       }
@@ -23987,22 +26634,24 @@ function issueTools(db2, dbPath2 = "") {
           issue_id: { type: "string", description: "Local issue ID" },
           backend: { type: "string", enum: ["github", "gitlab"], description: "Remote backend" },
           iid: { type: "number", description: "Remote issue number" },
-          force: { type: "boolean", description: "Overwrite existing iid if already set (default false)" }
+          force: { type: "boolean", description: "Overwrite existing iid if already set (default false)" },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "backend", "iid"]
       }
     }
   ];
   const handlers = {
-    issue_create: requireRoles("issue_create", ["bro"], wrapHandler2(async (args) => {
+    issue_create: requireRoles("issue_create", ["bro"], wrapHandler3(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      requireArg2(args, "objective");
+      requireArg3(args, "objective");
       const objective = args["objective"];
       const description = args["description"] ?? "";
+      const includeDescription = args["include_description"] ?? false;
       const labels = args["labels"] ?? [];
-      const labelError = validateIssueLabels(db2, labels);
+      const labelError = validateIssueLabels(db2, labels, options.labelTaxonomy);
       if (labelError !== null) {
-        return err2(labelError);
+        return err3(labelError);
       }
       const explicitRepo = args["repo"] ?? null;
       const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
@@ -24020,7 +26669,7 @@ function issueTools(db2, dbPath2 = "") {
           }
         }
         if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
-          return ok2({
+          return ok3({
             duplicate: true,
             duplicate_of: best.id,
             matched_objective: best.objective,
@@ -24029,21 +26678,22 @@ function issueTools(db2, dbPath2 = "") {
         }
       }
       const explicitMilestone = args["milestone"] ?? null;
-      const milestone = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
+      const milestoneResolution = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
+      const milestone = milestoneResolution.milestone;
       const spawnFn = args["_spawnFn"] ?? void 0;
-      const now = nowISO();
+      const now2 = nowISO();
       const remoteIidRaw = args["remote_iid"];
       if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
         const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
         const remoteBackendArg = args["remote_backend"];
         const adoption = await verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn);
         if (!adoption.ok) {
-          return err2(adoption.error);
+          return err3(adoption.error);
         }
         db2.run(
           `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
            VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-          [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+          [objective, description, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
         );
         const adoptRowId = db2.get(
           `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -24055,30 +26705,31 @@ function issueTools(db2, dbPath2 = "") {
         const ghIid = adoption.backend === "github" ? remoteIid : null;
         const glIid = adoption.backend === "gitlab" ? remoteIid : null;
         db2.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-          [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]
+          `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+          [adoption.backend, ghIid, glIid, now2, adoptId]
         );
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            adoptId,
-            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
-            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-            now
-          ]
-        );
+        insertAudit(db2, {
+          issue_id: adoptId,
+          from_node: "executor",
+          event_type: "issue_adopted",
+          summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+          content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+          created_at: now2
+        });
         const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
-        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
-        const adoptedPayload = { ...adoptedRedacted };
+        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: includeDescription });
+        const adoptedPayload = {
+          ...adoptedRedacted,
+          ...milestoneDefaultFields(milestoneResolution)
+        };
         adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
-        return ok2(adoptedPayload);
+        return ok3(adoptedPayload);
       }
       db2.run(
         `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
          VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-        [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+        [objective, description, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
       );
       const rowId = db2.get(
         `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -24094,8 +26745,8 @@ function issueTools(db2, dbPath2 = "") {
       let syncDiagnostic;
       if (syncConfig !== "off") {
         const syncCtx = resolveIssueSyncContext(db2, issueRepo);
-        const repoRemotes = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
+        const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
+        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
         if (backend === null) {
           serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
         } else if (backend !== "off") {
@@ -24110,10 +26761,13 @@ function issueTools(db2, dbPath2 = "") {
             };
             const row2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
             const issue3 = decodeIssue(row2);
-            const redacted2 = redactIssue(issue3, agent, { include_description: true });
-            const payload2 = { ...redacted2 };
+            const redacted2 = redactIssue(issue3, agent, { include_description: includeDescription });
+            const payload2 = {
+              ...redacted2,
+              ...milestoneDefaultFields(milestoneResolution)
+            };
             payload2._sync = syncDiagnostic;
-            return ok2(payload2);
+            return ok3(payload2);
           }
           const syncCwd = syncCtx.cwd;
           if (backend === "both") {
@@ -24163,8 +26817,8 @@ function issueTools(db2, dbPath2 = "") {
               const firstSuccess = !isFailure(ghResult) ? ghResult : !isFailure(glResult) ? glResult : null;
               if (firstSuccess !== null) {
                 db2.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId]
+                  `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [firstSuccess.remote_kind, ghIid, glIid, now2, issueId]
                 );
               } else {
                 const failures = [];
@@ -24240,8 +26894,8 @@ function issueTools(db2, dbPath2 = "") {
                 const ghIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
                 const glIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
                 db2.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]
+                  `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [syncResult.remote_kind, ghIid, glIid, now2, issueId]
                 );
                 if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
                   syncDiagnostic = {
@@ -24275,17 +26929,17 @@ function issueTools(db2, dbPath2 = "") {
           }
         }
       } else {
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`,
-          [
-            issueId,
-            `issue ${issueId} sync skipped: issue_sync is off`,
-            JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
-            nowISO()
-          ]
+        insertAudit(db2, {
+          issue_id: issueId,
+          from_node: "executor",
+          event_type: "sync_skipped",
+          summary: `issue ${issueId} sync skipped: issue_sync is off`,
+          content_json: JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
+          created_at: nowISO()
+        });
+        const preferred = detectPreferred(
+          resolveRepoForSync(db2, issueRepo)?.path ?? projectRootFromDbPath(dbPath2 || db2.dbPath)
         );
-        const preferred = detectPreferred();
         if (preferred !== null) {
           syncDiagnostic = {
             sync_skipped: true,
@@ -24296,25 +26950,28 @@ function issueTools(db2, dbPath2 = "") {
       }
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       const issue2 = decodeIssue(row);
-      const redacted = redactIssue(issue2, agent, { include_description: true });
-      const payload = { ...redacted };
+      const redacted = redactIssue(issue2, agent, { include_description: includeDescription });
+      const payload = {
+        ...redacted,
+        ...milestoneDefaultFields(milestoneResolution)
+      };
       if (syncDiagnostic) payload._sync = syncDiagnostic;
-      return ok2(payload);
+      return ok3(payload);
     })),
-    issue_get: wrapHandler2(async (args) => {
+    issue_get: wrapHandler3(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
+      const issueId = requireArg3(args, "issue_id");
       const includeDescription = args["include_description"] ?? false;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
         throw new Error(`Not found: ${issueId}`);
       }
       const issue2 = decodeIssue(row);
-      return ok2(redactIssue(issue2, agent, { include_description: includeDescription }));
+      return ok3(redactIssue(issue2, agent, { include_description: includeDescription }));
     }),
-    issue_resume: wrapHandler2(async (args) => {
+    issue_resume: wrapHandler3(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
+      const issueId = requireArg3(args, "issue_id");
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
         throw new Error(`Not found: ${issueId}`);
@@ -24327,29 +26984,72 @@ function issueTools(db2, dbPath2 = "") {
          LIMIT 1`,
         [issueId]
       );
-      return ok2({ issue: redactIssue(issue2, agent), next_task: task ?? null });
+      return ok3({ issue: redactIssue(issue2, agent), next_task: task ?? null });
     }),
-    issue_close: requireRoles("issue_close", ["bro"], wrapHandler2(async (args) => {
-      requireArg2(args, "agent");
-      const issueId = requireArg2(args, "issue_id");
-      const now = nowISO();
+    issue_close: requireRoles("issue_close", ["bro"], wrapHandler3(async (args) => {
+      requireArg3(args, "agent");
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg3(args, "issue_id");
+      const now2 = nowISO();
       const existing = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
         throw new Error(`Not found: ${issueId}`);
       }
-      db2.run(
-        `UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-         WHERE id = ?`,
-        [now, now, issueId]
-      );
-      await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
+      const cascade = args["cascade"] === true;
+      const waiveReview = args["waive_review"] === true;
+      const waiveReason = args["waive_review_reason"];
+      const cascadeReason = typeof args["reason"] === "string" && args["reason"].trim() !== "" ? args["reason"] : "issue closed with cascade";
+      if (waiveReview && (typeof waiveReason !== "string" || waiveReason.trim().length < WAIVE_REVIEW_REASON_MIN)) {
+        return err3(`waive_review_reason must be a string \u2265${WAIVE_REVIEW_REASON_MIN} chars.`);
+      }
+      const live = liveTasksOfIssue(db2, issueId);
+      if (live.length > 0 && !cascade) {
+        return refusal("issue_has_open_tasks", {
+          message: `Issue ${issueId} has tasks not in closed|failed|escalated. Finish them, or pass cascade=true to escalate them and close the issue.`,
+          tasks: live.map((t) => ({ task_id: t.id, status: t.status }))
+        });
+      }
+      const unreviewed = closedTasksWithoutReview(db2, issueId);
+      if (unreviewed.length > 0 && !waiveReview) {
+        return refusal("tasks_without_review", {
+          message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+          tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha }))
+        });
+      }
+      db2.transaction(() => {
+        if (waiveReview) {
+          for (const t of unreviewed) {
+            insertAudit(db2, {
+              issue_id: t.issue_id,
+              branch_id: t.branch_id,
+              from_node: "bro",
+              event_type: "review_gate_waived",
+              summary: `issue_close review gate waived for task ${t.id}`,
+              content_json: JSON.stringify({
+                skill: "issue_close",
+                task_id: t.id,
+                commit_sha: t.commit_sha,
+                waive_review_reason: waiveReason
+              }),
+              created_at: now2
+            });
+          }
+        }
+        escalateLiveTasksForIssueClose(db2, live, cascadeReason, now2);
+        markIssueClosed(db2, issueId, now2);
+      });
+      const remote = await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
+      return ok3({
+        ...redactIssue(decodeIssue(updated), agent, { include_description: false }),
+        tasks_escalated: live.map((t) => t.id),
+        review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
+        remote
+      });
     })),
-    issue_get_phase: wrapHandler2(async (args) => {
-      requireArg2(args, "agent");
-      const issueId = requireArg2(args, "issue_id");
+    issue_get_phase: wrapHandler3(async (args) => {
+      requireArg3(args, "agent");
+      const issueId = requireArg3(args, "issue_id");
       const issueRow = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!issueRow) {
         throw new Error(`Not found: ${issueId}`);
@@ -24358,7 +27058,8 @@ function issueTools(db2, dbPath2 = "") {
       const rawCounts = db2.get(
         `SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId]
@@ -24366,6 +27067,7 @@ function issueTools(db2, dbPath2 = "") {
       const counts = {
         tasks_total: rawCounts?.tasks_total ?? 0,
         tasks_completed: rawCounts?.tasks_completed ?? 0,
+        tasks_awaiting_close: rawCounts?.tasks_awaiting_close ?? 0,
         tasks_failed: rawCounts?.tasks_failed ?? 0
       };
       let phase;
@@ -24378,9 +27080,9 @@ function issueTools(db2, dbPath2 = "") {
       } else {
         phase = "tasks";
       }
-      return ok2({ phase, counts });
+      return ok3({ phase, counts });
     }),
-    issue_list: wrapHandler2(async (args) => {
+    issue_list: wrapHandler3(async (args) => {
       normalizeAgent(args["agent"]);
       const rawStatus = args["status"];
       const rawLimit = args["limit"] ?? 50;
@@ -24390,7 +27092,7 @@ function issueTools(db2, dbPath2 = "") {
       const offset = Math.max(0, rawOffset);
       const VALID_ISSUE_STATUSES = /* @__PURE__ */ new Set(["open", "closed"]);
       if (rawStatus !== void 0 && !VALID_ISSUE_STATUSES.has(rawStatus)) {
-        return err2(
+        return err3(
           `Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(", ")}`
         );
       }
@@ -24398,7 +27100,7 @@ function issueTools(db2, dbPath2 = "") {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_ISSUE_LIST_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
+          return err3(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
@@ -24407,61 +27109,223 @@ function issueTools(db2, dbPath2 = "") {
         for (const f of fieldsArg) out[f] = row[f];
         return out;
       }
-      let rows;
+      const rawMilestone = args["milestone"];
+      const conditions = [];
+      const params = [];
       if (rawStatus !== void 0) {
-        rows = db2.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [rawStatus, limit, offset]
-        );
-      } else {
-        rows = db2.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [limit, offset]
-        );
+        conditions.push("status = ?");
+        params.push(rawStatus);
       }
-      return ok2(rows.map(projectRow));
+      if (rawMilestone !== void 0 && rawMilestone !== "") {
+        if (rawMilestone === "none") {
+          conditions.push("milestone IS NULL");
+        } else {
+          conditions.push("milestone = ?");
+          params.push(rawMilestone);
+        }
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const rows = db2.all(
+        `SELECT id, objective, status, created_at, updated_at FROM issues ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
+      return ok3(rows.map(projectRow));
     }),
-    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const description = requireArg2(args, "description");
+    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg3(args, "issue_id");
+      const description = requireArg3(args, "description");
+      const includeDescription = args["include_description"] ?? false;
       const MAX_DESCRIPTION_BYTES = 1024 * 1024;
       if (Buffer.byteLength(description, "utf8") > MAX_DESCRIPTION_BYTES) {
-        return err2("description exceeds 1MB limit");
+        return err3("description exceeds 1MB limit");
       }
       const existing = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
-      const now = nowISO();
+      const now2 = nowISO();
       db2.run(
         "UPDATE issues SET description = ?, updated_at = ? WHERE id = ?",
-        [description, now, issueId]
+        [description, now2, issueId]
       );
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
+      return ok3(redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }));
     })),
-    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
+    issue_update: requireRoles("issue_update", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg3(args, "issue_id");
+      const includeDescription = args["include_description"] ?? false;
+      const milestoneArg = args["milestone"];
+      const labelsArg = args["labels"];
+      const objectiveArg = args["objective"];
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      const cwdOverride = args["_cwd"];
+      if (milestoneArg === void 0 && labelsArg === void 0 && objectiveArg === void 0) {
+        return err3("no_fields: pass at least one of milestone, labels, objective");
+      }
+      if (milestoneArg !== void 0 && milestoneArg === "") {
+        return err3("invalid_milestone: milestone must be a non-empty string");
+      }
+      if (objectiveArg !== void 0 && objectiveArg.trim() === "") {
+        return err3("invalid_objective: objective must be a non-empty string");
+      }
+      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        return err3(`not_found: issue ${issueId}`);
+      }
+      if (labelsArg !== void 0) {
+        const labelError = validateIssueLabels(db2, labelsArg, options.labelTaxonomy, "issue_update");
+        if (labelError) return err3(labelError);
+      }
+      let previousLabels = [];
+      if (row.labels != null) {
+        try {
+          const parsed = JSON.parse(row.labels);
+          if (Array.isArray(parsed)) previousLabels = parsed.filter((l) => typeof l === "string");
+        } catch {
+          previousLabels = [];
+        }
+      }
+      const changed = [];
+      const before = {};
+      const after = {};
+      const sets = [];
+      const params = [];
+      if (milestoneArg !== void 0) {
+        ensureMilestoneRow(db2, milestoneArg, row.repo);
+        changed.push("milestone");
+        before["milestone"] = row.milestone;
+        after["milestone"] = milestoneArg;
+        sets.push("milestone = ?");
+        params.push(milestoneArg);
+      }
+      if (labelsArg !== void 0) {
+        changed.push("labels");
+        before["labels"] = previousLabels;
+        after["labels"] = labelsArg;
+        sets.push("labels = ?");
+        params.push(JSON.stringify(labelsArg));
+      }
+      if (objectiveArg !== void 0) {
+        changed.push("objective");
+        before["objective"] = row.objective;
+        after["objective"] = objectiveArg;
+        sets.push("objective = ?");
+        params.push(objectiveArg);
+      }
+      const now2 = nowISO();
+      db2.run(
+        `UPDATE issues SET ${sets.join(", ")}, updated_at = ? WHERE id = ?`,
+        [...params, now2, issueId]
+      );
+      insertAudit(db2, {
+        issue_id: row.id,
+        from_node: "executor",
+        event_type: "issue_updated",
+        summary: `issue ${issueId} updated: ${changed.join(", ")}`,
+        content_json: JSON.stringify({ issue_id: issueId, changed, before, after }),
+        created_at: now2
+      });
+      let syncDiagnostic;
+      if (row.gh_iid == null && row.gl_iid == null) {
+        syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", hint: "The issue has no gh_iid/gl_iid; the change is local only." };
+      } else {
+        const syncConfigRow = db2.get(
+          `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
+        );
+        const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
+        if (syncConfig === "off") {
+          syncDiagnostic = { sync_skipped: true, reason: "issue_sync_off", hint: "The change is local only; enable issue_sync to mirror it." };
+        } else {
+          const syncCtx = resolveIssueSyncContext(db2, row.repo);
+          const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
+          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          if (backend === null || backend === "off") {
+            syncDiagnostic = { sync_skipped: true, reason: "no_remote_configured", hint: "The change is local only." };
+          } else if (syncCtx === null) {
+            syncDiagnostic = {
+              sync_failed: true,
+              reason: "unresolvable_repo",
+              repo: row.repo,
+              backend,
+              hint: row.repo ? `issue repo "${row.repo}" has no matching repos row \u2014 run /scan.` : "multiple repos registered and the issue has no repo."
+            };
+          } else {
+            const fields = {};
+            if (milestoneArg !== void 0) fields.milestone = milestoneArg;
+            if (labelsArg !== void 0) {
+              fields.labels = {
+                add: labelsArg.filter((l) => !previousLabels.includes(l)),
+                remove: previousLabels.filter((l) => !labelsArg.includes(l))
+              };
+            }
+            if (objectiveArg !== void 0) fields.title = objectiveArg;
+            const targets = [];
+            if ((backend === "gh" || backend === "both") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
+            if ((backend === "glab" || backend === "both") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
+            if (targets.length === 0) {
+              syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", backend, hint: "The issue has no remote iid for the resolved backend; the change is local only." };
+            } else {
+              const results = await Promise.all(targets.map(async (t) => ({
+                target: t,
+                result: await syncIssueUpdate(t.cli, t.iid, fields, {
+                  spawnFn,
+                  cwd: cwdOverride ?? syncCtx.cwd,
+                  repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? void 0
+                })
+              })));
+              const failed = results.filter((r) => !r.result.ok);
+              if (failed.length === 0) {
+                syncDiagnostic = { synced: true, backends: targets.map((t) => t.cli) };
+              } else {
+                for (const f of failed) {
+                  serverLog({ event: "issue_sync_failed", issueId, backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
+                }
+                const first = failed[0];
+                syncDiagnostic = {
+                  sync_failed: true,
+                  reason: first.result.reason,
+                  backend: first.target.cli,
+                  failed_backends: failed.map((f) => f.target.cli),
+                  exit_code: first.result.exit_code,
+                  stderr: first.result.stderr?.slice(0, 4096),
+                  message: first.result.message,
+                  hint: "The local row is updated; run the underlying gh/glab edit manually to mirror it."
+                };
+              }
+            }
+          }
+        }
+      }
+      const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok3({
+        ...redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }),
+        _sync: syncDiagnostic
+      });
+    })),
+    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler3(async (args) => {
+      const issueId = requireArg3(args, "issue_id");
       const spawnFn = args["_spawnFn"] ?? void 0;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
       const syncConfigRow = db2.get(
         `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
       );
       const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
       if (syncConfig === "off") {
-        return ok2({ skipped: true, reason: "issue_sync is off" });
+        return ok3({ skipped: true, reason: "issue_sync is off" });
       }
       const retryCtx = resolveIssueSyncContext(db2, row.repo ?? null);
       const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
       const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
       if (backend === null || backend === "off") {
-        return ok2({ skipped: true, reason: "no remote backend configured" });
+        return ok3({ skipped: true, reason: "no remote backend configured" });
       }
       if (retryCtx === null) {
-        return ok2({
+        return ok3({
           skipped: true,
           reason: "unresolvable_repo",
           repo: row.repo ?? null,
@@ -24474,16 +27338,12 @@ function issueTools(db2, dbPath2 = "") {
         const retryTargets = [];
         if (row.gh_iid != null) {
           retryTargets.push({ remote_iid: row.gh_iid, remote_kind: "github" });
-        } else if (row.remote_iid != null && row.remote_kind === "github") {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "github" });
         }
         if (row.gl_iid != null) {
           retryTargets.push({ remote_iid: row.gl_iid, remote_kind: "gitlab" });
-        } else if (row.remote_iid != null && row.remote_kind === "gitlab") {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "gitlab" });
         }
         if (retryTargets.length === 0) {
-          return ok2({ action: "close", success: false, error: { reason: "no_remote_iid" } });
+          return ok3({ action: "close", success: false, error: { reason: "no_remote_iid" } });
         }
         const closeErrors = [];
         for (const target of retryTargets) {
@@ -24506,24 +27366,24 @@ function issueTools(db2, dbPath2 = "") {
           }
         }
         if (closeErrors.length === 0) {
-          return ok2({ action: "close", success: true });
+          return ok3({ action: "close", success: true });
         }
-        return ok2({ action: "close", success: false, errors: closeErrors });
+        return ok3({ action: "close", success: false, errors: closeErrors });
       }
       const retryCwd = retryCtx.cwd;
       const createTargets = [];
       if (backend === "gh" || backend === "both") {
-        if (row.gh_iid == null && !(row.remote_kind === "github" && row.remote_iid != null)) {
+        if (row.gh_iid == null) {
           createTargets.push("gh");
         }
       }
       if (backend === "glab" || backend === "both") {
-        if (row.gl_iid == null && !(row.remote_kind === "gitlab" && row.remote_iid != null)) {
+        if (row.gl_iid == null) {
           createTargets.push("glab");
         }
       }
       if (createTargets.length === 0) {
-        return ok2({ action: "create", success: true, skipped: true, reason: "already_synced" });
+        return ok3({ action: "create", success: true, skipped: true, reason: "already_synced" });
       }
       let retryLabels;
       if (row.labels == null) {
@@ -24557,8 +27417,8 @@ function issueTools(db2, dbPath2 = "") {
           const retryGhIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
           const retryGlIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
           db2.run(
-            `UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
-            [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]
+            `UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+            [syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]
           );
         } else {
           createErrors.push({
@@ -24572,107 +27432,800 @@ function issueTools(db2, dbPath2 = "") {
         }
       }
       if (createErrors.length === 0 && lastSuccess !== null) {
-        return ok2({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok3({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
       }
       if (lastSuccess !== null) {
-        return ok2({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok3({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
       }
-      return ok2({
+      return ok3({
         action: "create",
         success: false,
         errors: createErrors
       });
     })),
-    issue_link: requireRoles("issue_link", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const backend = requireArg2(args, "backend");
-      const iid = requireArg2(args, "iid");
+    issue_link: requireRoles("issue_link", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const includeDescription = args["include_description"] ?? false;
+      const issueId = requireArg3(args, "issue_id");
+      const backend = requireArg3(args, "backend");
+      const iid = requireArg3(args, "iid");
       const force = args["force"] ?? false;
       if (!Number.isInteger(iid) || iid <= 0) {
-        return err2(`invalid iid: must be a positive integer`);
+        return err3(`invalid iid: must be a positive integer`);
       }
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
       const iidColumn = backend === "github" ? "gh_iid" : "gl_iid";
       const existingIid = backend === "github" ? row.gh_iid : row.gl_iid;
       if (existingIid != null && !force) {
-        return err2(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
+        return err3(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
       }
-      const now = nowISO();
+      const now2 = nowISO();
       if (backend === "github") {
         db2.run(
-          `UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId]
+          `UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
+          [iid, now2, issueId]
         );
       } else {
         db2.run(
-          `UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId]
+          `UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
+          [iid, now2, issueId]
         );
       }
-      db2.run(
-        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`,
-        [
-          parseInt(issueId, 10),
-          `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
-          JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-          now
-        ]
-      );
+      insertAudit(db2, {
+        issue_id: parseInt(issueId, 10),
+        from_node: "executor",
+        event_type: "issue_linked",
+        summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
+        content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+        created_at: now2
+      });
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
+      return ok3({ linked: true, backend, iid, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
     })),
-    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const remoteIidRaw = requireArg2(args, "remote_iid");
+    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const includeDescription = args["include_description"] ?? false;
+      const repoArg = args["repo"] ?? null;
+      const issueId = requireArg3(args, "issue_id");
+      const remoteIidRaw = requireArg3(args, "remote_iid");
       const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
       const remoteBackendArg = args["remote_backend"];
       const spawnFn = args["_spawnFn"] ?? void 0;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
-      const adoption = await verifyAdoptionRemote(db2, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
+      if (repoArg !== null && !db2.get("SELECT name FROM repos WHERE name = ?", [repoArg])) {
+        return err3(`repo_not_found: no repos row named "${repoArg}"`);
+      }
+      const adoptRepo = repoArg ?? row.repo ?? null;
+      if (adoptRepo === null) {
+        const repoCount = db2.get("SELECT COUNT(*) AS n FROM repos")?.n ?? 0;
+        if (repoCount > 1) {
+          return err3(`repo_unresolved: issue ${issueId} has no repo and the workspace has ${repoCount} repos \u2014 pass repo`);
+        }
+      }
+      const adoption = await verifyAdoptionRemote(db2, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
       if (!adoption.ok) {
-        return err2(adoption.error);
+        return err3(adoption.error);
       }
       const existingIid = adoption.backend === "github" ? row.gh_iid : row.gl_iid;
       if (existingIid != null && existingIid !== remoteIid) {
-        return err2(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+        return err3(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
-      const now = nowISO();
+      const now2 = nowISO();
       const ghIid = adoption.backend === "github" ? remoteIid : null;
       const glIid = adoption.backend === "gitlab" ? remoteIid : null;
       db2.run(
-        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, remoteIid, adoption.backend, now, issueId]
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), repo = COALESCE(repo, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, adoption.backend, repoArg, now2, issueId]
       );
-      if (!idempotent) {
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            parseInt(issueId, 10),
-            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-            now
-          ]
-        );
+      const copied = {};
+      const refreshed = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (adoption.milestone !== null && (refreshed.milestone === null || refreshed.milestone === "")) {
+        ensureMilestoneRow(db2, adoption.milestone, refreshed.repo);
+        copied.milestone = adoption.milestone;
+      }
+      const localLabelsEmpty = refreshed.labels == null || refreshed.labels === "" || refreshed.labels === "[]";
+      if (adoption.labels.length > 0 && localLabelsEmpty) {
+        copied.labels = adoption.labels;
+      }
+      if (copied.milestone !== void 0) {
+        db2.run("UPDATE issues SET milestone = ? WHERE id = ?", [copied.milestone, issueId]);
+      }
+      if (copied.labels !== void 0) {
+        db2.run("UPDATE issues SET labels = ? WHERE id = ?", [JSON.stringify(copied.labels), issueId]);
+      }
+      if (!idempotent || copied.milestone !== void 0 || copied.labels !== void 0) {
+        insertAudit(db2, {
+          issue_id: parseInt(issueId, 10),
+          from_node: "executor",
+          event_type: "issue_adopted",
+          summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+          content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false, ...copied.milestone !== void 0 ? { milestone: copied.milestone } : {}, ...copied.labels !== void 0 ? { labels: copied.labels } : {} }),
+          created_at: now2
+        });
       }
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
+      return ok3({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
+    }))
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/milestones.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { join as join7 } from "node:path";
+
+// src/sync/milestone_sync.ts
+function splitSlug(slug) {
+  const i = slug.indexOf("/");
+  if (i <= 0 || i === slug.length - 1) return null;
+  return { host: slug.slice(0, i), path: slug.slice(i + 1) };
+}
+function collectionPath(target) {
+  const parts = splitSlug(target.slug);
+  if (!parts) return null;
+  const path2 = target.backend === "gh" ? `repos/${parts.path}/milestones` : `projects/${encodeURIComponent(parts.path)}/milestones`;
+  return { host: parts.host, path: path2 };
+}
+function runApi(target, apiArgs, spawnFn) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (target.cwd) opts.cwd = target.cwd;
+  try {
+    return spawnFn(target.backend, ["api", ...apiArgs], opts);
+  } catch (e) {
+    return { thrown: e instanceof Error ? e.message : String(e) };
+  }
+}
+function failure(target, result2) {
+  if ("thrown" in result2) {
+    return { ok: false, backend: target.backend, reason: "spawn_error", message: result2.thrown };
+  }
+  return {
+    ok: false,
+    backend: target.backend,
+    reason: "non_zero_exit",
+    exit_code: result2.status ?? void 0,
+    stderr: result2.stderr.slice(0, 1024)
+  };
+}
+function badSlug(target) {
+  return { ok: false, backend: target.backend, reason: "bad_slug", message: `cannot derive an API path from "${target.slug}"` };
+}
+function fetchRemoteMilestones(target, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const query = target.backend === "gh" ? "?state=all&per_page=100" : "?per_page=100";
+  const result2 = runApi(target, ["--hostname", coll.host, `${coll.path}${query}`], spawnFn);
+  if ("thrown" in result2 || result2.status !== 0) return failure(target, result2);
+  let parsed;
+  try {
+    parsed = JSON.parse(result2.stdout);
+  } catch {
+    return { ok: false, backend: target.backend, reason: "parse_failed", message: "milestone list is not JSON" };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, backend: target.backend, reason: "parse_failed", message: "milestone list is not an array" };
+  }
+  const milestones = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry;
+    const title = e["title"];
+    const rawState = e["state"];
+    const id = target.backend === "gh" ? e["number"] : e["id"];
+    if (typeof title !== "string" || title === "" || typeof id !== "number") continue;
+    const state = rawState === "closed" ? "closed" : rawState === "open" || rawState === "active" ? "open" : null;
+    if (state === null) continue;
+    milestones.push({ id, title, state });
+  }
+  return { ok: true, milestones };
+}
+function createRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const result2 = runApi(target, ["--hostname", coll.host, "-X", "POST", coll.path, "-f", `title=${title}`], spawnFn);
+  if ("thrown" in result2 || result2.status !== 0) return failure(target, result2);
+  return { ok: true };
+}
+function closeRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const listed = fetchRemoteMilestones(target, spawnFn);
+  if (!listed.ok) return listed;
+  const match = listed.milestones.find((m) => m.title === title);
+  if (!match) {
+    return { ok: false, backend: target.backend, reason: "not_found", message: `no remote milestone titled "${title}"` };
+  }
+  if (match.state === "closed") return { ok: true };
+  const apiArgs = target.backend === "gh" ? ["--hostname", coll.host, "-X", "PATCH", `${coll.path}/${match.id}`, "-f", "state=closed"] : ["--hostname", coll.host, "-X", "PUT", `${coll.path}/${match.id}`, "-f", "state_event=close"];
+  const result2 = runApi(target, apiArgs, spawnFn);
+  if ("thrown" in result2 || result2.status !== 0) return failure(target, result2);
+  return { ok: true };
+}
+
+// src/tools/milestones.ts
+function ok4(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err4(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function wrap(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err4(e.message);
+    }
+  };
+}
+function auditMilestone(db2, eventType, summary, content) {
+  insertAudit(db2, {
+    issue_id: -1,
+    from_node: "bro",
+    event_type: eventType,
+    summary,
+    content_json: JSON.stringify(content),
+    repo: null
+  });
+}
+function resolveMilestoneTargets(db2, repoName, spawnFn) {
+  const resolved = resolveRepoForSync(db2, repoName);
+  if (!resolved) return { gated: false, targets: [] };
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  let syncConfig = "off";
+  if (row) {
+    try {
+      syncConfig = String(JSON.parse(row.value_json));
+    } catch {
+      syncConfig = "off";
+    }
+  }
+  const slugFor = (provider) => {
+    const entry = repoRemotes(db2, resolved.name).find((r) => r.provider === provider);
+    return entry ? repoSlugFromRemoteUrl(entry.url) : null;
+  };
+  const ghSlug = slugFor("github");
+  const glSlug = slugFor("gitlab");
+  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  if (backend === null || backend === "off") return { gated: false, targets: [] };
+  const targets = [];
+  if ((backend === "gh" || backend === "both") && ghSlug) {
+    targets.push({ backend: "gh", slug: ghSlug, cwd: resolved.path });
+  }
+  if ((backend === "glab" || backend === "both") && glSlug) {
+    targets.push({ backend: "glab", slug: glSlug, cwd: resolved.path });
+  }
+  return { gated: true, targets };
+}
+function failureContent(f) {
+  return { backend: f.backend, reason: f.reason, exit_code: f.exit_code, stderr: f.stderr, message: f.message };
+}
+function reconcileRepoMilestones(db2, repo, targets, spawnFn) {
+  const merged = /* @__PURE__ */ new Map();
+  let anyFetched = false;
+  let allFetched = true;
+  for (const target of targets) {
+    const listed = fetchRemoteMilestones(target, spawnFn);
+    if (!listed.ok) {
+      allFetched = false;
+      auditMilestone(db2, "milestone_reconcile_failed", `milestone reconcile failed for ${repo} via ${target.backend}: ${listed.reason}`, {
+        repo,
+        ...failureContent(listed)
+      });
+      continue;
+    }
+    anyFetched = true;
+    for (const m of listed.milestones) {
+      if (merged.get(m.title) !== "open") merged.set(m.title, m.state);
+    }
+  }
+  if (!anyFetched) return { ok: false };
+  let imported = 0;
+  let closed = 0;
+  db2.transaction(() => {
+    for (const [name, state] of merged) {
+      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+      if (!existing) {
+        db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, ?)`, [name, repo, state]);
+        imported++;
+        if (state === "closed") closed++;
+      } else if (existing.state !== state) {
+        db2.run(`UPDATE milestones SET state = ? WHERE name = ? AND repo = ?`, [state, name, repo]);
+        if (state === "closed") closed++;
+      }
+    }
+  });
+  auditMilestone(db2, "milestones_reconciled", `milestones reconciled for ${repo}: ${imported} imported, ${closed} closed`, {
+    imported,
+    closed,
+    repo
+  });
+  return { ok: allFetched };
+}
+var SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+function parseSemver(raw) {
+  const m = SEMVER_RE.exec(raw.trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function nextPatchMilestone(version2) {
+  const parts = parseSemver(version2);
+  if (!parts) return null;
+  return `v${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+}
+function readJsonVersion(path2) {
+  if (!existsSync2(path2)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync3(path2, "utf8"));
+    return typeof parsed.version === "string" && parseSemver(parsed.version) ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+function readTomlVersion(path2, table) {
+  if (!existsSync2(path2)) return null;
+  let text;
+  try {
+    text = readFileSync3(path2, "utf8");
+  } catch {
+    return null;
+  }
+  let inTable = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      inTable = trimmed === `[${table}]`;
+      continue;
+    }
+    if (!inTable) continue;
+    const m = /^version\s*=\s*["']([^"']+)["']/.exec(trimmed);
+    if (m) return parseSemver(m[1]) ? m[1] : null;
+  }
+  return null;
+}
+function highestVersionTag(repoPath) {
+  try {
+    const r = spawnSync3("git", ["-C", repoPath, "tag", "--list", "v*"], { encoding: "utf8", timeout: 3e3 });
+    if (r.status !== 0) return null;
+    let best = null;
+    for (const tag of (r.stdout ?? "").split("\n").map((t) => t.trim())) {
+      const parts = parseSemver(tag);
+      if (!parts) continue;
+      if (best === null || parts[0] > best.parts[0] || parts[0] === best.parts[0] && parts[1] > best.parts[1] || parts[0] === best.parts[0] && parts[1] === best.parts[1] && parts[2] > best.parts[2]) {
+        best = { tag, parts };
+      }
+    }
+    return best?.tag ?? null;
+  } catch {
+    return null;
+  }
+}
+function readRepoVersion(repoPath) {
+  const candidates = [
+    ["package.json", () => readJsonVersion(join7(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join7(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join7(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join7(repoPath, "Cargo.toml"), "package")],
+    ["git_tag", () => highestVersionTag(repoPath)]
+  ];
+  for (const [source, read] of candidates) {
+    const version2 = read();
+    if (version2) return { version: version2, source };
+  }
+  return null;
+}
+function seedRepoMilestone(db2, repo, repoPath, gate, spawnFn) {
+  const count = db2.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
+  if ((count?.n ?? 0) > 0) return;
+  const found = readRepoVersion(repoPath);
+  const name = found ? nextPatchMilestone(found.version) : null;
+  if (!found || !name) {
+    auditMilestone(db2, "milestone_seed_skipped", `milestone seed skipped for ${repo}: no version source`, {
+      repo,
+      reason: "no_version_source"
+    });
+    return;
+  }
+  db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, 'open')`, [name, repo]);
+  const failures = [];
+  if (gate.gated) {
+    for (const target of gate.targets) {
+      const created = createRemoteMilestone(target, name, spawnFn);
+      if (!created.ok) failures.push(failureContent(created));
+    }
+  }
+  const remoteCreated = gate.gated && gate.targets.length > 0 && failures.length === 0;
+  const content = { name, repo, source: found.source, remote_created: remoteCreated };
+  if (failures.length > 0) content["remote_failures"] = failures;
+  auditMilestone(db2, "milestone_seeded", `milestone ${name} seeded for ${repo} from ${found.source}`, content);
+}
+function syncRepoMilestones(db2, repo, repoPath, spawnFn) {
+  const gate = resolveMilestoneTargets(db2, repo, spawnFn);
+  if (gate.gated && gate.targets.length > 0) {
+    const reconciled = reconcileRepoMilestones(db2, repo, gate.targets, spawnFn);
+    if (!reconciled.ok) {
+      const count = db2.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
+      if ((count?.n ?? 0) === 0) {
+        auditMilestone(db2, "milestone_seed_skipped", `milestone seed skipped for ${repo}: remote reconcile failed`, {
+          repo,
+          reason: "reconcile_failed"
+        });
+      }
+      return;
+    }
+  }
+  seedRepoMilestone(db2, repo, repoPath, gate, spawnFn);
+}
+function milestoneTools(db2) {
+  const definitions = [
+    {
+      name: "milestone_close",
+      description: "Close a milestone locally and on the synced remote. Bro only. Refuses while the milestone has open issues unless force=true.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          name: { type: "string", description: 'Milestone name, e.g. "v1.4.3"' },
+          repo: { type: "string", description: "Repo the milestone belongs to. Defaults to the sole registered repo." },
+          force: { type: "boolean", description: "Close even when open issues still reference the milestone (default false)." }
+        },
+        required: ["agent", "name"]
+      }
+    }
+  ];
+  const handlers = {
+    milestone_close: requireRoles("milestone_close", ["bro"], wrap(async (args) => {
+      const name = args["name"];
+      if (typeof name !== "string" || name.trim() === "") {
+        return err4("name must be a non-empty string");
+      }
+      const explicitRepo = typeof args["repo"] === "string" && args["repo"] !== "" ? args["repo"] : null;
+      const repo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
+      if (repo === null) {
+        return err4("repo_unresolved: multiple or no repos registered \u2014 pass repo");
+      }
+      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+      if (!existing) {
+        return err4(`milestone_not_found: no milestone "${name}" for repo "${repo}"`);
+      }
+      if (existing.state === "closed") {
+        return ok4({ name, repo, state: "closed", already_closed: true });
+      }
+      const force = args["force"] === true;
+      const openIssues = db2.get(
+        `SELECT COUNT(*) AS n FROM issues WHERE milestone = ? AND repo = ? AND status = 'open'`,
+        [name, repo]
+      )?.n ?? 0;
+      if (openIssues > 0 && !force) {
+        return err4(`milestone_has_open_issues: "${name}" still has ${openIssues} open issue(s) \u2014 move or close them, or pass force: true`);
+      }
+      db2.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name, repo]);
+      const spawnFn = args["_spawnFn"];
+      const gate = resolveMilestoneTargets(db2, repo, spawnFn);
+      const failures = [];
+      if (gate.gated) {
+        for (const target of gate.targets) {
+          const closed = closeRemoteMilestone(target, name, spawnFn);
+          if (!closed.ok) failures.push(failureContent(closed));
+        }
+      }
+      const remoteClosed = gate.gated && gate.targets.length > 0 && failures.length === 0;
+      const content = {
+        name,
+        repo,
+        forced: force && openIssues > 0,
+        open_issues: openIssues,
+        remote_closed: remoteClosed
+      };
+      if (failures.length > 0) content["remote_failures"] = failures;
+      auditMilestone(db2, "milestone_closed", `milestone ${name} closed for ${repo}`, content);
+      const payload = { name, repo, state: "closed", open_issues: openIssues, remote_closed: remoteClosed };
+      if (failures.length > 0) {
+        payload["_sync"] = {
+          sync_failed: true,
+          failures,
+          hint: "The local milestone is closed; close it on the remote manually."
+        };
+      }
+      return ok4(payload);
     }))
   };
   return { definitions, handlers };
 }
 
 // src/tools/tasks.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { resolve, dirname as dirname2 } from "node:path";
+import { spawnSync as spawnSync5 } from "node:child_process";
+
+// src/utils/git-refs.ts
+import { execFileSync, spawnSync as spawnSync4 } from "node:child_process";
+function refResolves(repoPath, ref) {
+  try {
+    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", ref], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: SUBPROCESS_TIMEOUT_MS
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resolveBaseRef(repoPath, base) {
+  if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
+  if (refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return null;
+}
+function branchRefExists(repoPath, branch) {
+  return refResolves(repoPath, `refs/heads/${branch}`) || refResolves(repoPath, `refs/remotes/origin/${branch}`);
+}
+function gitOut(repoPath, args) {
+  const res = spawnSync4("git", ["-C", repoPath, ...args], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (res.error || res.status !== 0) return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function resolveRepoDefaultBranch(repoPath) {
+  const originHead = gitOut(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  if (originHead) return originHead.replace(/^origin\//, "");
+  for (const candidate of ["main", "master", "dev"]) {
+    if (refResolves(repoPath, `refs/heads/${candidate}`)) return candidate;
+  }
+  return gitOut(repoPath, ["symbolic-ref", "--short", "HEAD"]) ?? "main";
+}
+
+// src/tools/config.ts
+function ok5(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err5(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function wrapHandler4(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err5(e.message);
+    }
+  };
+}
+var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
+var EFFORT_LEVELS = ["low", "medium", "high"];
+var SWE_DEFAULT_EFFORT_KEY = "swe_default_effort";
+var REVIEWER_EFFORT_KEY = "reviewer_effort";
+var EFFORT_DEFAULTS = {
+  [SWE_DEFAULT_EFFORT_KEY]: "medium",
+  [REVIEWER_EFFORT_KEY]: "high"
+};
+function isEffort(value) {
+  return typeof value === "string" && EFFORT_LEVELS.includes(value);
+}
+function effortRank(value) {
+  return EFFORT_LEVELS.indexOf(value);
+}
+function resolveEffortDefaults(db2) {
+  const rows = db2.all(
+    `SELECT key, value_json FROM plugin_config WHERE key IN (?, ?)`,
+    [SWE_DEFAULT_EFFORT_KEY, REVIEWER_EFFORT_KEY]
+  );
+  const read = (key) => {
+    const row = rows.find((r) => r.key === key);
+    if (row) {
+      try {
+        const value = JSON.parse(row.value_json);
+        if (isEffort(value)) return value;
+      } catch {
+      }
+    }
+    return EFFORT_DEFAULTS[key];
+  };
+  return { swe: read(SWE_DEFAULT_EFFORT_KEY), reviewer: read(REVIEWER_EFFORT_KEY) };
+}
+var HIGH_EFFORT_PATHS_KEY = "high_effort_paths";
+function readHighEffortPaths(db2) {
+  const row = db2.get(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [HIGH_EFFORT_PATHS_KEY]
+  );
+  if (!row) return [];
+  try {
+    const value = JSON.parse(row.value_json);
+    if (Array.isArray(value) && value.every((el) => typeof el === "string")) return value;
+  } catch {
+  }
+  return [];
+}
+function stripTrailingSlash(path2) {
+  return path2.endsWith("/") ? path2.slice(0, -1) : path2;
+}
+function pathsOverlap(file2, prefix) {
+  const a = stripTrailingSlash(file2);
+  const b = stripTrailingSlash(prefix);
+  return a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
+}
+function computeEffort(db2, input) {
+  if (isEffort(input.effort)) return { effort: input.effort, reason: "explicit" };
+  const base = input.rework && input.current ? input.current : resolveEffortDefaults(db2).swe;
+  if (input.prompt_bearing === 1) return { effort: "high", reason: "prompt_bearing" };
+  const prefixes = readHighEffortPaths(db2);
+  if (input.files.some((file2) => prefixes.some((prefix) => pathsOverlap(file2, prefix)))) {
+    return { effort: "high", reason: "high_effort_paths" };
+  }
+  if (input.rework) return { effort: "high", reason: "rework" };
+  return { effort: base, reason: "default" };
+}
+function validateKnownConfigValue(key, value) {
+  if (key === HIGH_EFFORT_PATHS_KEY) {
+    if (!Array.isArray(value) || value.some((el) => typeof el !== "string" || el.trim().length === 0)) {
+      throw new Error(
+        `typed_field_violation: config key ${JSON.stringify(key)} must be an array of non-empty strings, got ${JSON.stringify(value)}.`
+      );
+    }
+    return;
+  }
+  if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(value)}.`
+    );
+  }
+}
+function storedConfigParseErrorPrefix(key) {
+  return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
+}
+function setConfigValues(db2, entries) {
+  const serialized = entries.map(({ key, value }) => ({
+    key,
+    valueJson: serializeConfigValue(key, value)
+  }));
+  db2.transaction(() => {
+    for (const { key, valueJson } of serialized) {
+      db2.run(
+        `INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+        [key, valueJson]
+      );
+    }
+  });
+}
+function getConfigValues(db2, keys) {
+  if (keys.length === 0) return Object.freeze({});
+  const placeholders = keys.map(() => "?").join(", ");
+  const rows = db2.all(
+    `SELECT key, value_json
+     FROM plugin_config
+     WHERE key IN (${placeholders})`,
+    [...keys]
+  );
+  const result2 = Object.fromEntries(
+    keys.map((key) => [key, null])
+  );
+  for (const row of rows) {
+    try {
+      result2[row.key] = JSON.parse(row.value_json);
+    } catch {
+      throw new Error(
+        `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
+      );
+    }
+  }
+  return Object.freeze(result2);
+}
+function serializeConfigValue(key, rawValue) {
+  if (typeof key !== "string" || !KEY_REGEX.test(key)) {
+    throw new Error(
+      `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
+    );
+  }
+  if (rawValue === void 0 || rawValue === null) {
+    throw new Error("Missing required arg: value");
+  }
+  validateKnownConfigValue(key, rawValue);
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "object" && parsed !== null) {
+          throw new Error(
+            `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
+          );
+        }
+      } catch (error2) {
+        if (error2 instanceof SyntaxError) {
+        } else {
+          throw error2;
+        }
+      }
+    }
+  }
+  try {
+    return JSON.stringify(rawValue);
+  } catch {
+    throw new Error("config value not JSON-serializable");
+  }
+}
+function configTools(db2) {
+  const definitions = [
+    {
+      name: "config_set",
+      description: "Set a plugin config key to a JSON-serializable value.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Config key (1-64 chars, must match /^[a-z][a-z0-9_.-]{0,63}$/i)" },
+          value: { description: "Any JSON-serializable value" }
+        },
+        required: ["key", "value"]
+      }
+    },
+    {
+      name: "config_get",
+      description: "Get a plugin config value by key. Returns null if not set.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string" }
+        },
+        required: ["key"]
+      }
+    },
+    {
+      name: "config_list",
+      description: "List all plugin config entries as a key\u2192value object.",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    }
+  ];
+  const handlers = {
+    config_set: requireRoles("config_set", ["bro"], wrapHandler4(async (args) => {
+      const key = args["key"];
+      setConfigValues(db2, [{ key, value: args["value"] }]);
+      return ok5({ key });
+    })),
+    config_get: wrapHandler4(async (args) => {
+      const key = args["key"];
+      return ok5(getConfigValues(db2, [key])[key] ?? null);
+    }),
+    config_list: wrapHandler4(async () => {
+      const rows = db2.all(
+        `SELECT key, value_json FROM plugin_config ORDER BY key`
+      );
+      const result2 = {};
+      for (const row of rows) {
+        try {
+          result2[row.key] = JSON.parse(row.value_json);
+        } catch {
+          return err5(
+            `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
+          );
+        }
+      }
+      return ok5(result2);
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/tasks.ts
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
   if (!filesJson) return dirs;
@@ -24691,7 +28244,6 @@ function taskFileDirs(filesJson) {
   return dirs;
 }
 var BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
-var BASE_BRANCH_ALLOWLIST = /* @__PURE__ */ new Set(["dev", "main", "master"]);
 var SPEC_BODY_MAX_BYTES = (() => {
   const raw = process.env["TMB_SPEC_BODY_MAX_BYTES"];
   if (raw === void 0) return 8e3;
@@ -24705,10 +28257,34 @@ function validateBranchId(branchId) {
     );
   }
 }
-function validateParentBranchId(branchId) {
-  if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId)) return;
+function isGitValidBranchName(name) {
+  return !/[\s~^:?*[\\]/.test(name) && !name.includes("..") && !name.startsWith("-") && !name.endsWith("/") && !name.endsWith(".lock");
+}
+function repoPolicyBranches(db2, repoValue) {
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
+  const names = /* @__PURE__ */ new Set();
+  if (!name) return { names, target: null, repoPath: null };
+  const row = db2.get(
+    `SELECT path, target_branch, protected_branches FROM repos WHERE name = ?`,
+    [name]
+  );
+  if (!row) return { names, target: null, repoPath: null };
+  if (row.target_branch) names.add(row.target_branch);
+  try {
+    const parsed = JSON.parse(row.protected_branches ?? "[]");
+    if (Array.isArray(parsed)) {
+      for (const b of parsed) if (typeof b === "string") names.add(b);
+    }
+  } catch {
+  }
+  return { names, target: row.target_branch || null, repoPath: repoRowPath(db2, row.path) };
+}
+function validateParentBranchId(branchId, db2, repoValue) {
+  if (BRANCH_ID_RE.test(branchId)) return;
+  const { names, target, repoPath } = repoPolicyBranches(db2, repoValue);
+  if (isGitValidBranchName(branchId) && (names.has(branchId) || repoPath !== null && branchRefExists(repoPath, branchId))) return;
   throw new Error(
-    `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`
+    `Invalid branch_id "${branchId}". Must be the repo's target branch (${target ?? "unset"}), a protected branch, an existing branch, or git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`
   );
 }
 function validateTypedRailsFields(t) {
@@ -24721,7 +28297,7 @@ function validateTypedRailsFields(t) {
     }
     if (value.length === 0) {
       throw new Error(
-        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === "files" ? "scope fence" : "verification gate"}).`
+        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be a non-empty array when provided (omit the field entirely ${field === "files" ? "to declare no expected scope: no edit-time notes, and every changed path is an extra at close" : "to disable the verification gate"}).`
       );
     }
     for (const el of value) {
@@ -24733,15 +28309,21 @@ function validateTypedRailsFields(t) {
     }
     return value;
   };
+  if (t.effort !== void 0 && t.effort !== null && !isEffort(t.effort)) {
+    throw new Error(
+      `typed_field_violation: task branch_id='${t.branch_id}' \u2014 'effort' must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(t.effort)}.`
+    );
+  }
   return {
     files: checkStringArray(t.files, "files"),
-    verification: checkStringArray(t.verification, "verification")
+    verification: checkStringArray(t.verification, "verification"),
+    effort: isEffort(t.effort) ? t.effort : void 0
   };
 }
 var SWE_ALLOWED_TARGET_STATUSES = /* @__PURE__ */ new Set(["running", "completed", "failed"]);
 var SWE_LOCKED_SOURCE_STATES = /* @__PURE__ */ new Set(["closed", "escalated"]);
 function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
-  const existsResult = spawnSync3("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
+  const existsResult = spawnSync5("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -24756,14 +28338,14 @@ function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
   }
   let startPoint = "HEAD";
   if (parentBranchId) {
-    const parentResult = spawnSync3(
+    const parentResult = spawnSync5(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", parentBranchId],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (parentResult.status === 0) startPoint = parentBranchId;
   }
-  const createResult = spawnSync3("git", ["-C", repoPath, "branch", branchId, startPoint], {
+  const createResult = spawnSync5("git", ["-C", repoPath, "branch", branchId, startPoint], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -24792,29 +28374,40 @@ var BRO_TRANSITIONS = {
   escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
   closed: /* @__PURE__ */ new Set(["escalated"])
 };
-function ok3(data) {
+function ok6(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err3(message) {
+function err6(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg3(args, name) {
+function requireArg4(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler3(fn) {
+function wrapHandler5(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err3(e.message);
+      return err6(e.message);
     }
   };
+}
+function insertSpecShapeWaiver(db2, task, reason, source, createdAt) {
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: "bro",
+    event_type: "spec_shape_gate_waived",
+    summary: reason.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.task_id, gate: "spec_shape", reason, waived_by: "bro", source }),
+    created_at: createdAt
+  });
 }
 function taskTools(db2) {
   const definitions = [
@@ -24850,12 +28443,17 @@ function taskTools(db2) {
                 files: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement."
+                  description: "The task's expected scope at directory granularity (e.g. 'src/api/', 'docs/', 'README.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them."
                 },
                 verification: {
                   type: "array",
                   items: { type: "string" },
                   description: "Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement."
+                },
+                effort: {
+                  type: "string",
+                  enum: [...EFFORT_LEVELS],
+                  description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths."
                 }
               },
               required: ["branch_id", "description"]
@@ -24865,6 +28463,7 @@ function taskTools(db2) {
             type: "boolean",
             description: "Bypass the scope-ambiguity gate (issue needs a kind='question' discussion). Only for trivial changes."
           },
+          session_id: RUN_SESSION_ID_SCHEMA,
           emit_planning_complete: {
             type: "boolean",
             description: "Set true to emit a planning_complete audit event in the same transaction as the task INSERTs."
@@ -24911,7 +28510,7 @@ function taskTools(db2) {
           },
           waive_spec_shape: {
             type: "boolean",
-            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines)."
+            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it."
           },
           waive_spec_shape_reason: {
             type: "string",
@@ -24939,7 +28538,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -24949,7 +28548,6 @@ function taskTools(db2) {
             type: "string",
             enum: ["pending", "running", "needs_validation", "completed", "closed", "failed", "escalated"]
           },
-          attempts: { type: "number" },
           commit_sha: {
             type: "string",
             description: "Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update."
@@ -24972,13 +28570,17 @@ function taskTools(db2) {
     }
   ];
   const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
-      requireArg3(args, "tasks");
+    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler5(async (args) => {
+      requireArg4(args, "agent");
+      const issueId = requireArg4(args, "issue_id");
+      requireArg4(args, "tasks");
+      if (Number(issueId) === -1) {
+        return err6("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
+      }
       const taskInputs = args["tasks"];
+      parseRunSessionId(args["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok3([]);
+        return ok6([]);
       }
       const waived = args["waive_scope_gate"] === true;
       const waiverReason = args["waive_scope_gate_reason"] ?? "";
@@ -24986,7 +28588,7 @@ function taskTools(db2) {
       const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err3("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err6("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
@@ -25057,7 +28659,7 @@ function taskTools(db2) {
       const branchGateWaiverReason = args["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err3("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err6("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -25084,7 +28686,7 @@ function taskTools(db2) {
       const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err3("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err6("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -25109,7 +28711,7 @@ function taskTools(db2) {
       const intentGateWaiverReason = args["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err3("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err6("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -25136,7 +28738,7 @@ function taskTools(db2) {
       const decisionGateWaiverReason = args["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err3("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err6("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -25161,13 +28763,12 @@ function taskTools(db2) {
       }
       const soleRepoValue = resolveSoleRepo(db2)?.name ?? null;
       const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
-      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname2(db2.dbPath);
       const autocreatedAudits = [];
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error("Missing required arg: branch_id");
         validateBranchId(t.branch_id);
         validateTypedRailsFields(t);
-        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id, db2, (t.repo || soleRepoValue) ?? null);
         if (!t.description) throw new Error("Missing required arg: description");
         if (t.spec_body !== void 0) {
           if (typeof t.spec_body !== "string") {
@@ -25211,8 +28812,7 @@ function taskTools(db2) {
               `task_create_batch: task branch_id='${t.branch_id}' names repo='${effectiveRepoName}' which is not registered (no repos row). Run /scan or pass a registered repo \u2014 tasks.repo is a foreign key to repos(name).`
             );
           }
-          const rawPath = reposRow.path;
-          const repoPath = rawPath.startsWith("/") ? rawPath : resolve(dbDir, rawPath);
+          const repoPath = repoRowPath(db2, reposRow.path);
           const parentBranchId = t.parent_branch_id ?? null;
           const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
           if (audit) autocreatedAudits.push(audit);
@@ -25220,10 +28820,10 @@ function taskTools(db2) {
       }
       const inserted = db2.transaction(() => {
         const results = [];
-        const now = nowISO();
+        const now2 = nowISO();
         for (const t of taskInputs) {
           if (!t.branch_id) throw new Error("Missing required arg: branch_id");
-          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id, db2, (t.repo || soleRepoValue) ?? null);
           if (!t.description) throw new Error("Missing required arg: description");
           if (t.spec_body !== void 0) {
             if (typeof t.spec_body !== "string") {
@@ -25256,12 +28856,17 @@ function taskTools(db2) {
           }
           if (parentBranchId == null) parentBranchId = "main";
           const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
-          const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
+          const { files: typedFiles, verification: typedVerification, effort: explicitEffort } = validateTypedRailsFields(t);
+          const { effort } = computeEffort(db2, {
+            effort: explicitEffort,
+            prompt_bearing: promptBearing,
+            files: typedFiles
+          });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -25273,35 +28878,26 @@ function taskTools(db2) {
               promptBearing,
               JSON.stringify(typedFiles),
               JSON.stringify(typedVerification),
-              now,
-              now
+              effort,
+              now2,
+              now2
             ]
           );
           const row = db2.get(
             "SELECT * FROM tasks WHERE rowid = last_insert_rowid()"
           );
-          if (row) {
-            results.push(row);
-            db2.run(
-              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-               VALUES (?, ?, 'bro', ?)`,
-              [row.id, issueId, now]
-            );
-          }
+          if (row) results.push(row);
         }
         for (const ac of autocreatedAudits) {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'trajectory-server', 'tmb_branch_autocreated', ?, ?, ?)`,
-            [
-              issueId,
-              ac.branchId,
-              `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
-              JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: ac.branchId,
+            from_node: "trajectory-server",
+            event_type: "tmb_branch_autocreated",
+            summary: `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
+            content_json: JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
+            created_at: now2
+          });
         }
         const emitPlanningComplete = args["emit_planning_complete"] === true;
         if (emitPlanningComplete && results.length > 0) {
@@ -25315,101 +28911,80 @@ function taskTools(db2) {
             parent_branch_ids: results.map((r) => r.parent_branch_id)
           });
           const fromNode = args["agent"] ?? "bro";
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
-            [issueId, branchForAudit, fromNode, summary, contentJson, now]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: branchForAudit,
+            from_node: fromNode,
+            event_type: "planning_complete",
+            summary,
+            content_json: contentJson,
+            created_at: now2
+          });
         }
         const firstBranch = results[0]?.branch_id ?? "";
         const agentFromNode = args["agent"];
         if (waived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              waiverReason.slice(0, 200),
-              JSON.stringify({
-                waive_scope_gate_reason: waiverReason,
-                tasks_created: results.length
-              }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "scope_gate_waived",
+            summary: waiverReason.slice(0, 200),
+            content_json: JSON.stringify({
+              waive_scope_gate_reason: waiverReason,
+              tasks_created: results.length
+            }),
+            created_at: now2
+          });
         }
         if (branchGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'branch_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              branchGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "branch_gate_waived",
+            summary: branchGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
+            created_at: now2
+          });
         }
         if (registryGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              registryGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "registry_gate_waived",
+            summary: registryGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
+            created_at: now2
+          });
         }
         if (intentGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'intent_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              intentGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "intent_gate_waived",
+            summary: intentGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
+            created_at: now2
+          });
         }
         if (decisionGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'decision_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              decisionGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "decision_gate_waived",
+            summary: decisionGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
+            created_at: now2
+          });
         }
         if (specShapeWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'spec_shape_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              specShapeWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          for (const r of results) {
+            insertSpecShapeWaiver(db2, { issue_id: r.issue_id, branch_id: r.branch_id, task_id: r.id }, specShapeWaiverReason, "task_create_batch", now2);
+          }
         }
         return results;
       });
@@ -25453,7 +29028,7 @@ function taskTools(db2) {
           }
         }
       }
-      return ok3({
+      return ok6({
         tasks: inserted.map((t) => ({
           id: t.id,
           issue_id: t.issue_id,
@@ -25462,31 +29037,32 @@ function taskTools(db2) {
           title: t.title,
           status: t.status,
           repo: t.repo,
-          prompt_bearing: t.prompt_bearing
+          prompt_bearing: t.prompt_bearing,
+          effort: t.effort
         })),
         parallel_groups: parallelGroups,
         overlapping_pairs: overlappingPairs
       });
     })),
-    task_get: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const taskId = requireArg3(args, "task_id");
+    task_get: wrapHandler5(async (args) => {
+      requireArg4(args, "agent");
+      const taskId = requireArg4(args, "task_id");
       const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
       if (!task) {
         throw new Error(`Not found: ${taskId}`);
       }
       const includeSpec = args["include_spec_body"] === true;
       if (includeSpec) {
-        return ok3(task);
+        return ok6(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok3(thin);
+      return ok6(thin);
     }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
+    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler5(async (args) => {
+      requireArg4(args, "agent");
       const agent = normalizeAgent(args["agent"]);
-      const taskId = requireArg3(args, "task_id");
-      const status = requireArg3(args, "status");
+      const taskId = requireArg4(args, "task_id");
+      const status = requireArg4(args, "status");
       const rawCommitSha = args["commit_sha"] !== void 0 ? args["commit_sha"].toLowerCase() : void 0;
       if (!VALID_STATUSES.has(status)) {
         throw new Error(
@@ -25521,30 +29097,43 @@ function taskTools(db2) {
         if (!allowed.has(status)) {
           const valid = [...allowed].join(", ") || "(none \u2014 terminal)";
           throw new Error(
-            `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. Allowed from '${task.status}': ${valid}. Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`
+            `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. Allowed from '${task.status}': ${valid}. Close verified work via bro_atomic_close; reopen a task for rework with task_reopen. See #278.`
           );
         }
       }
-      const now = nowISO();
-      const attempts = args["attempts"] !== void 0 ? args["attempts"] : task.attempts;
-      const completedAt = status === "completed" ? now : status === "closed" ? task.completed_at : null;
-      if (rawCommitSha !== void 0) {
-        db2.run(
-          `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
-          [status, attempts, now, completedAt, rawCommitSha, taskId]
-        );
-      } else {
-        db2.run(
-          `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
-          [status, attempts, now, completedAt, taskId]
-        );
-      }
+      const now2 = nowISO();
+      const completedAt = status === "completed" ? now2 : status === "closed" ? task.completed_at : null;
+      db2.transaction(() => {
+        if (status === "closed" && task.status !== "closed") {
+          recordReviewBypassIfUnreviewed(
+            db2,
+            { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null },
+            "task_update_status",
+            agent,
+            now2
+          );
+        }
+        if (rawCommitSha !== void 0) {
+          db2.run(
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
+            [status, now2, completedAt, rawCommitSha, taskId]
+          );
+        } else {
+          db2.run(
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+            [status, now2, completedAt, taskId]
+          );
+        }
+        if (TERMINAL_TASK_STATUSES.has(status)) {
+          closeOpenRunsForTask(db2, task.id, now2, exitReasonForStatus(status));
+        }
+      });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok3(updated);
+      return ok6(updated);
     })),
-    task_first_actionable: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
+    task_first_actionable: wrapHandler5(async (args) => {
+      requireArg4(args, "agent");
+      const issueId = requireArg4(args, "issue_id");
       const task = db2.get(
         `SELECT * FROM tasks
          WHERE issue_id = ? AND status IN ('pending', 'failed')
@@ -25552,336 +29141,47 @@ function taskTools(db2) {
          LIMIT 1`,
         [issueId]
       );
-      return ok3(task ?? null);
+      return ok6(task ?? null);
     })
   };
   return { definitions, handlers };
 }
 
-// src/tools/audit.ts
-var MAX_CONTENT_BYTES = 1e6;
-function ok4(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err4(message) {
+// src/tools/verification-runs.ts
+function latestVerificationRun(db2, taskId, startedBy) {
+  const run = db2.get(
+    `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
+       FROM verification_runs
+      WHERE task_id = ?${startedBy ? " AND started_at <= ?" : ""}
+      ORDER BY started_at DESC, id DESC LIMIT 1`,
+    startedBy ? [taskId, startedBy] : [taskId]
+  );
+  if (!run) return null;
+  const commands = db2.all(
+    `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
+    [run.id]
+  ).map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
+    run_id: run.id,
+    commit_sha: run.commit_sha,
+    source: run.source,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    exit_code: run.exit_code,
+    timed_out: run.timed_out === 1,
+    budget_s: run.budget_s,
+    commands
   };
-}
-function requireArg4(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler4(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err4(e.message);
-    }
-  };
-}
-function decodeCursor(cursor) {
-  try {
-    return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-function encodeCursor(row) {
-  return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString("base64");
-}
-function auditTools(db2) {
-  const definitions = [
-    {
-      name: "audit_search",
-      description: "Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: {
-            type: "string",
-            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
-          },
-          mode: {
-            type: "string",
-            enum: ["keyword", "semantic", "hybrid"],
-            description: "Search mode. Default: hybrid."
-          },
-          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
-          event_types: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional \u2014 restrict to specific event types."
-          },
-          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
-          recency_alpha: {
-            type: "number",
-            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
-          }
-        },
-        required: ["agent", "query"]
-      }
-    },
-    {
-      name: "audit_append",
-      description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          branch_id: { type: "string" },
-          from_node: { type: "string" },
-          event_type: { type: "string", description: "Required. Lifecycle event identifier (e.g. planning_complete)." },
-          summary: { type: "string", description: "Required. One-line human-readable summary." },
-          content_json: { type: "string", description: "Optional. JSON string with structured event payload, max 1 MB." }
-        },
-        required: ["agent", "issue_id", "from_node", "event_type", "summary"]
-      }
-    },
-    {
-      name: "audit_list",
-      description: "Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['id','event_type','summary'] to return only requested columns (unknown fields return a named error).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          branch_id: { type: "string" },
-          limit: { type: "number", description: "Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor." },
-          offset: { type: "number", description: "Row offset for pagination (default 0)" },
-          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns."
-          }
-        },
-        required: ["agent", "issue_id"]
-      }
-    }
-  ];
-  const handlers = {
-    audit_search: wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const query = requireArg4(args, "query");
-      const mode = args["mode"] ?? "hybrid";
-      const issueId = args["issue_id"] ?? null;
-      const eventTypes = args["event_types"] ?? null;
-      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
-      let eventTypeFilter = "";
-      let eventTypeParams = [];
-      if (eventTypes && eventTypes.length > 0) {
-        const placeholders = eventTypes.map(() => "?").join(", ");
-        eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
-        eventTypeParams = eventTypes;
-      }
-      const fetchFtsRows = (limitK) => {
-        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY bm25(audit_fts) ASC LIMIT ?";
-        return db2.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
-      };
-      const fetchRowById = (id) => {
-        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, '' AS snippet, 0.0 AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit a WHERE a.id = ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        return db2.get(sql, [id, issueId, issueId, ...eventTypeParams]);
-      };
-      if (mode === "keyword") {
-        const countSql = "SELECT COUNT(*) AS n FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        const countRow = db2.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
-        const total_matched = countRow?.n ?? 0;
-        const searchSql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?";
-        const rows = db2.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
-        return ok4({
-          results: rows.map((r) => ({
-            id: r.id,
-            issue_id: r.issue_id,
-            branch_id: r.branch_id,
-            from_node: r.from_node,
-            event_type: r.event_type,
-            summary: r.summary,
-            created_at: r.created_at,
-            snippet: r.snippet,
-            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
-          })),
-          total_matched
-        });
-      }
-      if (mode === "semantic") {
-        const cosineResults2 = await topKByCosine(db2, "audit", query, k);
-        if (cosineResults2.length === 0) {
-          return ok4({ results: [], total_matched: 0, warning: "semantic_unavailable" });
-        }
-        const results2 = [];
-        for (const cr of cosineResults2) {
-          const row = fetchRowById(cr.rowid);
-          if (row) {
-            results2.push({
-              id: row.id,
-              issue_id: row.issue_id,
-              branch_id: row.branch_id,
-              from_node: row.from_node,
-              event_type: row.event_type,
-              summary: row.summary,
-              created_at: row.created_at,
-              snippet: row.snippet,
-              score: cr.score
-            });
-          }
-        }
-        return ok4({ results: results2, total_matched: results2.length });
-      }
-      const RRF_K = 60;
-      const ftsRows = fetchFtsRows(k * 4);
-      const cosineResults = await topKByCosine(db2, "audit", query, k * 4);
-      const semanticAvailable = cosineResults.length > 0;
-      const scoreMap = /* @__PURE__ */ new Map();
-      ftsRows.forEach((r, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(r.id);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          scoreMap.set(r.id, { rrf, row: r });
-        }
-      });
-      cosineResults.forEach((cr, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(cr.rowid);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          const row = fetchRowById(cr.rowid);
-          if (row) scoreMap.set(cr.rowid, { rrf, row });
-        }
-      });
-      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
-        row,
-        score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha))
-      }));
-      combined.sort((a, b) => b.score - a.score);
-      const topRows = combined.slice(0, k);
-      const results = topRows.map(({ row, score }) => ({
-        id: row.id,
-        issue_id: row.issue_id,
-        branch_id: row.branch_id,
-        from_node: row.from_node,
-        event_type: row.event_type,
-        summary: row.summary,
-        created_at: row.created_at,
-        snippet: row.snippet,
-        score
-      }));
-      const response = { results, total_matched: results.length };
-      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
-      return ok4(response);
-    }),
-    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      requireArg4(args, "from_node");
-      const fromNode = args["from_node"];
-      const branchId = args["branch_id"] ?? null;
-      const now = nowISO();
-      requireArg4(args, "event_type");
-      requireArg4(args, "summary");
-      const eventType = args["event_type"];
-      const summary = args["summary"];
-      const contentJson = args["content_json"] ?? "{}";
-      const byteLength = Buffer.byteLength(contentJson, "utf8");
-      if (byteLength > MAX_CONTENT_BYTES) {
-        return err4(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
-      }
-      db2.run(
-        `INSERT INTO audit
-           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [issueId, branchId, fromNode, eventType, summary, contentJson, now]
-      );
-      const row = db2.get(
-        "SELECT * FROM audit WHERE rowid = last_insert_rowid()"
-      );
-      if (row) {
-        const embedText = contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
-        await embedAndStore(db2, "audit", row.id, embedText).catch(
-          (e) => console.error("[embeddings] audit_append embed failed:", e)
-        );
-      }
-      return ok4(row);
-    })),
-    audit_list: wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      const branchId = args["branch_id"] ?? null;
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const offset = Math.max(0, args["offset"] ?? 0);
-      const fieldsArg = args["fields"];
-      const ALLOWED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "branch_id", "from_node", "event_type", "summary", "content_json", "created_at"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err4(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
-        }
-      }
-      function projectRow(row) {
-        if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
-      }
-      const conditions = ["issue_id = ?"];
-      const baseParams = [issueId];
-      if (branchId !== null) {
-        conditions.push("branch_id = ?");
-        baseParams.push(branchId);
-      }
-      const whereClause = "WHERE " + conditions.join(" AND ");
-      if (limitArg === void 0 || limitArg === null) {
-        const rows2 = db2.all(
-          "SELECT * FROM audit " + whereClause + " ORDER BY id ASC LIMIT 500 OFFSET ?",
-          [...baseParams, offset]
-        );
-        return ok4(rows2.map(projectRow));
-      }
-      const limit = Math.min(Math.max(1, limitArg), 500);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        const decoded = decodeCursor(cursorArg);
-        if (decoded) {
-          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
-          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
-        }
-      }
-      const sql = "SELECT * FROM audit " + whereClause + " " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [
-        ...baseParams,
-        ...cursorParams,
-        limit + 1
-      ]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? encodeCursor(last) : void 0;
-      return ok4({ rows: rows.map(projectRow), next_cursor });
-    })
-  };
-  return { definitions, handlers };
 }
 
 // src/tools/validation.ts
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
-function ok5(data) {
+function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err5(message) {
+function err7(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -25891,14 +29191,55 @@ function requireArg5(args, name) {
   }
   return args[name];
 }
-function wrapHandler5(fn) {
+function wrapHandler6(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err5(e.message);
+      return err7(e.message);
     }
   };
+}
+var REVIEWER_OBSERVE_FROM_NODE = "hook:reviewer-identity-observe";
+var REVIEWER_OBSERVATION_TTL_S = 600;
+var AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+function latestObservation(db2, taskId, attemptN) {
+  return db2.get(
+    `SELECT id,
+            json_extract(content_json, '$.session_id') AS session_id,
+            json_extract(content_json, '$.agent_id') AS agent_id,
+            COALESCE(json_extract(content_json, '$.observed_at'), created_at) AS observed_at
+       FROM audit
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0
+      ORDER BY id DESC
+      LIMIT 1`,
+    [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]
+  );
+}
+function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now2) {
+  db2.run(
+    `UPDATE audit
+        SET content_json = json_set(content_json, '$.superseded', 1, '$.superseded_by', CAST(? AS INTEGER), '$.superseded_at', ?)
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND id < ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0`,
+    [consumedId, now2, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]
+  );
+}
+function observationAgeS(observation, nowMs) {
+  const observedMs = Date.parse(String(observation.observed_at ?? ""));
+  return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1e3) : Number.POSITIVE_INFINITY;
 }
 function coerceTaskId(raw) {
   const n = Number(raw);
@@ -25913,7 +29254,7 @@ function validationTools(db2) {
   const definitions = [
     {
       name: "validation_record",
-      description: "Record a validation attempt for a task.",
+      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.",
       inputSchema: {
         type: "object",
         properties: {
@@ -25923,14 +29264,14 @@ function validationTools(db2) {
           verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
           feedback: { type: "string" },
           mcp_available: { type: "boolean", description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
-          subagent_session_id: { type: "string", description: `Required when agent="pr-reviewer": the spawned pr-reviewer subagent's session ID.` }
+          subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." }
         },
         required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
       }
     },
     {
       name: "validation_history",
-      description: "Return all validation attempts for a task ordered by attempt_n ascending. Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
+      description: "Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
       inputSchema: {
         type: "object",
         properties: {
@@ -25942,7 +29283,7 @@ function validationTools(db2) {
           fields: {
             type: "array",
             items: { type: "string" },
-            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns."
+            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run. Unknown fields return a named error. Default: all columns."
           }
         },
         required: ["agent", "task_id"]
@@ -25950,19 +29291,13 @@ function validationTools(db2) {
     }
   ];
   const handlers = {
-    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler5(async (args) => {
+    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler6(async (args) => {
       const agent = requireArg5(args, "agent");
       const taskId = coerceTaskId(requireArg5(args, "task_id"));
       requireArg5(args, "attempt_n");
       const verdict = requireArg5(args, "verdict");
       requireArg5(args, "feedback");
       const role = normalizeAgent(agent);
-      const subagentSessionId = args["subagent_session_id"] ?? null;
-      if (role === "pr-reviewer" && !subagentSessionId) {
-        throw new Error(
-          `precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent's session ID). This prevents bro from self-authoring pr-reviewer verdicts.`
-        );
-      }
       const mcpAvailableArg = args["mcp_available"];
       if (role === "pr-reviewer" && typeof mcpAvailableArg !== "boolean") {
         throw new Error(
@@ -25976,7 +29311,9 @@ function validationTools(db2) {
         );
       }
       const taskExists = db2.get(
-        `SELECT id FROM tasks WHERE id = ?`,
+        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
+           FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+          WHERE t.id = ?`,
         [taskId]
       );
       if (!taskExists) {
@@ -25984,50 +29321,99 @@ function validationTools(db2) {
       }
       const attemptN = args["attempt_n"];
       const feedback = args["feedback"];
-      const now = nowISO();
-      const taskRepo = db2.get(
-        "SELECT repo FROM tasks WHERE id = ?",
-        [taskId]
-      );
-      const repo = taskRepo?.repo ?? "";
+      const now2 = nowISO();
+      const callerSessionId = typeof args["subagent_session_id"] === "string" ? args["subagent_session_id"] : null;
       db2.transaction(() => {
+        if (mcpAvailable === 0) {
+          const verified = db2.get(
+            `SELECT verdict, reviewer_agent_id, created_at FROM validation_attempts
+              WHERE task_id = ? AND attempt_n = ? AND mcp_available = 1`,
+            [taskId, attemptN]
+          );
+          if (verified) {
+            throw new Error(
+              `verified_verdict_exists: task ${taskId} attempt ${attemptN} already holds a verified ${verified.verdict} verdict (reviewer_agent_id ${verified.reviewer_agent_id ?? "null"}, recorded ${verified.created_at}); an honor-system call (mcp_available:false) cannot overwrite it.`
+            );
+          }
+        }
+        const latest = latestObservation(db2, taskId, attemptN);
+        const ageS = latest ? observationAgeS(latest, Date.now()) : 0;
+        const staleRow = latest !== void 0 && ageS > REVIEWER_OBSERVATION_TTL_S ? latest : void 0;
+        const observed = staleRow ? void 0 : latest;
+        let subagentSessionId;
+        let reviewerAgentId;
+        if (observed) {
+          const observedAgentId = typeof observed.agent_id === "string" ? observed.agent_id : "";
+          if (observedAgentId === "") {
+            throw new Error(
+              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id \u2014 it came from the main loop, not a pr-reviewer subagent.`
+            );
+          }
+          if (!AGENT_ID_RE.test(observedAgentId)) {
+            throw new Error(
+              `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`
+            );
+          }
+          const sweRun = db2.get(
+            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`,
+            [taskId, observedAgentId]
+          );
+          if (sweRun) {
+            throw new Error(
+              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate pr-reviewer.`
+            );
+          }
+          subagentSessionId = typeof observed.session_id === "string" && observed.session_id !== "" ? observed.session_id : null;
+          reviewerAgentId = observedAgentId;
+          db2.run(
+            `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
+            [observed.id]
+          );
+          supersedeOlderObservations(db2, taskId, attemptN, observed.id, now2);
+        } else if (mcpAvailable === 0) {
+          subagentSessionId = callerSessionId;
+          reviewerAgentId = null;
+          insertAudit(db2, {
+            issue_id: taskExists.issue_id,
+            from_node: "trajectory-server",
+            event_type: "validation_session_unverified",
+            summary: `validation_record for task ${taskId} attempt ${attemptN} recorded on the honor-system path without a hook-observed reviewer identity`,
+            content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
+            created_at: now2
+          });
+        } else if (staleRow) {
+          const age = Number.isFinite(ageS) ? `${ageS}s old` : "of unknown age";
+          throw new Error(
+            `subagent_session_unavailable: the newest unconsumed reviewer_identity_observed row for task ${taskId} attempt ${attemptN} (audit id ${staleRow.id}) is ${age}, past the ${REVIEWER_OBSERVATION_TTL_S}s freshness window; call validation_record again so the reviewer-identity-observe hook records a fresh row.`
+          );
+        } else {
+          throw new Error(
+            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`
+          );
+        }
         db2.run(
           `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(task_id, attempt_n) DO UPDATE SET
              agent = excluded.agent,
              verdict = excluded.verdict,
              feedback = excluded.feedback,
              mcp_available = excluded.mcp_available,
              subagent_session_id = excluded.subagent_session_id,
-             created_at = excluded.created_at`,
-          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now]
+             reviewer_agent_id = excluded.reviewer_agent_id,
+             created_at = excluded.created_at,
+             repo = excluded.repo`,
+          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now2, taskExists.repo]
         );
-        const existingPrRow = db2.get(
-          "SELECT id FROM pr_review_runs WHERE task_id = ? AND attempt_n = ?",
-          [taskId, attemptN]
-        );
-        if (existingPrRow) {
-          db2.run(
-            "UPDATE pr_review_runs SET verdict = ?, last_fetched_at = ? WHERE id = ?",
-            [verdict, now, existingPrRow.id]
-          );
-        } else {
-          db2.run(
-            `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id, verdict, attempt_n)
-             VALUES (0, ?, ?, ?, ?, ?)`,
-            [repo, now, taskId, verdict, attemptN]
-          );
-        }
       });
       const row = db2.get(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
         [taskId, attemptN]
       );
-      return ok5(row);
+      return ok7(row);
     })),
-    validation_history: wrapHandler5(async (args) => {
+    validation_history: wrapHandler6(async (args) => {
       const agent = normalizeAgent(args["agent"]);
       const taskId = coerceTaskId(requireArg5(args, "task_id"));
       const ownTaskIdRaw = args["own_task_id"];
@@ -26035,14 +29421,15 @@ function validationTools(db2) {
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
       const fieldsArg = args["fields"];
-      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "created_at"]);
+      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at", "verification_run"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err5(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
+          return err7(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
         }
       }
-      function projectRow(row) {
+      function projectRow(redacted) {
+        const row = { ...redacted, verification_run: latestVerificationRun(db2, taskId, String(redacted["created_at"])) };
         if (!fieldsArg) return row;
         const out = {};
         for (const f of fieldsArg) out[f] = row[f];
@@ -26053,7 +29440,7 @@ function validationTools(db2) {
           `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
           [taskId]
         );
-        return ok5(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
+        return ok7(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -26074,7 +29461,7 @@ function validationTools(db2) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
-      return ok5({
+      return ok7({
         rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
         next_cursor
       });
@@ -26094,12 +29481,12 @@ var VALID_STATUS_TRANSITIONS = /* @__PURE__ */ new Map([
 var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
   ["agent", /* @__PURE__ */ new Set(["curated"])]
 ]);
-function ok6(data) {
+function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err6(message) {
+function err8(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -26109,12 +29496,12 @@ function requireArg6(args, name) {
   }
   return args[name];
 }
-function wrapHandler6(fn) {
+function wrapHandler7(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err6(e.message);
+      return err8(e.message);
     }
   };
 }
@@ -26157,7 +29544,7 @@ function skillTools(db2) {
     }
   ];
   const handlers = {
-    skill_register: wrapHandler6(async (args) => {
+    skill_register: wrapHandler7(async (args) => {
       requireArg6(args, "agent");
       const name = requireArg6(args, "name");
       const description = requireArg6(args, "description");
@@ -26179,17 +29566,17 @@ function skillTools(db2) {
           `skill_register rejected: invalid name "${name}". Skill names must match ^[a-z][a-z0-9-]{0,63}$ \u2014 lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. Examples: my-skill, data-export-v2.`
         );
       }
-      const now = nowISO();
+      const now2 = nowISO();
       db2.run(
         `INSERT INTO cheatcodes
            (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
          VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, 'draft', ?, ?, ?)`,
-        [name, description, filePath, scope, trustTier, now, now, now]
+        [name, description, filePath, scope, trustTier, now2, now2, now2]
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
-      return ok6(row);
+      return ok8(row);
     }),
-    skill_promote: wrapHandler6(async (args) => {
+    skill_promote: wrapHandler7(async (args) => {
       requireArg6(args, "agent");
       const name = requireArg6(args, "name");
       const fromStatus = requireArg6(args, "from_status");
@@ -26216,38 +29603,38 @@ function skillTools(db2) {
           `skill_promote rejected: skill '${name}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. from_status must match the skill's current trust_tier for tier transitions.`
         );
       }
-      const now = nowISO();
+      const now2 = nowISO();
       if (isStatusTransition) {
         db2.run(
           `UPDATE cheatcodes SET status = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now, name]
+          [toStatus, now2, name]
         );
       } else {
         db2.run(
           `UPDATE cheatcodes SET trust_tier = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now, name]
+          [toStatus, now2, name]
         );
       }
       const updated = db2.get(
         `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
         [name]
       );
-      return ok6(updated);
+      return ok8(updated);
     })
   };
   return { definitions, handlers };
 }
 
 // src/tools/agents.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { dirname as dirname3, join as join5 } from "node:path";
+import { existsSync as existsSync3 } from "node:fs";
+import { dirname as dirname4, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-function ok7(data) {
+function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err7(message) {
+function err9(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -26257,35 +29644,54 @@ function requireArg7(args, name) {
   }
   return args[name];
 }
-function wrapHandler7(fn) {
+function wrapHandler8(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err7(e.message);
+      return err9(e.message);
     }
   };
 }
 var VALID_KINDS = /* @__PURE__ */ new Set(["backbone", "consultant"]);
-var VALID_SCOPES2 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
+var VALID_ROOTS = /* @__PURE__ */ new Set(["plugin", "project"]);
 var RESERVED_NAME = "bro";
-var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
+var BACKBONE_PLUGIN_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync2(join5(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname3(fileURLToPath2(import.meta.url));
+  if (env && existsSync3(join8(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname4(fileURLToPath2(import.meta.url));
   for (; ; ) {
-    if (existsSync2(join5(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname3(dir);
+    if (existsSync3(join8(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname4(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return env ?? dirname3(fileURLToPath2(import.meta.url));
+  return env ?? dirname4(fileURLToPath2(import.meta.url));
 }
 var PLUGIN_ROOT = resolvePluginRoot();
 function resolveWorkspaceRoot(dbPath2) {
   if (!dbPath2 || dbPath2 === ":memory:") return "";
   return dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "");
+}
+function parseMarkedPath(filePath) {
+  const m = /^(plugin|project):(.+)$/.exec(filePath);
+  if (!m) {
+    throw new Error(
+      `invalid_file_path: '${filePath}' carries no root marker. Use 'plugin:<path under the plugin root>' (e.g. 'plugin:templates/agents/cto.md') or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/cto.md').`
+    );
+  }
+  return { root: m[1], rel: m[2] };
+}
+function resolveMarkedPath(filePath, workspaceRoot) {
+  const { root, rel } = parseMarkedPath(filePath);
+  if (root === "plugin") return join8(PLUGIN_ROOT, rel);
+  return workspaceRoot ? join8(workspaceRoot, rel) : null;
+}
+function backboneShadowError(tool, name) {
+  return new Error(
+    `${tool} rejected: '${name}' is a backbone agent whose file_path must be plugin:. A project: '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
+  );
 }
 function validateAgentName(name) {
   if (name === RESERVED_NAME) {
@@ -26293,10 +29699,8 @@ function validateAgentName(name) {
       `agent_resolve rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
     );
   }
-  if (BACKBONE_GLOBAL_ONLY.has(name)) {
-    throw new Error(
-      `agent_resolve rejected: '${name}' is a backbone agent whose scope must be 'global'. A project-local '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
-    );
+  if (BACKBONE_PLUGIN_ONLY.has(name)) {
+    throw backboneShadowError("agent_resolve", name);
   }
   if (!/^[a-z][a-z0-9-]*$/.test(name)) {
     throw new Error(
@@ -26308,138 +29712,131 @@ function agentTools(db2, dbPath2 = "") {
   const definitions = [
     {
       name: "agent_list",
-      description: "List registered agents, optionally filtered by scope.",
+      description: "List registered agents, optionally filtered by the root their file_path ships from. Each row carries resolved_path.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          scope: { type: "string", enum: ["global", "template", "project-local"] }
+          root: { type: "string", enum: ["plugin", "project"] }
         },
         required: ["agent"]
       }
     },
     {
       name: "agent_register",
-      description: "Register a new agent. Promotes a template-seeded row to project-local when called with scope=project-local; emits tmb_agent_created audit on insert or promotion. True idempotent re-registration (already project-local) is a silent no-op.",
+      description: "Register a new agent. file_path carries its root: 'plugin:<path>' or 'project:<path>'. A project: path promotes a plugin: consultant row; emits tmb_agent_created on a project: consultant insert or promotion. Re-registration is a no-op. Returns the row with resolved_path.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
           name: { type: "string" },
           kind: { type: "string", enum: ["backbone", "consultant"] },
-          scope: { type: "string", enum: ["global", "template", "project-local"] },
-          file_path: { type: "string" }
+          file_path: { type: "string", description: "'plugin:<path>' or 'project:<path>'." }
         },
-        required: ["agent", "name", "kind", "scope", "file_path"]
+        required: ["agent", "name", "kind", "file_path"]
       }
     },
     {
       name: "agent_resolve",
-      description: 'Read-only: resolves creation mode for /tmb:agent-create. Validates the name, then returns one of three modes: "collision" (target path exists \u2014 bro runs collision dialog); "template-copy" (plugin template found \u2014 bro Writes the file then calls agent_register); "from-scratch" (no template \u2014 bro scaffolds from templates/agents/template.md then calls agent_register). Paths returned are absolute. bro owns the file Write and the agent_register call.',
+      description: 'Read-only: resolves creation mode for /tmb:agent-create. Validates the name, then returns one of three modes: "collision" (resolved_path exists \u2014 bro runs collision dialog); "template-copy" (plugin template found \u2014 bro Writes the file then calls agent_register); "from-scratch" (no template \u2014 bro scaffolds from templates/agents/template.md then calls agent_register). Returns file_path (marked, pass it to agent_register) and its absolute resolved_path. bro owns the file Write and the agent_register call.',
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          name: { type: "string", description: "Kebab-case agent name to resolve." }
+          name: { type: "string", description: "Kebab-case agent name to resolve." },
+          file_path: { type: "string", description: "Target 'plugin:<path>' or 'project:<path>'; default 'project:.claude/agents/<name>.md'." }
         },
         required: ["agent", "name"]
       }
     }
   ];
+  const workspaceRoot = resolveWorkspaceRoot(dbPath2);
+  const withResolvedPath = (row) => ({
+    ...row,
+    resolved_path: resolveMarkedPath(row.file_path, workspaceRoot)
+  });
   const handlers = {
-    agent_list: wrapHandler7(async (args) => {
+    agent_list: wrapHandler8(async (args) => {
       requireArg7(args, "agent");
-      const scope = args["scope"];
-      if (scope !== void 0 && !VALID_SCOPES2.has(scope)) {
+      const root = args["root"];
+      if (root !== void 0 && !VALID_ROOTS.has(root)) {
         throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES2].join(", ")}`
+          `Invalid root: "${root}". Allowed values: ${[...VALID_ROOTS].join(", ")}`
         );
       }
-      const rows = scope ? db2.all("SELECT * FROM agents WHERE scope = ? ORDER BY name", [scope]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok7({ agents: rows });
+      const rows = root ? db2.all("SELECT * FROM agents WHERE file_path LIKE ? ORDER BY name", [`${root}:%`]) : db2.all("SELECT * FROM agents ORDER BY name");
+      return ok9({ agents: rows.map(withResolvedPath) });
     }),
-    agent_register: wrapHandler7(async (args) => {
+    agent_register: wrapHandler8(async (args) => {
       requireArg7(args, "agent");
       const name = requireArg7(args, "name");
       const kind = requireArg7(args, "kind");
-      const scope = requireArg7(args, "scope");
       const filePath = requireArg7(args, "file_path");
       if (!VALID_KINDS.has(kind)) {
         throw new Error(
           `Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(", ")}`
         );
       }
-      if (!VALID_SCOPES2.has(scope)) {
-        throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES2].join(", ")}`
-        );
-      }
+      const { root } = parseMarkedPath(filePath);
       if (name === RESERVED_NAME) {
         throw new Error(
           `agent_register rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
         );
       }
-      if (BACKBONE_GLOBAL_ONLY.has(name) && scope !== "global") {
-        throw new Error(
-          `agent_register rejected: '${name}' is a backbone agent whose scope must be 'global'. A project-local '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
-        );
+      if (BACKBONE_PLUGIN_ONLY.has(name) && root !== "plugin") {
+        throw backboneShadowError("agent_register", name);
       }
       const existing = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
       let promoted = false;
       if (existing) {
-        if (scope === "project-local" && existing.scope === "template") {
+        if (root === "project" && existing.kind === "consultant" && existing.file_path.startsWith("plugin:")) {
           db2.run(
-            `UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = datetime('now')
+            `UPDATE agents SET kind = ?, file_path = ?, updated_at = ?
              WHERE name = ?`,
-            [scope, kind, filePath, name]
+            [kind, filePath, nowISO(), name]
           );
           promoted = true;
         }
       } else {
         db2.run(
-          `INSERT INTO agents (name, kind, scope, file_path)
-           VALUES (?, ?, ?, ?)`,
-          [name, kind, scope, filePath]
+          `INSERT INTO agents (name, kind, file_path)
+           VALUES (?, ?, ?)`,
+          [name, kind, filePath]
         );
       }
       const row = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
       const inserted = !existing && (db2.get("SELECT changes() AS n", [])?.n ?? 0) > 0;
-      if (scope === "project-local" && kind === "consultant" && (inserted || promoted) && row) {
+      if (root === "project" && kind === "consultant" && (inserted || promoted) && row) {
         const contentJson = JSON.stringify({ name, mode: "agent_register", agent_id: row.id });
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`,
-          [String(args["agent"]), `Agent registered: ${name}`, contentJson]
-        );
+        insertAudit(db2, {
+          issue_id: -1,
+          from_node: String(args["agent"]),
+          event_type: "tmb_agent_created",
+          summary: `Agent registered: ${name}`,
+          content_json: contentJson
+        });
       }
-      return ok7(row);
+      return ok9(row ? withResolvedPath(row) : row);
     }),
     agent_resolve: requireRoles(
       "agent_resolve",
       ["bro"],
-      wrapHandler7(async (args) => {
+      wrapHandler8(async (args) => {
         requireArg7(args, "agent");
         const name = requireArg7(args, "name");
         validateAgentName(name);
-        const workspaceRoot = resolveWorkspaceRoot(dbPath2);
-        const targetPath = workspaceRoot ? join5(workspaceRoot, ".claude", "agents", `${name}.md`) : join5(".claude", "agents", `${name}.md`);
-        if (workspaceRoot && existsSync2(targetPath)) {
-          return ok7({ mode: "collision", existing_path: targetPath });
+        const filePath = args["file_path"] ?? `project:.claude/agents/${name}.md`;
+        const resolvedPath = resolveMarkedPath(filePath, workspaceRoot);
+        const target = { file_path: filePath, resolved_path: resolvedPath };
+        if (resolvedPath && existsSync3(resolvedPath)) {
+          return ok9({ mode: "collision", ...target });
         }
-        const templatePath = join5(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
-        if (existsSync2(templatePath)) {
-          return ok7({
-            mode: "template-copy",
-            source_path: templatePath,
-            target_path: targetPath
-          });
+        const templatePath = join8(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
+        if (existsSync3(templatePath)) {
+          return ok9({ mode: "template-copy", source_path: templatePath, ...target });
         }
-        const scaffoldPath = join5(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok7({
-          mode: "from-scratch",
-          scaffold_path: scaffoldPath,
-          target_path: targetPath
-        });
+        const scaffoldPath = join8(PLUGIN_ROOT, "templates", "agents", "template.md");
+        return ok9({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
       })
     )
   };
@@ -26448,13 +29845,13 @@ function agentTools(db2, dbPath2 = "") {
 
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
-import { dirname as dirname4, resolve as resolve2, sep } from "node:path";
-function ok8(data) {
+import { dirname as dirname5, resolve as resolve2, sep as sep3 } from "node:path";
+function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message) {
+function err10(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -26464,12 +29861,12 @@ function requireArg8(args, name) {
   }
   return args[name];
 }
-function wrapHandler8(fn) {
+function wrapHandler9(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err8(e.message);
+      return err10(e.message);
     }
   };
 }
@@ -26510,7 +29907,7 @@ function reportTools(db2) {
     }
   ];
   const handlers = {
-    issue_report_md: wrapHandler8(async (args) => {
+    issue_report_md: wrapHandler9(async (args) => {
       requireArg8(args, "agent");
       const issueId = requireArg8(args, "issue_id");
       const mode = args["mode"] ?? "summary";
@@ -26536,12 +29933,15 @@ function reportTools(db2) {
       if (mode === "summary") {
         const taskCounts = db2.get(
           `SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed,
+                  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS awaiting_close,
                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
            FROM tasks WHERE issue_id = ?`,
           [issueId]
         );
-        lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
+        lines.push(
+          `**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.closed ?? 0} done (closed), ${taskCounts?.awaiting_close ?? 0} awaiting close, ${taskCounts?.failed ?? 0} failed`
+        );
         lines.push("");
         const auditCount = db2.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId])?.n ?? 0;
         lines.push(`**Audit events:** ${auditCount}`);
@@ -26559,7 +29959,7 @@ function reportTools(db2) {
             lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
           }
         }
-        return ok8({ markdown: lines.join("\n"), mode: "summary" });
+        return ok10({ markdown: lines.join("\n"), mode: "summary" });
       }
       const tasks = db2.all(
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
@@ -26585,9 +29985,13 @@ function reportTools(db2) {
       } else {
         lines.push("| Branch | Title | Status | Attempts |");
         lines.push("|--------|-------|--------|----------|");
+        const attemptCounts = /* @__PURE__ */ new Map();
+        for (const v of validationAttempts) {
+          attemptCounts.set(v.task_id, (attemptCounts.get(v.task_id) ?? 0) + 1);
+        }
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
-          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${t.attempts} |`);
+          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${attemptCounts.get(t.id) ?? 0} |`);
         }
       }
       lines.push("");
@@ -26613,9 +30017,9 @@ function reportTools(db2) {
         }
       }
       lines.push("");
-      return ok8({ markdown: lines.join("\n"), mode: "detail" });
+      return ok10({ markdown: lines.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler8(async (args) => {
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler9(async (args) => {
       requireArg8(args, "agent");
       const issueId = requireArg8(args, "issue_id");
       const rawOutputPath = args["output_path"];
@@ -26625,9 +30029,12 @@ function reportTools(db2) {
       }
       const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
       const relOutputPath = rawOutputPath ?? defaultOutputPath;
-      const cwd = process.cwd();
-      const allowedBase = resolve2(cwd, "docs/trustmybot") + sep;
-      const absPath = resolve2(cwd, relOutputPath);
+      const projectRoot = projectRootFromDbPath(db2.dbPath);
+      if (projectRoot === null) {
+        throw new Error("issue_snapshot_md needs the project root, and this trajectory DB is not under a project .claude/ directory");
+      }
+      const allowedBase = resolve2(projectRoot, "docs/trustmybot") + sep3;
+      const absPath = resolve2(projectRoot, relOutputPath);
       if (!absPath.startsWith(allowedBase)) {
         throw new Error(
           `output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`
@@ -26641,10 +30048,10 @@ function reportTools(db2) {
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
         [issueId]
       );
-      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const now2 = (/* @__PURE__ */ new Date()).toISOString();
       const lines = [];
       lines.push(`<!-- Generated by issue_snapshot_md. Do not edit; rebuild via issue_snapshot_md. -->`);
-      lines.push(`<!-- GENERATED: ${now} -->`);
+      lines.push(`<!-- GENERATED: ${now2} -->`);
       lines.push("");
       lines.push(`# Issue Snapshot: ${issue2.id}`);
       lines.push("");
@@ -26702,154 +30109,21 @@ function reportTools(db2) {
         }
       }
       const markdown = lines.join("\n");
-      mkdirSync3(dirname4(absPath), { recursive: true });
+      mkdirSync3(dirname5(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
-      return ok8({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
+      return ok10({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
   };
   return { definitions, handlers };
 }
 
-// src/tools/config.ts
-function ok9(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err9(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrapHandler9(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err9(e.message);
-    }
-  };
-}
-var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
-function configTools(db2) {
-  const definitions = [
-    {
-      name: "config_set",
-      description: "Set a plugin config key to a JSON-serializable value.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          key: { type: "string", description: "Config key (1-64 chars, must match /^[a-z][a-z0-9_.-]{0,63}$/i)" },
-          value: { description: "Any JSON-serializable value" }
-        },
-        required: ["key", "value"]
-      }
-    },
-    {
-      name: "config_get",
-      description: "Get a plugin config value by key. Returns null if not set.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          key: { type: "string" }
-        },
-        required: ["key"]
-      }
-    },
-    {
-      name: "config_list",
-      description: "List all plugin config entries as a key\u2192value object.",
-      inputSchema: {
-        type: "object",
-        properties: {}
-      }
-    }
-  ];
-  const handlers = {
-    config_set: requireRoles("config_set", ["bro"], wrapHandler9(async (args) => {
-      const key = args["key"];
-      if (typeof key !== "string" || !KEY_REGEX.test(key)) {
-        return err9(
-          `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
-        );
-      }
-      if (args["value"] === void 0 || args["value"] === null) {
-        return err9("Missing required arg: value");
-      }
-      const rawValue = args["value"];
-      if (typeof rawValue === "string") {
-        const trimmed = rawValue.trim();
-        if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (typeof parsed === "object" && parsed !== null) {
-              return err9(
-                `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
-              );
-            }
-          } catch {
-          }
-        }
-      }
-      let valueJson;
-      try {
-        valueJson = JSON.stringify(rawValue);
-      } catch {
-        return err9("config value not JSON-serializable");
-      }
-      db2.run(
-        `INSERT INTO plugin_config (key, value_json)
-         VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-        [key, valueJson]
-      );
-      return ok9({ key });
-    })),
-    config_get: wrapHandler9(async (args) => {
-      const key = args["key"];
-      const row = db2.get(
-        `SELECT key, value_json FROM plugin_config WHERE key = ?`,
-        [key]
-      );
-      if (!row) {
-        return ok9(null);
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(row.value_json);
-      } catch {
-        return err9(
-          `config key ${JSON.stringify(key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
-        );
-      }
-      return ok9(parsed);
-    }),
-    config_list: wrapHandler9(async () => {
-      const rows = db2.all(
-        `SELECT key, value_json FROM plugin_config ORDER BY key`
-      );
-      const result = {};
-      for (const row of rows) {
-        try {
-          result[row.key] = JSON.parse(row.value_json);
-        } catch {
-          return err9(
-            `config key ${JSON.stringify(row.key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
-          );
-        }
-      }
-      return ok9(result);
-    })
-  };
-  return { definitions, handlers };
-}
-
 // src/tools/branch_report_md.ts
-function ok10(data) {
+function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err10(message) {
+function err11(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -26864,9 +30138,12 @@ function wrapHandler10(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err10(e.message);
+      return err11(e.message);
     }
   };
+}
+function statusLabel(status) {
+  return status === "completed" ? "completed (awaiting close)" : status;
 }
 function branchReportMdTools(db2) {
   const definitions = [
@@ -26922,6 +30199,10 @@ function branchReportMdTools(db2) {
         lines.push("");
         lines.push(`**Issue objective:** ${issue2.objective}`);
         lines.push("");
+        const doneCount = tasks.filter((t) => t.status === "closed").length;
+        const awaitingClose = tasks.filter((t) => t.status === "completed").length;
+        lines.push(`**Done:** ${doneCount} of ${tasks.length} closed, ${awaitingClose} awaiting close`);
+        lines.push("");
         if (mode === "summary") {
           lines.push("## Tasks on this branch");
           lines.push("");
@@ -26930,7 +30211,7 @@ function branchReportMdTools(db2) {
           for (const t of tasks) {
             const title = t.title || t.description.slice(0, 60);
             const commit = t.commit_sha || "\u2014";
-            lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} |`);
+            lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} |`);
           }
           lines.push("");
           const auditCount = db2.get(
@@ -26954,7 +30235,7 @@ function branchReportMdTools(db2) {
               lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
             }
           }
-          return ok10({ markdown: lines.join("\n"), mode: "summary" });
+          return ok11({ markdown: lines.join("\n"), mode: "summary" });
         }
         const taskIds = tasks.map((t) => String(t.id));
         const placeholders = taskIds.map(() => "?").join(", ");
@@ -26973,8 +30254,8 @@ function branchReportMdTools(db2) {
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
           const commit = t.commit_sha || "\u2014";
-          const closed = t.completed_at || "\u2014";
-          lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} | ${t.created_at} | ${closed} |`);
+          const closed = t.status === "closed" && t.completed_at ? t.completed_at : "\u2014";
+          lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} | ${t.created_at} | ${closed} |`);
         }
         lines.push("");
         lines.push("## Audit events");
@@ -27000,7 +30281,7 @@ function branchReportMdTools(db2) {
             lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
           }
         }
-        return ok10({ markdown: lines.join("\n"), mode: "detail" });
+        return ok11({ markdown: lines.join("\n"), mode: "detail" });
       })
     )
   };
@@ -27009,12 +30290,12 @@ function branchReportMdTools(db2) {
 
 // src/tools/stats.ts
 var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
-function ok11(data) {
+function ok12(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err11(message) {
+function err12(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -27023,7 +30304,7 @@ function wrapHandler11(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err11(e.message);
+      return err12(e.message);
     }
   };
 }
@@ -27034,11 +30315,77 @@ var RATE_CACHE_CREATION_PER_MTK = 18.75;
 function estimateCostUsd(tokensIn, tokensOut, cacheRead, cacheCreation) {
   return (tokensIn * RATE_INPUT_PER_MTK + tokensOut * RATE_OUTPUT_PER_MTK + cacheRead * RATE_CACHE_READ_PER_MTK + cacheCreation * RATE_CACHE_CREATION_PER_MTK) / 1e6;
 }
+var PRICE_FIELDS = ["input", "output", "cache_read", "cache_creation"];
+function readModelPrices(db2) {
+  const prices = /* @__PURE__ */ new Map();
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'model_prices'`);
+  if (!row) return prices;
+  let parsed;
+  try {
+    parsed = JSON.parse(row.value_json);
+  } catch {
+    return prices;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return prices;
+  for (const [model, entry] of Object.entries(parsed)) {
+    if (entry === null || typeof entry !== "object") continue;
+    const e = entry;
+    if (PRICE_FIELDS.every((f) => typeof e[f] === "number" && Number.isFinite(e[f]))) {
+      prices.set(model, {
+        input: e["input"],
+        output: e["output"],
+        cache_read: e["cache_read"],
+        cache_creation: e["cache_creation"]
+      });
+    }
+  }
+  return prices;
+}
+var round4 = (n) => Math.round(n * 1e4) / 1e4;
+function costEstimate(rows, prices) {
+  const groups = /* @__PURE__ */ new Map();
+  let cost = 0;
+  let unpriced = 0;
+  for (const r of rows) {
+    const ti = r.tokens_in ?? 0;
+    const to = r.tokens_out ?? 0;
+    const cr = r.cache_read_tokens ?? 0;
+    const cc = r.cache_creation_tokens ?? 0;
+    const total = ti + to + cr + cc;
+    const price = r.model !== null ? prices.get(r.model) : void 0;
+    const rowCost = price ? (ti * price.input + to * price.output + cr * price.cache_read + cc * price.cache_creation) / 1e6 : 0;
+    const rowUnpriced = price ? 0 : total;
+    cost += rowCost;
+    unpriced += rowUnpriced;
+    const key = JSON.stringify([r.host, r.model]);
+    const g = groups.get(key) ?? {
+      host: r.host,
+      model: r.model,
+      spawn_count: 0,
+      tokens_total: 0,
+      cost_estimate: 0,
+      unpriced_tokens: 0,
+      cost: 0
+    };
+    g.spawn_count += 1;
+    g.tokens_total += total;
+    g.cost += rowCost;
+    g.unpriced_tokens += rowUnpriced;
+    groups.set(key, g);
+  }
+  return {
+    cost_estimate: round4(cost),
+    unpriced_tokens: unpriced,
+    groups: [...groups.values()].map(({ cost: c, ...g }) => ({ ...g, cost_estimate: round4(c) }))
+  };
+}
+var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
+var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
 function statsTools(db2) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown for one task.",
+      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).",
       inputSchema: {
         type: "object",
         properties: {
@@ -27061,7 +30408,7 @@ function statsTools(db2) {
           throw new Error("task_id must be a positive integer");
         }
         const aggRow = db2.get(
-          "SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(tokens_total) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ?",
+          `SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`,
           [taskId]
         );
         const sumIn = aggRow?.sum_tokens_in ?? 0;
@@ -27080,10 +30427,18 @@ function statsTools(db2) {
           estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation)
         };
         const spawns = db2.all(
-          "SELECT id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id",
+          `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
           [taskId]
         );
-        return ok11({ task_id: taskId, aggregate, spawns });
+        const cost = costEstimate(spawns, readModelPrices(db2));
+        return ok12({
+          task_id: taskId,
+          aggregate,
+          cost_estimate: cost.cost_estimate,
+          unpriced_tokens: cost.unpriced_tokens,
+          cost_groups: cost.groups,
+          spawns
+        });
       })
     )
   };
@@ -27091,12 +30446,12 @@ function statsTools(db2) {
 }
 
 // src/tools/roundtable.ts
-function ok12(data) {
+function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err12(message) {
+function err13(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -27111,7 +30466,7 @@ function wrapHandler12(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err12(e.message);
+      return err13(e.message);
     }
   };
 }
@@ -27302,7 +30657,7 @@ function roundtableTools(db2) {
           const slashRow = db2.get(
             `SELECT id FROM audit
              WHERE event_type = 'roundtable_slash_invoked'
-               AND created_at >= datetime('now', '-10 minutes')
+               AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
                AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
              ORDER BY created_at DESC
              LIMIT 1`
@@ -27322,11 +30677,11 @@ function roundtableTools(db2) {
             };
           }
         }
-        const now = nowISO();
+        const now2 = nowISO();
         const slashAuditId = slashGateWaived ? null : db2.get(
           `SELECT id FROM audit
                WHERE event_type = 'roundtable_slash_invoked'
-                 AND created_at >= datetime('now', '-10 minutes')
+                 AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
                  AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
                ORDER BY created_at DESC
                LIMIT 1`
@@ -27334,7 +30689,7 @@ function roundtableTools(db2) {
         db2.run(
           `INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
            VALUES (?, ?, '', ?, 'collecting', ?)`,
-          [issueId, topic, now, expectedParticipants]
+          [issueId, topic, now2, expectedParticipants]
         );
         const row = db2.get(
           "SELECT * FROM roundtables WHERE rowid = last_insert_rowid()"
@@ -27347,7 +30702,7 @@ function roundtableTools(db2) {
             [row.id, slashAuditId]
           );
         }
-        return ok12({ roundtable_id: row.id, state: row.state });
+        return ok13({ roundtable_id: row.id, state: row.state });
       })
     ),
     roundtable_vote: requireRoles(
@@ -27366,10 +30721,10 @@ function roundtableTools(db2) {
           throw new Error("vote must be a non-empty string");
         }
         if (vote.length > 60) {
-          return err12(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
+          return err13(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
         }
         if (rationale.length > 120) {
-          return err12(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
+          return err13(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
         }
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
@@ -27384,11 +30739,11 @@ function roundtableTools(db2) {
             `invalid_state: roundtable ${roundtableId} is in state '${currentState}'; votes only allowed in collecting or awaiting_human`
           );
         }
-        const now = nowISO();
+        const now2 = nowISO();
         db2.run(
           `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at)
            VALUES (?, ?, ?, ?, ?)`,
-          [roundtableId, participant, vote, rationale, now]
+          [roundtableId, participant, vote, rationale, now2]
         );
         const row = db2.get(
           "SELECT * FROM roundtable_votes WHERE rowid = last_insert_rowid()"
@@ -27412,7 +30767,7 @@ function roundtableTools(db2) {
             }
           }
         }
-        return ok12({ vote_id: row.id, state: newState });
+        return ok13({ vote_id: row.id, state: newState });
       })
     ),
     roundtable_close: requireRoles(
@@ -27422,7 +30777,7 @@ function roundtableTools(db2) {
         normalizeAgent(args["agent"]);
         const roundtableId = requireArg10(args, "roundtable_id");
         const outcome = requireArg10(args, "outcome");
-        const skip = args["skip"] ?? false;
+        const skip2 = args["skip"] ?? false;
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -27430,14 +30785,14 @@ function roundtableTools(db2) {
         if (!roundtable) {
           throw new Error(`Not found: roundtable ${roundtableId}`);
         }
-        if (skip) {
-          const now2 = nowISO();
+        if (skip2) {
+          const now3 = nowISO();
           db2.run(
             `UPDATE roundtables SET state = 'skipped', outcome = ?, closed_at = ? WHERE id = ?`,
-            [outcome, now2, roundtableId]
+            [outcome, now3, roundtableId]
           );
           const updated2 = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-          return ok12({
+          return ok13({
             roundtable_id: updated2.id,
             state: updated2.state,
             closed_at: updated2.closed_at
@@ -27460,13 +30815,13 @@ function roundtableTools(db2) {
             );
           }
         }
-        const now = nowISO();
+        const now2 = nowISO();
         db2.run(
           `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
-          [outcome, now, roundtableId]
+          [outcome, now2, roundtableId]
         );
         const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-        return ok12({
+        return ok13({
           roundtable_id: updated.id,
           state: updated.state,
           closed_at: updated.closed_at
@@ -27506,36 +30861,36 @@ function roundtableTools(db2) {
           }
         }
         const issueId = roundtable.issue_id;
-        const now = nowISO();
+        const now2 = nowISO();
         let discussionRowsWritten = 0;
         let voteRowsWritten = 0;
         db2.transaction(() => {
           for (const agreement of ratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now2 });
             discussionRowsWritten++;
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
-              [roundtableId, `Ratified: ${agreement}`, now]
+              [roundtableId, `Ratified: ${agreement}`, now2]
             );
             voteRowsWritten++;
           }
           for (const agreement of unratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
           }
           for (const r of resolutions) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
-              [roundtableId, r.winning_stance, r.rationale ?? "", now]
+              [roundtableId, r.winning_stance, r.rationale ?? "", now2]
             );
             voteRowsWritten++;
           }
         });
-        return ok12({
+        return ok13({
           discussion_rows_written: discussionRowsWritten,
           vote_rows_written: voteRowsWritten,
           state: "awaiting_human"
@@ -27579,7 +30934,7 @@ function roundtableTools(db2) {
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
         }));
-        return ok12({
+        return ok13({
           topic: roundtable.topic,
           participants,
           agreements_ratified: answerRows,
@@ -27622,37 +30977,37 @@ function roundtableTools(db2) {
           }
         }
         const issueId = roundtable.issue_id;
-        const now = nowISO();
+        const now2 = nowISO();
         let discussionRowsWritten = 0;
         let voteRowsWritten = 0;
         db2.transaction(() => {
           for (const agreement of decisions.ratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now2 });
             discussionRowsWritten++;
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
-              [roundtableId, `Ratified: ${agreement}`, now]
+              [roundtableId, `Ratified: ${agreement}`, now2]
             );
             voteRowsWritten++;
           }
           for (const agreement of decisions.unratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
           }
           for (const r of decisions.resolutions) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
-              [roundtableId, r.winning_stance, r.rationale ?? "", now]
+              [roundtableId, r.winning_stance, r.rationale ?? "", now2]
             );
             voteRowsWritten++;
           }
           db2.run(
             `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
-            [outcome, now, roundtableId]
+            [outcome, now2, roundtableId]
           );
         });
         const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
@@ -27663,23 +31018,23 @@ function roundtableTools(db2) {
         ).map((r) => r.participant);
         const answerRows = db2.all(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
           [issueId, roundtable.created_at, updated.closed_at]
         ).map((r) => r.body);
         const noteRows = db2.all(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
           [issueId, roundtable.created_at, updated.closed_at]
         ).map((r) => r.body.replace(/^not ratified: /, ""));
         const decisionRows = db2.all(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
           [issueId, roundtable.created_at, updated.closed_at]
         );
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
         }));
-        return ok12({
+        return ok13({
           roundtable_id: updated.id,
           state: updated.state,
           closed_at: updated.closed_at,
@@ -27727,33 +31082,33 @@ function buildBotPatterns(configOverride) {
 }
 
 // src/tools/pr_monitor.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 
 // src/utils/untrusted.ts
 var UNTRUSTED_CLOSE = "</untrusted-content>";
 function frameUntrusted(source, content) {
-  const neutralized = content.split(UNTRUSTED_CLOSE).join("</ untrusted-content>");
+  const neutralized = content.replace(/<\s*\/\s*untrusted-content\s*>/gi, "</ untrusted-content>").replace(/<\s*untrusted-content(?=[\s>])[^>]*>/gi, "< untrusted-content>");
   return `<untrusted-content source="${source}">
 ${neutralized}
 ${UNTRUSTED_CLOSE}`;
 }
 
 // src/tools/pr_monitor.ts
-function ok13(data) {
+function ok14(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err13(message) {
+function err14(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap(fn) {
+function wrap2(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err13(e.message);
+      return err14(e.message);
     }
   };
 }
@@ -27762,29 +31117,19 @@ function defaultSpawnFn2(cmd, args, opts) {
   if (blockReason) {
     return { status: null, stdout: "", stderr: liveCliBlockedMessage(blockReason, cmd, args) };
   }
-  const result = spawnSync4(cmd, args, opts);
+  const result2 = spawnSync6(cmd, args, opts);
   return {
-    status: result.status,
-    stdout: result.stdout ? String(result.stdout) : "",
-    stderr: result.stderr ? String(result.stderr) : ""
+    status: result2.status,
+    stdout: result2.stdout ? String(result2.stdout) : "",
+    stderr: result2.stderr ? String(result2.stderr) : ""
   };
 }
 function repoNameForSlug(db2, slug) {
   if (!slug) return null;
-  const rows = db2.all(
-    `SELECT name, remotes FROM repos`
-  );
+  const rows = db2.all(`SELECT name FROM repos`);
   for (const row of rows) {
-    if (!row.remotes) continue;
-    let remotes;
-    try {
-      const parsed = JSON.parse(row.remotes);
-      remotes = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      continue;
-    }
-    for (const r of remotes) {
-      const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+    for (const r of repoRemotes(db2, row.name)) {
+      const full = repoSlugFromRemoteUrl(r.url);
       if (!full) continue;
       const bare = full.replace(/^[^/]+\//, "");
       if (slug === full || slug === bare) return row.name;
@@ -27795,18 +31140,60 @@ function repoNameForSlug(db2, slug) {
 function resolveMonitorTaskId(db2, branch, repoSlug) {
   if (!branch) return null;
   const repoName = repoNameForSlug(db2, repoSlug);
-  if (repoName) {
-    const scoped = db2.all(
-      `SELECT id FROM tasks WHERE branch_id = ? AND repo = ?`,
-      [branch, repoName]
-    );
-    if (scoped.length === 1) return scoped[0].id;
-  }
-  const rows = db2.all(
-    `SELECT id FROM tasks WHERE branch_id = ?`,
-    [branch]
-  );
+  const rows = repoName ? db2.all(
+    `SELECT id FROM tasks WHERE branch_id = ? AND (repo = ? OR repo IS NULL)`,
+    [branch, repoName]
+  ) : db2.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
   return rows.length === 1 ? rows[0].id : null;
+}
+function resolveCarrierIssueId(db2, prNumber, repo, headBranch) {
+  const repoName = repoNameForSlug(db2, repo);
+  const linkedParams = [prNumber];
+  if (repo !== "") linkedParams.push(repo);
+  if (repoName) linkedParams.push(repoName);
+  const linked = db2.get(
+    `SELECT t.issue_id
+       FROM pr_review_runs r
+       JOIN tasks t ON t.id = r.task_id
+      WHERE r.pr_number = ? ${repo !== "" ? "AND r.repo = ?" : ""}
+        ${repoName ? "AND (t.repo = ? OR t.repo IS NULL)" : ""}
+        AND t.status NOT IN ('failed','escalated')
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`,
+    linkedParams
+  );
+  if (linked) return linked.issue_id;
+  if (!headBranch) return null;
+  const byBranch = db2.get(
+    `SELECT issue_id FROM tasks
+      WHERE branch_id = ? ${repoName ? "AND (repo = ? OR repo IS NULL)" : ""}
+        AND status NOT IN ('failed','escalated')
+      ORDER BY updated_at DESC, id DESC LIMIT 1`,
+    repoName ? [headBranch, repoName] : [headBranch]
+  );
+  return byBranch?.issue_id ?? null;
+}
+function remoteCommentId(remoteKind, prNumber, commentId) {
+  return `${remoteKind}:${prNumber}:${commentId}`;
+}
+function persistComments(db2, prNumber, repo, fetchResult) {
+  const counts = { persisted: 0, duplicates: 0 };
+  const issueId = resolveCarrierIssueId(db2, prNumber, repo, fetchResult.head_branch);
+  if (issueId === null) return counts;
+  db2.transaction(() => {
+    for (const c of fetchResult.comments) {
+      if (!c.id || !c.body) continue;
+      const id = insertDiscussion(db2, {
+        issue_id: issueId,
+        author: c.author,
+        kind: "note",
+        body: `[PR #${prNumber} comment by ${c.author}] ${c.body}`,
+        remote_comment_id: remoteCommentId(fetchResult.remote_kind, prNumber, c.id)
+      });
+      if (id === null) counts.duplicates++;
+      else counts.persisted++;
+    }
+  });
+  return counts;
 }
 function normalizePrState(raw) {
   const lower = raw.toLowerCase();
@@ -27817,12 +31204,12 @@ function normalizePrState(raw) {
 function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
   const opts = { timeout: 15e3, encoding: "utf8" };
   const ghArgs = ["pr", "view", String(prNumber), "--json", "comments,state,reviews,headRefName"];
-  if (repo) ghArgs.splice(2, 0, "-R", repo);
-  const result = spawnFn("gh", ghArgs, opts);
-  if (result.status !== 0) return null;
+  ghArgs.splice(2, 0, "-R", repo);
+  const result2 = spawnFn("gh", ghArgs, opts);
+  if (result2.status !== 0) return null;
   let parsed;
   try {
-    parsed = JSON.parse(result.stdout);
+    parsed = JSON.parse(result2.stdout);
   } catch {
     return null;
   }
@@ -27866,12 +31253,12 @@ function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
 function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
   const opts = { timeout: 15e3, encoding: "utf8" };
   const glabArgs = ["mr", "view", String(prNumber), "--comments", "--output", "json"];
-  if (repo) glabArgs.splice(2, 0, "-R", repo);
-  const result = spawnFn("glab", glabArgs, opts);
-  if (result.status !== 0) return null;
+  glabArgs.splice(2, 0, "-R", repo);
+  const result2 = spawnFn("glab", glabArgs, opts);
+  if (result2.status !== 0) return null;
   let parsed;
   try {
-    parsed = JSON.parse(result.stdout);
+    parsed = JSON.parse(result2.stdout);
   } catch {
     return null;
   }
@@ -27913,7 +31300,7 @@ function prMonitorTools(db2, _spawnFn) {
   const definitions = [
     {
       name: "pr_monitor_comments_get",
-      description: "Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.",
+      description: "Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state. Persists each comment as a discussion on the issue of the task that owns the PR, deduped by remote comment id; `persisted` and `duplicates` count the new and already-stored comments.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27923,7 +31310,7 @@ function prMonitorTools(db2, _spawnFn) {
           },
           repo: {
             type: "string",
-            description: "Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo's remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace."
+            description: "Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo's remote slug; a named error is returned when no slug resolves or several repos are registered. The cwd git remote is never used."
           },
           since: {
             type: "string",
@@ -27951,10 +31338,10 @@ function prMonitorTools(db2, _spawnFn) {
     }
   ];
   const handlers = {
-    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap(async (args) => {
+    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap2(async (args) => {
       const prNumber = Number(args["pr_number"]);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
-        return err13("pr_number must be a positive integer");
+        return err14("pr_number must be a positive integer");
       }
       const explicitRepo = typeof args["repo"] === "string" && args["repo"].length > 0 ? args["repo"] : null;
       let repo;
@@ -27963,13 +31350,18 @@ function prMonitorTools(db2, _spawnFn) {
       } else {
         const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
         if (repoCount > 1) {
-          return err13(
+          return err14(
             'pr_monitor_comments_get: multiple repos registered and no repo slug given \u2014 pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.'
           );
         }
         const resolved = resolveRepoForSync(db2, null);
-        const slug = resolved ? resolved.remotes.map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
-        repo = slug ?? "";
+        const slug = resolved ? repoRemotes(db2, resolved.name).map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
+        if (slug === null) {
+          return err14(
+            resolved ? `pr_monitor_comments_get: repo "${resolved.name}" has no GitHub/GitLab remote slug \u2014 pass repo="owner/repo" or run /scan.` : 'pr_monitor_comments_get: no repo is registered \u2014 pass repo="owner/repo" or run /scan.'
+          );
+        }
+        repo = slug;
       }
       let since = typeof args["since"] === "string" ? args["since"] : void 0;
       if (since === void 0) {
@@ -27991,7 +31383,7 @@ function prMonitorTools(db2, _spawnFn) {
         } else {
           const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
           if (!glabAvail) {
-            return err13("Neither gh nor glab is installed/available; cannot fetch PR comments");
+            return err14("Neither gh nor glab is installed/available; cannot fetch PR comments");
           }
           backend = "glab";
         }
@@ -28012,9 +31404,9 @@ function prMonitorTools(db2, _spawnFn) {
       const botPatterns = buildBotPatterns(botsOverride);
       const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
       if (!fetchResult) {
-        return err13("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
+        return err14("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
-      const now = nowISO();
+      const now2 = nowISO();
       const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
       const taskId = resolveMonitorTaskId(db2, fetchResult.head_branch, repo);
       const existingCursor = db2.get(
@@ -28024,22 +31416,23 @@ function prMonitorTools(db2, _spawnFn) {
       if (existingCursor) {
         db2.run(
           "UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?",
-          [now, lastCommentId, taskId, existingCursor.id]
+          [now2, lastCommentId, taskId, existingCursor.id]
         );
       } else {
         db2.run(
           `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
            VALUES (?, ?, ?, ?, ?)`,
-          [prNumber, repo, now, lastCommentId, taskId]
+          [prNumber, repo, now2, lastCommentId, taskId]
         );
       }
-      return ok13(fetchResult);
+      const { persisted, duplicates } = persistComments(db2, prNumber, repo, fetchResult);
+      return ok14({ ...fetchResult, persisted, duplicates });
     })),
     pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args) => {
       const prFilter = args["pr_number"];
       const filterPrNumber = prFilter === void 0 || prFilter === null ? null : Number(prFilter);
       if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
-        return err13("pr_number must be a positive integer when provided");
+        return err14("pr_number must be a positive integer when provided");
       }
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
@@ -28050,7 +31443,7 @@ function prMonitorTools(db2, _spawnFn) {
           "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = ? ORDER BY repo",
           [filterPrNumber]
         );
-        return ok13({ rows: rows2, count: rows2.length });
+        return ok14({ rows: rows2, count: rows2.length });
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -28075,16 +31468,15 @@ function prMonitorTools(db2, _spawnFn) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ id: last.id })).toString("base64") : void 0;
-      return ok13({ rows, count: rows.length, next_cursor });
+      return ok14({ rows, count: rows.length, next_cursor });
     })
   };
   return { definitions, handlers };
 }
 
 // src/tools/composites.ts
-import { execFileSync } from "node:child_process";
-import { existsSync as existsSync3, realpathSync } from "node:fs";
-import { resolve as resolve3, dirname as dirname5 } from "node:path";
+import { execFileSync as execFileSync2 } from "node:child_process";
+import { existsSync as existsSync4, realpathSync as realpathSync3 } from "node:fs";
 var WORKTREE_TIMEOUT_MS = 6e4;
 function filesToDirs(files) {
   const dirs = /* @__PURE__ */ new Set();
@@ -28093,6 +31485,22 @@ function filesToDirs(files) {
     dirs.add(slash >= 0 ? path2.slice(0, slash) : "");
   }
   return [...dirs];
+}
+function insertEffortRaised(db2, task, from, to, agent, now2, failedTaskId) {
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: agent,
+    event_type: "task_effort_raised",
+    summary: `Task ${task.task_id} effort raised: ${from} \u2192 ${to}`,
+    content_json: JSON.stringify({
+      task_id: task.task_id,
+      from,
+      to,
+      ...failedTaskId !== void 0 ? { failed_task_id: failedTaskId } : {}
+    }),
+    created_at: now2
+  });
 }
 function parseTaskFiles(filesJson) {
   if (!filesJson) return [];
@@ -28103,14 +31511,42 @@ function parseTaskFiles(filesJson) {
     return [];
   }
 }
-function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
+function fileEntryDir(entry) {
+  if (entry.endsWith("/")) return entry.replace(/\/+$/, "");
+  const slash = entry.lastIndexOf("/");
+  return slash >= 0 ? entry.slice(0, slash) : entry;
+}
+function pathInFiles(path2, files) {
+  const dirs = files.map(fileEntryDir).filter((d) => d.length > 0);
+  if (dirs.some((d) => d === "tests" || d.startsWith("tests/"))) dirs.push("tests");
+  return dirs.some((d) => path2 === d || path2.startsWith(`${d}/`));
+}
+function scopeSurface(path2) {
+  const slash = path2.indexOf("/");
+  return slash > 0 ? path2.slice(0, slash) : "<root>";
+}
+function groupBySurface(paths) {
+  const groups = {};
+  for (const path2 of paths) {
+    const surface = scopeSurface(path2);
+    const group = groups[surface] ??= { count: 0, paths: [] };
+    group.count += 1;
+    group.paths.push(path2);
+  }
+  return groups;
+}
+function gitOut2(repoPath, args) {
+  return execFileSync2("git", ["-C", repoPath, ...args], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: SUBPROCESS_TIMEOUT_MS
+  }).toString().trim();
+}
+function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef = null) {
+  let mergeBase;
   let diffOut;
   try {
-    diffOut = execFileSync(
-      "git",
-      ["-C", repoPath, "diff", "--name-only", `${baseRef}...${commitSha}`],
-      { stdio: ["ignore", "pipe", "pipe"], timeout: SUBPROCESS_TIMEOUT_MS }
-    ).toString();
+    mergeBase = gitOut2(repoPath, ["merge-base", commitSha, targetRef]);
+    diffOut = gitOut2(repoPath, ["diff", "--name-only", mergeBase, commitSha]);
   } catch (e) {
     return {
       outOfScope: [],
@@ -28118,49 +31554,23 @@ function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
       reason: e.message.split("\n")[0] || "git diff failed"
     };
   }
-  const changed = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-  const exact = /* @__PURE__ */ new Set();
-  const prefixes = [];
-  for (const entry of files) {
-    if (entry.endsWith("/")) {
-      prefixes.push(entry);
-    } else {
-      exact.add(entry);
-      prefixes.push(`${entry}/`);
+  let recordedBase = mergeBase;
+  if (recordedBaseRef && recordedBaseRef !== targetRef) {
+    try {
+      recordedBase = gitOut2(repoPath, ["merge-base", commitSha, recordedBaseRef]);
+    } catch {
+      recordedBase = null;
     }
   }
-  const outOfScope = changed.filter((path2) => {
-    if (exact.has(path2)) return false;
-    return !prefixes.some((p) => path2.startsWith(p));
-  });
-  return { outOfScope, checked: true };
+  const outOfScope = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0 && !pathInFiles(l, files));
+  return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 function resolveRepoPath(db2, repoValue) {
   const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
   if (!name) return null;
   const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name]);
   if (!reposRow) return name;
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
-  return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
-}
-function resolveBaseRef(repoPath, base) {
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `origin/${base}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return `origin/${base}`;
-  } catch {
-  }
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${base}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return base;
-  } catch {
-    return null;
-  }
+  return repoRowPath(db2, reposRow.path);
 }
 function readRepoTargetBranch(db2, repoValue) {
   const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
@@ -28172,21 +31582,21 @@ function readRepoTargetBranch(db2, repoValue) {
   const v = row?.target_branch;
   return typeof v === "string" && v.length > 0 ? v : null;
 }
-function ok14(data) {
+function ok15(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err14(message) {
+function err15(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap2(fn) {
+function wrap3(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err14(e.message);
+      return err15(e.message);
     }
   };
 }
@@ -28215,14 +31625,14 @@ function intentToType(text) {
   }
   return { prefix: "chore", confidence: 0.3 };
 }
-function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
+function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now2) {
   const existing = db2.get(
     `SELECT id FROM discussions
       WHERE issue_id = ? AND kind = 'intent' AND body = ?
       LIMIT 1`,
     [issueId, `Human intent verbatim: "${intentVerbatim}"`]
   );
-  insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: noteLine, created_at: now });
+  insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: noteLine, created_at: now2 });
   const written = ["note"];
   if (!existing) {
     insertDiscussion(db2, {
@@ -28230,62 +31640,170 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
       author: "bro",
       kind: "intent",
       body: `Human intent verbatim: "${intentVerbatim}"`,
-      created_at: now
+      created_at: now2
     });
     written.push("intent");
   }
   return written;
 }
-function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast) {
-  db2.run(
-    `INSERT INTO audit
-       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-     VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`,
-    [
-      task.issue_id,
-      task.branch_id,
-      verificationSummary.slice(0, 200),
-      JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-      now
-    ]
-  );
+function closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, bypassClosedBy = null, scope = null) {
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: "bro",
+    event_type: "bro_verification_pass",
+    summary: verificationSummary.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, ...scope ? { scope } : {} }),
+    created_at: now2
+  });
+  let reviewGateBypassed = false;
+  if (bypassClosedBy !== null) {
+    reviewGateBypassed = recordReviewBypassIfUnreviewed(
+      db2,
+      { ...task, commit_sha: commitSha },
+      bypassClosedBy,
+      "bro",
+      now2
+    );
+  }
   db2.run(
     `UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
       WHERE id=?`,
-    [commitSha, now, now, task.id]
+    [commitSha, now2, now2, task.id]
   );
-  db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = COALESCE(
-              (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
-              0
-            )
-      WHERE task_id = ?
-        AND agent_type = 'bro'
-        AND completed_at IS NULL`,
-    [now, now, task.id]
-  );
+  closeOpenRunsForTask(db2, task.id, now2, "completed");
   let issueClosed = false;
+  let leftOpen = null;
   if (closeIssueIfLast) {
-    const remaining = db2.get(
-      `SELECT COUNT(*) AS c FROM tasks
-        WHERE issue_id = ?
-          AND status NOT IN ('closed', 'failed', 'escalated')`,
-      [task.issue_id]
-    );
-    if ((remaining?.c ?? 0) === 0) {
+    const live = liveTasksOfIssue(db2, task.issue_id);
+    const unreviewed = live.length === 0 ? closedTasksWithoutReview(db2, task.issue_id) : [];
+    if (live.length > 0) {
+      leftOpen = { reason: "issue_has_open_tasks", tasks: live.map((t) => ({ task_id: t.id, status: t.status })) };
+    } else if (unreviewed.length > 0) {
+      leftOpen = {
+        reason: "tasks_without_review",
+        tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
+        review_pending: true
+      };
+    } else {
       db2.run(
         `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
-        [now, now, task.issue_id]
+        [now2, now2, task.issue_id]
       );
       issueClosed = true;
     }
   }
-  return { issue_closed: issueClosed };
+  return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
 }
-function compositeTools(db2, dbPath2, graphHolder2 = null) {
+function outsideProjectResult(refusal2) {
+  return { content: [{ type: "text", text: JSON.stringify(refusal2) }], isError: true };
+}
+function taskWorktreePath(repoPath, branchId) {
+  return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
+}
+function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {
+  return execFileSync2("git", ["-C", repoPath, ...args], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout
+  }).toString().trim();
+}
+function refSha(repoPath, ref) {
+  try {
+    return git(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) || null;
+  } catch {
+    return null;
+  }
+}
+function isAncestor(repoPath, ancestor, descendant) {
+  try {
+    git(repoPath, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function refDistance(repoPath, baseRef, ref) {
+  try {
+    const [behind, ahead] = git(repoPath, ["rev-list", "--left-right", "--count", `${baseRef}...${ref}`]).split(/\s+/).map((n) => Number.parseInt(n, 10));
+    if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return null;
+    return { ahead, behind };
+  } catch {
+    return null;
+  }
+}
+function worktreeOfBranch(repoPath, branchId) {
+  let list;
+  try {
+    list = git(repoPath, ["worktree", "list", "--porcelain"]);
+  } catch {
+    return null;
+  }
+  let current = null;
+  for (const line of list.split("\n")) {
+    if (line.startsWith("worktree ")) current = line.slice("worktree ".length);
+    else if (line === `branch refs/heads/${branchId}` && current) return current;
+  }
+  return null;
+}
+function ensureTaskWorktree(repoPath, branchId) {
+  const worktreePath = taskWorktreePath(repoPath, branchId);
+  let reused = false;
+  if (existsSync4(worktreePath)) {
+    const canonicalWt = realpathSync3(worktreePath);
+    try {
+      reused = git(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
+    } catch {
+      reused = false;
+    }
+  }
+  if (!reused) {
+    git(repoPath, ["worktree", "add", worktreePath, branchId], WORKTREE_TIMEOUT_MS);
+  }
+  return { worktreePath, reused };
+}
+function openChangeRequestsForBranch(db2, repoName, repoPath, branchId, spawnFn) {
+  if (!repoName) return [];
+  const { gated, targets } = resolveMilestoneTargets(db2, repoName, spawnFn);
+  if (!gated) return [];
+  const spawn3 = spawnFn ?? defaultSpawnFn;
+  const found = [];
+  for (const target of targets) {
+    const args = target.backend === "gh" ? ["pr", "list", "--head", branchId, "--state", "open", "--json", "number,url", "--repo", target.slug] : ["mr", "list", "--source-branch", branchId, "--output", "json", "-R", target.slug];
+    try {
+      const res = spawn3(target.backend, args, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      if (res.status !== 0) continue;
+      const rows = JSON.parse(res.stdout || "[]");
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        const number3 = Number(row["number"] ?? row["iid"]);
+        const url2 = String(row["url"] ?? row["web_url"] ?? "");
+        if (Number.isFinite(number3)) found.push({ backend: target.backend, number: number3, url: url2 });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return found;
+}
+function validateFenceAdditions(value, field) {
+  if (value === void 0 || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array of strings.`);
+  for (const el of value) {
+    if (typeof el !== "string" || el.trim().length === 0) {
+      throw new Error(`${field} entries must each be a non-empty string.`);
+    }
+  }
+  return value;
+}
+function appendUnique(existing, additions) {
+  const out = [...existing];
+  for (const a of additions) if (!out.includes(a)) out.push(a);
+  return out;
+}
+var REOPENABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "closed", "failed", "escalated", "running"]);
+var SPEC_AMENDABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "needs_validation", "completed"]);
+function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRunContext(db2, dbPath2)) {
   const definitions = [
     {
       name: "branch_id_propose",
@@ -28328,7 +31846,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             description: 'Optional repo override \u2014 replaces the repo inherited from the failed task. Must not contain ".." or start with "/". Omit to inherit.'
           },
           title: { type: "string" },
-          description: { type: "string" }
+          description: { type: "string" },
+          effort: {
+            type: "string",
+            enum: [...EFFORT_LEVELS],
+            description: "Optional effort for the retry task (e.g. 'high'); omit to run the retry at high (rework)."
+          },
+          session_id: RUN_SESSION_ID_SCHEMA
         },
         required: [
           "agent",
@@ -28350,7 +31874,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           objective: { type: "string", description: "Short one-liner issue objective." },
           intent_verbatim: { type: "string", description: "Human intent verbatim \u2014 stored as kind=intent discussion." },
           branch_id: { type: "string", description: "Confirmed branch_id (from branch_id_propose + Human confirm)." },
-          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create." }
+          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create." },
+          labels: { type: "array", items: { type: "string" }, description: "Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row." }
         },
         required: ["agent", "objective", "intent_verbatim", "branch_id"]
       }
@@ -28377,7 +31902,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     },
     {
       name: "pr_monitor_worktree",
-      description: "PR-review worktree composite \u2014 creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.",
+      description: "PR-review worktree composite \u2014 creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28417,7 +31942,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     },
     {
       name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
+      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
       inputSchema: {
         type: "object",
         properties: {
@@ -28430,11 +31955,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           },
           close_issue_if_last_task: {
             type: "boolean",
-            description: "When true and this is the issue's last open task, also close the issue in the same transaction."
+            description: "When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. Before pr-reviewer has passed this task the issue stays open (tasks_without_review, review_pending)."
           },
           waive_scope_gate: {
             type: "boolean",
-            description: "When true, SKIP the server-side files[] scope gate (the close-time check that the commit's changed files all fall within the task's typed files[]) and record a waive note. Use only when closing intentionally outside a resolvable git checkout, or when the out-of-scope paths are accepted. Default false (gate enforced, fail-closed)."
+            description: "When true, accept the task's changed paths outside its typed files[] (the close-time scope gate diffs merge-base(commit, origin/<pr_target>)..commit against files[]) and close; requires scope_waiver_reason. The scope_gate_waived audit row records accepted_paths, reason, base_moved, recorded_base, merge_base. Also closes when the repo/commit cannot be resolved. Default false (gate enforced, fail-closed)."
+          },
+          scope_waiver_reason: {
+            type: "string",
+            description: "Required with waive_scope_gate (at least 10 characters): why bro accepts the extra paths."
           }
         },
         required: ["agent", "task_id", "commit_sha", "verification_summary"]
@@ -28442,12 +31971,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     },
     {
       name: "task_recover",
-      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op.",
+      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed. Returns {tasks_swept, runs_swept, reported} (plus the recovery result when task_id is given).",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          task_id: { type: "string" },
+          task_id: { type: "string", description: "Optional. Omit to run only the stale sweep." },
           commit_sha: {
             type: "string",
             description: "Optional 7..40-char hex SHA of the recovered work. Required to advance to closed."
@@ -28458,15 +31987,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           },
           close_issue_if_last_task: {
             type: "boolean",
-            description: "When true and this is the issue's last open task, also close the issue in the same transaction."
+            description: "When true, also close the issue in the same transaction under the issue_close rules (no live task, no closed task without a passing review or recorded bypass); otherwise issue_left_open says why."
           }
         },
-        required: ["agent", "task_id"]
+        required: ["agent"]
       }
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and creates the branch ref (idempotent) BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28479,8 +32008,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           },
           base: {
             type: "string",
-            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'."
+            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch, else its default branch (origin/HEAD)."
           },
+          reuse_existing: {
+            type: "boolean",
+            description: "Keep an existing branch_id that has diverged from base as-is instead of refusing with branch_exists_diverged."
+          },
+          session_id: RUN_SESSION_ID_SCHEMA,
           waive_registry_gate: {
             type: "boolean",
             description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run."
@@ -28488,6 +32022,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           waive_registry_gate_reason: {
             type: "string",
             description: "Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary."
+          },
+          waive_spec_shape: {
+            type: "boolean",
+            description: "Record a spec_shape_gate_waived row for the task, which opens the require-task-spec spawn gate (Writer:/Populated: lines) for it."
+          },
+          waive_spec_shape_reason: {
+            type: "string",
+            description: "Required when waive_spec_shape is true (min 10 chars): why the spec needs no Writer:/Populated: lines."
           },
           task: {
             type: "object",
@@ -28502,7 +32044,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
               files: {
                 type: "array",
                 items: { type: "string" },
-                description: "Authoritative allowlist of paths SWE may edit (swe-scope-fence hook)."
+                description: "The task's expected scope at directory granularity; writes outside it are noted to the swe and judged at bro_atomic_close."
               },
               verification: {
                 type: "array",
@@ -28516,6 +32058,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
               prompt_bearing: {
                 type: "number",
                 description: "Set to 1 when this task intentionally edits prompt-surface files. Default 0."
+              },
+              effort: {
+                type: "string",
+                enum: [...EFFORT_LEVELS],
+                description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 computed: default from plugin_config.swe_default_effort (medium when unset); high for prompt-bearing tasks, files[] touching plugin_config.high_effort_paths, and rework."
               }
             },
             required: ["description", "spec_body", "files", "verification"]
@@ -28525,8 +32072,56 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
       }
     },
     {
+      name: "task_reopen",
+      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          task_id: { type: "number", description: "Task to reopen." },
+          reason: { type: "string", description: "Why the task is reopened (e.g. the review finding); stored on the decision discussion and the audit row." },
+          files_add: {
+            type: "array",
+            items: { type: "string" },
+            description: "Paths appended to the task files[] fence (duplicates ignored)."
+          },
+          verification_add: {
+            type: "array",
+            items: { type: "string" },
+            description: "Commands appended to the task verification[] list (duplicates ignored)."
+          },
+          effort: {
+            type: "string",
+            enum: [...EFFORT_LEVELS],
+            description: "Optional new effort for the rework (e.g. 'high'); omit to run the rework at high."
+          },
+          session_id: RUN_SESSION_ID_SCHEMA
+        },
+        required: ["agent", "task_id", "reason"]
+      }
+    },
+    {
+      name: "task_update_spec",
+      description: "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (each optional, at least one), writes a kind='decision' discussion + a task_spec_amended audit row with an old\u2192new summary. The scope fence and verification gate read the amended values on their next run. Returns {task_id, changed, files, verification}.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          task_id: { type: "number", description: "Task to amend." },
+          reason: { type: "string", description: "Why the spec changes; stored on the decision discussion and the audit row." },
+          files: { type: "array", items: { type: "string" }, description: "Replacement files[] fence (non-empty)." },
+          verification: { type: "array", items: { type: "string" }, description: "Replacement verification[] commands (non-empty)." },
+          spec_body: {
+            type: "string",
+            description: `Replacement spec_body; max ${SPEC_BODY_MAX_BYTES} chars, must contain a ## Success Criteria H2.`
+          }
+        },
+        required: ["agent", "task_id", "reason"]
+      }
+    },
+    {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28541,35 +32136,39 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     task_provision: requireRoles(
       "task_provision",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const agent = args["agent"] ?? "bro";
         const issueId = args["issue_id"];
         const branchId = args["branch_id"];
         const decisionBody = args["decision_body"];
         const task = args["task"];
+        parseRunSessionId(args["session_id"]);
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
-          return err14("issue_id must be a number");
+          return err15("issue_id must be a number");
+        }
+        if (issueId === -1) {
+          return err15("system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.");
         }
         if (!branchId || typeof branchId !== "string") {
-          return err14("branch_id must be a non-empty string");
+          return err15("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
+          return err15(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
         }
         if (!decisionBody || decisionBody.trim().length === 0) {
-          return err14("decision_body must be a non-empty string");
+          return err15("decision_body must be a non-empty string");
         }
         if (!task || typeof task !== "object") {
-          return err14("task must be an object");
+          return err15("task must be an object");
         }
         if (!task.description || task.description.trim().length === 0) {
-          return err14("task.description must be a non-empty string");
+          return err15("task.description must be a non-empty string");
         }
         if (!task.spec_body || typeof task.spec_body !== "string") {
-          return err14("task.spec_body must be a non-empty string");
+          return err15("task.spec_body must be a non-empty string");
         }
         if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
-          return err14(
+          return err15(
             `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
           );
         }
@@ -28588,20 +32187,35 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const verification = validateStrArray(task.verification, "verification");
         let repoValue = null;
         if (task.repo !== void 0 && task.repo !== null && task.repo !== "") {
-          if (typeof task.repo !== "string") return err14("task.repo must be a string");
-          if (task.repo.includes("..")) return err14(`Invalid repo "${task.repo}": must not contain "..".`);
-          if (task.repo.startsWith("/")) return err14(`Invalid repo "${task.repo}": must not start with "/".`);
+          if (typeof task.repo !== "string") return err15("task.repo must be a string");
+          if (task.repo.includes("..")) return err15(`Invalid repo "${task.repo}": must not contain "..".`);
+          if (task.repo.startsWith("/")) return err15(`Invalid repo "${task.repo}": must not start with "/".`);
           repoValue = task.repo;
         } else {
           repoValue = resolveSoleRepo(db2)?.name ?? null;
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
+        if (task.effort !== void 0 && task.effort !== null && !isEffort(task.effort)) {
+          return err15(
+            `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(task.effort)}.`
+          );
+        }
+        const { effort, reason: effortReason } = computeEffort(db2, {
+          effort: task.effort,
+          prompt_bearing: promptBearing,
+          files
+        });
         const slug = branchId.replace(/^[^/]+\//, "");
+        const specShapeWaived = args["waive_spec_shape"] === true;
+        const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
+        if (specShapeWaived && (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10)) {
+          return err15("waive_spec_shape_reason must be a string \u226510 chars.");
+        }
         const registryGateWaived = args["waive_registry_gate"] === true;
         const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
         if (registryGateWaived) {
           if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-            return err14("waive_registry_gate_reason must be a string \u226510 chars.");
+            return err15("waive_registry_gate_reason must be a string \u226510 chars.");
           }
         } else {
           const scanRow = db2.get(
@@ -28629,55 +32243,97 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             [repoValue]
           );
           if (reposRow) {
-            const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
-            repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
+            repoPath = repoRowPath(db2, reposRow.path);
           } else {
-            return err14(
+            return err15(
               `task_provision: repo '${repoValue}' is not registered (no repos row). Run /scan or pass a registered task.repo \u2014 tasks.repo is a foreign key to repos(name). No task row or branch was created.`
             );
           }
         }
         if (!repoPath) {
-          return err14(
+          return err15(
             `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
           );
         }
-        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
-        let branchReused = true;
-        try {
-          execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branchId}`], {
-            stdio: ["ignore", "pipe", "pipe"],
-            timeout: SUBPROCESS_TIMEOUT_MS
-          });
-        } catch {
-          branchReused = false;
+        for (const path2 of [repoPath, taskWorktreePath(repoPath, branchId)]) {
+          const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
+          if (refusal2) return outsideProjectResult(refusal2);
         }
-        if (!branchReused) {
-          const resolvedBaseRef = resolveBaseRef(repoPath, base);
-          if (!resolvedBaseRef) {
-            return err14(
-              `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
+        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? resolveRepoDefaultBranch(repoPath));
+        const reuseExisting = args["reuse_existing"] === true;
+        const localRef = `refs/heads/${branchId}`;
+        const originRef = `refs/remotes/origin/${branchId}`;
+        const localSha = refSha(repoPath, localRef);
+        const originSha = refSha(repoPath, originRef);
+        const branchExists2 = localSha !== null || originSha !== null;
+        const resolvedBaseRef = resolveBaseRef(repoPath, base);
+        if (!resolvedBaseRef && !(branchExists2 && reuseExisting)) {
+          return err15(
+            `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
+          );
+        }
+        const gitFailure = (what, e) => err15(
+          `task_provision: ${what} in repo '${repoValue}' (${e.message.split("\n")[0] || "git failed"}). No task row was created \u2014 retry with the same branch_id.`
+        );
+        if (!branchExists2) {
+          try {
+            git(repoPath, ["branch", branchId, resolvedBaseRef]);
+          } catch (e) {
+            return gitFailure(`failed to create branch '${branchId}' from '${resolvedBaseRef}'`, e);
+          }
+        } else {
+          const diverged = resolvedBaseRef ? [localSha ? localRef : null, originSha ? originRef : null].filter((r) => r !== null).find((r) => !isAncestor(repoPath, r, resolvedBaseRef)) : void 0;
+          if (diverged && !reuseExisting) {
+            const distance = refDistance(repoPath, resolvedBaseRef, diverged);
+            const openPrs = openChangeRequestsForBranch(
+              db2,
+              repoValue,
+              repoPath,
+              branchId,
+              args["_spawnFn"]
             );
+            const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(", ")}.` : "";
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    error: "branch_exists_diverged",
+                    branch_id: branchId,
+                    ref: diverged,
+                    base: resolvedBaseRef,
+                    ahead: distance?.ahead ?? null,
+                    behind: distance?.behind ?? null,
+                    open_prs: openPrs,
+                    message: `task_provision: branch '${branchId}' already exists and '${diverged}' has diverged from '${resolvedBaseRef}' (${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : "distance unknown"}).${prNote} Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is. No task row was created.`
+                  })
+                }
+              ]
+            };
           }
           try {
-            execFileSync("git", ["-C", repoPath, "branch", branchId, resolvedBaseRef], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: SUBPROCESS_TIMEOUT_MS
-            });
+            if (diverged || !resolvedBaseRef) {
+              if (!localSha) git(repoPath, ["branch", branchId, originRef]);
+            } else if (!localSha) {
+              git(repoPath, ["branch", branchId, resolvedBaseRef]);
+            } else if (localSha !== refSha(repoPath, resolvedBaseRef)) {
+              const checkedOutAt = worktreeOfBranch(repoPath, branchId);
+              if (checkedOutAt) git(checkedOutAt, ["merge", "--ff-only", "--quiet", resolvedBaseRef]);
+              else git(repoPath, ["branch", "-f", branchId, resolvedBaseRef]);
+            }
           } catch (e) {
-            return err14(
-              `task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
-            );
+            return gitFailure(`failed to fast-forward existing branch '${branchId}' to '${resolvedBaseRef ?? base}'`, e);
           }
         }
-        const now = nowISO();
-        const result = db2.transaction(() => {
-          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now });
+        const now2 = nowISO();
+        const result2 = db2.transaction(() => {
+          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now2 });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
@@ -28689,102 +32345,301 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
               promptBearing,
               JSON.stringify(files),
               JSON.stringify(verification),
-              now,
-              now
+              effort,
+              now2,
+              now2
             ]
           );
           const row = db2.get(
-            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
+            "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
-          db2.run(
-            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`,
-            [row.id, issueId, now]
-          );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              agent,
-              `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
-              JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: branchId,
+            from_node: agent,
+            event_type: "planning_complete",
+            summary: `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
+            content_json: JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
+            created_at: now2
+          });
           if (registryGateWaived) {
-            db2.run(
-              `INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
-              [
-                issueId,
-                branchId,
-                agent,
-                registryGateWaiverReason.slice(0, 200),
-                JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
-                now
-              ]
-            );
+            insertAudit(db2, {
+              issue_id: issueId,
+              branch_id: branchId,
+              from_node: agent,
+              event_type: "registry_gate_waived",
+              summary: registryGateWaiverReason.slice(0, 200),
+              content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+              created_at: now2
+            });
+          }
+          if (specShapeWaived) {
+            insertSpecShapeWaiver(db2, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, "task_provision", now2);
           }
           return { task_id: row.id };
         });
-        let gitSetup = "created";
+        let gitSetup = branchExists2 ? "reused" : "created";
+        let worktreeReused = false;
         let diagnostic;
-        const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
+        const worktreePath = taskWorktreePath(repoPath, branchId);
         try {
-          let worktreeReused = false;
-          if (existsSync3(worktreePath)) {
-            const canonicalWt = realpathSync(worktreePath);
-            try {
-              const list = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
-                stdio: ["ignore", "pipe", "pipe"],
-                timeout: SUBPROCESS_TIMEOUT_MS
-              }).toString();
-              worktreeReused = list.split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
-            } catch {
-              worktreeReused = false;
-            }
-          }
-          if (!worktreeReused) {
-            execFileSync("git", ["-C", repoPath, "worktree", "add", worktreePath, branchId], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: WORKTREE_TIMEOUT_MS
-            });
-          }
-          gitSetup = branchReused && worktreeReused ? "reused" : "created";
+          worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
         } catch (e) {
           gitSetup = "error";
           diagnostic = e.message;
         }
-        return ok14({
-          task_id: result.task_id,
+        return ok15({
+          task_id: result2.task_id,
           branch_id: branchId,
           repo: repoValue,
           slug,
+          effort,
+          effort_reason: effortReason,
           worktree_path: worktreePath,
           git_setup: gitSetup,
+          worktree_reused: worktreeReused,
           ...diagnostic ? { diagnostic } : {}
         });
+      })
+    ),
+    task_reopen: requireRoles(
+      "task_reopen",
+      ["bro"],
+      wrap3(async (args) => {
+        const agent = args["agent"] ?? "bro";
+        const taskId = Number(args["task_id"]);
+        const reason = args["reason"];
+        if (!Number.isInteger(taskId)) return err15("task_id must be a number");
+        if (typeof reason !== "string" || reason.trim().length === 0) {
+          return err15("reason must be a non-empty string");
+        }
+        parseRunSessionId(args["session_id"]);
+        const filesAdd = validateFenceAdditions(args["files_add"], "files_add");
+        const verificationAdd = validateFenceAdditions(args["verification_add"], "verification_add");
+        const effortArg = args["effort"];
+        if (effortArg !== void 0 && !isEffort(effortArg)) {
+          return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+        }
+        const task = db2.get(
+          `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
+             FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
+          [taskId]
+        );
+        if (!task) return err15(`task_reopen: task ${taskId} not found`);
+        if (!REOPENABLE_STATUSES.has(task.status)) {
+          return err15(
+            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. Amend a live task's spec with task_update_spec.`
+          );
+        }
+        if (task.issue_status === "closed") {
+          return err15(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+        }
+        const repoPath = resolveRepoPath(db2, task.repo);
+        if (repoPath) {
+          for (const path2 of [repoPath, taskWorktreePath(repoPath, task.branch_id)]) {
+            const refusal2 = outsideProject("task_reopen", runContext.projectRoot, path2);
+            if (refusal2) return outsideProjectResult(refusal2);
+          }
+        }
+        const files = appendUnique(parseTaskFiles(task.files), filesAdd);
+        const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+        const { effort } = computeEffort(db2, {
+          effort: effortArg,
+          prompt_bearing: 0,
+          files,
+          rework: true,
+          current: task.effort
+        });
+        const now2 = nowISO();
+        db2.transaction(() => {
+          db2.run(
+            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
+            [JSON.stringify(files), JSON.stringify(verification), effort, now2, taskId]
+          );
+          const fenceLines = [
+            filesAdd.length > 0 ? `files[] += ${filesAdd.join(", ")}` : null,
+            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(" ; ")}` : null,
+            effort !== task.effort ? `effort: ${task.effort} \u2192 ${effort}` : null
+          ].filter((l) => l !== null);
+          insertDiscussion(db2, {
+            issue_id: task.issue_id,
+            author: agent,
+            kind: "decision",
+            body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join("\n"),
+            created_at: now2
+          });
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: agent,
+            event_type: "task_reopened",
+            summary: `Task ${taskId} reopened from ${task.status}: ${reason}`.slice(0, 200),
+            content_json: JSON.stringify({
+              task_id: taskId,
+              from_status: task.status,
+              reason,
+              files_add: filesAdd,
+              verification_add: verificationAdd
+            }),
+            created_at: now2
+          });
+          if (effortRank(effort) > effortRank(task.effort)) {
+            insertEffortRaised(db2, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now2);
+          }
+        });
+        let worktreePath = null;
+        let worktreeRecreated = false;
+        let diagnostic;
+        if (repoPath) {
+          try {
+            if (!refSha(repoPath, `refs/heads/${task.branch_id}`) && refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
+              git(repoPath, ["branch", task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
+            }
+            const wt = ensureTaskWorktree(repoPath, task.branch_id);
+            worktreePath = wt.worktreePath;
+            worktreeRecreated = !wt.reused;
+          } catch (e) {
+            worktreePath = taskWorktreePath(repoPath, task.branch_id);
+            diagnostic = e.message;
+          }
+        } else {
+          diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ""}'; worktree not checked`;
+        }
+        return ok15({
+          task_id: taskId,
+          from_status: task.status,
+          status: "running",
+          files,
+          verification,
+          effort,
+          worktree_path: worktreePath,
+          worktree_recreated: worktreeRecreated,
+          ...diagnostic ? { diagnostic } : {}
+        });
+      })
+    ),
+    task_update_spec: requireRoles(
+      "task_update_spec",
+      ["bro"],
+      wrap3(async (args) => {
+        const agent = args["agent"] ?? "bro";
+        const taskId = Number(args["task_id"]);
+        const reason = args["reason"];
+        if (!Number.isInteger(taskId)) return err15("task_id must be a number");
+        if (typeof reason !== "string" || reason.trim().length === 0) {
+          return err15("reason must be a non-empty string");
+        }
+        const replacement = (field) => {
+          if (args[field] === void 0) return void 0;
+          const value = validateFenceAdditions(args[field], field);
+          if (value.length === 0) throw new Error(`${field} must be a non-empty array of strings.`);
+          return value;
+        };
+        const newFiles = replacement("files");
+        const newVerification = replacement("verification");
+        const newSpec = args["spec_body"];
+        if (newSpec !== void 0) {
+          if (typeof newSpec !== "string" || newSpec.trim().length === 0) {
+            return err15("spec_body must be a non-empty string");
+          }
+          if (newSpec.length > SPEC_BODY_MAX_BYTES) {
+            return err15(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
+          }
+          if (!/^## Success Criteria\s*$/m.test(newSpec)) {
+            return err15("spec_body must contain a ## Success Criteria H2 section.");
+          }
+        }
+        if (newFiles === void 0 && newVerification === void 0 && newSpec === void 0) {
+          return err15("task_update_spec: pass at least one of files, verification, spec_body");
+        }
+        const task = db2.get(`SELECT id, issue_id, branch_id, status, files, verification, spec_body FROM tasks WHERE id = ?`, [taskId]);
+        if (!task) return err15(`task_update_spec: task ${taskId} not found`);
+        if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
+          return err15(
+            `task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`
+          );
+        }
+        const oldFiles = parseTaskFiles(task.files);
+        const oldVerification = parseTaskFiles(task.verification);
+        const diffSummary = (oldList, newList) => ({
+          added: newList.filter((x) => !oldList.includes(x)),
+          removed: oldList.filter((x) => !newList.includes(x))
+        });
+        const changes = {};
+        if (newFiles !== void 0) changes["files"] = diffSummary(oldFiles, newFiles);
+        if (newVerification !== void 0) changes["verification"] = diffSummary(oldVerification, newVerification);
+        if (newSpec !== void 0) {
+          changes["spec_body"] = { old_length: (task.spec_body ?? "").length, new_length: newSpec.length };
+        }
+        const changed = Object.keys(changes);
+        const summaryParts = changed.map((field) => {
+          const c = changes[field];
+          return field === "spec_body" ? `spec_body ${c.old_length}\u2192${c.new_length} chars` : `${field} +${c.added.length}/-${c.removed.length}`;
+        });
+        const files = newFiles ?? oldFiles;
+        const verification = newVerification ?? oldVerification;
+        const now2 = nowISO();
+        db2.transaction(() => {
+          db2.run(
+            `UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`,
+            [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now2, taskId]
+          );
+          insertDiscussion(db2, {
+            issue_id: task.issue_id,
+            author: agent,
+            kind: "decision",
+            body: `Task ${taskId} spec amended (${summaryParts.join("; ")}): ${reason}`,
+            created_at: now2
+          });
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: agent,
+            event_type: "task_spec_amended",
+            summary: `Task ${taskId} spec amended: ${summaryParts.join("; ")}`.slice(0, 200),
+            content_json: JSON.stringify({ task_id: taskId, status: task.status, reason, changes }),
+            created_at: now2
+          });
+        });
+        return ok15({ task_id: taskId, changed, files, verification });
       })
     ),
     task_brief: requireRoles(
       "task_brief",
       ["bro", "swe", "pr-reviewer"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
-        if (taskId === void 0 || taskId === null) return err14("task_id is required");
+        if (taskId === void 0 || taskId === null) return err15("task_id is required");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  i.objective
+                  t.effort, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
+        if (normalizeAgent(args["agent"]) === "swe") {
+          const repoPath = resolveRepoPath(db2, task.repo);
+          openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null);
+          const sentinel = db2.get(
+            `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`,
+            [task.id]
+          );
+          if (!sentinel || sentinel.n === 0) {
+            insertAudit(db2, {
+              issue_id: task.issue_id,
+              branch_id: task.branch_id,
+              from_node: "swe",
+              writer: "swe",
+              event_type: "swe_brief_fetched",
+              summary: `SWE fetched task_brief for task_id=${task.id}`,
+              content_json: JSON.stringify({ task_id: task.id, agent_type: "swe" }),
+              created_at: nowISO(),
+              repo: task.repo
+            });
+          }
+        }
         let repo = task.repo ?? "";
         if (!repo) {
           repo = resolveSoleRepo(db2)?.name ?? "";
@@ -28836,7 +32691,20 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             truncated: true
           };
         });
-        return ok14({
+        const closeRow = db2.get(
+          `SELECT content_json FROM audit
+            WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
+              AND json_extract(content_json, '$.task_id') = ?
+            ORDER BY created_at DESC, id DESC LIMIT 1`,
+          [task.id]
+        );
+        const closeScope = closeRow?.content_json ? JSON.parse(closeRow.content_json).scope ?? null : null;
+        const scope = {
+          files: parseTaskFiles(task.files),
+          extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
+          base_moved: closeScope ? closeScope.base_moved === true : null
+        };
+        return ok15({
           task_id: task.id,
           issue_id: task.issue_id,
           branch_id: task.branch_id,
@@ -28845,9 +32713,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           status: task.status,
           commit_sha: task.commit_sha,
           repo,
+          effort: task.effort,
           spec_body: task.spec_body,
           files: parseTaskFiles(task.files),
           verification: parseTaskFiles(task.verification),
+          scope,
+          verification_run: latestVerificationRun(db2, task.id),
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
           task_discussions
@@ -28857,27 +32728,28 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     branch_id_propose: requireRoles(
       "branch_id_propose",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const intent = args["intent"];
         if (typeof intent !== "string" || intent.trim().length === 0) {
-          return err14("intent must be a non-empty string");
+          return err15("intent must be a non-empty string");
         }
         const objective = args["objective"] ?? intent;
         const { prefix, confidence } = intentToType(intent);
         const slug = slugify2(objective) || slugify2(intent) || "task";
         const branchId = `${prefix}/${slug}`;
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(
+          return err15(
             `Derived branch_id "${branchId}" does not match the conventional regex. Pick a clearer objective and re-call.`
           );
         }
-        return ok14({ branch_id: branchId, confidence });
+        return ok15({ branch_id: branchId, confidence });
       })
     ),
     task_retry: requireRoles(
       "task_retry",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
+        const agent = args["agent"] ?? "bro";
         const failedTaskId = args["failed_task_id"];
         const newBranchId = args["new_branch_id"];
         const spec = args["corrected_spec_body"];
@@ -28885,36 +32757,42 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const description = args["description"];
         const title = args["title"] ?? "";
         const repoOverride = args["repo"] ?? null;
+        parseRunSessionId(args["session_id"]);
+        const effortArg = args["effort"];
+        if (effortArg !== void 0 && !isEffort(effortArg)) {
+          return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+        }
         if (!BRANCH_ID_RE.test(newBranchId)) {
-          return err14(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
+          return err15(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
         if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
-          return err14(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
+          return err15(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
         }
         if (!rationale || rationale.length > 200) {
-          return err14("retry_rationale must be 1..200 chars.");
+          return err15("retry_rationale must be 1..200 chars.");
         }
         if (repoOverride !== null) {
           if (repoOverride.includes("..")) {
-            return err14(`Invalid repo "${repoOverride}": must not contain "..".`);
+            return err15(`Invalid repo "${repoOverride}": must not contain "..".`);
           }
           if (repoOverride.startsWith("/")) {
-            return err14(`Invalid repo "${repoOverride}": must not start with "/".`);
+            return err15(`Invalid repo "${repoOverride}": must not start with "/".`);
           }
         }
         const failed = db2.get(
-          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status
+          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
+                  files, verification, prompt_bearing, effort
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
-        if (!failed) return err14(`No task with id=${failedTaskId}`);
+        if (!failed) return err15(`No task with id=${failedTaskId}`);
         if (failed.status !== "failed" && failed.status !== "escalated") {
-          return err14(
+          return err15(
             `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry only operates on terminally-failed tasks.`
           );
         }
         if (failed.branch_id === newBranchId) {
-          return err14("new_branch_id must differ from the failed task's branch_id.");
+          return err15("new_branch_id must differ from the failed task's branch_id.");
         }
         {
           const RETRY_CAP = 3;
@@ -28934,25 +32812,32 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             depth++;
           }
           if (depth >= RETRY_CAP) {
-            return err14(
+            return err15(
               `retry limit reached (3) \u2014 escalate to Human. Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. Use discussion_append(kind='question') to involve the Human before retrying further.`
             );
           }
         }
-        const now = nowISO();
-        const result = db2.transaction(() => {
+        const { effort } = computeEffort(db2, {
+          effort: effortArg,
+          prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+          files: parseTaskFiles(failed.files),
+          rework: true,
+          current: failed.effort
+        });
+        const now2 = nowISO();
+        const result2 = db2.transaction(() => {
           insertDiscussion(db2, {
             issue_id: failed.issue_id,
             author: "bro",
             kind: "decision",
             body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
-            created_at: now
+            created_at: now2
           });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -28961,75 +32846,81 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
               description,
               spec,
               repoOverride ?? failed.repo,
-              now,
-              now
+              failed.prompt_bearing,
+              failed.files,
+              failed.verification,
+              effort,
+              now2,
+              now2
             ]
           );
           const newTask = db2.get(
-            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
+            "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!newTask) throw new Error("insert succeeded but row lookup failed");
-          db2.run(
-            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`,
-            [newTask.id, failed.issue_id, now]
-          );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`,
-            [
-              failed.issue_id,
-              newBranchId,
-              `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
-              JSON.stringify({
-                failed_task_id: failed.id,
-                new_task_id: newTask.id,
-                new_branch_id: newBranchId
-              }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: failed.issue_id,
+            branch_id: newBranchId,
+            from_node: agent,
+            event_type: "task_retry_attempted",
+            summary: `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
+            content_json: JSON.stringify({
+              failed_task_id: failed.id,
+              new_task_id: newTask.id,
+              new_branch_id: newBranchId
+            }),
+            created_at: now2
+          });
+          if (effortRank(effort) > effortRank(failed.effort)) {
+            insertEffortRaised(db2, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, agent, now2, failed.id);
+          }
           return newTask;
         });
-        return ok14({ task_id: result.id, branch_id: result.branch_id });
+        return ok15({ task_id: result2.id, branch_id: result2.branch_id, effort });
       })
     ),
     intent_start: requireRoles(
       "intent_start",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const objective = args["objective"];
         const intentVerbatim = args["intent_verbatim"];
         const branchId = args["branch_id"];
         if (!objective || objective.trim().length === 0) {
-          return err14("objective must be a non-empty string");
+          return err15("objective must be a non-empty string");
         }
         if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err14("intent_verbatim must be a non-empty string");
+          return err15("intent_verbatim must be a non-empty string");
         }
         if (!branchId || branchId.trim().length === 0) {
-          return err14("branch_id must be a non-empty string");
+          return err15("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(`branch_id "${branchId}" does not match the conventional format.`);
+          return err15(`branch_id "${branchId}" does not match the conventional format.`);
         }
         const explicitRepoRaw = args["repo"];
         const explicitRepo = typeof explicitRepoRaw === "string" && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
         if (explicitRepo !== null) {
           const repoRow = db2.get(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
           if (!repoRow) {
-            return err14(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
+            return err15(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
           }
         }
-        const now = nowISO();
+        const suppliedLabels = args["labels"];
+        if (suppliedLabels !== void 0) {
+          const labelError = validateIssueLabels(db2, suppliedLabels);
+          if (labelError !== null) return err15(labelError);
+        }
+        const labels = suppliedLabels ?? defaultSyncLabels(db2);
+        const now2 = nowISO();
         const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
-        const milestone = resolveDefaultMilestone(db2, null, issueRepo);
-        const result = db2.transaction(() => {
+        const milestoneResolution = resolveDefaultMilestone(db2, null, issueRepo);
+        const milestone = milestoneResolution.milestone;
+        const result2 = db2.transaction(() => {
           db2.run(
-            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-             VALUES (?, '', 'open', ?, ?, ?, ?)`,
-            [objective, now, now, milestone, issueRepo]
+            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+             VALUES (?, '', 'open', ?, ?, ?, ?, ?)`,
+            [objective, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
           );
           const row = db2.get(
             `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -29041,108 +32932,108 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             issueId,
             intentVerbatim,
             `Beginning planning on ${branchId}.`,
-            now
+            now2
           );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
-              JSON.stringify({ branch_id: branchId, objective }),
-              now
-            ]
-          );
-          return { issue_id: issueId, branch_id: branchId };
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: branchId,
+            from_node: "bro",
+            event_type: "branch_id_proposed",
+            summary: `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
+            content_json: JSON.stringify({ branch_id: branchId, objective }),
+            created_at: now2
+          });
+          return {
+            issue_id: issueId,
+            branch_id: branchId,
+            ...milestoneDefaultFields(milestoneResolution)
+          };
         });
-        return ok14(result);
+        return ok15(result2);
       })
     ),
     bro_verification_fail_record: requireRoles(
       "bro_verification_fail_record",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
         const whichCheck = args["which_check"];
         const details = args["details"];
-        if (!taskId) return err14("task_id is required");
+        if (!taskId) return err15("task_id is required");
         if (!whichCheck || whichCheck.trim().length === 0) {
-          return err14("which_check must be a non-empty string");
+          return err15("which_check must be a non-empty string");
         }
         if (!details || details.trim().length === 0) {
-          return err14("details must be a non-empty string");
+          return err15("details must be a non-empty string");
         }
         if (details.length > 500) {
-          return err14("details must be \u2264500 chars");
+          return err15("details must be \u2264500 chars");
         }
         const task = db2.get(
           "SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
-        const now = nowISO();
+        const now2 = nowISO();
         db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'bro_verification_fail', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              summary,
-              JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: "bro",
+            event_type: "bro_verification_fail",
+            summary,
+            content_json: JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
+            created_at: now2
+          });
           insertDiscussion(db2, {
             issue_id: task.issue_id,
             author: "bro",
             kind: "note",
             body: `Verification fail: ${summary}`,
-            created_at: now
+            created_at: now2
           });
         });
-        return ok14({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
+        return ok15({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
       })
     ),
     pr_monitor_worktree: requireRoles(
       "pr_monitor_worktree",
       ["pr-reviewer"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const commitSha = (args["commit_sha"] ?? "").toLowerCase();
         const repoPath = args["repo_path"];
         const command = args["command"];
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err14("commit_sha must be a 7..40-char hex SHA");
+          return err15("commit_sha must be a 7..40-char hex SHA");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err14("repo_path must be an absolute path");
+          return err15("repo_path must be an absolute path");
         }
         if (!command || command.trim().length === 0) {
-          return err14("command must be a non-empty string");
+          return err15("command must be a non-empty string");
         }
-        const wtPath = `/tmp/pr-review-${commitSha}`;
+        const repoRefusal = outsideProject("pr_monitor_worktree", runContext.projectRoot, repoPath);
+        if (repoRefusal) return outsideProjectResult(repoRefusal);
+        const wtPath = `${repoPath}/.claude/worktrees/pr-review-${commitSha}`;
         let stdout = "";
         let stderr = "";
         let exitCode = 0;
         try {
-          execFileSync("git", ["-C", repoPath, "worktree", "add", wtPath, commitSha], {
+          execFileSync2("git", ["-C", repoPath, "worktree", "add", wtPath, commitSha], {
             stdio: ["ignore", "pipe", "pipe"],
             timeout: WORKTREE_TIMEOUT_MS
           });
         } catch (e) {
-          return err14(`worktree add failed: ${e.message}`);
+          return err15(`worktree add failed: ${e.message}`);
         }
         try {
-          const result = execFileSync("bash", ["-c", command], {
+          const result2 = execFileSync2("bash", ["-c", command], {
             cwd: wtPath,
             stdio: ["ignore", "pipe", "pipe"],
             timeout: 6e4
           });
-          stdout = result.toString("utf8");
+          stdout = result2.toString("utf8");
         } catch (e) {
           const spawnErr = e;
           stdout = spawnErr.stdout?.toString("utf8") ?? "";
@@ -29150,7 +33041,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           exitCode = spawnErr.status ?? 1;
         } finally {
           try {
-            execFileSync("git", ["-C", repoPath, "worktree", "remove", "--force", wtPath], {
+            execFileSync2("git", ["-C", repoPath, "worktree", "remove", "--force", wtPath], {
               stdio: "ignore",
               timeout: WORKTREE_TIMEOUT_MS
             });
@@ -29178,14 +33069,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     worktree_commits_fetch: requireRoles(
       "worktree_commits_fetch",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskIds = args["task_ids"];
         const repoPath = args["repo_path"];
         if (!Array.isArray(taskIds) || taskIds.length === 0) {
-          return err14("task_ids must be a non-empty array");
+          return err15("task_ids must be a non-empty array");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err14("repo_path must be an absolute path");
+          return err15("repo_path must be an absolute path");
         }
         const results = [];
         for (const tid of taskIds) {
@@ -29200,12 +33091,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           const slug = task.branch_id.replace(/^[^/]+\//, "");
           if (task.commit_sha) {
             try {
-              const refSha = execFileSync(
+              const refSha2 = execFileSync2(
                 "git",
                 ["-C", repoPath, "rev-parse", "--verify", `refs/heads/${task.branch_id}`],
                 { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
               ).toString().trim();
-              if (refSha.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
+              if (refSha2.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
                 results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
                 continue;
               }
@@ -29216,13 +33107,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           try {
             let targetSha = task.commit_sha ?? "";
             if (!targetSha) {
-              targetSha = execFileSync(
+              targetSha = execFileSync2(
                 "git",
                 ["-C", wtPath, "rev-parse", "HEAD"],
                 { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
               ).toString().trim();
             }
-            execFileSync(
+            execFileSync2(
               "git",
               ["-C", repoPath, "update-ref", `refs/heads/${task.branch_id}`, targetSha],
               { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
@@ -29243,157 +33134,195 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     bro_atomic_close: requireRoles(
       "bro_atomic_close",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
-        if (!taskId) return err14("Missing required arg: task_id");
+        if (!taskId) return err15("Missing required arg: task_id");
         const commitSha = (args["commit_sha"] ?? "").toLowerCase();
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err14("commit_sha must be a 7..40-char hex SHA.");
+          return err15("commit_sha must be a 7..40-char hex SHA.");
         }
         const verificationSummary = args["verification_summary"];
         if (verificationSummary === void 0 || verificationSummary === null) {
-          return err14("Missing required arg: verification_summary");
+          return err15("Missing required arg: verification_summary");
         }
         if (typeof verificationSummary !== "string") {
-          return err14("verification_summary must be a string");
+          return err15("verification_summary must be a string");
         }
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
         const waiveScopeGate = args["waive_scope_gate"] === true;
         const task = db2.get(
-          "SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1",
+          "SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
-          return err14(
+          return err15(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
-        const now = nowISO();
+        const now2 = nowISO();
+        const scopeWaiverReason = typeof args["scope_waiver_reason"] === "string" ? args["scope_waiver_reason"].trim() : "";
+        if (waiveScopeGate && scopeWaiverReason.length < 10) {
+          return err15("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
+        }
+        const repoPath = resolveRepoPath(db2, task.repo);
+        const targetCandidates = [readRepoTargetBranch(db2, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
+          (b) => typeof b === "string" && b.length > 0
+        );
+        let targetRef = null;
+        if (repoPath) {
+          for (const candidate of targetCandidates) {
+            targetRef = resolveBaseRef(repoPath, candidate);
+            if (targetRef) break;
+          }
+        }
+        const recordedBaseRef = repoPath && task.parent_branch_id ? resolveBaseRef(repoPath, task.parent_branch_id) : null;
+        const scope = repoPath && targetRef ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef) : {
+          outOfScope: [],
+          checked: false,
+          reason: repoPath ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(", ")} and their local branches)` : `cannot resolve a path for repo '${task.repo ?? ""}'`
+        };
+        const baseMoved = scope.baseMoved === true;
+        const scopeRecord = {
+          extras_accepted: waiveScopeGate ? scope.outOfScope : [],
+          base_moved: baseMoved,
+          recorded_base: scope.recordedBase ?? null,
+          merge_base: scope.mergeBase ?? null
+        };
         if (!waiveScopeGate) {
-          const repoPath = resolveRepoPath(db2, task.repo);
-          const base = task.parent_branch_id || "dev";
-          const baseRef = repoPath ? resolveBaseRef(repoPath, base) : null;
-          const scope = repoPath && baseRef ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files)) : {
-            outOfScope: [],
-            checked: false,
-            reason: repoPath ? `base does not resolve as 'origin/${base}' or local '${base}'` : `cannot resolve a path for repo '${task.repo ?? ""}'`
-          };
           if (!scope.checked) {
-            return err14(
-              `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true if this close is intentional outside a git checkout.`
+            return err15(
+              `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true with scope_waiver_reason if this close is intentional outside a git checkout.`
             );
           }
           if (scope.outOfScope.length > 0) {
-            return err14(
-              `bro_atomic_close scope gate: these committed files are outside the task's files[] fence: ${scope.outOfScope.join(", ")}. Add them to files[] (re-plan) or revert them, then retry. Pass waive_scope_gate=true to override.`
-            );
-          }
-        }
-        const result = db2.transaction(() => {
-          if (waiveScopeGate) {
-            db2.run(
-              `INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`,
-              [
-                task.issue_id,
-                task.branch_id,
-                `bro_atomic_close scope gate waived for task ${task.id}`,
-                JSON.stringify({ skill: "bro_atomic_close", task_id: task.id, commit_sha: commitSha }),
-                now
+            const groups = groupBySurface(scope.outOfScope);
+            const listing = Object.entries(groups).map(([surface, g]) => `${surface} (${g.count}): ${g.paths.join(", ")}`).join("; ");
+            const moved = baseMoved ? ` The task's recorded base (${scope.recordedBase ?? "unresolved"}) differs from the merge-base ${scope.mergeBase}: some paths may come from the moved base.` : "";
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    error: `bro_atomic_close scope gate: ${scope.outOfScope.length} committed path(s) outside the task's files[]: ${listing}.${moved} Revert them, or accept them with waive_scope_gate=true and scope_waiver_reason.`,
+                    extras_by_surface: groups,
+                    base_moved: baseMoved,
+                    recorded_base: scopeRecord.recorded_base,
+                    merge_base: scopeRecord.merge_base
+                  })
+                }
               ]
-            );
+            };
           }
-          const { issue_closed } = closeTaskInTx(
-            db2,
-            task,
-            commitSha,
-            verificationSummary,
-            now,
-            closeIssueIfLast
-          );
-          return { task_id: task.id, issue_closed };
-        });
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
         }
-        return ok14(result);
+        const result2 = db2.transaction(() => {
+          if (waiveScopeGate) {
+            insertAudit(db2, {
+              issue_id: task.issue_id,
+              branch_id: task.branch_id,
+              from_node: "bro",
+              event_type: "scope_gate_waived",
+              summary: scopeWaiverReason.slice(0, 200),
+              content_json: JSON.stringify({
+                skill: "bro_atomic_close",
+                task_id: task.id,
+                commit_sha: commitSha,
+                accepted_paths: scope.outOfScope,
+                reason: scopeWaiverReason,
+                base_moved: baseMoved,
+                recorded_base: scopeRecord.recorded_base,
+                merge_base: scopeRecord.merge_base
+              }),
+              created_at: now2
+            });
+          }
+          const closed = closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, null, scopeRecord);
+          return {
+            task_id: task.id,
+            issue_closed: closed.issue_closed,
+            review_pending: true,
+            base_moved: baseMoved,
+            ...baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {},
+            ...waiveScopeGate ? { extras_accepted: scope.outOfScope } : {},
+            ...closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}
+          };
+        });
+        const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
+        return ok15(remote ? { ...result2, remote } : result2);
       })
     ),
     task_recover: requireRoles(
       "task_recover",
       ["bro"],
-      wrap2(async (args) => {
-        const taskId = args["task_id"];
-        if (!taskId) return err14("Missing required arg: task_id");
+      wrap3(async (args) => {
+        const taskArg = args["task_id"];
+        const taskId = taskArg === void 0 || taskArg === null || taskArg === "" ? null : String(taskArg);
         const commitArg = args["commit_sha"];
         let commitSha = null;
         if (commitArg !== void 0 && commitArg !== null && commitArg !== "") {
-          if (typeof commitArg !== "string") return err14("commit_sha must be a string");
+          if (typeof commitArg !== "string") return err15("commit_sha must be a string");
           const lowered = commitArg.toLowerCase();
           if (!/^[0-9a-f]{7,40}$/.test(lowered)) {
-            return err14("commit_sha must be a 7..40-char hex SHA.");
+            return err15("commit_sha must be a 7..40-char hex SHA.");
           }
           commitSha = lowered;
         }
         const verificationSummary = typeof args["verification_summary"] === "string" ? args["verification_summary"] : `task_recover: stuck-pending recovery for task ${taskId}`;
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
-        const task = db2.get(
-          "SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1",
-          [taskId]
-        );
-        if (!task) return err14(`No task with id=${taskId}`);
-        if (task.status !== "pending" && task.status !== "completed") {
-          return ok14({
+        const task = taskId === null ? null : db2.get("SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1", [taskId]);
+        if (taskId !== null && !task) return err15(`No task with id=${taskId}`);
+        const sweep = sweepStaleTasks(db2, nowISO());
+        const sweepResult = {
+          tasks_swept: sweep.tasks_swept,
+          runs_swept: sweep.runs_swept + sweepRunsOfTerminalTasks(db2, nowISO()),
+          reported: sweep.reported
+        };
+        if (!task) return ok15(sweepResult);
+        const current = db2.get("SELECT status FROM tasks WHERE id = ?", [task.id]);
+        if (current.status !== "pending" && current.status !== "completed") {
+          return ok15({
             recovered: false,
             action: "noop",
             task_id: task.id,
-            status: task.status,
-            reason: `task is "${task.status}" \u2014 not in a recoverable (pending/completed) state`
+            status: current.status,
+            reason: `task is "${current.status}" \u2014 not in a recoverable (pending/completed) state`,
+            ...sweepResult
           });
         }
         if (!commitSha) {
-          return ok14({
+          return ok15({
             recovered: false,
             action: "re-dispatch",
             task_id: task.id,
-            reason: "no commit on a pending task \u2014 re-dispatch SWE"
+            reason: "no commit on a pending task \u2014 re-dispatch SWE",
+            ...sweepResult
           });
         }
-        const now = nowISO();
-        const result = db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_recovered', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-              JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
-              now
-            ]
-          );
-          const { issue_closed } = closeTaskInTx(
-            db2,
-            task,
-            commitSha,
-            verificationSummary,
-            now,
-            closeIssueIfLast
-          );
-          return { task_id: task.id, issue_closed };
+        const now2 = nowISO();
+        const result2 = db2.transaction(() => {
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: "bro",
+            event_type: "task_recovered",
+            summary: `Recovered stuck-${current.status} task ${task.id} at ${commitSha}`,
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: current.status }),
+            created_at: now2
+          });
+          return closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, "task_recover");
         });
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
-        }
-        return ok14({
+        const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
+        return ok15({
           recovered: true,
           action: "closed",
           task_id: task.id,
           commit_sha: commitSha,
-          issue_closed: result.issue_closed
+          issue_closed: result2.issue_closed,
+          review_gate_bypassed: result2.review_gate_bypassed,
+          ...result2.issue_left_open ? { issue_left_open: result2.issue_left_open } : {},
+          ...remote ? { remote } : {},
+          ...sweepResult
         });
       })
     )
@@ -29402,47 +33331,284 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
 }
 
 // src/tools/onboard.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
-import { existsSync as existsSync5 } from "node:fs";
-import os from "node:os";
-import { dirname as dirname6, join as join7 } from "node:path";
+import { spawnSync as spawnSync9 } from "node:child_process";
+import { existsSync as existsSync8, lstatSync as lstatSync4, mkdirSync as mkdirSync6, realpathSync as realpathSync4, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename as basename4, dirname as dirname8, isAbsolute as isAbsolute4, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync4, chmodSync } from "node:fs";
-import { join as join6 } from "node:path";
-var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
-var STABLE_RESOLVER_NAME = "resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
+import { readFileSync as readFileSync5, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync6, chmodSync, rmSync } from "node:fs";
+import { dirname as dirname7, join as join10 } from "node:path";
+
+// src/tools/onboard-sandbox.ts
+import { spawnSync as spawnSync7 } from "node:child_process";
+import { appendFileSync as appendFileSync3, existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync4, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname6, join as join9 } from "node:path";
+function settingsPath(projectRoot) {
+  return join9(projectRoot, ".claude", "settings.local.json");
+}
+function isObject2(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function readSettings(path2) {
+  if (!existsSync5(path2)) return { settings: {} };
+  try {
+    const raw = readFileSync4(path2, "utf8").trim();
+    const parsed = raw.length > 0 ? JSON.parse(raw) : {};
+    return isObject2(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
+  } catch {
+    return { reason: "existing settings.local.json is not valid JSON" };
+  }
+}
+var LOCAL_SETTINGS_REL = ".claude/settings.local.json";
+function ensureLocalSettingsIgnored(projectRoot) {
+  const opts = { encoding: "utf8", timeout: 3e3 };
+  const inTree = spawnSync7("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], opts);
+  if (inTree.status !== 0 || (inTree.stdout ?? "").trim() !== "true") return { appended: false };
+  const ignored = spawnSync7("git", ["-C", projectRoot, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
+  if (ignored.status !== 1) return { appended: false };
+  const gitignore = join9(projectRoot, ".gitignore");
+  try {
+    const current = existsSync5(gitignore) ? readFileSync4(gitignore, "utf8") : "";
+    const lead = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
+    appendFileSync3(gitignore, `${lead}${LOCAL_SETTINGS_REL}
+`);
+  } catch (e) {
+    serverLog({ event: "onboard_gitignore_skip", reason: e.message });
+    return { appended: false };
+  }
+  serverLog({ event: "onboard_gitignore_appended", gitignore });
+  return { appended: true };
+}
+function writeSettings(path2, settings) {
+  const created = !existsSync5(path2);
+  try {
+    mkdirSync4(dirname6(path2), { recursive: true });
+    writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
+  } catch (e) {
+    return { failure: `settings.local.json write failed: ${e.message}` };
+  }
+  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname6(dirname6(path2))).appended };
+}
+function projectUsable(projectRoot) {
+  if (!projectRoot) return false;
+  try {
+    return statSync2(projectRoot).isDirectory();
+  } catch {
+    return false;
+  }
+}
+var TMB_ALLOWED_DOMAINS = [
+  "github.com",
+  "api.github.com",
+  "*.githubusercontent.com",
+  "registry.npmjs.org"
+];
+var SANDBOX_NETWORK_PROBE = {
+  cc_version: "2.1.303",
+  date: "2026-10-19",
+  platform: "darwin",
+  failed: []
+};
+var SANDBOX_NETWORK_PROBES = {
+  darwin: SANDBOX_NETWORK_PROBE
+};
+function isSshRemote(url2) {
+  return /^ssh:\/\//i.test(url2) || /^[^@/:\s]+@[^:/\s]+:/.test(url2);
+}
+function httpsHost(url2) {
+  try {
+    const parsed = new URL(url2);
+    return parsed.protocol === "https:" && parsed.hostname ? parsed.hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+function sandboxAllowedDomains(remoteUrls) {
+  const hosts = remoteUrls.map(httpsHost).filter((h) => h !== null);
+  return [.../* @__PURE__ */ new Set([...TMB_ALLOWED_DOMAINS, ...hosts])];
+}
+function sandboxRecommended(remoteUrls, platform = process.platform, probes = SANDBOX_NETWORK_PROBES) {
+  const probe = probes[platform];
+  return probe !== void 0 && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
+}
+function sandboxToolCacheDir(projectRoot) {
+  return join9(projectRoot, ".claude", resolveClaudePluginName(), "cache");
+}
+function sandboxToolEnv(toolCacheDir) {
+  return { npm_config_cache: join9(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join9(toolCacheDir, "bun") };
+}
+function stringList(v) {
+  return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
+}
+function sandboxAllowWrite(projectRoot, cacheDir = TMB_MODEL_CACHE_DIR) {
+  return [.../* @__PURE__ */ new Set([projectRoot, cacheDir])];
+}
+function writeProjectSandbox(opts) {
+  if (!projectUsable(opts.projectRoot)) {
+    return { written: false, reason: "no project directory" };
+  }
+  const path2 = settingsPath(opts.projectRoot);
+  const read = readSettings(path2);
+  if ("reason" in read) {
+    serverLog({ event: "onboard_sandbox_skip", reason: read.reason });
+    return { written: false, reason: read.reason };
+  }
+  const settings = read.settings;
+  if (settings["env"] !== void 0 && !isObject2(settings["env"])) {
+    const reason = "existing settings.local.json env is not a JSON object";
+    serverLog({ event: "onboard_sandbox_skip", reason });
+    return { written: false, reason };
+  }
+  const sandbox = isObject2(settings["sandbox"]) ? settings["sandbox"] : {};
+  const filesystem = isObject2(sandbox["filesystem"]) ? sandbox["filesystem"] : {};
+  const existing = stringList(filesystem["allowWrite"]);
+  const wanted = sandboxAllowWrite(opts.projectRoot, opts.cacheDir);
+  const ownedBefore = new Set(opts.previous?.allow_write ?? []);
+  const added = wanted.filter((p) => !existing.includes(p) || ownedBefore.has(p));
+  const enabledSet = sandbox["enabled"] === void 0 || opts.previous?.enabled_set === true;
+  const network = isObject2(sandbox["network"]) ? sandbox["network"] : {};
+  const wantedDomains = sandboxAllowedDomains(opts.remoteUrls ?? []);
+  const ownedDomainsBefore = new Set(opts.previous?.allowed_domains ?? []);
+  const existingDomains = stringList(network["allowedDomains"]).filter(
+    (d) => !ownedDomainsBefore.has(d) || wantedDomains.includes(d)
+  );
+  const addedDomains = wantedDomains.filter((d) => !existingDomains.includes(d) || ownedDomainsBefore.has(d));
+  const env = isObject2(settings["env"]) ? settings["env"] : {};
+  const wantedEnv = sandboxToolEnv(opts.toolCacheDir ?? sandboxToolCacheDir(opts.projectRoot));
+  const ownedEnvBefore = opts.previous?.env ?? {};
+  for (const [name, value] of Object.entries(ownedEnvBefore)) {
+    if (!(name in wantedEnv) && env[name] === value) delete env[name];
+  }
+  const addedEnv = {};
+  for (const [name, value] of Object.entries(wantedEnv)) {
+    if (env[name] === void 0 || env[name] === ownedEnvBefore[name]) {
+      env[name] = value;
+      addedEnv[name] = value;
+    }
+  }
+  const weaker = (opts.platform ?? process.platform) === "darwin";
+  const weakerOwnedBefore = opts.previous?.weaker_network_isolation_set === true;
+  const weakerSet = weaker && (sandbox["enableWeakerNetworkIsolation"] === void 0 || weakerOwnedBefore);
+  if (weakerSet) sandbox["enableWeakerNetworkIsolation"] = true;
+  else if (!weaker && weakerOwnedBefore) delete sandbox["enableWeakerNetworkIsolation"];
+  if (sandbox["enabled"] === void 0) sandbox["enabled"] = true;
+  filesystem["allowWrite"] = [...existing, ...wanted.filter((p) => !existing.includes(p))];
+  sandbox["filesystem"] = filesystem;
+  network["allowedDomains"] = [...existingDomains, ...wantedDomains.filter((d) => !existingDomains.includes(d))];
+  sandbox["network"] = network;
+  settings["sandbox"] = sandbox;
+  settings["env"] = env;
+  const write = writeSettings(path2, settings);
+  if ("failure" in write) {
+    serverLog({ event: "onboard_sandbox_skip", reason: write.failure });
+    return { written: false, reason: write.failure };
+  }
+  const record2 = {
+    enabled_set: enabledSet,
+    allow_write: added,
+    allowed_domains: addedDomains,
+    weaker_network_isolation_set: weakerSet,
+    env: addedEnv
+  };
+  serverLog({ event: "onboard_sandbox_written", settingsPath: path2, allowWrite: wanted, allowedDomains: wantedDomains, env: wantedEnv });
+  return {
+    written: true,
+    settings_path: path2,
+    allow_write: wanted,
+    allowed_domains: wantedDomains,
+    env: wantedEnv,
+    weaker_network_isolation: sandbox["enableWeakerNetworkIsolation"] === true,
+    record: record2,
+    gitignore_appended: write.gitignore_appended
+  };
+}
+function removeProjectSandbox(opts) {
+  if (!projectUsable(opts.projectRoot)) return { removed: false, reason: "no project directory" };
+  const path2 = settingsPath(opts.projectRoot);
+  if (!existsSync5(path2) || opts.record === null) return { removed: false, settings_path: path2 };
+  const read = readSettings(path2);
+  if ("reason" in read) return { removed: false, reason: read.reason };
+  const settings = read.settings;
+  if (!isObject2(settings["sandbox"])) return { removed: false, settings_path: path2 };
+  const sandbox = settings["sandbox"];
+  const owned = new Set(opts.record.allow_write);
+  if (isObject2(sandbox["filesystem"])) {
+    const filesystem = sandbox["filesystem"];
+    if (Array.isArray(filesystem["allowWrite"])) {
+      const kept = filesystem["allowWrite"].filter((p) => !(typeof p === "string" && owned.has(p)));
+      if (kept.length > 0) filesystem["allowWrite"] = kept;
+      else delete filesystem["allowWrite"];
+    }
+    if (Object.keys(filesystem).length === 0) delete sandbox["filesystem"];
+  }
+  const ownedDomains = new Set(opts.record.allowed_domains ?? []);
+  if (isObject2(sandbox["network"])) {
+    const network = sandbox["network"];
+    if (Array.isArray(network["allowedDomains"])) {
+      const kept = network["allowedDomains"].filter((d) => !(typeof d === "string" && ownedDomains.has(d)));
+      if (kept.length > 0) network["allowedDomains"] = kept;
+      else delete network["allowedDomains"];
+    }
+    if (Object.keys(network).length === 0) delete sandbox["network"];
+  }
+  if (opts.record.enabled_set) delete sandbox["enabled"];
+  if (opts.record.weaker_network_isolation_set) delete sandbox["enableWeakerNetworkIsolation"];
+  if (Object.keys(sandbox).length === 0) delete settings["sandbox"];
+  if (isObject2(settings["env"])) {
+    const env = settings["env"];
+    for (const [name, value] of Object.entries(opts.record.env ?? {})) {
+      if (env[name] === value) delete env[name];
+    }
+    if (Object.keys(env).length === 0) delete settings["env"];
+  }
+  const write = writeSettings(path2, settings);
+  if ("failure" in write) return { removed: false, reason: write.failure };
+  serverLog({ event: "onboard_sandbox_removed", settingsPath: path2 });
+  return { removed: true, settings_path: path2 };
+}
+
+// src/tools/onboard-hooks-shim.ts
+var RESOLVER_NAME = "resolve-hook.sh";
+var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
+var SETTINGS_REL = [".claude", "settings.local.json"];
 var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
-  "swe-brief-gate.sh",
-  "naming-lint.sh",
-  "code-quality-lint.sh",
-  "commit-msg-lint.sh",
-  "askuserquestion-length-lint.sh",
-  "branch-up-to-date-with-remote.sh",
-  "debug-trajectory.sh"
+  "swe-brief-gate",
+  "naming-lint",
+  "code-quality-lint",
+  "commit-msg-lint",
+  "askuserquestion-length-lint",
+  "branch-up-to-date-with-remote",
+  "debug-trajectory"
 ]);
-function basename2(command) {
-  const parts = command.split("/");
-  return parts[parts.length - 1] ?? command;
+function gateName(command) {
+  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
+  if (dispatched?.[1]) return dispatched[1];
+  const parts = command.trim().split("/");
+  return (parts[parts.length - 1] ?? command).replace(/\.sh$/, "");
 }
-function hookName(command) {
-  return basename2(command).replace(/\.sh$/, "");
+function shellWord(value) {
+  if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-function deriveMarketplace(pluginRoot) {
-  const segs = pluginRoot.split("/").filter((s) => s.length > 0);
-  const cacheIdx = segs.lastIndexOf("cache");
-  if (cacheIdx === -1 || cacheIdx + 1 >= segs.length) return null;
-  const mp = segs[cacheIdx + 1];
-  return mp && mp.length > 0 ? mp : null;
+function installedMarketplace(pluginRoot) {
+  const m = pluginRoot.match(/\/plugins\/cache\/([^/]+)\/[^/]+\/[^/]+\/?$/);
+  return m?.[1] ?? null;
+}
+function pluginNameOf(pluginRoot) {
+  try {
+    const parsed = JSON.parse(readFileSync5(join10(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
+  } catch {
+  }
+  return "tmb";
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join6(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync4(hooksJsonPath)) return null;
+  const hooksJsonPath = join10(pluginRoot, "hooks", "hooks.json");
+  if (!existsSync6(hooksJsonPath)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync2(hooksJsonPath, "utf8"));
+    parsed = JSON.parse(readFileSync5(hooksJsonPath, "utf8"));
   } catch {
     return null;
   }
@@ -29450,14 +33616,18 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   if (!Array.isArray(pre)) return null;
   return pre;
 }
-function buildTmbGroups(pre, resolverPath, marketplace) {
+function keptHooks(group) {
+  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
+}
+function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
   const groups = [];
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename2(h.command))).map((h) => ({
+    const hooks = keptHooks(group).map((h) => ({
       type: h.type,
-      command: `bash ${resolverPath} --marketplace ${marketplace} --hook ${hookName(h.command)}`,
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
       ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
-      _tmb_managed: true
+      _tmb_managed: true,
+      _tmb_project: projectRoot
     }));
     if (hooks.length === 0) continue;
     groups.push({
@@ -29467,117 +33637,371 @@ function buildTmbGroups(pre, resolverPath, marketplace) {
   }
   return groups;
 }
-function materializeResolver(pluginRoot, homeDir) {
-  const canonical = join6(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync4(canonical)) return null;
-  const resolverDir = join6(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join6(resolverDir, STABLE_RESOLVER_NAME);
-  mkdirSync4(resolverDir, { recursive: true });
-  writeFileSync2(resolverPath, readFileSync2(canonical, "utf8"));
+function resolverPathFor(projectRoot, pluginName2) {
+  return join10(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
+}
+function materializeResolver(pluginRoot, resolverPath) {
+  const canonical = join10(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync6(canonical)) return null;
+  mkdirSync5(dirname7(resolverPath), { recursive: true });
+  writeFileSync3(resolverPath, readFileSync5(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
-function isTmbEntry(h, tmbHookNames) {
+function isTmbEntry(h) {
   if (h._tmb_managed === true) return true;
   const command = h.command ?? "";
-  if (command.includes("/.claude/tmb-hooks/resolve-hook.sh") || command.includes("/resolve-headless-hook.sh")) {
-    return true;
-  }
-  if (command.includes("/plugins/cache/") && command.includes("/tmb/") && command.includes("/scripts/hooks/")) {
-    return true;
-  }
-  if (command.includes("/scripts/hooks/") && tmbHookNames.has(hookName(command))) {
-    return true;
-  }
-  return false;
+  return command.includes(`/${RESOLVER_NAME} --marketplace `);
 }
-function purgeTmbEntries(pre, tmbHookNames) {
-  const cleaned = [];
+function purgeTmbEntries(pre) {
+  const kept = [];
+  let removed = 0;
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h, tmbHookNames));
+    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h));
+    removed += (group.hooks ?? []).length - hooks.length;
     if (hooks.length === 0) continue;
-    cleaned.push({ ...group, hooks });
+    kept.push({ ...group, hooks });
   }
-  return cleaned;
+  return { kept, removed };
 }
-function writeUserSettingsEnforcementShim(opts) {
-  const { pluginRoot, homeDir } = opts;
-  if (!pluginRoot) {
-    const reason = "plugin root unresolvable";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  if (pluginRoot.includes("/.claude/worktrees/")) {
-    const reason = "plugin-root-in-worktree";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
+function installedPluginGuard(pluginRoot) {
+  if (!pluginRoot) return { reason: "plugin root unresolvable" };
+  const marketplace = installedMarketplace(pluginRoot);
+  if (!marketplace) return { reason: "plugin-root-not-installed" };
   const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) {
-    const reason = "hooks/hooks.json missing or has no PreToolUse";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+  if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
+  return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
+}
+function settingsFile(projectRoot) {
+  return join10(projectRoot, ...SETTINGS_REL);
+}
+function readSettings2(path2) {
+  if (!existsSync6(path2)) return { settings: {}, exists: false };
+  try {
+    const raw = readFileSync5(path2, "utf8").trim();
+    return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
+  } catch {
+    return { reason: "existing settings.local.json is not valid JSON" };
   }
-  const marketplace = deriveMarketplace(pluginRoot);
-  if (!marketplace) {
-    const reason = "cannot derive marketplace from plugin root";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+}
+function preToolUseOf(settings) {
+  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
+  const pre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
+  return { hooks, pre };
+}
+function writeSettings2(path2, settings) {
+  const created = !existsSync6(path2);
+  try {
+    mkdirSync5(dirname7(path2), { recursive: true });
+    writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
+  } catch (e) {
+    return `settings.local.json write failed: ${e.message}`;
   }
-  const resolverPath = materializeResolver(pluginRoot, homeDir);
+  if (created) ensureLocalSettingsIgnored(dirname7(dirname7(path2)));
+  return null;
+}
+function skip(event, reason, result2) {
+  serverLog({ event, reason });
+  return result2;
+}
+function writeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  if (opts.headlessEnforcement !== "yes") {
+    const reason = "headless_enforcement_off";
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
+  }
+  const guard = installedPluginGuard(pluginRoot);
+  if ("reason" in guard) {
+    return skip("onboard_hooks_shim_skip", guard.reason, { written: false, reason: guard.reason });
+  }
+  const path2 = settingsFile(projectRoot);
+  const read = readSettings2(path2);
+  if ("reason" in read) {
+    return skip("onboard_hooks_shim_skip", read.reason, { written: false, reason: read.reason });
+  }
+  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
   if (!resolverPath) {
     const reason = "canonical resolver script missing";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
   }
-  const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
-  const settingsDir = join6(homeDir, ".claude");
-  const settingsPath = join6(settingsDir, "settings.json");
-  let settings = {};
-  if (existsSync4(settingsPath)) {
-    try {
-      const raw = readFileSync2(settingsPath, "utf8").trim();
-      if (raw.length > 0) settings = JSON.parse(raw);
-    } catch {
-      const reason = "existing settings.json is not valid JSON";
-      serverLog({ event: "onboard_hooks_shim_skip", reason });
-      return { written: false, reason };
+  const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
+  const { hooks, pre } = preToolUseOf(read.settings);
+  hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
+  read.settings.hooks = hooks;
+  const failure2 = writeSettings2(path2, read.settings);
+  if (failure2) return skip("onboard_hooks_shim_skip", failure2, { written: false, reason: failure2 });
+  const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
+  serverLog({ event: "onboard_hooks_shim_written", settingsPath: path2, groups: tmbGroups.length, entries });
+  return { written: true, entries, settings_path: path2 };
+}
+function removeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  const path2 = settingsFile(projectRoot);
+  const read = readSettings2(path2);
+  if ("reason" in read) {
+    return skip("onboard_hooks_shim_remove_skip", read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
+  }
+  let removed = 0;
+  if (read.exists) {
+    const { hooks, pre } = preToolUseOf(read.settings);
+    const purge = purgeTmbEntries(pre);
+    removed = purge.removed;
+    if (removed > 0) {
+      if (purge.kept.length > 0) hooks.PreToolUse = purge.kept;
+      else delete hooks.PreToolUse;
+      if (Object.keys(hooks).length > 0) read.settings.hooks = hooks;
+      else delete read.settings.hooks;
+      const failure2 = writeSettings2(path2, read.settings);
+      if (failure2) {
+        return skip("onboard_hooks_shim_remove_skip", failure2, { removed: 0, resolver_removed: false, reason: failure2 });
+      }
     }
   }
-  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
-  const existingPre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
-  const tmbHookNames = new Set(
-    pre.flatMap((g) => (g.hooks ?? []).map((h) => hookName(h.command)))
-  );
-  const preserved = purgeTmbEntries(existingPre, tmbHookNames);
-  hooks.PreToolUse = [...preserved, ...tmbGroups];
-  settings.hooks = hooks;
-  try {
-    mkdirSync4(settingsDir, { recursive: true });
-    writeFileSync2(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  } catch (e) {
-    const reason = `settings.json write failed: ${e.message}`;
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
+  let resolver_removed = false;
+  if (existsSync6(resolverPath)) {
+    rmSync(resolverPath, { force: true });
+    resolver_removed = true;
   }
-  serverLog({ event: "onboard_hooks_shim_written", settingsPath, groups: tmbGroups.length });
-  return { written: true };
+  if (removed > 0 || resolver_removed) {
+    serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
+  }
+  return { removed, resolver_removed };
+}
+
+// src/tools/onboard-scan.ts
+import { spawnSync as spawnSync8 } from "node:child_process";
+import { existsSync as existsSync7, readdirSync as readdirSync3, statSync as statSync3 } from "node:fs";
+import { basename as basename3, join as join11 } from "node:path";
+var GIT_TIMEOUT_MS = 3e3;
+var MAX_GIT_CALLS = 6;
+var MERGE_WINDOW = 50;
+var MAIN_TYPE = ["main", "master", "trunk"];
+var DEV_TYPE = ["dev", "develop"];
+var LONG_LIVED = ["main", "master", "dev", "develop", "trunk"];
+var CONTRIBUTING_PATHS = ["CONTRIBUTING.md", ".github/CONTRIBUTING.md", "docs/CONTRIBUTING.md"];
+function gitRunner(cwd) {
+  let calls = 0;
+  return (args) => {
+    if (calls >= MAX_GIT_CALLS) return { ok: false, note: "git call budget spent" };
+    calls++;
+    const r = spawnSync8("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+    if (r.error) {
+      const code = r.error.code;
+      return { ok: false, note: code === "ETIMEDOUT" ? "git timed out" : `git unavailable (${code ?? r.error.message})` };
+    }
+    if (r.signal) return { ok: false, note: "git timed out" };
+    if (r.status !== 0) return { ok: false, note: "not a git work tree" };
+    return { ok: true, stdout: r.stdout ?? "" };
+  };
+}
+function isDirectory(path2) {
+  try {
+    return statSync3(path2).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function hasWorkflows(repoPath) {
+  try {
+    return readdirSync3(join11(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
+  } catch {
+    return false;
+  }
+}
+function ciFiles(repoPath) {
+  const found = [];
+  if (hasWorkflows(repoPath)) found.push(".github/workflows");
+  if (existsSync7(join11(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
+  return found;
+}
+function parseRemotes(stdout) {
+  const remotes = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)/);
+    if (!m || remotes.some((r) => r.name === m[1])) continue;
+    remotes.push({ name: m[1], host: remoteProvider(m[2]) });
+  }
+  return remotes;
+}
+function pick2(types, longLived, originHead) {
+  if (originHead && types.includes(originHead) && longLived.includes(originHead)) return originHead;
+  return types.find((b) => longLived.includes(b)) ?? null;
+}
+function scanRepoEvidence(repoPath, opts = {}) {
+  const started = Date.now();
+  const evidence = {
+    name: opts.name ?? basename3(repoPath),
+    path: repoPath,
+    in_git: false,
+    branches: [],
+    long_lived: [],
+    origin_head: null,
+    remotes: opts.remotes ?? [],
+    merges: {},
+    ci_files: [],
+    contributing: false,
+    scanned_at: new Date(started).toISOString(),
+    elapsed_ms: 0
+  };
+  const done = () => ({ ...evidence, elapsed_ms: Date.now() - started });
+  if (!isDirectory(repoPath)) {
+    evidence.note = "path is not a directory";
+    return done();
+  }
+  const git2 = gitRunner(repoPath);
+  const top = git2(["rev-parse", "--show-toplevel"]);
+  if (!top.ok) {
+    evidence.note = top.note;
+    return done();
+  }
+  evidence.in_git = true;
+  const originBranches = /* @__PURE__ */ new Set();
+  const refs = git2(["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes/origin"]);
+  if (refs.ok) {
+    const branches = /* @__PURE__ */ new Set();
+    for (const line of refs.stdout.split("\n")) {
+      const [ref, symref] = line.split("	");
+      if (!ref) continue;
+      if (ref === "refs/remotes/origin/HEAD") {
+        evidence.origin_head = symref?.startsWith("refs/remotes/origin/") ? symref.slice("refs/remotes/origin/".length) : null;
+      } else if (ref.startsWith("refs/heads/")) {
+        branches.add(ref.slice("refs/heads/".length));
+      } else if (ref.startsWith("refs/remotes/origin/")) {
+        const short = ref.slice("refs/remotes/origin/".length);
+        originBranches.add(short);
+        branches.add(short);
+      }
+    }
+    evidence.branches = [...branches];
+  }
+  evidence.long_lived = LONG_LIVED.filter((b) => evidence.branches.includes(b));
+  if (evidence.remotes.length === 0) {
+    const remotes = git2(["remote", "-v"]);
+    if (remotes.ok) evidence.remotes = parseRemotes(remotes.stdout);
+  }
+  const dev = pick2(DEV_TYPE, evidence.long_lived, evidence.origin_head);
+  const main = pick2(MAIN_TYPE, evidence.long_lived, evidence.origin_head);
+  const candidates = [...new Set([dev, main, ...evidence.long_lived].filter((b) => b !== null))];
+  for (const branch of candidates) {
+    const ref = originBranches.has(branch) ? `refs/remotes/origin/${branch}` : `refs/heads/${branch}`;
+    const log = git2(["log", "--first-parent", "--merges", "-n", String(MERGE_WINDOW), "--format=%H", ref]);
+    if (!log.ok) continue;
+    evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
+  }
+  evidence.ci_files = ciFiles(repoPath);
+  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync7(join11(repoPath, p)));
+  return done();
+}
+function contextLines(e) {
+  const lines = [];
+  if (e.origin_head) lines.push(`origin/HEAD is ${e.origin_head}`);
+  if (e.contributing) lines.push("CONTRIBUTING.md present");
+  if (e.ci_files.length > 0) lines.push(`CI: ${e.ci_files.join(", ")}`);
+  return lines;
+}
+function recommendFromEvidence(e) {
+  if (!e.in_git) return null;
+  const context = contextLines(e);
+  if (e.long_lived.length === 0) {
+    return {
+      branching_model: null,
+      pr_target: null,
+      confidence: "none",
+      reason: "no long-lived branch",
+      evidence: ["no main, master, dev, develop or trunk branch", ...context]
+    };
+  }
+  if (e.long_lived.length === 1) {
+    const branch = e.long_lived[0];
+    const merges = e.merges[branch];
+    return {
+      branching_model: "github-flow",
+      pr_target: branch,
+      confidence: "high",
+      reason: "only one long-lived branch",
+      evidence: [
+        `only long-lived branch: ${branch}`,
+        ...merges === void 0 ? [] : [`${merges} merges into ${branch}`],
+        ...context
+      ]
+    };
+  }
+  const dev = pick2(DEV_TYPE, e.long_lived, e.origin_head);
+  const main = pick2(MAIN_TYPE, e.long_lived, e.origin_head);
+  if (dev && main) {
+    const d = e.merges[dev] ?? 0;
+    const m = e.merges[main] ?? 0;
+    const evidence = [`${d} merges into ${dev}, ${m} into ${main}`, ...context];
+    if (d >= 2 * m && d >= 3) {
+      return { branching_model: "gitflow", pr_target: dev, confidence: "high", reason: `merges favour ${dev}: ${d} vs ${m} into ${main}`, evidence };
+    }
+    if (m >= 2 * d && m >= 3) {
+      return { branching_model: "github-flow", pr_target: main, confidence: "high", reason: `merges favour ${main}: ${m} vs ${d} into ${dev}`, evidence };
+    }
+    const target2 = e.origin_head === dev || e.origin_head === main ? e.origin_head : dev;
+    return {
+      branching_model: target2 === dev ? "gitflow" : "github-flow",
+      pr_target: target2,
+      confidence: "low",
+      reason: `merges split ${d}/${m}, no clear pattern`,
+      evidence
+    };
+  }
+  const target = e.origin_head && e.long_lived.includes(e.origin_head) ? e.origin_head : e.long_lived[0];
+  return {
+    branching_model: "github-flow",
+    pr_target: target,
+    confidence: "low",
+    reason: `${e.long_lived.length} long-lived branches, no main and dev pair`,
+    evidence: [`long-lived branches: ${e.long_lived.join(", ")}`, ...context]
+  };
+}
+function scanWorkspace(db2) {
+  const started = Date.now();
+  const rows = db2.all("SELECT name, path FROM repos ORDER BY name");
+  const repos = rows.map((row) => {
+    const remotes = repoRemotes(db2, row.name).map((r) => ({ name: r.name, host: r.provider }));
+    const evidence = scanRepoEvidence(repoRowPath(db2, row.path), { name: row.name, remotes });
+    return { ...evidence, recommendation: recommendFromEvidence(evidence) };
+  });
+  db2.transaction(() => {
+    for (const repo of repos) {
+      db2.run("UPDATE repos SET onboard_scan = ? WHERE name = ?", [JSON.stringify(repo), repo.name]);
+    }
+  });
+  const recommended = repos.map((r) => r.recommendation).filter((r) => r !== null);
+  const first = recommended[0];
+  const uniform = first !== void 0 && recommended.every(
+    (r) => r.confidence === "high" && r.branching_model === first.branching_model && r.pr_target === first.pr_target
+  );
+  return {
+    repos,
+    summary: {
+      repo_count: repos.length,
+      hosts: [...new Set(repos.flatMap((r) => r.remotes.map((x) => x.host)))].sort(),
+      with_dev_branch: repos.filter((r) => r.long_lived.some((b) => DEV_TYPE.includes(b))).length,
+      main_only: repos.filter((r) => r.long_lived.length > 0 && r.long_lived.every((b) => MAIN_TYPE.includes(b))).length,
+      uniform,
+      elapsed_ms: Date.now() - started
+    }
+  };
 }
 
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync5(join7(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname6(fileURLToPath3(import.meta.url));
+  if (env && existsSync8(join12(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname8(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync5(join7(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname6(dir);
+    if (existsSync8(join12(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname8(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
 }
-function ok15(data) {
+function ok16(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function wrapHandler13(fn) {
@@ -29594,10 +34018,10 @@ function wrapHandler13(fn) {
 }
 function probeGit(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync5("git", ["rev-parse", "--show-toplevel"], opts);
+  const inGitR = spawnSync9("git", ["rev-parse", "--show-toplevel"], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync5("git", ["remote", "-v"], opts);
+  const remotesR = spawnSync9("git", ["remote", "-v"], opts);
   const detected_remotes = [];
   if (remotesR.status === 0) {
     const seen = /* @__PURE__ */ new Set();
@@ -29619,7 +34043,7 @@ function probeGit(cwd) {
   };
 }
 function branchExists(cwd, branch) {
-  const r = spawnSync5("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+  const r = spawnSync9("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
     encoding: "utf8",
     timeout: 3e3
   });
@@ -29627,16 +34051,16 @@ function branchExists(cwd, branch) {
 }
 function repoDefaultBranch(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  const head = spawnSync9("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
   if (head.status === 0) {
     const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
     if (b) return b;
   }
   for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync5("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    const r = spawnSync9("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  const cur = spawnSync9("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
   if (cur.status === 0) {
     const b = (cur.stdout ?? "").trim();
     if (b) return b;
@@ -29644,11 +34068,11 @@ function repoDefaultBranch(cwd) {
   return "main";
 }
 function probeCli(cmd) {
-  const which = spawnSync5("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
+  const which = spawnSync9("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
   if (!installed) return { installed: false, authed: false };
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync5(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = spawnSync9(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 function readConfig(db2, key) {
@@ -29673,7 +34097,7 @@ function writeConfig(db2, key, value) {
 }
 function readRepoPolicy(db2) {
   const row = db2.get(
-    `SELECT target_branch, branching_model, protected_branches, remotes
+    `SELECT name, target_branch, branching_model, protected_branches
        FROM repos ORDER BY name LIMIT 1`
   );
   const parseJson = (s) => {
@@ -29688,15 +34112,26 @@ function readRepoPolicy(db2) {
     branching_model: row?.branching_model ?? null,
     pr_target: row?.target_branch ?? null,
     protected_branches: parseJson(row?.protected_branches ?? null),
-    remotes: parseJson(row?.remotes ?? null)
+    remote_list: row ? remotesView(repoRemotes(db2, row.name)) : null
   };
+}
+function parseStoredRecommendation(json2) {
+  if (!json2) return null;
+  try {
+    const rec = JSON.parse(json2).recommendation;
+    return rec && typeof rec === "object" && Array.isArray(rec.evidence) ? rec : null;
+  } catch {
+    return null;
+  }
 }
 function readRepoRow(db2, repo) {
   const row = db2.get(
-    `SELECT name, target_branch, branching_model FROM repos WHERE name = ?`,
+    `SELECT name, target_branch, branching_model, onboard_scan FROM repos WHERE name = ?`,
     [repo]
   );
-  return row ?? null;
+  if (!row) return null;
+  const { onboard_scan, ...policy } = row;
+  return { ...policy, recommendation: parseStoredRecommendation(onboard_scan) };
 }
 function readOnboardedFlag(db2) {
   const row = db2.get(
@@ -29720,129 +34155,203 @@ function derivePrTargetDefault(branchingModel) {
   return branchingModel === "gitflow" ? "dev" : "main";
 }
 var KEEP_SENTINEL = "__keep__";
+var NO_ADVICE = { evidence: [], reason: null, wire: null };
 var BRANCHING_DESCRIPTIONS = {
-  "github-flow": "One long-lived branch (main). Each task gets its own short-lived branch off main; you open a PR back to main when it's ready. No release branches. Suitable for continuous deploys.",
-  gitflow: 'Two long-lived branches (main + dev). Daily work merges into the integration branch (commonly named "dev" \u2014 older repos may name it "develop"); release branches are cut from there and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.'
+  "github-flow": "One main branch; every change is a short branch plus a pull request.",
+  gitflow: "Two long-lived branches; daily work lands on dev, releases go to main."
 };
-function shapeQuestion(origin_kind) {
-  const options = [
+var HOST_NAMES = { github: "GitHub", gitlab: "GitLab", other: "another host" };
+function keepOption(current, show) {
+  return show && current !== null ? { label: `Keep "${current}"`, description: "No change.", wire: KEEP_SENTINEL } : null;
+}
+function assemble(keep, choices, advice, fallbackWire) {
+  const at = advice.wire === null ? -1 : choices.findIndex((o) => o.wire === advice.wire && !o.disabled);
+  const ordered = at < 0 ? choices : [{ ...choices[at], recommended: true }, ...choices.filter((_, i) => i !== at)];
+  const options = keep ? [keep, ...ordered] : ordered;
+  let default_index = 0;
+  if (!keep && at < 0 && fallbackWire !== null) {
+    default_index = Math.max(0, options.findIndex((o) => o.wire === fallbackWire && !o.disabled));
+  }
+  return { options, default_index, evidence: advice.evidence, recommended_reason: advice.reason };
+}
+function scanSummaryLine(scan) {
+  const n = scan.summary.repo_count;
+  const parts = [];
+  for (const host of ["github", "gitlab", "other"]) {
+    const count = scan.repos.filter((r) => r.remotes.some((x) => x.host === host)).length;
+    if (count > 0) parts.push(`${count} ${count === 1 ? "pushes" : "push"} to ${HOST_NAMES[host]}`);
+  }
+  const none = scan.repos.filter((r) => r.remotes.length === 0).length;
+  if (none > 0) parts.push(`${none} ${none === 1 ? "has" : "have"} no remote`);
+  return `Found ${n} git ${n === 1 ? "repository" : "repositories"} under this folder; ${parts.join(", ")}.`;
+}
+function shapeAdvice(scan, origin_kind) {
+  if (scan.summary.repo_count === 0) return NO_ADVICE;
+  const evidence = [scanSummaryLine(scan)];
+  if (scan.repos.every((r) => r.remotes.length === 0)) {
+    return { evidence, reason: "no repository has a remote, so there is nothing to push to", wire: "local" };
+  }
+  if (origin_kind === "github" || origin_kind === "gitlab") {
+    return { evidence, reason: `this project's origin remote is on ${HOST_NAMES[origin_kind]}`, wire: "remote" };
+  }
+  return { evidence, reason: null, wire: null };
+}
+function workspaceRecommendation(scan) {
+  if (scan.summary.repo_count === 1) return scan.repos[0]?.recommendation ?? null;
+  if (!scan.summary.uniform) return null;
+  const recs = scan.repos.flatMap((r) => r.recommendation ? [{ name: r.name, rec: r.recommendation }] : []);
+  const first = recs[0];
+  if (!first) return null;
+  return {
+    ...first.rec,
+    reason: `all ${recs.length} repositories send their changes to ${first.rec.pr_target}`,
+    evidence: recs.map(({ name, rec }) => `${name}: ${rec.evidence[0] ?? rec.reason}`)
+  };
+}
+function branchingAdvice(rec) {
+  if (!rec || rec.confidence === "none") return { branching: NO_ADVICE, prTarget: NO_ADVICE };
+  const pick3 = rec.confidence === "high";
+  return {
+    branching: { evidence: rec.evidence, reason: rec.reason, wire: pick3 ? rec.branching_model : null },
+    prTarget: { evidence: rec.evidence, reason: rec.reason, wire: pick3 ? rec.pr_target : null }
+  };
+}
+function shapeQuestion(origin_kind, advice) {
+  const choices = [
     {
       label: "Remote-tracked",
-      description: "Pushes to GitHub or GitLab. Issues can mirror to the remote.",
+      description: "Work is pushed to GitHub or GitLab, with pull requests and synced issues.",
       wire: "remote"
     },
     {
       label: "Local-only",
-      description: "No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes.",
+      description: "Nothing leaves this computer. Pull requests and issue sync are off.",
       wire: "local"
     }
   ];
-  const default_index = origin_kind === "github" || origin_kind === "gitlab" ? 0 : 1;
+  const probeDefault = origin_kind === "github" || origin_kind === "gitlab" ? "remote" : "local";
   return {
-    question: "Is this project local-only or remote-tracked?",
+    question: "Does this project push to GitHub or GitLab, or stay on this computer?",
     header: "Shape",
     multiSelect: false,
-    options,
-    default_index
+    ...assemble(null, choices, advice, probeDefault)
   };
 }
-function branchingQuestion(currentModel, isReonboard) {
-  const options = [];
-  if (isReonboard && currentModel !== null) {
-    options.push({ label: `Keep "${currentModel}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push({
-    label: "GitHub Flow",
-    description: BRANCHING_DESCRIPTIONS["github-flow"],
-    wire: "github-flow"
-  });
-  options.push({
-    label: "Git Flow",
-    description: BRANCHING_DESCRIPTIONS.gitflow,
-    wire: "gitflow"
-  });
+function branchingQuestion(currentModel, isReonboard, advice) {
+  const choices = [
+    { label: "GitHub Flow", description: BRANCHING_DESCRIPTIONS["github-flow"], wire: "github-flow" },
+    { label: "Git Flow", description: BRANCHING_DESCRIPTIONS.gitflow, wire: "gitflow" }
+  ];
   return {
     question: "How does your team branch?",
     header: "Branching",
     multiSelect: false,
-    options,
-    default_index: 0
+    ...assemble(keepOption(currentModel, isReonboard), choices, advice, "github-flow")
   };
 }
-function prTargetQuestion(currentTarget, branchingModel, isReonboard) {
-  const options = [];
-  if (isReonboard && currentTarget !== null) {
-    options.push({ label: `Keep "${currentTarget}"`, description: "No change.", wire: KEEP_SENTINEL });
+function prTargetQuestion(currentTarget, branchingModel, isReonboard, advice) {
+  const choices = [
+    { label: "main", description: "Changes go straight into main.", wire: "main" },
+    { label: "dev", description: "Changes go into dev first; main gets them at release time.", wire: "dev" },
+    { label: "develop", description: "Same as dev, for repositories that call that branch develop.", wire: "develop" }
+  ];
+  if (advice.wire !== null && !choices.some((o) => o.wire === advice.wire)) {
+    choices.push({
+      label: advice.wire,
+      description: `Changes go into ${advice.wire}, the branch this repository already uses.`,
+      wire: advice.wire
+    });
   }
-  options.push(
-    { label: "main", description: "Most common default.", wire: "main" },
-    { label: "dev", description: "Common for GitLab Flow + modern Git Flow variants.", wire: "dev" },
-    { label: "develop", description: "Classic Git Flow convention.", wire: "develop" }
-  );
-  let default_index = 0;
-  if (!isReonboard) {
-    const want = branchingModel === "gitflow" ? "dev" : "main";
-    default_index = options.findIndex((o) => o.label === want);
-    if (default_index < 0) default_index = 0;
-  }
+  const fallback = isReonboard ? null : branchingModel === "gitflow" ? "dev" : "main";
   return {
-    question: "What's your PR target branch?",
+    question: "Which branch should your pull requests go into?",
     header: "PR target",
     multiSelect: false,
-    options,
-    default_index
+    ...assemble(keepOption(currentTarget, isReonboard), choices, advice, fallback)
   };
 }
-function remoteQuestion(origin_kind, gh_installed, glab_installed, _isReonboard, _currentRemotes) {
-  const options = [
+function remoteAdvice(origin_kind, scan) {
+  if (origin_kind === "github" || origin_kind === "gitlab") {
+    return { evidence: [`The origin remote is on ${HOST_NAMES[origin_kind]}.`], reason: null, wire: origin_kind };
+  }
+  const hosts = scan.summary.hosts.filter((h) => h === "github" || h === "gitlab");
+  if (hosts.length === 1) {
+    const host = hosts[0];
+    return { evidence: [`Every repository with a remote pushes to ${HOST_NAMES[host]}.`], reason: null, wire: host };
+  }
+  return NO_ADVICE;
+}
+function remoteQuestion(gh_installed, glab_installed, advice) {
+  const choices = [
     {
       label: gh_installed ? "GitHub" : "GitHub (CLI not installed)",
-      description: "github.com or GitHub Enterprise.",
+      description: "github.com or a company GitHub server.",
       wire: "github",
       disabled: !gh_installed
     },
     {
       label: glab_installed ? "GitLab" : "GitLab (CLI not installed)",
-      description: "gitlab.com or self-hosted GitLab.",
+      description: "gitlab.com or a self-hosted GitLab server.",
       wire: "gitlab",
       disabled: !glab_installed
     }
   ];
-  let default_index = 0;
-  const want = origin_kind === "github" ? "GitHub" : origin_kind === "gitlab" ? "GitLab" : null;
-  if (want) {
-    const idx = options.findIndex((o) => o.label === want || o.label.startsWith(want + " "));
-    if (idx >= 0 && !options[idx].disabled) default_index = idx;
-  }
   return {
-    question: "Which remote(s) does this project use?",
+    question: "Where is this project hosted? Pick one or both.",
     header: "Remote",
     multiSelect: true,
-    options,
-    default_index
+    ...assemble(null, choices, advice, null)
   };
 }
-function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
-  const options = [];
-  if (isReonboard && currentSync !== null) {
-    options.push({ label: `Keep "${currentSync}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push({
-    label: "Auto \u2014 sync to the remote you picked",
-    description: authedAtLeastOne ? "`issue_create` mirrors to GitHub/GitLab as well as the local DB." : "WARNING: no gh/glab auth detected. Sync will retry until you authenticate.",
-    wire: "auto"
-  });
-  options.push({
-    label: "Off \u2014 local DB only",
-    description: "Issues stay in the trajectory DB; no remote mirror.",
-    wire: "off"
-  });
+function issueSyncQuestion(currentSync, isReonboard, auth) {
+  const authed = auth.gh_authed || auth.glab_authed;
+  const signedIn = [auth.gh_authed ? "GitHub (gh)" : null, auth.glab_authed ? "GitLab (glab)" : null].filter(
+    (s) => s !== null
+  );
+  const choices = [
+    {
+      label: "Auto \u2014 sync to the remote you picked",
+      description: authed ? "New issues also appear on GitHub or GitLab." : "Not signed in to gh or glab yet; syncing starts once you sign in.",
+      wire: "auto"
+    },
+    {
+      label: "Off \u2014 issues stay on this computer",
+      description: "Nothing is posted to GitHub or GitLab.",
+      wire: "off"
+    }
+  ];
+  const advice = authed ? { evidence: [`Signed in to ${signedIn.join(" and ")}.`], reason: "you are signed in, so new issues can be posted right away", wire: "auto" } : { evidence: ["Not signed in to gh or glab."], reason: null, wire: null };
   return {
-    question: "Mirror new MCP issues to your remote?",
+    question: "Copy new issues to GitHub or GitLab too?",
     header: "Issue sync",
     multiSelect: false,
-    options,
-    default_index: 0
+    ...assemble(keepOption(currentSync, isReonboard), choices, advice, "auto")
+  };
+}
+function sandboxQuestion(current, isReonboard, remoteUrls, platform) {
+  const keep = keepOption(current, isReonboard);
+  const recommended = keep === null && sandboxRecommended(remoteUrls, platform);
+  const ssh = remoteUrls.some(isSshRemote);
+  const no = {
+    label: "No",
+    description: "Bash keeps Claude Code's defaults; TMB's own write guard still applies.",
+    wire: "no"
+  };
+  const yes = {
+    label: recommended ? SANDBOX_YES_RECOMMENDED : "Yes",
+    description: "Bash can only write inside this project and the model cache, and can only reach GitHub, the npm registry and your HTTPS git remotes." + (platform === "darwin" ? " gh needs macOS's TLS trust service, which slightly weakens isolation." : "") + (ssh ? " Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS." : ""),
+    wire: "yes"
+  };
+  const advice = {
+    evidence: ssh ? ["A git remote uses SSH, which the sandbox cannot reach."] : [],
+    reason: recommended ? "the sandbox was tested on this platform and your git remotes use HTTPS" : null,
+    wire: recommended ? "yes" : null
+  };
+  return {
+    question: "Turn on Claude Code's Bash sandbox? Writes .claude/settings.local.json in this project: sandbox.enabled, sandbox.filesystem.allowWrite, sandbox.network.allowedDomains, sandbox.enableWeakerNetworkIsolation (macOS only), env.npm_config_cache and env.BUN_INSTALL_CACHE_DIR. When TMB creates that file in a git work tree, it also adds it to .gitignore.",
+    header: "Sandbox",
+    multiSelect: false,
+    ...assemble(keep, [no, yes], advice, "no")
   };
 }
 function resolveOption(value, options) {
@@ -29870,18 +34379,27 @@ var REMOTE_OPTIONS = [
 ];
 var ISSUE_SYNC_OPTIONS = [
   { label: "Auto \u2014 sync to the remote you picked", description: "", wire: "auto" },
-  { label: "Off \u2014 local DB only", description: "", wire: "off" }
+  { label: "Off \u2014 issues stay on this computer", description: "", wire: "off" }
 ];
-function onboardTools(db2, dbPath2 = "") {
+var HEADLESS_OPTIONS = [
+  { label: "No", description: "", wire: "no" },
+  { label: "Yes", description: "", wire: "yes" }
+];
+var SANDBOX_YES_RECOMMENDED = "Yes (Recommended)";
+var SANDBOX_OPTIONS = [
+  ...HEADLESS_OPTIONS,
+  { label: SANDBOX_YES_RECOMMENDED, description: "", wire: "yes" }
+];
+function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   const definitions = [
     {
       name: "onboard_state_get",
-      description: "Read onboard state: first-run flag, current plugin_config, and git/CLI probe (origin URL \u2192 provider, gh/glab auth). Call once before AskUserQuestion.",
+      description: "Read onboard state: first-run flag, current plugin_config, git/CLI probe (origin URL \u2192 provider, gh/glab auth), and nesting {session_dir, project_root, nested, other_dbs:[{path, issues, tasks, empty}]} for Round 0. Call once before AskUserQuestion.",
       inputSchema: { type: "object", properties: {} }
     },
     {
       name: "onboard_get_questions",
-      description: "Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire \u2014 pass option.wire (or label) to onboard_apply.",
+      description: "Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire \u2014 pass option.wire (or label) to onboard_apply. Each question carries evidence[] and recommended_reason to show above it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -29892,12 +34410,12 @@ function onboardTools(db2, dbPath2 = "") {
           },
           round: {
             type: "string",
-            enum: ["shape", "main", "sync"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync)."
+            enum: ["shape", "main", "sync", "sandbox"],
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep)."
           },
           repo: {
             type: "string",
-            description: "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions."
+            description: "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Only valid with round='main', for either shape. Must match an existing repos.name. Omit for workspace-wide questions."
           }
         },
         required: ["round"]
@@ -29905,33 +34423,55 @@ function onboardTools(db2, dbPath2 = "") {
     },
     {
       name: "onboard_apply",
-      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key.",
+      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs. headless_enforcement alone (after onboarding) turns headless enforcement on or off on request.",
       inputSchema: {
         type: "object",
         properties: {
-          shape: { type: "string", enum: ["local", "remote"] },
+          shape: {
+            type: "string",
+            enum: ["local", "remote"],
+            description: "Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone) or for headless_enforcement alone on an onboarded project."
+          },
+          standalone: {
+            type: "boolean",
+            description: "Round 0 'Make <subdir> its own TMB project': creates <session_dir>/.claude/<plugin>/standalone and a fresh trajectory DB there, then the Human restarts the session. Only when nesting.nested; pass no other answers."
+          },
+          remove_stray_dbs: {
+            type: "array",
+            items: { type: "string" },
+            description: "Round 0: paths from nesting.other_dbs the Human agreed to remove. Each is deleted (with -wal/-shm and its state dir) only when it is still empty (0 issues, 0 tasks) and lies below the project root; the rest are refused and left in place."
+          },
           branching_model: {
             type: "string",
             enum: ["github-flow", "gitflow"],
-            description: "Optional on local first-run (defaults to github-flow)."
+            description: "Optional. With repo: written to that repos row. Without repo: seeds only repos rows whose branching_model is unset (default github-flow + the repo's default branch); populated rows are never changed."
           },
           pr_target: { type: "string" },
           remote: {
             type: "array",
             items: { type: "string", enum: ["github", "gitlab"] },
-            description: 'Required when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Ignored on local.'
+            description: `Optional when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Omitted or empty: each repo's GitHub/GitLab remotes are probed from its git tree, with a warning when none has one. Ignored on local.`
           },
           issue_sync: {
             type: "string",
             enum: ["auto", "off"],
-            description: 'Required when shape=remote. Always "off" on local.'
+            description: 'The Round 3 answer when shape=remote; omitted means "off". Always "off" on local.'
+          },
+          headless_enforcement: {
+            type: "string",
+            enum: ["yes", "no"],
+            description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no'). Not an /onboard round: set on request, alone (no shape) once the project is onboarded."
+          },
+          sandbox_enforcement: {
+            type: "string",
+            enum: ["yes", "no"],
+            description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host + enableWeakerNetworkIsolation on macOS, plus env npm/bun caches under the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no')."
           },
           repo: {
             type: "string",
-            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
+            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches."
           }
-        },
-        required: ["shape"]
+        }
       }
     }
   ];
@@ -29941,35 +34481,178 @@ function onboardTools(db2, dbPath2 = "") {
     const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
     return workspaceRoot || process.cwd();
   };
+  const projectRoot = () => {
+    const fromDb = dbPath2.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
+    if (fromDb && fromDb[1]) return fromDb[1];
+    return process.env["CLAUDE_PROJECT_DIR"] || process.cwd();
+  };
+  const sandboxProjectRoot = () => {
+    const fromDb = dbPath2.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
+    return fromDb && fromDb[1] ? fromDb[1] : null;
+  };
+  const knownRemoteUrls = (extra = []) => {
+    const rows = db2.all(`SELECT url FROM repo_remotes`).map((r) => r.url);
+    return [.../* @__PURE__ */ new Set([...rows, ...extra])].filter((u) => u.length > 0);
+  };
+  const shimOptions = () => ({
+    pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
+    projectRoot: projectRoot()
+  });
+  const resolveHeadless = (raw) => {
+    const stored = readConfig(db2, "headless_enforcement") ?? "no";
+    let value = stored;
+    let answered = false;
+    if (raw !== void 0) {
+      const resolved = resolveOption(raw, HEADLESS_OPTIONS);
+      if (resolved !== KEEP_SENTINEL) {
+        value = resolved ?? raw;
+        answered = true;
+      }
+    }
+    if (value !== "yes" && value !== "no") {
+      throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${value}')`);
+    }
+    return { value, stored, answered };
+  };
+  const applyHeadlessShim = (h) => {
+    try {
+      if (h.value === "yes") {
+        return { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: h.value }) };
+      }
+      if (h.answered || h.stored === "yes") return { ...removeProjectEnforcementShim(shimOptions()) };
+      return { skipped: "headless_enforcement_off" };
+    } catch (e) {
+      return { reason: e.message };
+    }
+  };
+  const nesting = () => {
+    const session_dir = shimEnv.sessionDir ?? resolveClaudeSessionDir();
+    const root = claudeProjectRootOfDb(dbPath2);
+    if (root === null) return { session_dir, project_root: projectRoot(), nested: false, other_dbs: [] };
+    const session = canonicalExisting(session_dir);
+    const project = canonicalExisting(root);
+    return {
+      session_dir,
+      project_root: root,
+      nested: session !== project && isPathWithin(project, session),
+      other_dbs: otherClaudeDbs(dbPath2, { sessionDir: session_dir }) ?? []
+    };
+  };
+  const makeStandalone = () => {
+    const where = nesting();
+    if (!where.nested) {
+      throw new Error(
+        `standalone needs a session directory below the project root (session ${where.session_dir}, project ${where.project_root})`
+      );
+    }
+    const stateDir = claudeStateDir(where.session_dir, basename4(dirname8(dbPath2)));
+    const newDb = join12(stateDir, "trajectory.db");
+    mkdirSync6(stateDir, { recursive: true });
+    new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => {
+    }, sqlLog: () => {
+    } }).close();
+    const marker = join12(stateDir, CLAUDE_STANDALONE_MARKER);
+    writeFileSync4(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
+    insertAudit(db2, {
+      issue_id: -1,
+      from_node: "bro",
+      event_type: "project_made_standalone",
+      summary: `onboard: ${where.session_dir} is now its own TMB project (left workspace ${where.project_root})`,
+      content_json: JSON.stringify({ session_dir: where.session_dir, db_path: newDb, marker })
+    });
+    return {
+      ok: true,
+      standalone: { session_dir: where.session_dir, db_path: newDb, marker },
+      restart_required: true
+    };
+  };
+  const removeStrayDbs = (paths) => {
+    const root = claudeProjectRootOfDb(dbPath2);
+    if (root === null) throw new Error("remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)");
+    const project = canonicalExisting(root);
+    const self = canonicalExisting(dbPath2);
+    const pluginName2 = basename4(dirname8(dbPath2));
+    const removed = [];
+    const refused = [];
+    const outside = `not below the project root ${root}`;
+    const linkOrOutside = (path2) => {
+      for (let p = path2; dirname8(p) !== p; p = dirname8(p)) {
+        if (canonicalExisting(p) === project) return null;
+        if (lstatSync4(p).isSymbolicLink()) return `${p} is a symlink`;
+      }
+      return outside;
+    };
+    const check2 = (path2) => {
+      if (!isAbsolute4(path2)) return { reason: "not an absolute path" };
+      if (!existsSync8(path2)) return { reason: "no such file" };
+      if (claudeProjectRootOfDb(path2) === null || basename4(path2) !== "trajectory.db" || basename4(dirname8(path2)) !== pluginName2) {
+        return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
+      }
+      if (canonicalExisting(path2) === self) return { reason: "the current trajectory DB" };
+      const link = linkOrOutside(path2);
+      if (link !== null) return { reason: link };
+      const stateDir = realpathSync4(dirname8(path2));
+      const strayProject = dirname8(dirname8(stateDir));
+      if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
+      if (isStandaloneClaudeDb(path2)) return { reason: "a standalone TMB project" };
+      const { issues, tasks } = claudeDbCounts(path2);
+      if (issues !== 0 || tasks !== 0) return { reason: `not empty (${issues ?? "?"} issues, ${tasks ?? "?"} tasks)` };
+      return { stateDir };
+    };
+    for (const path2 of paths) {
+      const verdict = check2(path2);
+      if ("reason" in verdict) {
+        refused.push({ path: path2, reason: verdict.reason });
+        continue;
+      }
+      const { stateDir } = verdict;
+      const file2 = join12(stateDir, basename4(path2));
+      for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
+      rmSync2(stateDir, { recursive: true, force: true });
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "stray_db_removed",
+        summary: `onboard: removed the empty stray trajectory DB ${path2}`,
+        content_json: JSON.stringify({ path: path2, state_dir: stateDir, project_root: root })
+      });
+      removed.push(path2);
+    }
+    return { removed, refused };
+  };
   const handlers = {
     onboard_state_get: requireRoles(
       "onboard_state_get",
       ["bro"],
       wrapHandler13(async () => {
-        const git = probeGit(probeDir());
+        const git2 = probeGit(probeDir());
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
         const first_run = !onboarded;
         const policy = readRepoPolicy(db2);
-        return ok15({
+        return ok16({
           first_run,
           current: {
             branching_model: policy.branching_model,
             pr_target: policy.pr_target,
             protected_branches: policy.protected_branches,
-            remotes: policy.remotes,
-            issue_sync: readConfig(db2, "issue_sync")
+            remotes: policy.remote_list,
+            issue_sync: readConfig(db2, "issue_sync"),
+            headless_enforcement: readConfig(db2, "headless_enforcement") ?? "no",
+            sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
           },
           probe: {
-            in_git: git.in_git,
-            origin_kind: git.origin_kind,
-            detected_remotes: git.detected_remotes,
+            in_git: git2.in_git,
+            origin_kind: git2.origin_kind,
+            detected_remotes: git2.detected_remotes,
             gh_installed: gh.installed,
             gh_authed: gh.authed,
             glab_installed: glab.installed,
             glab_authed: glab.authed
-          }
+          },
+          nesting: nesting(),
+          scan: scanWorkspace(db2)
         });
       })
     ),
@@ -29980,62 +34663,102 @@ function onboardTools(db2, dbPath2 = "") {
         const shape = args["shape"];
         const round = args["round"];
         const repo = args["repo"];
-        const git = probeGit(probeDir());
+        const git2 = probeGit(probeDir());
         if (round === "shape") {
-          return ok15({ questions: [shapeQuestion(git.origin_kind)] });
+          return ok16({ questions: [shapeQuestion(git2.origin_kind, shapeAdvice(scanWorkspace(db2), git2.origin_kind))] });
+        }
+        if (round === "sandbox") {
+          const current = readConfig(db2, "sandbox_enforcement");
+          const detected = git2.detected_remotes.map((r) => r.url);
+          return ok16({
+            questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)]
+          });
         }
         if (repo !== void 0) {
           if (round !== "main") {
             throw new Error(`repo param is only valid with round='main' (got '${round}')`);
           }
-          if (shape !== "remote") {
-            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
-          }
           const repoRow = readRepoRow(db2, repo);
           if (!repoRow) {
             throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
           }
-          const isReonboardRepo = repoRow.branching_model !== null;
+          const advice = branchingAdvice(repoRow.recommendation);
           const repoQuestions = [
-            branchingQuestion(repoRow.branching_model, isReonboardRepo),
-            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo)
+            branchingQuestion(repoRow.branching_model, repoRow.branching_model !== null, advice.branching),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, repoRow.target_branch !== null, advice.prTarget)
           ];
-          return ok15({ questions: repoQuestions });
+          return ok16({ questions: repoQuestions });
         }
         const isReonboard = readOnboardedFlag(db2);
         const policy = readRepoPolicy(db2);
         const currentBranching = policy.branching_model;
         const currentPrTarget = policy.pr_target;
-        const currentRemotes = policy.remotes;
         const currentSync = readConfig(db2, "issue_sync");
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const questions = [];
         if (round === "main") {
+          const scan = scanWorkspace(db2);
+          const advice = branchingAdvice(workspaceRecommendation(scan));
           if (shape === "remote" || isReonboard) {
-            questions.push(branchingQuestion(currentBranching, isReonboard));
+            questions.push(branchingQuestion(currentBranching, isReonboard, advice.branching));
           }
           if (shape === "remote") {
-            questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard));
-            questions.push(
-              remoteQuestion(git.origin_kind, gh.installed, glab.installed, isReonboard, currentRemotes)
-            );
+            questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard, advice.prTarget));
+            questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git2.origin_kind, scan)));
           }
         } else if (round === "sync") {
           if (shape !== "remote") {
             throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
           }
-          questions.push(issueSyncQuestion(currentSync, isReonboard, gh.authed || glab.authed));
+          questions.push(issueSyncQuestion(currentSync, isReonboard, { gh_authed: gh.authed, glab_authed: glab.authed }));
         } else {
           throw new Error(`unknown round '${String(round)}'`);
         }
-        return ok15({ questions });
+        return ok16({ questions });
       })
     ),
     onboard_apply: requireRoles(
       "onboard_apply",
       ["bro"],
       wrapHandler13(async (args) => {
+        if ("persona" in args) {
+          throw new Error(
+            "persona_input_removed: onboard_apply takes no 'persona' input \u2014 bro's persona loads from the plugin through its SessionStart and UserPromptSubmit hooks, and TMB never writes the project's CLAUDE.md"
+          );
+        }
+        if (args["standalone"] === true) {
+          const others = Object.keys(args).filter((k) => k !== "standalone" && k !== "agent" && args[k] !== void 0);
+          if (others.length > 0) {
+            throw new Error(`standalone=true is applied alone \u2014 drop ${others.join(", ")}; the new project onboards after the session restart`);
+          }
+          return ok16(makeStandalone());
+        }
+        const rawStray = args["remove_stray_dbs"];
+        if (rawStray !== void 0 && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== "string"))) {
+          throw new Error("remove_stray_dbs must be an array of DB paths from nesting.other_dbs");
+        }
+        const strayPaths = rawStray;
+        if (strayPaths !== void 0 && args["shape"] === void 0) {
+          return ok16({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
+        }
+        if (args["shape"] === void 0 && args["headless_enforcement"] !== void 0) {
+          const others = Object.keys(args).filter(
+            (k) => k !== "headless_enforcement" && k !== "agent" && args[k] !== void 0
+          );
+          if (others.length > 0) {
+            throw new Error(`headless_enforcement without shape is applied alone \u2014 drop ${others.join(", ")}, or pass shape for the full apply`);
+          }
+          if (!readOnboardedFlag(db2)) {
+            throw new Error("headless_enforcement alone needs an onboarded project \u2014 run /onboard first");
+          }
+          const headless2 = resolveHeadless(args["headless_enforcement"]);
+          writeConfig(db2, "headless_enforcement", headless2.value);
+          return ok16({
+            ok: true,
+            applied: { headless_enforcement: headless2.value, headless_shim: applyHeadlessShim(headless2) }
+          });
+        }
         const shape = args["shape"];
         if (shape !== "local" && shape !== "remote") {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
@@ -30081,7 +34804,7 @@ function onboardTools(db2, dbPath2 = "") {
             `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
             [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]
           );
-          return ok15({
+          return ok16({
             ok: true,
             applied: {
               repo,
@@ -30102,25 +34825,19 @@ function onboardTools(db2, dbPath2 = "") {
           } else {
             branching_model = rawBranching;
           }
-        }
-        branching_model = branching_model ?? (shape === "local" ? "github-flow" : void 0);
-        if (!branching_model) {
-          throw new Error("branching_model is required for shape=remote");
-        }
-        if (branching_model !== "github-flow" && branching_model !== "gitflow") {
-          throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
+          if (branching_model !== void 0 && branching_model !== "github-flow" && branching_model !== "gitflow") {
+            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
+          }
         }
         const rawPrTarget = args["pr_target"];
         let pr_target;
         if (rawPrTarget !== void 0) {
           const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            pr_target = readRepoPolicy(db2).pr_target ?? derivePrTargetDefault(branching_model);
+            pr_target = readRepoPolicy(db2).pr_target ?? derivePrTargetDefault(branching_model ?? "github-flow");
           } else {
             pr_target = resolved ?? rawPrTarget;
           }
-        } else {
-          pr_target = derivePrTargetDefault(branching_model);
         }
         let remotes = [];
         let issue_sync = "off";
@@ -30132,11 +34849,6 @@ function onboardTools(db2, dbPath2 = "") {
             remoteList = rawRemote.filter((s) => typeof s === "string");
           } else if (typeof rawRemote === "string") {
             remoteList = [rawRemote];
-          } else {
-            throw new Error("'remote' is required when shape='remote'");
-          }
-          if (remoteList.length === 0) {
-            throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
           }
           remoteList = remoteList.map((r) => {
             const resolved = resolveOption(r, REMOTE_OPTIONS);
@@ -30166,9 +34878,10 @@ function onboardTools(db2, dbPath2 = "") {
         const remotesForPath = (path2) => {
           const detected = probeGit(path2).detected_remotes;
           const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? "";
+          const wanted = remoteList.length > 0 ? remoteList : ["github", "gitlab"].filter((p) => findUrl(p).length > 0);
           const out = [];
-          const wantedGh = remoteList.includes("github");
-          const wantedGl = remoteList.includes("gitlab");
+          const wantedGh = wanted.includes("github");
+          const wantedGl = wanted.includes("gitlab");
           if (wantedGh) out.push({ name: "origin", provider: "github", url: findUrl("github") });
           if (wantedGl) {
             out.push({ name: wantedGh ? "gitlab" : "origin", provider: "gitlab", url: findUrl("gitlab") });
@@ -30182,53 +34895,123 @@ function onboardTools(db2, dbPath2 = "") {
             warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
           }
         }
-        const protected_branches = deriveProtectedBranches(branching_model, pr_target);
+        const headless = resolveHeadless(args["headless_enforcement"]);
+        const headless_enforcement = headless.value;
+        const rawSandbox = args["sandbox_enforcement"];
+        let sandbox_enforcement = readConfig(db2, "sandbox_enforcement") ?? "no";
+        if (rawSandbox !== void 0) {
+          const resolved = resolveOption(rawSandbox, SANDBOX_OPTIONS);
+          if (resolved !== KEEP_SENTINEL) sandbox_enforcement = resolved ?? rawSandbox;
+        }
+        if (sandbox_enforcement !== "yes" && sandbox_enforcement !== "no") {
+          throw new Error(`sandbox_enforcement must be 'yes' or 'no' (got '${sandbox_enforcement}')`);
+        }
+        const seedPolicy = (repoPath, inGit) => {
+          const defaultBranch = () => inGit ? repoDefaultBranch(repoPath) : derivePrTargetDefault("github-flow");
+          if (branching_model === void 0) {
+            return { model: "github-flow", target: pr_target ?? defaultBranch() };
+          }
+          const target = pr_target ?? derivePrTargetDefault(branching_model);
+          if (inGit && branching_model === "gitflow" && !branchExists(repoPath, target)) {
+            return { model: "github-flow", target: defaultBranch() };
+          }
+          return { model: branching_model, target };
+        };
+        let anyRemote = remotes.some((r) => r.url.length > 0);
         db2.transaction(() => {
           writeConfig(db2, "onboarded", true);
           writeConfig(db2, "issue_sync", issue_sync);
+          writeConfig(db2, "headless_enforcement", headless_enforcement);
+          writeConfig(db2, "sandbox_enforcement", sandbox_enforcement);
           const rows = db2.all(
-            `SELECT name, path FROM repos`
+            `SELECT name, path, branching_model FROM repos`
           );
           for (const row of rows) {
-            let effModel = branching_model;
-            let effTarget = pr_target;
-            let effRemotes = shape === "remote" ? remotes : [];
+            let repoPath = row.path;
+            let inGit = false;
             try {
-              if (probeGit(row.path).in_git) {
-                if (effModel === "gitflow" && !branchExists(row.path, pr_target)) {
-                  effModel = "github-flow";
-                  effTarget = repoDefaultBranch(row.path);
-                }
-                if (shape === "remote") {
-                  effRemotes = remotesForPath(row.path);
-                }
-              }
+              repoPath = repoRowPath(db2, row.path);
+              inGit = probeGit(repoPath).in_git;
             } catch {
-              effModel = branching_model;
-              effTarget = pr_target;
-              effRemotes = shape === "remote" ? remotes : [];
+              inGit = false;
             }
-            const effProtected = deriveProtectedBranches(effModel, effTarget);
-            db2.run(
-              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`,
-              [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]
-            );
+            if (row.branching_model === null) {
+              let seed;
+              try {
+                seed = seedPolicy(repoPath, inGit);
+              } catch {
+                seed = seedPolicy(repoPath, false);
+              }
+              db2.run(
+                `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+                [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), row.name]
+              );
+            }
+            let effRemotes = shape === "remote" ? remotes : [];
+            if (shape === "remote" && inGit) {
+              try {
+                effRemotes = remotesForPath(repoPath);
+              } catch {
+                effRemotes = remotes;
+              }
+            }
+            if (effRemotes.some((r) => r.url.length > 0)) anyRemote = true;
+            upsertRepoRemotes(db2, row.name, effRemotes);
           }
         });
-        try {
-          writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
-        } catch {
+        if (shape === "remote" && !anyRemote && !warning) {
+          warning = "no git remote detected on any repo; issues will not sync \u2014 check each repo's git remote";
         }
-        return ok15({
+        const managed = readRepoPolicy(db2);
+        const appliedModel = managed.branching_model ?? branching_model ?? "github-flow";
+        const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
+        const appliedProtected = Array.isArray(managed.protected_branches) ? managed.protected_branches : deriveProtectedBranches(appliedModel, appliedTarget);
+        const headless_shim = applyHeadlessShim(headless);
+        let sandbox;
+        try {
+          const record2 = readConfig(db2, "sandbox_settings") ?? null;
+          if (sandbox_enforcement === "yes") {
+            const result2 = writeProjectSandbox({
+              projectRoot: sandboxProjectRoot(),
+              remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
+              toolCacheDir: join12(dirname8(dbPath2), "cache"),
+              platform: shimEnv.platform ?? process.platform,
+              previous: record2
+            });
+            if (result2.record) writeConfig(db2, "sandbox_settings", result2.record);
+            sandbox = {
+              written: result2.written,
+              ...result2.settings_path ? { settings_path: result2.settings_path } : {},
+              ...result2.allow_write ? { allow_write: result2.allow_write } : {},
+              ...result2.allowed_domains ? { allowed_domains: result2.allowed_domains } : {},
+              ...result2.env ? { env: result2.env } : {},
+              ...result2.weaker_network_isolation !== void 0 ? { weaker_network_isolation: result2.weaker_network_isolation } : {},
+              ...result2.gitignore_appended !== void 0 ? { gitignore_appended: result2.gitignore_appended } : {},
+              ...result2.reason ? { reason: result2.reason } : {}
+            };
+          } else {
+            const result2 = removeProjectSandbox({ projectRoot: sandboxProjectRoot(), record: record2 });
+            if (result2.removed) writeConfig(db2, "sandbox_settings", null);
+            sandbox = { ...result2 };
+          }
+        } catch (e) {
+          sandbox = { reason: e.message };
+        }
+        return ok16({
           ok: true,
           ...warning ? { warning } : {},
+          ...strayPaths !== void 0 ? { stray_dbs: removeStrayDbs(strayPaths) } : {},
           applied: {
             onboarded: true,
-            branching_model,
-            pr_target,
-            protected_branches,
+            branching_model: appliedModel,
+            pr_target: appliedTarget,
+            protected_branches: appliedProtected,
             remotes,
             issue_sync,
+            headless_enforcement,
+            headless_shim,
+            sandbox_enforcement,
+            sandbox,
             ...warning ? { warning } : {}
           }
         });
@@ -30239,17 +35022,17 @@ function onboardTools(db2, dbPath2 = "") {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync6 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync3, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname8, join as join8 } from "node:path";
+import { spawn, spawnSync as spawnSync10 } from "node:child_process";
+import { closeSync as closeSync2, existsSync as existsSync10, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname10, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync5, existsSync as existsSync6 } from "node:fs";
-import { dirname as dirname7 } from "node:path";
-function single(result) {
-  return Array.isArray(result) ? result[0] : result;
+import { mkdirSync as mkdirSync7, existsSync as existsSync9 } from "node:fs";
+import { dirname as dirname9 } from "node:path";
+function single(result2) {
+  return Array.isArray(result2) ? result2[0] : result2;
 }
 function isKuzuLockError(e) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -30261,16 +35044,47 @@ function sleepSync(ms) {
   const sab = new Int32Array(new SharedArrayBuffer(4));
   Atomics.wait(sab, 0, 0, ms);
 }
+var FILE_COLUMNS = "f.path, f.repo, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at";
+function toFileNode(r) {
+  return {
+    path: String(r["f.path"] ?? ""),
+    repo: String(r["f.repo"] ?? ""),
+    dir: String(r["f.dir"] ?? ""),
+    purpose: String(r["f.purpose"] ?? ""),
+    purpose_source: String(r["f.purpose_source"] ?? "none"),
+    content_md5: String(r["f.content_md5"] ?? ""),
+    size_bytes: Number(r["f.size_bytes"] ?? 0),
+    last_commit_sha: String(r["f.last_commit_sha"] ?? ""),
+    updated_at: String(r["f.updated_at"] ?? "")
+  };
+}
 var WorldModelGraph = class _WorldModelGraph {
   db;
   conn;
-  constructor(dbPath2) {
-    if (dbPath2 !== ":memory:" && !existsSync6(dirname7(dbPath2))) {
-      mkdirSync5(dirname7(dbPath2), { recursive: true });
+  constructor(dbPath2, opts = {}) {
+    const validateWritePath = () => {
+      if (dbPath2 !== ":memory:" && opts.trustedProjectRoot !== void 0) {
+        assertSafeProjectWritePath(
+          opts.trustedProjectRoot,
+          dbPath2,
+          "World-model database",
+          "directory"
+        );
+      }
+    };
+    validateWritePath();
+    if (dbPath2 !== ":memory:" && !existsSync9(dirname9(dbPath2))) {
+      mkdirSync7(dirname9(dbPath2), { recursive: true });
     }
+    validateWritePath();
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
-    this.db = _WorldModelGraph.openWithRetry(kuzu, dbPath2);
+    this.db = _WorldModelGraph.openWithRetry(
+      kuzu,
+      dbPath2,
+      KUZU_OPEN_MAX_ATTEMPTS,
+      validateWritePath
+    );
     try {
       this.conn = new kuzu.Connection(this.db);
       this.applySchema();
@@ -30286,10 +35100,12 @@ var WorldModelGraph = class _WorldModelGraph {
   // open fails on write-lock contention. A non-lock error (missing binary,
   // corrupt file) is rethrown immediately so it still surfaces as
   // graph_db_open_failed. (#590)
-  static openWithRetry(kuzu, dbPath2, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS) {
+  static openWithRetry(kuzu, dbPath2, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS, beforeOpen = () => {
+  }) {
     let lastErr;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        beforeOpen();
         return new kuzu.Database(dbPath2);
       } catch (e) {
         if (!isKuzuLockError(e)) throw e;
@@ -30318,6 +35134,140 @@ var WorldModelGraph = class _WorldModelGraph {
     this.conn.querySync(
       `CREATE REL TABLE IF NOT EXISTS CONTAINS (FROM Directory TO Directory)`
     );
+    this.conn.querySync(
+      `CREATE NODE TABLE IF NOT EXISTS File (
+        path STRING,
+        repo STRING,
+        dir STRING,
+        purpose STRING,
+        purpose_source STRING,
+        content_md5 STRING,
+        size_bytes INT64,
+        last_commit_sha STRING,
+        updated_at STRING,
+        PRIMARY KEY (path)
+      )`
+    );
+    this.conn.querySync(
+      `CREATE REL TABLE IF NOT EXISTS HAS_FILE (FROM Directory TO File)`
+    );
+  }
+  tableNames() {
+    const result2 = single(this.conn.querySync("CALL show_tables() RETURN name"));
+    const names = [];
+    try {
+      while (result2.hasNext()) {
+        names.push(String(result2.getNextSync()["name"] ?? ""));
+      }
+    } finally {
+      result2.close();
+    }
+    return names.sort();
+  }
+  rows(query, params) {
+    const stmt = this.conn.prepareSync(query);
+    const result2 = single(this.conn.executeSync(stmt, params));
+    const rows = [];
+    try {
+      while (result2.hasNext()) rows.push(result2.getNextSync());
+    } finally {
+      result2.close();
+    }
+    return rows;
+  }
+  // Run fn inside one kuzu write transaction; a throw rolls the batch back.
+  transaction(fn) {
+    this.conn.querySync("BEGIN TRANSACTION");
+    try {
+      const out = fn();
+      this.conn.querySync("COMMIT");
+      return out;
+    } catch (e) {
+      try {
+        this.conn.querySync("ROLLBACK");
+      } catch {
+      }
+      throw e;
+    }
+  }
+  // File keys are '<repo>/<repo-relative path>'; repo names are directory
+  // basenames, so the first '/' always separates the two.
+  static fileKey(repo, relPath) {
+    return `${repo}/${relPath}`;
+  }
+  static relativeFilePath(node) {
+    return node.path.startsWith(`${node.repo}/`) ? node.path.slice(node.repo.length + 1) : node.path;
+  }
+  upsertFileStmt = null;
+  upsertHasFileStmt = null;
+  upsertFile(node) {
+    this.upsertFileStmt ??= this.conn.prepareSync(
+      `MERGE (f:File {path: $path})
+       SET f.repo = $repo,
+           f.dir = $dir,
+           f.purpose = $purpose,
+           f.purpose_source = $purpose_source,
+           f.content_md5 = $content_md5,
+           f.size_bytes = $size_bytes,
+           f.last_commit_sha = $last_commit_sha,
+           f.updated_at = $updated_at`
+    );
+    this.conn.executeSync(this.upsertFileStmt, { ...node });
+  }
+  upsertHasFile(repo, dir, filePath) {
+    this.upsertHasFileStmt ??= this.conn.prepareSync(
+      `MATCH (d:Directory {key: $dirKey}), (f:File {path: $filePath})
+       MERGE (d)-[:HAS_FILE]->(f)`
+    );
+    this.conn.executeSync(this.upsertHasFileStmt, { dirKey: _WorldModelGraph.dirKey(repo, dir), filePath });
+  }
+  allFilesForRepo(repo) {
+    return this.rows(`MATCH (f:File {repo: $repo}) RETURN ${FILE_COLUMNS}`, { repo }).map(toFileNode);
+  }
+  filesForDirectory(repo, dir) {
+    return this.rows(
+      `MATCH (f:File {repo: $repo, dir: $dir}) RETURN ${FILE_COLUMNS} ORDER BY f.path`,
+      { repo, dir }
+    ).map(toFileNode);
+  }
+  filePathsWithDirectory(repo) {
+    const rows = this.rows(
+      `MATCH (:Directory)-[:HAS_FILE]->(f:File {repo: $repo}) RETURN f.path`,
+      { repo }
+    );
+    return new Set(rows.map((r) => String(r["f.path"] ?? "")));
+  }
+  pruneFiles(repo, keepPaths) {
+    const stale = this.allFilesForRepo(repo).filter((f) => !keepPaths.has(f.path));
+    if (stale.length === 0) return 0;
+    const stmt = this.conn.prepareSync(`MATCH (f:File {path: $path}) DETACH DELETE f`);
+    for (const f of stale) this.conn.executeSync(stmt, { path: f.path });
+    return stale.length;
+  }
+  fileCoverage(repo) {
+    const rows = this.rows(
+      `MATCH (f:File {repo: $repo})
+       RETURN f.purpose_source AS source, COUNT(*) AS n, SUM(CASE WHEN f.purpose <> '' THEN 1 ELSE 0 END) AS with_purpose`,
+      { repo }
+    );
+    const coverage = { files: 0, with_purpose: 0, by_source: {} };
+    for (const r of rows) {
+      const n = Number(r["n"] ?? 0);
+      coverage.files += n;
+      coverage.with_purpose += Number(r["with_purpose"] ?? 0);
+      coverage.by_source[String(r["source"] ?? "none")] = n;
+    }
+    return coverage;
+  }
+  keywordSearchFiles(repo, query, k) {
+    return this.rows(
+      `MATCH (f:File {repo: $repo})
+       WHERE lower(f.purpose) CONTAINS $needle OR lower(f.path) CONTAINS $needle
+       RETURN ${FILE_COLUMNS}
+       ORDER BY f.path
+       LIMIT $k`,
+      { repo, needle: query.toLowerCase(), k }
+    ).map((r) => ({ ...toFileNode(r), score: 1 }));
   }
   static dirKey(repo, path2) {
     return JSON.stringify([repo, path2]);
@@ -30365,16 +35315,77 @@ var WorldModelGraph = class _WorldModelGraph {
     }
     return toDelete.length;
   }
+  // Re-key every Directory node of oldRepo under newRepo in one kuzu
+  // transaction. The primary key embeds the repo (dirKey), so each node is
+  // re-created under its new key, its CONTAINS edges re-linked, and the old
+  // nodes detach-deleted. Returns the number of nodes moved.
+  renameRepo(oldRepo, newRepo) {
+    const nodes = this.allDirectoriesForRepo(oldRepo);
+    if (nodes.length === 0) return 0;
+    const edges = this.containsEdgesForRepo(oldRepo);
+    const files = this.allFilesForRepo(oldRepo);
+    this.conn.querySync("BEGIN TRANSACTION");
+    try {
+      for (const n of nodes) {
+        this.upsertDirectory({
+          repo: newRepo,
+          path: n.path,
+          parent_path: n.parent_path,
+          summary: n.summary,
+          summary_source: n.summary_source,
+          summary_updated_at: n.summary_updated_at,
+          file_count: n.file_count
+        });
+      }
+      for (const e of edges) {
+        this.upsertContains({ repo: newRepo, path: e.parent }, { repo: newRepo, path: e.child });
+      }
+      const delFiles = this.conn.prepareSync(`MATCH (f:File {repo: $repo}) DETACH DELETE f`);
+      this.conn.executeSync(delFiles, { repo: oldRepo });
+      for (const f of files) {
+        const path2 = _WorldModelGraph.fileKey(newRepo, _WorldModelGraph.relativeFilePath(f));
+        this.upsertFile({ ...f, path: path2, repo: newRepo });
+        this.upsertHasFile(newRepo, f.dir, path2);
+      }
+      const del = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo}) DETACH DELETE d`);
+      this.conn.executeSync(del, { repo: oldRepo });
+      this.conn.querySync("COMMIT");
+    } catch (e) {
+      try {
+        this.conn.querySync("ROLLBACK");
+      } catch {
+      }
+      throw e;
+    }
+    return nodes.length;
+  }
+  containsEdgesForRepo(repo) {
+    const stmt = this.conn.prepareSync(
+      `MATCH (p:Directory {repo: $repo})-[:CONTAINS]->(c:Directory {repo: $repo})
+       RETURN p.path, c.path`
+    );
+    const result2 = single(this.conn.executeSync(stmt, { repo }));
+    const edges = [];
+    try {
+      while (result2.hasNext()) {
+        const r = result2.getNextSync();
+        edges.push({ parent: String(r["p.path"] ?? ""), child: String(r["c.path"] ?? "") });
+      }
+    } finally {
+      result2.close();
+    }
+    return edges;
+  }
   allDirectoriesForRepo(repo) {
     const stmt = this.conn.prepareSync(
       `MATCH (d:Directory {repo: $repo})
        RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count`
     );
-    const result = single(this.conn.executeSync(stmt, { repo }));
+    const result2 = single(this.conn.executeSync(stmt, { repo }));
     const rows = [];
     try {
-      while (result.hasNext()) {
-        const r = result.getNextSync();
+      while (result2.hasNext()) {
+        const r = result2.getNextSync();
         rows.push({
           key: r["d.key"],
           repo: r["d.repo"],
@@ -30387,7 +35398,7 @@ var WorldModelGraph = class _WorldModelGraph {
         });
       }
     } finally {
-      result.close();
+      result2.close();
     }
     return rows;
   }
@@ -30399,11 +35410,11 @@ var WorldModelGraph = class _WorldModelGraph {
        RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count
        LIMIT $k`
     );
-    const result = single(this.conn.executeSync(stmt, { repo, needle: lowered, k }));
+    const result2 = single(this.conn.executeSync(stmt, { repo, needle: lowered, k }));
     const rows = [];
     try {
-      while (result.hasNext()) {
-        const r = result.getNextSync();
+      while (result2.hasNext()) {
+        const r = result2.getNextSync();
         rows.push({
           key: r["d.key"],
           repo: r["d.repo"],
@@ -30417,20 +35428,20 @@ var WorldModelGraph = class _WorldModelGraph {
         });
       }
     } finally {
-      result.close();
+      result2.close();
     }
     return rows;
   }
   directoryCount() {
-    const result = single(this.conn.querySync("MATCH (d:Directory) RETURN COUNT(d) AS n"));
+    const result2 = single(this.conn.querySync("MATCH (d:Directory) RETURN COUNT(d) AS n"));
     try {
-      if (result.hasNext()) {
-        const row = result.getNextSync();
+      if (result2.hasNext()) {
+        const row = result2.getNextSync();
         return Number(row["n"] ?? 0);
       }
       return 0;
     } finally {
-      result.close();
+      result2.close();
     }
   }
   close() {
@@ -30446,10 +35457,6 @@ var WorldModelGraph = class _WorldModelGraph {
     this["db"] = null;
   }
 };
-function resolveGraphDbPath(trajectoryDbPath) {
-  if (trajectoryDbPath === ":memory:") return ":memory:";
-  return trajectoryDbPath.replace(/trajectory\.db$/, "world-model.kuzu");
-}
 var GRAPH_REOPEN_THROTTLE_MS = 5e3;
 var GraphHolder = class _GraphHolder {
   graph = null;
@@ -30504,54 +35511,266 @@ var GraphHolder = class _GraphHolder {
       this.log({ kind: "graph_db_open", ...recovered ? { recovered: true } : {} });
       return this.graph;
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (message !== this.lastFailureMessage) {
-        this.log({ kind: "graph_db_open_failed", error_message: message });
+      const message2 = e instanceof Error ? e.message : String(e);
+      if (message2 !== this.lastFailureMessage) {
+        this.log({ kind: "graph_db_open_failed", error_message: message2 });
       }
-      this.lastFailureMessage = message;
-      this.openError = isKuzuLockError(e) ? message : null;
+      this.lastFailureMessage = message2;
+      this.openError = isKuzuLockError(e) ? message2 : null;
       this.graph = null;
       return null;
     }
   }
 };
 
+// src/file-purpose.ts
+var PURPOSE_HEAD_BYTES = 4096;
+var PURPOSE_MAX_CHARS = 200;
+var NONE = { purpose: "", source: "none" };
+var MANIFESTS = /* @__PURE__ */ new Set(["package.json", "plugin.json", "marketplace.json"]);
+var COMMENT_STYLES = {
+  ts: { line: ["//"], block: true },
+  js: { line: ["//"], block: true },
+  mjs: { line: ["//"], block: true },
+  sh: { line: ["#"], block: false },
+  pl: { line: ["#"], block: false },
+  sql: { line: ["--"], block: true }
+};
+var JSDOC_EXTS = /* @__PURE__ */ new Set(["ts", "js", "mjs"]);
+var DIRECTIVE_LINE = /^(spdx-license-identifier|copyright|\(c\)|©|licensed under|all rights reserved|shellcheck |eslint|prettier-ignore|@ts-|-\*-|vim:|jshint|global )/i;
+function baseName(path2) {
+  const i = path2.lastIndexOf("/");
+  return i >= 0 ? path2.slice(i + 1) : path2;
+}
+function extension(path2) {
+  const name = baseName(path2);
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
+}
+function isPurposeCandidate(path2) {
+  const ext = extension(path2);
+  return MANIFESTS.has(baseName(path2)) || ext === "py" || ext === "md" || ext in COMMENT_STYLES;
+}
+function normalizePurpose(raw) {
+  const text = raw.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const end = /[.!?](?=\s+[A-Z0-9`'"(\[]|\s*$)/.exec(text);
+  const sentence = end ? text.slice(0, end.index + 1) : text;
+  if (sentence.length <= PURPOSE_MAX_CHARS) return sentence;
+  const clipped = sentence.slice(0, PURPOSE_MAX_CHARS - 1);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${(lastSpace > PURPOSE_MAX_CHARS / 2 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}\u2026`;
+}
+function result(raw, source) {
+  const purpose = normalizePurpose(raw);
+  return purpose ? { purpose, source } : null;
+}
+function firstParagraph(lines) {
+  const out = [];
+  for (const l of lines) {
+    if (l.trim() === "") {
+      if (out.length > 0) break;
+      continue;
+    }
+    out.push(l.trim());
+  }
+  return out.join(" ");
+}
+function stripBlockComment(body) {
+  return body.split("\n").map((l) => l.replace(/^\s*\*+\s?/, "").replace(/\s*\*+$/, ""));
+}
+function fromJsdoc(head) {
+  const blocks = head.matchAll(/\/\*\*([\s\S]*?)\*\//g);
+  for (const m of blocks) {
+    const lines = stripBlockComment(m[1] ?? "");
+    const tagIdx = lines.findIndex((l) => /@(file|fileoverview)\b/.test(l));
+    if (tagIdx < 0) continue;
+    const tagged = lines[tagIdx].replace(/^.*@(file|fileoverview)\b/, "").trim();
+    const rest = lines.slice(tagIdx + 1);
+    const nextTag = rest.findIndex((l) => l.trim().startsWith("@"));
+    const text = tagged ? [tagged, ...nextTag < 0 ? rest : rest.slice(0, nextTag)] : lines.filter((l) => !l.trim().startsWith("@"));
+    const r = result(firstParagraph(text), "jsdoc");
+    if (r) return r;
+  }
+  return null;
+}
+function isDirective(text) {
+  return DIRECTIVE_LINE.test(text.trim());
+}
+function proseLine(l) {
+  return /[A-Za-z0-9]/.test(l) ? l : "";
+}
+function fromCommentBlock(head, style) {
+  const lines = head.split("\n");
+  const offsets = [];
+  let acc = 0;
+  for (const l of lines) {
+    offsets.push(acc);
+    acc += l.length + 1;
+  }
+  let i = 0;
+  if (lines[0]?.startsWith("#!")) i = 1;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line === "") {
+      i++;
+      continue;
+    }
+    const marker = style.line.find((m) => line.startsWith(m));
+    if (marker) {
+      const block = [];
+      while (i < lines.length) {
+        const l = lines[i].trim();
+        const m = style.line.find((mk) => l.startsWith(mk));
+        if (!m) break;
+        block.push(proseLine(l.slice(m.length).replace(/^[#/-]+/, "").trim()));
+        i++;
+      }
+      const content = block.filter((l) => !isDirective(l));
+      const r = result(firstParagraph(content), "comment");
+      if (r) return r;
+      continue;
+    }
+    if (style.block && line.startsWith("/*")) {
+      const start = offsets[i] + lines[i].indexOf("/*");
+      const close = head.indexOf("*/", start + 2);
+      const body = head.slice(start + 2, close < 0 ? head.length : close).replace(/^\*+/, "");
+      const content = stripBlockComment(body).map(proseLine).filter((l) => !isDirective(l));
+      const r = result(firstParagraph(content), "comment");
+      if (r) return r;
+      if (close < 0) return null;
+      i = head.slice(0, close + 2).split("\n").length;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+function fromPythonDocstring(head) {
+  const lines = head.split("\n");
+  let i = 0;
+  while (i < lines.length && (lines[i].trim() === "" || lines[i].trim().startsWith("#"))) i++;
+  const rest = lines.slice(i).join("\n");
+  const m = /^[rRuU]?("""|''')([\s\S]*?)(?:\1|$)/.exec(rest) ?? /^[rRuU]?(["'])((?:\\.|(?!\1).)*)\1/.exec(rest);
+  if (!m) return null;
+  return result(firstParagraph((m[2] ?? "").split("\n")), "docstring");
+}
+function unquoteYaml(v) {
+  const t = v.trim();
+  if (t.startsWith('"') && t.endsWith('"') || t.startsWith("'") && t.endsWith("'")) return t.slice(1, -1);
+  return t;
+}
+function splitFrontmatter(head) {
+  const lines = head.split("\n");
+  if (lines[0]?.trim() !== "---") return { frontmatter: null, body: lines };
+  const close = lines.findIndex((l, idx) => idx > 0 && l.trim() === "---");
+  if (close < 0) return { frontmatter: lines.slice(1), body: [] };
+  return { frontmatter: lines.slice(1, close), body: lines.slice(close + 1) };
+}
+function fromFrontmatter(fm) {
+  const idx = fm.findIndex((l) => /^description\s*:/.test(l));
+  if (idx < 0) return null;
+  const value = fm[idx].replace(/^description\s*:/, "").trim();
+  if (value && !/^[>|][+-]?$/.test(value)) return result(unquoteYaml(value), "frontmatter");
+  const continuation = [];
+  for (const l of fm.slice(idx + 1)) {
+    if (!/^\s+\S/.test(l)) break;
+    continuation.push(l.trim());
+  }
+  return result(continuation.join(" "), "frontmatter");
+}
+function stripInlineMarkdown(s) {
+  return s.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/(\*\*|__)(.*?)\1/g, "$2").trim();
+}
+function fromHeading(body) {
+  const h1 = body.findIndex((l) => /^#\s+\S/.test(l));
+  if (h1 < 0) return null;
+  const title = stripInlineMarkdown(body[h1].replace(/^#\s+/, "").replace(/\s+#+\s*$/, ""));
+  const para = [];
+  for (const raw of body.slice(h1 + 1)) {
+    const l = raw.trim();
+    if (l === "") {
+      if (para.length > 0) break;
+      continue;
+    }
+    if (para.length === 0 && (/^\[?!\[/.test(l) || l.startsWith("<"))) continue;
+    if (/^(#|```|~~~|\||[-*+]\s|\d+\.\s|>)/.test(l)) break;
+    para.push(stripInlineMarkdown(l));
+  }
+  const sentence = normalizePurpose(para.join(" "));
+  return result(sentence ? `${title} \u2014 ${sentence}` : title, "heading");
+}
+function fromMarkdown(head) {
+  const { frontmatter, body } = splitFrontmatter(head);
+  return frontmatter && fromFrontmatter(frontmatter) || fromHeading(body);
+}
+function fromManifest(head) {
+  try {
+    const parsed = JSON.parse(head);
+    return typeof parsed.description === "string" ? result(parsed.description, "manifest") : null;
+  } catch {
+    const m = /"description"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(head);
+    if (!m) return null;
+    try {
+      return result(JSON.parse(m[1]), "manifest");
+    } catch {
+      return null;
+    }
+  }
+}
+function extractPurpose(path2, head) {
+  if (!head || head.includes("\0") || head.trim() === "") return NONE;
+  const text = head.slice(0, PURPOSE_HEAD_BYTES).replace(/\r\n?/g, "\n").replace(/^﻿/, "");
+  const ext = extension(path2);
+  let found = null;
+  if (MANIFESTS.has(baseName(path2))) found = fromManifest(text);
+  else if (ext === "py") found = fromPythonDocstring(text);
+  else if (ext === "md") found = fromMarkdown(text);
+  else if (ext in COMMENT_STYLES) {
+    found = (JSDOC_EXTS.has(ext) ? fromJsdoc(text) : null) ?? fromCommentBlock(text, COMMENT_STYLES[ext]);
+  }
+  return found ?? NONE;
+}
+
 // src/tools/scan.ts
-function ok16(data) {
+function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err15(message) {
+function err16(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap3(fn) {
+function wrap4(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err15(e.message);
+      return err16(e.message);
     }
   };
 }
 function resolveScanScript() {
-  const here = dirname8(fileURLToPath4(import.meta.url));
+  const here = dirname10(fileURLToPath4(import.meta.url));
   const candidates = [
-    join8(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join8(here, "..", "..", "..", "scripts", "scan.sh")
+    join13(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join13(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync7(c)) return c;
+  for (const c of candidates) if (existsSync10(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join8(pluginRoot, "scripts", "scan.sh");
-    if (existsSync7(c)) return c;
+    const c = join13(pluginRoot, "scripts", "scan.sh");
+    if (existsSync10(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
-function runScanWithScript(script, sessionDir, timeoutMs) {
-  return new Promise((resolve5, reject) => {
+function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
+  return new Promise((resolve3, reject) => {
+    const env = dbPath2 && dbPath2 !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath2 } : process.env;
     const child = spawn("bash", [script, sessionDir], {
+      cwd: sessionDir,
+      env,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30600,12 +35819,12 @@ function runScanWithScript(script, sessionDir, timeoutMs) {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
-function runScan(sessionDir, timeoutMs) {
-  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+function runScan(sessionDir, timeoutMs, dbPath2) {
+  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath2);
 }
 var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "user_manual",
@@ -30639,7 +35858,8 @@ function detectStructuralChange(db2, currentRepos, currentTopDirs) {
 var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
-function basename3(p) {
+var STRUCTURAL_PURPOSES_MAX = 5;
+function basename5(p) {
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(i + 1) : p;
 }
@@ -30664,33 +35884,37 @@ function deriveDirectoryEntries(out) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename3(f.path));
+      entry.file_names.push(basename5(f.path));
     }
   }
   return dirMap;
 }
-function buildStructuralSummary(dirPath, fileNames, subdirNames) {
-  const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join10 = (names) => {
+function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
+  const leaf = dirPath === "" ? "(repo root)" : basename5(dirPath);
+  const join18 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
-  if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join10(fileNames.slice().sort())})`);
+  const fileCount = `${fileNames.length} file${fileNames.length === 1 ? "" : "s"}`;
+  if (filePurposes.length > 0) {
+    const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
+    parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
+  } else if (fileNames.length > 0) {
+    parts.push(`${fileCount} (${join18(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join10(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join18(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join8(absDirPath, candidate);
-    if (!existsSync7(readmePath)) continue;
+    const readmePath = join13(absDirPath, candidate);
+    if (!existsSync10(readmePath)) continue;
     try {
-      const raw = readFileSync3(readmePath, "utf8");
+      const raw = readFileSync6(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
       return frameUntrusted("readme", clipped);
     } catch {
@@ -30698,7 +35922,7 @@ function readReadmeSummary(absDirPath) {
   }
   return null;
 }
-function persistDirectoriesGraph(graph, out, now) {
+function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ */ new Map()) {
   const repoPaths = /* @__PURE__ */ new Map();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
   const dirMap = deriveDirectoryEntries(out);
@@ -30710,23 +35934,28 @@ function persistDirectoriesGraph(graph, out, now) {
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename3(entry.path));
-    else subdirsByParent.set(key, [basename3(entry.path)]);
+    if (list) list.push(basename5(entry.path));
+    else subdirsByParent.set(key, [basename5(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join8(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join13(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
-    const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
+    const summary = readmeSummary ?? buildStructuralSummary(
+      entry.path,
+      entry.file_names,
+      subdirNames,
+      purposesByDir.get(`${entry.repo} ${entry.path}`) ?? []
+    );
     graph.upsertDirectory({
       repo: entry.repo,
       path: entry.path,
       parent_path: entry.parent_path,
       summary,
       summary_source: readmeSummary !== null ? "readme" : "structural",
-      summary_updated_at: now,
+      summary_updated_at: now2,
       file_count: entry.file_count
     });
     if (readmeSummary !== null) dirs_readme_summarized++;
@@ -30742,15 +35971,98 @@ function persistDirectoriesGraph(graph, out, now) {
   }
   return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
+function readFileHead(absPath) {
+  let fd = null;
+  try {
+    fd = openSync2(absPath, "r");
+    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
+    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
+    return buf.subarray(0, n).toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== null) closeSync2(fd);
+  }
+}
+function fileDir(relPath) {
+  const i = relPath.lastIndexOf("/");
+  return i >= 0 ? relPath.slice(0, i) : "";
+}
+function planFiles(graph, out, now2) {
+  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+  const existing = /* @__PURE__ */ new Map();
+  for (const r of out.repos) {
+    for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
+  }
+  const plan = { nodes: [], writes: [], extracted: 0 };
+  for (const f of out.files) {
+    const repoPath = repoPaths.get(f.repo);
+    if (!repoPath) continue;
+    const path2 = WorldModelGraph.fileKey(f.repo, f.path);
+    const prev = existing.get(path2);
+    const md5 = f.content_md5 ?? "";
+    if (prev && md5 !== "" && prev.content_md5 === md5) {
+      plan.nodes.push(prev);
+      continue;
+    }
+    const facts = {
+      path: path2,
+      repo: f.repo,
+      dir: fileDir(f.path),
+      content_md5: md5,
+      size_bytes: Number(f.size_bytes ?? 0),
+      last_commit_sha: f.last_commit_sha ?? "",
+      updated_at: now2
+    };
+    let node;
+    if (prev?.purpose_source === "swe") {
+      node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
+    } else {
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join13(repoPath, f.path))) : { purpose: "", source: "none" };
+      node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
+      plan.extracted++;
+    }
+    plan.nodes.push(node);
+    plan.writes.push(node);
+  }
+  return plan;
+}
+function purposesByDirectory(nodes) {
+  const byDir = /* @__PURE__ */ new Map();
+  for (const n of nodes) {
+    if (!n.purpose) continue;
+    const key = `${n.repo} ${n.dir}`;
+    const entry = { name: basename5(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const list = byDir.get(key);
+    if (list) list.push(entry);
+    else byDir.set(key, [entry]);
+  }
+  return byDir;
+}
+function persistFilesGraph(graph, out, plan) {
+  let files_retired = 0;
+  graph.transaction(() => {
+    for (const n of plan.writes) graph.upsertFile(n);
+    for (const r of out.repos) {
+      const linked = graph.filePathsWithDirectory(r.name);
+      for (const n of plan.nodes) {
+        if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
+      }
+      const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
+      files_retired += graph.pruneFiles(r.name, keep);
+    }
+  });
+  return { files_upserted: plan.writes.length, files_retired };
+}
 function readRepoRemotes(path2) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync6("git", ["-C", path2, "remote"], opts);
+    const listR = spawnSync10("git", ["-C", path2, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync6("git", ["-C", path2, "remote", "get-url", name], opts);
+      const urlR = spawnSync10("git", ["-C", path2, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -30761,62 +36073,148 @@ function readRepoRemotes(path2) {
     return [];
   }
 }
+function canonicalPath2(p) {
+  try {
+    return realpathSync5(p);
+  } catch {
+    return p.replace(/\/+$/, "");
+  }
+}
+function normalizeRemoteUrl(url2) {
+  return url2.trim().replace(/\/+$/, "").replace(/\.git$/, "");
+}
+function primaryRemoteUrl(remotes) {
+  const primary = remotes[primaryIndex(remotes)];
+  return primary ? normalizeRemoteUrl(primary.url) : null;
+}
+function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
+  const scannedNames = new Set(discovered.map((r) => r.name));
+  const existingNames = new Set(existing.map((r) => r.name));
+  const orphaned = existing.filter((r) => !scannedNames.has(r.name));
+  const claimed = /* @__PURE__ */ new Set();
+  const candidates = [];
+  for (const r of discovered) {
+    if (existingNames.has(r.name)) continue;
+    const path2 = canonicalPath2(r.path);
+    const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
+    let match = null;
+    for (const row of orphaned) {
+      if (claimed.has(row.name)) continue;
+      if (canonicalPath2(row.path) === path2) {
+        match = { name: row.name, by: "path" };
+        break;
+      }
+    }
+    if (!match && remote) {
+      for (const row of orphaned) {
+        if (claimed.has(row.name)) continue;
+        if (primaryRemoteUrl(storedRemotes(row.name)) === remote) {
+          match = { name: row.name, by: "remote" };
+          break;
+        }
+      }
+    }
+    if (match) {
+      claimed.add(match.name);
+      candidates.push({ old: match.name, new: r.name, by: match.by, path: r.path });
+    }
+  }
+  return candidates;
+}
 function persistScan(db2, graph, out, sessionDir) {
-  const now = nowISO();
-  const scannedNames = new Set(out.repos.map((r) => r.name));
+  const now2 = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
-  const existing = db2.all(
-    `SELECT name, path FROM repos`
-  );
+  const existing = db2.all(`SELECT name, path FROM repos`);
+  const remotesByRepo = /* @__PURE__ */ new Map();
+  for (const r of out.repos) remotesByRepo.set(r.name, readRepoRemotes(r.path));
+  const rename_candidates = detectRenames(existing, out.repos, remotesByRepo, (repo) => repoRemotes(db2, repo));
+  const renamedTo = new Set(rename_candidates.map((c) => c.new));
+  const renamedFrom = new Set(rename_candidates.map((c) => c.old));
+  const persisted = {
+    ...out,
+    repos: out.repos.filter((r) => !renamedTo.has(r.name)),
+    files: out.files.filter((f) => !renamedTo.has(f.repo))
+  };
+  const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {
     const normPath = r.path.replace(/\/+$/, "");
     const underSession = normPath === normSession || normPath.startsWith(normSession + "/");
-    return underSession && !scannedNames.has(r.name);
+    return underSession && !scannedNames.has(r.name) && !renamedFrom.has(r.name);
   });
   let repos_upserted = 0;
   let repos_retired = 0;
   let dirs_retired = 0;
   const retired = [];
+  const repos_stale_kept = [];
   db2.transaction(() => {
-    for (const r of out.repos) {
-      const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+    for (const r of persisted.repos) {
       db2.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO repos (name, path, file_count, last_scanned_at)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           remotes = excluded.remotes`,
-        [r.name, r.path, r.file_count, now, remotesJson]
+           last_scanned_at = excluded.last_scanned_at`,
+        [r.name, r.path, r.file_count, now2]
       );
+      upsertRepoRemotes(db2, r.name, remotesByRepo.get(r.name) ?? []);
       repos_upserted++;
     }
     for (const r of toRetire) {
+      if (db2.get(`SELECT 1 FROM tasks WHERE repo = ? LIMIT 1`, [r.name])) {
+        repos_stale_kept.push({ name: r.name, path: r.path, reason: "task_referenced" });
+        continue;
+      }
+      db2.run(`SAVEPOINT retire_repo`);
       try {
+        db2.run(
+          `DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
+             (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`,
+          [r.name]
+        );
         db2.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+        db2.run(`RELEASE retire_repo`);
         repos_retired++;
-        retired.push(r);
+        retired.push({ name: r.name, path: r.path });
       } catch {
+        db2.run(`ROLLBACK TO retire_repo`);
+        db2.run(`RELEASE retire_repo`);
+        repos_stale_kept.push({ name: r.name, path: r.path, reason: "row_referenced" });
       }
     }
+    for (const c of rename_candidates) {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "repo_rename_detected",
+        summary: `Scan: repo ${c.old} looks renamed to ${c.new} (matched by ${c.by}); run repo_rename to apply`,
+        content_json: JSON.stringify({ old: c.old, new: c.new, by: c.by }),
+        repo: c.old
+      });
+    }
   });
+  let files_upserted = 0;
+  let files_extracted = 0;
+  let files_retired = 0;
   if (graph) {
     for (const r of retired) {
       const n = graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
       dirs_retired += n;
+      files_retired += graph.pruneFiles(r.name, /* @__PURE__ */ new Set());
     }
   }
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
-    const stats = persistDirectoriesGraph(graph, out, now);
+    const plan = planFiles(graph, persisted, now2);
+    files_extracted = plan.extracted;
+    const stats = persistDirectoriesGraph(graph, persisted, now2, purposesByDirectory(plan.nodes));
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;
-    const dirMap = deriveDirectoryEntries(out);
-    for (const r of out.repos) {
+    const dirMap = deriveDirectoryEntries(persisted);
+    for (const r of persisted.repos) {
       const keepKeys = /* @__PURE__ */ new Set();
       for (const [, entry] of dirMap) {
         if (entry.repo === r.name) {
@@ -30825,21 +36223,29 @@ function persistScan(db2, graph, out, sessionDir) {
       }
       graph.pruneDirectories(r.name, keepKeys);
     }
+    const fileStats = persistFilesGraph(graph, persisted, plan);
+    files_upserted = fileStats.files_upserted;
+    files_retired += fileStats.files_retired;
   }
   return {
     repos_discovered: out.repos.length,
     repos_upserted,
     repos_retired,
+    repos_stale_kept,
     dirs_upserted,
     dirs_retired,
     dirs_readme_summarized,
-    dirs_structural_summarized
+    dirs_structural_summarized,
+    files_upserted,
+    files_extracted,
+    files_retired,
+    rename_candidates
   };
 }
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync3(lockPath, "utf8"));
+    return JSON.parse(readFileSync6(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -30858,7 +36264,7 @@ function acquireLock(lockPath) {
     if (pidAlive(existing.pid)) return false;
     unlinkSync(lockPath);
   }
-  writeFileSync3(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
+  writeFileSync5(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
 function releaseLock(lockPath) {
@@ -30871,14 +36277,14 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
   const definitions = [
     {
       name: "scan_run",
-      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
+      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory + File nodes to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
           session_dir: {
             type: "string",
-            description: "Absolute path to the session directory (workspace root). Defaults to the MCP server's CWD."
+            description: "Absolute path to the session directory (workspace root). Defaults to the project root (the directory holding the trajectory DB's .claude/)."
           },
           source: {
             type: "string",
@@ -30905,22 +36311,25 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     scan_run: requireRoles(
       "scan_run",
       ["bro"],
-      wrap3(async (args) => {
-        const sessionDir = args["session_dir"] ?? process.cwd();
+      wrap4(async (args) => {
+        const sessionDir = args["session_dir"] ?? projectRootFromDbPath(dbPath2);
+        if (!sessionDir) {
+          return err16("session_dir is required: the project root is unknown for this trajectory DB");
+        }
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         const graph = graphHolder2?.ensureGraph() ?? null;
         const graphOpenError = graphHolder2?.openError ?? null;
         if (!graph && graphOpenError) {
-          return err15(
+          return err16(
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname8(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join13(dirname10(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
-            return err15(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+            return err16(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
           }
           let acquired = false;
           let acquireThrew = false;
@@ -30932,41 +36341,54 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           if (!acquired) {
             const recheck = readLock(lockPath);
             if (recheck && pidAlive(recheck.pid)) {
-              return err15(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+              return err16(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
             }
             if (!acquireThrew) {
-              return err15("scan lock could not be acquired");
+              return err16("scan lock could not be acquired");
             }
           }
         }
         try {
-          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath2);
           const stats = persistScan(db2, graph, out, sessionDir);
+          const spawnFn = args["_spawnFn"];
+          const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
+          for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
+            try {
+              syncRepoMilestones(db2, r.name, r.path, spawnFn);
+            } catch (e) {
+              serverLog({ event: "milestone_sync_error", repo: r.name, error: e.message });
+            }
+          }
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(db2, out.repos, topDirs);
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
-            [
-              `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
-              JSON.stringify({
-                ...stats,
-                session_dir: out.session_dir,
-                scanned_at: out.scanned_at,
-                source,
-                structural_change: structuralChange,
-                repos_seen: out.repos.map((r) => r.name),
-                top_dirs: Array.from(topDirs).sort()
-              }),
-              nowISO()
-            ]
-          );
-          return ok16({
+          const pluginInventory = out.plugin_inventory ?? null;
+          const pluginNote = pluginInventory?.status === "unavailable" ? `; plugins unavailable: ${pluginInventory.note}` : "";
+          const mcpInventory = out.mcp_inventory ?? null;
+          const mcpNote = mcpInventory?.status === "unavailable" ? `; mcp servers unavailable: ${mcpInventory.note}` : "";
+          insertAudit(db2, {
+            issue_id: -1,
+            from_node: "bro",
+            event_type: "deep_scan_completed",
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ""}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}${mcpNote}`,
+            content_json: JSON.stringify({
+              ...stats,
+              session_dir: out.session_dir,
+              scanned_at: out.scanned_at,
+              source,
+              structural_change: structuralChange,
+              repos_seen: out.repos.map((r) => r.name),
+              top_dirs: Array.from(topDirs).sort()
+            })
+          });
+          return ok17({
             session_dir: out.session_dir,
             scanned_at: out.scanned_at,
             repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
             source,
             structural_change: structuralChange,
+            plugin_inventory: pluginInventory,
+            mcp_inventory: mcpInventory,
             ...stats
           });
         } finally {
@@ -30977,49 +36399,386 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     repos_list: requireRoles(
       "repos_list",
       ["bro", "swe", "pr-reviewer"],
-      wrap3(async () => {
+      wrap4(async () => {
         const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
-        return ok16({ repos: rows });
+        return ok17({ repos: rows });
       })
     )
   };
   return { definitions, handlers };
 }
 
-// src/tools/cheatcode.ts
-import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname9, join as join9, sep as sep2 } from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
-function ok17(data) {
+// src/tools/repos.ts
+var REPO_FK_CHILDREN = [
+  ["milestones", "UPDATE milestones SET repo = ? WHERE repo = ?"],
+  ["repo_remotes", "UPDATE repo_remotes SET repo = ? WHERE repo = ?"],
+  ["issues", "UPDATE issues SET repo = ? WHERE repo = ?"],
+  ["tasks", "UPDATE tasks SET repo = ? WHERE repo = ?"],
+  ["audit", "UPDATE audit SET repo = ? WHERE repo = ?"],
+  ["validation_attempts", "UPDATE validation_attempts SET repo = ? WHERE repo = ?"],
+  ["discussions", "UPDATE discussions SET repo = ? WHERE repo = ?"],
+  ["agent_runs", "UPDATE agent_runs SET repo = ? WHERE repo = ?"]
+];
+function pathHasSegment(path2, segment) {
+  return path2.split("/").includes(segment);
+}
+function blockingTasks(db2, old, oldPath) {
+  const tasks = db2.all(
+    `SELECT t.id, t.status, t.branch_id, r.path AS repo_path
+       FROM tasks t LEFT JOIN repos r ON r.name = t.repo
+      WHERE t.status IN (SELECT value FROM json_each(?))`,
+    [JSON.stringify(LIVE_TASK_STATUSES)]
+  );
+  const blocking = [];
+  for (const t of tasks) {
+    const roots = db2.all(
+      `SELECT root_dir FROM agent_runs WHERE task_id = ? AND completed_at IS NULL AND root_dir IS NOT NULL`,
+      [t.id]
+    ).map((r) => r.root_dir);
+    const repoPath = t.repo_path ?? oldPath;
+    const candidates = [taskWorktreePath(repoPath, t.branch_id), ...roots];
+    const hit = candidates.find((p) => pathHasSegment(p, old));
+    if (hit) blocking.push({ id: t.id, status: t.status, worktree: hit });
+  }
+  return blocking;
+}
+function slugRewrites(remotes, old, next) {
+  const pairs = /* @__PURE__ */ new Map();
+  for (const r of remotes) {
+    const full = repoSlugFromRemoteUrl(r.url);
+    if (!full) continue;
+    const cut = full.lastIndexOf("/");
+    if (cut < 0) continue;
+    const prefix = full.slice(0, cut);
+    const last = full.slice(cut + 1).toLowerCase();
+    if (last !== old.toLowerCase() && last !== next.toLowerCase()) continue;
+    const oldFull = last === old.toLowerCase() ? full : `${prefix}/${old}`;
+    const newFull = last === next.toLowerCase() ? full : `${prefix}/${next}`;
+    pairs.set(oldFull, newFull);
+    const bare = (s) => s.replace(/^[^/]+\//, "");
+    if (bare(oldFull) !== oldFull) pairs.set(bare(oldFull), bare(newFull));
+  }
+  return [...pairs.entries()];
+}
+function renameRepo(db2, graph, input) {
+  const { old, reason } = input;
+  const next = input.new;
+  if (old === next) return { renamed: false, error: "repo_same", old, new: next };
+  const row = db2.get(`SELECT name, path FROM repos WHERE name = ?`, [old]);
+  if (!row) return { renamed: false, error: "repo_not_found", old, new: next };
+  if (db2.get(`SELECT 1 AS x FROM repos WHERE name = ?`, [next])) {
+    return { renamed: false, error: "repo_exists", old, new: next };
+  }
+  if (!input.force) {
+    const blocking = blockingTasks(db2, old, row.path);
+    if (blocking.length > 0) {
+      return { renamed: false, error: "rename_in_progress", old, new: next, blocking_tasks: blocking };
+    }
+  }
+  const remotes = repoRemotes(db2, old);
+  db2.run("PRAGMA foreign_keys = OFF");
+  try {
+    return db2.transaction(() => {
+      const rows_by_table = {};
+      db2.run(
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches)
+         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches
+           FROM repos WHERE name = ?`,
+        [next, old]
+      );
+      for (const [table, sql] of REPO_FK_CHILDREN) {
+        rows_by_table[table] = Number(db2.run(sql, [next, old]).changes);
+      }
+      let prRuns = 0;
+      for (const [from, to] of slugRewrites(remotes, old, next)) {
+        prRuns += Number(
+          db2.run(`UPDATE pr_review_runs SET repo = ? WHERE repo = ? COLLATE NOCASE`, [to, from]).changes
+        );
+      }
+      rows_by_table["pr_review_runs"] = prRuns;
+      db2.run(`DELETE FROM repos WHERE name = ?`, [old]);
+      const violations = db2.all("PRAGMA foreign_key_check");
+      if (violations.length > 0) {
+        throw new Error(`repo_rename: foreign_key_check found ${violations.length} dangling reference(s); rolled back`);
+      }
+      let graphState = "deferred";
+      let graph_nodes = 0;
+      let graph_error;
+      if (graph) {
+        try {
+          graph_nodes = graph.renameRepo(old, next);
+          graphState = "rekeyed";
+        } catch (e) {
+          graph_error = e.message;
+        }
+      }
+      const audit_id = insertAudit(db2, {
+        issue_id: -1,
+        from_node: input.from_node ?? "bro",
+        event_type: "repo_renamed",
+        summary: `Repo renamed ${old} \u2192 ${next}; graph ${graphState}`,
+        content_json: JSON.stringify({
+          old,
+          new: next,
+          reason,
+          rows_by_table,
+          graph: graphState,
+          graph_nodes,
+          ...graph_error ? { graph_error } : {}
+        }),
+        repo: next
+      });
+      return {
+        renamed: true,
+        old,
+        new: next,
+        rows_by_table,
+        graph: graphState,
+        graph_nodes,
+        ...graph_error ? { graph_error } : {},
+        audit_id
+      };
+    });
+  } finally {
+    db2.run("PRAGMA foreign_keys = ON");
+  }
+}
+function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err16(message) {
+function refuse(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }], isError: true };
+}
+function repoTools(db2, graphHolder2 = null) {
+  const definitions = [
+    {
+      name: "repo_rename",
+      description: "Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model nodes (graph deferred to the next scan_run when kuzu is down). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          old: { type: "string" },
+          new: { type: "string" },
+          reason: { type: "string" },
+          force: { type: "boolean", description: "Rename even when a live task worktree sits under the old name." }
+        },
+        required: ["agent", "old", "new", "reason"]
+      }
+    }
+  ];
+  const handlers = {
+    repo_rename: requireRoles("repo_rename", ["bro"], async (args) => {
+      const old = typeof args["old"] === "string" ? args["old"].trim() : "";
+      const next = typeof args["new"] === "string" ? args["new"].trim() : "";
+      const reason = typeof args["reason"] === "string" ? args["reason"].trim() : "";
+      if (!old || !next || !reason) {
+        return refuse({ error: "invalid_args", message: "old, new and reason are required non-empty strings" });
+      }
+      try {
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        const out = renameRepo(db2, graph, { old, new: next, reason, force: args["force"] === true });
+        return out.renamed ? ok18(out) : refuse(out);
+      } catch (e) {
+        return refuse({ error: "rename_failed", message: e.message });
+      }
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/cheatcode.ts
+import { spawn as spawn2 } from "node:child_process";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname11, join as join15 } from "node:path";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
+
+// src/tools/cheatcode-reconcile.ts
+import { execFile } from "node:child_process";
+import { existsSync as existsSync11, readFileSync as readFileSync7 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { isAbsolute as isAbsolute5, join as join14 } from "node:path";
+var DEFAULT_TIMEOUT_SEC = 4;
+var MAX_LISTING_BYTES = 8 * 1024 * 1024;
+function healthcheckTimeoutSec() {
+  const raw = Number(process.env["TMB_CHEATCODE_HEALTHCHECK_TIMEOUT"]);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
+}
+function probeChildEnv(projectRoot = null) {
+  const base = projectRoot === null ? process.env : projectSpawnOptions(projectRoot).env;
+  return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
+}
+function runClaude(args, timeoutSec, projectRoot) {
+  return new Promise((resolve3) => {
+    try {
+      const child = execFile(
+        "claude",
+        args,
+        {
+          ...projectRoot === null ? {} : { cwd: projectRoot },
+          env: probeChildEnv(projectRoot),
+          timeout: timeoutSec * 1e3,
+          killSignal: "SIGKILL",
+          maxBuffer: MAX_LISTING_BYTES,
+          encoding: "utf8"
+        },
+        (error2, stdout) => resolve3(error2 ? null : stdout)
+      );
+      child.stdin?.end();
+    } catch {
+      resolve3(null);
+    }
+  });
+}
+function parseMcpListing(text) {
+  const names = /* @__PURE__ */ new Set();
+  for (const line of text.split("\n")) {
+    const sep4 = line.indexOf(": ");
+    if (sep4 > 0) names.add(line.slice(0, sep4));
+  }
+  return names;
+}
+function claudeJsonMcpKeys() {
+  try {
+    const parsed = JSON.parse(readFileSync7(join14(homedir3(), ".claude.json"), "utf8"));
+    const servers = parsed?.mcpServers;
+    if (servers && typeof servers === "object") return new Set(Object.keys(servers));
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+  return /* @__PURE__ */ new Set();
+}
+function parsePluginListing(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const plugins = /* @__PURE__ */ new Map();
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const { id, enabled, mcpServers } = entry;
+    plugins.set(typeof id === "string" ? id : "", {
+      enabled: enabled === true,
+      mcpServers: new Set(mcpServers && typeof mcpServers === "object" ? Object.keys(mcpServers) : [])
+    });
+  }
+  return plugins;
+}
+async function probeRuntime(timeoutSec, projectRoot = null) {
+  const [mcpText, pluginText] = await Promise.all([
+    runClaude(["mcp", "list"], timeoutSec, projectRoot),
+    runClaude(["plugin", "list", "--json"], timeoutSec, projectRoot)
+  ]);
+  const mcpNames = /* @__PURE__ */ new Set([...mcpText === null ? [] : parseMcpListing(mcpText), ...claudeJsonMcpKeys()]);
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    mcpServers: mcpNames.size > 0 ? mcpNames : null,
+    plugins: pluginText === null ? null : parsePluginListing(pluginText)
+  };
+}
+function pluginName(id) {
+  return id.split("@")[0] ?? "";
+}
+function computeStatus(row, evidence, pluginRoot) {
+  switch (row.kind) {
+    case "skill": {
+      if (!row.file_path) return "broken";
+      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join14(pluginRoot, row.file_path);
+      return existsSync11(resolved) ? "active" : "broken";
+    }
+    case "mcp": {
+      const bundled = /^mcp:([^/]+)\/(.+)$/.exec(row.source_url ?? "");
+      if (bundled) {
+        if (!evidence.plugins) return null;
+        const [, plugin, server2] = bundled;
+        for (const [id, entry] of evidence.plugins) {
+          if (pluginName(id) === plugin && entry.enabled && entry.mcpServers.has(server2)) return "active";
+        }
+        return "broken";
+      }
+      if (!evidence.mcpServers) return null;
+      return evidence.mcpServers.has(row.name) ? "active" : "broken";
+    }
+    case "plugin": {
+      if (!evidence.plugins) return null;
+      for (const [id, entry] of evidence.plugins) {
+        if (pluginName(id) === row.name && entry.enabled) return "active";
+      }
+      return "broken";
+    }
+    default:
+      return null;
+  }
+}
+function reconcileCheatcodes(db2, evidence, opts) {
+  const pluginRoot = opts.pluginRoot ?? process.env["CLAUDE_PLUGIN_ROOT"];
+  const rows = db2.all(`SELECT id, name, kind, status, source_url, file_path FROM cheatcodes WHERE status IN ('active', 'broken') ORDER BY id`);
+  const transitions = [];
+  for (const row of rows) {
+    const next = computeStatus(row, evidence, pluginRoot);
+    if (next === null || next === row.status) continue;
+    db2.run("UPDATE cheatcodes SET status = ?, updated_at = ? WHERE id = ?", [next, opts.now, row.id]);
+    insertAudit(db2, {
+      issue_id: -1,
+      branch_id: "",
+      from_node: opts.fromNode,
+      writer: opts.writer,
+      event_type: "cheatcode_healthcheck",
+      summary: `${row.name} (${row.kind}): ${row.status} -> ${next}`,
+      content_json: JSON.stringify({ name: row.name, kind: row.kind, from: row.status, to: next }),
+      created_at: opts.now
+    });
+    transitions.push({ id: row.id, name: row.name, kind: row.kind, from: row.status, to: next });
+  }
+  return transitions;
+}
+async function reconcileNow(db2, identity) {
+  const evidence = await probeRuntime(healthcheckTimeoutSec(), projectRootFromDbPath(db2.dbPath));
+  const transitions = reconcileCheatcodes(db2, evidence, { ...identity, now: nowISO() });
+  return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
+}
+async function reconcileAtStartup(db2) {
+  if (process.env["TMB_DISABLE_CHEATCODE_HEALTHCHECK"] === "1") return;
+  try {
+    const { transitions } = await reconcileNow(db2, { fromNode: "server", writer: "server" });
+    serverLog({ kind: "cheatcode_reconcile", transitions: transitions.length });
+  } catch (e) {
+    serverLog({ kind: "cheatcode_reconcile", error_message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+// src/tools/cheatcode.ts
+function ok19(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err17(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap4(fn) {
+function wrap5(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err16(e.message);
+      return err17(e.message);
     }
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname9(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const candidates = [
-    join9(here, "..", "..", "..", "..", "scripts", name),
-    join9(here, "..", "..", "..", "scripts", name)
+    join15(here, "..", "..", "..", "..", "scripts", name),
+    join15(here, "..", "..", "..", "scripts", name)
   ];
-  for (const c of candidates) if (existsSync8(c)) return c;
+  for (const c of candidates) if (existsSync12(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join9(pluginRoot, "scripts", name);
-    if (existsSync8(c)) return c;
+    const c = join15(pluginRoot, "scripts", name);
+    if (existsSync12(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
 }
@@ -31027,9 +36786,10 @@ var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
 var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
-function runSearchWithScript(script, query, kind, timeoutMs) {
-  return new Promise((resolve5, reject) => {
+function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
+  return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -31073,7 +36833,7 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
         reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
@@ -31083,9 +36843,10 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "untrusted",
   "unknown"
 ]);
-function runVetWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve5, reject) => {
+function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
+  return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -31133,16 +36894,16 @@ function runVetWithScript(script, candidate, timeoutMs) {
         reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
-function runInstallWithScript(script, candidate, scope, timeoutMs) {
-  return new Promise((resolve5, reject) => {
+function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
+  return new Promise((resolve3, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
-      { stdio: ["ignore", "pipe", "pipe"] }
+      { ...projectSpawnOptions(projectRoot), stdio: ["ignore", "pipe", "pipe"] }
     );
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -31185,15 +36946,16 @@ function runInstallWithScript(script, candidate, scope, timeoutMs) {
         reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
-function runUninstallWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve5, reject) => {
+function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
+  return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -31237,7 +36999,7 @@ function runUninstallWithScript(script, candidate, timeoutMs) {
         reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
@@ -31271,28 +37033,21 @@ function parseInstallCandidate(raw) {
     tier: typeof tierVal === "number" ? tierVal : void 0
   };
 }
-function projectRootFromDbPath(dbPath2) {
-  if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep2);
-  const idx = segments.lastIndexOf(".claude");
-  if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
-}
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join9(pluginRoot, "agents", `${target}.md`);
-    if (existsSync8(c2)) return c2;
+    const c2 = join15(pluginRoot, "agents", `${target}.md`);
+    if (existsSync12(c2)) return c2;
   }
-  const here = dirname9(fileURLToPath5(import.meta.url));
-  const c = join9(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync8(c)) return c;
+  const here = dirname11(fileURLToPath5(import.meta.url));
+  const c = join15(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  if (existsSync12(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync4(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync8(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -31307,13 +37062,13 @@ function readManifestProvidedTools(manifestPath) {
 }
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync8(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join9(process.env["HOME"] || "", ".claude");
-  const registry2 = join9(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync8(registry2)) return null;
+  if (override) return existsSync12(override) ? override : null;
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join15(process.env["HOME"] || "", ".claude");
+  const registry2 = join15(claudeHome, "plugins", "installed_plugins.json");
+  if (!existsSync12(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync4(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync8(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -31325,8 +37080,8 @@ function resolveInstalledPluginManifest(name) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join9(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync8(manifest)) return manifest;
+      const manifest = join15(installPath, ".claude-plugin", "plugin.json");
+      if (existsSync12(manifest)) return manifest;
     }
   }
   return null;
@@ -31411,29 +37166,29 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join9(projectRoot, ".claude");
+  const claudeDir = join15(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join9(claudeDir, "CLAUDE.md");
+    const claudeMd = join15(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync8(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
+    let body = existsSync12(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
 ` : `${body}${prefix}${reference}
 `;
-      mkdirSync6(claudeDir, { recursive: true });
-      writeFileSync4(claudeMd, body);
+      mkdirSync8(claudeDir, { recursive: true });
+      writeFileSync6(claudeMd, body);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join9(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join15(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync8(localAgentMd)) {
-    content = readFileSync4(localAgentMd, "utf8");
+  if (existsSync12(localAgentMd)) {
+    content = readFileSync8(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync4(globalAgentMd, "utf8");
+    content = readFileSync8(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -31441,8 +37196,8 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync6(dirname9(localAgentMd), { recursive: true });
-  writeFileSync4(localAgentMd, updated);
+  mkdirSync8(dirname11(localAgentMd), { recursive: true });
+  writeFileSync6(localAgentMd, updated);
   return {
     target,
     artifact: `agent-md:.claude/agents/${target}.md`,
@@ -31454,26 +37209,35 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join9(projectRoot, rel);
-    if (!existsSync8(filePath)) return;
-    const content = readFileSync4(filePath, "utf8");
+    const filePath = join15(projectRoot, rel);
+    if (!existsSync12(filePath)) return;
+    const content = readFileSync8(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
-    if (updated !== content) writeFileSync4(filePath, updated);
+    if (updated !== content) writeFileSync6(filePath, updated);
     return;
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join9(projectRoot, rel);
-    if (!existsSync8(filePath)) return;
+    const filePath = join15(projectRoot, rel);
+    if (!existsSync12(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body = readFileSync4(filePath, "utf8");
+    const body = readFileSync8(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
-    writeFileSync4(filePath, updated);
+    writeFileSync6(filePath, updated);
   }
 }
 function cheatcodeTools(db2) {
+  const scriptRoot = () => projectRootFromDbPath(db2.dbPath) ?? process.cwd();
+  const auditCheatcode = (eventType, summary, contentJson, createdAt) => insertAudit(db2, {
+    issue_id: -1,
+    from_node: "bro",
+    event_type: eventType,
+    summary,
+    content_json: contentJson,
+    created_at: createdAt
+  });
   const definitions = [
     {
       name: "cheatcode_search",
@@ -31540,7 +37304,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
       inputSchema: {
         type: "object",
         properties: {
@@ -31563,7 +37327,7 @@ function cheatcodeTools(db2) {
           scope: {
             type: "string",
             enum: ["local", "global"],
-            description: "Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row."
+            description: "Install scope. local (default) = project-scoped. global (user-wide) is refused with outside_project \u2014 TMB installs nothing outside the project."
           },
           target: {
             type: "string",
@@ -31604,6 +37368,17 @@ function cheatcodeTools(db2) {
       }
     },
     {
+      name: "cheatcode_reconcile",
+      description: "Set every active/broken cheatcodes row to active or broken from the live runtime (skill file, mcp/plugin listings), auditing each change. Rows whose listing is unavailable are untouched.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" }
+        },
+        required: ["agent"]
+      }
+    },
+    {
       name: "cheatcode_list",
       description: 'Read-only inspect of the installed cheatcode registry (the cheatcodes table) \u2014 every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search \u2192 vet \u2192 install). Optionally filter by kind or status.',
       inputSchema: {
@@ -31629,39 +37404,36 @@ function cheatcodeTools(db2) {
     cheatcode_search: requireRoles(
       "cheatcode_search",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const query = args["capability_query"]?.trim();
-        if (!query) return err16("capability_query is required");
+        if (!query) return err17("capability_query is required");
         const rawKind = args["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
-        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
-          [
-            `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
-            JSON.stringify({
-              query,
-              kind,
-              candidate_count: out.candidates.length,
-              top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
-            }),
-            nowISO()
-          ]
+        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
+        auditCheatcode(
+          "cheatcode_search",
+          `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
+          JSON.stringify({
+            query,
+            kind,
+            candidate_count: out.candidates.length,
+            top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
+          }),
+          nowISO()
         );
-        return ok17({ query, kind, candidates: out.candidates });
+        return ok19({ query, kind, candidates: out.candidates });
       })
     ),
     cheatcode_vet: requireRoles(
       "cheatcode_vet",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const raw = args["candidate"];
-        if (!raw || typeof raw !== "object") return err16("candidate is required");
+        if (!raw || typeof raw !== "object") return err17("candidate is required");
         const name = raw["name"]?.trim();
         const sourceUrl = raw["source_url"]?.trim();
-        if (!name) return err16("candidate.name is required");
-        if (!sourceUrl) return err16("candidate.source_url is required");
+        if (!name) return err17("candidate.name is required");
+        if (!sourceUrl) return err17("candidate.source_url is required");
         const rawKind = raw["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const tierVal = raw["tier"];
@@ -31671,56 +37443,63 @@ function cheatcodeTools(db2) {
           source_url: sourceUrl
         };
         if (typeof tierVal === "number") candidate.tier = tierVal;
-        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_vet', ?, ?, ?)`,
-          [
-            `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
-            JSON.stringify({
-              candidate: out.candidate,
-              trust_tier: out.trust_tier,
-              capabilities: out.capabilities,
-              rationale: out.rationale
-            }),
-            nowISO()
-          ]
+        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
+        auditCheatcode(
+          "cheatcode_vet",
+          `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
+          JSON.stringify({
+            candidate: out.candidate,
+            trust_tier: out.trust_tier,
+            capabilities: out.capabilities,
+            rationale: out.rationale
+          }),
+          nowISO()
         );
-        return ok17(out);
+        return ok19(out);
       })
     ),
     cheatcode_approve: requireRoles(
       "cheatcode_approve",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err16(parsed.error);
+        if ("error" in parsed) return err17(parsed.error);
         const { name, kind, sourceUrl } = parsed;
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_approved', ?, ?, ?)`,
-          [
-            `Cheatcode approved for install: '${name}' (kind=${kind})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl }),
-            nowISO()
-          ]
+        auditCheatcode(
+          "cheatcode_approved",
+          `Cheatcode approved for install: '${name}' (kind=${kind})`,
+          JSON.stringify({ name, kind, source_url: sourceUrl }),
+          nowISO()
         );
-        return ok17({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
+        return ok19({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
       })
     ),
     cheatcode_install: requireRoles(
       "cheatcode_install",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err16(parsed.error);
+        if ("error" in parsed) return err17(parsed.error);
         const { name, kind, sourceUrl, tier } = parsed;
         const trustTier = args["trust_tier"]?.trim() ?? null;
         const rawScope = args["scope"]?.trim();
-        const scope = rawScope === "global" ? "global" : "local";
+        if (rawScope === "global") {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: "outside_project",
+                message: "cheatcode_install: scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-call with scope=local (the default) to install into this project.",
+                scope: "global"
+              })
+            }],
+            isError: true
+          };
+        }
+        const scope = "local";
         const target = args["target"]?.trim() || null;
         if (kind === "skill" && !target) {
-          return err16(
+          return err17(
             "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
@@ -31733,7 +37512,7 @@ function cheatcodeTools(db2) {
             `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
             [existing.id]
           );
-          return ok17({
+          return ok19({
             installed: false,
             idempotent: true,
             cheatcode: existing,
@@ -31748,10 +37527,25 @@ function cheatcodeTools(db2) {
           [sourceUrl]
         );
         if (!approval) {
-          return err16(
+          return err17(
             `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
         }
+        const projectRoot = projectRootFromDbPath(db2.dbPath);
+        const writesOutside = (targets) => {
+          if (projectRoot === null) return null;
+          const paths = [join15(projectRoot, ".claude", "skills", name, "SKILL.md")];
+          for (const t of targets) {
+            paths.push(t === "bro" ? join15(projectRoot, ".claude", "CLAUDE.md") : join15(projectRoot, ".claude", "agents", `${t}.md`));
+          }
+          for (const path2 of paths) {
+            const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
+            if (refusal2) return { content: [{ type: "text", text: JSON.stringify(refusal2) }], isError: true };
+          }
+          return null;
+        };
+        const refusedBeforeInstall = writesOutside(target ? [target] : []);
+        if (refusedBeforeInstall) return refusedBeforeInstall;
         const candidate = {
           name,
           kind,
@@ -31762,14 +37556,15 @@ function cheatcodeTools(db2) {
           resolveInstallScript(),
           candidate,
           scope,
-          INSTALL_TIMEOUT_MS
+          INSTALL_TIMEOUT_MS,
+          scriptRoot()
         );
         if (kind !== "skill" && out.installed === false && out.error) {
-          return err16(
+          return err17(
             `cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`
           );
         }
-        const placementScope = scope === "global" ? "global" : "project-local";
+        const placementScope = "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
         const materialized = [];
@@ -31779,10 +37574,12 @@ function cheatcodeTools(db2) {
             if (att.target) targetSet.add(att.target);
           }
           if (target) targetSet.add(target);
+          const refusedTargets = writesOutside(targetSet);
+          if (refusedTargets) return refusedTargets;
           for (const t of targetSet) {
             const providedTools = kind === "plugin" && t !== "bro" ? detectProvidedTools(name) : [];
-            const result = materializeConsumingAgent(db2.dbPath, t, name, providedTools);
-            if (result) materialized.push(result);
+            const result2 = materializeConsumingAgent(db2.dbPath, t, name, providedTools);
+            if (result2) materialized.push(result2);
           }
         }
         const origin = deriveOrigin(sourceUrl);
@@ -31808,34 +37605,28 @@ function cheatcodeTools(db2) {
               [id, m.target, m.artifact, installedAt]
             );
           }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_install', ?, ?, ?)`,
-            [
-              `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-              JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
-              installedAt
-            ]
+          auditCheatcode(
+            "cheatcode_install",
+            `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
+            JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
+            installedAt
           );
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_installed', ?, ?, ?)`,
-            [
-              `Cheatcode installed: '${name}' \u2192 cheatcode_id=${id}`,
-              JSON.stringify({
-                cheatcode_id: id,
-                name,
-                kind,
-                source_url: sourceUrl,
-                installed: out.installed,
-                attachments: out.attachments
-              }),
-              installedAt
-            ]
+          auditCheatcode(
+            "cheatcode_installed",
+            `Cheatcode installed: '${name}' \u2192 cheatcode_id=${id}`,
+            JSON.stringify({
+              cheatcode_id: id,
+              name,
+              kind,
+              source_url: sourceUrl,
+              installed: out.installed,
+              attachments: out.attachments
+            }),
+            installedAt
           );
           return id;
         });
-        return ok17({
+        return ok19({
           installed: out.installed,
           cheatcode_id: cheatcodeId,
           candidate: out.candidate,
@@ -31863,17 +37654,17 @@ function cheatcodeTools(db2) {
     cheatcode_uninstall: requireRoles(
       "cheatcode_uninstall",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const idVal = args["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err16("cheatcode_id is required (integer)");
+          return err17("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
         if (!existing) {
-          return ok17({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+          return ok19({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
         }
         const attachments = db2.all(
           `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
@@ -31887,7 +37678,8 @@ function cheatcodeTools(db2) {
         const reversal = await runUninstallWithScript(
           resolveUninstallScript(),
           candidate,
-          UNINSTALL_TIMEOUT_MS
+          UNINSTALL_TIMEOUT_MS,
+          scriptRoot()
         );
         const uninstalledAt = nowISO();
         const auditContent = JSON.stringify({
@@ -31917,13 +37709,9 @@ function cheatcodeTools(db2) {
               existing.id
             ]);
           }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
-            [auditSummary, auditContent, uninstalledAt]
-          );
+          auditCheatcode("cheatcode_uninstalled", auditSummary, auditContent, uninstalledAt);
         });
-        return ok17({
+        return ok19({
           uninstalled: reversal.removed,
           cheatcode_id: existing.id,
           name: existing.name,
@@ -31938,16 +37726,16 @@ function cheatcodeTools(db2) {
     cheatcode_activate: requireRoles(
       "cheatcode_activate",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const idVal = args["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err16("cheatcode_id is required (integer)");
+          return err17("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
-        if (!existing) return err16(`no cheatcode with id ${idVal}`);
+        if (!existing) return err17(`no cheatcode with id ${idVal}`);
         const restartReason = {
           plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
           mcp: "MCP server registers on the next claude -p cold start"
@@ -31963,24 +37751,21 @@ function cheatcodeTools(db2) {
               existing.id
             ]);
           }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
-            [
-              `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
-              JSON.stringify({
-                cheatcode_id: existing.id,
-                name: existing.name,
-                kind: existing.kind,
-                status: verdict.status,
-                row_status: rowStatus ?? existing.status,
-                reason: verdict.reason
-              }),
-              activatedAt
-            ]
+          auditCheatcode(
+            "cheatcode_activate",
+            `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
+            JSON.stringify({
+              cheatcode_id: existing.id,
+              name: existing.name,
+              kind: existing.kind,
+              status: verdict.status,
+              row_status: rowStatus ?? existing.status,
+              reason: verdict.reason
+            }),
+            activatedAt
           );
         });
-        return ok17({
+        return ok19({
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,
@@ -31990,10 +37775,15 @@ function cheatcodeTools(db2) {
         });
       })
     ),
+    cheatcode_reconcile: requireRoles(
+      "cheatcode_reconcile",
+      ["bro"],
+      wrap5(async () => ok19(await reconcileNow(db2, { fromNode: "bro", writer: "bro" })))
+    ),
     cheatcode_list: requireRoles(
       "cheatcode_list",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const rawKind = args["kind"]?.trim();
         const rawStatus = args["status"]?.trim();
         const where = [];
@@ -32012,7 +37802,7 @@ function cheatcodeTools(db2) {
              FROM cheatcodes ${clause} ORDER BY id`,
           params
         );
-        return ok17({ cheatcodes: rows });
+        return ok19({ cheatcodes: rows });
       })
     )
   };
@@ -32020,8 +37810,7 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
-import { resolve as resolve4, dirname as dirname10 } from "node:path";
+import { spawnSync as spawnSync11 } from "node:child_process";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
@@ -32031,10 +37820,9 @@ function computeUnmergedWork(db2, repo) {
     [repo]
   );
   if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname10(db2.dbPath);
-  const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
-  const target = repoRow.target_branch || "dev";
-  const gitCheck = spawnSync7("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const repoPath = repoRowPath(db2, repoRow.path);
+  const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
+  const gitCheck = spawnSync11("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -32059,13 +37847,13 @@ function computeUnmergedWork(db2, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync7(
+    const refCheck = spawnSync11(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync7(
+    const mergeBase = spawnSync11(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
@@ -32085,21 +37873,54 @@ function computeUnmergedWork(db2, repo) {
   }
   return { unmerged_work };
 }
-function ok18(data) {
+function framedPurpose(purpose) {
+  return purpose ? frameUntrusted("file-purpose", purpose) : "";
+}
+function fileView(f) {
+  return {
+    path: WorldModelGraph.relativeFilePath(f),
+    purpose: framedPurpose(f.purpose),
+    purpose_source: f.purpose_source,
+    content_md5: f.content_md5
+  };
+}
+function dirResult(h) {
+  return {
+    kind: "dir",
+    repo: h.repo,
+    path: h.path,
+    summary: h.summary,
+    summary_source: h.summary_source,
+    file_count: h.file_count,
+    score: h.score
+  };
+}
+function fileResult(h) {
+  return {
+    kind: "file",
+    repo: h.repo,
+    path: WorldModelGraph.relativeFilePath(h),
+    dir: h.dir,
+    purpose: framedPurpose(h.purpose),
+    purpose_source: h.purpose_source,
+    score: h.score
+  };
+}
+function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err17(message) {
+function err18(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap5(fn) {
+function wrap6(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err17(e.message);
+      return err18(e.message);
     }
   };
 }
@@ -32146,7 +37967,7 @@ function worldModelTools(db2, graphHolder2) {
   const definitions = [
     {
       name: "world_model_get",
-      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: "object",
         properties: {
@@ -32169,7 +37990,7 @@ function worldModelTools(db2, graphHolder2) {
     },
     {
       name: "world_model_search",
-      description: "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions \u2014 cheaper than world_model_get.",
+      description: "Search dir summaries + file purposes by keyword/path. Returns top-K hits tagged kind 'dir'|'file'. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions \u2014 cheaper than world_model_get.",
       inputSchema: {
         type: "object",
         properties: {
@@ -32200,12 +38021,12 @@ function worldModelTools(db2, graphHolder2) {
     world_model_get: requireRoles(
       "world_model_get",
       ["bro", "swe", "pr-reviewer"],
-      wrap5(async (args) => {
+      wrap6(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
-            return ok18({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
+            return ok20({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
@@ -32215,22 +38036,24 @@ function worldModelTools(db2, graphHolder2) {
         const unmerged = computeUnmergedWork(db2, repo);
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok18({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
+          return ok20({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
         }
         const nodes = graph.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok18({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
+          return ok20({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
         }
         const rows = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok18({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
+          return ok20({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok18({
+        if (path2 !== "") tree.files = graph.filesForDirectory(repo, path2).map(fileView);
+        return ok20({
           repo,
           root: tree,
+          ...path2 === "" ? { coverage: graph.fileCoverage(repo) } : {},
           ...truncated ? { truncated: true } : {},
           ...unmerged.warning ? { warning: unmerged.warning } : {},
           unmerged_work: unmerged.unmerged_work
@@ -32240,55 +38063,43 @@ function worldModelTools(db2, graphHolder2) {
     world_model_search: requireRoles(
       "world_model_search",
       ["bro", "swe", "pr-reviewer"],
-      wrap5(async (args) => {
+      wrap6(async (args) => {
         const query = args["query"];
-        if (!query || typeof query !== "string") return err17("query is required");
+        if (!query || typeof query !== "string") return err18("query is required");
         const mode = args["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
-            return ok18({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
+            return ok20({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
-        const hits = graph.keywordSearchDirectories(repo, query, k);
+        const dirHits = graph.keywordSearchDirectories(repo, query, k).map(dirResult);
+        const fileHits = graph.keywordSearchFiles(repo, query, k).map(fileResult);
+        const hits = [...dirHits, ...fileHits].slice(0, k);
         if (mode === "keyword") {
-          return ok18({
-            results: hits.map((h) => ({
-              repo: h.repo,
-              path: h.path,
-              summary: h.summary,
-              summary_source: h.summary_source,
-              file_count: h.file_count,
-              score: h.score
-            })),
+          return ok20({
+            results: hits,
             total_matched: hits.length,
             mode: "keyword"
           });
         }
         if (mode === "semantic") {
-          return ok18({
+          return ok20({
             results: [],
             total_matched: 0,
             warning: "semantic_unavailable",
             mode: "semantic"
           });
         }
-        return ok18({
-          results: hits.map((h) => ({
-            repo: h.repo,
-            path: h.path,
-            summary: h.summary,
-            summary_source: h.summary_source,
-            file_count: h.file_count,
-            score: h.score
-          })),
+        return ok20({
+          results: hits,
           total_matched: hits.length,
           warning: "semantic_unavailable",
           mode: "hybrid"
@@ -32297,6 +38108,1030 @@ function worldModelTools(db2, graphHolder2) {
     )
   };
   return { definitions, handlers };
+}
+
+// src/tools/agent-runs-backfill.ts
+import { existsSync as existsSync13, readdirSync as readdirSync4, readFileSync as readFileSync9, statSync as statSync4 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { basename as basename6, join as join16 } from "node:path";
+var UNBOUND_SAMPLE = 20;
+var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
+function readRecords(path2) {
+  let text;
+  try {
+    text = readFileSync9(path2, "utf8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const v = JSON.parse(line);
+      if (v && typeof v === "object" && !Array.isArray(v)) out.push(v);
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+function messageOf(r) {
+  const m = r["message"];
+  return m && typeof m === "object" && !Array.isArray(m) ? m : null;
+}
+function taskIdFromTranscript(path2) {
+  let text;
+  try {
+    text = readFileSync9(path2, "utf8");
+  } catch {
+    return null;
+  }
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let rec;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (rec === null || typeof rec !== "object" || Array.isArray(rec)) return null;
+    const msg = rec["message"];
+    if (msg !== void 0 && msg !== null && (typeof msg !== "object" || Array.isArray(msg))) return null;
+    const raw = msg ? msg["content"] : void 0;
+    const content = raw === void 0 || raw === null || raw === false ? [] : raw;
+    const s = typeof content === "string" ? content : JSON.stringify(content);
+    const m = /task_id=([0-9]+)/.exec(s);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+function isoMs(v) {
+  if (typeof v !== "string") return null;
+  const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z$/.exec(v);
+  if (!m) return null;
+  return `${m[1]}.${((m[3] ?? "") + "000").slice(0, 3)}Z`;
+}
+function nonNegInt(v) {
+  return typeof v === "number" && v >= 0 ? Math.floor(v) : 0;
+}
+function modelId(v) {
+  if (typeof v !== "string" || v.startsWith("<")) return "";
+  return v.replace(/[^A-Za-z0-9._:@/[\]-]/g, "");
+}
+function toolUseCount(r) {
+  const content = messageOf(r)?.["content"];
+  if (!Array.isArray(content)) return 0;
+  return content.filter((b) => b && typeof b === "object" && b["type"] === "tool_use").length;
+}
+function usageOf(u) {
+  const o = u && typeof u === "object" ? u : {};
+  return {
+    ti: nonNegInt(o["input_tokens"]),
+    to: nonNegInt(o["output_tokens"]),
+    cr: nonNegInt(o["cache_read_input_tokens"]),
+    cc: nonNegInt(o["cache_creation_input_tokens"])
+  };
+}
+function usageTotal(u) {
+  return u.ti + u.to + u.cr + u.cc;
+}
+function messageKey(r, i) {
+  const id = messageOf(r)?.["id"] ?? r["uuid"];
+  return id === void 0 || id === null || id === false ? `line-${i}` : String(id);
+}
+function dominantModel(msgs) {
+  const byModel = /* @__PURE__ */ new Map();
+  for (const x of msgs) {
+    if (x.m === "") continue;
+    byModel.set(x.m, (byModel.get(x.m) ?? 0) + usageTotal(x.u));
+  }
+  const ranked = [...byModel].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return ranked[0]?.[0] ?? null;
+}
+function spawnStats(records) {
+  const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
+  const groups = /* @__PURE__ */ new Map();
+  records.forEach((r, i) => {
+    const msg = messageOf(r);
+    if (!msg || msg["usage"] === void 0 || msg["usage"] === null) return;
+    groups.set(messageKey(r, i), { u: usageOf(msg["usage"]), m: modelId(msg["model"]) });
+  });
+  const msgs = [...groups.values()];
+  const sum = (k) => msgs.reduce((a, x) => a + x.u[k], 0);
+  const first = stamps[0] ?? null;
+  const last = stamps[stamps.length - 1] ?? null;
+  return {
+    ti: sum("ti"),
+    to: sum("to"),
+    cr: sum("cr"),
+    cc: sum("cc"),
+    tool_uses: records.reduce((a, r) => a + toolUseCount(r), 0),
+    duration_ms: stamps.length < 2 ? 0 : Date.parse(last) - Date.parse(first),
+    first_ts: first,
+    last_ts: last,
+    model: dominantModel(msgs)
+  };
+}
+function normalizeRole(v) {
+  return typeof v === "string" && v !== "" ? v.slice(v.indexOf(":") + 1) : null;
+}
+function sessionSpawnTypes(records) {
+  const byToolUse = /* @__PURE__ */ new Map();
+  const out = /* @__PURE__ */ new Map();
+  for (const r of records) {
+    const content = messageOf(r)?.["content"];
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (b?.["type"] === "tool_use" && typeof b["id"] === "string") {
+        const t = b["input"]?.["subagent_type"];
+        if (typeof t === "string") byToolUse.set(b["id"], t);
+      }
+    }
+  }
+  for (const r of records) {
+    const agentId = r["toolUseResult"]?.["agentId"];
+    const content = messageOf(r)?.["content"];
+    if (typeof agentId !== "string" || !Array.isArray(content)) continue;
+    for (const b of content) {
+      const t = typeof b?.["tool_use_id"] === "string" ? byToolUse.get(b["tool_use_id"]) : void 0;
+      if (t) out.set(agentId, t);
+    }
+  }
+  return out;
+}
+function defaultTranscriptsDir(projectRoot) {
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join16(homedir4(), ".claude");
+  return join16(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+}
+function listTranscripts(dir) {
+  const sessions = [];
+  const subagents = [];
+  for (const name of readdirSync4(dir).sort()) {
+    const p = join16(dir, name);
+    if (name.endsWith(".jsonl")) {
+      sessions.push(p);
+      continue;
+    }
+    const sub = join16(p, "subagents");
+    if (!existsSync13(sub) || !statSync4(sub).isDirectory()) continue;
+    for (const f of readdirSync4(sub).sort()) {
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join16(sub, f), session: name });
+    }
+  }
+  return { sessions, subagents };
+}
+function spawnAgentType(path2, sessionTypes) {
+  const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
+  if (existsSync13(meta3)) {
+    try {
+      const t = normalizeRole(JSON.parse(readFileSync9(meta3, "utf8"))["agentType"]);
+      if (t) return t;
+    } catch {
+    }
+  }
+  return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
+}
+function agentIdOf(path2) {
+  return basename6(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+}
+var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
+var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
+function isMeasured(r) {
+  if (r.usage_source !== null && MEASURED_SOURCES.has(r.usage_source)) return true;
+  if (r.usage_source === "unmeasured") return false;
+  return (r.tokens_in ?? 0) + (r.tokens_out ?? 0) + (r.cache_read_tokens ?? 0) + (r.cache_creation_tokens ?? 0) > 0;
+}
+function exitReasonFor(status) {
+  if (status === "completed" || status === "closed" || status === "needs_validation") return "completed";
+  if (status === "escalated") return "escalated";
+  return "failed";
+}
+function agentRunsBackfill(db2, opts) {
+  const { sessions, subagents } = listTranscripts(opts.transcriptsDir);
+  const report = {
+    dry_run: opts.dryRun,
+    transcripts_dir: opts.transcriptsDir,
+    transcripts_seen: 0,
+    sessions_seen: 0,
+    bound: 0,
+    unbound: { count: 0, first: [] },
+    rows_inserted: 0,
+    rows_updated: 0,
+    rows_skipped_measured: 0,
+    tokens_total_added: 0
+  };
+  const writes = [];
+  const unbound = (path2, reason) => {
+    report.unbound.count++;
+    if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
+  };
+  const sessionRecords = /* @__PURE__ */ new Map();
+  for (const p of sessions) sessionRecords.set(basename6(p, ".jsonl"), readRecords(p));
+  const spawnTypes = /* @__PURE__ */ new Map();
+  const claimedRunIds = /* @__PURE__ */ new Set();
+  for (const { path: path2, session } of subagents) {
+    const records = readRecords(path2);
+    const stats = spawnStats(records);
+    if (opts.since && (stats.last_ts === null || stats.last_ts < opts.since)) continue;
+    report.transcripts_seen++;
+    if (!spawnTypes.has(session)) spawnTypes.set(session, sessionSpawnTypes(sessionRecords.get(session) ?? []));
+    const agentType = spawnAgentType(path2, spawnTypes.get(session));
+    if (!agentType || !BACKFILL_AGENTS.has(agentType)) {
+      unbound(path2, `subagent_type ${agentType ?? "unknown"} is not swe or pr-reviewer`);
+      continue;
+    }
+    const taskId = taskIdFromTranscript(path2);
+    if (taskId === null) {
+      unbound(path2, "no task_id=<N> in the spawn prompt");
+      continue;
+    }
+    const task = db2.get(
+      "SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ?",
+      [taskId]
+    );
+    if (!task) {
+      unbound(path2, `task_id=${taskId} has no task row`);
+      continue;
+    }
+    if (stats.first_ts === null || stats.last_ts === null) {
+      unbound(path2, "transcript carries no timestamps");
+      continue;
+    }
+    report.bound++;
+    const keyed = db2.get(
+      "SELECT " + RUN_COLS + " FROM agent_runs WHERE task_id = ? AND spawn_id IN (?, ?) ORDER BY id LIMIT 1",
+      [task.id, path2, agentIdOf(path2)]
+    );
+    const inWindow = keyed ? [] : db2.all(
+      "SELECT " + RUN_COLS + ` FROM agent_runs
+              WHERE task_id = ? AND agent_type = ? AND spawn_id IS NULL
+                AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-2 seconds') AND started_at <= ?
+              ORDER BY id DESC`,
+      [task.id, agentType, stats.first_ts, stats.last_ts]
+    ).filter((r) => !claimedRunIds.has(r.id));
+    const target = keyed ?? inWindow.find((r) => !isMeasured(r)) ?? inWindow[0];
+    if (target && isMeasured(target)) {
+      report.rows_skipped_measured++;
+      continue;
+    }
+    const tokens = usageTotal(stats);
+    report.tokens_total_added += tokens;
+    const repoPath = resolveRepoPath(db2, task.repo);
+    const rootDir = repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null;
+    if (target) {
+      claimedRunIds.add(target.id);
+      report.rows_updated++;
+      writes.push({
+        kind: "update_spawn",
+        id: target.id,
+        values: [
+          stats.ti,
+          stats.to,
+          stats.cr,
+          stats.cc,
+          stats.tool_uses,
+          stats.duration_ms,
+          stats.first_ts,
+          stats.last_ts,
+          path2,
+          session,
+          stats.model,
+          rootDir,
+          exitReasonFor(task.status),
+          target.id
+        ]
+      });
+    } else {
+      report.rows_inserted++;
+      writes.push({
+        kind: "insert",
+        values: [
+          task.id,
+          task.issue_id,
+          agentType,
+          stats.ti,
+          stats.to,
+          stats.cr,
+          stats.cc,
+          stats.tool_uses,
+          stats.duration_ms,
+          stats.first_ts,
+          stats.last_ts,
+          task.repo,
+          path2,
+          session,
+          stats.model,
+          rootDir,
+          exitReasonFor(task.status)
+        ]
+      });
+    }
+  }
+  for (const records of sessionRecords.values()) {
+    const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
+    const last = stamps[stamps.length - 1];
+    if (last !== void 0 && (!opts.since || last >= opts.since)) report.sessions_seen++;
+  }
+  if (!opts.dryRun) {
+    db2.transaction(() => {
+      applyWrites(db2, writes);
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "agent_runs_backfilled",
+        summary: `agent_runs backfill: ${report.rows_inserted} inserted, ${report.rows_updated} updated from ${report.transcripts_seen} transcripts`,
+        content_json: JSON.stringify(report),
+        created_at: opts.now
+      });
+    });
+  }
+  return report;
+}
+function applyWrites(db2, writes) {
+  for (const w of writes) {
+    if (w.kind === "insert") {
+      db2.run(
+        `INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
+                                 cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, repo,
+                                 spawn_id, session_id, usage_source, model, host, root_dir, exit_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backfill', ?, 'claude', ?, ?)`,
+        w.values
+      );
+    } else {
+      db2.run(
+        `UPDATE agent_runs
+            SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?,
+                tool_uses = ?, duration_ms = ?,
+                started_at = COALESCE(started_at, ?), completed_at = ?,
+                spawn_id = COALESCE(spawn_id, ?), session_id = COALESCE(session_id, ?),
+                usage_source = 'backfill', model = COALESCE(?, model), host = COALESCE(host, 'claude'),
+                root_dir = COALESCE(root_dir, ?), exit_reason = COALESCE(exit_reason, ?)
+          WHERE id = ?`,
+        w.values
+      );
+    }
+  }
+}
+function okResult(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function errResult(message2) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message2 }) }], isError: true };
+}
+function agentRunsBackfillTools(db2, dbPath2) {
+  const definitions = [
+    {
+      name: "agent_runs_backfill",
+      description: "Recover swe/pr-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dry_run: { type: "boolean", description: "Report only, write nothing (default true)." },
+          since: { type: "string", description: "ISO timestamp: skip transcripts whose last message is older." },
+          transcripts_dir: { type: "string", description: "Override ~/.claude/projects/<project-slug>." }
+        }
+      }
+    }
+  ];
+  const handlers = {
+    agent_runs_backfill: requireRoles("agent_runs_backfill", ["bro"], async (args) => {
+      try {
+        const dryRun = args["dry_run"] !== false;
+        const sinceArg = args["since"];
+        let since = null;
+        if (sinceArg !== void 0 && sinceArg !== null) {
+          const t = typeof sinceArg === "string" ? Date.parse(sinceArg) : NaN;
+          if (Number.isNaN(t)) return errResult("since must be an ISO timestamp");
+          since = new Date(t).toISOString();
+        }
+        let dir = typeof args["transcripts_dir"] === "string" && args["transcripts_dir"] !== "" ? args["transcripts_dir"] : null;
+        if (dir === null) {
+          const root = projectRootFromDbPath(dbPath2 || db2.dbPath);
+          if (!root) return errResult("no project root for this DB; pass transcripts_dir");
+          dir = defaultTranscriptsDir(root);
+        }
+        if (!existsSync13(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
+      } catch (e) {
+        return errResult(e.message);
+      }
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/trajectory-doctor.ts
+import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
+
+// src/utils/plugin-installs.ts
+import { readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
+import { join as join17 } from "node:path";
+function claudeConfigDir(env) {
+  return env["CLAUDE_CONFIG_DIR"] || join17(env["HOME"] || "", ".claude");
+}
+function installedPluginsJsonPath(env = process.env) {
+  return env["TMB_INSTALLED_JSON"] || join17(claudeConfigDir(env), "plugins", "installed_plugins.json");
+}
+function canonicalDir(dir) {
+  try {
+    return realpathSync6(dir);
+  } catch {
+    return dir;
+  }
+}
+function readJsonObject(path2) {
+  try {
+    const parsed = JSON.parse(readFileSync10(path2, "utf8"));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function enabledMap(project, env) {
+  const files = [
+    join17(claudeConfigDir(env), "settings.json"),
+    join17(project, ".claude", "settings.json"),
+    join17(project, ".claude", "settings.local.json")
+  ];
+  const merged = {};
+  for (const file2 of files) {
+    const plugins = readJsonObject(file2)?.["enabledPlugins"];
+    if (plugins !== null && typeof plugins === "object" && !Array.isArray(plugins)) Object.assign(merged, plugins);
+  }
+  return merged;
+}
+var str = (v) => typeof v === "string" && v !== "" ? v : null;
+function enabledPluginCopies(env = process.env) {
+  const projectRoot = resolveClaudeProjectRoot(env);
+  if (projectRoot === null) return { skipped: "CLAUDE_PROJECT_DIR is unset" };
+  const registryPath = installedPluginsJsonPath(env);
+  const registry2 = readJsonObject(registryPath);
+  if (registry2 === null) return { skipped: `cannot read ${registryPath}` };
+  const project = canonicalDir(projectRoot);
+  const enabled = enabledMap(project, env);
+  const prefix = `${resolveClaudePluginName(env)}@`;
+  const plugins = registry2["plugins"];
+  const copies = [];
+  if (plugins === null || typeof plugins !== "object") return { copies };
+  for (const [key, entries] of Object.entries(plugins)) {
+    if (!key.startsWith(prefix) || enabled[key] !== true || !Array.isArray(entries)) continue;
+    let chosen = null;
+    for (const raw of entries) {
+      if (raw === null || typeof raw !== "object") continue;
+      const e = raw;
+      const scope = str(e["scope"]) ?? "user";
+      let rank = 1;
+      if (scope === "project" || scope === "local") {
+        const projectPath = str(e["projectPath"]);
+        if (projectPath === null || canonicalDir(projectPath) !== project) continue;
+        rank = 0;
+      }
+      if (chosen !== null && chosen.rank <= rank) continue;
+      chosen = {
+        rank,
+        copy: { key, marketplace: key.slice(prefix.length), version: str(e["version"]), install_path: str(e["installPath"]), scope }
+      };
+    }
+    if (chosen !== null) copies.push(chosen.copy);
+  }
+  copies.sort((a, b) => a.marketplace.localeCompare(b.marketplace));
+  return { copies };
+}
+
+// src/data-contracts.ts
+function singleTmbPluginEnabled(env) {
+  const result2 = enabledPluginCopies(env);
+  if ("skipped" in result2) return { skipped: result2.skipped };
+  return { actual: result2.copies.length, sample: result2.copies.map((c) => ({ ...c })) };
+}
+function noOtherTrajectoryDbs(env, ctx) {
+  const dbPath2 = ctx.dbPath;
+  if (dbPath2 === void 0 || claudeProjectRootOfDb(dbPath2) === null) {
+    return { skipped: "the checked DB is not a <project>/.claude/<plugin>/trajectory.db file" };
+  }
+  const others = otherClaudeDbs(dbPath2, {
+    sessionDir: env["CLAUDE_PROJECT_DIR"] || process.cwd(),
+    ...env["HOME"] ? { home: env["HOME"] } : {}
+  });
+  if (others === null) return { skipped: "the checked DB has no project root" };
+  return {
+    actual: others.length,
+    sample: others.map((o) => ({ path: o.path, issues: o.issues, tasks: o.tasks }))
+  };
+}
+var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
+var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
+var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
+var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+var auditCommitSha = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
+var SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias) => `${alias}.event_type = 'spec_shape_gate_waived'
+               AND (NOT EXISTS (SELECT 1 FROM tasks t
+                                 WHERE t.id = CAST(${auditTaskId(alias)} AS INTEGER)
+                                   AND CAST(CAST(${auditTaskId(alias)} AS INTEGER) AS TEXT) = CAST(${auditTaskId(alias)} AS TEXT))
+                    OR COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.gate') END, '') <> 'spec_shape')`;
+var REVIEW_GRACE_HOURS_DEFAULT = 24;
+var runMatchesTaskCommit = (run, task) => `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
+var V36_RECORDING_SINCE = `(SELECT MIN(${ts("started_at")}) FROM verification_runs)`;
+var VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(7)}
+               AND ${ts("t.updated_at")} >= ${V36_RECORDING_SINCE}
+               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
+               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId("w")} = t.id)`;
+var UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer_identity_observed' AND ${ts(`${alias}.created_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
+var LIVE_TASK_STATUSES2 = "'pending','running','needs_validation','completed'";
+var FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
+               AND (${alias}.name IN ('alpha','beta','alpha-server')
+                    OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
+                    OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
+var V33_RUN_WRITERS_SINCE = {
+  sql: `(SELECT MIN(${ts("started_at")}) FROM agent_runs WHERE root_dir IS NOT NULL)`,
+  label: "the first run carrying a root_dir",
+  min_schema: 33
+};
+var NOT_PER_TASK_BRO_ROW = "NOT (agent_type = 'bro' AND task_id IS NOT NULL)";
+var BRO_SESSION_ROW = "agent_type = 'bro' AND task_id IS NULL";
+var POPULATED_COLUMNS = [
+  { table: "agent_runs", column: "session_id", created_column: "started_at", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.2, min_schema: 30 },
+  { table: "agent_runs", column: "usage_source", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 30 },
+  { table: "agent_runs", column: "model", created_column: "started_at", scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: "measured rows", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.1, min_schema: 33 },
+  { table: "agent_runs", column: "host", created_column: "started_at", floor: 0, min_schema: 33 },
+  { table: "agent_runs", column: "root_dir", created_column: "started_at", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.05, min_schema: 33 },
+  { table: "agent_runs", column: "exit_reason", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 33 },
+  { table: "tasks", column: "prompt_bearing", created_column: "created_at", floor: 0, min_schema: 0 },
+  // The v37 migration keeps no applied-at timestamp, so the first run carrying
+  // an effort anchors the window: runs metered before v37 stay NULL by design.
+  {
+    table: "agent_runs",
+    column: "effort",
+    created_column: "started_at",
+    scope: `agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'
+               AND ${ts("started_at")} >= (SELECT MIN(${ts("started_at")}) FROM agent_runs WHERE effort IS NOT NULL)`,
+    scope_label: "SubagentStop-metered swe/pr-reviewer rows since the first run carrying an effort",
+    floor: 0.05,
+    min_schema: 37
+  }
+];
+function populatedContract(c) {
+  const where = [
+    `${ts(c.created_column)} >= ${daysAgo(30)}`,
+    ...c.writer_since ? [`${ts(c.created_column)} >= ${c.writer_since.sql}`] : [],
+    ...c.table === "agent_runs" ? [NOT_PER_TASK_BRO_ROW] : [],
+    ...c.scope ? [c.scope] : []
+  ].join(" AND ");
+  const since = c.writer_since ? ` and not before ${c.writer_since.label}` : "";
+  const excluded = c.table === "agent_runs" ? ", per-task bro rows excluded" : "";
+  const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
+  return {
+    id: `populated_${c.table}_${c.column}`,
+    severity: "warn",
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days${since}${excluded} stays at or under ${c.floor}`,
+    sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
+    expect: { op: "<=", value: c.floor },
+    sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
+    ...minSchema > 0 ? { min_schema: minSchema } : {}
+  };
+}
+function eventTypeList(types) {
+  for (const t of types) {
+    if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`data-contracts: invalid documented event type '${t}'`);
+  }
+  return types.map((t) => `'${t}'`).join(",");
+}
+function buildDataContracts(documentedEventTypes) {
+  const events = eventTypeList(documentedEventTypes);
+  return [
+    {
+      id: "fk_check_empty",
+      severity: "error",
+      description: "PRAGMA foreign_key_check reports no dangling foreign key",
+      sql: "SELECT COUNT(*) FROM pragma_foreign_key_check",
+      expect: { op: "=", value: 0 },
+      sample_sql: 'SELECT "table" AS child_table, rowid, parent FROM pragma_foreign_key_check LIMIT 5'
+    },
+    {
+      id: "event_type_documented",
+      severity: "error",
+      min_schema: 38,
+      description: "every audit.event_type is in the documented event set",
+      sql: `SELECT COUNT(*) FROM audit WHERE event_type NOT IN (${events})`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT event_type, COUNT(*) AS n FROM audit WHERE event_type NOT IN (${events}) GROUP BY event_type ORDER BY n DESC LIMIT 5`
+    },
+    {
+      id: "swe_runs_metered",
+      severity: "error",
+      min_schema: 30,
+      description: "swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
+      sql: `SELECT COUNT(*) FROM agent_runs
+             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
+               AND (usage_source IS NULL OR usage_source <> 'unmeasured')
+               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs
+             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
+               AND (usage_source IS NULL OR usage_source <> 'unmeasured')
+               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+             ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "bro_session_runs_metered",
+      severity: "error",
+      min_schema: 33,
+      description: "bro session agent_runs (task_id NULL) started in the last 7 days carry session_id, model, tokens_out and usage_source",
+      sql: `SELECT COUNT(*) FROM agent_runs
+             WHERE ${BRO_SESSION_ROW} AND ${ts("started_at")} >= ${daysAgo(7)}
+               AND (session_id IS NULL OR model IS NULL OR COALESCE(tokens_out, 0) = 0 OR usage_source IS NULL)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, session_id, model, tokens_out, usage_source, started_at FROM agent_runs
+             WHERE ${BRO_SESSION_ROW} AND ${ts("started_at")} >= ${daysAgo(7)}
+               AND (session_id IS NULL OR model IS NULL OR COALESCE(tokens_out, 0) = 0 OR usage_source IS NULL)
+             ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "closed_tasks_reviewed",
+      severity: "error",
+      description: "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
+               AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql("a")}
+                                AND ${auditTaskId("a")} = t.id)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
+             WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
+               AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql("a")}
+                                AND ${auditTaskId("a")} = t.id)
+             ORDER BY t.id DESC LIMIT 5`,
+      params: [{ name: "grace_hours", env: "TMB_REVIEW_GRACE_HOURS", default: REVIEW_GRACE_HOURS_DEFAULT }]
+    },
+    {
+      id: "no_stale_running",
+      severity: "warn",
+      description: "no running task has gone TMB_STALE_RUNNING_HOURS (default 6) without an update and without an open swe agent_runs row",
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE t.status = 'running' AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.updated_at FROM tasks t
+             WHERE t.status = 'running' AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)
+             ORDER BY t.id LIMIT 5`,
+      params: [{ name: "stale_hours", env: "TMB_STALE_RUNNING_HOURS", default: STALE_RUNNING_HOURS_DEFAULT }]
+    },
+    {
+      id: "scan_fresh",
+      severity: "warn",
+      description: "some repo was scanned in the last 7 days (1 when fresh; passes with no repo row)",
+      sql: `SELECT CASE WHEN COUNT(*) = 0 THEN 1 WHEN MAX(${ts("last_scanned_at")}) >= ${daysAgo(7)} THEN 1 ELSE 0 END FROM repos`,
+      expect: { op: ">=", value: 1 },
+      sample_sql: `SELECT name, last_scanned_at FROM repos ORDER BY last_scanned_at DESC LIMIT 5`
+    },
+    {
+      id: "waiver_not_duplicated",
+      severity: "warn",
+      description: "no (task_id, commit_sha) carries more than one verification_gate_waived row",
+      sql: `SELECT COUNT(*) FROM (SELECT 1 FROM audit a WHERE a.event_type = 'verification_gate_waived'
+             GROUP BY ${auditTaskId("a")}, COALESCE(${auditCommitSha("a")}, '') HAVING COUNT(*) > 1)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT ${auditTaskId("a")} AS task_id, ${auditCommitSha("a")} AS commit_sha, COUNT(*) AS n FROM audit a
+             WHERE a.event_type = 'verification_gate_waived'
+             GROUP BY ${auditTaskId("a")}, COALESCE(${auditCommitSha("a")}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`
+    },
+    {
+      id: "spec_shape_waived_rows_name_a_task",
+      severity: "warn",
+      description: "every spec_shape_gate_waived row names an existing task with gate spec_shape: content_json.task_id is a positive integer (or its decimal string) matching a tasks row and content_json.gate is spec_shape, the only shape require-task-spec reads as a spawn waiver",
+      sql: `SELECT COUNT(*) FROM audit a
+             WHERE ${SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE("a")}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT a.id, a.issue_id, a.from_node, a.created_at, a.content_json FROM audit a
+             WHERE ${SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE("a")}
+             ORDER BY a.id DESC LIMIT 5`
+    },
+    {
+      id: "no_unconsumed_reviewer_observations",
+      severity: "warn",
+      description: "no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer validation_record call that never recorded a verdict)",
+      sql: `SELECT COUNT(*) FROM audit o
+             WHERE ${UNCONSUMED_STALE_OBSERVATION("o")}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT o.id, o.issue_id, o.created_at, o.content_json FROM audit o
+             WHERE ${UNCONSUMED_STALE_OBSERVATION("o")}
+             ORDER BY o.id DESC LIMIT 5`
+    },
+    {
+      id: "embeddings_not_degraded",
+      severity: "warn",
+      min_schema: 33,
+      description: "no embeddings_degraded audit row from the last 24 hours lacks a later embeddings_recovered row (semantic search is falling back to FTS)",
+      sql: `SELECT COUNT(*) FROM audit d
+             WHERE d.event_type = 'embeddings_degraded' AND ${ts("d.created_at")} >= ${daysAgo(1)}
+               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT d.id, d.created_at, d.content_json FROM audit d
+             WHERE d.event_type = 'embeddings_degraded' AND ${ts("d.created_at")} >= ${daysAgo(1)}
+               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
+             ORDER BY d.id DESC LIMIT 5`
+    },
+    {
+      id: "verification_recorded_for_closed_tasks",
+      severity: "warn",
+      min_schema: 36,
+      description: "tasks closed in the last 7 days, and not before the first recorded verification run, with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run); skipped while no run is recorded",
+      skip_when: { sql: "SELECT COUNT(*) = 0 FROM verification_runs", reason: "no_v36_timestamp" },
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE ${VERIFIED_CLOSE_SCOPE}
+               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit("r", "t")})`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.commit_sha, t.updated_at FROM tasks t
+             WHERE ${VERIFIED_CLOSE_SCOPE}
+               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit("r", "t")})
+             ORDER BY t.id DESC LIMIT 5`
+    },
+    {
+      id: "no_unfinished_verification_runs",
+      severity: "warn",
+      min_schema: 36,
+      description: "no verification_runs row started more than 2 hours ago is still unfinished (finished_at NULL: the gate was killed, or its finish write failed after its retries)",
+      sql: `SELECT COUNT(*) FROM verification_runs
+             WHERE finished_at IS NULL AND ${ts("started_at")} < ${hoursAgo(2)}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, task_id, commit_sha, source, started_at FROM verification_runs
+             WHERE finished_at IS NULL AND ${ts("started_at")} < ${hoursAgo(2)}
+             ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "no_fixture_rows_in_inventory",
+      severity: "warn",
+      description: "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan.sh run reached this DB; report only \u2014 agents never delete these rows, the Human decides",
+      sql: `SELECT COUNT(*) FROM cheatcodes c
+             WHERE ${FIXTURE_INVENTORY_ROW("c")}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT c.id, c.name, c.kind, c.source_url, c.created_at FROM cheatcodes c
+             WHERE ${FIXTURE_INVENTORY_ROW("c")}
+             ORDER BY c.id DESC LIMIT 5`
+    },
+    ...POPULATED_COLUMNS.map(populatedContract),
+    {
+      id: "issues_closed_no_live_tasks",
+      severity: "error",
+      description: "no closed issue still has a pending/running/needs_validation/completed task",
+      sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN tasks t ON t.issue_id = i.id
+             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2})`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
+             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2}) ORDER BY i.id DESC, t.id LIMIT 5`
+    },
+    {
+      source: "files",
+      id: "single_tmb_plugin_enabled",
+      severity: "error",
+      description: "at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB's gates \u2014 run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable",
+      expect: { op: "<=", value: 1 },
+      check: singleTmbPluginEnabled
+    },
+    {
+      source: "files",
+      id: "no_other_trajectory_dbs",
+      severity: "warn",
+      description: `no other live trajectory DB sits on the walk from CLAUDE_PROJECT_DIR up to the project root, or below the project root within ${STRAY_DB_MAX_DEPTH} levels; a nested DB splits the project's issues and tasks \u2014 each sample names the DB path with its issue and task counts, and /onboard offers to remove an empty one. A DB marked standalone is its own project and is not counted. Skipped when the checked DB is not a <project>/.claude/<plugin>/trajectory.db file`,
+      expect: { op: "=", value: 0 },
+      check: noOtherTrajectoryDbs
+    }
+  ];
+}
+var DATA_CONTRACTS = buildDataContracts(AUDIT_EVENT_TYPES.map((e) => e.type));
+var DATA_CONTRACTS_SCHEMA_VERSION = Math.max(0, ...DATA_CONTRACTS.map((c) => c.min_schema ?? 0));
+function schemaTooOldReason(stored, required2) {
+  return `schema v${stored} < v${required2} \u2014 start the trajectory server to migrate`;
+}
+function contractHolds(actual, expect) {
+  if (actual === null || !Number.isFinite(actual)) return false;
+  switch (expect.op) {
+    case "=":
+      return actual === expect.value;
+    case "<=":
+      return actual <= expect.value;
+    case ">=":
+      return actual >= expect.value;
+  }
+}
+function contractParamValues(contract, env = process.env) {
+  const values = {};
+  for (const p of contract.params ?? []) {
+    const raw = Number(env[p.env]);
+    values[p.name] = Number.isFinite(raw) && raw > 0 ? raw : p.default;
+  }
+  return values;
+}
+
+// src/tools/trajectory-doctor.ts
+var STATEMENT_TIMEOUT_MS_DEFAULT = 2e3;
+var bind = (params) => Object.keys(params).length > 0 ? [params] : [];
+function trajectoryDbReader(db2) {
+  return {
+    get: (sql, params) => db2.get(sql, bind(params)),
+    all: (sql, params) => db2.all(sql, bind(params))
+  };
+}
+function sqliteReader(conn) {
+  return {
+    get: (sql, params) => conn.prepare(sql).get(...bind(params)),
+    all: (sql, params) => conn.prepare(sql).all(...bind(params))
+  };
+}
+function statementTimeoutMs(env = process.env) {
+  const raw = Number(env["TMB_DOCTOR_STATEMENT_TIMEOUT_MS"]);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : STATEMENT_TIMEOUT_MS_DEFAULT;
+}
+function readSchemaVersion(reader) {
+  try {
+    return firstNumber(reader.get("SELECT schema_version FROM plugin_meta LIMIT 1", {}));
+  } catch {
+    return null;
+  }
+}
+function firstNumber(row) {
+  if (row === void 0) return null;
+  const value = Object.values(row)[0];
+  if (typeof value === "number") return value;
+  if (typeof value === "bigint") return Number(value);
+  return null;
+}
+function runDataContracts(reader, contracts, opts = {}) {
+  const timeoutMs = opts.statementTimeoutMs ?? statementTimeoutMs(opts.env);
+  const now2 = opts.now ?? (() => performance.now());
+  const stored = readSchemaVersion(reader);
+  const required2 = Math.max(0, ...contracts.map((c) => c.min_schema ?? 0));
+  const report = {
+    healthy: true,
+    checked_at: nowISO(),
+    schema: { stored, required: required2, current: stored === null || stored >= required2 },
+    violations: [],
+    skipped: []
+  };
+  for (const contract of contracts) {
+    if (contract.source === "files") {
+      const result2 = contract.check(opts.env ?? process.env, opts.dbPath === void 0 ? {} : { dbPath: opts.dbPath });
+      if ("skipped" in result2) {
+        report.skipped.push({ id: contract.id, reason: result2.skipped });
+        continue;
+      }
+      if (contractHolds(result2.actual, contract.expect)) continue;
+      report.violations.push({
+        id: contract.id,
+        severity: contract.severity,
+        description: contract.description,
+        actual: result2.actual,
+        expected: contract.expect,
+        sample: result2.sample
+      });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    if (stored !== null && (contract.min_schema ?? 0) > stored) {
+      report.skipped.push({ id: contract.id, reason: schemaTooOldReason(stored, contract.min_schema) });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    const params = contractParamValues(contract, opts.env);
+    const started = now2();
+    let actual;
+    try {
+      if (contract.skip_when && firstNumber(reader.get(contract.skip_when.sql, params))) {
+        report.skipped.push({ id: contract.id, reason: contract.skip_when.reason });
+        continue;
+      }
+      actual = firstNumber(reader.get(contract.sql, params));
+    } catch (e) {
+      report.skipped.push({ id: contract.id, reason: `error: ${e.message}` });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    const elapsed = Math.round(now2() - started);
+    if (elapsed > timeoutMs) {
+      report.skipped.push({ id: contract.id, reason: `timeout: ${elapsed}ms > ${timeoutMs}ms` });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    if (contractHolds(actual, contract.expect)) continue;
+    let sample = [];
+    if (contract.sample_sql) {
+      try {
+        sample = reader.all(contract.sample_sql, params);
+      } catch {
+        sample = [];
+      }
+    }
+    report.violations.push({
+      id: contract.id,
+      severity: contract.severity,
+      description: contract.description,
+      actual,
+      expected: contract.expect,
+      sample
+    });
+    if (contract.severity === "error") report.healthy = false;
+  }
+  return report;
+}
+function openReadOnly(dbPath2, timeoutMs) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  for (const readOnly of [true, false]) {
+    let conn = null;
+    try {
+      conn = new DatabaseSync3(dbPath2, { readOnly });
+      conn.exec(`PRAGMA busy_timeout = ${Math.floor(timeoutMs)}`);
+      conn.exec("PRAGMA query_only = ON");
+      conn.prepare("SELECT COUNT(*) FROM sqlite_master").get();
+      return conn;
+    } catch {
+      conn?.close();
+    }
+  }
+  return null;
+}
+function selectContracts(ids) {
+  if (ids === void 0) return { contracts: DATA_CONTRACTS };
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
+    return { error: "ids must be an array of contract id strings" };
+  }
+  const known = DATA_CONTRACTS.map((c) => c.id);
+  const unknown2 = ids.filter((id) => !known.includes(id));
+  if (unknown2.length > 0) return { error: `unknown contract id(s): ${unknown2.join(", ")}`, known_ids: known };
+  const wanted = new Set(ids);
+  return { contracts: DATA_CONTRACTS.filter((c) => wanted.has(c.id)) };
+}
+function ok21(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err19(message2, extra = {}) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message2, ...extra }) }], isError: true };
+}
+function trajectoryDoctorTools(db2) {
+  const definitions = [
+    {
+      name: "trajectory_doctor",
+      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          record: { type: "boolean", description: "Write one trajectory_doctor_run audit row with the report. Default false." },
+          ids: { type: "array", items: { type: "string" }, description: "Run only these contract ids." }
+        },
+        required: ["agent"]
+      }
+    }
+  ];
+  const handler = async (args) => {
+    const record2 = args["record"] === true;
+    const selected = selectContracts(args["ids"]);
+    if ("error" in selected) {
+      const { error: error2, ...extra } = selected;
+      return err19(error2, extra);
+    }
+    const contracts = selected.contracts;
+    const timeoutMs = statementTimeoutMs();
+    const ro = openReadOnly(db2.dbPath, timeoutMs);
+    let report;
+    try {
+      report = runDataContracts(ro ? sqliteReader(ro) : trajectoryDbReader(db2), contracts, {
+        statementTimeoutMs: timeoutMs,
+        dbPath: db2.dbPath
+      });
+    } finally {
+      ro?.close();
+    }
+    report.embeddings = embeddingStatus();
+    if (!record2) return ok21(report);
+    const auditId = insertAudit(db2, {
+      issue_id: -1,
+      from_node: "bro",
+      event_type: "trajectory_doctor_run",
+      summary: report.healthy ? `trajectory_doctor: healthy (${report.violations.length} warn violation(s), ${report.skipped.length} skipped)` : `trajectory_doctor: unhealthy \u2014 ${report.violations.length} violation(s), ${report.skipped.length} skipped`,
+      content_json: JSON.stringify(report)
+    });
+    return ok21({ ...report, audit_id: auditId });
+  };
+  return {
+    definitions,
+    handlers: {
+      trajectory_doctor: requireRoles("trajectory_doctor", ["bro"], async (args) => {
+        try {
+          return await handler(args);
+        } catch (e) {
+          return err19(e.message);
+        }
+      })
+    }
+  };
 }
 
 // src/tools/index.ts
@@ -32327,6 +39162,7 @@ function decorateWithAgent(tools) {
 function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const discussions = discussionTools(db2);
   const issues = issueTools(db2, dbPath2);
+  const milestones = milestoneTools(db2);
   const tasks = taskTools(db2);
   const audit = auditTools(db2);
   const validation = validationTools(db2);
@@ -32341,11 +39177,15 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const composites = compositeTools(db2, dbPath2, graphHolder2);
   const onboard = onboardTools(db2, dbPath2);
   const scan = scanTools(db2, graphHolder2, dbPath2);
+  const repos = repoTools(db2, graphHolder2);
   const cheatcode = cheatcodeTools(db2);
   const worldModel = worldModelTools(db2, graphHolder2);
+  const backfill = agentRunsBackfillTools(db2, dbPath2);
+  const doctor = trajectoryDoctorTools(db2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
+    ...milestones.definitions,
     ...tasks.definitions,
     ...audit.definitions,
     ...validation.definitions,
@@ -32360,12 +39200,16 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...repos.definitions,
     ...cheatcode.definitions,
-    ...worldModel.definitions
+    ...worldModel.definitions,
+    ...backfill.definitions,
+    ...doctor.definitions
   ]);
   toolHandlers = {
     ...discussions.handlers,
     ...issues.handlers,
+    ...milestones.handlers,
     ...tasks.handlers,
     ...audit.handlers,
     ...validation.handlers,
@@ -32380,43 +39224,37 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...repos.handlers,
     ...cheatcode.handlers,
-    ...worldModel.handlers
+    ...worldModel.handlers,
+    ...backfill.handlers,
+    ...doctor.handlers
   };
 }
 
-// src/embeddings/backfill.ts
-async function startBackfill(db2) {
-  const counts = db2.get(
-    `SELECT
-      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
-      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`
-  );
-  if (!counts) return;
-  const total = counts.discussions + counts.audit;
-  serverLog({ event: "embeddings_backfill_start", total });
-  if (total === 0) return;
-  (async () => {
-    let done = 0;
-    const dRows = db2.all(
-      "SELECT id, body FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)"
-    );
-    for (const r of dRows) {
-      await embedAndStore(db2, "discussions", r.id, r.body);
-      done++;
-      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
+// src/embeddings/health.ts
+function recordEmbeddingTransitions(db2) {
+  return onEmbeddingTransition((t) => {
+    serverLog({ kind: "embeddings_state", transition: t.kind, embeddings: embeddingStatus() });
+    if (!db2.isOpen) return;
+    if (t.kind === "degraded") {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "trajectory-server",
+        event_type: "embeddings_degraded",
+        summary: `embeddings degraded \u2014 semantic search falls back to FTS: ${t.reason}`,
+        content_json: JSON.stringify({ reason: t.reason, consecutive_failures: t.consecutive_failures })
+      });
+    } else {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "trajectory-server",
+        event_type: "embeddings_recovered",
+        summary: `embeddings recovered after ${t.retries} re-attempt(s)`,
+        content_json: JSON.stringify({ degraded_since: t.degraded_since, reason: t.reason, retries: t.retries })
+      });
     }
-    const aRows = db2.all(
-      "SELECT id, summary, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)"
-    );
-    for (const r of aRows) {
-      const text = r.content_json ? `${r.summary} ${r.content_json}` : r.summary;
-      await embedAndStore(db2, "audit", r.id, text);
-      done++;
-      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
-    }
-    serverLog({ event: "embeddings_backfill_complete", done });
-  })().catch((e) => console.error("[embeddings] backfill error:", e));
+  });
 }
 
 // src/shutdown.ts
@@ -32441,14 +39279,14 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
-  mkdirSync7(path.dirname(dbPath), { recursive: true });
+  mkdirSync9(path.dirname(dbPath), { recursive: true });
 }
 var db = new TrajectoryDB(dbPath);
 function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync5(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync11(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -32472,18 +39310,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 var debugTrajectoryEnabled = process.env["TMB_DEBUG_TRAJECTORY"] === "1" && process.env["TMB_EVAL_MODE"] === "1";
 var debugSessionId = crypto.randomUUID();
 var debugStepCounter = 0;
-function maybeRecordTrajectory(toolName, args, result) {
+function maybeRecordTrajectory(toolName, args, result2) {
   if (!debugTrajectoryEnabled) return;
   try {
     const agentName = args?.agent ?? null;
     const argsJson = JSON.stringify(args ?? {}).slice(0, 4e3);
-    const firstContent = result.content?.[0];
+    const firstContent = result2.content?.[0];
     const resultText = firstContent && typeof firstContent.text === "string" ? firstContent.text : "";
     const resultJson = JSON.stringify({ text: resultText.slice(0, 4e3) });
     db.run(
       `INSERT INTO debug_trajectory
        (session_id, step_n, kind, agent, tool_or_mcp_name, args_json, result_json, is_error, created_at)
-       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, ?)`,
       [
         debugSessionId,
         ++debugStepCounter,
@@ -32491,7 +39329,8 @@ function maybeRecordTrajectory(toolName, args, result) {
         toolName,
         argsJson,
         resultJson,
-        result.isError ? 1 : 0
+        result2.isError ? 1 : 0,
+        nowISO()
       ]
     );
   } catch {
@@ -32504,10 +39343,10 @@ var shutdown = createShutdown({
   exit: (code) => process.exit(code),
   pid: process.pid
 });
-process.on("uncaughtException", (err18) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err18.message, stack: err18.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err18.message}
-${err18.stack ?? ""}
+process.on("uncaughtException", (err20) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err20.message, stack: err20.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err20.message}
+${err20.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -32525,7 +39364,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  const start = performance2.now();
+  const start = performance3.now();
   const agent = args?.agent ?? null;
   serverLog({ kind: "tool_entry", tool: name, agent });
   if (name === "task_create_batch") {
@@ -32548,31 +39387,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
     }
   }
-  let result;
+  let result2;
   try {
-    result = await handler(args ?? {});
-  } catch (err18) {
-    const duration_ms2 = Math.round(performance2.now() - start);
+    result2 = await handler(args ?? {});
+  } catch (err20) {
+    const duration_ms2 = Math.round(performance3.now() - start);
     serverLog({
       kind: "tool_exit",
       tool: name,
       agent,
       is_error: true,
-      error_message: err18 instanceof Error ? err18.message : String(err18),
+      error_message: err20 instanceof Error ? err20.message : String(err20),
       duration_ms: duration_ms2
     });
-    throw err18;
+    throw err20;
   }
-  const duration_ms = Math.round(performance2.now() - start);
+  const duration_ms = Math.round(performance3.now() - start);
   serverLog({
     kind: "tool_exit",
     tool: name,
     agent,
-    is_error: result.isError ?? false,
+    is_error: result2.isError ?? false,
     duration_ms
   });
-  maybeRecordTrajectory(name, args, result);
-  return result;
+  maybeRecordTrajectory(name, args, result2);
+  return result2;
 });
 installShutdownHandlers(shutdown, process, process.stdin);
 var transport = new StdioServerTransport();
@@ -32591,6 +39430,8 @@ if (db.legacyNoPluginMeta) {
     "WARNING: trajectory DB had tables but no plugin_meta row (pre-stamp legacy); adopted forward and stamped. Verify the upgrade.\n"
   );
 }
+void reconcileAtStartup(db);
+recordEmbeddingTransitions(db);
 embed("warmup").catch(() => {
 });
 startBackfill(db).catch((e) => console.error("[embeddings] startBackfill error:", e));

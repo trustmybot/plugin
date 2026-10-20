@@ -1,0 +1,13 @@
+[
+  {
+    "id": "tmb@trustmybot-dev",
+    "version": "1.0.2",
+    "description": "Trust me bro",
+    "scope": "user",
+    "enabled": true,
+    "mcpServers": {
+      "trajectory-server": {"command": "node"},
+      "helper": {"command": "node"}
+    }
+  }
+]

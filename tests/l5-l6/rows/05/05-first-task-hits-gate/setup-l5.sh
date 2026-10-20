@@ -15,7 +15,8 @@ SCENARIO_DIR="$2"
 
 # Drop the fixture-seeded deep_scan_completed audit row so the gate fires.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
-  "DELETE FROM audit WHERE event_type='deep_scan_completed';" >/dev/null
+  "DELETE FROM audit_embeddings WHERE audit_id IN (SELECT id FROM audit WHERE event_type = 'deep_scan_completed');
+   DELETE FROM audit WHERE event_type='deep_scan_completed';" >/dev/null
 
 # Scaffold src/ + tests/ so /scan has something to discover. Without this,
 # bro's /scan would correctly find nothing and the gate would still fire.

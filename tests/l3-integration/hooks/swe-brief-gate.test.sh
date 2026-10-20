@@ -3,7 +3,7 @@
 #
 # Hook contract: deny-until-briefed gate for SWE subagents.
 # SWE must call task_brief before any other trajectory-server MCP tool.
-# Sentinel is written to the audit table on the first task_brief call.
+# The task_brief handler writes the sentinel; these tests seed it with SQL in the handler's shape.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-brief-gate.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-brief-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
@@ -24,7 +24,8 @@ sqlite3 "$DB" "
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    repo TEXT
   );
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
@@ -41,9 +42,10 @@ sqlite3 "$DB" "
     event_type TEXT NOT NULL,
     summary TEXT NOT NULL DEFAULT '',
     content_json TEXT NOT NULL DEFAULT '{}',
+    repo TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
+  INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'), NULL);
   INSERT INTO tasks VALUES (10, 1, 'feat/my-feature', 'pending', 'spec here');
 "
 
@@ -53,6 +55,16 @@ make_transcript() {
   local tf="$TMPDIR/transcript_${task_id}.jsonl"
   printf '{"message":{"content":[{"type":"text","text":"task_id=%s worktree: /some/path"}]}}\n' "$task_id" > "$tf"
   echo "$tf"
+}
+
+seed_sentinel() {
+  local task_id="$1"
+  sqlite3 "$DB" "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+    VALUES (1, NULL, 'swe', 'swe_brief_fetched', 'SWE fetched task_brief for task_id=${task_id}', '{\"task_id\":${task_id},\"agent_type\":\"swe\"}', NULL, datetime('now'));"
+}
+
+sentinel_count() {
+  sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='swe_brief_fetched' AND json_extract(content_json, '\$.task_id') = $1;"
 }
 
 run_hook() {
@@ -72,8 +84,8 @@ INPUT=$(jq -n --arg tr "$TR" '{
 out=$(run_hook "$INPUT")
 assert_eq "" "$out" "bro should pass through silently"
 
-# ---- task_brief call itself is always allowed (writes sentinel) --------------
-test_case "SWE caller: task_brief call allowed (writes sentinel)"
+# ---- task_brief call itself is always allowed (the hook writes nothing) -----
+test_case "SWE caller: task_brief call passes through and writes nothing"
 TR=$(make_transcript 10)
 INPUT=$(jq -n --arg tr "$TR" '{
   agent_type: "swe",
@@ -82,11 +94,9 @@ INPUT=$(jq -n --arg tr "$TR" '{
   tool_input: {}
 }')
 out=$(run_hook "$INPUT")
-assert_eq "" "$out" "task_brief should be allowed and write sentinel"
-
-# Verify sentinel was written.
-SENTINEL=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='swe_brief_fetched' AND content_json LIKE '%\"task_id\":10%';" 2>/dev/null)
-assert_eq "1" "$SENTINEL" "sentinel row should exist after task_brief call"
+assert_eq "" "$out" "task_brief should pass through silently"
+assert_eq "0" "$(sentinel_count 10)" "the hook must not write a sentinel row"
+seed_sentinel 10
 
 # ---- After sentinel exists, any tool is allowed ----------------------------
 test_case "SWE caller: any tool allowed after sentinel exists"
@@ -129,7 +139,7 @@ out=$(run_hook "$INPUT")
 assert_contains "$out" '"permissionDecision":"deny"' "tmb:swe prefix should also be denied without sentinel"
 
 # ---- task_brief with tmb: prefix writes sentinel and allows -----------------
-test_case "SWE caller with tmb: prefix: task_brief writes sentinel"
+test_case "SWE caller with tmb: prefix: task_brief passes through and writes nothing"
 TR=$(make_transcript 30)
 INPUT=$(jq -n --arg tr "$TR" '{
   agent_type: "tmb:swe",
@@ -139,11 +149,10 @@ INPUT=$(jq -n --arg tr "$TR" '{
 }')
 out=$(run_hook "$INPUT")
 assert_eq "" "$out" "task_brief with tmb: prefix should be allowed"
-SENTINEL=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='swe_brief_fetched' AND content_json LIKE '%\"task_id\":30%';" 2>/dev/null)
-assert_eq "1" "$SENTINEL" "sentinel should be written for task 30"
+assert_eq "0" "$(sentinel_count 30)" "the hook must not write a sentinel row for task 30"
 
-# ---- Duplicate task_brief calls do not double-write sentinel ----------------
-test_case "SWE caller: duplicate task_brief call does not create duplicate sentinel"
+# ---- Repeated task_brief calls never add sentinel rows ----------------------
+test_case "SWE caller: repeated task_brief call leaves the seeded sentinel as the only row"
 TR=$(make_transcript 10)
 INPUT=$(jq -n --arg tr "$TR" '{
   agent_type: "swe",
@@ -152,8 +161,7 @@ INPUT=$(jq -n --arg tr "$TR" '{
   tool_input: {}
 }')
 run_hook "$INPUT" >/dev/null
-COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='swe_brief_fetched' AND content_json LIKE '%\"task_id\":10%';" 2>/dev/null)
-assert_eq "1" "$COUNT" "duplicate task_brief should not write second sentinel"
+assert_eq "1" "$(sentinel_count 10)" "task_brief through the hook must not add a sentinel row"
 
 # ---- No DB: hook allows everything (can't enforce without state) ------------
 test_case "No DB: hook allows any SWE tool call silently"
@@ -204,7 +212,7 @@ assert_eq "tasks" "$TASKS_TABLE" "tasks table must survive injection attempt"
 AUDIT_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
 assert_eq "$AUDIT_BEFORE" "$AUDIT_AFTER" "no audit row should be written for injected task_id"
 
-test_case "Injection: task_brief with injected task_id writes no sentinel"
+test_case "Injection: task_brief with injected task_id passes through and writes nothing"
 INPUT=$(jq -n '{
   agent_type: "swe",
   tool_name: "mcp__tmb__trajectory-server__task_brief",
@@ -277,6 +285,7 @@ INPUT=$(jq -n --arg tr "$TR" '{
   tool_input: {}
 }')
 run_hook "$INPUT" >/dev/null
+seed_sentinel 50
 INPUT=$(jq -n --arg tr "$TR" '{
   agent_type: "swe",
   tool_name: "Edit",
@@ -286,39 +295,43 @@ INPUT=$(jq -n --arg tr "$TR" '{
 out=$(run_hook "$INPUT")
 assert_not_contains "$out" '"permissionDecision":"deny"' "Edit must be allowed after task_brief"
 
-# ---- Slug fallback: no transcript, PWD inside worktree resolves task_id -----
-test_case "Slug fallback: no transcript, PWD inside worktree → gate evaluates (denies)"
+# ---- GH 1550: identity is the spawn transcript, never the cwd ---------------
 sqlite3 "$DB" "INSERT OR IGNORE INTO tasks VALUES (70, 1, 'fix/slug-task', 'pending', 'spec');" 2>/dev/null || true
-# PWD must look like a worktree root whose slug matches the branch_id suffix.
 FAKE_WT="$TMPDIR/.claude/worktrees/slug-task"
+mkdir -p "$FAKE_WT"
+
+test_case "GH 1550: no transcript, shell inside a task's worktree → the cwd resolves nothing"
 INPUT=$(jq -n '{
   agent_type: "swe",
   tool_name: "mcp__tmb__trajectory-server__task_update_status",
   tool_input: {}
 }')
-out=$(cd "$FAKE_WT" 2>/dev/null || mkdir -p "$FAKE_WT" && cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
-assert_contains "$out" '"permissionDecision":"deny"' "slug fallback should resolve task and deny"
+out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "a cwd inside a worktree is not identity"
+
+# The subagent transcript beside the session transcript:
+# <transcript_path minus .jsonl>/subagents/agent-<agent_id>.jsonl.
+mkdir -p "$TMPDIR/session/subagents"
+printf '{"message":{"content":[{"type":"text","text":"task_id=70"}]}}\n' > "$TMPDIR/session/subagents/agent-sub70.jsonl"
+sub_input() {
+  jq -n --arg t "$TMPDIR/session.jsonl" --arg tool "$1" \
+    '{agent_type: "swe", agent_id: "sub70", transcript_path: $t, tool_name: $tool, tool_input: {}}'
+}
+
+test_case "Subagents transcript: no agent_transcript_path → gate evaluates (denies)"
+out=$(echo "$(sub_input mcp__tmb__trajectory-server__task_update_status)" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "the subagents transcript resolves the task"
 assert_contains "$out" "task_brief" "deny reason must mention task_brief"
 
-test_case "Slug fallback: task_brief via slug writes sentinel"
-INPUT=$(jq -n '{
-  agent_type: "swe",
-  tool_name: "mcp__tmb__trajectory-server__task_brief",
-  tool_input: {}
-}')
-out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
-assert_eq "" "$out" "task_brief via slug should be allowed"
-SENTINEL70=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='swe_brief_fetched' AND content_json LIKE '%\"task_id\":70%';" 2>/dev/null)
-assert_eq "1" "$SENTINEL70" "sentinel written for slug-resolved task"
+test_case "Subagents transcript: task_brief passes through and writes nothing"
+out=$(echo "$(sub_input mcp__tmb__trajectory-server__task_brief)" | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "task_brief should be allowed"
+assert_eq "0" "$(sentinel_count 70)" "the hook must not write a sentinel row"
+seed_sentinel 70
 
-test_case "Slug fallback: after sentinel exists, tool allowed"
-INPUT=$(jq -n '{
-  agent_type: "swe",
-  tool_name: "mcp__tmb__trajectory-server__task_update_status",
-  tool_input: {}
-}')
-out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "tool allowed after slug-resolved sentinel"
+test_case "Subagents transcript: after sentinel exists, tool allowed"
+out=$(echo "$(sub_input mcp__tmb__trajectory-server__task_update_status)" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "tool allowed after the sentinel"
 
 # ---- bro Edit never denied --------------------------------------------------
 test_case "bro caller: Edit never denied (gate must not affect bro)"

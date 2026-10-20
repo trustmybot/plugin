@@ -1,8 +1,10 @@
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { WorldModelGraph } from '../graph-db.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
+import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
 const UNMERGED_WORK_MAX_BRANCHES = 10;
 // Surface closed-task work living on un-merged feature branches (#1059). The
@@ -21,9 +23,8 @@ function computeUnmergedWork(db, repo) {
     const repoRow = db.get(`SELECT path, target_branch FROM repos WHERE name = ?`, [repo]);
     if (!repoRow)
         return { unmerged_work: [] };
-    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-    const repoPath = repoRow.path.startsWith('/') ? repoRow.path : resolve(dbDir, repoRow.path);
-    const target = repoRow.target_branch || 'dev';
+    const repoPath = repoRowPath(db, repoRow.path);
+    const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
     const gitCheck = spawnSync('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree'], {
         encoding: 'utf8',
         timeout: SUBPROCESS_TIMEOUT_MS,
@@ -74,6 +75,41 @@ function computeUnmergedWork(db, repo) {
         });
     }
     return { unmerged_work };
+}
+// File purposes are extracted from file contents, so they leave the server
+// framed as untrusted data; the graph keeps them raw.
+function framedPurpose(purpose) {
+    return purpose ? frameUntrusted('file-purpose', purpose) : '';
+}
+function fileView(f) {
+    return {
+        path: WorldModelGraph.relativeFilePath(f),
+        purpose: framedPurpose(f.purpose),
+        purpose_source: f.purpose_source,
+        content_md5: f.content_md5,
+    };
+}
+function dirResult(h) {
+    return {
+        kind: 'dir',
+        repo: h.repo,
+        path: h.path,
+        summary: h.summary,
+        summary_source: h.summary_source,
+        file_count: h.file_count,
+        score: h.score,
+    };
+}
+function fileResult(h) {
+    return {
+        kind: 'file',
+        repo: h.repo,
+        path: WorldModelGraph.relativeFilePath(h),
+        dir: h.dir,
+        purpose: framedPurpose(h.purpose),
+        purpose_source: h.purpose_source,
+        score: h.score,
+    };
 }
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -151,7 +187,7 @@ export function worldModelTools(db, graphHolder) {
     const definitions = [
         {
             name: 'world_model_get',
-            description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+            description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -174,7 +210,7 @@ export function worldModelTools(db, graphHolder) {
         },
         {
             name: 'world_model_search',
-            description: "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
+            description: "Search dir summaries + file purposes by keyword/path. Returns top-K hits tagged kind 'dir'|'file'. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -237,9 +273,12 @@ export function worldModelTools(db, graphHolder) {
                 return ok({ repo, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work });
             }
             const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
+            if (path !== '')
+                tree.files = graph.filesForDirectory(repo, path).map(fileView);
             return ok({
                 repo,
                 root: tree,
+                ...(path === '' ? { coverage: graph.fileCoverage(repo) } : {}),
                 ...(truncated ? { truncated: true } : {}),
                 ...(unmerged.warning ? { warning: unmerged.warning } : {}),
                 unmerged_work: unmerged.unmerged_work,
@@ -267,21 +306,17 @@ export function worldModelTools(db, graphHolder) {
             if (!graph) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
             }
-            // Keyword: substring match over summary + path. Score is constant
+            // Keyword: substring match over dir summary + path and file purpose +
+            // path, directories first. Score is constant
             // until kuzu's FTS extension lands (follow-up post-v0.7).
             // Semantic: requires kuzu's vector extension — also follow-up.
             // Hybrid: falls back to keyword + 'semantic_unavailable' warning.
-            const hits = graph.keywordSearchDirectories(repo, query, k);
+            const dirHits = graph.keywordSearchDirectories(repo, query, k).map(dirResult);
+            const fileHits = graph.keywordSearchFiles(repo, query, k).map(fileResult);
+            const hits = [...dirHits, ...fileHits].slice(0, k);
             if (mode === 'keyword') {
                 return ok({
-                    results: hits.map((h) => ({
-                        repo: h.repo,
-                        path: h.path,
-                        summary: h.summary,
-                        summary_source: h.summary_source,
-                        file_count: h.file_count,
-                        score: h.score,
-                    })),
+                    results: hits,
                     total_matched: hits.length,
                     mode: 'keyword',
                 });
@@ -296,14 +331,7 @@ export function worldModelTools(db, graphHolder) {
             }
             // hybrid — return keyword results with semantic_unavailable warning
             return ok({
-                results: hits.map((h) => ({
-                    repo: h.repo,
-                    path: h.path,
-                    summary: h.summary,
-                    summary_source: h.summary_source,
-                    file_count: h.file_count,
-                    score: h.score,
-                })),
+                results: hits,
                 total_matched: hits.length,
                 warning: 'semantic_unavailable',
                 mode: 'hybrid',

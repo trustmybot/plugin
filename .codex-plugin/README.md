@@ -1,17 +1,51 @@
-# `.codex-plugin/` — placeholder for OpenAI Codex adapter
+# TMB Codex adapter
 
-> **Status: not implemented.** This directory is a placeholder so the repo's structure mirrors the multi-platform pattern (Claude / Codex / Cursor / OpenCode / Gemini). TMB ships Claude Code only.
+> **Scope 4 status:** local Bro planning and explicit project-Agent setup.
 
-## What this would be
+The Codex manifest selects three isolated components:
 
-Once implemented, this directory would hold the OpenAI Codex adapter:
+- `adapters/codex/.mcp.json` starts the bundled Codex-only MCP entry point;
+- `adapters/codex/skills/` contains exactly `tmb-bro` and `tmb-agent-setup`;
+- `hooks/codex/hooks.json` remains empty so Claude Hooks cannot load in Codex.
 
-- `plugin.json` — the Codex-format manifest pointing at the shared `./agents/` (workflow backbone), `./skills/` (protocol + default skills), and `./templates/agents/` (opt-in consultants) directories at the repo root
-- Any Codex-specific persona/loading file (likely `../CODEX.md` at the repo root)
-- Any Codex-specific hook scripts under `../hooks/codex/`
+Invoke `$tmb:tmb-bro` for project-local planning. Invoke `$tmb:tmb-agent-setup` to inspect,
+install, or remove `.codex/agents/tmb_swe.toml` and
+`.codex/agents/tmb_pr_reviewer.toml`. Both Skills are explicit-only. Setup shows
+the fixed paths and asks for confirmation before writing or deleting either
+file; when a file changes, start a new Codex task or CLI session.
 
-The shared content (skills, agent templates, MCP server, planning protocol) is already platform-agnostic and would be referenced via relative paths — no duplication. See [`../docs/reference/MULTI_PLATFORM.md`](../docs/reference/MULTI_PLATFORM.md) for the strategy and [Superpowers](https://github.com/obra/superpowers) for the canonical example of this pattern.
+Each generated Agent shadows the plugin-provided `trajectory-server` with a
+disabled same-name entry in its own `mcp_servers` table. Codex requires a
+complete transport shape, so that entry uses inert `node --version` metadata;
+it is never started while disabled. Each Agent also blocks before repository
+access if a TMB trajectory-server tool remains visible at runtime.
 
-## When this gets built
+The adapter exports an immutable 15-tool allowlist. Thirteen tools retain the
+Scope-3 planning contract. Its only planning configuration write
+is `planning_label_taxonomy_set`, which atomically replaces the two project-local
+label arrays when the user explicitly requests it. Before creating a local
+planning issue, `planning_label_taxonomy_get` reports the exact labels accepted
+by the project. `planning_issue_create` keeps its default
+classification/priority inputs and also accepts a mutually exclusive exact
+`labels` array containing the required configured categories plus any explicitly
+requested extra labels. Two additional tools inspect and converge the fixed
+project Agent files. Unknown file bytes are conflicts; the materializer neither
+overwrites them nor deletes them. Symlink and non-regular paths fail closed, and
+other `.codex/agents` entries stay untouched.
 
-When (a) there's user demand for TMB on Codex, AND (b) the Claude Code experience is stable enough that maintaining a parallel adapter is sustainable. Track via the multi-platform tracking issue.
+The generated Agents are standalone Codex roles, not TMB task-workflow roles.
+Their same-name MCP shadow hides the TMB trajectory server in tested CLI hosts.
+They also run a prompt-level live tool-surface check and stop if isolation is
+missing. They do not receive authenticated identity or create task or
+validation records.
+The reviewer is advisory even though its template requests a read-only sandbox.
+Scope 4 still exposes no Agent spawn orchestration, branch/worktree setup, Git
+delivery, remote Issue operations, or lifecycle Hooks.
+
+Every MCP tool requires an absolute `project_root`. Planning state stays under
+`<project>/.tmb/tmb/`, and local Issue creation forces `issue_sync="off"`. The
+shared database, graph, scan, Issue, and discussion handlers remain the
+source of truth. Codex packaging and argument translation are thin edge
+adapters and do not change the Claude entry point or registry. See
+[`../docs/contributing/CODEX_PORT.md`](../docs/contributing/CODEX_PORT.md) and
+[`../docs/adapters/codex/PARITY.md`](../docs/adapters/codex/PARITY.md).

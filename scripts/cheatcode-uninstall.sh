@@ -9,9 +9,11 @@
 # mirrors cheatcode-install.sh exactly:
 #
 #   plugin → marketplace uninstall removes its skills/hooks/commands via the
-#            plugin manifest (claude plugin uninstall <name>). method 'marketplace'.
-#   mcp    → deregister the server from config (claude mcp remove <name>) — a
-#            distinct path from the plugin marketplace. method 'mcp-deregister'.
+#            plugin manifest (claude plugin uninstall <name> --scope project).
+#            method 'marketplace'.
+#   mcp    → deregister the server from the project's .mcp.json (claude mcp
+#            remove <name> --scope project) — a distinct path from the plugin
+#            marketplace. method 'mcp-deregister'.
 #   skill  → a standalone skill's attachment is a proposed-PR record only; nothing
 #            was ever written to agent md, so there is nothing to reverse at the
 #            marketplace. method 'skill-proposed-pr-revert', removed=false.
@@ -19,7 +21,7 @@
 # The marketplace call is abstracted behind TMB_CHEATCODE_UNINSTALL_FIXTURE: when
 # that env var points at a JSON file, the uninstall result is read from it (the
 # test hook — no network). When the env is unset/empty the script falls back to
-# the deterministic default path "$PWD/.tmb-cheatcode-uninstall-fixture.json" and
+# the deterministic default path "$TMB_PROJECT_ROOT/.tmb-cheatcode-uninstall-fixture.json" and
 # uses it if present (so the L6 chain, whose runner cannot pass the env var into
 # the step, still reaches the staged fixture). Otherwise the marketplace adapter
 # below runs. Either way the output shape is identical, so tests exercise the real
@@ -67,6 +69,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq missing"}' >&2; exit 1; }
+[ -n "${TMB_PROJECT_ROOT:-}" ] || { echo '{"error":"TMB_PROJECT_ROOT is unset — the trajectory server sets it to the project root"}' >&2; exit 1; }
 
 # Normalize the candidate into a single JSON object regardless of input form.
 # --candidate wins; the discrete flags fill in otherwise.
@@ -131,7 +134,7 @@ marketplace_uninstall() {
     return
   fi
   local rc
-  timeout "$UNINSTALL_TIMEOUT" claude plugin uninstall "$cand_name" >/dev/null 2>&1; rc=$?
+  (cd "$TMB_PROJECT_ROOT" && timeout "$UNINSTALL_TIMEOUT" claude plugin uninstall "$cand_name" --scope project --keep-data) >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "marketplace uninstall failed (exit $rc)" \
       '{removed: false, error: $e}'
@@ -140,11 +143,11 @@ marketplace_uninstall() {
   jq -nc '{removed: true, error: null}'
 }
 
-# MCP deregister adapter (mcp kind). Removes the server from the Claude Code MCP
-# config via `claude mcp remove <name>` — the clean, atomic deregister path,
-# distinct from the plugin marketplace surface. Best-effort: degrades to
-# removed=false with an error note if the CLI is absent or exits non-zero, never
-# crashes.
+# MCP deregister adapter (mcp kind). Removes the server from the project's
+# .mcp.json via `claude mcp remove <name> --scope project` — the clean, atomic
+# deregister path, distinct from the plugin marketplace surface. Best-effort:
+# degrades to removed=false with an error note if the CLI is absent or exits
+# non-zero, never crashes.
 mcp_deregister() {
   if ! command -v claude >/dev/null 2>&1; then
     jq -nc '{removed: false, error: "mcp CLI unavailable"}'
@@ -155,7 +158,7 @@ mcp_deregister() {
     return
   fi
   local rc
-  timeout "$UNINSTALL_TIMEOUT" claude mcp remove "$cand_name" >/dev/null 2>&1; rc=$?
+  (cd "$TMB_PROJECT_ROOT" && timeout "$UNINSTALL_TIMEOUT" claude mcp remove "$cand_name" --scope project) >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "mcp deregister failed (exit $rc)" \
       '{removed: false, error: $e}'
@@ -165,14 +168,14 @@ mcp_deregister() {
 }
 
 # Resolve the fixture path. The env var wins when set. When it is unset/empty,
-# probe the deterministic default path "$PWD/.tmb-cheatcode-uninstall-fixture.json"
-# (the path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# probe the deterministic default path "$TMB_PROJECT_ROOT/.tmb-cheatcode-uninstall-fixture.json"
+# (the path the row setup-l5.sh stages in the project) and use it if present —
 # this lets the L6 chain reach the fixture even though the runner's subshell
 # export of the env var never reaches the step's `claude -p`. When neither the env
 # nor the default file is present, the live / no-fixture path is unchanged.
 FIXTURE_PATH="${TMB_CHEATCODE_UNINSTALL_FIXTURE:-}"
-if [ -z "$FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-uninstall-fixture.json" ]; then
-  FIXTURE_PATH="$PWD/.tmb-cheatcode-uninstall-fixture.json"
+if [ -z "$FIXTURE_PATH" ] && [ -f "$TMB_PROJECT_ROOT/.tmb-cheatcode-uninstall-fixture.json" ]; then
+  FIXTURE_PATH="$TMB_PROJECT_ROOT/.tmb-cheatcode-uninstall-fixture.json"
 fi
 
 # Acquire the uninstall result. Fixture path (test hook) takes precedence over

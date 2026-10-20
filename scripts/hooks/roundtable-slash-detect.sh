@@ -7,7 +7,8 @@
 # The audit row is the load-bearing signal — bro can't fake it from prose
 # because UserPromptSubmit hooks run outside the LLM's context.
 #
-# The INSERT retries through writer locks; on final failure it warns loudly on
+# The INSERT goes through tmb_audit_append, which retries through writer locks
+# (2 attempts, 5 s busy timeout each here); on final failure it warns loudly on
 # stderr but always exits 0 — the hook is fail-open and must never block the prompt.
 
 set -uo pipefail
@@ -15,12 +16,22 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
+export TMB_DB_WRITE_TIMEOUT_MS=5000
+export TMB_DB_WRITE_RUN_BUDGET_MS=10200
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
+
+# A harness turn (notification, subagent hand-back, agent message) quoting
+# /roundtable was not typed by the Human — never record it as the ceremony.
+tmb_is_harness_turn "$PROMPT" && exit 0
 
 # Match /roundtable at the start of the prompt or after whitespace.
 # The trailing context can be anything (topic, args, etc.).
@@ -33,26 +44,11 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 
-SUMMARY=$(printf '%s' "$PROMPT" | head -c 200 | sed "s/'/''/g")
+SUMMARY=$(printf '%s' "$PROMPT" | head -c 200)
 
-# Bounded retry: the audit row is load-bearing, but a long writer lock can
-# outlast a single busy timeout. Retry a few times before giving up loudly.
-inserted=0
-for attempt in 1 2 3; do
-  if sqlite3 -cmd '.timeout 5000' "$DB_PATH" <<SQL >/dev/null 2>&1
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'system', 'roundtable_slash_invoked',
-        'User typed /roundtable: $SUMMARY', '{}', datetime('now'));
-SQL
-  then
-    inserted=1
-    break
-  fi
-  [ "$attempt" -lt 3 ] && sleep 0.5
-done
-
-if [ "$inserted" -ne 1 ]; then
-  echo "tmb slash-detect: FAILED to record roundtable_slash_invoked after 3 attempts ($DB_PATH) — roundtable_create's gate will refuse" >&2
+if ! tmb_audit_append "$DB_PATH" -1 '' "hook:roundtable-slash-detect" "roundtable_slash_invoked" \
+    "User typed /roundtable: $SUMMARY" '{}' >/dev/null; then
+  echo "tmb slash-detect: FAILED to record roundtable_slash_invoked after retrying ($DB_PATH) — roundtable_create's gate will refuse" >&2
 fi
 
 exit 0

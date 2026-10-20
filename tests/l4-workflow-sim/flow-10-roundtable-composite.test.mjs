@@ -1,6 +1,7 @@
 // Flow 10 — Roundtable composite (roundtable_close_with_decisions)
 //
-// Trajectory: bro creates an issue → seeds the slash gate → creates a
+// Trajectory: bro creates an issue → the Human types /roundtable (the real
+// roundtable-slash-detect hook writes the slash gate row) → bro creates a
 // roundtable → records participant votes (state auto-flips to awaiting_human)
 // → calls roundtable_close_with_decisions (composite) → asserts the roundtable
 // is closed and the canonical summary is returned in one call.
@@ -11,11 +12,30 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startClient, call } from '../l3-integration/mcp/harness.mjs';
 
+const SLASH_HOOK = fileURLToPath(new URL('../../scripts/hooks/roundtable-slash-detect.sh', import.meta.url));
+
+function typeRoundtable(dbPath, topic) {
+  const hook = spawnSync('bash', [SLASH_HOOK], {
+    input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: `/roundtable ${topic}` }),
+    env: { ...process.env, TRAJECTORY_DB_PATH: dbPath },
+    encoding: 'utf8',
+  });
+  assert.equal(hook.status, 0, hook.stderr);
+  assert.equal(hook.stderr, '', `slash hook stderr: ${hook.stderr}`);
+}
+
 test('Flow 10 — roundtable_close_with_decisions composite: create→vote→composite-close', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-l4-flow10-'));
+  const dbPath = join(dir, 'trajectory.db');
+  const { client, close } = await startClient({ dbPath });
+  t.after(async () => { await close(); rmSync(dir, { recursive: true, force: true }); });
 
   // 1. bro creates a carrier issue
   const issue = await call(client, 'issue_create', {
@@ -27,15 +47,8 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
   assert.equal(issue.ok, true, `issue_create: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;
 
-  // 2. Seed a fresh slash-invoke audit row (gate consumed by roundtable_create)
-  const slashSeed = await call(client, 'audit_append', {
-    agent: 'bro',
-    issue_id: issueId,
-    from_node: 'system',
-    event_type: 'roundtable_slash_invoked',
-    summary: 'flow-10 fixture: gate cleared',
-  });
-  assert.equal(slashSeed.ok, true, `slash gate seed: ${JSON.stringify(slashSeed)}`);
+  // 2. The Human types /roundtable (the gate row roundtable_create consumes)
+  typeRoundtable(dbPath, 'Microservices vs monolith for v2');
 
   // 3. bro creates a roundtable (2 expected participants)
   const rt = await call(client, 'roundtable_create', {
@@ -114,14 +127,7 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
   assert.ok(summary.outcome, 'outcome must be set');
 
   // 9. Verify the original three tools still work on a separate roundtable (backwards compat)
-  const slashSeed2 = await call(client, 'audit_append', {
-    agent: 'bro',
-    issue_id: issueId,
-    from_node: 'system',
-    event_type: 'roundtable_slash_invoked',
-    summary: 'flow-10 backwards-compat fixture',
-  });
-  assert.equal(slashSeed2.ok, true);
+  typeRoundtable(dbPath, 'Backwards compat check');
 
   const rt2 = await call(client, 'roundtable_create', {
     agent: 'bro',
@@ -160,14 +166,7 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
   assert.equal(summarize.data.state, 'closed');
 
   // 10. Gate: composite rejects when state != awaiting_human
-  const slashSeed3 = await call(client, 'audit_append', {
-    agent: 'bro',
-    issue_id: issueId,
-    from_node: 'system',
-    event_type: 'roundtable_slash_invoked',
-    summary: 'flow-10 state gate fixture',
-  });
-  assert.equal(slashSeed3.ok, true);
+  typeRoundtable(dbPath, 'State gate test');
 
   const rt3 = await call(client, 'roundtable_create', {
     agent: 'bro',

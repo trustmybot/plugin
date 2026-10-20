@@ -5,26 +5,28 @@
 # stay in the tmb_project-prescan skill.
 #
 # Always silent on failure — a slow / broken prescan must never block
-# session start.
+# session start. Without jq it prints only the Tooling line naming it.
 
 set -uo pipefail
 
 # Bypass for tests: TMB_SKIP_AUTO_PRESCAN=1 suppresses the auto-fire.
 SKIP_AUTO_PRESCAN="${TMB_SKIP_AUTO_PRESCAN:-0}"
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+. "$SCRIPT_DIR/lib/resolve-install.sh"
+
+# Without jq every fail-closed TMB gate denies; say so, without jq.
+if ! command -v jq >/dev/null 2>&1; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found — every TMB gate will deny until it is installed"}}'
+  exit 0
 fi
 
-[ -f "$DB_PATH" ] || exit 0
+DB_PATH=$(tmb_db_path_advisory session-start-prescan) || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
 
 # Version-skew probe (#602). Surface the ACTIVE plugin version and, when the
 # marketplace cache holds a NEWER version that isn't the running one, a
@@ -63,49 +65,133 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugi
   fi
 fi
 
-# Probe git state. Each query falls through to "(unknown)" on error so
-# the hook stays silent rather than blowing up on an unusual repo state.
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
-COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-DIRTY_COUNT=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-LAST_5_RAW=$(git log --oneline -5 2>/dev/null || true)
+# Everything below reads the project and its repos from the trajectory DB —
+# never the hook's cwd. PROJECT_ROOT is tmb_project_root; REPOS holds one
+# "<name>|<abs path>" per repos row (a relative path joins the DB dir), else
+# the project root under its basename.
+PROJECT_ROOT=$(tmb_project_root)
 
-# Top-level layout (one line, names only).
-TOPLEVEL=""
-for entry in *; do
-  [ -e "$entry" ] || continue
-  TOPLEVEL="$TOPLEVEL $entry"
-done
-TOPLEVEL=$(printf '%s' "$TOPLEVEL" | awk '{ for (i=1;i<=NF && i<=10;i++) printf("%s%s", (i>1?" ":""), $i) }')
+list_repos() {
+  local rows name path
+  rows=$(tmb_sqlite_ro "$DB_PATH" "SELECT name || '|' || path FROM repos WHERE COALESCE(path, '') <> '' ORDER BY name;" 2>/dev/null) || rows=""
+  if [ -z "$rows" ]; then
+    [ -n "$PROJECT_ROOT" ] && printf '%s|%s\n' "$(basename "$PROJECT_ROOT")" "$PROJECT_ROOT"
+    return 0
+  fi
+  while IFS='|' read -r name path; do
+    case "$path" in /*) ;; *) path=$(tmb_realdir "$(dirname "$DB_PATH")/$path") ;; esac
+    printf '%s|%s\n' "$name" "${path%/}"
+  done <<<"$rows"
+}
+REPOS=$(list_repos)
+REPO_N=$(printf '%s' "$REPOS" | grep -c . || true)
 
-# Stack indicators.
+detect_stacks() {
+  local d="$1" s=""
+  [ -f "$d/package.json" ] && s="$s Node"
+  { [ -f "$d/pyproject.toml" ] || [ -f "$d/setup.py" ] || [ -f "$d/requirements.txt" ]; } && s="$s Python"
+  [ -f "$d/go.mod" ] && s="$s Go"
+  [ -f "$d/Cargo.toml" ] && s="$s Rust"
+  [ -f "$d/Gemfile" ] && s="$s Ruby"
+  [ -f "$d/composer.json" ] && s="$s PHP"
+  s="${s# }"
+  printf '%s' "${s:-(none detected)}"
+}
+
+# Per repo: stacks, then git state. Each git query falls through to
+# unknown/0 on error so the hook stays silent on an unusual repo state.
 STACKS=""
-[ -f package.json ] && STACKS="$STACKS Node"
-{ [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; } && STACKS="$STACKS Python"
-[ -f go.mod ] && STACKS="$STACKS Go"
-[ -f Cargo.toml ] && STACKS="$STACKS Rust"
-[ -f Gemfile ] && STACKS="$STACKS Ruby"
-[ -f composer.json ] && STACKS="$STACKS PHP"
-STACKS=$(echo "$STACKS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-[ -z "$STACKS" ] && STACKS="(none detected)"
+BRANCHES=""
+LAST_5=""
+while IFS='|' read -r name path; do
+  [ -n "$name" ] || continue
+  if [ ! -d "$path" ]; then
+    STACKS="${STACKS:+$STACKS; }${name}: missing (${path})"
+    BRANCHES="${BRANCHES:+$BRANCHES; }${name}: missing (${path})"
+    continue
+  fi
+  STACKS="${STACKS:+$STACKS; }${name}: $(detect_stacks "$path")"
+  branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+  commits=$(git -C "$path" rev-list --count HEAD 2>/dev/null || echo 0)
+  dirty=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  BRANCHES="${BRANCHES:+$BRANCHES; }${name}: ${branch} (${commits} commits, ${dirty} dirty paths)"
+  prefix="  "
+  [ "$REPO_N" -gt 1 ] && prefix="  [${name}] "
+  log=$(git -C "$path" log --oneline -5 2>/dev/null | awk -v p="$prefix" '{ print p $0 }')
+  [ -n "$log" ] && LAST_5="${LAST_5:+$LAST_5
+}${log}"
+done <<<"$REPOS"
+[ -n "$STACKS" ] || STACKS="(no project resolves)"
+[ -n "$BRANCHES" ] || BRANCHES="(no project resolves)"
+
+# Top-level layout of the project root (one line, names only).
+TOPLEVEL="(no project resolves)"
+if [ -n "$PROJECT_ROOT" ] && [ -d "$PROJECT_ROOT" ]; then
+  TOPLEVEL=""
+  for entry in "$PROJECT_ROOT"/*; do
+    [ -e "$entry" ] || continue
+    TOPLEVEL="$TOPLEVEL $(basename "$entry")"
+  done
+  TOPLEVEL=$(printf '%s' "$TOPLEVEL" | awk '{ for (i=1;i<=NF && i<=10;i++) printf("%s%s", (i>1?" ":""), $i) }')
+fi
 
 # Open issues + pending tasks from the trajectory DB.
 OPEN_ISSUES=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM issues WHERE status='open';" 2>/dev/null || echo 0)
 PENDING_TASKS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running');" 2>/dev/null || echo 0)
 
-# World model status (cold vs warm). The world model lives in the kuzu graph
-# (ADR 0002), not SQLite — so the warm/cold proxy is the deep_scan_completed
-# audit event (the same signal the registry-cold gate uses): present ⇒ a scan
-# has populated the graph.
+# World model status. The world model lives in the kuzu graph (ADR 0002), not
+# SQLite. cold = no deep_scan_completed row (the registry-cold gate's signal);
+# otherwise the newest repos.last_scanned_at decides warm (< 7 days) vs stale.
 WORLD_MODEL_SCANNED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed';" 2>/dev/null || echo 0)
-SOURCE_FILE_COUNT=$(git ls-files 2>/dev/null | grep -cvE '^(\.claude/|node_modules/|dist/|build/|\.git/)' || echo 0)
 
-WORLD_MODEL_STATE="warm"
+tracked_source_count() {
+  local dir="$1"
+  git -C "$dir" ls-files 2>/dev/null | awk '!/^(\.claude\/|node_modules\/|dist\/|build\/|\.git\/)/ { n++ } END { print n + 0 }'
+}
+
+count_source_files() {
+  local name path total=0 n
+  while IFS='|' read -r name path; do
+    [ -n "$name" ] && [ -d "$path" ] || continue
+    n=$(tracked_source_count "$path")
+    [[ "$n" =~ ^[0-9]+$ ]] && total=$((total + n))
+  done <<<"$REPOS"
+  printf '%s' "$total"
+}
+
+SOURCE_FILE_COUNT=$(count_source_files 2>/dev/null) || SOURCE_FILE_COUNT=0
+[[ "$SOURCE_FILE_COUNT" =~ ^[0-9]+$ ]] || SOURCE_FILE_COUNT=0
+WORLD_MODEL_STALE_SECS=$((7 * 24 * 3600))
+SCAN_AGE_ROW=$(tmb_sqlite_ro "$DB_PATH" "SELECT CAST(strftime('%s','now') - strftime('%s', MAX(last_scanned_at)) AS INTEGER), COALESCE(SUM(file_count), 0) FROM repos;")
+SCAN_AGE_SECS="${SCAN_AGE_ROW%%|*}"
+SCANNED_FILE_COUNT="${SCAN_AGE_ROW##*|}"
+
+relative_age() {
+  local secs="$1"
+  [ "$secs" -lt 0 ] && secs=0
+  if [ "$secs" -lt 60 ]; then
+    printf 'just now'
+  elif [ "$secs" -lt 3600 ]; then
+    printf '%dm ago' $((secs / 60))
+  elif [ "$secs" -lt 86400 ]; then
+    printf '%dh ago' $((secs / 3600))
+  else
+    printf '%dd ago' $((secs / 86400))
+  fi
+}
+
 COLD_NOTE=""
-if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
-  WORLD_MODEL_STATE="cold"
+if [ "$WORLD_MODEL_SCANNED" = "0" ] || [ -z "$WORLD_MODEL_SCANNED" ]; then
+  WORLD_MODEL_LINE="cold (no scan yet; ${SOURCE_FILE_COUNT} source files)"
+elif [[ "$SCAN_AGE_SECS" =~ ^-?[0-9]+$ ]] && [ "$SCAN_AGE_SECS" -lt "$WORLD_MODEL_STALE_SECS" ]; then
+  WORLD_MODEL_LINE="warm (${SCANNED_FILE_COUNT} files, last scan $(relative_age "$SCAN_AGE_SECS"))"
+elif [[ "$SCAN_AGE_SECS" =~ ^-?[0-9]+$ ]]; then
+  WORLD_MODEL_LINE="stale (last scan $(relative_age "$SCAN_AGE_SECS")) — run /scan"
+else
+  WORLD_MODEL_LINE="stale (last scan unknown) — run /scan"
+fi
 
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   SCAN_SH="$SCRIPT_DIR/../scan.sh"
   INVOKER="$SCRIPT_DIR/../maintenance/run-scan-initial.mjs"
 
@@ -118,7 +204,65 @@ if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   fi
 fi
 
-LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
+# Trajectory DB data contracts (read-only). The contract list is generated
+# from mcp/trajectory-server/src/data-contracts.ts into lib/data-contracts.json;
+# every contract runs in one read-only pass (tmb_db_read_budget) under a hard budget
+# (TMB_DOCTOR_BUDGET_MS, default 1500, capped at 3000 so the 6 s hook wrapper
+# covers it). A timeout or read error never reports healthy; a DB whose
+# plugin_meta.schema_version is below the contracts' schema_version says so
+# and is never healthy, even when every column the contracts read exists.
+CONTRACTS_JSON="$SCRIPT_DIR/lib/data-contracts.json"
+DOCTOR_BUDGET_MS="${TMB_DOCTOR_BUDGET_MS:-1500}"
+case "$DOCTOR_BUDGET_MS" in ''|*[!0-9]*) DOCTOR_BUDGET_MS=1500 ;; esac
+[ "$DOCTOR_BUDGET_MS" -gt 3000 ] && DOCTOR_BUDGET_MS=3000
+DOCTOR_STATE="unchecked (no contract list)"
+CONTRACT_IDS=$(jq -r '.contracts[].id' "$CONTRACTS_JSON" 2>/dev/null || true)
+# shellcheck disable=SC2016
+CONTRACT_SCRIPT_JQ='
+  def num: (. // "") | tostring | select(test("^[0-9]+([.][0-9]+)?$")) | tonumber | select(. > 0);
+  "SELECT \u0027__schema|\u0027 || COALESCE((SELECT schema_version FROM plugin_meta LIMIT 1), \u0027\u0027);",
+  ([.contracts[] | .params[]? | ".parameter set :\(.name) \(($ENV[.env] | num) // .default)"] | unique | .[]),
+  (.contracts[] | "SELECT \u0027\(.id)|\u0027 || CASE WHEN (\(.sql)) \(.expect.op) \(.expect.value) THEN \u0027ok\u0027 ELSE \u0027fail\u0027 END;")
+'
+CONTRACT_SCRIPT=$(jq -r "$CONTRACT_SCRIPT_JQ" "$CONTRACTS_JSON" 2>/dev/null || true)
+SCHEMA_REQUIRED=$(jq -r '.schema_version // 0' "$CONTRACTS_JSON" 2>/dev/null || echo 0)
+case "$SCHEMA_REQUIRED" in ''|*[!0-9]*) SCHEMA_REQUIRED=0 ;; esac
+if [ -n "$CONTRACT_IDS" ] && [ -n "$CONTRACT_SCRIPT" ]; then
+  DOCTOR_RC=0
+  DOCTOR_OUT=$(tmb_db_read_budget "$DB_PATH" "$DOCTOR_BUDGET_MS" <<<"$CONTRACT_SCRIPT") || DOCTOR_RC=$?
+  if [ "$DOCTOR_RC" -eq 124 ]; then
+    DOCTOR_STATE="unchecked (timeout)"
+  else
+    FAILED_IDS=""
+    FAILED_N=0
+    UNCHECKED_N=0
+    SCHEMA_STORED=$(printf '%s\n' "$DOCTOR_OUT" | sed -n 's/^__schema|//p' | head -1)
+    case "$SCHEMA_STORED" in ''|*[!0-9]*) SCHEMA_STORED="" ;; esac
+    SCHEMA_NOTE=""
+    [ -n "$SCHEMA_STORED" ] && [ "$SCHEMA_STORED" -lt "$SCHEMA_REQUIRED" ] && \
+      SCHEMA_NOTE="schema v${SCHEMA_STORED} < v${SCHEMA_REQUIRED} — start the trajectory server to migrate"
+    while IFS= read -r cid; do
+      [ -n "$cid" ] || continue
+      case "$(printf '%s\n' "$DOCTOR_OUT" | grep -Fx -e "${cid}|ok" -e "${cid}|fail" | head -1)" in
+        "${cid}|ok") ;;
+        "${cid}|fail") FAILED_N=$((FAILED_N + 1)); FAILED_IDS="${FAILED_IDS:+$FAILED_IDS, }$cid" ;;
+        *) UNCHECKED_N=$((UNCHECKED_N + 1)) ;;
+      esac
+    done <<<"$CONTRACT_IDS"
+    if [ "$FAILED_N" -gt 0 ]; then
+      DOCTOR_STATE="${FAILED_N} contract violation(s) [${FAILED_IDS}] — run trajectory_doctor"
+      if [ "$UNCHECKED_N" -gt 0 ]; then
+        DOCTOR_STATE="${DOCTOR_STATE} (${UNCHECKED_N} unchecked${SCHEMA_NOTE:+: $SCHEMA_NOTE})"
+      elif [ -n "$SCHEMA_NOTE" ]; then
+        DOCTOR_STATE="${DOCTOR_STATE} (${SCHEMA_NOTE})"
+      fi
+    elif [ "$UNCHECKED_N" -gt 0 ] || [ -n "$SCHEMA_NOTE" ]; then
+      DOCTOR_STATE="unchecked (${SCHEMA_NOTE:-read error})"
+    else
+      DOCTOR_STATE="healthy"
+    fi
+  fi
+fi
 
 # Assemble the inventory block.
 # STABLE fields first (same across sessions): dirs, stacks, world model state.
@@ -133,6 +277,20 @@ $COLD_NOTE"
 [ -n "$NEWER_CACHED_VERSION" ] && COLD_SUFFIX="${COLD_SUFFIX}
 newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply"
 
+# Duplicate enabled copies of this plugin: Claude Code keeps one copy's hooks.
+DUP_INSTALLS=$(tmb_duplicate_installs "$(tmb_project_root)" 2>/dev/null || true)
+[ -n "$DUP_INSTALLS" ] && COLD_SUFFIX="${COLD_SUFFIX}
+Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; run /plugin"
+
+# Pre-1.1.0 TMB hooks in the user-scope settings.json run in every project;
+# the Human removes them by hand.
+LEGACY_HOOKS=$(tmb_legacy_user_hooks "$(tmb_project_root)" 2>/dev/null || true)
+if [ -n "$LEGACY_HOOKS" ]; then
+  LEGACY_PROJECTS=$(tmb_legacy_user_hooks_projects "$LEGACY_HOOKS")
+  COLD_SUFFIX="${COLD_SUFFIX}
+Plugin: $(tmb_user_settings_json) holds $(printf '%s\n' "$LEGACY_HOOKS" | grep -c '^hook') pre-1.1.0 TMB hook(s) ($(tmb_legacy_user_hooks_entries "$LEGACY_HOOKS")) — they run in every project and can deny what this version allows; the Human removes them by hand, see $(tmb_legacy_user_hooks_doc)${LEGACY_PROJECTS:+; projects on TMB < 1.1.0 lose them too: ${LEGACY_PROJECTS}}"
+fi
+
 PLUGIN_VERSION_LINE="(unknown)"
 [ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_LINE="$PLUGIN_VERSION"
 
@@ -141,8 +299,9 @@ INVENTORY=$(cat <<EOF
 Plugin version:    ${PLUGIN_VERSION_LINE}
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
-World model:       ${WORLD_MODEL_STATE} (kuzu graph; ${SOURCE_FILE_COUNT} source files)
-Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
+World model:       ${WORLD_MODEL_LINE}
+Trajectory DB:     ${DOCTOR_STATE}
+Git branch:        ${BRANCHES}
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}
 Last 5 commits:

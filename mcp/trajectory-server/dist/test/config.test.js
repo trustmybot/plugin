@@ -94,6 +94,7 @@ describe('configTools', () => {
             issue_classification_labels: ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'],
             issue_priority_labels: ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'],
             issue_sync: 'off',
+            model_prices: {},
         });
         db.close();
     });
@@ -108,6 +109,7 @@ describe('configTools', () => {
             issue_classification_labels: ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'],
             issue_priority_labels: ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'],
             issue_sync: 'off',
+            model_prices: {},
         });
         db.close();
     });
@@ -126,6 +128,7 @@ describe('configTools', () => {
             issue_classification_labels: ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'],
             issue_priority_labels: ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'],
             issue_sync: 'off',
+            model_prices: {},
         });
         db.close();
     });

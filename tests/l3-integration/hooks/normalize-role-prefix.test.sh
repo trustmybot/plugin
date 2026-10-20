@@ -11,16 +11,20 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 HOOK_RTS="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
 
-TMPDIR_RTS=$(mktemp -d)
+TMPDIR_RTS=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-normalize-role-prefix.XXXXXX")
 trap 'rm -rf "$TMPDIR_RTS"' EXIT
 DB_RTS="$TMPDIR_RTS/trajectory.db"
 sqlite3 "$DB_RTS" "
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
     status TEXT NOT NULL,
-    spec_body TEXT
+    spec_body TEXT,
+    files TEXT,
+    branch_id TEXT,
+    repo TEXT
   );
-  INSERT INTO tasks VALUES (1, 'pending', 'Do the thing.');
+  CREATE TABLE repos (name TEXT, path TEXT);
+  INSERT INTO tasks (id, status, spec_body, files) VALUES (1, 'pending', 'Do the thing.', NULL);
 "
 
 test_case "require-task-spec: tmb:swe prefix is treated as swe (blocked without task_id)"

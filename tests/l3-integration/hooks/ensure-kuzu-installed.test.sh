@@ -10,8 +10,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-kuzu-installed.sh"
 
-TMPDIR_EK=$(mktemp -d)
+TMPDIR_EK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-ensure-kuzu-installed.XXXXXX")
 trap 'rm -rf "$TMPDIR_EK"' EXIT
+# Pin the project so the hook never resolves one by walking up from the cwd.
+export CLAUDE_PROJECT_DIR="$TMPDIR_EK"
 
 run_hook() {
   echo "" | env "$@" bash "$HOOK" 2>&1 || true

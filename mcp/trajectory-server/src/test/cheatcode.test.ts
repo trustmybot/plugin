@@ -1,6 +1,6 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,12 +53,17 @@ function runUninstallScript(candidate: { name: string; kind: string; source_url:
   method: string;
   error: string | null;
 } {
-  const r = spawnSync('bash', [UNINSTALL_SCRIPT, '--candidate', JSON.stringify(candidate)], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: '/usr/bin:/bin' },
-  });
-  assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
-  return JSON.parse(r.stdout);
+  const root = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-uninstall-root-'));
+  try {
+    const r = spawnSync('bash', [UNINSTALL_SCRIPT, '--candidate', JSON.stringify(candidate)], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: '/usr/bin:/bin', TMB_PROJECT_ROOT: root },
+    });
+    assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+    return JSON.parse(r.stdout);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -470,6 +475,7 @@ describe('cheatcode_install', () => {
             ...process.env,
             PATH: `${dir}:${process.env['PATH'] ?? ''}`,
             TMB_CHEATCODE_INSTALL_FIXTURE: '',
+            TMB_PROJECT_ROOT: dir,
           },
           cwd: dir,
         },
@@ -538,6 +544,7 @@ describe('cheatcode_install', () => {
             ...process.env,
             PATH: `${dir}:${process.env['PATH'] ?? ''}`,
             TMB_CHEATCODE_INSTALL_FIXTURE: '',
+            TMB_PROJECT_ROOT: dir,
           },
           cwd: dir,
         },
@@ -582,7 +589,7 @@ describe('cheatcode_install', () => {
         ],
         {
           encoding: 'utf8',
-          env: { ...process.env, PATH: minimalPath, TMB_CHEATCODE_INSTALL_FIXTURE: '' },
+          env: { ...process.env, PATH: minimalPath, TMB_CHEATCODE_INSTALL_FIXTURE: '', TMB_PROJECT_ROOT: dir },
           cwd: dir,
         },
       );
@@ -656,7 +663,7 @@ describe('cheatcode_install', () => {
     }
   });
 
-  it('persists scope=global when requested', async () => {
+  it('refuses scope=global with outside_project and records nothing', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture(INSTALL_OK);
     process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
@@ -667,11 +674,11 @@ describe('cheatcode_install', () => {
         candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
         scope: 'global',
       });
-      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
-      assert.equal(parse(r)['scope'], 'global');
-
-      const row = db.get<{ scope: string }>(`SELECT scope FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
-      assert.equal(row!.scope, 'global', 'global install persists global placement');
+      assert.equal(r.isError, true);
+      const out = parse(r);
+      assert.equal(out['error'], 'outside_project');
+      assert.match(String(out['message']), /scope=local/);
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM cheatcodes WHERE origin != 'builtin'`)!.c, 0);
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
       cleanup();
@@ -1090,6 +1097,36 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
     assert.equal(after.prMd, before.prMd, 'plugin agents/pr-reviewer.md untouched');
     assert.equal(after.claudeMd, before.claudeMd, 'plugin CLAUDE.md untouched');
   }
+
+  it('refuses a target or name that would write outside the project with outside_project', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      const tools = cheatcodeTools(db);
+      for (const [name, target] of [['pdf-skill', '../../../escape'], ['../../../../escape', 'swe']] as const) {
+        const r = await callInstall(tools.handlers, {
+          agent: 'bro',
+          candidate: { name, kind: 'skill', source_url: `https://github.com/x/${name.replace(/[./]/g, '')}` },
+          target,
+        });
+        assert.equal(r.isError, true, `${name}/${target} must be refused`);
+        const out = parse(r);
+        assert.equal(out['error'], 'outside_project');
+        assert.equal(out['project_root'], root);
+      }
+      assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM cheatcodes WHERE origin <> \'builtin\'')!.c, 0, 'no row recorded');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      db.close();
+      cleanup();
+    }
+  });
 
   it('target=swe copies global swe.md into project .claude/agents and adds the skill to its skills: frontmatter', async () => {
     const prev = process.env['CLAUDE_PLUGIN_ROOT'];
@@ -2320,5 +2357,107 @@ describe('projectRootFromDbPath', () => {
   it('returns null for :memory: and empty db paths', () => {
     assert.equal(projectRootFromDbPath(':memory:'), null);
     assert.equal(projectRootFromDbPath(''), null);
+  });
+});
+
+describe('cheatcodes lookups qualify by more than name (natural key is (name, kind))', () => {
+  it('no SQL string in src/tools/*.ts matches cheatcodes on a bare WHERE name = ?', () => {
+    const toolsDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server', 'src', 'tools');
+    const offenders: string[] = [];
+    for (const file of readdirSync(toolsDir).filter((f) => f.endsWith('.ts'))) {
+      const source = readFileSync(join(toolsDir, file), 'utf8');
+      for (const literal of source.match(/`[^`]*`|'[^'\n]*'|"[^"\n]*"/g) ?? []) {
+        if (!/\bcheatcodes\b/.test(literal)) continue;
+        const sql = literal.replace(/\s+/g, ' ');
+        if (/\bWHERE name = \?(?! AND\b)/i.test(sql)) offenders.push(`${file}: ${sql.slice(0, 120)}`);
+      }
+    }
+    assert.deepEqual(offenders, [], 'every cheatcodes lookup by name must also qualify by kind, origin or source_url');
+  });
+});
+
+describe('cheatcode scripts resolve fixtures in the project root, not the server cwd (GH 1553)', () => {
+  const FIXTURE_ENV = [
+    'TMB_CHEATCODE_SEARCH_FIXTURE',
+    'TMB_CHEATCODE_VET_FIXTURE',
+    'TMB_CHEATCODE_INSTALL_FIXTURE',
+    'TMB_CHEATCODE_UNINSTALL_FIXTURE',
+  ];
+  let base: string;
+  let project: string;
+  let unrelatedCwd: string;
+  let originalCwd: string;
+  let db: TrajectoryDB;
+
+  const stage = (dir: string, file: string, body: string): void => writeFileSync(join(dir, file), body);
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    base = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-cwd-'));
+    project = join(base, 'project');
+    unrelatedCwd = join(base, 'unrelated-cwd');
+    mkdirSync(join(project, '.claude', 'tmb'), { recursive: true });
+    mkdirSync(unrelatedCwd, { recursive: true });
+    for (const k of FIXTURE_ENV) delete process.env[k];
+    db = tempDB({ path: join(project, '.claude', 'tmb', 'trajectory.db') });
+    process.chdir(unrelatedCwd);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    db.close();
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('cheatcode_search reads the project-root fixture and ignores one in the cwd', async () => {
+    stage(project, '.tmb-cheatcode-fixture.json', FIXTURE);
+    stage(
+      unrelatedCwd,
+      '.tmb-cheatcode-fixture.json',
+      JSON.stringify([
+        { name: 'cwd-decoy', kind: 'skill', source_url: 'https://example.test/decoy', description: 'pdf table', registry: 'pulsemcp', tier: 1 },
+      ]),
+    );
+    const r = await call(cheatcodeTools(db).handlers, 'cheatcode_search', { agent: 'bro', capability_query: 'pdf table extraction' });
+    assert.notEqual(r.isError, true, `search errored: ${r.content[0]?.text}`);
+    const names = (parse(r)['candidates'] as Array<{ name: string }>).map((c) => c.name);
+    assert.ok(names.includes('official-pdf'), `project-root fixture read: ${names.join(',')}`);
+    assert.ok(!names.includes('cwd-decoy'), 'cwd fixture ignored');
+  });
+
+  it('cheatcode_vet reads the project-root fixture and ignores one in the cwd', async () => {
+    stage(project, '.tmb-cheatcode-vet-fixture.json', VET_OFFICIAL);
+    stage(unrelatedCwd, '.tmb-cheatcode-vet-fixture.json', VET_ARCHIVED);
+    const r = await call(cheatcodeTools(db).handlers, 'cheatcode_vet', {
+      agent: 'bro',
+      candidate: { name: 'official-pdf', kind: 'skill', source_url: 'https://github.com/anthropics/pdf', tier: 1 },
+    });
+    assert.notEqual(r.isError, true, `vet errored: ${r.content[0]?.text}`);
+    const out = parse(r) as unknown as VetResult;
+    assert.equal(out.signals.reputation.stars, 1200, 'project-root fixture signals');
+    assert.equal(out.signals.maintenance.archived, false, 'cwd fixture (archived) ignored');
+  });
+
+  it('cheatcode_install and cheatcode_uninstall read the project-root fixtures and ignore ones in the cwd', async () => {
+    stage(project, '.tmb-cheatcode-install-fixture.json', INSTALL_OK);
+    stage(unrelatedCwd, '.tmb-cheatcode-install-fixture.json', JSON.stringify({ installed: true, version: '9.9.9' }));
+    const tools = cheatcodeTools(db);
+    const installed = await callInstall(tools.handlers, {
+      agent: 'bro',
+      candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
+      trust_tier: 'trusted',
+    });
+    assert.notEqual(installed.isError, true, `install errored: ${installed.content[0]?.text}`);
+    const id = parse(installed)['cheatcode_id'] as number;
+    const row = db.get<{ version: string }>('SELECT version FROM cheatcodes WHERE id = ?', [id]);
+    assert.equal(row?.version, '1.2.3', 'project-root install fixture read, cwd fixture ignored');
+
+    stage(project, '.tmb-cheatcode-uninstall-fixture.json', UNINSTALL_OK);
+    stage(unrelatedCwd, '.tmb-cheatcode-uninstall-fixture.json', JSON.stringify({ removed: false, error: 'cwd decoy' }));
+    const removed = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+    assert.notEqual(removed.isError, true, `uninstall errored: ${removed.content[0]?.text}`);
+    const out = parse(removed);
+    assert.equal(out['removed'], true, 'project-root uninstall fixture read');
+    assert.notEqual(out['error'], 'cwd decoy', 'cwd fixture ignored');
   });
 });

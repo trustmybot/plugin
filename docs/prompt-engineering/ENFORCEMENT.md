@@ -53,7 +53,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Spawned only with valid `task_id` referencing pending/open task with non-empty `spec_body` | 2 | `scripts/hooks/require-task-spec.sh` |
+| Spawned only with valid `task_id` referencing a pending task (or a running one with no live swe run) with non-empty `spec_body`; a schema-touching or column-adding spec names each new item's `Writer:` + `Populated:` (or `Nullable:`) | 2 | `scripts/hooks/require-task-spec.sh` |
 | Runs in isolated worktree | 2 | worktree Bash hooks |
 | Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `scripts/hooks/no-worktree-branch-create.sh` |
 | Worktree branch must descend from `origin/<pr_target>` | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
@@ -62,6 +62,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing pr-reviewer-only tools |
 | Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `scripts/hooks/swe-verification-gate.sh` |
 | Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
+| Task moved to `running` and its swe `agent_runs` row opened (`spawn_id`, `session_id`, `effort`) at swe-spawn time | 2 | `scripts/hooks/record-swe-spawn.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
 
 ### pr-reviewer
@@ -94,6 +95,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |
 | Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
 | Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
+| bro's persona in every session (the plugin's `CLAUDE.md`, which Claude Code never loads) | 2 | `scripts/hooks/session-start-persona.sh`; once-per-session fallback `scripts/hooks/user-prompt-persona.sh` |
 | Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
 | Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/prompt-intent-hints.sh` |
 | Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
@@ -112,8 +114,9 @@ The "Layer" column names the **strongest currently deployed** for each interacti
    - **Layer 4**: schema CHECK in `mcp/.../schema.sql` (and migration in `db.ts` if existing DBs need rebuild).
    - **Layer 5**: add `paths:` to skill frontmatter.
    - **Layer 6**: edit prose; **note in this matrix that the item is Layer-6-only and may need promotion**.
-4. Update this matrix with the new row.
-5. **If demoting from a harder layer to a softer one, justify in the PR**.
+4. If the guard covers version-control commands, match git, gh and glab at a command boundary — so `gh pr merge` and `glab mr merge` are both caught, while a match inside a quoted string or a longer word is not — and add an L3 test case for each CLI.
+5. Update this matrix with the new row.
+6. **If demoting from a harder layer to a softer one, justify in the PR**.
 
 ## Positive prompts as the floor
 

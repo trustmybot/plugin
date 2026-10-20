@@ -1,10 +1,14 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
+import { insertAudit } from './audit.js';
+import { recordReviewBypassIfUnreviewed } from './lifecycle.js';
+import { closeOpenRunsForTask, exitReasonForStatus, parseRunSessionId, RUN_SESSION_ID_SCHEMA, TERMINAL_TASK_STATUSES, } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolve, dirname } from 'node:path';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
+import { branchRefExists } from '../utils/git-refs.js';
+import { EFFORT_LEVELS, computeEffort, isEffort } from './config.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
 // BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
@@ -30,7 +34,6 @@ function taskFileDirs(filesJson) {
     return dirs;
 }
 export const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
-const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
 // Hard cap on tasks.spec_body. Architect should cite existing code/conventions
 // rather than restate them; a spec longer than ~8k is usually a sign the task
 // should be split via depends_on. Very long specs push SWE cold-start into the
@@ -51,18 +54,49 @@ function validateBranchId(branchId) {
             `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`);
     }
 }
-function validateParentBranchId(branchId) {
-    if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId))
+function isGitValidBranchName(name) {
+    return !/[\s~^:?*[\\]/.test(name) && !name.includes('..') && !name.startsWith('-') && !name.endsWith('/') && !name.endsWith('.lock');
+}
+function repoPolicyBranches(db, repoValue) {
+    const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
+    const names = new Set();
+    if (!name)
+        return { names, target: null, repoPath: null };
+    const row = db.get(`SELECT path, target_branch, protected_branches FROM repos WHERE name = ?`, [name]);
+    if (!row)
+        return { names, target: null, repoPath: null };
+    if (row.target_branch)
+        names.add(row.target_branch);
+    try {
+        const parsed = JSON.parse(row.protected_branches ?? '[]');
+        if (Array.isArray(parsed))
+            for (const b of parsed)
+                if (typeof b === 'string')
+                    names.add(b);
+    }
+    catch {
+        // malformed protected_branches contributes no names
+    }
+    return { names, target: row.target_branch || null, repoPath: repoRowPath(db, row.path) };
+}
+function validateParentBranchId(branchId, db, repoValue) {
+    if (BRANCH_ID_RE.test(branchId))
         return;
-    throw new Error(`Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention ` +
-        `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
-        `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`);
+    const { names, target, repoPath } = repoPolicyBranches(db, repoValue);
+    if (isGitValidBranchName(branchId) && (names.has(branchId) || (repoPath !== null && branchRefExists(repoPath, branchId))))
+        return;
+    throw new Error(`Invalid branch_id "${branchId}". Must be the repo's target branch (${target ?? 'unset'}), a protected branch, ` +
+        `an existing branch, or git-convention format: <type>/<slug> where <type> is one of ` +
+        `feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
+        `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`);
 }
 // Typed Rails (#673): validate the per-task files[]/verification[] fields at the
 // MCP boundary. Flat schema (no oneOf/allOf/anyOf): each field, when present,
-// must be a non-empty array of non-empty strings. Throws a named error so the
-// model can retry with a corrected shape. Returns the normalized arrays
-// (omitted/undefined → empty array, which disables the corresponding hook).
+// must be a non-empty array of non-empty strings, and effort one of
+// low|medium|high. Throws a named error so the model can retry with a
+// corrected shape. Returns the normalized arrays (omitted/undefined → empty
+// array, which disables the corresponding hook) and the effort (undefined when
+// omitted: the caller computes it with computeEffort).
 function validateTypedRailsFields(t) {
     const checkStringArray = (value, field) => {
         if (value === undefined || value === null)
@@ -71,7 +105,7 @@ function validateTypedRailsFields(t) {
             throw new Error(`typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be an array of strings, got ${typeof value}.`);
         }
         if (value.length === 0) {
-            throw new Error(`typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === 'files' ? 'scope fence' : 'verification gate'}).`);
+            throw new Error(`typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be a non-empty array when provided (omit the field entirely ${field === 'files' ? 'to declare no expected scope: no edit-time notes, and every changed path is an extra at close' : 'to disable the verification gate'}).`);
         }
         for (const el of value) {
             if (typeof el !== 'string' || el.trim().length === 0) {
@@ -80,9 +114,13 @@ function validateTypedRailsFields(t) {
         }
         return value;
     };
+    if (t.effort !== undefined && t.effort !== null && !isEffort(t.effort)) {
+        throw new Error(`typed_field_violation: task branch_id='${t.branch_id}' — 'effort' must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(t.effort)}.`);
+    }
     return {
         files: checkStringArray(t.files, 'files'),
         verification: checkStringArray(t.verification, 'verification'),
+        effort: isEffort(t.effort) ? t.effort : undefined,
     };
 }
 // Allowed target statuses for swe. SWE may only set running, completed, or
@@ -143,8 +181,8 @@ const VALID_STATUSES = new Set([
 //     into 'closed' is bro_atomic_close, so task_update_status must not offer
 //     those edges (else bro could close a task without the atomic close's
 //     side effects).
-//   - 'closed'→'escalated' is the push-gate pushback path (pr-reviewer FAILs
-//     after the task was closed; bro reopens the work).
+//   - 'closed'→'escalated' hands a closed task back to the Human; rework
+//     after a failed review goes through task_reopen (closed → running).
 const BRO_TRANSITIONS = {
     pending: new Set(['running', 'failed', 'escalated']),
     running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
@@ -178,6 +216,19 @@ function wrapHandler(fn) {
             return err(e.message);
         }
     };
+}
+// One spec_shape_gate_waived row per task, in the shape require-task-spec.sh
+// reads to open the SWE spawn gate (from_node 'bro', $.task_id, $.gate, $.reason).
+export function insertSpecShapeWaiver(db, task, reason, source, createdAt) {
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id,
+        from_node: 'bro',
+        event_type: 'spec_shape_gate_waived',
+        summary: reason.slice(0, 200),
+        content_json: JSON.stringify({ task_id: task.task_id, gate: 'spec_shape', reason, waived_by: 'bro', source }),
+        created_at: createdAt,
+    });
 }
 export function taskTools(db) {
     const definitions = [
@@ -213,12 +264,17 @@ export function taskTools(db) {
                                 files: {
                                     type: 'array',
                                     items: { type: 'string' },
-                                    description: 'Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement.',
+                                    description: "The task's expected scope at directory granularity (e.g. 'src/api/', 'docs/', 'README.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them.",
                                 },
                                 verification: {
                                     type: 'array',
                                     items: { type: 'string' },
                                     description: 'Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement.',
+                                },
+                                effort: {
+                                    type: 'string',
+                                    enum: [...EFFORT_LEVELS],
+                                    description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths.',
                                 },
                             },
                             required: ['branch_id', 'description'],
@@ -228,6 +284,7 @@ export function taskTools(db) {
                         type: 'boolean',
                         description: "Bypass the scope-ambiguity gate (issue needs a kind='question' discussion). Only for trivial changes.",
                     },
+                    session_id: RUN_SESSION_ID_SCHEMA,
                     emit_planning_complete: {
                         type: 'boolean',
                         description: 'Set true to emit a planning_complete audit event in the same transaction as the task INSERTs.',
@@ -274,7 +331,7 @@ export function taskTools(db) {
                     },
                     waive_spec_shape: {
                         type: 'boolean',
-                        description: 'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines).',
+                        description: 'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it.',
                     },
                     waive_spec_shape_reason: {
                         type: 'string',
@@ -302,7 +359,7 @@ export function taskTools(db) {
         },
         {
             name: 'task_update_status',
-            description: 'Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically.',
+            description: 'Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -312,7 +369,6 @@ export function taskTools(db) {
                         type: 'string',
                         enum: ['pending', 'running', 'needs_validation', 'completed', 'closed', 'failed', 'escalated'],
                     },
-                    attempts: { type: 'number' },
                     commit_sha: {
                         type: 'string',
                         description: 'Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update.',
@@ -339,7 +395,11 @@ export function taskTools(db) {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             requireArg(args, 'tasks');
+            if (Number(issueId) === -1) {
+                return err('system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.');
+            }
             const taskInputs = args['tasks'];
+            parseRunSessionId(args['session_id']);
             if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
                 return ok([]);
             }
@@ -577,7 +637,6 @@ export function taskTools(db) {
             // Pre-transaction: format-validate then branch-ensure against the
             // resolved repo (explicit > default). Order matters: bad format should
             // produce the format error, not a git error. (#360, #529)
-            const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
             const autocreatedAudits = [];
             for (const t of taskInputs) {
                 if (!t.branch_id)
@@ -591,7 +650,7 @@ export function taskTools(db) {
                 // nothing (no orphan auto-created branch, no post-side-effect FK error
                 // in the INSERT transaction).
                 if (t.parent_branch_id != null)
-                    validateParentBranchId(t.parent_branch_id);
+                    validateParentBranchId(t.parent_branch_id, db, (t.repo || soleRepoValue) ?? null);
                 if (!t.description)
                     throw new Error('Missing required arg: description');
                 if (t.spec_body !== undefined) {
@@ -636,8 +695,7 @@ export function taskTools(db) {
                             `which is not registered (no repos row). Run /scan or pass a registered repo — ` +
                             `tasks.repo is a foreign key to repos(name).`);
                     }
-                    const rawPath = reposRow.path;
-                    const repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
+                    const repoPath = repoRowPath(db, reposRow.path);
                     const parentBranchId = t.parent_branch_id ?? null;
                     const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
                     if (audit)
@@ -651,7 +709,7 @@ export function taskTools(db) {
                     if (!t.branch_id)
                         throw new Error('Missing required arg: branch_id');
                     if (t.parent_branch_id != null)
-                        validateParentBranchId(t.parent_branch_id);
+                        validateParentBranchId(t.parent_branch_id, db, (t.repo || soleRepoValue) ?? null);
                     if (!t.description)
                         throw new Error('Missing required arg: description');
                     if (t.spec_body !== undefined) {
@@ -693,11 +751,16 @@ export function taskTools(db) {
                     if (parentBranchId == null)
                         parentBranchId = 'main';
                     const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
-                    const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
+                    const { files: typedFiles, verification: typedVerification, effort: explicitEffort } = validateTypedRailsFields(t);
+                    const { effort } = computeEffort(db, {
+                        effort: explicitEffort,
+                        prompt_bearing: promptBearing,
+                        files: typedFiles,
+                    });
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`, [
                         issueId,
                         t.branch_id,
                         parentBranchId,
@@ -708,31 +771,25 @@ export function taskTools(db) {
                         promptBearing,
                         JSON.stringify(typedFiles),
                         JSON.stringify(typedVerification),
+                        effort,
                         now,
                         now,
                     ]);
                     const row = db.get('SELECT * FROM tasks WHERE rowid = last_insert_rowid()');
-                    if (row) {
+                    if (row)
                         results.push(row);
-                        // Bro-as-agent_run (#2886): open a bro row per task at planning
-                        // time. `completed_at` stays NULL until bro_atomic_close finalizes
-                        // the row with duration + (eventually) tokens. Makes bro's
-                        // skill/rule invocations attributable to a tracked agent_run.
-                        db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-               VALUES (?, ?, 'bro', ?)`, [row.id, issueId, now]);
-                    }
                 }
                 // Audit rows for any branches auto-created by ensureBranchInRepo (#529).
                 for (const ac of autocreatedAudits) {
-                    db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'trajectory-server', 'tmb_branch_autocreated', ?, ?, ?)`, [
-                        issueId,
-                        ac.branchId,
-                        `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
-                        JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: ac.branchId,
+                        from_node: 'trajectory-server',
+                        event_type: 'tmb_branch_autocreated',
+                        summary: `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
+                        content_json: JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
+                        created_at: now,
+                    });
                 }
                 // Optional atomic audit emission: when emit_planning_complete=true, insert
                 // the planning_complete event in the SAME transaction as the task creation.
@@ -752,9 +809,15 @@ export function taskTools(db) {
                         parent_branch_ids: results.map((r) => r.parent_branch_id),
                     });
                     const fromNode = args['agent'] ?? 'bro';
-                    db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`, [issueId, branchForAudit, fromNode, summary, contentJson, now]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: branchForAudit,
+                        from_node: fromNode,
+                        event_type: 'planning_complete',
+                        summary,
+                        content_json: contentJson,
+                        created_at: now,
+                    });
                 }
                 // Audit log for gate waivers so pr-reviewer / human-review can flag
                 // tasks that skipped the alignment loop. Runs inside the same txn as
@@ -763,73 +826,67 @@ export function taskTools(db) {
                 const firstBranch = results[0]?.branch_id ?? '';
                 const agentFromNode = args['agent'];
                 if (waived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        waiverReason.slice(0, 200),
-                        JSON.stringify({
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'scope_gate_waived',
+                        summary: waiverReason.slice(0, 200),
+                        content_json: JSON.stringify({
                             waive_scope_gate_reason: waiverReason,
                             tasks_created: results.length,
                         }),
-                        now,
-                    ]);
+                        created_at: now,
+                    });
                 }
                 if (branchGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'branch_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        branchGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'branch_gate_waived',
+                        summary: branchGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (registryGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        registryGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'registry_gate_waived',
+                        summary: registryGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (intentGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'intent_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        intentGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'intent_gate_waived',
+                        summary: intentGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (decisionGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'decision_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        decisionGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'decision_gate_waived',
+                        summary: decisionGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (specShapeWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'spec_shape_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        specShapeWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    for (const r of results) {
+                        insertSpecShapeWaiver(db, { issue_id: r.issue_id, branch_id: r.branch_id, task_id: r.id }, specShapeWaiverReason, 'task_create_batch', now);
+                    }
                 }
                 return results;
             });
@@ -890,6 +947,7 @@ export function taskTools(db) {
                     status: t.status,
                     repo: t.repo,
                     prompt_bearing: t.prompt_bearing,
+                    effort: t.effort,
                 })),
                 parallel_groups: parallelGroups,
                 overlapping_pairs: overlappingPairs,
@@ -946,22 +1004,29 @@ export function taskTools(db) {
                     const valid = [...allowed].join(', ') || '(none — terminal)';
                     throw new Error(`task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. ` +
                         `Allowed from '${task.status}': ${valid}. ` +
-                        `Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`);
+                        `Close verified work via bro_atomic_close; reopen a task for rework with task_reopen. See #278.`);
                 }
             }
             const now = nowISO();
-            const attempts = args['attempts'] !== undefined ? args['attempts'] : task.attempts;
             // completed_at is carried only by post-completion states. Stamp it on
             // 'completed', preserve it through 'closed', and clear it on any move to
             // an active/failed/escalated state — a reopened task must not keep a
             // stale completion stamp that downstream gates would trust (#278).
             const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
-            if (rawCommitSha !== undefined) {
-                db.run(`UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, attempts, now, completedAt, rawCommitSha, taskId]);
-            }
-            else {
-                db.run(`UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, attempts, now, completedAt, taskId]);
-            }
+            db.transaction(() => {
+                if (status === 'closed' && task.status !== 'closed') {
+                    recordReviewBypassIfUnreviewed(db, { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null }, 'task_update_status', agent, now);
+                }
+                if (rawCommitSha !== undefined) {
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, rawCommitSha, taskId]);
+                }
+                else {
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, now, completedAt, taskId]);
+                }
+                if (TERMINAL_TASK_STATUSES.has(status)) {
+                    closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
+                }
+            });
             const updated = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
             return ok(updated);
         })),

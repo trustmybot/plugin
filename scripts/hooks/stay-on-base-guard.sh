@@ -7,119 +7,109 @@
 # cause bro to operate on the wrong HEAD — PR targets, branch comparisons,
 # and world-model scans all break silently.
 #
-# DENY when ALL of these hold:
-#   1. The command is a branch-switching git subcommand (git checkout <branch>
-#      / git switch <branch>) that is NOT a new-branch creation (-b/-B/-c/-C).
-#   2. The target branch matches a branch_id of an open task (status IN
-#      ('pending','running','needs_validation')).
-#   3. The CWD is the MAIN checkout (not inside .claude/worktrees/*).
+# Each `git [-C <p>] checkout|switch` statement of the command's executable
+# skeleton (lib/cmd-analysis.sh) is judged in its effective dir. DENY when:
+#   1. it switches branches — NOT a new-branch creation (-b/-B/-c/-C/--create)
+#      and not a file restore (checkout -- <file>);
+#   2. the target branch is the branch_id of an open task (status IN
+#      ('pending','running','needs_validation'));
+#   3. the dir is the MAIN checkout (not inside .claude/worktrees/*) — or is
+#      ambiguous (linked worktrees exist and the statement names no dir), which
+#      denies with ambiguous_git_target and its remedy.
 #
-# ALLOW:
-#   - New-branch creation (-b/-B/-c/-C) — bro creates branches legitimately.
-#   - Switches to non-task branches (base branches, pr_target pulls, etc.).
-#   - Any command run from inside a worktree (.claude/worktrees/*).
-#   - Commands that switch to a branch not referenced by any open task.
+# ALLOW: branch creation, switches to non-task branches, switches run inside a
+# worktree, switches named only in quoted text or a heredoc.
 #
-# Pattern follows #428 hardening: numeric task_id validation, RO sqlite
-# wrapper from lib/query-task.sh, early-exit for non-checkout commands.
+# The deny names the task's worktree as an absolute path: tmb_task_location
+# (<repos.path>/.claude/worktrees/<slug>), else under the statement dir's main
+# checkout.
+#
+# Pattern follows #428 hardening: numeric task_id validation, fail-closed
+# tmb_gate_read from lib/query-task.sh, early-exit for non-checkout commands.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
-[ -n "$CMD" ] || exit 0
+case "$CMD" in *checkout*|*switch*) ;; *) exit 0 ;; esac
 
-# Early-exit: only care about git checkout / git switch.
-_is_branch_switch() {
-  printf '%s' "$1" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(checkout|switch)([[:space:]]|$)'
-}
-_is_branch_switch "$CMD" || exit 0
+SWITCHES=""
+while IFS="$(printf '\t')" read -r dir stmt; do
+  sub=$(tmb_git_subcommand "$stmt")
+  case "$sub" in "checkout "*|"switch "*) ;; *) continue ;; esac
+  case " $sub " in
+    *" -b "*|*" -B "*|*" -c "*|*" -C "*|*" --create "*|*" -- "*) continue ;;
+  esac
+  target=""
+  read -r -a words <<< "${sub#* }"
+  for w in "${words[@]}"; do
+    case "$w" in -*) ;; *) target="$w" ;; esac
+  done
+  [ -n "$target" ] || continue
+  printf '%s' "$target" | grep -E '^[a-zA-Z0-9_./:@^~-]+$' >/dev/null || continue
+  SWITCHES="${SWITCHES}${dir}$(printf '\t')${target}$(printf '\t')${stmt}
+"
+done < <(tmb_cmd_statements "$CMD" "$(tmb_payload_cwd "$INPUT")")
+[ -n "$SWITCHES" ] || exit 0
 
-# Early-exit: new-branch creation is always allowed (bro creates branches).
-case "$CMD" in
-  *" -b "*|*" -B "*|*" -c "*|*" -C "*|*" --create "*)
-    exit 0
-    ;;
-esac
-
-# Early-exit: command run from inside a worktree — SWE operates in worktrees.
-# Check both PWD (hook's CWD) and any `cd <path> &&` prefix in the command.
-_cmd_cwd() {
-  local cd_path
-  cd_path=$(printf '%s' "$1" | sed -nE 's|^[[:space:]]*cd[[:space:]]+"([^"]+)".*|\1|p' | head -1)
-  [ -z "$cd_path" ] && cd_path=$(printf '%s' "$1" | sed -nE "s|^[[:space:]]*cd[[:space:]]+'([^']+)'.*|\1|p" | head -1)
-  [ -z "$cd_path" ] && cd_path=$(printf '%s' "$1" | sed -nE 's|^[[:space:]]*cd[[:space:]]+([^[:space:]&;]+).*|\1|p' | head -1)
-  [ -n "$cd_path" ] && echo "$cd_path" && return
-  echo "$PWD"
-}
-
-EFFECTIVE_CWD=$(_cmd_cwd "$CMD")
-case "$EFFECTIVE_CWD" in
-  */.claude/worktrees/*) exit 0 ;;
-esac
-case "$PWD" in
-  */.claude/worktrees/*) exit 0 ;;
-esac
-
-# Extract the target branch name from the switch/checkout command.
-# Supports: git checkout <branch>, git switch <branch>,
-#           git checkout -- is a file restore (no branch), skip it.
-_target_branch() {
-  local cmd="$1"
-  # Strip leading cd ... &&
-  local bare
-  bare=$(printf '%s' "$cmd" | sed -E 's|^[[:space:]]*cd[[:space:]]+[^[:space:]&;]+[[:space:]]*&&[[:space:]]*||')
-  # git checkout -- <file> is a file restore, not a branch switch.
-  printf '%s' "$bare" | grep -qE 'git[[:space:]]+checkout[[:space:]]+--[[:space:]]' && echo "" && return
-  # Extract last non-flag token after checkout/switch.
-  printf '%s' "$bare" | grep -oE 'git[[:space:]]+(checkout|switch)[[:space:]]+.*' | \
-    sed -E 's/git[[:space:]]+(checkout|switch)[[:space:]]+//' | \
-    tr ' ' '\n' | grep -v '^-' | tail -1 || true
-}
-
-TARGET_BRANCH=$(_target_branch "$CMD")
-[ -n "$TARGET_BRANCH" ] || exit 0
-
-# Reject non-printable / suspicious branch names before handing to sqlite3.
-if ! printf '%s' "$TARGET_BRANCH" | grep -qE '^[a-zA-Z0-9_./:@^~-]+$'; then
-  exit 0
-fi
-
-# Check the DB for open tasks referencing this branch_id.
 tmb_have_sqlite || exit 0
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] && [ -f "$DB" ] || exit 0
 
-OPEN_TASK_ID=$(tmb_sqlite_ro "$DB" "
-  SELECT id FROM tasks
-   WHERE branch_id = '${TARGET_BRANCH}'
-     AND status IN ('pending','running','needs_validation')
-   LIMIT 1;
-")
+while IFS="$(printf '\t')" read -r DIR TARGET_BRANCH STMT; do
+  [ -n "$TARGET_BRANCH" ] || continue
+  case "$DIR" in
+    */.claude/worktrees/*|-) continue ;;
+  esac
 
-[ -n "$OPEN_TASK_ID" ] || exit 0
+  SAFE_BRANCH=$(tmb_sql_quote "$TARGET_BRANCH")
+  OPEN_TASK_ID=$(tmb_gate_read "$DB" "
+    SELECT id FROM tasks
+     WHERE branch_id = '${SAFE_BRANCH}'
+       AND status IN ('pending','running','needs_validation')
+     LIMIT 1;
+  ")
+  if [ "$OPEN_TASK_ID" = "__ERR__" ]; then
+    tmb_deny_db_unavailable stay-on-base-guard
+    exit 0
+  fi
+  [ -n "$OPEN_TASK_ID" ] || continue
+  printf '%s' "$OPEN_TASK_ID" | grep -E '^[0-9]+$' >/dev/null || continue
 
-# Safety: numeric guard — task ids are always integers.
-if ! printf '%s' "$OPEN_TASK_ID" | grep -qE '^[0-9]+$'; then
+  if [ "$DIR" = "?" ]; then
+    tmb_deny_ambiguous_git_target "$STMT"
+    exit 0
+  fi
+
+  if tmb_task_location "$DB" "$OPEN_TASK_ID"; then
+    WT="$TMB_CTX_WORKTREE"
+  else
+    MAIN_ROOT=$(tmb_repo_git_root "$DIR")
+    WT="${MAIN_ROOT:-$DIR}/.claude/worktrees/$(tmb_branch_slug "$TARGET_BRANCH")"
+  fi
+  jq -nc --arg reason \
+    "the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${WT}. Branch '${TARGET_BRANCH}' belongs to open task #${OPEN_TASK_ID}. Switch to the worktree instead: cd ${WT}" \
+    '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
   exit 0
-fi
+done <<< "$SWITCHES"
 
-# Determine the worktree slug so we can tell the user where to go.
-SLUG=$(printf '%s' "$TARGET_BRANCH" | sed 's|.*/||')
-
-jq -nc --arg reason \
-  "the main checkout stays on the base; SWE work lives in worktrees — use the worktree at .claude/worktrees/${SLUG}. Branch '${TARGET_BRANCH}' belongs to open task #${OPEN_TASK_ID}. Switch to the worktree instead: cd .claude/worktrees/${SLUG}" \
-  '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: $reason
-    }
-  }'
+exit 0

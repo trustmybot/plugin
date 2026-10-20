@@ -26,11 +26,12 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh
-. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
-PLUGIN_NAME=$(tmb_resolve_plugin_name)
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
@@ -44,40 +45,51 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
 [ -n "$CMD" ] || exit 0
 
 case "$CMD" in
-  *"git worktree add"*) ;;
+  *worktree*) ;;
   *) exit 0 ;;
 esac
 
+# The first `git [-C <p>] worktree add` statement of the command's executable
+# skeleton (lib/cmd-analysis.sh); one named in quoted text or a heredoc is data.
+CWD=$(tmb_payload_cwd "$INPUT")
+WT_DIR=""
+WT_SUB=""
+while IFS="$(printf '\t')" read -r dir stmt; do
+  sub=$(tmb_git_subcommand "$stmt")
+  case "$sub" in "worktree add "*) WT_DIR="$dir"; WT_SUB="$sub"; break ;; esac
+done < <(tmb_cmd_statements "$CMD" "$CWD")
+[ -n "$WT_SUB" ] || exit 0
+
 # Skip if -b/-B/--create-branch present — the branch-create-block hook owns
 # that case. We only validate when SWE is attaching to an existing branch.
-case "$CMD" in
-  *" -b "*|*" -B "*|*"--create-branch "*) exit 0 ;;
+case " $WT_SUB " in
+  *" -b "*|*" -B "*|*" --create-branch "*) exit 0 ;;
 esac
 
-# Parse the trailing branch arg. Form: `git worktree add [opts] <path> <branch>`.
-# Take the last whitespace-separated token.
-BRANCH=$(echo "$CMD" | awk '{print $NF}')
+# The trailing branch arg. Form: `git worktree add [opts] <path> <branch>`.
+BRANCH="${WT_SUB##* }"
 [ -n "$BRANCH" ] || exit 0
 
-# Resolve the repo from the command's `cd <repo> &&` / `git -C <repo>` target —
-# in a multi-repo workspace $PWD is the non-repo workspace root, so a bare
-# `git rev-parse --show-toplevel` on $PWD would mis-scope (or go inert).
-_CMD_CWD=$(tmb_cmd_cwd "$CMD" "$INPUT")
-REPO_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
+# The repo of the statement's effective dir — in a multi-repo workspace $PWD
+# is the non-repo workspace root; every linked worktree shares one repo.
+REPO_ROOT=$(tmb_stmt_repo_root "$WT_DIR" "$CWD")
 [ -n "$REPO_ROOT" ] || exit 0
-DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
-[ -f "$DB_PATH" ] || exit 0
-command -v sqlite3 >/dev/null 2>&1 || exit 0
+DB_PATH=$(tmb_db_path) || exit 0
+tmb_have_sqlite || exit 0
 
-# If REPO_ROOT is not a registered TMB repo, no-op — don't impose policy on
-# unregistered/sibling repos (#549).
-if ! tmb_repo_is_registered "$DB_PATH" "$REPO_ROOT"; then
+# One read: the repos row for REPO_ROOT. No row = unregistered/sibling repo —
+# don't impose policy on it (#549). A read error fails closed.
+_REPO_Q=$(tmb_sql_quote "$(tmb_repo_name_for_root "$DB_PATH" "$REPO_ROOT")")
+_REPO_ROW=$(tmb_gate_read "$DB_PATH" \
+  "SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '$_REPO_Q' LIMIT 1;")
+if [ "$_REPO_ROW" = "__ERR__" ]; then
+  tmb_deny_db_unavailable branch-up-to-date-with-remote
   exit 0
 fi
+[ -n "$_REPO_ROW" ] || exit 0
 
-# Resolve per-repo target_branch from the repos table (the sole source).
-_REPO_ROW=$(tmb_repo_resolve "$DB_PATH" "$REPO_ROOT")
-PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
+# Per-repo target_branch from the repos table (the sole source).
+PR_TARGET="${_REPO_ROW#repo|}"
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
 
 if ! git -C "$REPO_ROOT" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then

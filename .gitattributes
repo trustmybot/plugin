@@ -1,0 +1,14 @@
+# esbuild preserves whitespace inside generated template-literal source. Treat
+# the two checked-in bundles as generated artifacts so git diff --check does
+# not require a semantics-changing post-build whitespace rewrite.
+mcp/trajectory-server/dist/index.js -whitespace
+mcp/trajectory-server/dist/codex.js -whitespace
+
+# Generated artefacts: a merge keeps ours and names the file; rebuild them all
+# with `bash scripts/maintenance/regen-generated.sh` after the merge. The driver
+# lives in .git/config — scripts/maintenance/install-merge-driver.sh (run by the
+# WorktreeCreate hook). docs/contributing/ENUMS.md stays text-merged: only one
+# section of it is generated, and the regen script rewrites that section.
+mcp/trajectory-server/dist/** merge=tmb-regen
+scripts/hooks/lib/audit-events.txt merge=tmb-regen
+scripts/hooks/lib/data-contracts.json merge=tmb-regen

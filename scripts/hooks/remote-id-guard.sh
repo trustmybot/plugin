@@ -25,8 +25,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { echo "remote-id-guard: jq not found" >&2; exit 1; }
 
 INPUT=$(cat)
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
@@ -36,18 +38,19 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null ||
 #   gh pr create|edit · gh issue create|edit|comment|close
 #   glab mr create|update · glab issue create|update|note|close
 # Capture the command's PROVIDER alongside the match — the iid to cite depends
-# on which forge the command targets (gh → gh_iid, glab → gl_iid).
+# on which forge the command targets (gh → gh_iid, glab → gl_iid). The command
+# must be an executable statement of the skeleton (lib/cmd-analysis.sh): one
+# named inside quoted text or a heredoc is data.
 REMOTE_WRITE=0
 PROVIDER=""
-if printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+pr[[:space:]]+(create|edit)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="gh"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+issue[[:space:]]+(create|edit|comment|close)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="gh"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+mr[[:space:]]+(create|update)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="glab"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+issue[[:space:]]+(create|update|note|close)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="glab"
-fi
+while IFS="$(printf '\t')" read -r _dir stmt; do
+  case "$stmt" in
+    "gh pr create"|"gh pr create "*|"gh pr edit"|"gh pr edit "*|"gh issue create"|"gh issue create "*|"gh issue edit"|"gh issue edit "*|"gh issue comment"|"gh issue comment "*|"gh issue close"|"gh issue close "*)
+      REMOTE_WRITE=1; PROVIDER="gh"; break ;;
+    "glab mr create"|"glab mr create "*|"glab mr update"|"glab mr update "*|"glab issue create"|"glab issue create "*|"glab issue update"|"glab issue update "*|"glab issue note"|"glab issue note "*|"glab issue close"|"glab issue close "*)
+      REMOTE_WRITE=1; PROVIDER="glab"; break ;;
+  esac
+done < <(tmb_cmd_statements "$CMD" /)
 [ "$REMOTE_WRITE" = "1" ] || exit 0
 
 # Does the command carry author-supplied text? Only then is a mis-citation
@@ -64,7 +67,14 @@ fi
 
 # Extract candidate #<n> tokens from the command text. Over-broad is fine: a
 # non-local <n> is left alone below, so scanning the whole command is safe.
-TOKENS=$(printf '%s' "$CMD" | grep -oE '#[0-9]+' | sed 's/#//' | sort -u)
+# Explicit remote markers (owner/repo#<n>, GH-<n>, GL-<n>, remote:<n>) already
+# assert a remote id, so they are stripped from the scanned copy first.
+SCAN_TEXT=$(printf '%s' "$CMD" | sed -E \
+  -e 's|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+| |g' \
+  -e 's/[Gg][Hh]-[0-9]+/ /g' \
+  -e 's/[Gg][Ll]-[0-9]+/ /g' \
+  -e 's/[Rr][Ee][Mm][Oo][Tt][Ee]:[0-9]+/ /g')
+TOKENS=$(printf '%s' "$SCAN_TEXT" | grep -oE '#[0-9]+' | sed 's/#//' | sort -u)
 [ -n "$TOKENS" ] || exit 0
 
 # Resolve DB — fail-open on any resolution failure.
@@ -83,27 +93,28 @@ while IFS= read -r n; do
   [ -n "$safe_n" ] || continue
   # Local id → its remote iids.
   ROW=$(tmb_sqlite_ro "$DB" "
-    SELECT COALESCE(gh_iid, ''), COALESCE(gl_iid, '')
+    SELECT COALESCE(gh_iid, ''), COALESCE(gl_iid, ''), COALESCE(title, '')
       FROM issues WHERE id = ${safe_n};
   ")
   # No row → <n> is not a local id → real remote ref → leave alone.
   [ -n "$ROW" ] || continue
   GH=$(printf '%s' "$ROW" | cut -d'|' -f1)
   GL=$(printf '%s' "$ROW" | cut -d'|' -f2)
+  TITLE=$(printf '%s' "$ROW" | cut -d'|' -f3-)
   # Pick the iid by the command's PROVIDER: a glab command resolves to the
   # GitLab iid, a gh command to the GitHub iid. Fall back to the other forge's
   # iid only when the command's own provider has none recorded.
   if [ "$PROVIDER" = "glab" ]; then
     if [ -n "$GL" ] && [ "$GL" != "$safe_n" ]; then
-      OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)\n"
+      OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)  local #${safe_n}: \"${TITLE}\"\n"
     elif [ -z "$GL" ] && [ -n "$GH" ] && [ "$GH" != "$safe_n" ]; then
-      OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)\n"
+      OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)  local #${safe_n}: \"${TITLE}\"\n"
     fi
   else
     if [ -n "$GH" ] && [ "$GH" != "$safe_n" ]; then
-      OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)\n"
+      OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)  local #${safe_n}: \"${TITLE}\"\n"
     elif [ -z "$GH" ] && [ -n "$GL" ] && [ "$GL" != "$safe_n" ]; then
-      OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)\n"
+      OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)  local #${safe_n}: \"${TITLE}\"\n"
     fi
   fi
 done <<< "$TOKENS"
@@ -112,7 +123,7 @@ done <<< "$TOKENS"
 
 REASON="BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:
 $(printf '%b' "$OFFENSES")
-A bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)"
+A bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)"
 
 jq -nc --arg reason "$REASON" \
   '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'

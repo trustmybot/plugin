@@ -5,6 +5,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
+import { assertTimestampsIso } from './fixtures/v30-shape.js';
+import { assertV37Shape } from './fixtures/v37-shape.js';
+
+function seedFixtureIssue(db: TrajectoryDB, now: string): number {
+  const res = db.run(
+    `INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('schema fixture', 'open', ?, ?)`,
+    [now, now],
+  );
+  return Number(res.lastInsertRowid);
+}
 
 describe('schema — current table set, default values, constraints', () => {
   it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
@@ -24,6 +34,10 @@ describe('schema — current table set, default values, constraints', () => {
       'agent_runs',
       'pr_review_runs',
       'repos',
+      'repo_remotes',
+      // GH 1294 — recorded verification runs
+      'verification_runs',
+      'verification_run_commands',
       // #155 repos-centric schema — milestones FK hub
       'milestones',
       // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
@@ -76,6 +90,7 @@ describe('schema — current table set, default values, constraints', () => {
     assert.deepEqual(
       names,
       [
+        'tmb_audit',
         'tmb_cheatcode',
         'tmb_comment-triage',
         'tmb_concerns-protocol',
@@ -87,7 +102,7 @@ describe('schema — current table set, default values, constraints', () => {
         'tmb_skill-creator',
         'tmb_swe-checklist',
       ],
-      'builtin-skill seed must equal the 10 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
+      'builtin-skill seed must equal the 11 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
     );
     for (const b of builtins) {
       assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);
@@ -137,14 +152,76 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 28 in plugin_meta', () => {
+  it('fresh DB carries every v29 + v30 + v31 + v32 + v33 + v34 + v35 + v36 + v37 constraint, drop, column and index', () => {
+    const db = tempDB();
+    assertV37Shape(db);
+    db.close();
+  });
+
+  it('fresh DB seeds and DEFAULTs write only 24-char ms-ISO timestamps (v30)', () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin')`);
+    db.run(`INSERT INTO agents (name, kind, file_path) VALUES ('legal', 'consultant', 'project:a.md')`);
+    assertTimestampsIso(db);
+    const repo = db.get<{ last_scanned_at: string }>("SELECT last_scanned_at FROM repos WHERE name = 'plugin'");
+    assert.match(repo!.last_scanned_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    db.close();
+  });
+
+  it('fresh DB: discussions.remote_comment_id is unique only when non-NULL (v30)', () => {
+    const db = tempDB();
+    const now = new Date().toISOString();
+    const issueId = seedFixtureIssue(db, now);
+    const insert = (remote: string | null): void => {
+      db.run(
+        `INSERT INTO discussions (issue_id, author, kind, body, created_at, remote_comment_id) VALUES (?, 'bro', 'note', 'b', ?, ?)`,
+        [issueId, now, remote],
+      );
+    };
+    insert(null);
+    insert(null);
+    insert('gh-comment-1');
+    assert.throws(() => insert('gh-comment-1'), /UNIQUE/, 'a duplicate remote_comment_id must be rejected');
+    db.close();
+  });
+
+  it('fresh DB: agent_runs token columns default to NULL and spawn_id is unique per task (v30)', () => {
+    const db = tempDB();
+    db.run(`INSERT INTO agent_runs (agent_type) VALUES ('bro')`);
+    const row = db.get<Record<string, unknown>>(
+      'SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, usage_source FROM agent_runs',
+    );
+    assert.deepEqual({ ...row }, {
+      tokens_in: null,
+      tokens_out: null,
+      cache_read_tokens: null,
+      cache_creation_tokens: null,
+      usage_source: null,
+    });
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT INTO tasks (id, issue_id, branch_id, description, created_at, updated_at) VALUES (1, ?, 'fix/a', 'd', ?, ?)`,
+      [seedFixtureIssue(db, now), now, now],
+    );
+    db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`);
+    db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', NULL)`);
+    db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', NULL)`);
+    assert.throws(
+      () => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`),
+      /UNIQUE/,
+      'one row per (task_id, spawn_id)',
+    );
+    db.close();
+  });
+
+  it('fresh DB has schema_version = 40 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 28);
+    assert.equal(meta.schema_version, 40);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -248,7 +325,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('validation_attempts has mcp_available INTEGER NOT NULL DEFAULT 1 (#157)', () => {
+  it('validation_attempts has mcp_available INTEGER NOT NULL with no DEFAULT (#157, v29)', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string; type: string; notnull: number; dflt_value: string | null }>(
@@ -258,7 +335,7 @@ describe('schema — current table set, default values, constraints', () => {
     assert.ok(col !== undefined, 'mcp_available column must exist');
     assert.equal(col.type.toUpperCase(), 'INTEGER', 'mcp_available must be INTEGER');
     assert.equal(col.notnull, 1, 'mcp_available must be NOT NULL');
-    assert.equal(col.dflt_value, '1', 'mcp_available default must be 1');
+    assert.equal(col.dflt_value, null, 'mcp_available must carry no DEFAULT — every writer states it');
 
     db.close();
   });
@@ -278,7 +355,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('plugin_config has the 3 schema-seeded global keys on init (#980: repo-scoped keys live on repos)', () => {
+  it('plugin_config has the 4 schema-seeded global keys on init (#980: repo-scoped keys live on repos)', () => {
     const db = tempDB();
 
     const rows = db.all<{ key: string; value_json: string }>(
@@ -291,6 +368,7 @@ describe('schema — current table set, default values, constraints', () => {
       { key: 'issue_classification_labels', value_json: '["Bug","Feature","Improvement","Docs","Test","Chore"]' },
       { key: 'issue_priority_labels', value_json: '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]' },
       { key: 'issue_sync', value_json: '"off"' },
+      { key: 'model_prices', value_json: '{}' },
     ]);
 
     db.close();
@@ -509,6 +587,44 @@ describe('schema — current table set, default values, constraints', () => {
       db.close();
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('seeds leave the AUTOINCREMENT counter at the row count across repeated opens (GH 1227)', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-schema-test-'));
+    try {
+      const dbPath = join(tmpDir, 'trajectory.db');
+      for (let i = 0; i < 5; i++) {
+        const db = new TrajectoryDB(dbPath);
+        db.close();
+      }
+      const db = new TrajectoryDB(dbPath);
+      for (const table of ['agents', 'cheatcodes']) {
+        const count = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`);
+        const seq = db.get<{ seq: number }>('SELECT seq FROM sqlite_sequence WHERE name = ?', [table]);
+        assert.ok(count !== undefined && count.n > 0, `${table} must be seeded`);
+        assert.equal(seq?.seq, count.n, `${table} sqlite_sequence must equal its row count`);
+      }
+      db.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('eval-mode tables default created_at to the 24-char ms-ISO shape (GH 1227)', () => {
+    process.env['TMB_EVAL_MODE'] = '1';
+    try {
+      const db = tempDB();
+      db.run(`INSERT INTO debug_trajectory (session_id, step_n, kind, tool_or_mcp_name) VALUES ('s', 1, 'mcp_call', 'x')`);
+      db.run(`INSERT INTO eval_results (run_id, flow_name, scorer_name, pass) VALUES ('r', 'f', 'outcome', 1)`);
+      for (const table of ['debug_trajectory', 'eval_results']) {
+        const row = db.get<{ created_at: string }>(`SELECT created_at FROM ${table} LIMIT 1`);
+        assert.match(row?.created_at ?? '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, `${table}.created_at`);
+        assert.equal(row?.created_at.length, 24);
+      }
+      db.close();
+    } finally {
+      delete process.env['TMB_EVAL_MODE'];
     }
   });
 

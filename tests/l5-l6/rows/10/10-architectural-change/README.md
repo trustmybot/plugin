@@ -21,7 +21,7 @@ Cumulative chain state from rows 1–7: the CLI in `src/cli.py` is a stdlib-only
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | ≥1 `kind='decision'` discussion; ≥1 `tasks` row (gate cleared, SWE dispatched) |
+| `outcome.sql` | ≥1 `kind='decision'` discussion; ≥1 `tasks` row (gate cleared, SWE dispatched); ≥1 completed `swe` run, and none missing `effort`/`model`/`root_dir` |
 | `outcome-coherence.json` | `discussions WHERE kind='decision'`: `>=1`; `tasks`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `discussion_append`, `task_create_batch`, `Agent` (SWE) |

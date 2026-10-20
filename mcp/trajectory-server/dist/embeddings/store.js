@@ -27,9 +27,12 @@ const SELECT_SQL = {
     discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?',
     audit: 'SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?',
 };
+export function auditEmbedText(summary, contentJson) {
+    return contentJson && contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
+}
 export async function embedAndStore(db, table, rowid, text) {
     const v = await embed(text);
-    if (v === null)
+    if (v === null || !db.isOpen)
         return;
     const sql = INSERT_SQL[table];
     db.run(sql, [rowid, packEmbedding(v), MODEL_ID, new Date().toISOString()]);

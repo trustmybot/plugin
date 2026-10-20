@@ -3,151 +3,355 @@
 # Sourced (not exec'd) by other hook scripts.
 # No set -e/-euo/-euo pipefail here — libs must not mutate caller shell options.
 
+# Trajectory DB location — the hook half of the one resolution rule. The server
+# half is findExistingClaudeDbUp in mcp/trajectory-server/src/platform.ts; the
+# rule is documented once in docs/reference/TRAJECTORY_DB_LOCATION.md. This file
+# is the only place under scripts/ allowed to spell the DB filename
+# (tests/l1-lint/no-private-db-path.sh).
+TMB_STATE_HOST_DIR=".claude"
+TMB_DB_FILENAME="trajectory.db"
+
 # _TMB_DB_PATH_CACHE: process-level memoization of the resolved DB path.
 # Set on first successful resolution; read on subsequent calls.
 _TMB_DB_PATH_CACHE=""
-
-# tmb_db_path
-# Resolve the trajectory DB path:
-#   1. TRAJECTORY_DB_PATH env override wins (tests + advanced setups).
-#   2. Walk up from cwd to filesystem root, collecting all ancestor levels
-#      that contain <dir>/.claude/<plugin-name>/trajectory.db.
-#      Outermost match wins. Walking up from cwd, we collect all ancestor
-#      matches and return the topmost. Inner sibling DBs (e.g. stale leftovers
-#      from a previous workspace layout) won't shadow the active launch-dir DB.
-#      This handles uniformly:
-#        - single-repo CC (CC inside a git repo): DB at git-root.
-#        - workspace pattern (CC outside a git repo, with one or more product
-#          repos as siblings): DB at workspace launch dir, above git-root.
-#        - submodule monorepo (root + nested submodule repos): DB at parent
-#          repo, found via walk-up from inside any submodule.
-#        - SWE worktrees (.claude/worktrees/<slug>/): walks past the worktree
-#          to find the DB at the repo or workspace level.
-#   3. Sentinel file ($HOME/.claude/<plugin-name>-active-workspace) as fallback
-#      when walk-up finds nothing — covers subagents that inherit cwd=~ and
-#      lack env vars.
-#   4. Tests with per-worktree DB fixtures should set TRAJECTORY_DB_PATH
-#      explicitly to pin the resolution.
-# Prints the path only if the file exists; non-zero exit if no DB found.
-# Memoizes the result in _TMB_DB_PATH_CACHE for the lifetime of the process.
-# tmb_db_schema_current <db>
-# Returns 0 when <db> carries the current TMB schema, non-zero otherwise.
-# Cheap probe: the tasks table must have a prompt_bearing column — the column
-# the swe-boundary gate actually reads. A legacy ~/.claude/tmb/trajectory.db
-# from a prior schema lacks it; querying such a DB returns empty and would
-# default prompt_bearing to 0, silently denying a legitimate prompt edit.
-# Treat a schema-mismatched DB as UNRESOLVED instead.
-# When sqlite3 is unavailable the caller cannot query anyway; report current
-# (0) so resolution is not blocked on a missing tool.
-tmb_db_schema_current() {
-  local db="${1:-}"
-  [ -n "$db" ] && [ -f "$db" ] || return 1
-  tmb_have_sqlite || return 0
-  local cols
-  cols=$(tmb_sqlite_ro "$db" "SELECT name FROM pragma_table_info('tasks');")
-  case "$cols" in
-    *prompt_bearing*) return 0 ;;
-  esac
-  return 1
-}
-
-tmb_db_path() {
-  if [ -n "$_TMB_DB_PATH_CACHE" ]; then
-    echo "$_TMB_DB_PATH_CACHE"
-    return 0
-  fi
-  local plugin_name="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    plugin_name=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
-    if [ -f "$TRAJECTORY_DB_PATH" ]; then
-      _TMB_DB_PATH_CACHE="$TRAJECTORY_DB_PATH"
-      echo "$_TMB_DB_PATH_CACHE"
-    fi
-    return 0
-  fi
-  # P0 guard: do NOT walk into the user's HOME from a descendant cwd.
-  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or a
-  # test artifact) used to be silently adopted as the live DB on every launch.
-  # Project state belongs to a project. Mirrors db.ts findExistingDbUp.
-  local start
-  start="$(pwd)"
-  local candidates=()
-  local dir
-  dir="$start"
-  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-    if [ "$dir" = "$HOME" ] && [ "$start" != "$HOME" ]; then
-      break
-    fi
-    local candidate="$dir/.claude/$plugin_name/trajectory.db"
-    # Schema-mismatch fail-safe: a candidate whose tasks table lacks the
-    # prompt_bearing column is a stale legacy DB. Skip it rather than adopt
-    # it and silently default prompt_bearing to 0.
-    if [ -f "$candidate" ] && tmb_db_schema_current "$candidate"; then
-      candidates+=("$candidate")
-    fi
-    dir="$(dirname "$dir")"
-  done
-  if [ ${#candidates[@]} -gt 0 ]; then
-    _TMB_DB_PATH_CACHE="${candidates[${#candidates[@]}-1]}"
-    echo "$_TMB_DB_PATH_CACHE"
-    return 0
-  fi
-  # Sentinel fallback: subagents inherit cwd=~ and lack env vars.
-  local sentinel="$HOME/.claude/${plugin_name}-active-workspace"
-  if [ -f "$sentinel" ]; then
-    local ws
-    ws=$(head -1 "$sentinel" 2>/dev/null)
-    if [ -n "$ws" ]; then
-      local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
-      # Same fail-safe on the sentinel path: a stale-schema sentinel DB is
-      # treated as unresolved rather than queried-and-defaulted-to-0.
-      if [ -f "$sentinel_db" ] && tmb_db_schema_current "$sentinel_db"; then
-        _TMB_DB_PATH_CACHE="$sentinel_db"
-        echo "$_TMB_DB_PATH_CACHE"
-        return 0
-      fi
-    fi
-  fi
-  return 1
-}
 
 tmb_have_sqlite() {
   command -v sqlite3 >/dev/null 2>&1
 }
 
-# tmb_sqlite_ro <db> <sql>
-# Read-only sqlite3 with a 500ms busy timeout.
-# Returns the query output, or empty string on error.
-# Never fails the caller.
-tmb_sqlite_ro() {
-  local db="$1"
-  local sql="$2"
-  sqlite3 -readonly -cmd '.timeout 500' "$db" "$sql" 2>/dev/null || true
+# tmb_plugin_name
+# The plugin name from CLAUDE_PLUGIN_ROOT's manifest, else "tmb".
+tmb_plugin_name() {
+  local manifest="${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json"
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$manifest" ]; then
+    jq -r '.name // "tmb"' "$manifest" 2>/dev/null || echo "tmb"
+  else
+    echo "tmb"
+  fi
 }
 
-# Print branch_ids of tasks that are closed and have a commit_sha but
-# lack a passing validation_attempts row. Under the bro-as-task-gate
-# doctrine, bro auto-flips tasks to 'closed' immediately after SWE
-# returns; pr-reviewer fires only at push time. Unsigned == closed
-# tasks whose commits haven't been reviewed yet.
-tmb_unsigned_tasks() {
-  local db
-  db=$(tmb_db_path) || true
-  [ -z "$db" ] && return 0
+# tmb_db_location <root>
+# Prints where <root>'s trajectory DB lives (whether or not it exists).
+tmb_db_location() {
+  printf '%s/%s/%s/%s\n' "${1:-}" "$TMB_STATE_HOST_DIR" "$(tmb_plugin_name)" "$TMB_DB_FILENAME"
+}
+
+# _tmb_db_wal_cold <db>
+# 0 when <db> is a WAL database (header bytes 18-19 = 2) with no -shm file
+# beside it: the state of a healthy DB nobody holds open (MCP server down or
+# restarting). sqlite3 -readonly cannot open it ("unable to open database
+# file", SQLITE_CANTOPEN = exit 14). Costs nothing while -shm exists.
+_tmb_db_wal_cold() {
+  [ ! -e "${1:-}-shm" ] || return 1
+  [ "$(od -An -tu1 -j18 -N2 "${1:-}" 2>/dev/null | tr -d ' \n')" = "22" ]
+}
+
+# _tmb_sqlite_once <readonly:1|0> <timeout_ms> <db> <sql>
+# One sqlite3 read; prints its stdout, returns its exit code.
+_tmb_sqlite_once() {
+  if [ "$1" = 1 ]; then
+    sqlite3 -readonly -cmd ".timeout ${2}" "$3" "$4" 2>/dev/null
+  else
+    sqlite3 -cmd ".timeout ${2}" "$3" "$4" 2>/dev/null
+  fi
+}
+
+# tmb_gate_read <db> <sql>
+# Read helper for deny-capable gates. Prints the query output, or the literal
+# __ERR__ when sqlite3 fails (missing/corrupt/locked DB) so the caller can tell
+# "no rows" from "DB unavailable" and fail closed. Always returns 0.
+# Reads run with -readonly (the fast path while the MCP server holds the DB
+# open), except on a WAL DB with no -shm (_tmb_db_wal_cold), which -readonly
+# cannot open: that read, and a -readonly read failing with SQLITE_CANTOPEN
+# (14), run without -readonly. Such a read may create -shm/-wal beside the DB,
+# inside the project; the SQL is read-only (tests/l1-lint/gate-read-sql-readonly.sh),
+# so no page is written. Busy, SQL and corruption errors are never retried.
+# immutable=1 is not used: it reads stale pages while a writer is active.
+tmb_gate_read() {
+  local db="${1:-}" sql="${2:-}" out rc=0 ro=1 ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  if [ -z "$db" ] || [ ! -f "$db" ]; then
+    printf '__ERR__\n'
+    return 0
+  fi
+  _tmb_db_wal_cold "$db" && ro=0
+  out=$(_tmb_sqlite_once "$ro" "$ms" "$db" "$sql") || rc=$?
+  if [ "$rc" -eq 14 ] && [ "$ro" = 1 ]; then
+    rc=0
+    out=$(_tmb_sqlite_once 0 "$ms" "$db" "$sql") || rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then
+    [ -n "$out" ] && printf '%s\n' "$out"
+  else
+    printf '__ERR__\n'
+  fi
+  return 0
+}
+
+# tmb_db_read_budget <db> <budget_ms>
+# Read helper with a hard wall-clock budget: runs the SQL script on stdin
+# through sqlite3 (busy timeout = the budget) and kills it once the budget is
+# spent. -readonly unless the DB is WAL with no -shm (as tmb_gate_read); a
+# -readonly run that fails while the DB is in that state runs once more
+# without it. Prints whatever the script printed. Returns 0 when sqlite3
+# succeeded, 124 on timeout, else non-zero (missing DB, read or SQL error —
+# output already printed is kept, so a caller can tell which statements ran).
+tmb_db_read_budget() {
+  local db="${1:-}" ms="${2:-}" script out rc=0
+  if [ -z "$db" ] || [ ! -f "$db" ]; then
+    cat >/dev/null
+    return 1
+  fi
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  [ "$ms" -gt 0 ] || ms=1
+  script="$(printf '.timeout %s\n' "$ms"; cat)"
+  if _tmb_db_wal_cold "$db"; then
+    out=$(printf '%s\n' "$script" | _tmb_budget_run 0 "$ms" "$db") || rc=$?
+  else
+    out=$(printf '%s\n' "$script" | _tmb_budget_run 1 "$ms" "$db") || rc=$?
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && _tmb_db_wal_cold "$db"; then
+      rc=0
+      out=$(printf '%s\n' "$script" | _tmb_budget_run 0 "$ms" "$db") || rc=$?
+    fi
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
+  return "$rc"
+}
+
+# _tmb_budget_run <readonly:1|0> <budget_ms> <db>
+# Runs the SQL script on stdin through sqlite3 and kills it once the budget
+# is spent (exit 124).
+_tmb_budget_run() {
+  local kill_after_pl='
+    my $ms = shift @ARGV;
+    my $pid = fork();
+    exit 1 unless defined $pid;
+    if ($pid == 0) { exec @ARGV; exit 1; }
+    local $SIG{ALRM} = sub { kill 9, $pid; waitpid($pid, 0); exit 124 };
+    alarm($ms / 1000);
+    waitpid($pid, 0);
+    alarm 0;
+    exit(($? >> 8) & 0xff);'
+  if [ "$1" = 1 ]; then
+    set -- "$2" sqlite3 -readonly "$3"
+  else
+    set -- "$2" sqlite3 "$3"
+  fi
+  perl -MTime::HiRes=alarm -e "$kill_after_pl" "$@" 2>/dev/null
+}
+
+# _tmb_db_probe <db>
+# 0 = current schema (tasks.prompt_bearing exists), 1 = stale legacy schema,
+# 2 = the read itself failed (busy, corrupt, unreadable). With no sqlite3 the
+# DB cannot be probed and counts as current.
+_tmb_db_probe() {
+  local db="${1:-}" cols
+  [ -n "$db" ] && [ -f "$db" ] || return 1
   tmb_have_sqlite || return 0
-  tmb_sqlite_ro "$db" "
-    SELECT t.branch_id
-      FROM tasks t
-     WHERE t.status = 'closed'
-       AND t.commit_sha IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM validation_attempts v
-          WHERE v.task_id = CAST(t.id AS TEXT)
-            AND v.verdict = 'pass'
-       );
-  "
+  cols=$(tmb_gate_read "$db" "SELECT name FROM pragma_table_info('tasks');")
+  case "$cols" in
+    __ERR__) return 2 ;;
+    *prompt_bearing*) return 0 ;;
+  esac
+  return 1
+}
+
+# tmb_db_schema_current <db>
+# Returns 0 when <db> carries the current TMB schema, non-zero otherwise.
+tmb_db_schema_current() {
+  _tmb_db_probe "${1:-}"
+}
+
+# tmb_test_flag
+# Prints the active test flag (TMB_FORBID_LIVE_SYNC=1, else TMB_TEST_RUN_ID)
+# and returns 0; returns 1 when neither is set. Under a test flag nothing
+# discovers a live resource: no DB walk-up, no live `claude` CLI.
+tmb_test_flag() {
+  if [ "${TMB_FORBID_LIVE_SYNC:-}" = "1" ]; then
+    echo TMB_FORBID_LIVE_SYNC
+  elif [ -n "${TMB_TEST_RUN_ID:-}" ]; then
+    echo TMB_TEST_RUN_ID
+  else
+    return 1
+  fi
+}
+
+# _tmb_db_resolve
+# Steps 1-3 of the rule (docs/reference/TRAJECTORY_DB_LOCATION.md):
+#   1. TRAJECTORY_DB_PATH, if set (must exist; no further steps).
+#   2. Walk up from CLAUDE_PROJECT_DIR, else cwd, never entering $HOME unless
+#      started there, no .git stop; every ancestor DB that is not a stale
+#      schema is a candidate. A candidate whose state dir holds a `standalone`
+#      file ends the walk and wins; otherwise the outermost wins.
+#   3. Otherwise unresolved.
+# Under a test flag (tmb_test_flag) nothing walks: CLAUDE_PROJECT_DIR's own DB
+# only (must exist), and without CLAUDE_PROJECT_DIR unresolved, one stderr line.
+# A candidate whose probe read fails is kept: it is resolved, and the read
+# error surfaces through tmb_db_state instead of silently resolving elsewhere.
+_tmb_db_resolve() {
+  local candidate flag
+  if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
+    [ -f "$TRAJECTORY_DB_PATH" ] || return 1
+    printf '%s\n' "$TRAJECTORY_DB_PATH"
+    return 0
+  fi
+  if flag=$(tmb_test_flag); then
+    if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+      candidate=$(tmb_db_location "$CLAUDE_PROJECT_DIR")
+      [ -f "$candidate" ] || return 1
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+    printf 'tmb: trajectory DB unresolved: %s is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n' "$flag" >&2
+    return 1
+  fi
+  local start dir outermost=""
+  start="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$start" ] || start="$(pwd)"
+  dir="$start"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ "$dir" = "$HOME" ] && [ "$start" != "$HOME" ]; then
+      break
+    fi
+    candidate=$(tmb_db_location "$dir")
+    if [ -f "$candidate" ]; then
+      _tmb_db_probe "$candidate"
+      if [ $? -ne 1 ]; then
+        outermost="$candidate"
+        [ -e "$(dirname "$candidate")/standalone" ] && break
+      fi
+    fi
+    dir="$(dirname "$dir")"
+  done
+  [ -n "$outermost" ] || return 1
+  printf '%s\n' "$outermost"
+}
+
+# tmb_db_path
+# Prints the resolved trajectory DB path; non-zero exit when unresolved.
+# Memoized in _TMB_DB_PATH_CACHE for the lifetime of the process.
+tmb_db_path() {
+  if [ -n "$_TMB_DB_PATH_CACHE" ]; then
+    echo "$_TMB_DB_PATH_CACHE"
+    return 0
+  fi
+  local db
+  db=$(_tmb_db_resolve) || return 1
+  _TMB_DB_PATH_CACHE="$db"
+  echo "$db"
+}
+
+# tmb_realdir <dir>
+# The physical path of an existing <dir> (symlinks resolved), else <dir> as
+# given; empty for an empty <dir>. Never fails the caller.
+tmb_realdir() {
+  [ -n "${1:-}" ] || return 0
+  (cd -P -- "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
+# tmb_db_project_root <db>
+# The project holding <db>: <project> for <project>/.claude/<plugin>/<file>;
+# empty for any other shape. Never fails the caller.
+tmb_db_project_root() {
+  local host
+  [ -n "${1:-}" ] || return 0
+  host=$(dirname "$(dirname "$1")")
+  [ "$(basename "$host")" = "$TMB_STATE_HOST_DIR" ] && dirname "$host"
+  return 0
+}
+
+# tmb_repo_path_abs <db> <repos.path>
+# A repos.path as an absolute dir: as given when absolute, else joined to the
+# project holding <db> (the DB's own dir when <db> has no project shape).
+tmb_repo_path_abs() {
+  local db="$1" path="$2" root
+  case "$path" in
+    /*) printf '%s\n' "$path" ;;
+    *)
+      root=$(tmb_db_project_root "$db")
+      printf '%s/%s\n' "${root:-$(dirname "$db")}" "$path"
+      ;;
+  esac
+}
+
+# tmb_project_root
+# The project root: the directory holding the resolved trajectory DB
+# (<project>/.claude/<plugin>/trajectory.db), else CLAUDE_PROJECT_DIR. Empty
+# when neither resolves. Never fails the caller.
+tmb_project_root() {
+  local db root=""
+  db=$(tmb_db_path 2>/dev/null) && root=$(tmb_db_project_root "$db")
+  if [ -n "$root" ]; then
+    printf '%s\n' "$root"
+  elif [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    printf '%s\n' "$CLAUDE_PROJECT_DIR"
+  fi
+  return 0
+}
+
+# tmb_state_dir
+# Prints this project's TMB state directory (<project>/.claude/<plugin>, the
+# directory holding the trajectory DB); non-zero exit when unresolved. Every
+# file a hook writes lives under it — never under $HOME.
+tmb_state_dir() {
+  local db
+  db=$(tmb_db_path) || return 1
+  dirname "$db"
+}
+
+# tmb_db_state
+# Prints one word:
+#   unresolved — no DB (project not onboarded) or no sqlite3: gates allow
+#   ok         — the DB answers a read
+#   error      — the DB resolved but the read failed: deny-capable gates deny
+tmb_db_state() {
+  local db
+  db=$(tmb_db_path) || { echo unresolved; return 0; }
+  tmb_have_sqlite || { echo unresolved; return 0; }
+  if [ "$(tmb_gate_read "$db" 'SELECT count(*) FROM sqlite_master;')" = "__ERR__" ]; then
+    echo error
+  else
+    echo ok
+  fi
+}
+
+# tmb_db_unavailable_reason <hook>
+# The deny reason every fail-closed gate uses when the DB read errors.
+tmb_db_unavailable_reason() {
+  local db
+  db=$(tmb_db_path 2>/dev/null) || db="<unresolved>"
+  printf 'BLOCKED: trajectory DB unavailable — %s could not read %s (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.' "${1:-hook}" "$db"
+}
+
+# tmb_deny_db_unavailable <hook>
+# Prints the PreToolUse deny for a DB read error.
+tmb_deny_db_unavailable() {
+  jq -nc --arg r "$(tmb_db_unavailable_reason "${1:-hook}")" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+}
+
+# tmb_db_path_advisory <hook>
+# For advisory hooks: prints the DB path when it resolves and reads cleanly.
+# Unresolved → silent non-zero. Read error → one stderr line, non-zero.
+tmb_db_path_advisory() {
+  local db
+  db=$(tmb_db_path) || return 1
+  if [ "$(tmb_db_state)" = "error" ]; then
+    printf '%s: trajectory DB unavailable (%s) — skipped\n' "${1:-hook}" "$db" >&2
+    return 1
+  fi
+  printf '%s\n' "$db"
+}
+
+# tmb_sqlite_ro <db> <sql>
+# tmb_gate_read with a 500ms busy timeout, for reads that treat an error as
+# "no rows": prints the query output, or nothing on error. Never fails the
+# caller.
+tmb_sqlite_ro() {
+  local out
+  out=$(TMB_DB_WRITE_TIMEOUT_MS=500 tmb_gate_read "${1:-}" "${2:-}")
+  [ -n "$out" ] && [ "$out" != "__ERR__" ] && printf '%s\n' "$out"
+  return 0
 }
 
 # tmb_config_get <key> [<db>]
@@ -168,6 +372,23 @@ tmb_config_get() {
       FROM plugin_config
      WHERE key = '${key}';
   "
+}
+
+# tmb_effort_defaults <db>
+# Prints "<swe_default_effort>|<reviewer_effort>" from plugin_config; an unset
+# key, or a value other than low|medium|high, reads as medium and high. Prints
+# __ERR__ when the read fails (tmb_gate_read), so a gate can fail closed. The
+# server's twin is resolveEffortDefaults in
+# mcp/trajectory-server/src/tools/config.ts. Never fails the caller.
+tmb_effort_defaults() {
+  tmb_gate_read "${1:-}" "SELECT
+    COALESCE((SELECT v FROM (SELECT CASE WHEN json_valid(value_json) THEN json_extract(value_json, '\$') END AS v
+                               FROM plugin_config WHERE key = 'swe_default_effort')
+               WHERE v IN ('low','medium','high')), 'medium')
+    || '|' ||
+    COALESCE((SELECT v FROM (SELECT CASE WHEN json_valid(value_json) THEN json_extract(value_json, '\$') END AS v
+                               FROM plugin_config WHERE key = 'reviewer_effort')
+               WHERE v IN ('low','medium','high')), 'high');"
 }
 
 # tmb_config_raw <key> [<db>]
@@ -214,34 +435,11 @@ tmb_config_array() {
 }
 
 # tmb_swe_context [<agent_type>]
-# Returns "yes" when the calling context is a SWE subagent; "no" otherwise.
-# Three deterministic signals, priority order:
-#   1. <agent_type> == 'swe' → yes (most reliable when CC populates the field).
-#   2. <agent_type> is a known non-SWE role → no (explicit identity wins; no PWD fallback).
-#      Known non-SWE roles: bro, pr-reviewer, architect, cto, ceo, pm, consultant.
-#   3. <agent_type> absent/empty + $PWD inside .claude/worktrees/* → yes.
-#      Structural fallback for cases where CC quirk #97 strips the agent_type field.
-# Callers must normalize <agent_type> via tmb_normalize_role before passing.
-# Never fails the caller.
+# Returns "yes" when <agent_type> (normalized via tmb_normalize_role) is swe,
+# "no" otherwise. The role comes from the agent identity alone; a path never
+# decides it. Never fails the caller.
 tmb_swe_context() {
-  local agent_type="${1:-}"
-  if [ "$agent_type" = "swe" ]; then
-    echo "yes"
-    return 0
-  fi
-  case "$agent_type" in
-    bro|pr-reviewer|architect|cto|ceo|pm|consultant)
-      echo "no"
-      return 0
-      ;;
-  esac
-  case "$PWD" in
-    */.claude/worktrees/*)
-      echo "yes"
-      return 0
-      ;;
-  esac
-  echo "no"
+  if [ "${1:-}" = "swe" ]; then echo "yes"; else echo "no"; fi
 }
 
 # tmb_sql_int <value>
@@ -267,25 +465,55 @@ tmb_sql_quote() {
   printf '%s' "${1:-}" | sed "s/'/''/g"
 }
 
+# tmb_sql_like_escape <value>
+# Echoes <value> with \, % and _ backslash-escaped and single quotes doubled,
+# for a LIKE literal written with ESCAPE '\'. Never fails the caller.
+tmb_sql_like_escape() {
+  printf '%s' "${1:-}" | sed -e 's/[\\%_]/\\&/g' -e "s/'/''/g"
+}
+
+# tmb_task_by_slug <db> <slug> <column> [<status_list>]
+# Prints <column> (id or branch_id) of the newest task whose branch_id ends in
+# /<slug>. `_` and `%` in <slug> match literally. When several types share the
+# slug, prints a warning to stderr naming the matches and picks the newest.
+# <status_list> (e.g. 'pending','running') narrows by status. Exact
+# branch_id matches belong to the caller, before this fallback. Prints nothing
+# when no row matches. Never fails the caller.
+tmb_task_by_slug() {
+  local db="${1:-}" slug="${2:-}" col="${3:-id}" statuses="${4:-}" like where rows count
+  [ -n "$db" ] && [ -n "$slug" ] || return 0
+  case "$col" in id|branch_id) ;; *) return 0 ;; esac
+  case "$statuses" in *[!a-z_\',\ ]*) return 0 ;; esac
+  like=$(tmb_sql_like_escape "$slug")
+  where="branch_id LIKE '%/${like}' ESCAPE '\\'"
+  [ -n "$statuses" ] && where="${where} AND status IN (${statuses})"
+  rows=$(tmb_sqlite_ro "$db" "SELECT id || '|' || branch_id FROM tasks WHERE ${where} ORDER BY id DESC;")
+  [ -n "$rows" ] || return 0
+  count=$(printf '%s\n' "$rows" | grep -c .)
+  if [ "$count" -gt 1 ]; then
+    printf 'tmb: worktree slug "%s" matches %s tasks (%s); using the newest\n' \
+      "$slug" "$count" "$(printf '%s\n' "$rows" | cut -d'|' -f2 | paste -sd, -)" >&2
+  fi
+  rows=$(printf '%s\n' "$rows" | head -1)
+  if [ "$col" = "id" ]; then printf '%s\n' "${rows%%|*}"; else printf '%s\n' "${rows#*|}"; fi
+}
+
+# tmb_branch_slug <branch_id>
+# The worktree dir name of a task branch: branch_id without its `<type>/`
+# prefix (feat/x → x), the rule task_provision uses (taskWorktreePath).
+tmb_branch_slug() {
+  local b="${1:-}"
+  printf '%s\n' "${b#*/}"
+}
+
 # tmb_worktree_root_for_target <target_path>
-# Determine the worktree root for a prompt_bearing resolution.
-# Priority:
-#   1. The TARGET path if it is under .claude/worktrees/<slug>.
-#   2. Fall back to $PWD when $PWD is under a worktree.
-# Prints the worktree root (.../.claude/worktrees/<slug>) or empty string.
-# Never fails the caller.
+# The .claude/worktrees/<slug> dir a target path lies in (the innermost one),
+# or empty. A property of the path only, never of the caller.
 tmb_worktree_root_for_target() {
   local target="${1:-}"
   case "$target" in
     */.claude/worktrees/*)
       echo "$target" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
-      return 0
-      ;;
-  esac
-  case "$PWD" in
-    */.claude/worktrees/*)
-      echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
-      return 0
       ;;
   esac
   return 0
@@ -294,10 +522,10 @@ tmb_worktree_root_for_target() {
 # tmb_resolve_task_id_for_target <target_path> <input_json> [<db>]
 # Robustly resolve the active task_id that gates a prompt_bearing edit/write.
 # Resolution order (first non-empty wins):
-#   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path
-#      (or $PWD), then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
+#   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path,
+#      then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
 #      `branch_id = '<branch>'` (NO status filter).
-#   2. Slug fallback: `branch_id LIKE '%/<slug>'` from the worktree root (NO
+#   2. Slug fallback: tmb_task_by_slug on the worktree root's basename (NO
 #      status filter).
 #   3. Transcript fallback: parse `task_id=[0-9]+` from the WHOLE transcript
 #      message content (not only type:"text" blocks).
@@ -334,19 +562,7 @@ tmb_resolve_task_id_for_target() {
 
     # (2) Slug fallback — no status filter.
     if [ -z "$task_id" ]; then
-      local slug
-      slug=$(echo "$wt_root" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-      if [ -n "$slug" ]; then
-        local safe_slug
-        safe_slug=$(tmb_sql_quote "$slug")
-        task_id=$(tmb_sqlite_ro "$db" "
-          SELECT id FROM tasks
-           WHERE branch_id LIKE '%/${safe_slug}'
-           ORDER BY id DESC
-           LIMIT 1;
-        " 2>/dev/null || true)
-        task_id=$(tmb_sql_int "$task_id")
-      fi
+      task_id=$(tmb_sql_int "$(tmb_task_by_slug "$db" "$(basename "$wt_root")" id)")
     fi
   fi
 
@@ -354,14 +570,42 @@ tmb_resolve_task_id_for_target() {
   if [ -z "$task_id" ] && [ -n "$input" ]; then
     local transcript
     transcript=$(echo "$input" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-    if [ -n "$transcript" ] && [ -f "$transcript" ]; then
-      task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
-        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-      task_id=$(tmb_sql_int "$task_id")
-    fi
+    task_id=$(tmb_task_id_from_transcript "$transcript")
   fi
 
   echo "$task_id"
+}
+
+# tmb_caller_run <input_json> <db>
+# The run of the swe making this tool call, keyed on who it is, not where it
+# stands: for a payload whose role (tmb_agent_role, lib/cmd-analysis.sh — the
+# caller sources it) is swe and that carries agent_id, prints
+# `<task_id>|<root_dir>` of the newest swe agent_runs row with spawn_id =
+# agent_id, open or closed (swe-brief-gate.sh binds it at the swe's first
+# task_brief). Prints nothing for another role, no agent_id or no such row;
+# prints __ERR__ when the DB read fails (tmb_gate_read). Never fails the caller.
+tmb_caller_run() {
+  local input="${1:-}" db="${2:-}" agent_id
+  [ "$(tmb_agent_role "$input")" = "swe" ] || return 0
+  agent_id=$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null || true)
+  [ -n "$agent_id" ] || return 0
+  tmb_gate_read "$db" "SELECT COALESCE(task_id, '') || '|' || COALESCE(root_dir, '') FROM agent_runs
+                        WHERE agent_type = 'swe' AND spawn_id = '$(tmb_sql_quote "$agent_id")'
+                        ORDER BY id DESC LIMIT 1;"
+}
+
+# tmb_task_id_from_transcript <transcript_path>
+# The spawn-prompt task binding: the first `task_id=<N>` in the transcript's
+# message content. Content may be a plain string or an array of blocks
+# (tostring covers both). Prints the decimal id, or empty when the file is
+# missing or carries no task_id. Never fails the caller.
+tmb_task_id_from_transcript() {
+  local transcript="${1:-}" task_id=""
+  if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+    task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
+      | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+  fi
+  tmb_sql_int "$task_id"
 }
 
 # tmb_task_spec_status <task_id> [<db>]

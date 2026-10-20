@@ -4,6 +4,9 @@ import { nowISO } from '../db.js';
 import type { Discussion, Issue, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
+import { resolveIssueRepo } from './audit.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -46,9 +49,24 @@ export function resolveDefaultIssueId(db: TrajectoryDB): number {
   return latest?.id ?? -1;
 }
 
+export interface DiscussionEntry {
+  issue_id: number | string;
+  author: string;
+  kind: string;
+  body: string;
+  created_at?: string;
+  repo?: string | null;
+}
+
 /**
  * The single insert+embed path for discussions. Synchronously INSERTs the row
- * and returns its id, then fires `embedAndStore` for semantic discussion_search.
+ * (`repo` defaults to the parent issue's repo) and returns its id, then fires
+ * `embedAndStore` for semantic discussion_search. `insertAudit` shares this
+ * contract.
+ *
+ * A row carrying `remote_comment_id` (an ingested PR/MR comment) is deduped on
+ * the partial UNIQUE index: when that remote comment is already stored nothing
+ * is inserted or embedded and the call returns null.
  *
  * The embed is intentionally NOT awaited: `embed()` yields to the event loop, so
  * the embedding-table write runs in a later turn — after a surrounding
@@ -61,14 +79,22 @@ export function resolveDefaultIssueId(db: TrajectoryDB): number {
  */
 export function insertDiscussion(
   db: TrajectoryDB,
-  entry: { issue_id: number | string; author: string; kind: string; body: string; created_at?: string },
-): number {
+  entry: DiscussionEntry & { remote_comment_id: string },
+): number | null;
+export function insertDiscussion(db: TrajectoryDB, entry: DiscussionEntry): number;
+export function insertDiscussion(
+  db: TrajectoryDB,
+  entry: DiscussionEntry & { remote_comment_id?: string },
+): number | null {
   const createdAt = entry.created_at ?? nowISO();
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
   const res = db.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt],
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null],
   );
+  if (Number(res.changes) === 0) return null;
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db, 'discussions', id, entry.body).catch((e) =>
     console.error('[embeddings] insertDiscussion embed failed:', e),
@@ -212,6 +238,8 @@ export function discussionTools(db: TrajectoryDB): {
       const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
 
+      await backfillMissing(db, 'discussions');
+
       type MatchRow = {
         id: number;
         issue_id: number;
@@ -233,8 +261,10 @@ export function discussionTools(db: TrajectoryDB): {
         score: number;
       };
 
+      const ftsQuery = toFtsQuery(query);
+
       const fetchFtsRows = (limitK: number): MatchRow[] =>
-        db.all<MatchRow>(
+        withFtsGuard(() => db.all<MatchRow>(
           `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -247,8 +277,8 @@ export function discussionTools(db: TrajectoryDB): {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY bm25(discussions_fts) ASC
            LIMIT ?`,
-          [query, issueId, issueId, kind, kind, limitK],
-        );
+          [ftsQuery, issueId, issueId, kind, kind, limitK],
+        ));
 
       const fetchRowById = (id: number): MatchRow | undefined =>
         db.get<MatchRow>(
@@ -264,17 +294,17 @@ export function discussionTools(db: TrajectoryDB): {
         );
 
       if (mode === 'keyword') {
-        const countRow = db.get<{ n: number }>(
+        const countRow = withFtsGuard(() => db.get<{ n: number }>(
           `SELECT COUNT(*) AS n
            FROM discussions_fts
            JOIN discussions d ON d.id = discussions_fts.rowid
            WHERE discussions_fts MATCH ?
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)`,
-          [query, issueId, issueId, kind, kind],
-        );
+          [ftsQuery, issueId, issueId, kind, kind],
+        ));
         const total_matched = countRow?.n ?? 0;
-        const rows = db.all<MatchRow>(
+        const rows = withFtsGuard(() => db.all<MatchRow>(
           `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -287,8 +317,8 @@ export function discussionTools(db: TrajectoryDB): {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
            LIMIT ?`,
-          [query, issueId, issueId, kind, kind, alpha, alpha, k],
-        );
+          [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k],
+        ));
         return ok({
           results: rows.map((r) => ({
             id: r.id,

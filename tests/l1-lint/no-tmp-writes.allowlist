@@ -1,0 +1,2 @@
+# Repo-relative paths exempt from no-tmp-writes.sh, one per line. Keep empty
+# unless a Human-run tool must write a fixed /tmp path by design.

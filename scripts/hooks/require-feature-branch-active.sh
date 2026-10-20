@@ -12,8 +12,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
-# shellcheck source=lib/resolve-repo.sh
-. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 if [ "${TMB_ALLOW_BRANCH_MISMATCH:-0}" = "1" ]; then
   exit 0
@@ -33,7 +31,11 @@ SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 DB=$(tmb_db_path 2>/dev/null || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then exit 0; fi
 
-ROW=$(sqlite3 "$DB" "SELECT branch_id, repo, parent_branch_id FROM tasks WHERE id=${SAFE_TASK_ID};" 2>/dev/null || true)
+ROW=$(tmb_gate_read "$DB" "SELECT branch_id, repo, parent_branch_id FROM tasks WHERE id=${SAFE_TASK_ID};")
+if [ "$ROW" = "__ERR__" ]; then
+  tmb_deny_db_unavailable require-feature-branch-active
+  exit 0
+fi
 [ -n "$ROW" ] || exit 0
 
 EXPECTED=$(echo "$ROW" | cut -d'|' -f1)
@@ -46,7 +48,13 @@ if [ -n "$REPO" ]; then
   # Resolve the absolute path from the `repos` table (authoritative — set by
   # /scan), matched by name. Falls back to the legacy workspace-join only when
   # no matching repo row exists (e.g. pre-scan or non-workspace layout).
-  REPO_ABS=$(tmb_repo_path_by_name "$DB" "$REPO")
+  SAFE_REPO=$(tmb_sql_quote "$REPO")
+  REPO_ABS=$(tmb_gate_read "$DB" "SELECT path FROM repos WHERE name = '${SAFE_REPO}' LIMIT 1;")
+  if [ "$REPO_ABS" = "__ERR__" ]; then
+    tmb_deny_db_unavailable require-feature-branch-active
+    exit 0
+  fi
+  REPO_ABS=$(printf '%s' "$REPO_ABS" | head -1)
   if [ -z "$REPO_ABS" ]; then
     REPO_ABS="$WORKSPACE_ROOT/$REPO"
   fi
@@ -59,7 +67,11 @@ else
   # No explicit task.repo. Single-repo fallback: if the repos table has exactly
   # one entry, use it (matches the resolveDefaultRepoPath MCP-side fallback for
   # single-repo projects). Otherwise fall back to the workspace root.
-  REPO_ABS=$(tmb_repo_single_path "$DB")
+  REPO_ABS=$(tmb_gate_read "$DB" "SELECT CASE WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END;")
+  if [ "$REPO_ABS" = "__ERR__" ]; then
+    tmb_deny_db_unavailable require-feature-branch-active
+    exit 0
+  fi
   [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
   if [ ! -d "$REPO_ABS/.git" ]; then
     jq -nc --arg id "$TASK_ID" \

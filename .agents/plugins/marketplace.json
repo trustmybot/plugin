@@ -1,0 +1,21 @@
+{
+  "name": "trustmybot-local",
+  "interface": {
+    "displayName": "TrustMyBot Local"
+  },
+  "plugins": [
+    {
+      "name": "tmb",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "description": "Local development package for the TMB Codex adapter.",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

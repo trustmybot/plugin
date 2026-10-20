@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { projectRootFromDbPath } from './containment.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -88,10 +89,12 @@ export function reportTools(db) {
             lines.push('');
             if (mode === 'summary') {
                 const taskCounts = db.get(`SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed,
+                  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS awaiting_close,
                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
            FROM tasks WHERE issue_id = ?`, [issueId]);
-                lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
+                lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.closed ?? 0} done (closed), ` +
+                    `${taskCounts?.awaiting_close ?? 0} awaiting close, ${taskCounts?.failed ?? 0} failed`);
                 lines.push('');
                 const auditCount = (db.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId]))?.n ?? 0;
                 lines.push(`**Audit events:** ${auditCount}`);
@@ -126,9 +129,13 @@ export function reportTools(db) {
             else {
                 lines.push('| Branch | Title | Status | Attempts |');
                 lines.push('|--------|-------|--------|----------|');
+                const attemptCounts = new Map();
+                for (const v of validationAttempts) {
+                    attemptCounts.set(v.task_id, (attemptCounts.get(v.task_id) ?? 0) + 1);
+                }
                 for (const t of tasks) {
                     const title = t.title || t.description.slice(0, 60);
-                    lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${t.attempts} |`);
+                    lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${attemptCounts.get(t.id) ?? 0} |`);
                 }
             }
             lines.push('');
@@ -168,9 +175,12 @@ export function reportTools(db) {
             }
             const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
             const relOutputPath = rawOutputPath ?? defaultOutputPath;
-            const cwd = process.cwd();
-            const allowedBase = resolve(cwd, 'docs/trustmybot') + sep;
-            const absPath = resolve(cwd, relOutputPath);
+            const projectRoot = projectRootFromDbPath(db.dbPath);
+            if (projectRoot === null) {
+                throw new Error('issue_snapshot_md needs the project root, and this trajectory DB is not under a project .claude/ directory');
+            }
+            const allowedBase = resolve(projectRoot, 'docs/trustmybot') + sep;
+            const absPath = resolve(projectRoot, relOutputPath);
             if (!absPath.startsWith(allowedBase)) {
                 throw new Error(`output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`);
             }

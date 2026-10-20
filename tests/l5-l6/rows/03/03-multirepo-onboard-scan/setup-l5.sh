@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Multi-repo onboard+scan scenario. Seeds two git repos under the session dir
 # with DISTINCT remotes (repo-a → GitHub, repo-b → GitLab) so scan_run (#979)
-# captures per-repo remotes into repos.remotes, and asserts the four repo-scoped
+# captures per-repo remotes into repo_remotes, and asserts the four repo-scoped
 # keys never reappear in plugin_config (#980 — repos is the sole source of truth).
 #
 # `git remote add` / `git remote get-url` are pure local config — no transport —
@@ -35,13 +35,13 @@ seed_repo "$PROJECT/repo-b" "$GL_URL"
 # branching_model + protected_branches). onboard applies policy via AskUserQuestion,
 # which the test harness suppresses, so the policy columns are seeded here to stand
 # in for the post-AUQ apply. scan_run upserts these rows by name (ON CONFLICT(name))
-# and fills repos.remotes WITHOUT touching the policy columns, so the distinct
+# and fills repo_remotes WITHOUT touching the policy columns, so the distinct
 # per-repo remotes land while the seeded policy survives.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
-INSERT INTO repos (name, path, file_count, target_branch, branching_model, protected_branches, remotes)
+INSERT INTO repos (name, path, file_count, target_branch, branching_model, protected_branches)
 VALUES
-  ('repo-a', '$PROJECT/repo-a', 1, 'main', 'github-flow', '["main"]', NULL),
-  ('repo-b', '$PROJECT/repo-b', 1, 'main', 'github-flow', '["main"]', NULL)
+  ('repo-a', '$PROJECT/repo-a', 1, 'main', 'github-flow', '["main"]'),
+  ('repo-b', '$PROJECT/repo-b', 1, 'main', 'github-flow', '["main"]')
 ON CONFLICT(name) DO UPDATE SET
   path = excluded.path,
   target_branch = excluded.target_branch,

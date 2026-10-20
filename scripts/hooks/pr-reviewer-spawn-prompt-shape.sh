@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # PreToolUse hook on Agent. Blocks pr-reviewer spawns whose prompt violates
-# the spawn discipline from tmb_push-gate: MUST contain the six bare anchors
-# (task_id, commit_sha, branch_id, repo, attempt_n, subagent_session_id) and
-# MUST NOT contain prior-verdict shortcuts that allow rubber-stamping.
+# the spawn discipline from tmb_push-gate: MUST contain the seven anchors as
+# name=value (task_id, commit_sha, branch_id, repo, repo_path, attempt_n,
+# subagent_session_id) and MUST NOT contain prior-verdict shortcuts that
+# allow rubber-stamping.
 #
 # Doctrine: the spawn prompt shape is a deterministic constraint — either the
 # anchors are present or they aren't. "Don't rubber-stamp" is equally
@@ -33,15 +34,15 @@ PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // ""' 2>/dev/null)
 
 # Check required anchors
 MISSING=""
-for anchor in task_id commit_sha branch_id repo attempt_n subagent_session_id; do
-  if ! echo "$PROMPT" | grep -q "${anchor}"; then
+for anchor in task_id commit_sha branch_id repo repo_path attempt_n subagent_session_id; do
+  if ! echo "$PROMPT" | grep -E "(^|[^[:alnum:]_])${anchor}=" >/dev/null; then
     MISSING="${MISSING} ${anchor}"
   fi
 done
 
 if [ -n "$MISSING" ]; then
   REASON=$(jq -Rn --arg missing "$MISSING" '
-    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, attempt_n, and subagent_session_id so pr-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
+    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, repo, repo_path, attempt_n, and subagent_session_id, each as name=value, so pr-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
   ')
   jq -nc --argjson r "$REASON" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
@@ -51,7 +52,7 @@ fi
 # Check forbidden rubber-stamp phrases
 RUBBER_STAMP_FOUND=""
 while IFS= read -r phrase; do
-  if echo "$PROMPT" | grep -qi "$phrase"; then
+  if echo "$PROMPT" | grep -i "$phrase" >/dev/null; then
     RUBBER_STAMP_FOUND="$phrase"
     break
   fi

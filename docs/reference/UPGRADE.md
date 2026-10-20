@@ -90,6 +90,10 @@ Migrations are chained one version at a time — `migrateV1toV2`, `migrateV2toV3
 - Drop the `skill_invocations` table; skill/cheatcode usage is tracked in the stream-json session log instead of the trajectory DB.
 - Rebuild `tasks`, `roundtables`, `roundtable_votes` whenever a breaking column change lands — the rebuild copies surviving rows into a fresh table.
 - Add columns as features land (e.g. `agent_runs.started_at` with nullable `completed_at`, `issues.milestone`).
+- Add tables as features land (schema v36 adds `verification_runs` + `verification_run_commands`, where the close gate records each verification run; existing rows are untouched).
+- Re-type audit rows written by v1.0.x under an `event_type` outside the closed set (schema v38): each becomes `legacy_event`, with the original type in `content_json.legacy_event_type` and non-JSON content kept as `legacy_content`; every other column and the row count are unchanged.
+- Re-type legacy duplicate `verification_gate_waived` rows (schema v39): of the swe-written rows without a `commit_sha`, each task keeps its lowest-id row and every later one becomes `legacy_event` the same way, so `waiver_not_duplicated` stops counting them.
+- Add `repos.onboard_scan` (schema v40), a nullable JSON column holding the `/onboard` pre-scan evidence and recommendation; it stays `NULL` until the first `onboard_state_get`, and every other `repos` column is untouched.
 
 Row data on every workflow table is preserved.
 
@@ -102,6 +106,43 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 
 Both columns should match the version you just installed.
 
+### Upgrading into v1.1.0 — the bro persona loads from the plugin
+
+Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your sessions through two hooks: `session-start-persona.sh` injects the plugin's `CLAUDE.md` on startup, resume, `/clear` and compaction, and `user-prompt-persona.sh` injects it once on the first prompt of a session that has not had it yet. After installing or upgrading mid-session, run `/reload-plugins` or start a new session. TMB does not write, edit or remove anything in `<project>/CLAUDE.md`, and `onboard_apply` rejects a `persona` argument (`persona_input_removed`).
+
+An earlier release candidate's `/onboard` copied the persona into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`. TMB leaves that block where it is; the injected context notes that it is not needed, and you may delete the marked lines yourself.
+
+### Upgrading into v1.1.0 — remove leftover user-wide hooks
+
+Before v1.1.0, `/onboard` wrote hook commands into the user-wide `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when that is set), most running `bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace <mp> --hook <name>`, some stamped `"_tmb_managed": true`. Claude Code runs them in every project, so an old gate can deny a call v1.1.0 allows. v1.1.0 writes its headless shim only into `<project>/.claude/settings.local.json`, so every hook object in the user-wide file that is stamped `"_tmb_managed": true` or runs `resolve-hook.sh` is a leftover.
+
+TMB reports them and never edits the file. The SessionStart inventory adds one `Plugin:` line, and `scripts/health.sh` prints `WARN  legacy-user-hooks` (exit code unchanged). Both name the file, the count, and the line of each object's `"command"` and its `--hook` name (`?` when it has none), each object once. They also list your other projects whose recorded TMB install is below 1.1.0. Those projects lose the user-wide copies once you remove them, so upgrade them first or accept that their headless gates stop.
+
+To remove them:
+
+1. Back up the file: `cp ~/.claude/settings.json ~/.claude/settings.json.bak`.
+2. Open it and, under `"hooks"`, delete each hook object stamped `"_tmb_managed": true` or whose `"command"` runs `resolve-hook.sh` (the reported lines). Then delete any group whose `"hooks"` array is now empty, and any event key whose array is now empty. Leave every other entry as it is.
+3. Check the file still parses: `jq empty ~/.claude/settings.json`.
+4. Delete `~/.claude/tmb-hooks/` once nothing references it.
+5. Start a new Claude Code session. The `Plugin:` line is gone.
+
+### Upgrading into v1.0.3 — recover lost agent_runs
+
+Before v1.0.3 the SubagentStop hook dropped swe rows whose spawn prompt was plain text, and bro rows often metered 0. The Claude Code transcripts still on disk (`~/.claude/projects/<project-slug>/`) hold the real numbers; Claude Code prunes old sessions, so recover them soon after upgrading. From the project directory:
+
+```bash
+bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh            # dry run: prints the report, writes nothing
+bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh --apply    # writes the rows
+```
+
+bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaults to true). Transcripts are only read. Recovered rows carry `usage_source = 'backfill'`; rows a hook already measured are never overwritten, and a second run inserts nothing. The report lists `transcripts_seen`, `bound`, `unbound` (the first 20 paths with the reason: no `task_id=<N>` in the spawn prompt, no such task, or a subagent other than swe / pr-reviewer), `rows_inserted`, `rows_updated`, `rows_skipped_measured` and `tokens_total_added`; a real run also writes one `agent_runs_backfilled` audit row. `--since <ISO>` limits it to transcripts whose last message is newer; `--transcripts-dir <dir>` reads another directory.
+
+Run the backfill when no swe or pr-reviewer spawn is active; otherwise the live SubagentStop hook keys the in-flight spawn by its agent id and a second row appears for it.
+
+### Upgrading into v1.0.3 — L6 chain runs move into the project
+
+`tests/l5-l6/run-l6-chain.sh` now writes its runs to `<project>/.claude/tmb/l6-chain-runs/` (or `L6C_RUNS_DIR`) and L5 preserves trajectories under `<project>/.claude/tmb/l5-trajectories/`. Runs from earlier versions stay under `~/.claude/tmb/l6-chain-runs/` and `~/.claude/tmb/l5-trajectories/` until you remove them; auto-resume reads only the new location, so start the first chain after upgrading with `--fresh` or `--from 1`.
+
 ### Upgrading into v1.0.0 (first stable)
 
 v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal channel update — nothing special to do. The schema migrations apply on server start exactly as described above.
@@ -109,6 +150,10 @@ v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal ch
 ---
 
 ## Failure modes
+
+### Two enabled TMB copies — gates silently missing
+
+Installing a second channel without removing the first (`tmb@trustmybot-dev` and `tmb@trustmybot-rc` both enabled for one project, at any mix of user, project and local scope) leaves two enabled plugins with the manifest name `tmb`. Claude Code registers the `hooks/hooks.json` of only one of them and skips the other's with a note under `/plugin` → Errors; which copy it keeps is not documented. MCP tools can keep working while the skipped copy's gates never fire. TMB detects it from `~/.claude/plugins/installed_plugins.json` plus the `enabledPlugins` maps in the project's `.claude/settings.local.json`, `.claude/settings.json` and the user `settings.json` (file reads only; a user-scope and a project-scope entry of one marketplace count as one copy) in three places: the SessionStart banner (`mcp-health-check.sh` warning and a `Plugin: duplicate tmb copies enabled (…)` line from the prescan), `scripts/health.sh` (`WARN  duplicate-plugin`, exit code unchanged) and the error-severity `trajectory_doctor` contract `single_tmb_plugin_enabled`. Fix: run `/plugin`, disable or uninstall the extra copy, then restart Claude Code.
 
 ### MCP server disabled via CC's per-project state (rare, hard to detect)
 
@@ -140,7 +185,7 @@ After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a
 **Symptoms:**
 
 - `mcp__plugin_tmb_*` tools all fail with "no matching deferred tools".
-- `~/.claude/tmb/logs/mcp-health.log` tail shows `"event":"SessionStart","mcp_alive":false,"mode":"A"`.
+- `<project>/.claude/tmb/logs/mcp-health.log` tail shows `"event":"SessionStart","mcp_alive":false` after all three samples, and bro's prompts carry the activation-routine HALT.
 - The CC log shows hooks/skills/agents/commands loading from `~/.claude/plugins/cache/trustmybot-rc/tmb/<version>/` but no `plugin:tmb:trajectory-server` registration line.
 
 **Recovery escalation — try IN ORDER, stop at the first that brings MCP back:**
@@ -163,7 +208,7 @@ After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a
    ```
    Then relaunch CC and `/plugin install tmb@trustmybot-rc`.
 
-This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: loud Mode A detection in `mcp-health-check.sh` (the `additionalContext` warning tells bro to halt rather than silently degrade) and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine.sh` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §C pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
 
 ### "stored schema_version N is newer than code's max M"
 
@@ -186,7 +231,7 @@ The transaction wrapping the migration step rolls back. Your DB stays at the old
 
 A DB that has workflow tables but **no `plugin_meta` table** predates schema versioning. The MCP server adopts it forward — it reapplies the schema, stamps `schema_version`, and preserves your existing rows — but it does **not** treat it as a clean fresh install. So the upgrade isn't silent, boot emits a warning rather than quietly adopting it:
 
-- `~/.claude/tmb/logs/mcp-server.log` shows a `"kind":"legacy_db_no_plugin_meta","level":"warn"` line, and the startup line carries `"legacy_db_no_plugin_meta":true`.
+- `<project>/.claude/tmb/logs/mcp-server.log` shows a `"kind":"legacy_db_no_plugin_meta","level":"warn"` line, and the startup line carries `"legacy_db_no_plugin_meta":true`.
 - stderr prints `WARNING: trajectory DB had tables but no plugin_meta row …`.
 
 This is non-fatal. If you didn't expect a legacy DB here, back up the file and verify your data before continuing.
@@ -244,13 +289,17 @@ bash scripts/release.sh
 
 ### Bumping the version
 
-`bump-version.sh` keeps the three version manifests in sync atomically:
+`bump-version.sh` keeps the Claude and Codex plugin manifests, both package manifests, and the `bun.lock` workspace entry in sync atomically:
 
 - `.claude-plugin/plugin.json`
+- `.codex-plugin/plugin.json`
 - `package.json`
 - `mcp/trajectory-server/package.json`
+- `bun.lock` (workspace `version`)
 
-`mcp/trajectory-server/src/index.ts` derives the version at runtime by reading its own `package.json`, so the startup-log line and the MCP `Server({ name, version })` handshake both pick up the new version automatically — there is no hardcoded version literal to edit.
+It also assembles `## Unreleased` and the `changelog.d/` fragments into the release's `## vX.Y.Z — YYYY-MM-DD` section of `CHANGELOG.md` and deletes the fragments (`--dry-run` prints the section first; see `docs/contributing/CHANGELOG_AND_REBASES.md`).
+
+The Claude MCP entry derives the version from its package manifest. The Codex entry derives it from the installed `.codex-plugin/plugin.json`. The synchronized bump keeps both handshakes aligned without a hardcoded runtime version.
 
 ### Bumping the schema
 
@@ -260,7 +309,7 @@ When a schema change is breaking (drops a `NOT NULL` column, removes a table, et
 2. Update the `plugin_meta` seed in `mcp/trajectory-server/src/schema.sql` to match.
 3. Add a `migrateVnToVn+1(db)` function with the SQLite recipe (`CREATE TABLE _new`; copy; `DROP`; `RENAME`).
 4. Add an L2 case to `mcp/trajectory-server/src/test/schema-upgrade.test.ts` with a fixture at the previous version + assertions on the upgraded shape.
-5. Update `CHANGELOG.md` with the migration details + the dropped column / table.
+5. Add a `changelog.d/` fragment with the migration details + the dropped column / table.
 
 ### Testing the migration end-to-end through Claude Code
 
@@ -313,7 +362,7 @@ Use the plugin in a real project — accumulate issues, tasks, run `/onboard`. T
 # Restart the CC session (Cmd+R) so the MCP server reboots with new code.
 ```
 
-The MCP server log (`~/.claude/tmb/logs/mcp-server.log`) shows the migration steps. Confirm with the same `sqlite3` queries from Recipe A.
+The MCP server log (`<project>/.claude/tmb/logs/mcp-server.log`) shows the migration steps. Confirm with the same `sqlite3` queries from Recipe A.
 
 **Recipe C — hand-craft a v1 DB (fastest, no install dance).** Useful when iterating on the migration code itself.
 

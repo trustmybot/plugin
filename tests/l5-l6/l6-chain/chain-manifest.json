@@ -74,7 +74,7 @@
       "seed_before": null,
       "seed_after": null,
       "halt_on_fail": true,
-      "chain_setup_command": "b=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -qx 'src/cli.py' && { echo \"$br\"; break; }; done); [ -n \"$b\" ] && git checkout -q \"$b\"",
+      "chain_setup_command": "b=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -x 'src/cli.py' >/dev/null && { echo \"$br\"; break; }; done); [ -n \"$b\" ] && git checkout -q \"$b\"",
       "chain_setup_note": "Expose the implemented-but-unmerged CLI: prior steps leave src/cli.py on its task branch (the checkout rests on the base per stay-on-base doctrine); the Human inspecting in-flight work checks the branch out. L5 standalone seeds the file directly."
     },
     {
@@ -119,7 +119,7 @@
       "seed_before": null,
       "seed_after": null,
       "halt_on_fail": true,
-      "chain_setup_command": "b=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -qx 'tests/test_cli.py' && { echo \"$br\"; break; }; done); [ -n \"$b\" ] && git checkout -q \"$b\"",
+      "chain_setup_command": "b=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -x 'tests/test_cli.py' >/dev/null && { echo \"$br\"; break; }; done); [ -n \"$b\" ] && git checkout -q \"$b\"",
       "chain_setup_note": "Expose tests/test_cli.py (created on the step-04/05 task branch, unmerged until push-gate): the row's bait is its exact-equality-on-integers content, which must be visible for the concern to register. Same pattern as step 7. L5 standalone seeds the files directly."
     },
     {
@@ -152,7 +152,7 @@
       "seed_before": "seeds/before-14-issue-resume.sql",
       "seed_after": null,
       "halt_on_fail": true,
-      "chain_setup_command": "base=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -qx 'src/cli.py' && { echo \"$br\"; break; }; done); git branch feat/add-count-subcommand \"${base:-HEAD}\" 2>/dev/null || true"
+      "chain_setup_command": "base=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -x 'src/cli.py' >/dev/null && { echo \"$br\"; break; }; done); git branch feat/add-count-subcommand \"${base:-HEAD}\" 2>/dev/null || true"
     },
     {
       "step": 15,

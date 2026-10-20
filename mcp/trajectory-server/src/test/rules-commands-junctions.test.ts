@@ -4,7 +4,6 @@ import { tempDB } from './helpers.js';
 import { skillTools } from '../tools/skills.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
-import { compositeTools } from '../tools/composites.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -59,8 +58,8 @@ describe('#101 builtin skill scope in the unified cheatcodes registry', () => {
   });
 });
 
-describe('#2886 bro-as-agent_run composite', () => {
-  it('task_create_batch opens a bro agent_run per task (completed_at NULL until close)', async () => {
+describe('bro agent_runs are metered per session, not per task', () => {
+  it('task_create_batch opens no bro agent_run', async () => {
     const db = tempDB();
     const issues = issueTools(db);
     const tasks = taskTools(db);
@@ -80,72 +79,8 @@ describe('#2886 bro-as-agent_run composite', () => {
     }));
     assert.equal(batch.length, 2);
 
-    const broRuns = db.all<{ task_id: number; agent_type: string; completed_at: string | null }>(
-      `SELECT task_id, agent_type, completed_at FROM agent_runs WHERE agent_type = 'bro' ORDER BY task_id`,
-    );
-    assert.equal(broRuns.length, 2, 'one bro agent_run per task');
-    for (const r of broRuns) {
-      assert.equal(r.agent_type, 'bro');
-      assert.equal(r.completed_at, null, 'bro row is open until bro_atomic_close');
-    }
-    db.close();
-  });
-
-  it('bro_atomic_close finalizes the bro agent_run (completed_at set, duration_ms computed)', async () => {
-    const db = tempDB();
-    const issues = issueTools(db);
-    const tasks = taskTools(db);
-    const composites = compositeTools(db, '');
-
-    const issue = parse(await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'O' }));
-    const batch = parseBatch(await call(tasks.handlers, 'task_create_batch', {
-      agent: 'bro',
-      issue_id: String(issue.id),
-      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic; gate not under test',
-      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic; gate not under test',
-      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic; gate not under test',
-      waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic; gate not under test',
-      tasks: [{ branch_id: 'feat/x', description: 'd' }],
-    }));
-    const taskId = batch[0].id;
-
-    // Pretend SWE completed (status='completed' so bro_atomic_close accepts it).
-    db.run(`UPDATE tasks SET status = 'completed' WHERE id = ?`, [taskId]);
-
-    // Seed a repo + plug an artificial age between started_at and now so
-    // duration_ms ends up > 0 even on fast machines.
-    db.run(
-      `INSERT INTO repos (name, path, file_count, last_scanned_at)
-       VALUES ('', '.', 0, datetime('now'))`,
-    );
-    db.run(
-      `UPDATE agent_runs SET started_at = datetime('now', '-5 seconds')
-        WHERE task_id = ? AND agent_type = 'bro'`,
-      [taskId],
-    );
-
-    // Smoke the SQL path the composite uses to finalize the bro row.
-    // (The full bro_atomic_close composite is exercised by composites.test.ts;
-    // here we assert just the bro-row UPDATE shape.)
-    void composites;
-    const now = new Date().toISOString();
-    db.run(
-      `UPDATE agent_runs
-          SET completed_at = ?,
-              duration_ms = COALESCE(
-                (strftime('%s', ?) - strftime('%s', started_at)) * 1000, 0
-              )
-        WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL`,
-      [now, now, taskId],
-    );
-
-    const broRun = db.get<{ completed_at: string | null; duration_ms: number }>(
-      `SELECT completed_at, duration_ms FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`,
-      [taskId],
-    );
-    assert.ok(broRun);
-    assert.ok(broRun!.completed_at !== null, 'bro completed_at must be set');
-    assert.ok(broRun!.duration_ms >= 5000, `duration_ms must reflect the 5s gap; got ${broRun!.duration_ms}`);
+    const broRuns = db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM agent_runs WHERE agent_type = 'bro'`)!.c;
+    assert.equal(broRuns, 0, 'the bro-turn-usage Stop hook owns bro rows');
     db.close();
   });
 });

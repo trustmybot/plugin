@@ -32,74 +32,39 @@ run_step() {
   fi
 }
 
-# ----- L1 — Static / lint -----------------------------------------------
-
-run_step "L1 lint: agent template line budget"        bash "$HERE/l1-lint/agent-line-budget.sh"
-run_step "L1 lint: agent template byte-identity (swe + pr-reviewer)"  bash "$HERE/l1-lint/agent-template-byte-identity.sh"
-run_step "L1 lint: local agent overrides retain workflow primitives"   bash "$HERE/l1-lint/local-agent-primitives.sh"
-run_step "L1 lint: shipped swe/pr-reviewer task_brief contract (#300)"  bash "$HERE/l1-lint/agent-task-brief-contract.sh"
-run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/l1-lint/skill-frontmatter.sh"
-run_step "L1 lint: command frontmatter (description + argument-hint)"  bash "$HERE/l1-lint/command-frontmatter.sh"
-run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/l1-lint/manifest-shape.sh"
-run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/l1-lint/version-sync.sh"
-run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
-run_step "L1 lint: link-check (relative md links)"    bash "$HERE/l1-lint/link-check.sh"
-run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/l1-lint/shellcheck-hooks.sh"
-run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
-run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
-run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
-run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
-run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/l1-lint/labels-stable.sh"
-run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"
-run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
-run_step "L1 lint: no negative directives in prompts" bash "$HERE/l1-lint/no-negative-directives.sh"
-run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/l1-lint/issue-sync-test-isolation.sh"
-run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
-run_step "L1 lint: no citations in prompts"           bash "$HERE/l1-lint/no-citations-in-prompts.sh"
-run_step "L1 lint: no file_registry refs (v7 retirement)"  bash "$HERE/l1-lint/no-file-registry-refs.sh"
-run_step "L1 lint: kuzu trustedDependencies declared"  bash "$HERE/l1-lint/kuzu-trusted-dep.sh"
-run_step "L1 lint: no audit_append kind= arg"         bash "$HERE/l1-lint/no-audit-log-kind.sh"
-run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/l1-lint/no-developer-paths.sh"
-run_step "L1 lint: no stale framing prose"            bash "$HERE/l1-lint/stale-framing-prose.sh"
-run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/l1-lint/no-hardcoded-plugin-name.sh"
-run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/l1-lint/ci-workflow-refs-exist.sh"
-run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/l1-lint/no-bare-role-compare.sh"
-run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlink-targets.sh"
-run_step "L1 lint: hooks.json commands executable"     bash "$HERE/l1-lint/hooks-executable.sh"
-run_step "L1 lint: hook wrapper timeouts cover budgets" bash "$HERE/l1-lint/hook-timeout-budget.sh"
-run_step "L1 lint: valid permissionDecision values"    bash "$HERE/l1-lint/valid-permission-decisions.sh"
-run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
-run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
-run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
-run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-toolchain.sh"
-run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
-run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
-run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
-
-# ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
-
-run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
-
-# ----- L2 — Unit + L3 — Integration -------------------------------------
-
-printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
-if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --experimental-sqlite --test dist/test/*.test.js); then
-  printf "→ PASS\n"
-else
-  printf "→ FAIL\n"
-  FAIL=1
+# ----- Run scratch + HOME footprint ------------------------------------------
+# Stubs and tool caches (bun, mise state) live in one run-scoped temp dir that
+# goes when the run ends; the real mise installs on PATH (and their config)
+# stay resolvable under any HOME. A run started with an empty HOME
+# (`HOME=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/home.XXXXXX") bash tests/run-all.sh`) must end with that HOME holding
+# nothing but the embedding model cache, .cache/huggingface.
+_run_tmp=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-run-all.XXXXXX")
+trap 'rm -rf "$_run_tmp"' EXIT
+_home_isolated=0
+[ -z "$(ls -A "$HOME" 2>/dev/null)" ] && _home_isolated=1
+export BUN_INSTALL_CACHE_DIR="$_run_tmp/bun-install-cache"
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH="$_run_tmp/bun-transpiler-cache"
+export MISE_STATE_DIR="$_run_tmp/mise-state" MISE_CACHE_DIR="$_run_tmp/mise-cache"
+if [ -z "${MISE_DATA_DIR:-}" ]; then
+  MISE_DATA_DIR=$(printf '%s\n' "$PATH" | tr ':' '\n' | sed -n 's|^\(.*/mise\)/installs/.*|\1|p' | head -1)
+  export MISE_DATA_DIR="${MISE_DATA_DIR:-$_run_tmp/mise-data}"
+fi
+_mise_home="${MISE_DATA_DIR%/.local/share/mise}"
+if [ -z "${MISE_CONFIG_DIR:-}" ] && [ "$_mise_home" != "$MISE_DATA_DIR" ] && [ -d "$_mise_home/.config/mise" ]; then
+  export MISE_CONFIG_DIR="$_mise_home/.config/mise"
 fi
 
-# ----- L2 adjacent: stubbed-PATH suite (no live gh/glab calls) ---------------
-# Runs the MCP unit suite with loud-fail gh/glab PATH stubs and
-# TMB_FORBID_LIVE_SYNC=1. Reuses the already-built dist/ — no second build.
-# Stubs append to a sentinel file on invocation; a 0-byte sentinel means the
-# suite completed without making any live CLI calls (B5 incident guard).
-printf "\n=== L2 stubbed-PATH: MCP unit suite with live-CLI stubs (reuses dist/) ===\n"
-_stub_dir=$(mktemp -d)
+# ----- Live-CLI stubs (L1, L2 and L4) ----------------------------------------
+# gh/glab/claude stubs append to a sentinel file on invocation and exit 97; a
+# 0-byte sentinel means the step made no live CLI calls (B5 incident guard).
+# L2 and L4 also run with TMB_FORBID_LIVE_SYNC=1, under which scripts/scan.sh
+# reads its plugin list from TMB_SCAN_PLUGIN_JSON (an empty list here) instead
+# of spawning `claude plugin list --json`.
+_stub_dir="$_run_tmp/stubs"
+mkdir -p "$_stub_dir"
 _sentinel="$_stub_dir/live-cli-sentinel"
 touch "$_sentinel"
-for _cli in gh glab; do
+for _cli in gh glab claude; do
   cat > "$_stub_dir/$_cli" <<STUB
 #!/usr/bin/env bash
 echo "LIVE-CLI BLOCKED: $_cli \$*" >> "$_sentinel"
@@ -108,28 +73,149 @@ exit 97
 STUB
   chmod +x "$_stub_dir/$_cli"
 done
-_stub_pass=0
+_scan_plugin_json="$_run_tmp/claude-plugin-list.json"
+echo '[]' > "$_scan_plugin_json"
+
+# live_cli_check <step>: fail when the stubs were called, then reset.
+live_cli_check() {
+  if [ -s "$_sentinel" ]; then
+    printf "→ FAIL: live CLI calls detected during %s:\n" "$1"
+    cat "$_sentinel"
+    : > "$_sentinel"
+    return 1
+  fi
+  printf "→ sentinel 0-byte: no live CLI calls during %s. PASS\n" "$1"
+}
+
+# ----- L1 — Static / lint -----------------------------------------------
+# Offline: lints that would query a forge (TMB_L1_OFFLINE=1) skip, and the
+# stubs above shadow gh/glab/claude.
+
+_l1_saved_path="$PATH"
+export PATH="$_stub_dir:$PATH" TMB_L1_OFFLINE=1
+
+run_step "L1 lint: agent template line budget"        bash "$HERE/l1-lint/agent-line-budget.sh"
+run_step "L1 lint: agent frontmatter declares experimental.cacheTtl"  bash "$HERE/l1-lint/agent-cache-ttl.sh"
+run_step "L1 lint: agent template byte-identity (swe + pr-reviewer)"  bash "$HERE/l1-lint/agent-template-byte-identity.sh"
+run_step "L1 lint: local agent overrides retain workflow primitives"   bash "$HERE/l1-lint/local-agent-primitives.sh"
+run_step "L1 lint: shipped swe/pr-reviewer task_brief contract (#300)"  bash "$HERE/l1-lint/agent-task-brief-contract.sh"
+run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/l1-lint/skill-frontmatter.sh"
+run_step "L1 lint: command frontmatter (description + argument-hint)"  bash "$HERE/l1-lint/command-frontmatter.sh"
+run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/l1-lint/manifest-shape.sh"
+run_step "L1 lint: Codex Scope-4 Agent contract"      bash "$HERE/l1-lint/codex-scope4-contract.sh"
+run_step "L1 lint: version sync (4 manifests agree)"  bash "$HERE/l1-lint/version-sync.sh"
+run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
+run_step "L1 lint: link-check (relative md links)"    bash "$HERE/l1-lint/link-check.sh"
+run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/l1-lint/shellcheck-hooks.sh"
+run_step "L1 lint: no bare mktemp (explicit path template)"  bash "$HERE/l1-lint/no-bare-mktemp.sh"
+run_step "L1 lint: no bare mktemp (self-test)" bash "$HERE/l1-lint/no-bare-mktemp.sh" --self-test
+run_step "L1 lint: no grep -q in pipelines (self-test)" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh" --self-test
+run_step "L1 lint: no grep -q in pipelines under pipefail" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh"
+run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
+run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
+run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
+run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
+run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1-lint/bundle-whitespace-safety.sh"
+run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/l1-lint/labels-stable.sh"
+run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"
+run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
+run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  bash "$HERE/l1-lint/enums-doc-fresh.sh"
+run_step "L1 lint: ERD.md generated from schema.sql"  bash "$HERE/l1-lint/erd-doc-fresh.sh"
+run_step "L1 lint: CONFIG_KEYS.md generated from code" bash "$HERE/l1-lint/config-keys-doc-fresh.sh"
+run_step "L1 lint: tool docs list every family + tool" bash "$HERE/l1-lint/tool-families-documented.sh"
+run_step "L1 lint: REFERENCE.md hook rows are real, wired hooks" bash "$HERE/l1-lint/hooks-doc-fresh.sh"
+run_step "L1 lint: no negative directives in prompts" bash "$HERE/l1-lint/no-negative-directives.sh"
+run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/l1-lint/issue-sync-test-isolation.sh"
+run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
+run_step "L1 lint: no citations in prompts"           bash "$HERE/l1-lint/no-citations-in-prompts.sh"
+run_step "L1 lint: no repo paths in prompts (self-test)" bash "$HERE/l1-lint/no-repo-paths-in-prompts.sh" --self-test
+run_step "L1 lint: no repository paths in prompts" bash "$HERE/l1-lint/no-repo-paths-in-prompts.sh"
+run_step "L1 lint: explicit paths and git -C in prompts" bash "$HERE/l1-lint/prompt-explicit-paths.sh"
+run_step "L1 lint: no file_registry refs (v7 retirement)"  bash "$HERE/l1-lint/no-file-registry-refs.sh"
+run_step "L1 lint: kuzu trustedDependencies declared"  bash "$HERE/l1-lint/kuzu-trusted-dep.sh"
+run_step "L1 lint: no audit_append kind= arg"         bash "$HERE/l1-lint/no-audit-log-kind.sh"
+run_step "L1 lint: single audit write path (insertAudit)"  bash "$HERE/l1-lint/single-audit-write-path.sh"
+run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/l1-lint/no-developer-paths.sh"
+run_step "L1 lint: no stale framing prose"            bash "$HERE/l1-lint/stale-framing-prose.sh"
+run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/l1-lint/no-hardcoded-plugin-name.sh"
+run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/l1-lint/ci-workflow-refs-exist.sh"
+run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/l1-lint/no-bare-role-compare.sh"
+run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlink-targets.sh"
+run_step "L1 lint: hooks.json commands executable"     bash "$HERE/l1-lint/hooks-executable.sh"
+run_step "L1 lint: L5 harness helpers (flow-helpers.test.sh)" bash "$HERE/l5-l6/lib/flow-helpers.test.sh"
+run_step "L1 lint: hooks.json routes through dispatch.sh" bash "$HERE/l1-lint/hooks-via-dispatcher.sh"
+run_step "L1 lint: hook wrapper timeouts cover budgets" bash "$HERE/l1-lint/hook-timeout-budget.sh"
+run_step "L1 lint: deny-capable hooks register onFailure: block" bash "$HERE/l1-lint/hook-onfailure.sh"
+run_step "L1 lint: valid permissionDecision values"    bash "$HERE/l1-lint/valid-permission-decisions.sh"
+run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
+run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
+run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
+run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-toolchain.sh"
+run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
+run_step "L1 lint: tmb_gate_read SQL is read-only" bash "$HERE/l1-lint/gate-read-sql-readonly.sh"
+run_step "L1 lint: no direct sqlite3 writes in scripts" bash "$HERE/l1-lint/no-direct-sqlite-write.sh"
+run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
+run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
+run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
+run_step "L1 lint: claude CLI config calls pinned to project scope (self-test)" bash "$HERE/l1-lint/cli-config-scope.sh" --self-test
+run_step "L1 lint: claude CLI config calls pinned to project scope" bash "$HERE/l1-lint/cli-config-scope.sh"
+run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
+run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
+run_step "L1 lint: live-db shim survives a plain parent directory" bash "$HERE/l1-lint/live-db-shim-parent-layout.sh"
+run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
+run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
+run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
+run_step "L1 lint: no filesystem writes at module load" bash "$HERE/l1-lint/no-module-load-writes.sh"
+run_step "L1 lint: hook tests that source assert.sh call summarize" bash "$HERE/l1-lint/test-summarize-present.sh"
+run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH (self-test)" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh" --self-test
+run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh"
+run_step "L1 lint: hook tests pin the project (self-test)" bash "$HERE/l1-lint/hook-tests-pin-project.sh" --self-test
+run_step "L1 lint: hook tests pin the project" bash "$HERE/l1-lint/hook-tests-pin-project.sh"
+run_step "L1 lint: no .tmp-* scratch dir in the checkout" bash "$HERE/l1-lint/no-scratch-in-tree.sh"
+run_step "L1 lint: nothing finds the project or a repo from the cwd" bash "$HERE/l1-lint/no-cwd-reads.sh"
+run_step "L1 lint: /onboard option wording is plain language (self-test)" bash "$HERE/l1-lint/onboard-option-wording.sh" --self-test
+run_step "L1 lint: /onboard option wording is plain language" bash "$HERE/l1-lint/onboard-option-wording.sh"
+
+# Every tests/l1-lint/*.sh has a run_step line above.
+l1_lints_all_wired() {
+  local lint missing=0
+  for lint in "$HERE"/l1-lint/*.sh; do
+    if ! grep -qF "l1-lint/$(basename "$lint")\"" "$HERE/run-all.sh"; then
+      echo "  ✗ tests/l1-lint/$(basename "$lint") has no run_step in tests/run-all.sh" >&2
+      missing=1
+    fi
+  done
+  return "$missing"
+}
+run_step "L1 self-check: every tests/l1-lint/*.sh runs here" l1_lints_all_wired
+
+# ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
+
+run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
+
+export PATH="$_l1_saved_path"
+unset TMB_L1_OFFLINE
+live_cli_check "L1" || FAIL=1
+
+# ----- L2 — Unit (no live gh/glab/claude calls) -----------------------------
+# Builds dist/ and runs the MCP unit suite once, behind the live-CLI stubs and
+# with TMB_FORBID_LIVE_SYNC=1 and the scan plugin-list fixture.
+
+printf "\n=== L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs) ===\n"
 if (
   export PATH="$_stub_dir:$PATH"
-  export TMB_FORBID_LIVE_SYNC=1
+  export TMB_FORBID_LIVE_SYNC=1 TMB_SCAN_PLUGIN_JSON="$_scan_plugin_json"
   cd "$PLUGIN_ROOT/mcp/trajectory-server"
-  node --experimental-sqlite --test dist/test/*.test.js
+  bun run build && node --experimental-sqlite --test dist/test/*.test.js
 ); then
   printf "→ PASS\n"
 else
   printf "→ FAIL\n"
-  _stub_pass=1
-fi
-if [ -s "$_sentinel" ]; then
-  printf "→ FAIL: live CLI calls detected during stubbed-PATH run:\n"
-  cat "$_sentinel"
   FAIL=1
-elif [ "$_stub_pass" -ne 0 ]; then
-  FAIL=1
-else
-  printf "→ sentinel 0-byte: no live CLI calls. PASS\n"
 fi
-rm -rf "$_stub_dir"
+live_cli_check "L2" || FAIL=1
+
+# ----- L3 — Integration ------------------------------------------------------
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"
@@ -137,13 +223,40 @@ run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash 
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
+# The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan
+# plugin-list fixture, so its gh/glab auth probes and scan.sh never reach a
+# real CLI. Each flow gets a 30 s per-test timeout (bun's 5 s default flakes
+# under a loaded full run).
 
-run_step "L4 workflow-sim: flow-02 simple-task"            bun test "$HERE/l4-workflow-sim/flow-02-simple-task.test.mjs"
-run_step "L4 workflow-sim: flow-03 difficult-task"          bun test "$HERE/l4-workflow-sim/flow-03-difficult-task.test.mjs"
-run_step "L4 workflow-sim: flow-06 push-gate"               bun test "$HERE/l4-workflow-sim/flow-06-push-gate.test.mjs"
-run_step "L4 workflow-sim: flow-08 swe-retry"               bun test "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
-run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
-run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
+_l4_saved_path="$PATH"
+export PATH="$_stub_dir:$PATH" TMB_FORBID_LIVE_SYNC=1 TMB_SCAN_PLUGIN_JSON="$_scan_plugin_json"
+run_step "L4 workflow-sim: flow-02 simple-task"            bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-02-simple-task.test.mjs"
+run_step "L4 workflow-sim: flow-03 difficult-task"          bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-03-difficult-task.test.mjs"
+run_step "L4 workflow-sim: flow-06 push-gate"               bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-06-push-gate.test.mjs"
+run_step "L4 workflow-sim: flow-08 swe-retry"               bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
+run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
+run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
+run_step "L4 workflow-sim: flow-11 concurrent-siblings" bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-11-concurrent-siblings.test.mjs"
+run_step "L4 workflow-sim: flow-12 spec-amend"        bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-12-spec-amend.test.mjs"
+run_step "L4 workflow-sim: flow-13 issue-update-milestone" bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-13-issue-update-milestone.test.mjs"
+run_step "L4 workflow-sim: flow-14 repo-rename"       bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-14-repo-rename.test.mjs"
+
+export PATH="$_l4_saved_path"
+unset TMB_FORBID_LIVE_SYNC TMB_SCAN_PLUGIN_JSON
+live_cli_check "L4" || FAIL=1
+
+# ----- isolated-HOME footprint ------------------------------------------------
+
+if [ "$_home_isolated" -eq 1 ]; then
+  printf "\n=== HOME footprint (run started with an empty HOME) ===\n"
+  _home_leaks=$(find "$HOME" -mindepth 1 \( -path "$HOME/.cache/huggingface" -prune \) -o \( -path "$HOME/.cache" \) -o -print 2>/dev/null | sed "s|^$HOME|\$HOME|")
+  if [ -n "$_home_leaks" ]; then
+    printf "→ FAIL: the run wrote under HOME:\n%s\n" "$_home_leaks"
+    FAIL=1
+  else
+    printf "→ PASS: HOME holds nothing but .cache/huggingface\n"
+  fi
+fi
 
 # ----- summary -----------------------------------------------------------
 

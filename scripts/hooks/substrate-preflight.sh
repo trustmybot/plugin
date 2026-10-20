@@ -34,7 +34,7 @@ _check git     "branch guards and commit-message lint are inoperative"
 _check node    "MCP trajectory-server and scan tooling cannot start"
 
 # Detect local-only mode: no remote with a non-empty url in the current repo's
-# repos.remotes (#980 — the sole source of truth, resolved per repo).
+# repo_remotes rows (read through tmb_repo_remotes, resolved per repo).
 OFFLINE_NOTE=""
 if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   # shellcheck source=scripts/hooks/lib/query-task.sh
@@ -43,7 +43,7 @@ if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   . "$SCRIPT_DIR/lib/resolve-repo.sh"
   _DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$_DB" ]; then
-    _GIT_ROOT=$(tmb_repo_git_root "$PWD" 2>/dev/null || true)
+    _GIT_ROOT=$(tmb_repo_git_root "$(tmb_project_root)" 2>/dev/null || true)
     _REMOTES_JSON=$(tmb_repo_remotes "$_DB" "$_GIT_ROOT" 2>/dev/null || true)
     if [ -n "$_REMOTES_JSON" ]; then
       _HAS_REMOTE=$(printf '%s' "$_REMOTES_JSON" | \

@@ -52,6 +52,9 @@ function estimateCostUsd(
   );
 }
 
+// tokens_total is computed, never stored: tokens_in + tokens_out +
+// cache_read_tokens + cache_creation_tokens (NULL counts as 0). It is NULL on a
+// spawn row that was never measured.
 interface AgentRunsAggregate {
   spawn_count: number;
   tokens_in: number;
@@ -67,15 +70,116 @@ interface AgentRunsAggregate {
 interface AgentRunRow {
   id: number;
   agent_type: string;
-  tokens_in: number;
-  tokens_out: number;
-  tokens_total: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
+  host: string | null;
+  model: string | null;
+  root_dir: string | null;
+  exit_reason: string | null;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  tokens_total: number | null;
+  cache_read_tokens: number | null;
+  cache_creation_tokens: number | null;
   tool_uses: number;
   duration_ms: number;
-  completed_at: string;
+  completed_at: string | null;
+  usage_source: string | null;
 }
+
+// USD per 1M tokens for one model (plugin_config.model_prices[<model>]).
+interface ModelPrice {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_creation: number;
+}
+
+interface CostGroup {
+  host: string | null;
+  model: string | null;
+  spawn_count: number;
+  tokens_total: number;
+  cost_estimate: number;
+  unpriced_tokens: number;
+}
+
+const PRICE_FIELDS = ['input', 'output', 'cache_read', 'cache_creation'] as const;
+
+// plugin_config.model_prices as a map of complete price entries; an entry
+// missing a numeric field is treated as unpriced.
+export function readModelPrices(db: TrajectoryDB): Map<string, ModelPrice> {
+  const prices = new Map<string, ModelPrice>();
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = 'model_prices'`);
+  if (!row) return prices;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.value_json);
+  } catch {
+    return prices;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return prices;
+  for (const [model, entry] of Object.entries(parsed as Record<string, unknown>)) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    if (PRICE_FIELDS.every((f) => typeof e[f] === 'number' && Number.isFinite(e[f]))) {
+      prices.set(model, {
+        input: e['input'] as number,
+        output: e['output'] as number,
+        cache_read: e['cache_read'] as number,
+        cache_creation: e['cache_creation'] as number,
+      });
+    }
+  }
+  return prices;
+}
+
+const round4 = (n: number): number => Math.round(n * 10_000) / 10_000;
+
+// Σ per row tokens × model_prices[model]; a row whose model has no price
+// contributes its tokens to unpriced_tokens instead. Grouped by (host, model).
+export function costEstimate(
+  rows: ReadonlyArray<Pick<AgentRunRow, 'host' | 'model' | 'tokens_in' | 'tokens_out' | 'cache_read_tokens' | 'cache_creation_tokens'>>,
+  prices: ReadonlyMap<string, ModelPrice>,
+): { cost_estimate: number; unpriced_tokens: number; groups: CostGroup[] } {
+  const groups = new Map<string, CostGroup & { cost: number }>();
+  let cost = 0;
+  let unpriced = 0;
+  for (const r of rows) {
+    const ti = r.tokens_in ?? 0;
+    const to = r.tokens_out ?? 0;
+    const cr = r.cache_read_tokens ?? 0;
+    const cc = r.cache_creation_tokens ?? 0;
+    const total = ti + to + cr + cc;
+    const price = r.model !== null ? prices.get(r.model) : undefined;
+    const rowCost = price
+      ? (ti * price.input + to * price.output + cr * price.cache_read + cc * price.cache_creation) / 1_000_000
+      : 0;
+    const rowUnpriced = price ? 0 : total;
+    cost += rowCost;
+    unpriced += rowUnpriced;
+    const key = JSON.stringify([r.host, r.model]);
+    const g = groups.get(key) ?? {
+      host: r.host, model: r.model, spawn_count: 0, tokens_total: 0, cost_estimate: 0, unpriced_tokens: 0, cost: 0,
+    };
+    g.spawn_count += 1;
+    g.tokens_total += total;
+    g.cost += rowCost;
+    g.unpriced_tokens += rowUnpriced;
+    groups.set(key, g);
+  }
+  return {
+    cost_estimate: round4(cost),
+    unpriced_tokens: unpriced,
+    groups: [...groups.values()].map(({ cost: c, ...g }) => ({ ...g, cost_estimate: round4(c) })),
+  };
+}
+
+const TOKENS_TOTAL_SQL =
+  'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL' +
+  ' ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END';
+
+// Per-task cost is the task's swe and pr-reviewer runs: bro is metered per
+// session, so a legacy per-task bro row is history, not task cost.
+const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
 
 export function statsTools(db: TrajectoryDB): {
   definitions: Tool[];
@@ -84,7 +188,8 @@ export function statsTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'task_stats',
-      description: 'Return token/duration aggregate + per-spawn breakdown for one task.',
+      description:
+        'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -122,12 +227,12 @@ export function statsTools(db: TrajectoryDB): {
           'SELECT COUNT(*) as spawn_count,' +
           ' SUM(tokens_in) as sum_tokens_in,' +
           ' SUM(tokens_out) as sum_tokens_out,' +
-          ' SUM(tokens_total) as sum_tokens_total,' +
+          ` SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total,` +
           ' SUM(cache_read_tokens) as sum_cache_read,' +
           ' SUM(cache_creation_tokens) as sum_cache_creation,' +
           ' SUM(tool_uses) as sum_tool_uses,' +
           ' SUM(duration_ms) as sum_duration_ms' +
-          ' FROM agent_runs WHERE task_id = ?',
+          ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`,
           [taskId],
         );
 
@@ -149,13 +254,21 @@ export function statsTools(db: TrajectoryDB): {
         };
 
         const spawns = db.all<AgentRunRow>(
-          'SELECT id, agent_type, tokens_in, tokens_out, tokens_total,' +
-          ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at' +
-          ' FROM agent_runs WHERE task_id = ? ORDER BY id',
+          `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total,` +
+          ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source' +
+          ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
           [taskId],
         );
 
-        return ok({ task_id: taskId, aggregate, spawns });
+        const cost = costEstimate(spawns, readModelPrices(db));
+        return ok({
+          task_id: taskId,
+          aggregate,
+          cost_estimate: cost.cost_estimate,
+          unpriced_tokens: cost.unpriced_tokens,
+          cost_groups: cost.groups,
+          spawns,
+        });
       }),
     ),
   };

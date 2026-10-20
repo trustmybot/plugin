@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 LIB="$PLUGIN_ROOT/scripts/lib/sqlite3-fallback.sh"
 
-TMPDIR_FIXTURE=$(mktemp -d)
+TMPDIR_FIXTURE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-sqlite3-fallback.XXXXXX")
 trap 'rm -rf "$TMPDIR_FIXTURE"' EXIT
 DB="$TMPDIR_FIXTURE/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
@@ -33,7 +33,6 @@ CREATE TABLE tasks (
   title TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
-  attempts INTEGER NOT NULL DEFAULT 0,
   spec_body TEXT NOT NULL DEFAULT '',
   commit_sha TEXT,
   created_at TEXT NOT NULL DEFAULT '',
@@ -57,6 +56,7 @@ CREATE TABLE validation_attempts (
   agent TEXT NOT NULL DEFAULT '',
   verdict TEXT NOT NULL,
   feedback TEXT NOT NULL DEFAULT '',
+  mcp_available INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE(task_id, attempt_n)
 );
@@ -93,6 +93,10 @@ test_case "validation_record happy path: row inserted"
 call_lib "tmb_fallback_validation_record 42 1 pr-reviewer pass 'looks good'" >/dev/null
 row=$(sqlite3 "$DB" "SELECT verdict, feedback FROM validation_attempts WHERE task_id=42 AND attempt_n=1;")
 assert_eq "pass|looks good" "$row" "validation_attempts row"
+
+test_case "validation_record fallback records mcp_available=0"
+mcp=$(sqlite3 "$DB" "SELECT mcp_available FROM validation_attempts WHERE task_id=42 AND attempt_n=1;")
+assert_eq "0" "$mcp" "fallback path is the MCP-down signal"
 
 test_case "validation_record happy path: audit row written"
 count=$(audit_count_for "validation_record")
@@ -176,9 +180,74 @@ test_case "audit_append role rejection: unknown agent blocked"
 out=$(call_lib "tmb_fallback_audit_append 1 '' ghost planning_complete 'x' '{}' ghost" 2>&1 || true)
 assert_contains "$out" "not allowed for 'audit_append'" "role rejection"
 
+audit_rows() {
+  sqlite3 "$DB" "SELECT COUNT(*) FROM audit;"
+}
+
+test_case "audit_append writer check: pr-reviewer cannot write a bro waiver"
+before=$(audit_rows)
+rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' pr-reviewer review_gate_waived 'x' '{}' pr-reviewer") || rc=$?
+assert_eq "1" "$rc" "non-zero exit"
+assert_contains "$out" "audit_event_not_writable_by_role: 'pr-reviewer' may not write 'review_gate_waived' (writers: bro)" "names the refusal and the writers"
+assert_eq "$before" "$(audit_rows)" "no audit row and no fallback marker"
+
+test_case "audit_append writer check: bro cannot write a hook-only event"
+before=$(audit_rows)
+rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' bro roundtable_slash_invoked 'x' '{}' bro") || rc=$?
+assert_eq "1" "$rc" "non-zero exit"
+assert_contains "$out" "audit_event_not_writable_by_role: 'bro' may not write 'roundtable_slash_invoked'" "hook-only event refused"
+assert_eq "$before" "$(audit_rows)" "nothing written"
+
+test_case "audit_append writer check: a consultant writes as consultant"
+rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' architect planning_complete 'x' '{}' architect") || rc=$?
+assert_eq "1" "$rc" "non-zero exit"
+assert_contains "$out" "'consultant' may not write 'planning_complete'" "consultant role checked"
+
+test_case "audit_append writer check: unknown event_type refused"
+before=$(audit_rows)
+rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' bro not_an_event 'x' '{}' bro") || rc=$?
+assert_eq "1" "$rc" "non-zero exit"
+assert_contains "$out" "unknown event_type 'not_an_event'" "names the unknown event"
+assert_eq "$before" "$(audit_rows)" "nothing written"
+
+test_case "audit_append writer check: missing event list fails closed"
+before=$(audit_rows)
+rc=0; out=$(call_lib "_TMB_AUDIT_EVENTS_FILE='$TMPDIR_FIXTURE/missing/audit-events.txt'; tmb_fallback_audit_append 1 '' bro planning_complete 'x' '{}' bro") || rc=$?
+assert_eq "1" "$rc" "non-zero exit"
+assert_contains "$out" "audit event list missing or unreadable: $TMPDIR_FIXTURE/missing/audit-events.txt" "names the missing list"
+assert_eq "$before" "$(audit_rows)" "nothing written"
+
+test_case "audit_append from_node: another agent's name is refused"
+before=$(audit_rows)
+rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' swe planning_complete 'x' '{}' bro") || rc=$?
+assert_eq "1" "$rc" "mismatched from_node refused"
+assert_contains "$out" "from_node 'swe' does not match the calling agent 'bro'" "names the mismatch"
+assert_eq "$before" "$(audit_rows)" "nothing written"
+
+test_case "audit_append from_node: empty from_node records the caller"
+call_lib "tmb_fallback_audit_append 1 '' '' bro_verification_pass 'x' '{}' bro" >/dev/null
+from=$(sqlite3 "$DB" "SELECT from_node FROM audit WHERE event_type='bro_verification_pass' ORDER BY id DESC LIMIT 1;")
+assert_eq "bro" "$from" "from_node is the calling agent"
+
 # ---------------------------------------------------------------------------
 # tmb_fallback_issue_close
 # ---------------------------------------------------------------------------
+
+test_case "issue_close over a live task: refused with issue_has_open_tasks"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, status, created_at, updated_at) VALUES (43, 1, 'completed', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, status, created_at, updated_at) VALUES (44, 1, 'failed', datetime('now'), datetime('now'));"
+rc=0
+out=$(bash -c ". '$LIB'; tmb_fallback_issue_close 1 bro" 2>&1) || rc=$?
+assert_eq "1" "$rc" "non-zero exit over live tasks"
+assert_contains "$out" "issue_has_open_tasks: 42,43" "names the live task ids"
+
+test_case "issue_close over a live task: issue untouched, no audit row"
+status=$(sqlite3 "$DB" "SELECT status FROM issues WHERE id=1;")
+assert_eq "open" "$status" "issue stays open"
+count=$(audit_count_for "issue_close")
+assert_eq "0" "$count" "no audit row on refusal"
+
+sqlite3 "$DB" "UPDATE tasks SET status = 'escalated' WHERE id IN (42, 43);"
 
 test_case "issue_close happy path: status set to closed"
 call_lib "tmb_fallback_issue_close 1 bro" >/dev/null

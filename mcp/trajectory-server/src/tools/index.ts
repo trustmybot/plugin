@@ -4,6 +4,7 @@ import type { TrajectoryDB } from '../db.js';
 import type { GraphHolder } from '../graph-db.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
+import { milestoneTools } from './milestones.js';
 import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
@@ -18,8 +19,11 @@ import { prMonitorTools } from './pr_monitor.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
+import { repoTools } from './repos.js';
 import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
+import { agentRunsBackfillTools } from './agent-runs-backfill.js';
+import { trajectoryDoctorTools } from './trajectory-doctor.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
 
@@ -54,6 +58,7 @@ export function registerTools(
 ): void {
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
+  const milestones = milestoneTools(db);
   const tasks = taskTools(db);
   const audit = auditTools(db);
   const validation = validationTools(db);
@@ -68,12 +73,16 @@ export function registerTools(
   const composites = compositeTools(db, dbPath, graphHolder);
   const onboard = onboardTools(db, dbPath);
   const scan = scanTools(db, graphHolder, dbPath);
+  const repos = repoTools(db, graphHolder);
   const cheatcode = cheatcodeTools(db);
   const worldModel = worldModelTools(db, graphHolder);
+  const backfill = agentRunsBackfillTools(db, dbPath);
+  const doctor = trajectoryDoctorTools(db);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
+    ...milestones.definitions,
     ...tasks.definitions,
     ...audit.definitions,
     ...validation.definitions,
@@ -88,13 +97,17 @@ export function registerTools(
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...repos.definitions,
     ...cheatcode.definitions,
     ...worldModel.definitions,
+    ...backfill.definitions,
+    ...doctor.definitions,
   ]);
 
   toolHandlers = {
     ...discussions.handlers,
     ...issues.handlers,
+    ...milestones.handlers,
     ...tasks.handlers,
     ...audit.handlers,
     ...validation.handlers,
@@ -109,7 +122,10 @@ export function registerTools(
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...repos.handlers,
     ...cheatcode.handlers,
     ...worldModel.handlers,
+    ...backfill.handlers,
+    ...doctor.handlers,
   };
 }

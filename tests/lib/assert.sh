@@ -49,7 +49,7 @@ assert_contains() {
   local haystack="$1"
   local needle="$2"
   local label="${3:-output}"
-  if echo "$haystack" | grep -q -F -- "$needle"; then
+  if echo "$haystack" | grep -F -- "$needle" >/dev/null; then
     _pass
   else
     _fail "$label missing substring <$needle>. got=<$haystack>"
@@ -60,7 +60,7 @@ assert_not_contains() {
   local haystack="$1"
   local needle="$2"
   local label="${3:-output}"
-  if echo "$haystack" | grep -q -F -- "$needle"; then
+  if echo "$haystack" | grep -F -- "$needle" >/dev/null; then
     _fail "$label unexpectedly contains <$needle>. got=<$haystack>"
   else
     _pass
@@ -69,9 +69,10 @@ assert_not_contains() {
 
 assert_not_in_plugin_repo() {
   local plugin_root="$1"
-  local toplevel
-  toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  if [ -n "$toplevel" ] && [ "$toplevel" = "$plugin_root" ]; then
+  local toplevel plugin_top
+  plugin_top="$(git -C "$plugin_root" rev-parse --show-toplevel 2>/dev/null || true)"
+  toplevel="$(git -C "$(pwd -P)" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$toplevel" ] && [ "$toplevel" = "$plugin_top" ]; then
     printf "${RED}ABORT${NC} test cwd is the plugin repo root (%s) — sandbox isolation breach; refusing to run to avoid committing on the caller branch\n" "$toplevel" >&2
     exit 1
   fi

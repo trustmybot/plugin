@@ -2,7 +2,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { tempDB } from './helpers.js';
-import { prMonitorTools } from '../tools/pr_monitor.js';
+import { prMonitorTools, remoteCommentId } from '../tools/pr_monitor.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 
 type SpawnFn = (
   cmd: string,
@@ -89,6 +90,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 5,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -123,6 +125,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 6,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -150,6 +153,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 5,
+      repo: 'owner/repo',
       since: '2024-01-15T11:30:00Z',
     })) as RawResult;
 
@@ -173,6 +177,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 5,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(result.isError, 'Expected error result');
@@ -370,6 +375,7 @@ describe('pr_monitor_comments_get — GitLab backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 3,
+      repo: 'group/project',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -403,6 +409,7 @@ describe('pr_monitor_comments_get — GitLab backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 3,
+      repo: 'group/project',
       since: '2024-01-20T09:30:00Z',
     })) as RawResult;
 
@@ -430,6 +437,7 @@ describe('pr_monitor_comments_get — issue_sync=off', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 20,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -454,7 +462,7 @@ describe('pr_review_runs table state capture', () => {
       `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`,
     );
     const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 10 });
+    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 10, repo: 'owner/repo' });
 
     const row = db.get<{ last_comment_id: string }>(
       `SELECT last_comment_id FROM pr_review_runs WHERE pr_number = 10`,
@@ -465,14 +473,27 @@ describe('pr_review_runs table state capture', () => {
     db.close();
   });
 
+  it('persists no cursor when no repo slug resolves (the cursor is keyed by repo)', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`,
+    );
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+    const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 12 })) as RawResult;
+
+    assert.ok(result.isError, 'no resolvable slug must be a named error');
+    const count = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
+    assert.equal(count, 0, 'no repo slug → no cursor row');
+
+    db.close();
+  });
+
 });
 
 describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)', () => {
   function seedTask(db: ReturnType<typeof tempDB>, branch: string, repo: string): number {
-    db.run(
-      `INSERT INTO repos (name, path, remotes) VALUES (?, '/tmp/app', ?)`,
-      [repo, JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])],
-    );
+    db.run(`INSERT INTO repos (name, path) VALUES (?, '/tmp/app')`, [repo]);
+    upsertRepoRemotes(db, repo, [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
     db.run(
       `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('t', '', 'open', datetime('now'), datetime('now'))`,
     );
@@ -556,6 +577,212 @@ describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)'
       'SELECT task_id FROM pr_review_runs WHERE pr_number = 33',
     );
     assert.equal(row?.task_id, taskId, 'COALESCE keeps the earlier task_id');
+
+    db.close();
+  });
+});
+
+describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)', () => {
+  const REPO_URL = 'https://github.com/owner/repo.git';
+
+  function seedTask(
+    db: ReturnType<typeof tempDB>,
+    branch: string,
+    status = 'pending',
+    updatedAt = '2024-01-01T00:00:00.000Z',
+  ): { taskId: number; issueId: number } {
+    db.run(`INSERT OR IGNORE INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: REPO_URL }]);
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('carrier', '', 'open', datetime('now'), datetime('now'))`,
+    );
+    const issueId = db.get<{ id: number }>('SELECT id FROM issues ORDER BY id DESC LIMIT 1')!.id;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, repo, status, created_at, updated_at)
+       VALUES (?, ?, 'task', 'app', ?, ?, ?)`,
+      [issueId, branch, status, updatedAt, updatedAt],
+    );
+    const taskId = db.get<{ id: number }>('SELECT id FROM tasks ORDER BY id DESC LIMIT 1')!.id;
+    return { taskId, issueId };
+  }
+
+  const comment = (id: string, login: string, body: string, createdAt: string) => ({
+    id,
+    author: { login },
+    body,
+    createdAt,
+  });
+  const C1 = comment('IC_1', 'alice', 'Handle null input.', '2024-01-15T10:00:00Z');
+  const C2 = comment('IC_2', 'bob', 'Extract a helper.', '2024-01-15T11:00:00Z');
+  const C3 = comment('IC_3', 'carol', 'Typo in the docstring.', '2024-01-15T12:00:00Z');
+  const payload = (branch: string, comments: unknown[]) =>
+    JSON.stringify({ state: 'OPEN', headRefName: branch, comments, reviews: [] });
+
+  function prDiscussions(db: ReturnType<typeof tempDB>) {
+    return db.all<{ issue_id: number; author: string; kind: string; body: string; remote_comment_id: string | null }>(
+      `SELECT issue_id, author, kind, body, remote_comment_id FROM discussions
+        WHERE remote_comment_id IS NOT NULL ORDER BY id`,
+    );
+  }
+
+  it('formats remote_comment_id as <provider>:<pr_number>:<comment_id>', () => {
+    assert.equal(remoteCommentId('github', 12, 'IC_kwDO'), 'github:12:IC_kwDO');
+    assert.equal(remoteCommentId('gitlab', 7, '4410'), 'gitlab:7:4410');
+  });
+
+  it('two fetches of the same comment set insert once', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { issueId } = seedTask(db, 'fix/dedupe');
+    const tools = prMonitorTools(
+      db,
+      makeSpawnFn([
+        { status: 0, stdout: payload('fix/dedupe', [C1, C2]), stderr: '' },
+        { status: 0, stdout: payload('fix/dedupe', [C1, C2]), stderr: '' },
+      ]),
+    );
+
+    const first = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 50, since: '2000-01-01T00:00:00Z' })) as RawResult);
+    assert.equal(first.persisted, 2);
+    assert.equal(first.duplicates, 0);
+    const second = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 50, since: '2000-01-01T00:00:00Z' })) as RawResult);
+    assert.equal(second.persisted, 0, 'second fetch inserts nothing');
+    assert.equal(second.duplicates, 2);
+
+    const rows = prDiscussions(db);
+    assert.equal(rows.length, 2, 'one discussion per remote comment');
+    assert.deepEqual(rows.map((r) => r.remote_comment_id), ['github:50:IC_1', 'github:50:IC_2']);
+    for (const r of rows) {
+      assert.equal(r.issue_id, issueId, 'persisted on the carrier issue');
+      assert.equal(r.kind, 'note');
+    }
+    assert.equal(rows[0]!.author, 'alice');
+    assert.ok(rows[0]!.body.startsWith('[PR #50 comment by alice] '), rows[0]!.body);
+    assert.ok(rows[0]!.body.includes('Handle null input.'), 'comment text preserved');
+
+    db.close();
+  });
+
+  it('a new comment on the second fetch inserts exactly one row', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/new-comment');
+    const tools = prMonitorTools(
+      db,
+      makeSpawnFn([
+        { status: 0, stdout: payload('fix/new-comment', [C1, C2]), stderr: '' },
+        { status: 0, stdout: payload('fix/new-comment', [C1, C2, C3]), stderr: '' },
+      ]),
+    );
+
+    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 51, since: '2000-01-01T00:00:00Z' });
+    const second = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 51, since: '2000-01-01T00:00:00Z' })) as RawResult);
+    assert.equal(second.persisted, 1);
+    assert.equal(second.duplicates, 2);
+    assert.deepEqual(prDiscussions(db).map((r) => r.remote_comment_id), ['github:51:IC_1', 'github:51:IC_2', 'github:51:IC_3']);
+
+    db.close();
+  });
+
+  it('resolves the issue through pr_review_runs.task_id when the PR maps to a task', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { taskId, issueId } = seedTask(db, 'fix/linked');
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('decoy', '', 'open', datetime('now'), datetime('now'))`,
+    );
+    db.run(
+      `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id) VALUES (52, 'github.com/owner/repo', '2000-01-01T00:00:00Z', ?)`,
+      [taskId],
+    );
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 52 })) as RawResult);
+    assert.equal(result.persisted, 1);
+    const rows = prDiscussions(db);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.issue_id, issueId, 'the linked task\'s issue carries the comment');
+
+    db.close();
+  });
+
+  it('persists nothing when only failed/escalated tasks match', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/dead', 'failed');
+    seedTask(db, 'fix/dead', 'escalated');
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/dead', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 53 })) as RawResult);
+    assert.equal(result.persisted, 0);
+    assert.equal(result.duplicates, 0);
+    assert.equal(result.comments.length, 1, 'comments still returned');
+    assert.equal(prDiscussions(db).length, 0);
+
+    db.close();
+  });
+
+  it('a closed task\'s issue receives the comment (tasks close at bro_atomic_close, before the PR opens)', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { issueId } = seedTask(db, 'fix/shipped', 'closed');
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/shipped', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 54 })) as RawResult);
+    assert.equal(result.persisted, 1);
+    const rows = prDiscussions(db);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.issue_id, issueId, 'the closed task\'s issue carries the comment');
+
+    db.close();
+  });
+
+  it('prefers the most recently updated task when several share the head branch', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/reworked', 'closed', '2024-01-01T00:00:00.000Z');
+    const { issueId: newer } = seedTask(db, 'fix/reworked', 'closed', '2024-06-01T00:00:00.000Z');
+    seedTask(db, 'fix/reworked', 'failed', '2024-09-01T00:00:00.000Z');
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/reworked', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 55 })) as RawResult);
+    assert.equal(result.persisted, 1);
+    assert.equal(prDiscussions(db)[0]!.issue_id, newer, 'most recently updated carrying task wins; failed is skipped');
+
+    db.close();
+  });
+
+  it('never binds to another registered repo\'s task when the slug maps to a registered repo', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/shared', 'closed');
+    db.run(`INSERT INTO repos (name, path) VALUES ('b', '/tmp/b')`);
+    upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/b.git' }]);
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/shared', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 56, repo: 'owner/b' })) as RawResult);
+    assert.equal(result.persisted, 0, 'repo app\'s task must not carry repo b\'s PR comments');
+    assert.equal(prDiscussions(db).length, 0);
+    const run = db.get<{ task_id: number | null }>('SELECT task_id FROM pr_review_runs WHERE pr_number = 56');
+    assert.equal(run?.task_id, null, 'the run row is not linked to another repo\'s task');
+
+    db.close();
+  });
+
+  it('keys GitLab notes with the gitlab provider', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
+    seedTask(db, 'fix/gitlab');
+    const glab = JSON.stringify({
+      state: 'opened',
+      source_branch: 'fix/gitlab',
+      notes: [{ id: 4410, author: { username: 'dave' }, body: 'Looks off.', created_at: '2024-01-20T09:00:00Z' }],
+    });
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: glab, stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 7 })) as RawResult);
+    assert.equal(result.persisted, 1);
+    assert.deepEqual(prDiscussions(db).map((r) => r.remote_comment_id), ['gitlab:7:4410']);
 
     db.close();
   });
@@ -663,16 +890,33 @@ describe('pr_monitor_comments_get — repo threading (#362)', () => {
     db.close();
   });
 
-  it('does not add -R flag when repo is omitted', async () => {
+  for (const sync of ['gh', 'off']) {
+    it(`returns a named error and spawns nothing when no repo is registered (issue_sync=${sync})`, async () => {
+      const db = tempDB();
+      db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', ?)`, [JSON.stringify(sync)]);
+      const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
+      const tools = prMonitorTools(db, spawnFn);
+      const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 5 })) as RawResult;
+
+      assert.ok(result.isError, 'an unresolvable slug must be a named error');
+      assert.match(parseResult(result).error as string, /no repo is registered/);
+      assert.equal(calls.length, 0, 'no gh/glab spawn may run against the server cwd');
+
+      db.close();
+    });
+  }
+
+  it('returns a named error and spawns nothing when the sole repo has no remote slug', async () => {
     const db = tempDB();
     db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
     const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
     const tools = prMonitorTools(db, spawnFn);
-    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 5 });
+    const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 5 })) as RawResult;
 
-    const ghCall = calls.find((c) => c.cmd === 'gh');
-    assert.ok(ghCall, 'gh should be called');
-    assert.ok(!ghCall.args.includes('-R'), 'args should NOT include -R flag when repo is omitted');
+    assert.ok(result.isError, 'a repo without a remote slug must be a named error');
+    assert.match(parseResult(result).error as string, /repo "app" has no GitHub\/GitLab remote slug/);
+    assert.equal(calls.length, 0, 'no gh/glab spawn may run against the server cwd');
 
     db.close();
   });
@@ -738,10 +982,8 @@ describe('pr_monitor_comments_get — repo resolution (#15)', () => {
   it('resolves the sole repo\'s remote slug and threads it into gh -R + the cursor key', async () => {
     const db = tempDB();
     db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-    db.run(
-      `INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`,
-      [JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])],
-    );
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
     const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
     const tools = prMonitorTools(db, spawnFn);
 

@@ -25,6 +25,8 @@ With the world model in hand, before you commit to building — two quick questi
 
    The distinction is INSIDE vs ON the agent: a package is a dependency inside the code; a cheatcode is a capability added to an agent's toolkit.
 
+A reported defect gets reproduced on the target branch tip before you file or dispatch it. Record what you saw (reproduced, or already fixed and at which commit) in the issue with `discussion_append`.
+
 Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
 
 Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and do **not** proceed through the branch+spec+swe steps below. Feature reuse and from-scratch are both builds: they flow on to steps 3–6.
@@ -36,6 +38,8 @@ When a remote is configured, ask the Human which branch to base the new feature 
 Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. `task_provision` (§5) creates the git branch — don't create it here.
 
 ## 4. Author the spec
+
+When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match what the project already uses before reaching for anything new.
 
@@ -49,8 +53,18 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 
 Pass the typed machine contract on each swe-executed task:
 
-- `files: string[]` — the paths the task touches.
-- `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
+- `files: string[]` — the surfaces the task is expected to touch, at directory granularity and in the project's own layout: its source tree, its hooks or scripts, its tests, its docs, its changelog fragments where it keeps them. The swe may edit other paths inside its worktree and reports each one with a reason; you judge them at close.
+- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`. Dry-run each command before `task_provision` and prefer the repo's own test scripts or runner. Keep commands portable across BSD and GNU tools: `grep -c` on one file prints a bare count and exits 1 on zero matches, and BSD `wc -l` pads its count with spaces, so compare counts numerically with `test`.
+- `effort` — the swe's effort level, by this rule:
+
+| Effort | When |
+|---|---|
+| `medium` | Default |
+| `high` | The task touches enforcement code (hooks, guards, permission gates), the persistence or server write path (schema, migrations, DB layer, write handlers), or is prompt-bearing (`prompt_bearing: 1`) |
+| `high` | Any rework spawn after a reviewer FAIL: raise it first with `task_reopen(task_id, reason, effort='high')` or `task_retry(..., effort='high')`, then spawn with the same value |
+| `low` | Consultants and lookups |
+
+swe executes a spec bro already pinned, so medium is the executor default; high is for surfaces where a miss fails open.
 
 The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
@@ -58,6 +72,10 @@ The `spec_body` markdown carries the prose bro and swe reason from. Its sections
 - `## Success Criteria` — 2–5 testable assertions
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
+
+When the task adds a column, field, enum value, tool-result key or file output, `## Success Criteria` names each one with its own `Writer: <tool, hook or function that sets it>` line and a `Populated: <verification[] command proving a non-null sample or a count above zero>` line, or a `Nullable: <reason>` line when empty is correct. The spawn gate checks schema-touching specs for these lines.
+
+A dry run or smoke test is a `verification[]` command that exits non-zero when its expectation fails, run against a `cp` of reference data so the live DB stays untouched. The one-line form is `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" <db-copy> "<sql>" <expected>`. The swe report then cites that command's pass/fail rather than the numbers it saw.
 
 The chosen approach rides into `task_provision` as `decision_body` (§5) — it writes the `kind='decision'` discussion atomically with the task, so there's no separate `discussion_append` here.
 
@@ -77,25 +95,46 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 Call `task_provision(issue_id, branch_id, decision_body, task, base?)` — it atomically writes the `kind='decision'` discussion, creates the task (with the typed `files[]` + `verification[]` and the planning-complete event), creates the git branch, and creates the worktree. It returns the spawn-ready shape `{task_id, branch_id, worktree_path, ...}` — branch and worktree already exist.
 
-Then spawn SWE with the `task_id` it returned. For multiple tasks, provision each, then spawn per task.
+Then spawn SWE with the `task_id` it returned. The swe runs the tests for what it touched while it works; the gate runs `verification[]` once, when the swe closes, and records the run for that commit. Independent tasks run concurrently: provision every one of them, then spawn one swe per task in the same turn — one Agent call each, all in one message. A task waits only when it needs another task's merged output, and its `decision_body` names that dependency. Each spec names the sibling tasks running alongside it and their `files[]`. You prepare everything: `task_provision` gives swe a ready-to-work branch and worktree cut from the up-to-date base, and a rework spawn gets the same.
 
 ### Spawning SWE
 
 The Agent PreToolUse gates enforce a spawn contract:
 
 - The spawn prompt MUST contain the literal `task_id=<N>` from the `task_provision` response — a bare `task_id 5` without `=` fails the gate.
-- The task must be `pending`/`open` with a non-empty `spec_body` — `task_provision` guarantees this.
+- The Agent call carries `effort` equal to the task's effort; the spawn gate denies a mismatch.
+- The task must be `pending` (or `running` with no live SWE run) with a non-empty `spec_body` — `task_provision` guarantees this.
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
 ## 6. Verify on SWE return + atomic close
 
-After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
+Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
-1. Changed files match the typed `files[]` — nothing surprising outside scope.
-2. The typed `verification[]` commands pass when re-run verbatim inside the SWE worktree.
-3. Each `## Success Criteria` bullet is visibly met by the diff.
+After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`) and judge it against the spec on four counts:
+
+1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
+2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
+3. Each `## Success Criteria` bullet is visibly met by the diff, and the changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, file the fix as a follow-up issue, and hold the push.
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, hold the push, and rework the task (below).
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
+
+### Integrate after the review pass
+
+When pr-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>`:
+
+- **Exit 0** — rebased and re-verified; push the SHA it prints.
+- **Exit 1** — `verification[]` failed on the rebased commit; surface the failure and rework the task (below).
+- **Exit 2** — conflict or patch drift; `task_retry` on a fresh branch from the current base, with a spec that points at the reviewed commit. The retry goes through verify and review again.
+- **Exit 3** — the task has no passing review; spawn pr-reviewer first.
+
+### Rework and spec changes
+
+- **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
+- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`.
+- **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
+- **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
+
+The worktree stays in place through `bro_atomic_close` and is removed once pr-reviewer passes the task, so rework continues where SWE left off.

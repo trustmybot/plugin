@@ -1,30 +1,23 @@
 #!/usr/bin/env bash
-# Hook: SWE scope fence — deny edits outside the task's typed files[] dirs.
+# Hook: SWE scope note — tell the swe when an Edit/Write lands outside the
+# task's typed files[] dirs. Never denies: scope is judged at close, where
+# bro_atomic_close diffs the task's own commits against files[] and records
+# the extras bro accepts.
 #
-# Fires in SWE worktree contexts ($PWD inside .claude/worktrees/<slug>).
-# Resolves the active task by worktree slug → branch_id, reads the typed
-# `files` column (a JSON array, Typed Rails #673) into a dir allowlist, and
-# DENY edits targeting paths outside every allowed dir.
+# Fires for a swe caller. The task and worktree are the caller's own
+# (tmb_agent_context in lib/agent-context.sh: the task_id in its spawn
+# transcript → tasks.repo → repos.path → the derived worktree; never the cwd,
+# GH 1550). A relative target joins the payload cwd. Reads that
+# task's typed `files` column through lib/scope-fence.sh (the classifier
+# swe-boundary.sh shares for Bash writes), and for a path outside every
+# listed dir emits
+# additionalContext "<path> is outside this task's files[] (<dirs>); list it
+# and why in your report" — once per path per task.
 #
-# Dir-granularity rules:
-#   - Each listed path contributes its containing directory.
-#   - A path at repo root (no slash) contributes just that file exactly.
-#   - A listed path that IS a directory contributes that directory itself.
-#   - tests/ paths: always allowed when files[] lists any tests/ path's parent.
-#
-# Typed Rails (#673): the scope fence reads the typed `files` column directly.
-# A task with an empty files[] array (e.g. pre-migration tasks, or bro omitting
-# the field) skips enforcement.
-#
-# Toolchain PATH (#673 audit): this hook performs only path-string comparison
-# (jq/dirname/sqlite via libs) — it never execs user toolchains, so the
-# toolchain-PATH resolution in swe-verification-gate.sh is not needed here.
-#
-# Fail-open policy: passes through when:
-#   - not an SWE worktree context
-#   - task row unresolvable
-#   - typed files[] empty or unparseable
-#   - target is inside an allowed dir
+# Silent when: not an SWE context, an unresolved context, no DB, an empty
+# files[], a DB read error, the path inside files[], or the path already
+# noted. Paths outside the worktree, prompt-surface paths and CLAUDE.md are swe-boundary.sh's and
+# containment-guard.sh's denies.
 #
 # Fires on: PreToolUse — matcher: Edit|Write|MultiEdit|NotebookEdit
 set -uo pipefail
@@ -34,6 +27,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/scope-fence.sh disable=SC1091
+. "$SCRIPT_DIR/lib/scope-fence.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh disable=SC1091
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh disable=SC1091
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 INPUT=$(cat)
 
@@ -52,105 +51,31 @@ SWE_CTX=$(tmb_swe_context "$AGENT_TYPE")
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null || true)
 [ -n "$TARGET" ] || exit 0
 
-# Resolve the worktree root from the TARGET (or $PWD). Fail open when neither
-# yields a worktree — we need it to scope the spec lookup and target comparison.
-WORKTREE_ROOT=$(tmb_worktree_root_for_target "$TARGET")
-[ -n "$WORKTREE_ROOT" ] || exit 0
-
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] || exit 0
 tmb_have_sqlite || exit 0
 
-# Resolve the active task (worktree branch → slug → transcript), no status filter.
-TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
-[ -n "$TASK_ID" ] || exit 0
+tmb_agent_context "$INPUT" "$DB" || exit 0
+TASK_ID="$TMB_CTX_TASK_ID"
 
-# Read the typed `files` column (JSON array of path-like strings, Typed Rails
-# #673). One path per line via jq; fail open if the column is absent, empty,
-# or not a JSON array.
-FILES_JSON=$(tmb_sqlite_ro "$DB" "
-  SELECT COALESCE(files, '[]') FROM tasks
-   WHERE id = ${TASK_ID}
-   LIMIT 1;
-" 2>/dev/null || true)
+tmb_scope_fence_load "$DB" "$TASK_ID"
+[ "$TMB_FENCE_STATE" = "ok" ] || exit 0
 
-# Fail open: no task row.
-[ -n "$FILES_JSON" ] || exit 0
-
-# Parse the JSON array into path tokens (one per line). Empty array or invalid
-# JSON yields no lines → fail open below.
-FILE_PATHS=$(printf '%s' "$FILES_JSON" | jq -r '.[]?' 2>/dev/null || true)
-
-# Build the dir allowlist from the typed paths.
-ALLOWED_DIRS=()
-HAS_TESTS_DIR=""
-
-while IFS= read -r path_token; do
-  # Strip a single trailing slash so a dir token like "tests/" maps to "tests"
-  # instead of collapsing to "." via dirname. Skips empty lines and a bare "/".
-  path_token="${path_token%/}"
-  [ -n "$path_token" ] || continue
-  case "$path_token" in
-    */*) dir=$(dirname "$path_token") ;;
-    *)   dir="$path_token" ;;  # root-level file → exact path
-  esac
-  ALLOWED_DIRS+=("$dir")
-  case "$dir" in
-    tests/*|tests) HAS_TESTS_DIR="yes" ;;
-  esac
-done <<< "$FILE_PATHS"
-
-# Empty typed files[] → skip enforcement.
-if [ "${#ALLOWED_DIRS[@]}" -eq 0 ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed files[] — scope fence skipped. Ask bro to set the task'"'"'s files[] field (Typed Rails #673) to enforce edit scope."}}'
-  exit 0
-fi
-
-# Normalize target to a repo-relative path for comparison (strip WORKTREE_ROOT).
 case "$TARGET" in
   /*) ABS_TARGET="$TARGET" ;;
-  *)  ABS_TARGET="${PWD}/${TARGET}" ;;
+  *)  ABS_TARGET="$(tmb_payload_cwd "$INPUT")/${TARGET}" ;;
 esac
+ABS_TARGET=$(tmb_path_canonical "$ABS_TARGET")
+WORKTREE_C=$(tmb_path_canonical "$TMB_CTX_WORKTREE")
 
-# Best-effort resolve of ../ and ./ without requiring realpath.
 case "$ABS_TARGET" in
-  *"/../"*|*"/./"*)
-    _resolved=$(cd "$(dirname "$ABS_TARGET")" 2>/dev/null && pwd)/$(basename "$ABS_TARGET") || true
-    [ -n "$_resolved" ] && ABS_TARGET="$_resolved"
-    ;;
+  "${WORKTREE_C%/}"/*) REL_TARGET="${ABS_TARGET#"${WORKTREE_C%/}"/}" ;;
+  *) exit 0 ;;
 esac
 
-# Strip the worktree root to get a repo-relative path.
-case "$ABS_TARGET" in
-  "${WORKTREE_ROOT}"/*)
-    REL_TARGET="${ABS_TARGET#"${WORKTREE_ROOT}"/}"
-    ;;
-  *)
-    # Target is outside the worktree entirely — swe-boundary.sh handles that deny.
-    exit 0
-    ;;
-esac
+tmb_scope_fence_allows "$REL_TARGET" && exit 0
 
-# Check if target is under any allowed dir.
-for allowed in "${ALLOWED_DIRS[@]}"; do
-  case "$REL_TARGET" in
-    "${allowed}/"*|"${allowed}")
-      exit 0
-      ;;
-  esac
-done
-
-# Special case: if files[] lists any tests/ parent, allow any tests/ path.
-if [ "$HAS_TESTS_DIR" = "yes" ]; then
-  case "$REL_TARGET" in
-    tests/*|tests) exit 0 ;;
-  esac
-fi
-
-# Target is out of scope — deny with recovery instructions.
-DIRS_LIST=$(printf '%s\n' "${ALLOWED_DIRS[@]}" | sort -u | tr '\n' ' ')
-DENY_MSG="BLOCKED (scope fence): '${REL_TARGET}' is outside this task's files[] dirs. Allowed: ${DIRS_LIST%. }. To edit files outside scope, ask bro to extend the task's typed files[] field (or file a follow-up task) — do not edit out of scope."
-
-jq -nc --arg r "$DENY_MSG" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+NOTE=$(tmb_scope_fence_note "$TASK_ID" "$REL_TARGET")
+[ -n "$NOTE" ] || exit 0
+jq -nc --arg c "TMB: $NOTE" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$c}}'
 exit 0

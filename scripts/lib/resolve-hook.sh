@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
-# Version-agnostic hook resolver (#74/#680).
+# Version-agnostic hook resolver for the project-scoped headless shim.
 #
-# /onboard materializes a stable copy of this script at ~/.claude/tmb-hooks/
-# resolve-hook.sh and writes version-agnostic commands into the user-global
-# ~/.claude/settings.json (which DO fire under `claude -p`, unlike
-# marketplace plugin hooks). Each settings.json command is:
+# When a project opts in to headless enforcement, /onboard materializes a copy
+# of this script at <project>/.claude/<plugin>/resolve-hook.sh and writes
+# project-tagged commands into <project>/.claude/settings.local.json (project
+# settings hooks DO fire under `claude -p`, unlike marketplace plugin hooks).
+# Each command is:
 #
-#   bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace <mp> --hook <basename>
+#   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <gate> --shim --project <root>
 #
-# This resolver discovers the ACTIVE tmb cache version at hook-fire time and
-# execs the real gate `.../cache/<mp>/tmb/<version>/scripts/hooks/<basename>.sh`,
-# forwarding stdin + any pass-through argv untouched. Because the version is
-# resolved at fire-time (not baked in at onboard-time), a plugin upgrade or
-# cache-clean that bumps the active version no longer orphans the hook paths.
+# The resolver discovers the ACTIVE tmb cache version at hook-fire time and
+# execs that version's dispatcher, `.../scripts/hooks/dispatch.sh <gate>
+# --shim`, forwarding stdin + any pass-through argv untouched, with
+# TMB_SHIM_PROJECT=<root> (its physical path, cd -P). The dispatcher picks the project's install, runs
+# the gate once per event, and in --shim mode exits 0 without running it when:
+#   - CLAUDE_PROJECT_DIR is set and is not <root> (another project's session), or
+#   - the plugin's own hooks are active in this session: the plugin's
+#     SessionStart hook left <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks
+#     for the payload's session_id. Interactive sessions run each gate once,
+#     from the plugin; headless runs (no plugin hooks, no marker) get the shim.
+# Because the version is resolved at fire time (not baked in at onboard time),
+# a plugin upgrade or cache-clean that bumps the active version never orphans
+# the hook paths.
 #
 # Active-version source of truth (in order):
 #   1. CC's installed-plugins manifest ~/.claude/plugins/installed_plugins.json
@@ -31,6 +40,8 @@ MANIFEST="$CLAUDE_HOME/plugins/installed_plugins.json"
 
 marketplace=""
 hook=""
+shim=0
+project=""
 passthrough=()
 
 while [ $# -gt 0 ]; do
@@ -41,6 +52,14 @@ while [ $# -gt 0 ]; do
       ;;
     --hook)
       hook="${2:-}"
+      shift 2
+      ;;
+    --shim)
+      shim=1
+      shift
+      ;;
+    --project)
+      project="${2:-}"
       shift 2
       ;;
     *)
@@ -92,15 +111,18 @@ if [ -z "$version_root" ] || [ ! -d "$version_root" ]; then
   warn_open "no active tmb version resolved (manifest + cache fallback both empty)"
 fi
 
-target="$version_root/scripts/hooks/${hook}.sh"
-if [ ! -f "$target" ]; then
-  warn_open "resolved version has no hook script at $target"
+dispatcher="$version_root/scripts/hooks/dispatch.sh"
+if [ ! -f "$dispatcher" ]; then
+  warn_open "resolved version has no dispatcher at $dispatcher"
 fi
 
-# Forward stdin + pass-through argv untouched so the real gate sees identical
-# input to what it would receive as a plugin hook.
-if [ "${#passthrough[@]}" -gt 0 ]; then
-  exec bash "$target" "${passthrough[@]}"
-else
-  exec bash "$target"
+mode=()
+if [ "$shim" = "1" ]; then
+  mode=(--shim)
+  TMB_SHIM_PROJECT=$( (cd "$project" 2>/dev/null && pwd -P) || printf '%s' "$project")
+  export TMB_SHIM_PROJECT
 fi
+
+# Forward stdin + pass-through argv untouched so the gate sees identical input
+# to what it would receive as a plugin hook.
+CLAUDE_PLUGIN_ROOT="$version_root" exec bash "$dispatcher" "$hook" ${mode[@]+"${mode[@]}"} ${passthrough[@]+"${passthrough[@]}"}

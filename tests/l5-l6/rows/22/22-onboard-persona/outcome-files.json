@@ -1,0 +1,9 @@
+{
+  "files": [
+    {
+      "path": "CLAUDE.md",
+      "must_exist": true,
+      "min_bytes": 10
+    }
+  ]
+}

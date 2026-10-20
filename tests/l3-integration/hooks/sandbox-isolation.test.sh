@@ -17,7 +17,7 @@ SANDBOX_LIB="$PLUGIN_ROOT/tests/l5-l6/lib/sandbox.sh"
 # shellcheck source=tests/l5-l6/lib/sandbox.sh
 . "$SANDBOX_LIB"
 
-SCRATCH=$(mktemp -d)
+SCRATCH=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-sandbox-isolation.XXXXXX")
 trap 'tmb_test_sandbox_teardown 2>/dev/null || true; rm -rf "$SCRATCH"' EXIT
 
 tmb_test_sandbox_init "$SCRATCH"
@@ -35,7 +35,7 @@ assert_exit_code 1 "$glab_exit" "glab exit code"
 assert_contains "$glab_out" "tmb sandbox" "glab stderr"
 
 # ---- 3. git push https:// is blocked (via git-remote-https stub or proxy) ----
-probe_repo=$(mktemp -d)
+probe_repo=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-sandbox-isolation.XXXXXX")
 git -C "$probe_repo" init -q -b main
 git -C "$probe_repo" config user.email "test@tmb.invalid"
 git -C "$probe_repo" config user.name "TMB Test"
@@ -53,9 +53,9 @@ else
 fi
 
 test_case "git push to https remote is blocked — sandbox, transport, or credential-prompt suppressed"
-if echo "$https_out" | grep -q "tmb sandbox"; then
+if echo "$https_out" | grep "tmb sandbox" >/dev/null; then
   _pass
-elif echo "$https_out" | grep -qiE "transport|blocked|disabled|Couldn.t connect|Failed to connect|Connection refused|Connection reset|Connection timed out|SSL_ERROR_SYSCALL|Could not resolve host|unable to access|terminal prompts disabled|could not read Username|Device not configured|Authentication failed"; then
+elif echo "$https_out" | grep -iE "transport|blocked|disabled|Couldn.t connect|Failed to connect|Connection refused|Connection reset|Connection timed out|SSL_ERROR_SYSCALL|Could not resolve host|unable to access|terminal prompts disabled|could not read Username|Device not configured|Authentication failed" >/dev/null; then
   _pass
 else
   _fail "git push https: expected sandbox or network-blocked or credential-suppressed message, got: $https_out"

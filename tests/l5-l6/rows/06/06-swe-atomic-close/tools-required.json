@@ -1,4 +1,4 @@
 [
-  "Agent",
-  "mcp__plugin_tmb_trajectory-server__bro_atomic_close"
+  {"tool": "Agent", "skip_if_pre_state_sql": "SELECT 1 FROM tasks t WHERE t.status = 'closed' AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe') LIMIT 1"},
+  {"tool": "mcp__plugin_tmb_trajectory-server__bro_atomic_close", "skip_if_pre_state_sql": "SELECT 1 FROM tasks t WHERE t.status = 'closed' AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe') LIMIT 1"}
 ]

@@ -17,7 +17,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/stay-on-base-guard.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-stay-on-base-guard.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
@@ -39,7 +39,6 @@ sqlite3 "$DB" "
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
     spec_body TEXT NOT NULL DEFAULT '',
     repo TEXT,
     prompt_bearing INTEGER NOT NULL DEFAULT 0,
@@ -47,6 +46,8 @@ sqlite3 "$DB" "
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
   );
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
+  INSERT INTO repos (name, path) VALUES ('plugin', '$TMPDIR/registered');
   INSERT INTO issues (objective, created_at, updated_at) VALUES ('test', datetime('now'), datetime('now'));
   INSERT INTO tasks (issue_id, branch_id, status, description) VALUES (1, 'feat/open-task', 'pending', 'open task');
   INSERT INTO tasks (issue_id, branch_id, status, description) VALUES (1, 'feat/running-task', 'running', 'running task');
@@ -85,6 +86,7 @@ out=$(run_hook "git checkout feat/open-task")
 assert_contains "$out" '"permissionDecision":"deny"' "deny checkout of open task branch"
 assert_contains "$out" 'main checkout stays on the base' "error message teaches recovery"
 assert_contains "$out" 'feat/open-task' "branch name in message"
+assert_contains "$out" "cd $TMPDIR/registered/.claude/worktrees/open-task" "absolute <repos.path>/.claude/worktrees/<slug>, not cwd-relative"
 
 test_case "DENY: git switch <running-task-branch> from main checkout"
 out=$(run_hook "git switch feat/running-task")
@@ -124,5 +126,32 @@ export TRAJECTORY_DB_PATH="/nonexistent-path/trajectory.db"
 out=$(run_hook "git checkout feat/open-task")
 assert_eq "" "$out" "no DB = not TMB = allow"
 export TRAJECTORY_DB_PATH="$ORIG_DB"
+
+# GH 1196: switches named in a heredoc are data; the dir comes from the command.
+test_case "ALLOW: heredoc mentioning git checkout <open-task-branch>"
+out=$(run_hook "$(printf '%s\n' "cat > notes.md <<'EOF'" 'git checkout feat/open-task' 'EOF')")
+assert_eq "" "$out" "heredoc content is not a switch"
+
+REPO="$TMPDIR/repo"
+git init -q -b dev "$REPO"
+git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$REPO" branch feat/running-task
+git -C "$REPO" branch feat/open-task
+git -C "$REPO" worktree add -q "$REPO/.claude/worktrees/running-task" feat/running-task
+
+test_case "DENY ambiguous_git_target: bare switch to an open-task branch while worktrees exist"
+out=$(run_hook "git checkout feat/open-task" "$REPO")
+assert_contains "$out" "ambiguous_git_target" "no dir and several checkouts — the real reason"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+
+test_case "DENY: 'git -C <main> checkout <open-task-branch>' while worktrees exist"
+out=$(run_hook "git -C $REPO checkout feat/open-task" "$REPO/.claude/worktrees/running-task")
+assert_contains "$out" "belongs to open task" "an explicit main dir decides, not the cwd"
+
+test_case "DENY without a repos row: the worktree path is absolute under the statement's main checkout"
+sqlite3 "$DB" "DELETE FROM repos;"
+REPO_REAL=$(cd "$REPO" && pwd -P)
+out=$(run_hook "git -C $REPO checkout feat/open-task" /)
+assert_contains "$out" "cd $REPO_REAL/.claude/worktrees/open-task" "falls back to the main checkout of the statement dir"
 
 summarize

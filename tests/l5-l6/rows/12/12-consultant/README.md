@@ -6,14 +6,14 @@ The row deliberately uses a naturalistic prompt with no role name — bro must c
 
 ## Pre-state
 
-`onboarding-named` fixture + `src/cli.py` (TODO CLI with JSON storage — matches step 04/05 chain output) + an open issue ("Evaluate TODO CLI storage scale-out"). `.claude/agents/` contains only the always-installed `swe.md` and `pr-reviewer.md` — no `cto.md`. The DB registry has cto seeded as `scope='template'` (per the schema seed).
+`onboarding-named` fixture + `src/cli.py` (TODO CLI with JSON storage — matches step 04/05 chain output) + an open issue ("Evaluate TODO CLI storage scale-out"). `.claude/agents/` contains only the always-installed `swe.md` and `pr-reviewer.md` — no `cto.md`. The DB registry has cto seeded as a `plugin:` row (`file_path='plugin:templates/agents/cto.md'`, per the schema seed).
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
 | 1 | user | `@bro should we keep src/cli.py's storage in JSON or move to SQLite as the CLI scales?\n\nDon't ask questions.` |
-| → | bro | (consultant-spawn hook injects routing hint) → bro invokes `/tmb:agent-create cto` → command calls `agent_resolve` (server returns creation mode), writes the agent file, calls `agent_register(scope='project-local')` (server auto-audits `tmb_agent_created`), spawns cto via `Agent`. Single turn. |
+| → | bro | (consultant-spawn hook injects routing hint) → bro invokes `/tmb:agent-create cto` → command calls `agent_resolve` (server returns creation mode), writes the agent file, calls `agent_register(file_path='project:.claude/agents/cto.md')` (server auto-audits `tmb_agent_created`), spawns cto via `Agent`. Single turn. |
 
 ## De-flake rationale
 

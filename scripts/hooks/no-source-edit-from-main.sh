@@ -12,8 +12,11 @@
 #   - Target is inside .claude/worktrees/<slug>/... (SWE legitimately edits source there)
 #   - Target is in allowlist (docs / configs that are fine to edit from main)
 #   - Normalized agent role == 'swe' (non-isolated SWE running in main checkout)
-#   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) are ALWAYS denied from
-#   main, even for swe — they sit above the swe permit and are never re-opened.
+#   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) of the plugin's own
+#   source repo (target git root has a .claude-plugin/plugin.json named like the
+#   running plugin) are ALWAYS denied from main, even for swe — they sit above
+#   the swe permit and are never re-opened. In any other repo those paths follow
+#   the ordinary rules.
 #   Managed-repo scope: in a multi-repo workspace Rule 1 only guards a REGISTERED
 #   product repo; absolute targets whose git-root is an unregistered sibling repo
 #   are allowed. A single-repo project's sole registered repo IS the root, so the
@@ -21,10 +24,9 @@
 #
 # Rule 2 — Bash write-form targeting a prompt surface from main checkout:
 #   Denied for every agent identity (bro, subagent, swe, unknown) when outside a
-#   worktree. Write-forms: >, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync.
-#   Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
-#   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
-#   Reads (cat/grep/sed -n) are never tripped.
+#   worktree. Written paths: tmb_cmd_write_paths and prompt surfaces:
+#   tmb_is_prompt_surface_path (lib/cmd-analysis.sh, shared with
+#   swe-boundary.sh). Reads are never tripped.
 #   Sanctioned route: spawn an SWE task (prompt_bearing=1 for prompt edits).
 #
 # Bypass: TMB_ALLOW_SOURCE_EDIT=1 (emergency override for hotfixes — rule 1 only).
@@ -32,14 +34,16 @@
 set -uo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
-. "$PLUGIN_ROOT/scripts/hooks/lib/normalize-role.sh"
-# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
+. "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh disable=SC1091
+. "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
 . "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
-AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
+AGENT_TYPE=$(tmb_agent_role "$INPUT")
 
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit|Bash) ;;
@@ -61,127 +65,36 @@ if [ "$TOOL_NAME" = "Bash" ]; then
   # worktree path anywhere (#1031). The old whole-command test exempted
   # `sed '...' .claude/worktrees/x/agents/a.md > agents/a.md`, which reads from a
   # worktree but WRITES a prompt surface in the main checkout.
+  # The project's own path never counts: a project checked out under some
+  # .claude/worktrees/<n> is still the main checkout (GH 1550).
+  _PROJ=$(tmb_project_root)
+  _PROJ_REAL=$(tmb_realdir "$_PROJ")
   _token_in_worktree() {
-    case "$1" in
+    local p="$1" root
+    for root in "$_PROJ" "$_PROJ_REAL"; do
+      [ -n "$root" ] || continue
+      case "$p" in "$root"/*) p="${p#"$root"/}"; break ;; esac
+    done
+    case "$p" in
       */.claude/worktrees/*|.claude/worktrees/*) return 0 ;;
     esac
     return 1
   }
 
-  # _is_prompt_surface_token <token>: returns 0 if the token is a prompt-surface path.
-  _is_prompt_surface_token() {
-    local tok="$1"
-    case "$tok" in
-      agents/*.md|*/agents/*.md) return 0 ;;
-      skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
-      commands/*.md|*/commands/*.md) return 0 ;;
-      templates/*.md|*/templates/*.md) return 0 ;;
-      CLAUDE.md|*/CLAUDE.md) return 0 ;;
-      CODEX.md|*/CODEX.md) return 0 ;;
-      CURSOR.md|*/CURSOR.md) return 0 ;;
-      GEMINI.md|*/GEMINI.md) return 0 ;;
-    esac
-    return 1
-  }
-
-  # _main_bash_writes_prompt_surface: destination-coupled matching. The verb/
-  # redirect operator must be adjacent to the prompt-surface path token. On a
-  # match it prints the destination token (so the caller can test THAT token
-  # against the worktree exemption) and returns 0; otherwise returns 1.
-  _main_bash_writes_prompt_surface() {
-    local cmd="$1"
-
-    # --- Redirect forms: > <dest> or >> <dest> ---
-    local after_redir=""
-    case "$cmd" in
-      *">>"*)
-        after_redir="${cmd##*>>}"
-        after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-        local dest_tok="${after_redir%% *}"
-        _is_prompt_surface_token "$dest_tok" && { printf '%s' "$dest_tok"; return 0; }
-        ;;
-    esac
-    case "$cmd" in
-      *">"*)
-        local no_dbl
-        no_dbl=$(printf '%s' "$cmd" | sed 's/>>//g')
-        case "$no_dbl" in
-          *">"*)
-            after_redir="${no_dbl##*>}"
-            after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-            local dest_tok2="${after_redir%% *}"
-            _is_prompt_surface_token "$dest_tok2" && { printf '%s' "$dest_tok2"; return 0; }
-            ;;
-        esac
-        ;;
-    esac
-
-    # --- tee: match "tee <dest>" or "tee -a <dest>" ---
-    local tee_rest=""
-    case "$cmd" in
-      *" tee "*|*" tee	"*|"tee "*)
-        case "$cmd" in
-          *" tee "*) tee_rest="${cmd##* tee }" ;;
-          "tee "*) tee_rest="${cmd#tee }" ;;
-        esac
-        case "$tee_rest" in
-          "-a "*) tee_rest="${tee_rest#-a }" ;;
-        esac
-        local tee_dest="${tee_rest%% *}"
-        _is_prompt_surface_token "$tee_dest" && { printf '%s' "$tee_dest"; return 0; }
-        ;;
-    esac
-
-    # --- sed -i: file is the last token after sed -i ---
-    case "$cmd" in
-      *"sed -i"*|*"sed --in-place"*)
-        local after_sedi=""
-        case "$cmd" in
-          *"sed --in-place"*) after_sedi="${cmd##*sed --in-place}" ;;
-          *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
-        esac
-        local sedi_file="${after_sedi##* }"
-        _is_prompt_surface_token "$sedi_file" && { printf '%s' "$sedi_file"; return 0; }
-        ;;
-    esac
-
-    # --- perl -i: file is the last token after perl -i ---
-    case "$cmd" in
-      *"perl -i"*)
-        local after_perli="${cmd##*perl -i}"
-        local perli_file="${after_perli##* }"
-        _is_prompt_surface_token "$perli_file" && { printf '%s' "$perli_file"; return 0; }
-        ;;
-    esac
-
-    # --- python/python3 open(<path>, 'w'|'a'): path inside open() ---
-    case "$cmd" in
-      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*|*"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
-        local open_arg="${cmd##*open(}"
-        local open_path="${open_arg%%,*}"
-        open_path="${open_path#\'}"
-        open_path="${open_path%\'}"
-        open_path="${open_path#\"}"
-        open_path="${open_path%\"}"
-        _is_prompt_surface_token "$open_path" && { printf '%s' "$open_path"; return 0; }
-        ;;
-    esac
-
-    # --- cp/mv/rsync: destination is the LAST argument ---
-    case "$cmd" in
-      "cp "*|*" cp "*|"mv "*|*" mv "*|"rsync "*|*" rsync "*)
-        local copy_last="${cmd##* }"
-        _is_prompt_surface_token "$copy_last" && { printf '%s' "$copy_last"; return 0; }
-        ;;
-    esac
-
-    return 1
-  }
-
-  # Exempt only when the WRITE DESTINATION is inside a worktree (#1031) — not
-  # when the command merely reads from one.
-  _BASH_DEST_TOK=$(_main_bash_writes_prompt_surface "$CMD")
-  if [ -n "$_BASH_DEST_TOK" ] && ! _token_in_worktree "$_BASH_DEST_TOK"; then
+  # Destination-coupled matching on the command's executable skeleton
+  # (tmb_cmd_write_paths, the shared list of write shapes; a target behind an
+  # unresolvable variable is judged as written). A prompt-surface path inside
+  # quoted text or a data heredoc is data. Exempt only when the WRITE DESTINATION is inside a
+  # worktree (#1031) — not when the command merely reads from one.
+  _BASH_DEST_TOK=""
+  while IFS= read -r _wpath; do
+    _wpath="${_wpath#UNRESOLVED:*:}"
+    if tmb_is_prompt_surface_path "$_wpath" && ! _token_in_worktree "$_wpath"; then
+      _BASH_DEST_TOK="$_wpath"
+      break
+    fi
+  done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")")
+  if [ -n "$_BASH_DEST_TOK" ]; then
     BASH_DENY_REASON="BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed."
     jq -nc --arg reason "$BASH_DENY_REASON" '{
       hookSpecificOutput: {
@@ -196,66 +109,92 @@ if [ "$TOOL_NAME" = "Bash" ]; then
   exit 0
 fi
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
-
-[ -f "$DB_PATH" ] || exit 0
+DB_PATH=$(tmb_db_path) || exit 0
 
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)
 [ -n "$TARGET" ] || exit 0
 
 # Worktree exemption: any write whose target path lives inside
 # `.claude/worktrees/<slug>/...` is a legitimate SWE edit in its task
-# worktree — allow regardless of agent identity. This MUST be a
-# target-path check, not a $PWD check: CC subagents inherit the parent's
-# CWD, so $PWD is always the project root for every hook invocation
-# (the previous $PWD-based check never matched and silently blocked SWE).
+# worktree — allow regardless of agent identity. This is a target-path
+# check, never a cwd check: CC subagents inherit the parent's cwd (GH 1550).
 case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
+
+if [ "$(tmb_db_state)" = "error" ]; then
+  tmb_deny_db_unavailable no-source-edit-from-main
+  exit 0
+fi
 
 # Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution):
 # in a multi-repo workspace Rule 1 must only guard a REGISTERED product repo,
 # not its siblings. Resolve the target's git-root and enforce iff that root is a
 # `repos` row (matched by path); an absolute target whose git-root is an
-# unregistered sibling tree is outside Rule 1 scope (exit 0). A target with no
-# resolvable git-root (or a single-repo project whose sole repo IS the root) is
-# guarded as before — registration of the lone repo covers the whole tree.
+# unregistered sibling tree is outside Rule 1 scope (exit 0). An absolute target
+# whose existing directory sits inside no git repository (the session
+# scratchpad, a tmp dir) cannot be a registered-repo source edit and is also
+# outside scope (exit 0). A target whose parent directory is absent fails closed,
+# and a resolvable git-root that IS a `repos` row (including a single-repo
+# project whose sole repo is the root) is guarded as before.
 case "$TARGET" in
   /*)
     TARGET_DIR=$(dirname "$TARGET")
-    # Only consult registration when the target's directory actually exists —
-    # otherwise tmb_repo_git_root falls back to $PWD (the hook's cwd) and would
-    # mis-scope. A target whose parent dir is absent fails closed (guarded).
-    if command -v sqlite3 >/dev/null 2>&1 && [ -d "$TARGET_DIR" ]; then
+    # Only consult registration when the target's directory actually exists;
+    # a target whose parent dir is absent fails closed (guarded).
+    if tmb_have_sqlite && [ -d "$TARGET_DIR" ]; then
       TARGET_GIT_ROOT=$(tmb_repo_git_root "$TARGET_DIR")
-      if [ -n "$TARGET_GIT_ROOT" ] && ! tmb_repo_is_registered "$DB_PATH" "$TARGET_GIT_ROOT"; then
-        exit 0                          # unregistered sibling repo — outside Rule 1 scope
+      if [ -n "$TARGET_GIT_ROOT" ]; then
+        if [ "$(tmb_gate_read "$DB_PATH" "SELECT COUNT(*) FROM repos;")" = "__ERR__" ]; then
+          tmb_deny_db_unavailable no-source-edit-from-main
+          exit 0
+        fi
+        [ -n "$(tmb_repo_name_for_root "$DB_PATH" "$TARGET_GIT_ROOT")" ] || exit 0   # unregistered sibling repo — outside Rule 1 scope
+      else
+        exit 0   # directory in no git repository — outside Rule 1 scope
       fi
     fi
     ;;
 esac
 
-# Enforcement surfaces: deny before any allowlist entry is evaluated.
-# No pattern — including *.md or docs/ — can re-open these paths from
-# the main checkout. Route all edits through a worktree (spawn SWE).
+# _target_is_plugin_source_repo: succeeds when the target's git root carries a
+# .claude-plugin/plugin.json whose name equals the running plugin's manifest name.
+# A missing or unreadable manifest on either side means "not the plugin repo".
+_target_is_plugin_source_repo() {
+  local running_manifest="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/.claude-plugin/plugin.json"
+  local start git_root running_name repo_name
+  case "$TARGET" in
+    /*)
+      start=$(dirname "$TARGET")
+      while [ ! -d "$start" ] && [ "$start" != "/" ]; do start=$(dirname "$start"); done
+      ;;
+    *) start=$(dirname "$(tmb_payload_cwd "$INPUT")/$TARGET") ;;
+  esac
+  git_root=$(tmb_repo_git_root "$start")
+  [ -n "$git_root" ] || return 1
+  [ -f "$running_manifest" ] && [ -f "$git_root/.claude-plugin/plugin.json" ] || return 1
+  running_name=$(jq -r '.name // empty' "$running_manifest" 2>/dev/null)
+  repo_name=$(jq -r '.name // empty' "$git_root/.claude-plugin/plugin.json" 2>/dev/null)
+  [ -n "$running_name" ] && [ "$running_name" = "$repo_name" ]
+}
+
+# Enforcement surfaces of the plugin's own source repo: deny before any
+# allowlist entry is evaluated. No pattern — including *.md or docs/ — can
+# re-open these paths from the main checkout. Route all edits through a
+# worktree (spawn SWE). Any other repo's scripts/hooks/ follows the ordinary rules.
 case "$TARGET" in
   */scripts/hooks/*|scripts/hooks/*|*/hooks/hooks.json|hooks/hooks.json)
-    REASON="BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type."
-    jq -nc --arg reason "$REASON" '{
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: $reason
-      }
-    }'
-    exit 0
+    if _target_is_plugin_source_repo; then
+      REASON="BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type."
+      jq -nc --arg reason "$REASON" '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: $reason
+        }
+      }'
+      exit 0
+    fi
     ;;
 esac
 

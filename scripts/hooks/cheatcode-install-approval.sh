@@ -8,7 +8,7 @@
 # the candidate source_url can be resolved but no approval record is found, the
 # install is denied.
 #
-# Fires on: PreToolUse — matcher mcp__.*trajectory-server__cheatcode_install.
+# Fires on: PreToolUse cheatcode_install, as a gate of the trajectory-gates chain.
 #
 # Decision logic:
 #   1. Tool is not cheatcode_install               → allow (pass-through)

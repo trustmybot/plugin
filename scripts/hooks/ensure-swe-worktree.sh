@@ -45,7 +45,7 @@ SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 
 DB=$(tmb_db_path 2>/dev/null || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then
-  echo "ensure-swe-worktree: no trajectory.db or sqlite3 — skipping (non-isolated fallback)" >&2
+  echo "ensure-swe-worktree: no trajectory DB or sqlite3 — skipping (non-isolated fallback)" >&2
   exit 0
 fi
 
@@ -62,8 +62,8 @@ if [ -z "$BRANCH" ]; then
   exit 0
 fi
 
-# slug = branch's last path component (fix/foo-bar → foo-bar).
-SLUG="${BRANCH##*/}"
+# slug = the branch minus its first <type>/ (fix/foo-bar → foo-bar).
+SLUG=$(tmb_branch_slug "$BRANCH")
 
 # Resolve the repo root via the path-keyed model:
 #   tasks.repo → repos.path, else single-repo fallback, else workspace root.
@@ -89,7 +89,7 @@ WT_ABS="$REPO_ROOT/$WT_REL"
 # /var → /private/var), so compare against the basename rather than the full
 # REPO_ROOT-relative prefix — the slug is unique under .claude/worktrees/.
 if git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null \
-    | grep -qE "^worktree .*/\.claude/worktrees/${SLUG}$"; then
+    | grep -E "^worktree .*/\.claude/worktrees/${SLUG}$" >/dev/null; then
   exit 0
 fi
 

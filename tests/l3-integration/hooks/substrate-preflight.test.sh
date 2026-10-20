@@ -19,12 +19,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/substrate-preflight.sh"
 
-STUB_DIR=$(mktemp -d)
+STUB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-substrate-preflight.XXXXXX")
 trap 'rm -rf "$STUB_DIR"' EXIT
 
 _make_stub_dir_with() {
   local dir
-  dir=$(mktemp -d -p "$STUB_DIR")
+  dir=$(mktemp -d "$STUB_DIR/tmb-substrate-preflight.XXXXXX")
   for bin in "$@"; do
     local real
     real=$(command -v "$bin" 2>/dev/null || true)
@@ -55,29 +55,41 @@ run_hook() {
 }
 
 # Fixture DBs for no-remote tests. Post-#987 the offline note resolves from
-# repos.remotes (sole source of truth); a single registered repo lets
+# repo_remotes rows (sole source of truth); a single registered repo lets
 # tmb_repo_remotes resolve via the single-repo fallback regardless of cwd.
 _repos_schema="CREATE TABLE repos (
   name TEXT PRIMARY KEY, path TEXT NOT NULL,
   file_count INTEGER NOT NULL DEFAULT 0,
   last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
-  target_branch TEXT, branching_model TEXT, protected_branches TEXT,
-  remotes TEXT
+  target_branch TEXT, branching_model TEXT, protected_branches TEXT
+);
+CREATE TABLE repo_remotes (
+  repo TEXT NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+  name TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('github','gitlab','other')),
+  url TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (repo, name)
 );"
 
-_DB_DIR=$(mktemp -d -p "$STUB_DIR")
+_DB_DIR=$(mktemp -d "$STUB_DIR/tmb-substrate-preflight.XXXXXX")
 DB_NO_REMOTE="$_DB_DIR/no-remote.db"
 sqlite3 "$DB_NO_REMOTE" "
   $_repos_schema
-  INSERT INTO repos (name, path, remotes) VALUES
-    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+  INSERT INTO repos (name, path) VALUES
+    ('repo', '/tmp/repo');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES
+    ('repo', 'origin', 'github', '', 1);
 "
 
 DB_WITH_REMOTE="$_DB_DIR/with-remote.db"
 sqlite3 "$DB_WITH_REMOTE" "
   $_repos_schema
-  INSERT INTO repos (name, path, remotes) VALUES
-    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
+  INSERT INTO repos (name, path) VALUES
+    ('repo', '/tmp/repo');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES
+    ('repo', 'origin', 'github', 'https://github.com/org/repo.git', 1);
 "
 
 # ============================================================================
@@ -185,6 +197,15 @@ assert_eq "SessionStart" "$ev8" "hookEventName"
 test_case "with-remote: offline note absent when a url is configured"
 out9=$(run_hook "$DB_WITH_REMOTE")
 assert_eq "" "$out9" "no output when remote configured"
+
+# ============================================================================
+# repo_remotes (v35): a registered repo with no rows is local-only
+# ============================================================================
+test_case "registered repo with no repo_remotes rows: offline note emitted"
+DB_ZERO_ROWS="$_DB_DIR/zero-rows.db"
+sqlite3 "$DB_ZERO_ROWS" "$_repos_schema INSERT INTO repos (name, path) VALUES ('repo', '/tmp/repo');"
+out_zr=$(run_hook "$DB_ZERO_ROWS")
+assert_contains "$out_zr" "operating locally" "no remote rows → offline note"
 
 # ============================================================================
 # Extra: both degraded AND no-remote → includes both notes

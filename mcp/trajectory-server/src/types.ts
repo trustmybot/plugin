@@ -6,7 +6,6 @@ export interface Issue {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
-  remote_iid?: number | null;
   remote_kind?: 'github' | 'gitlab' | null;
   gh_iid?: number | null;
   gl_iid?: number | null;
@@ -23,7 +22,6 @@ export interface IssueRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
-  remote_iid: number | null;
   remote_kind: 'github' | 'gitlab' | null;
   gh_iid: number | null;
   gl_iid: number | null;
@@ -31,6 +29,16 @@ export interface IssueRow {
   milestone: string | null;
   /** JSON array string of the validated labels from issue_create (#53). NULL for pre-v28 rows. */
   labels: string | null;
+}
+
+/** Why issue_create / intent_start bound (or did not bind) a milestone. */
+export type MilestoneDefault = 'applied' | 'explicit' | 'none_open' | 'multiple_open';
+
+export interface MilestoneResolution {
+  milestone: string | null;
+  milestone_default: MilestoneDefault;
+  /** Set only for `multiple_open`: the repo's open milestone names. */
+  open_milestones?: string[];
 }
 
 export interface Task {
@@ -43,7 +51,6 @@ export interface Task {
   title: string;
   description: string;
   status: string;
-  attempts: number;
   spec_body: string;
   commit_sha: string | null;
   /** Relative path to the git repo for this task (e.g. "inner" or "repos/backend"). Null for single-repo CC. */
@@ -56,9 +63,9 @@ export interface Task {
    */
   prompt_bearing: number;
   /**
-   * Typed Rails (#673): JSON array of path-like strings. The scope-fence hook
-   * (swe-scope-fence.sh) reads this directly to build its dir allowlist. An
-   * empty array means the hook skips enforcement with a warning.
+   * Typed Rails (#673): JSON array of path-like strings — the task's expected
+   * scope at directory granularity. swe-scope-fence.sh / swe-boundary.sh note
+   * writes outside it; bro_atomic_close judges the task's diff against it.
    */
   files: string;
   /**
@@ -70,6 +77,8 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  /** Reasoning effort swe runs this task at: low | medium | high. */
+  effort: string;
 }
 
 export interface Discussion {
@@ -79,6 +88,7 @@ export interface Discussion {
   kind: string;
   body: string;
   created_at: string;
+  repo?: string | null;
 }
 
 export interface AuditEventEntry {
@@ -90,6 +100,7 @@ export interface AuditEventEntry {
   summary: string;
   content_json: string;
   created_at: string;
+  repo?: string | null;
 }
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>;
@@ -127,8 +138,8 @@ export interface TaskInput {
    */
   prompt_bearing?: number;
   /**
-   * Typed Rails (#673): scope-fence allowlist for this task. Non-empty array of
-   * path-like strings; the swe-scope-fence hook reads it to bound SWE's edits.
+   * Typed Rails (#673): the task's expected scope, directories (trailing slash)
+   * or files; bro_atomic_close judges the task's diff against it.
    * Persisted as a JSON array in tasks.files.
    */
   files?: string[];
@@ -138,6 +149,8 @@ export interface TaskInput {
    * Persisted as a JSON array in tasks.verification.
    */
   verification?: string[];
+  /** low | medium | high; omitted → plugin_config.swe_default_effort (medium when unset). */
+  effort?: string;
 }
 
 /**
@@ -155,6 +168,8 @@ export interface TaskProvisionInput {
   repo?: string;
   /** Set to 1 when this task intentionally modifies prompt-surface files. Default 0. */
   prompt_bearing?: number;
+  /** low | medium | high; omitted → plugin_config.swe_default_effort (medium when unset). */
+  effort?: string;
 }
 
 export interface PluginConfigRow {
@@ -171,8 +186,10 @@ export interface ValidationAttempt {
   feedback: string;
   mcp_available: number;
   subagent_session_id?: string | null;
+  reviewer_agent_id?: string | null;
   created_at: string;
+  repo?: string | null;
 }
 
-/** Capability scope — mirrors the agents.scope CHECK. */
+/** Capability scope — mirrors the cheatcodes.scope CHECK. */
 export type CapabilityScope = 'global' | 'template' | 'project-local';

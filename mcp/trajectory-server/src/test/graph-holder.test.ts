@@ -1,10 +1,17 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GraphHolder,
   GRAPH_REOPEN_THROTTLE_MS,
   type WorldModelGraph,
 } from '../graph-db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pinScanEnv, runGraphScript } from './helpers.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 // The holder is unit-tested with a dependency-injected opener + clock — no real
 // kuzu lock is simulated (that stays out of L2, as with the rest of the graph
@@ -144,5 +151,56 @@ describe('GraphHolder — lazy re-open (GH #1077)', () => {
     assert.equal(holder.openError, LOCK_MSG);
     // Would throw if the fixed opener were ever called.
     assert.doesNotThrow(() => holder.ensureGraph());
+  });
+});
+
+describe('WorldModelGraph schema — File + HAS_FILE', () => {
+  it('a fresh graph has the File and HAS_FILE tables', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-schema-fresh-'));
+    try {
+      const out = runGraphScript(`
+import { WorldModelGraph } from '$DIST/graph-db.js';
+const g = new WorldModelGraph(${JSON.stringify(join(ws, 'world-model.kuzu'))});
+const tables = g.tableNames();
+g.close();
+console.log(JSON.stringify({ tables }));
+`);
+      assert.deepEqual(out['tables'], ['CONTAINS', 'Directory', 'File', 'HAS_FILE']);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('opening a graph created without File/HAS_FILE adds them and keeps existing rows', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-schema-upgrade-'));
+    try {
+      const dbPath = join(ws, 'world-model.kuzu');
+      const out = runGraphScript(`
+import { createRequire } from 'node:module';
+const req = createRequire('$DIST/graph-db.js');
+const kuzu = req('kuzu');
+const raw = new kuzu.Database(${JSON.stringify(dbPath)});
+const conn = new kuzu.Connection(raw);
+conn.querySync('CREATE NODE TABLE Directory (key STRING, repo STRING, path STRING, parent_path STRING, summary STRING, summary_source STRING, summary_updated_at STRING, file_count INT64, PRIMARY KEY (key))');
+conn.querySync('CREATE REL TABLE CONTAINS (FROM Directory TO Directory)');
+conn.querySync(\`CREATE (:Directory {key: '["app",""]', repo: 'app', path: '', parent_path: '', summary: 'old', summary_source: 'structural', summary_updated_at: '', file_count: 0})\`);
+const before = conn.querySync('CALL show_tables() RETURN name').getAllSync().map((r) => r.name).sort();
+conn.closeSync();
+raw.closeSync();
+const { WorldModelGraph } = await import('$DIST/graph-db.js');
+const g = new WorldModelGraph(${JSON.stringify(dbPath)});
+const after = g.tableNames();
+const dirs = g.allDirectoriesForRepo('app').length;
+const files = g.allFilesForRepo('app').length;
+g.close();
+console.log(JSON.stringify({ before, after, dirs, files }));
+`);
+      assert.deepEqual(out['before'], ['CONTAINS', 'Directory'], 'fixture starts without File tables');
+      assert.deepEqual(out['after'], ['CONTAINS', 'Directory', 'File', 'HAS_FILE'], 'open adds File + HAS_FILE');
+      assert.equal(out['dirs'], 1, 'existing Directory rows survive the upgrade');
+      assert.equal(out['files'], 0);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 });

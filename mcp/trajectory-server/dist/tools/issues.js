@@ -1,9 +1,13 @@
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { projectRootFromDbPath } from './containment.js';
+import { repoRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend, detectPreferred } from '../sync/backend.js';
-import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
+import { resolveBackend, detectPreferred, remoteSyncGate } from '../sync/backend.js';
+import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
+import { insertAudit } from './audit.js';
+import { WAIVE_REVIEW_REASON_MIN, closedTasksWithoutReview, escalateLiveTasksForIssueClose, liveTasksOfIssue, markIssueClosed, } from './lifecycle.js';
 // Mandatory issue tagging (#93/#777): every issue must carry one priority tag
 // AND one classification tag. The valid sets are configurable per project via
 // plugin_config (issue_classification_labels / issue_priority_labels); when
@@ -62,7 +66,7 @@ function resolveLabelTaxonomy(db) {
 // retried remote issue satisfies the same mandatory-tagging invariant
 // issue_create enforces, rather than sending labels:[] (which a
 // tagging-enforced remote would reject).
-function defaultSyncLabels(db) {
+export function defaultSyncLabels(db) {
     const { classification, priorityLabels } = resolveLabelTaxonomy(db);
     const labels = [];
     if (classification.length > 0)
@@ -75,8 +79,8 @@ function defaultSyncLabels(db) {
 // checked against the project's configured (or generic-default) taxonomy.
 // Returns a named error string listing what is missing and the valid options,
 // or null when the labels are valid. Extra labels (in neither set) are allowed.
-function validateIssueLabels(db, labels) {
-    const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+export function validateIssueLabels(db, labels, taxonomy, tool = 'issue_create') {
+    const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
     const classificationSet = new Set(classification);
     const prioritySet = new Set(priorityLabels);
     const hasPriority = labels.some((l) => prioritySet.has(l));
@@ -90,7 +94,7 @@ function validateIssueLabels(db, labels) {
     if (!hasPriority) {
         missing.push(`a priority label (one of: ${priorityLabels.join(', ')})`);
     }
-    return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
+    return `missing_required_labels: ${tool} requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
 }
 // FK (milestone, repo) -> milestones(name, repo): upsert the milestones row so
 // the issues insert doesn't violate it. Only meaningful when repo is non-null
@@ -110,15 +114,32 @@ function ensureMilestoneRow(db, milestone, repo) {
 // default; zero or more than one open milestones leave it null (honors #763's
 // no-forced-binding). The default path NEVER auto-creates a milestone row — it
 // only binds to one that already exists for the repo. A null repo yields null.
+// The returned `milestone_default` names which of those branches fired so the
+// caller can tell an untriaged issue from an ambiguous default.
 export function resolveDefaultMilestone(db, explicitMilestone, repo) {
     if (explicitMilestone !== null && explicitMilestone !== '') {
         ensureMilestoneRow(db, explicitMilestone, repo);
-        return explicitMilestone;
+        return { milestone: explicitMilestone, milestone_default: 'explicit' };
     }
     if (repo === null)
-        return null;
-    const open = db.all(`SELECT name FROM milestones WHERE repo = ? AND state = 'open'`, [repo]);
-    return open.length === 1 ? open[0].name : null;
+        return { milestone: null, milestone_default: 'none_open' };
+    const open = db.all(`SELECT name FROM milestones WHERE repo = ? AND state = 'open' ORDER BY name`, [repo]);
+    if (open.length === 1)
+        return { milestone: open[0].name, milestone_default: 'applied' };
+    if (open.length === 0)
+        return { milestone: null, milestone_default: 'none_open' };
+    return {
+        milestone: null,
+        milestone_default: 'multiple_open',
+        open_milestones: open.map((m) => m.name),
+    };
+}
+// The milestone_default fields every created-issue payload carries.
+export function milestoneDefaultFields(resolution) {
+    const fields = { milestone_default: resolution.milestone_default };
+    if (resolution.open_milestones)
+        fields['open_milestones'] = resolution.open_milestones;
+    return fields;
 }
 // Dedup pre-check (#91/#775): before inserting, compare the new objective
 // against every OPEN issue's objective with a deterministic token-set Jaccard
@@ -164,6 +185,12 @@ function err(message) {
         isError: true,
     };
 }
+function refusal(code, detail) {
+    return {
+        content: [{ type: 'text', text: JSON.stringify({ error: code, ...detail }) }],
+        isError: true,
+    };
+}
 function requireArg(args, name) {
     if (args[name] === undefined || args[name] === null) {
         throw new Error(`Missing required arg: ${name}`);
@@ -189,7 +216,7 @@ function resolveIssueSyncContext(db, repoName) {
         cwd: resolved.path,
         remoteFor(backend) {
             const provider = backend === 'gh' ? 'github' : 'gitlab';
-            const entry = resolved.remotes.find((r) => r.provider === provider);
+            const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
             if (!entry)
                 return null;
             return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
@@ -235,43 +262,61 @@ async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, 
             error: `remote_verify_failed: ${backend} issue #${remoteIid} not found or not viewable (${verify.reason ?? 'unknown'})`,
         };
     }
-    return { ok: true, backend };
+    return { ok: true, backend, milestone: verify.milestone ?? null, labels: verify.labels ?? [] };
 }
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
 // linked to. The local `issues.status='closed'` UPDATE is the caller's
-// responsibility — this is only the remote-sync half. Sync failures are logged,
-// never thrown: a remote hiccup must not fail the local close. Shared by
-// `issue_close` and `bro_atomic_close` so the composite can't drift the remote
-// open while closing locally (#277).
+// responsibility — this is only the remote-sync half, and every remote close
+// goes through `remoteSyncGate`: a gated-off close spawns nothing and leaves one
+// `issue_close_remote_skipped` audit row. Sync failures are logged, never
+// thrown: a remote hiccup must not fail the local close. Shared by
+// `issue_close`, `bro_atomic_close` and `task_recover`.
 export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
-    const remoteRow = db.get(`SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`, [issueId]);
+    const remoteRow = db.get(`SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`, [issueId]);
+    const targets = [];
+    if (remoteRow?.gh_iid != null) {
+        targets.push({ remote_kind: 'github', remote_iid: remoteRow.gh_iid, closed: false });
+    }
+    if (remoteRow?.gl_iid != null) {
+        targets.push({ remote_kind: 'gitlab', remote_iid: remoteRow.gl_iid, closed: false });
+    }
+    if (targets.length === 0)
+        return { synced: false, remotes: [] };
     // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
     // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
     // best-effort close must not throw (the local close already happened).
     const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
-    const closeCwd = closeCtx?.cwd;
-    const closeTargets = [];
-    if (remoteRow?.gh_iid != null) {
-        closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
+    const gate = remoteSyncGate(db, {
+        repoRemotes: closeCtx
+            ? { github: closeCtx.remoteFor('gh') !== null, gitlab: closeCtx.remoteFor('glab') !== null }
+            : null,
+        spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
+    });
+    if (!gate.enabled) {
+        const reason = gate.reason ?? 'no_backend';
+        insertAudit(db, {
+            issue_id: issueId,
+            from_node: 'trajectory-server',
+            event_type: 'issue_close_remote_skipped',
+            summary: `issue ${issueId} closed locally; remote close skipped (${reason})`,
+            content_json: JSON.stringify({
+                reason,
+                remotes: targets.map(({ remote_kind, remote_iid }) => ({ remote_kind, remote_iid })),
+            }),
+            created_at: nowISO(),
+        });
+        return { synced: false, skipped: reason, remotes: targets };
     }
-    else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'github') {
-        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'github' });
-    }
-    if (remoteRow?.gl_iid != null) {
-        closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
-    }
-    else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'gitlab') {
-        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
-    }
-    for (const target of closeTargets) {
+    for (const target of targets) {
         const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
         const closeResult = await syncIssueClose({
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
-            _cwd: closeCwd,
+            _cwd: closeCtx?.cwd,
             _repoSlug: closeSlug,
             _spawnFn: spawnFn,
         });
+        target.closed = closeResult.ok;
         if (!closeResult.ok) {
             serverLog({
                 event: 'issue_close_sync_failed',
@@ -285,8 +330,9 @@ export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
             });
         }
     }
+    return { synced: targets.every((t) => t.closed), remotes: targets };
 }
-export function issueTools(db, dbPath = '') {
+export function issueTools(db, dbPath = '', options = {}) {
     const definitions = [
         {
             name: 'issue_create',
@@ -303,6 +349,7 @@ export function issueTools(db, dbPath = '') {
                     allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
                     remote_iid: { type: 'number', description: 'Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing.' },
                     remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional backend for remote_iid adoption. Defaults to the repo\'s sole configured remote.' },
+                    include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
                 },
                 required: ['agent', 'objective', 'labels'],
             },
@@ -334,19 +381,35 @@ export function issueTools(db, dbPath = '') {
         },
         {
             name: 'issue_close',
-            description: 'Close an issue by setting its status to closed.',
+            description: 'Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
+                    cascade: {
+                        type: 'boolean',
+                        description: 'When true, escalate every live task of the issue (pending/running/needs_validation/completed) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live.',
+                    },
+                    reason: {
+                        type: 'string',
+                        description: 'Optional reason stored on each task_escalated_by_issue_close audit row when cascade=true.',
+                    },
+                    waive_review: {
+                        type: 'boolean',
+                        description: 'When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason.',
+                    },
+                    waive_review_reason: {
+                        type: 'string',
+                        description: 'Required when waive_review is true (min 10 chars): why the review is skipped.',
+                    },
                 },
                 required: ['agent', 'issue_id'],
             },
         },
         {
             name: 'issue_get_phase',
-            description: 'Return the current workflow phase and task completion counts for an issue.',
+            description: "Return the current workflow phase and task counts for an issue. tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks the SWE reported completed that bro has not closed yet. phase is ready_to_close once every task is closed.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -368,6 +431,7 @@ export function issueTools(db, dbPath = '') {
                         enum: ['open', 'closed'],
                         description: 'Optional status filter. Omit to return all issues.',
                     },
+                    milestone: { type: 'string', description: "Optional milestone filter: a milestone name, or 'none' for issues with no milestone." },
                     limit: { type: 'number', description: 'Max rows. Default 50, max 200.' },
                     offset: { type: 'number', description: 'Row offset. Default 0.' },
                     fields: {
@@ -388,8 +452,25 @@ export function issueTools(db, dbPath = '') {
                     agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
                     issue_id: { type: 'string', description: 'Issue ID as string' },
                     description: { type: 'string', description: 'Full markdown description (no length cap)' },
+                    include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
                 },
                 required: ['agent', 'issue_id', 'description'],
+            },
+        },
+        {
+            name: 'issue_update',
+            description: "Change an issue's milestone, labels or objective after creation and mirror the change to the linked remote issue when issue sync is on. Bro only. At least one of milestone, labels, objective is required; labels are validated like issue_create (one classification + one priority) and replace the whole set; objective maps to the remote title.",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+                    issue_id: { type: 'string', description: 'Issue ID as string' },
+                    milestone: { type: 'string', description: 'Milestone name; its milestones row is created for the issue repo when missing' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Full replacement label set; must include one classification and one priority label' },
+                    objective: { type: 'string', description: 'New objective (the remote issue title)' },
+                    include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
+                },
+                required: ['agent', 'issue_id'],
             },
         },
         {
@@ -414,6 +495,8 @@ export function issueTools(db, dbPath = '') {
                     issue_id: { type: 'string', description: 'Local issue ID' },
                     remote_iid: { type: 'number', description: 'Remote issue number to adopt' },
                     remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional. Defaults to the repo\'s sole configured remote.' },
+                    repo: { type: 'string', description: 'Optional repo name (matches a repos row) to verify against. Required when the issue has no repo and several repos exist; backfills a null issue repo on success.' },
+                    include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
                 },
                 required: ['agent', 'issue_id', 'remote_iid'],
             },
@@ -429,6 +512,7 @@ export function issueTools(db, dbPath = '') {
                     backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Remote backend' },
                     iid: { type: 'number', description: 'Remote issue number' },
                     force: { type: 'boolean', description: 'Overwrite existing iid if already set (default false)' },
+                    include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
                 },
                 required: ['agent', 'issue_id', 'backend', 'iid'],
             },
@@ -440,12 +524,13 @@ export function issueTools(db, dbPath = '') {
             requireArg(args, 'objective');
             const objective = args['objective'];
             const description = args['description'] ?? '';
+            const includeDescription = args['include_description'] ?? false;
             // labels: passed to remote sync AND persisted on the row (#53) as a JSON
             // array string so issue_sync_retry replays the original validated set
             // instead of re-deriving defaultSyncLabels.
             const labels = args['labels'] ?? [];
             // Mandatory tagging (#93/#777): fail closed before any insert/sync.
-            const labelError = validateIssueLabels(db, labels);
+            const labelError = validateIssueLabels(db, labels, options.labelTaxonomy);
             if (labelError !== null) {
                 return err(labelError);
             }
@@ -483,7 +568,8 @@ export function issueTools(db, dbPath = '') {
             // (#83/#763). When omitted, defaults to the issue repo's sole OPEN
             // milestone (#15); an explicit milestone upserts its FK row (#985/#154).
             const explicitMilestone = args['milestone'] ?? null;
-            const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+            const milestoneResolution = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+            const milestone = milestoneResolution.milestone;
             // _spawnFn: test-only injection point; not in inputSchema
             const spawnFn = args['_spawnFn'] ?? undefined;
             const now = nowISO();
@@ -507,18 +593,22 @@ export function issueTools(db, dbPath = '') {
                 const adoptId = adoptRowId.id;
                 const ghIid = adoption.backend === 'github' ? remoteIid : null;
                 const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
-                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]);
-                db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`, [
-                    adoptId,
-                    `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
-                    JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-                    now,
-                ]);
+                db.run(`UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [adoption.backend, ghIid, glIid, now, adoptId]);
+                insertAudit(db, {
+                    issue_id: adoptId,
+                    from_node: 'executor',
+                    event_type: 'issue_adopted',
+                    summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+                    content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+                    created_at: now,
+                });
                 const adoptedRow = db.get('SELECT * FROM issues WHERE id = ?', [adoptId]);
                 const adoptedIssue = decodeIssue(adoptedRow);
-                const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
-                const adoptedPayload = { ...adoptedRedacted };
+                const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: includeDescription });
+                const adoptedPayload = {
+                    ...adoptedRedacted,
+                    ...milestoneDefaultFields(milestoneResolution),
+                };
                 adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
                 return ok(adoptedPayload);
             }
@@ -541,10 +631,10 @@ export function issueTools(db, dbPath = '') {
                 // the issue's repo. The repo's remotes also drive the 'auto' backend
                 // decision (#1043) — never a process.cwd() git probe.
                 const syncCtx = resolveIssueSyncContext(db, issueRepo);
-                const repoRemotes = syncCtx
+                const remoteProviders = syncCtx
                     ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
                     : null;
-                const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
+                const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
                 if (backend === null) {
                     serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
                 }
@@ -564,8 +654,11 @@ export function issueTools(db, dbPath = '') {
                         };
                         const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
                         const issue = decodeIssue(row);
-                        const redacted = redactIssue(issue, agent, { include_description: true });
-                        const payload = { ...redacted };
+                        const redacted = redactIssue(issue, agent, { include_description: includeDescription });
+                        const payload = {
+                            ...redacted,
+                            ...milestoneDefaultFields(milestoneResolution),
+                        };
                         payload._sync = syncDiagnostic;
                         return ok(payload);
                     }
@@ -624,7 +717,7 @@ export function issueTools(db, dbPath = '') {
                             const firstSuccess = !isSyncFailure(ghResult) ? ghResult
                                 : !isSyncFailure(glResult) ? glResult : null;
                             if (firstSuccess !== null) {
-                                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId]);
+                                db.run(`UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [firstSuccess.remote_kind, ghIid, glIid, now, issueId]);
                             }
                             else {
                                 const failures = [];
@@ -708,7 +801,7 @@ export function issueTools(db, dbPath = '') {
                             if (!isSyncFailure(syncResult)) {
                                 const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
                                 const glIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
-                                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]);
+                                db.run(`UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [syncResult.remote_kind, ghIid, glIid, now, issueId]);
                                 // Label pre-validation warning (#36): the remote issue was created
                                 // with the valid subset; surface the dropped labels. The local row
                                 // still carries the full requested set.
@@ -748,16 +841,17 @@ export function issueTools(db, dbPath = '') {
             else {
                 // issue_sync='off' — leave a retryable audit marker so issue_sync_retry
                 // can later create remotes once sync is re-enabled (#336).
-                db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`, [
-                    issueId,
-                    `issue ${issueId} sync skipped: issue_sync is off`,
-                    JSON.stringify({ issue_id: issueId, reason: 'issue_sync_off' }),
-                    nowISO(),
-                ]);
+                insertAudit(db, {
+                    issue_id: issueId,
+                    from_node: 'executor',
+                    event_type: 'sync_skipped',
+                    summary: `issue ${issueId} sync skipped: issue_sync is off`,
+                    content_json: JSON.stringify({ issue_id: issueId, reason: 'issue_sync_off' }),
+                    created_at: nowISO(),
+                });
                 // Surface a warning when the project clearly looks remote-tracked (git
                 // origin is gh/glab) but sync is disabled, so bro can mention the drift.
-                const preferred = detectPreferred();
+                const preferred = detectPreferred(resolveRepoForSync(db, issueRepo)?.path ?? projectRootFromDbPath(dbPath || db.dbPath));
                 if (preferred !== null) {
                     syncDiagnostic = {
                         sync_skipped: true,
@@ -768,8 +862,11 @@ export function issueTools(db, dbPath = '') {
             }
             const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             const issue = decodeIssue(row);
-            const redacted = redactIssue(issue, agent, { include_description: true });
-            const payload = { ...redacted };
+            const redacted = redactIssue(issue, agent, { include_description: includeDescription });
+            const payload = {
+                ...redacted,
+                ...milestoneDefaultFields(milestoneResolution),
+            };
             if (syncDiagnostic)
                 payload._sync = syncDiagnostic;
             return ok(payload);
@@ -801,18 +898,68 @@ export function issueTools(db, dbPath = '') {
         }),
         issue_close: requireRoles('issue_close', ['bro'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
+            const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const now = nowISO();
             const existing = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             if (!existing) {
                 throw new Error(`Not found: ${issueId}`);
             }
-            db.run(`UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-         WHERE id = ?`, [now, now, issueId]);
-            await syncIssueCloseRemotes(db, dbPath, issueId, args['_spawnFn']);
+            const cascade = args['cascade'] === true;
+            const waiveReview = args['waive_review'] === true;
+            const waiveReason = args['waive_review_reason'];
+            const cascadeReason = typeof args['reason'] === 'string' && args['reason'].trim() !== ''
+                ? args['reason']
+                : 'issue closed with cascade';
+            if (waiveReview && (typeof waiveReason !== 'string' || waiveReason.trim().length < WAIVE_REVIEW_REASON_MIN)) {
+                return err(`waive_review_reason must be a string ≥${WAIVE_REVIEW_REASON_MIN} chars.`);
+            }
+            const live = liveTasksOfIssue(db, issueId);
+            if (live.length > 0 && !cascade) {
+                return refusal('issue_has_open_tasks', {
+                    message: `Issue ${issueId} has tasks not in closed|failed|escalated. Finish them, or pass cascade=true ` +
+                        `to escalate them and close the issue.`,
+                    tasks: live.map((t) => ({ task_id: t.id, status: t.status })),
+                });
+            }
+            const unreviewed = closedTasksWithoutReview(db, issueId);
+            if (unreviewed.length > 0 && !waiveReview) {
+                return refusal('tasks_without_review', {
+                    message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. ` +
+                        `Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+                    tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
+                });
+            }
+            db.transaction(() => {
+                if (waiveReview) {
+                    for (const t of unreviewed) {
+                        insertAudit(db, {
+                            issue_id: t.issue_id,
+                            branch_id: t.branch_id,
+                            from_node: 'bro',
+                            event_type: 'review_gate_waived',
+                            summary: `issue_close review gate waived for task ${t.id}`,
+                            content_json: JSON.stringify({
+                                skill: 'issue_close',
+                                task_id: t.id,
+                                commit_sha: t.commit_sha,
+                                waive_review_reason: waiveReason,
+                            }),
+                            created_at: now,
+                        });
+                    }
+                }
+                escalateLiveTasksForIssueClose(db, live, cascadeReason, now);
+                markIssueClosed(db, issueId, now);
+            });
+            const remote = await syncIssueCloseRemotes(db, dbPath, issueId, args['_spawnFn']);
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok(decodeIssue(updated));
+            return ok({
+                ...redactIssue(decodeIssue(updated), agent, { include_description: false }),
+                tasks_escalated: live.map((t) => t.id),
+                review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
+                remote,
+            });
         })),
         issue_get_phase: wrapHandler(async (args) => {
             requireArg(args, 'agent');
@@ -824,12 +971,14 @@ export function issueTools(db, dbPath = '') {
             const issue = decodeIssue(issueRow);
             const rawCounts = db.get(`SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`, [issueId]);
             const counts = {
                 tasks_total: rawCounts?.tasks_total ?? 0,
                 tasks_completed: rawCounts?.tasks_completed ?? 0,
+                tasks_awaiting_close: rawCounts?.tasks_awaiting_close ?? 0,
                 tasks_failed: rawCounts?.tasks_failed ?? 0,
             };
             let phase;
@@ -874,18 +1023,31 @@ export function issueTools(db, dbPath = '') {
                     out[f] = row[f];
                 return out;
             }
-            let rows;
+            const rawMilestone = args['milestone'];
+            const conditions = [];
+            const params = [];
             if (rawStatus !== undefined) {
-                rows = db.all('SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?', [rawStatus, limit, offset]);
+                conditions.push('status = ?');
+                params.push(rawStatus);
             }
-            else {
-                rows = db.all('SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?', [limit, offset]);
+            if (rawMilestone !== undefined && rawMilestone !== '') {
+                if (rawMilestone === 'none') {
+                    conditions.push('milestone IS NULL');
+                }
+                else {
+                    conditions.push('milestone = ?');
+                    params.push(rawMilestone);
+                }
             }
+            const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+            const rows = db.all(`SELECT id, objective, status, created_at, updated_at FROM issues ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
             return ok(rows.map(projectRow));
         }),
         issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
+            const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const description = requireArg(args, 'description');
+            const includeDescription = args['include_description'] ?? false;
             const MAX_DESCRIPTION_BYTES = 1024 * 1024; // 1MB
             if (Buffer.byteLength(description, 'utf8') > MAX_DESCRIPTION_BYTES) {
                 return err('description exceeds 1MB limit');
@@ -897,7 +1059,174 @@ export function issueTools(db, dbPath = '') {
             const now = nowISO();
             db.run('UPDATE issues SET description = ?, updated_at = ? WHERE id = ?', [description, now, issueId]);
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok(decodeIssue(updated));
+            return ok(redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }));
+        })),
+        issue_update: requireRoles('issue_update', ['bro'], wrapHandler(async (args) => {
+            const agent = normalizeAgent(args['agent']);
+            const issueId = requireArg(args, 'issue_id');
+            const includeDescription = args['include_description'] ?? false;
+            const milestoneArg = args['milestone'];
+            const labelsArg = args['labels'];
+            const objectiveArg = args['objective'];
+            // _spawnFn / _cwd: test-only injection points; not in inputSchema
+            const spawnFn = args['_spawnFn'] ?? undefined;
+            const cwdOverride = args['_cwd'];
+            if (milestoneArg === undefined && labelsArg === undefined && objectiveArg === undefined) {
+                return err('no_fields: pass at least one of milestone, labels, objective');
+            }
+            if (milestoneArg !== undefined && milestoneArg === '') {
+                return err('invalid_milestone: milestone must be a non-empty string');
+            }
+            if (objectiveArg !== undefined && objectiveArg.trim() === '') {
+                return err('invalid_objective: objective must be a non-empty string');
+            }
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
+                return err(`not_found: issue ${issueId}`);
+            }
+            if (labelsArg !== undefined) {
+                const labelError = validateIssueLabels(db, labelsArg, options.labelTaxonomy, 'issue_update');
+                if (labelError)
+                    return err(labelError);
+            }
+            let previousLabels = [];
+            if (row.labels != null) {
+                try {
+                    const parsed = JSON.parse(row.labels);
+                    if (Array.isArray(parsed))
+                        previousLabels = parsed.filter((l) => typeof l === 'string');
+                }
+                catch {
+                    previousLabels = [];
+                }
+            }
+            const changed = [];
+            const before = {};
+            const after = {};
+            const sets = [];
+            const params = [];
+            if (milestoneArg !== undefined) {
+                ensureMilestoneRow(db, milestoneArg, row.repo);
+                changed.push('milestone');
+                before['milestone'] = row.milestone;
+                after['milestone'] = milestoneArg;
+                sets.push('milestone = ?');
+                params.push(milestoneArg);
+            }
+            if (labelsArg !== undefined) {
+                changed.push('labels');
+                before['labels'] = previousLabels;
+                after['labels'] = labelsArg;
+                sets.push('labels = ?');
+                params.push(JSON.stringify(labelsArg));
+            }
+            if (objectiveArg !== undefined) {
+                changed.push('objective');
+                before['objective'] = row.objective;
+                after['objective'] = objectiveArg;
+                sets.push('objective = ?');
+                params.push(objectiveArg);
+            }
+            const now = nowISO();
+            db.run(`UPDATE issues SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`, [...params, now, issueId]);
+            insertAudit(db, {
+                issue_id: row.id,
+                from_node: 'executor',
+                event_type: 'issue_updated',
+                summary: `issue ${issueId} updated: ${changed.join(', ')}`,
+                content_json: JSON.stringify({ issue_id: issueId, changed, before, after }),
+                created_at: now,
+            });
+            let syncDiagnostic;
+            if (row.gh_iid == null && row.gl_iid == null) {
+                syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', hint: 'The issue has no gh_iid/gl_iid; the change is local only.' };
+            }
+            else {
+                const syncConfigRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+                const syncConfig = syncConfigRow
+                    ? JSON.parse(syncConfigRow.value_json)
+                    : 'off';
+                if (syncConfig === 'off') {
+                    syncDiagnostic = { sync_skipped: true, reason: 'issue_sync_off', hint: 'The change is local only; enable issue_sync to mirror it.' };
+                }
+                else {
+                    const syncCtx = resolveIssueSyncContext(db, row.repo);
+                    const remoteProviders = syncCtx
+                        ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
+                        : null;
+                    const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+                    if (backend === null || backend === 'off') {
+                        syncDiagnostic = { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
+                    }
+                    else if (syncCtx === null) {
+                        syncDiagnostic = {
+                            sync_failed: true,
+                            reason: 'unresolvable_repo',
+                            repo: row.repo,
+                            backend,
+                            hint: row.repo
+                                ? `issue repo "${row.repo}" has no matching repos row — run /scan.`
+                                : 'multiple repos registered and the issue has no repo.',
+                        };
+                    }
+                    else {
+                        const fields = {};
+                        if (milestoneArg !== undefined)
+                            fields.milestone = milestoneArg;
+                        if (labelsArg !== undefined) {
+                            fields.labels = {
+                                add: labelsArg.filter((l) => !previousLabels.includes(l)),
+                                remove: previousLabels.filter((l) => !labelsArg.includes(l)),
+                            };
+                        }
+                        if (objectiveArg !== undefined)
+                            fields.title = objectiveArg;
+                        const targets = [];
+                        if ((backend === 'gh' || backend === 'both') && row.gh_iid != null)
+                            targets.push({ cli: 'gh', iid: row.gh_iid });
+                        if ((backend === 'glab' || backend === 'both') && row.gl_iid != null)
+                            targets.push({ cli: 'glab', iid: row.gl_iid });
+                        if (targets.length === 0) {
+                            syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
+                        }
+                        else {
+                            const results = await Promise.all(targets.map(async (t) => ({
+                                target: t,
+                                result: await syncIssueUpdate(t.cli, t.iid, fields, {
+                                    spawnFn,
+                                    cwd: cwdOverride ?? syncCtx.cwd,
+                                    repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? undefined,
+                                }),
+                            })));
+                            const failed = results.filter((r) => !r.result.ok);
+                            if (failed.length === 0) {
+                                syncDiagnostic = { synced: true, backends: targets.map((t) => t.cli) };
+                            }
+                            else {
+                                for (const f of failed) {
+                                    serverLog({ event: 'issue_sync_failed', issueId, backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
+                                }
+                                const first = failed[0];
+                                syncDiagnostic = {
+                                    sync_failed: true,
+                                    reason: first.result.reason,
+                                    backend: first.target.cli,
+                                    failed_backends: failed.map((f) => f.target.cli),
+                                    exit_code: first.result.exit_code,
+                                    stderr: first.result.stderr?.slice(0, 4096),
+                                    message: first.result.message,
+                                    hint: 'The local row is updated; run the underlying gh/glab edit manually to mirror it.',
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            return ok({
+                ...redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }),
+                _sync: syncDiagnostic,
+            });
         })),
         issue_sync_retry: requireRoles('issue_sync_retry', ['bro'], wrapHandler(async (args) => {
             const issueId = requireArg(args, 'issue_id');
@@ -942,14 +1271,8 @@ export function issueTools(db, dbPath = '') {
                 if (row.gh_iid != null) {
                     retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
                 }
-                else if (row.remote_iid != null && row.remote_kind === 'github') {
-                    retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'github' });
-                }
                 if (row.gl_iid != null) {
                     retryTargets.push({ remote_iid: row.gl_iid, remote_kind: 'gitlab' });
-                }
-                else if (row.remote_iid != null && row.remote_kind === 'gitlab') {
-                    retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'gitlab' });
                 }
                 if (retryTargets.length === 0) {
                     return ok({ action: 'close', success: false, error: { reason: 'no_remote_iid' } });
@@ -985,12 +1308,12 @@ export function issueTools(db, dbPath = '') {
             const retryCwd = retryCtx.cwd;
             const createTargets = [];
             if (backend === 'gh' || backend === 'both') {
-                if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
+                if (row.gh_iid == null) {
                     createTargets.push('gh');
                 }
             }
             if (backend === 'glab' || backend === 'both') {
-                if (row.gl_iid == null && !(row.remote_kind === 'gitlab' && row.remote_iid != null)) {
+                if (row.gl_iid == null) {
                     createTargets.push('glab');
                 }
             }
@@ -1036,7 +1359,7 @@ export function issueTools(db, dbPath = '') {
                     lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };
                     const retryGhIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
                     const retryGlIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
-                    db.run(`UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]);
+                    db.run(`UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`, [syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]);
                 }
                 else {
                     createErrors.push({
@@ -1062,6 +1385,8 @@ export function issueTools(db, dbPath = '') {
             });
         })),
         issue_link: requireRoles('issue_link', ['bro'], wrapHandler(async (args) => {
+            const agent = normalizeAgent(args['agent']);
+            const includeDescription = args['include_description'] ?? false;
             const issueId = requireArg(args, 'issue_id');
             const backend = requireArg(args, 'backend');
             const iid = requireArg(args, 'iid');
@@ -1080,22 +1405,26 @@ export function issueTools(db, dbPath = '') {
             }
             const now = nowISO();
             if (backend === 'github') {
-                db.run(`UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`, [iid, iid, now, issueId]);
+                db.run(`UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`, [iid, now, issueId]);
             }
             else {
-                db.run(`UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`, [iid, iid, now, issueId]);
+                db.run(`UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`, [iid, now, issueId]);
             }
-            db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`, [
-                parseInt(issueId, 10),
-                `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ''}`,
-                JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-                now,
-            ]);
+            insertAudit(db, {
+                issue_id: parseInt(issueId, 10),
+                from_node: 'executor',
+                event_type: 'issue_linked',
+                summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ''}`,
+                content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+                created_at: now,
+            });
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok({ linked: true, backend, iid, issue: decodeIssue(updated) });
+            return ok({ linked: true, backend, iid, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
         })),
         issue_adopt_remote: requireRoles('issue_adopt_remote', ['bro'], wrapHandler(async (args) => {
+            const agent = normalizeAgent(args['agent']);
+            const includeDescription = args['include_description'] ?? false;
+            const repoArg = args['repo'] ?? null;
             const issueId = requireArg(args, 'issue_id');
             const remoteIidRaw = requireArg(args, 'remote_iid');
             const remoteIid = typeof remoteIidRaw === 'number' ? remoteIidRaw : Number(remoteIidRaw);
@@ -1106,7 +1435,17 @@ export function issueTools(db, dbPath = '') {
             if (!row) {
                 return err(`not_found: issue ${issueId}`);
             }
-            const adoption = await verifyAdoptionRemote(db, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
+            if (repoArg !== null && !db.get('SELECT name FROM repos WHERE name = ?', [repoArg])) {
+                return err(`repo_not_found: no repos row named "${repoArg}"`);
+            }
+            const adoptRepo = repoArg ?? row.repo ?? null;
+            if (adoptRepo === null) {
+                const repoCount = db.get('SELECT COUNT(*) AS n FROM repos')?.n ?? 0;
+                if (repoCount > 1) {
+                    return err(`repo_unresolved: issue ${issueId} has no repo and the workspace has ${repoCount} repos — pass repo`);
+                }
+            }
+            const adoption = await verifyAdoptionRemote(db, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
             if (!adoption.ok) {
                 return err(adoption.error);
             }
@@ -1120,18 +1459,35 @@ export function issueTools(db, dbPath = '') {
             const now = nowISO();
             const ghIid = adoption.backend === 'github' ? remoteIid : null;
             const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
-            db.run(`UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`, [ghIid, glIid, remoteIid, adoption.backend, now, issueId]);
-            if (!idempotent) {
-                db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`, [
-                    parseInt(issueId, 10),
-                    `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-                    JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-                    now,
-                ]);
+            db.run(`UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), repo = COALESCE(repo, ?), updated_at = ? WHERE id = ?`, [ghIid, glIid, adoption.backend, repoArg, now, issueId]);
+            const copied = {};
+            const refreshed = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (adoption.milestone !== null && (refreshed.milestone === null || refreshed.milestone === '')) {
+                ensureMilestoneRow(db, adoption.milestone, refreshed.repo);
+                copied.milestone = adoption.milestone;
+            }
+            const localLabelsEmpty = refreshed.labels == null || refreshed.labels === '' || refreshed.labels === '[]';
+            if (adoption.labels.length > 0 && localLabelsEmpty) {
+                copied.labels = adoption.labels;
+            }
+            if (copied.milestone !== undefined) {
+                db.run('UPDATE issues SET milestone = ? WHERE id = ?', [copied.milestone, issueId]);
+            }
+            if (copied.labels !== undefined) {
+                db.run('UPDATE issues SET labels = ? WHERE id = ?', [JSON.stringify(copied.labels), issueId]);
+            }
+            if (!idempotent || copied.milestone !== undefined || copied.labels !== undefined) {
+                insertAudit(db, {
+                    issue_id: parseInt(issueId, 10),
+                    from_node: 'executor',
+                    event_type: 'issue_adopted',
+                    summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+                    content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false, ...(copied.milestone !== undefined ? { milestone: copied.milestone } : {}), ...(copied.labels !== undefined ? { labels: copied.labels } : {}) }),
+                    created_at: now,
+                });
             }
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
+            return ok({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
         })),
     };
     return { definitions, handlers };

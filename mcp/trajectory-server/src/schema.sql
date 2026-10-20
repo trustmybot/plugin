@@ -7,20 +7,35 @@ PRAGMA journal_mode = WAL;
 -- repos(name) is the FK hub for the repos-centric schema (#155): every work
 -- table carries a repo column referencing it. Declared early so the work-table
 -- FKs below resolve at fresh-DB CREATE time.
+-- onboard_scan: JSON evidence + branching recommendation from the /onboard
+-- pre-scan (GH 1575), rewritten by every onboard_state_get call.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
     file_count        INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_scanned_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     target_branch     TEXT,
     branching_model   TEXT,
     protected_branches TEXT,
-    -- remotes (#155, #980): per-repo remote list, the sole source of truth.
-    -- Populated by scan_run from each repo's git remotes (#979). JSON array of
-    -- {name, provider, url}. The issue-scoped sync path reads this to pick the
-    -- explicit gh --repo / glab -R for the issue's repo rather than process.cwd().
-    remotes           TEXT
+    onboard_scan      TEXT
 );
+
+-- repo_remotes: a repo's git remotes, the sole source of truth for them.
+-- scan_run and onboard_apply write it from each repo's own git remotes;
+-- issue sync, milestone sync, pr_monitor and repo_rename read it to pick the
+-- explicit gh --repo / glab -R target. provider comes from the URL host
+-- (bitbucket and other hosts are 'other'); is_primary marks `origin`, else the
+-- first remote. Rows follow their repo on delete and on a name change.
+CREATE TABLE IF NOT EXISTS repo_remotes (
+    repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    name        TEXT    NOT NULL,
+    provider    TEXT    NOT NULL CHECK (provider IN ('github','gitlab','other')),
+    url         TEXT    NOT NULL,
+    is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    PRIMARY KEY (repo, name)
+);
+CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
 
 -- milestones table (#155): GitHub-style per-repo milestones. issues.milestone
 -- is an FK into this table. PK is (name, repo) so the same milestone name can
@@ -28,7 +43,7 @@ CREATE TABLE IF NOT EXISTS repos (
 CREATE TABLE IF NOT EXISTS milestones (
     name   TEXT NOT NULL,
     repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
-    state  TEXT NOT NULL DEFAULT 'open',
+    state  TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','closed')),
     PRIMARY KEY (name, repo)
 );
 
@@ -36,11 +51,10 @@ CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     objective         TEXT    NOT NULL,
     description       TEXT    NOT NULL DEFAULT '',
-    status            TEXT    NOT NULL DEFAULT 'open',
+    status            TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     closed_at         TEXT,
-    remote_iid        INTEGER,
     remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
     gh_iid            INTEGER,
     gl_iid            INTEGER,
@@ -56,6 +70,9 @@ CREATE TABLE IF NOT EXISTS issues (
     FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
 );
 
+CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_gh_iid ON issues(gh_iid);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id          INTEGER NOT NULL REFERENCES issues(id),
@@ -63,8 +80,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_branch_id  TEXT,
     title             TEXT    NOT NULL DEFAULT '',
     description       TEXT    NOT NULL,
-    status            TEXT    NOT NULL DEFAULT 'pending',
-    attempts          INTEGER NOT NULL DEFAULT 0,
+    status            TEXT    NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','running','needs_validation','completed','closed','failed','escalated')),
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     -- repo (#155): formalized as an FK to repos(name). Nullable for single-repo
@@ -84,10 +101,18 @@ CREATE TABLE IF NOT EXISTS tasks (
     verification      TEXT    NOT NULL DEFAULT '[]',
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
-    completed_at      TEXT
+    completed_at      TEXT,
+    -- effort: the reasoning effort swe runs this task at. task_create_batch /
+    -- task_provision write it (omitted → plugin_config.swe_default_effort,
+    -- medium when unset); task_reopen / task_retry may raise it. The
+    -- require-spawn-effort hook denies a swe spawn whose Agent effort differs.
+    effort            TEXT    NOT NULL DEFAULT 'medium'
+                        CHECK (effort IN ('low','medium','high'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_commit_sha ON tasks(commit_sha);
 
 CREATE TABLE IF NOT EXISTS audit (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,38 +133,82 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     task_id             INTEGER NOT NULL REFERENCES tasks(id),
     attempt_n           INTEGER NOT NULL,
     agent               TEXT    NOT NULL DEFAULT '',
-    verdict             TEXT    NOT NULL,
+    verdict             TEXT    NOT NULL CHECK (verdict IN ('pass','fail','escalate')),
     feedback            TEXT    NOT NULL DEFAULT '',
     -- LOAD-BEARING-SAFETY: mcp_available is the typed push-gate signal (1=MCP up,
     -- 0=honor-system fallback). Bro reads it off this column via validation_history,
     -- so the pr-reviewer verdict + availability travel as typed fields, never scraped
-    -- from a free-text feedback prefix.
-    mcp_available       INTEGER NOT NULL DEFAULT 1,
+    -- from a free-text feedback prefix. No DEFAULT: every writer states it.
+    mcp_available       INTEGER NOT NULL,
     subagent_session_id TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task's repo.
     repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     created_at          TEXT    NOT NULL,
+    -- reviewer_agent_id: the pr-reviewer subagent's Claude Code agent_id
+    -- (subagent_session_id stays the Claude Code session). NULL until
+    -- validation_record writes it, and for honor-system rows.
+    reviewer_agent_id   TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
+-- verification_runs: one row per run of a task's verification[] commands.
+-- swe-verification-gate.sh writes it through the db-write lib: the row at the
+-- start of a run, a verification_run_commands row after each command, then
+-- finished_at/exit_code (both NULL only while the run is in progress). The
+-- gate allows a close on a passing run for the same (task, commit) that
+-- finished within the hour instead of running the commands again.
+CREATE TABLE IF NOT EXISTS verification_runs (
+    id           INTEGER PRIMARY KEY,
+    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    commit_sha   TEXT    NOT NULL,
+    source       TEXT    NOT NULL CHECK (source IN ('gate','manual')),
+    started_at   TEXT    NOT NULL,
+    finished_at  TEXT,
+    exit_code    INTEGER,
+    budget_s     INTEGER NOT NULL,
+    timed_out    INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_runs_task_commit
+    ON verification_runs(task_id, commit_sha, finished_at);
+
+-- verification_run_commands: one row per command of a run, in verification[]
+-- order. exit_code 124 marks the command the budget ran out on.
+CREATE TABLE IF NOT EXISTS verification_run_commands (
+    run_id       INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+    ordinal      INTEGER NOT NULL,
+    command      TEXT    NOT NULL,
+    exit_code    INTEGER,
+    elapsed_s    REAL,
+    output_tail  TEXT,
+    PRIMARY KEY (run_id, ordinal)
+);
+
+-- agents.file_path names the root the prompt file ships from: 'plugin:' is
+-- relative to the installed plugin root (backbone agents, consultant
+-- templates), 'project:' to the workspace root (.claude/agents/<name>.md).
 CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
     kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
-    scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
-    file_path   TEXT    NOT NULL,
-    status      TEXT    NOT NULL DEFAULT 'active',
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    file_path   TEXT    NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
-INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
-    ('swe',          'backbone',   'global',   'agents/swe.md'),
-    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md'),
-    ('architect',    'consultant', 'template', 'templates/agents/architect.md'),
-    ('cto',          'consultant', 'template', 'templates/agents/cto.md'),
-    ('ceo',          'consultant', 'template', 'templates/agents/ceo.md'),
-    ('pm',           'consultant', 'template', 'templates/agents/pm.md');
+-- The seeds run on every open; INSERT … WHERE NOT EXISTS leaves the
+-- AUTOINCREMENT counter untouched when the rows are already present.
+WITH seed (name, kind, file_path) AS (VALUES
+    ('swe',          'backbone',   'plugin:agents/swe.md'),
+    ('pr-reviewer',  'backbone',   'plugin:agents/pr-reviewer.md'),
+    ('architect',    'consultant', 'plugin:templates/agents/architect.md'),
+    ('cto',          'consultant', 'plugin:templates/agents/cto.md'),
+    ('ceo',          'consultant', 'plugin:templates/agents/ceo.md'),
+    ('pm',           'consultant', 'plugin:templates/agents/pm.md'))
+INSERT INTO agents (name, kind, file_path)
+SELECT name, kind, file_path FROM seed
+ WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.name = seed.name);
 
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
@@ -151,7 +220,7 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
 -- id=1 — production installs see clean 1, 2, 3... numbering without a
 -- million-id gap polluting the issue space.
 INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
-VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
+VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,15 +247,21 @@ CREATE TABLE IF NOT EXISTS discussions (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id       INTEGER NOT NULL REFERENCES issues(id),
     author         TEXT    NOT NULL,
-    kind           TEXT    NOT NULL DEFAULT 'note',
+    kind           TEXT    NOT NULL DEFAULT 'note'
+                     CHECK (kind IN ('intent','question','answer','decision','note','analysis')),
     body           TEXT    NOT NULL,
     -- repo (#155): FK to repos(name); backfilled from the parent issue's repo.
     repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
-    created_at     TEXT    NOT NULL
+    created_at     TEXT    NOT NULL,
+    -- remote_comment_id: the PR/MR comment id a persisted remote comment came
+    -- from — the dedupe key for comment ingestion. NULL for local discussions.
+    remote_comment_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
     ON discussions(issue_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment
+    ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS plugin_meta (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +269,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 28, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 40, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -210,76 +285,105 @@ CREATE TABLE IF NOT EXISTS plugin_config (
 INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
     ('issue_sync',         '"off"'),
     ('issue_classification_labels', '["Bug","Feature","Improvement","Docs","Test","Chore"]'),
-    ('issue_priority_labels',       '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]');
+    ('issue_priority_labels',       '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]'),
+    -- model_prices: USD per 1M tokens per model id,
+    -- {"<model>": {"input", "output", "cache_read", "cache_creation"}}; read by
+    -- task_stats.cost_estimate. Seeded empty; filled via config_set.
+    ('model_prices',                '{}');
 
 -- The "onboarded" marker lives in plugin_config now (#2876). The legacy
 -- identity table was a single-row marker with no columns of meaning —
 -- folded into plugin_config('onboarded': true).
 
--- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
--- via swe-atomic-close.sh on every SWE completion, AND by composites for the
--- bro-as-agent_run row (#2886): bro's per-task tokens become a first-class
--- citizen. Bro rows
--- are inserted at task_create_batch (completed_at NULL until close) and
--- finalized at bro_atomic_close — hence completed_at is nullable.
+-- One row per metered run of an agent. A row covers the time window
+-- [started_at, completed_at): started_at is server time when the run opens,
+-- completed_at stays NULL while it is open.
+--   bro rows — one per CC session (task_id and issue_id NULL), written by the
+--     bro Stop hook: the session transcript's main-loop usage, rewritten
+--     absolutely on every Stop. Per-task bro rows from older versions stay
+--     as history.
+--   swe rows — opened by task_brief; the SubagentStop hook binds the spawn to
+--     the task_id in its spawn prompt and writes the spawn transcript's totals.
+-- bro_atomic_close and a terminal task_update_status close every open row of
+-- the task; task_recover sweeps rows whose task is already terminal. Whoever
+-- closes a row stamps its exit_reason.
+-- The total token count is not stored: it is computed as tokens_in +
+-- tokens_out + cache_read_tokens + cache_creation_tokens.
 CREATE TABLE IF NOT EXISTS agent_runs (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id              INTEGER REFERENCES tasks(id),
     issue_id             INTEGER REFERENCES issues(id),
     agent_type           TEXT    NOT NULL,
-    tokens_in            INTEGER NOT NULL DEFAULT 0,
-    tokens_out           INTEGER NOT NULL DEFAULT 0,
-    tokens_total         INTEGER NOT NULL DEFAULT 0,
+    -- Token columns are NULL when the run was never measured; a measured
+    -- run writes absolute values (usage_source says where they came from).
+    tokens_in            INTEGER,
+    tokens_out           INTEGER,
     -- cache_read_tokens: tokens served from Anthropic's prompt cache (billed at ~0.1x input rate).
     -- cache_creation_tokens: tokens written into the prompt cache (billed at ~1.25x input rate).
     -- Both classes are excluded from tokens_in in CC's modelUsage; we track them separately
     -- because the cost difference is ~100x (cache_read is cheapest, cache_creation is most expensive
     -- per-token relative to plain input).
-    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER,
+    cache_creation_tokens INTEGER,
     tool_uses            INTEGER NOT NULL DEFAULT 0,
     duration_ms          INTEGER NOT NULL DEFAULT 0,
     started_at           TEXT,
     completed_at         TEXT,
-    usage_baseline_json  TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task/issue repo.
-    repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT
+    repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+    -- spawn_id: the Agent-tool spawn this run measures (one row per spawn per task).
+    -- session_id: the CC session that owns the run, so a hook resolves its own row.
+    -- usage_source: where the token values came from; NULL until first measured.
+    spawn_id             TEXT,
+    session_id           TEXT,
+    usage_source         TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured','backfill')),
+    -- root_dir: absolute path this run may write to (bro: the project root;
+    --   swe: the task's worktree). The containment-guard hook reads it.
+    -- model: the dominant model id over the run's window (written with tokens).
+    -- host: the agent host that ran it.
+    -- exit_reason: how the row was closed; NULL while open.
+    root_dir             TEXT,
+    model                TEXT,
+    host                 TEXT CHECK (host IN ('claude','codex')),
+    exit_reason          TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed')),
+    -- effort: the reasoning effort the run was spawned at, written by
+    -- swe-atomic-close.sh at SubagentStop (swe: the task's effort; pr-reviewer:
+    -- plugin_config.reviewer_effort). NULL on other agent types and on runs
+    -- recorded before schema v37.
+    effort               TEXT CHECK (effort IN ('low','medium','high'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
 
--- Incremental polling state for the /monitor flow (#2886 follow-up). One row
--- per (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the
--- next `since` query; `last_comment_id` is the comment-id cursor when the
--- backend supports id-based deltas (gh REST does; glab uses created_at).
--- task_id + verdict + attempt_n are populated server-side by validation_record
--- to record pr-reviewer invocations (#334) — rows written for the reviewer
--- audit path have pr_number=0 and repo='' (sentinel) while task_id is non-null.
+-- /monitor incremental-polling cursor: exactly one row per real PR, keyed by
+-- (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the next
+-- `since` query; `last_comment_id` is the comment-id cursor when the backend
+-- supports id-based deltas (gh REST does; glab uses created_at). task_id links
+-- the PR to the task it ships, so pr_monitor_comments_get resolves
+-- pr_number → task → issue when it persists the PR's comments. Pr-reviewer
+-- verdicts live in validation_attempts.
 CREATE TABLE IF NOT EXISTS pr_review_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  pr_number       INTEGER NOT NULL DEFAULT 0,
-  repo            TEXT    NOT NULL DEFAULT '',
+  pr_number       INTEGER NOT NULL CHECK (pr_number > 0),
+  repo            TEXT    NOT NULL CHECK (repo <> ''),
   last_fetched_at DATETIME NOT NULL,
   last_comment_id TEXT,
   task_id         INTEGER REFERENCES tasks(id),
-  verdict         TEXT,
-  attempt_n       INTEGER
+  UNIQUE (pr_number, repo)
 );
 
--- Monitoring rows (pr_number > 0) remain one per (pr_number, repo); audit rows
--- (pr_number = 0) are exempt from this constraint via the WHERE clause so that
--- multiple validation attempts for the same task each get their own row.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 
 -- FTS5 virtual tables for keyword search (Phase 1 of #2905).
 -- content= tables shadow the source table so SQLite keeps them in sync
--- via the triggers below; we also backfill on fresh DBs here.
+-- via the triggers below.
 
 CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5(
   body,
@@ -353,9 +457,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_
 -- cheatcode_uninstall (#676) reverses them. skill_register/skill_promote operate
 -- on builtin rows. trust_tier carries the cheatcode_vet (#658) classification for
 -- installed rows and the curation tier for builtin ones; status tracks lifecycle.
+-- The natural key is (name, kind): a plugin and the MCP server it bundles
+-- routinely share a name (`linear` plugin → `linear` server). scan.sh records a
+-- plugin-bundled server with source_url 'mcp:<plugin>/<server>'.
 CREATE TABLE IF NOT EXISTS cheatcodes (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL UNIQUE,
+    name         TEXT    NOT NULL,
     kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
     -- origin (#101, #152): provenance, not lifecycle. 'builtin' = plugin-shipped;
     -- 'marketplace' = from a registered marketplace ref; 'external' = from a raw
@@ -385,13 +492,14 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     -- reconciliation to active/broken is the health-check (#113).
     status       TEXT    NOT NULL DEFAULT 'installed',
     installed_at TEXT    NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     -- A skill must record its file_path; an acquired capability (marketplace or
     -- external) must carry its source identity; a builtin must not (#101, #152).
     CHECK (kind != 'skill' OR file_path IS NOT NULL),
     CHECK (origin = 'builtin' OR source_url IS NOT NULL),
-    CHECK (origin != 'builtin' OR source_url IS NULL)
+    CHECK (origin != 'builtin' OR source_url IS NULL),
+    UNIQUE (name, kind)
 );
 
 -- Schema-seed the bundled tmb_* skills (#2884, #101). Without this seed the
@@ -400,17 +508,21 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
 -- Descriptions come from each SKILL.md's frontmatter (kept short — full routing
 -- logic lives in the SKILL.md body, this row is just the index). origin='builtin'
 -- and source_url omitted (NULL) per the builtin CHECK.
-INSERT OR IGNORE INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) VALUES
-    ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_review',             'skill', 'builtin', 'PR-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_push-gate',          'skill', 'builtin', 'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.', 'skills/tmb_push-gate/SKILL.md',          'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_comment-triage',     'skill', 'builtin', 'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.', 'skills/tmb_comment-triage/SKILL.md',     'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_skill-creator',      'skill', 'builtin', 'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_cheatcode',          'skill', 'builtin', 'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.', 'skills/tmb_cheatcode/SKILL.md',          'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now'));
+WITH seed (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) AS (VALUES
+    ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_review',             'skill', 'builtin', 'PR-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_push-gate',          'skill', 'builtin', 'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.', 'skills/tmb_push-gate/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_comment-triage',     'skill', 'builtin', 'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.', 'skills/tmb_comment-triage/SKILL.md',     'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_skill-creator',      'skill', 'builtin', 'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_cheatcode',          'skill', 'builtin', 'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.', 'skills/tmb_cheatcode/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_audit',              'skill', 'builtin', 'How bro audits, verifies or checks a component or an architecture — start from its outputs, state the invariants they must satisfy, prove each against live data, and report violations architecture-first. Loaded when the Human asks for an audit, a verification, a check, or an architecture review.', 'skills/tmb_audit/SKILL.md',              'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')))
+INSERT INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
+SELECT name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at FROM seed
+ WHERE NOT EXISTS (SELECT 1 FROM cheatcodes c WHERE c.name = seed.name AND c.kind = seed.kind);
 
 -- Attachment records (#677). One row per artifact wired into the project by an
 -- install — the marketplace plugin manifest, an MCP server registration, or a

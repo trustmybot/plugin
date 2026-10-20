@@ -31,7 +31,7 @@ check_file() {
     lineno=$((lineno + 1))
     # Strip backtick spans: replace `...` with empty string before matching
     stripped="$(printf '%s' "$line" | sed 's/`[^`]*`//g')"
-    if printf '%s' "$stripped" | grep -qiE "$STALE_REGEX"; then
+    if printf '%s' "$stripped" | grep -iE "$STALE_REGEX" >/dev/null; then
       printf '%s:%d: stale framing prose\n' "$rel" "$lineno"
       FAIL=1
     fi

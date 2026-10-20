@@ -18,8 +18,15 @@ command -v node >/dev/null 2>&1 || { echo "SKIP: node not available"; exit 0; }
 DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js"
 [ -f "$DIST" ] || { echo "SKIP: dist not built ($DIST missing)"; exit 0; }
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-post-task-close-rescan.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
+
+# Scan shells out to `claude plugin list`; a stub keeps the run hermetic (the
+# real CLI writes its own state under HOME).
+mkdir -p "$TMPDIR/stub-bin"
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$TMPDIR/stub-bin/claude"
+chmod +x "$TMPDIR/stub-bin/claude"
+export PATH="$TMPDIR/stub-bin:$PATH"
 
 # ── Fixture ──────────────────────────────────────────────────────────────────
 # Workspace layout:
@@ -45,23 +52,25 @@ git -C "$REPO" commit -qm init
 DB="$WS/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
 export TRAJECTORY_DB_PATH="$DB"
+node --experimental-sqlite --no-warnings --input-type=module \
+  -e "const { TrajectoryDB } = await import('$DIST'); new TrajectoryDB(process.env.TRAJECTORY_DB_PATH).close();"
 
 # Simulate a worktree path (inner subdir) as cwd.
 WT="$WS/.claude/worktrees/wt-1"
 mkdir -p "$WT"
 
 # ── Test: rescan from worktree cwd finds ≥1 repo ─────────────────────────────
-test_case "rescan from worktree cwd finds ≥1 repo (session_dir walk-up)"
+test_case "rescan from worktree cwd finds ≥1 repo (project root from the argument)"
 
-# Run the invoker with cwd set to the worktree path (inner path).
-# The invoker should walk up from the worktree, find the DB at WS, derive
-# session_dir=$WS, and discover repo-a.
+# Run the invoker with cwd set to the worktree path (inner path) and the
+# project root passed explicitly: it scans session_dir=$WS, not the cwd, and
+# discovers repo-a.
 # Hard timeout of 60s: if scan hangs (kuzu init, lock, git-log) the test
 # fails loudly instead of stalling the entire runner.
-OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" 2>&1) || true )
+OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" "$WS" 2>&1) || true )
 
 # The invoker emits a summary line on stderr on success. Check for it.
-if echo "$OUT" | grep -q "\[post-close-rescan\] OK"; then
+if echo "$OUT" | grep "\[post-close-rescan\] OK" >/dev/null; then
   _pass
 else
   _fail "invoker did not emit OK line. output: $OUT"
@@ -76,7 +85,7 @@ else
 fi
 
 test_case "rescan summary reports discovered repos"
-if echo "$OUT" | grep -qE "discovered [0-9]+ repos"; then
+if echo "$OUT" | grep -E "discovered [0-9]+ repos" >/dev/null; then
   _pass
 else
   _fail "expected 'discovered N repos' in output, got: $OUT"

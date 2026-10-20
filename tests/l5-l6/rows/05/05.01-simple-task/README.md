@@ -13,5 +13,5 @@
 |---|---|
 | `outcome.sql` | Issue with todo/cli objective exists; task created; planning chain ran |
 | `tools-required.json` | `branch_id_propose` called |
-| `tools-forbidden.json` | `validation_record` NOT called |
+| `tools-forbidden.json` | `validation_record` NOT called by bro (subagent calls are not attributed) |
 | `cost-budget.json` | Soft 50K tokens / 60s |

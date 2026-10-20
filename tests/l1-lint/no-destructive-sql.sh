@@ -17,7 +17,7 @@ for f in "${SCAN_FILES[@]}"; do
     [ -z "$linenum" ] && continue
     # Require LINT-ALLOW: marker on previous line
     prev=$(sed -n "$((linenum - 1))p" "$f")
-    if echo "$prev" | grep -qE 'LINT-ALLOW:'; then
+    if echo "$prev" | grep -E 'LINT-ALLOW:' >/dev/null; then
       continue
     fi
     printf '✗ %s:%s — destructive SQL without LINT-ALLOW marker\n' "$f" "$linenum" >&2

@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
+import { outsideProject, projectRootFromDbPath, projectSpawnOptions } from './containment.js';
+import { reconcileNow } from './cheatcode-reconcile.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -48,9 +51,10 @@ const resolveSearchScript = () => resolveScriptsFile('cheatcode-search.sh');
 const resolveVetScript = () => resolveScriptsFile('cheatcode-vet.sh');
 const SEARCH_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 const VET_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-export function runSearchWithScript(script, query, kind, timeoutMs) {
+export function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--query', query, '--kind', kind], {
+            ...projectSpawnOptions(projectRoot),
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         const stdoutChunks = [];
@@ -110,9 +114,10 @@ const VALID_TIERS = new Set([
     'untrusted',
     'unknown',
 ]);
-export function runVetWithScript(script, candidate, timeoutMs) {
+export function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+            ...projectSpawnOptions(projectRoot),
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         const stdoutChunks = [];
@@ -170,9 +175,9 @@ export function runVetWithScript(script, candidate, timeoutMs) {
         });
     });
 }
-export function runInstallWithScript(script, candidate, scope, timeoutMs) {
+export function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
-        const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate), '--scope', scope], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate), '--scope', scope], { ...projectSpawnOptions(projectRoot), stdio: ['ignore', 'pipe', 'pipe'] });
         const stdoutChunks = [];
         const stderrChunks = [];
         child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
@@ -226,9 +231,10 @@ export function runInstallWithScript(script, candidate, scope, timeoutMs) {
 }
 const resolveInstallScript = () => resolveScriptsFile('cheatcode-install.sh');
 const INSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-export function runUninstallWithScript(script, candidate, timeoutMs) {
+export function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+            ...projectSpawnOptions(projectRoot),
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         const stdoutChunks = [];
@@ -327,24 +333,7 @@ function parseInstallCandidate(raw) {
 // a consultant) for everyone but bro, whose surface is CLAUDE.md. A non-bro
 // target materializes the agent md global→local + a skills: entry; bro
 // materializes a project-local CLAUDE.md reference.
-// Derive the PROJECT ROOT (the dir that owns .claude/) from the trajectory DB
-// path. The DB lives at <root>/.claude/<plugin>/trajectory.db, so the root is
-// the parent of the `.claude` adjacent to the DB — the INNERMOST `.claude`
-// (lastIndexOf). Using the first `.claude` mis-resolves the root to an ancestor
-// when the project itself is nested under a `.claude` ancestor (the L6 chain
-// layout: ~/.claude/<plugin>/l6-chain-runs/<run>/project/.claude/<plugin>/trajectory.db),
-// which leaks materialize/dematerialize writes outside the project. Returns null
-// for an in-memory DB or a path with no `.claude` segment (e.g. a bespoke
-// TRAJECTORY_DB_PATH).
-export function projectRootFromDbPath(dbPath) {
-    if (!dbPath || dbPath === ':memory:')
-        return null;
-    const segments = dbPath.split(sep);
-    const idx = segments.lastIndexOf('.claude');
-    if (idx <= 0)
-        return null;
-    return segments.slice(0, idx).join(sep) || sep;
-}
+export { projectRootFromDbPath };
 // Resolve the GLOBAL agent md the install copies from. The plugin ships its
 // agents at ${CLAUDE_PLUGIN_ROOT}/agents/<target>.md; fall back to the on-disk
 // layout four levels up from this compiled module (mirrors resolveScriptsFile).
@@ -642,6 +631,15 @@ function dematerializeAttachment(dbPath, artifact, cheatcodeName, providedTools 
     }
 }
 export function cheatcodeTools(db) {
+    const scriptRoot = () => projectRootFromDbPath(db.dbPath) ?? process.cwd();
+    const auditCheatcode = (eventType, summary, contentJson, createdAt) => insertAudit(db, {
+        issue_id: -1,
+        from_node: 'bro',
+        event_type: eventType,
+        summary,
+        content_json: contentJson,
+        created_at: createdAt,
+    });
     const definitions = [
         {
             name: 'cheatcode_search',
@@ -708,7 +706,7 @@ export function cheatcodeTools(db) {
         },
         {
             name: 'cheatcode_install',
-            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
+            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -731,7 +729,7 @@ export function cheatcodeTools(db) {
                     scope: {
                         type: 'string',
                         enum: ['local', 'global'],
-                        description: 'Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row.',
+                        description: 'Install scope. local (default) = project-scoped. global (user-wide) is refused with outside_project — TMB installs nothing outside the project.',
                     },
                     target: {
                         type: 'string',
@@ -772,6 +770,17 @@ export function cheatcodeTools(db) {
             },
         },
         {
+            name: 'cheatcode_reconcile',
+            description: 'Set every active/broken cheatcodes row to active or broken from the live runtime (skill file, mcp/plugin listings), auditing each change. Rows whose listing is unavailable are untouched.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                },
+                required: ['agent'],
+            },
+        },
+        {
             name: 'cheatcode_list',
             description: 'Read-only inspect of the installed cheatcode registry (the cheatcodes table) — every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search → vet → install). Optionally filter by kind or status.',
             inputSchema: {
@@ -802,18 +811,13 @@ export function cheatcodeTools(db) {
             const kind = VALID_KINDS.has(rawKind)
                 ? rawKind
                 : 'any';
-            const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
-            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`, [
-                `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
-                JSON.stringify({
-                    query,
-                    kind,
-                    candidate_count: out.candidates.length,
-                    top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score })),
-                }),
-                nowISO(),
-            ]);
+            const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
+            auditCheatcode('cheatcode_search', `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`, JSON.stringify({
+                query,
+                kind,
+                candidate_count: out.candidates.length,
+                top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score })),
+            }), nowISO());
             return ok({ query, kind, candidates: out.candidates });
         })),
         cheatcode_vet: requireRoles('cheatcode_vet', ['bro'], wrap(async (args) => {
@@ -838,18 +842,13 @@ export function cheatcodeTools(db) {
             };
             if (typeof tierVal === 'number')
                 candidate.tier = tierVal;
-            const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
-            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_vet', ?, ?, ?)`, [
-                `Cheatcode vet: '${name}' (kind=${kind}) → trust_tier=${out.trust_tier}`,
-                JSON.stringify({
-                    candidate: out.candidate,
-                    trust_tier: out.trust_tier,
-                    capabilities: out.capabilities,
-                    rationale: out.rationale,
-                }),
-                nowISO(),
-            ]);
+            const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
+            auditCheatcode('cheatcode_vet', `Cheatcode vet: '${name}' (kind=${kind}) → trust_tier=${out.trust_tier}`, JSON.stringify({
+                candidate: out.candidate,
+                trust_tier: out.trust_tier,
+                capabilities: out.capabilities,
+                rationale: out.rationale,
+            }), nowISO());
             return ok(out);
         })),
         cheatcode_approve: requireRoles('cheatcode_approve', ['bro'], wrap(async (args) => {
@@ -857,12 +856,7 @@ export function cheatcodeTools(db) {
             if ('error' in parsed)
                 return err(parsed.error);
             const { name, kind, sourceUrl } = parsed;
-            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_approved', ?, ?, ?)`, [
-                `Cheatcode approved for install: '${name}' (kind=${kind})`,
-                JSON.stringify({ name, kind, source_url: sourceUrl }),
-                nowISO(),
-            ]);
+            auditCheatcode('cheatcode_approved', `Cheatcode approved for install: '${name}' (kind=${kind})`, JSON.stringify({ name, kind, source_url: sourceUrl }), nowISO());
             return ok({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
         })),
         cheatcode_install: requireRoles('cheatcode_install', ['bro'], wrap(async (args) => {
@@ -873,7 +867,20 @@ export function cheatcodeTools(db) {
             const trustTier = args['trust_tier']?.trim() ?? null;
             // Default local so bro never hits a global/local AskUserQuestion.
             const rawScope = args['scope']?.trim();
-            const scope = rawScope === 'global' ? 'global' : 'local';
+            if (rawScope === 'global') {
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                error: 'outside_project',
+                                message: 'cheatcode_install: scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-call with scope=local (the default) to install into this project.',
+                                scope: 'global',
+                            }),
+                        }],
+                    isError: true,
+                };
+            }
+            const scope = 'local';
             // Optional consuming agent to materialize the prompt surface for.
             const target = args['target']?.trim() || null;
             // Orphan guard: a skill must attach to ≥1 agent to be reachable. Without
@@ -909,6 +916,24 @@ export function cheatcodeTools(db) {
                 return err(`cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). ` +
                     `Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`);
             }
+            const projectRoot = projectRootFromDbPath(db.dbPath);
+            const writesOutside = (targets) => {
+                if (projectRoot === null)
+                    return null;
+                const paths = [join(projectRoot, '.claude', 'skills', name, 'SKILL.md')];
+                for (const t of targets) {
+                    paths.push(t === 'bro' ? join(projectRoot, '.claude', 'CLAUDE.md') : join(projectRoot, '.claude', 'agents', `${t}.md`));
+                }
+                for (const path of paths) {
+                    const refusal = outsideProject('cheatcode_install', projectRoot, path);
+                    if (refusal)
+                        return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
+                }
+                return null;
+            };
+            const refusedBeforeInstall = writesOutside(target ? [target] : []);
+            if (refusedBeforeInstall)
+                return refusedBeforeInstall;
             const candidate = {
                 name,
                 kind,
@@ -916,7 +941,7 @@ export function cheatcodeTools(db) {
             };
             if (typeof tier === 'number')
                 candidate.tier = tier;
-            const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS);
+            const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS, scriptRoot());
             // No-phantom-row guard (#148): a plugin/mcp install that the marketplace
             // path could not complete (installed=false WITH an error note) leaves
             // nothing wired — recording a cheatcodes row would be a phantom the
@@ -927,9 +952,9 @@ export function cheatcodeTools(db) {
                 return err(`cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`);
             }
             // The unified cheatcodes table (#101) carries the placement enum
-            // (global|template|project-local); the install scope's local maps to
-            // project-local. The script keeps its own local|global vocabulary.
-            const placementScope = scope === 'global' ? 'global' : 'project-local';
+            // (global|template|project-local); an install is always local, which
+            // maps to project-local.
+            const placementScope = 'project-local';
             // skill-kind installs land a SKILL.md under the project; the unified
             // CHECK requires every skill row to record its file_path (#101). The
             // canonical project-local skill location is the proposed-PR target.
@@ -964,6 +989,9 @@ export function cheatcodeTools(db) {
                 }
                 if (target)
                     targetSet.add(target);
+                const refusedTargets = writesOutside(targetSet);
+                if (refusedTargets)
+                    return refusedTargets;
                 for (const t of targetSet) {
                     const providedTools = kind === 'plugin' && t !== 'bro' ? detectProvidedTools(name) : [];
                     const result = materializeConsumingAgent(db.dbPath, t, name, providedTools);
@@ -992,25 +1020,15 @@ export function cheatcodeTools(db) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`, [id, m.target, m.artifact, installedAt]);
                 }
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_install', ?, ?, ?)`, [
-                    `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-                    JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
-                    installedAt,
-                ]);
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_installed', ?, ?, ?)`, [
-                    `Cheatcode installed: '${name}' → cheatcode_id=${id}`,
-                    JSON.stringify({
-                        cheatcode_id: id,
-                        name,
-                        kind,
-                        source_url: sourceUrl,
-                        installed: out.installed,
-                        attachments: out.attachments,
-                    }),
-                    installedAt,
-                ]);
+                auditCheatcode('cheatcode_install', `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`, JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }), installedAt);
+                auditCheatcode('cheatcode_installed', `Cheatcode installed: '${name}' → cheatcode_id=${id}`, JSON.stringify({
+                    cheatcode_id: id,
+                    name,
+                    kind,
+                    source_url: sourceUrl,
+                    installed: out.installed,
+                    attachments: out.attachments,
+                }), installedAt);
                 return id;
             });
             return ok({
@@ -1057,7 +1075,7 @@ export function cheatcodeTools(db) {
                 kind: existing.kind,
                 source_url: existing.source_url ?? '',
             };
-            const reversal = await runUninstallWithScript(resolveUninstallScript(), candidate, UNINSTALL_TIMEOUT_MS);
+            const reversal = await runUninstallWithScript(resolveUninstallScript(), candidate, UNINSTALL_TIMEOUT_MS, scriptRoot());
             // Honesty gate (#114): only delete the install + attachment rows when the
             // teardown actually removed the artifact. A failed teardown keeps the row,
             // flips status to 'broken' (orphaned install still on disk), and still
@@ -1101,8 +1119,7 @@ export function cheatcodeTools(db) {
                         existing.id,
                     ]);
                 }
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`, [auditSummary, auditContent, uninstalledAt]);
+                auditCheatcode('cheatcode_uninstalled', auditSummary, auditContent, uninstalledAt);
             });
             return ok({
                 uninstalled: reversal.removed,
@@ -1149,19 +1166,14 @@ export function cheatcodeTools(db) {
                         existing.id,
                     ]);
                 }
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`, [
-                    `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`,
-                    JSON.stringify({
-                        cheatcode_id: existing.id,
-                        name: existing.name,
-                        kind: existing.kind,
-                        status: verdict.status,
-                        row_status: rowStatus ?? existing.status,
-                        reason: verdict.reason,
-                    }),
-                    activatedAt,
-                ]);
+                auditCheatcode('cheatcode_activate', `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`, JSON.stringify({
+                    cheatcode_id: existing.id,
+                    name: existing.name,
+                    kind: existing.kind,
+                    status: verdict.status,
+                    row_status: rowStatus ?? existing.status,
+                    reason: verdict.reason,
+                }), activatedAt);
             });
             return ok({
                 cheatcode_id: existing.id,
@@ -1172,6 +1184,7 @@ export function cheatcodeTools(db) {
                 reason: verdict.reason,
             });
         })),
+        cheatcode_reconcile: requireRoles('cheatcode_reconcile', ['bro'], wrap(async () => ok(await reconcileNow(db, { fromNode: 'bro', writer: 'bro' })))),
         cheatcode_list: requireRoles('cheatcode_list', ['bro'], wrap(async (args) => {
             const rawKind = args['kind']?.trim();
             const rawStatus = args['status']?.trim();
