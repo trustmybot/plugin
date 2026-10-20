@@ -219,10 +219,25 @@ F_INTENDED="0.10.0-delta"
 out=$(run_health)
 assert_contains "$out" "FAIL  cache-version: server booted 0.10.0-gamma but 0.10.0-delta is installed" "cache-version FAIL line"
 
-test_case "check2 cache-version: remediation = /plugin update + full relaunch"
+test_case "check2 cache-version: remediation = scoped claude plugin update + full relaunch"
 rem=$(remediation_after "$out" "FAIL  cache-version")
-assert_contains "$rem" "/plugin update" "cache-version update remediation"
+assert_contains "$rem" "claude plugin update tmb@<marketplace> --scope project (stable) or --scope local (rc/dev)" "no installed entry: generic scoped update"
 assert_contains "$rem" "quit + relaunch" "cache-version restart remediation"
+assert_contains "$rem" "INSTALL.md#recommended-scope-project-or-local" "cache-version links the scope rule"
+
+test_case "check2 cache-version: update uses the installed entry's own scope, else the channel default"
+scoped_rem() {
+  printf '{"plugins":{"%s":[{%s"installPath":"/c/x","version":"0.10.0-delta"}]}}' "$1" "$2" > "$ROOT/installed.json"
+  out=$(env -i PATH="$PATH" HOME="$SANDBOX/home" \
+    TRAJECTORY_DB_PATH="$F_DB" TMB_HEALTH_SERVER_LOG="$F_LOG" \
+    TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+    TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+    bash "$HEALTH" 2>&1 || true)
+  remediation_after "$out" "FAIL  cache-version"
+}
+assert_contains "$(scoped_rem tmb@trustmybot '"scope":"local",')" "claude plugin update tmb@trustmybot --scope local" "recorded local scope wins"
+assert_contains "$(scoped_rem tmb@trustmybot '"scope":"user",')" "claude plugin update tmb@trustmybot --scope project" "user scope falls back to stable default"
+assert_contains "$(scoped_rem tmb@trustmybot-dev '')" "claude plugin update tmb@trustmybot-dev --scope local" "no scope falls back to dev default"
 
 test_case "check2 cache-version: LOAD-BEARING — /reload-plugins won't pick up server"
 assert_contains "$rem" "/reload-plugins will NOT pick up the new server" "cache-version forbids reload as the fix"

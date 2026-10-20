@@ -55,11 +55,15 @@ done
 
 test_case "control: run from a terminal, the same fixture is edited (Step A yes, Step B no)"
 set +e
-run_heal >/dev/null 2>&1
+OUT=$(run_heal 2>&1)
 rc=$?
 set -e
 assert_eq "0" "$rc" "control exit"
 assert_eq '["other"]' "$(jq -c '.projects["/work/demo"].disabledMcpServers' "$FAKE_HOME/.claude.json")" "control disabledMcpServers"
+
+test_case "control: Step B skipped prints scoped uninstall + reinstall (stable → project)"
+assert_contains "$OUT" "claude plugin uninstall tmb@trustmybot --scope project, then reinstall with: claude plugin install tmb@trustmybot --scope project" "scoped manual recovery"
+assert_contains "$OUT" "INSTALL.md#recommended-scope-project-or-local" "scope rule link"
 
 summarize
 printf "PASS heal-mcp-cache\n"
