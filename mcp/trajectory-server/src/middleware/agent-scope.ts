@@ -9,10 +9,12 @@ export type AgentRole =
   | 'unknown';
 
 const FIRST_CLASS_ROLES = new Set<AgentRole>(['bro', 'swe', 'pr-reviewer']);
+const ALL_ROLES: AgentRole[] = ['bro', 'swe', 'pr-reviewer', 'consultant'];
 
-export function normalizeAgent(name?: string): AgentRole {
-  if (!name) return 'unknown';
-  const lower = name.toLowerCase();
+export function normalizeAgent(name?: unknown): AgentRole {
+  if (typeof name !== 'string') return 'unknown';
+  const lower = name.toLowerCase().replace(/^tmb:/, '');
+  if (!lower) return 'unknown';
   if (FIRST_CLASS_ROLES.has(lower as AgentRole)) return lower as AgentRole;
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return 'consultant';
   return 'unknown';
@@ -38,28 +40,42 @@ function missingAgentDiagnostics(toolName: string, allowedRoles: AgentRole[], re
   };
 }
 
+function forbidden(toolName: string, agent: AgentRole, allowedRoles: AgentRole[], received: unknown): CallToolResult {
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          error: 'forbidden',
+          tool: toolName,
+          caller_role: agent,
+          allowed_roles: [...allowedRoles],
+          ...(agent === 'unknown' ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}),
+        }),
+      },
+    ],
+  };
+}
+
+const gatedRoles = new WeakMap<Fn, AgentRole[]>();
+
 export function requireRoles(toolName: string, allowedRoles: AgentRole[], handler: Fn): Fn {
   const allowed = new Set(allowedRoles);
+  const gated: Fn = async (args) => {
+    const agent = normalizeAgent(args['agent']);
+    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args['agent']);
+    return handler(args);
+  };
+  gatedRoles.set(gated, [...allowedRoles]);
+  return gated;
+}
+
+export function requireAgent(toolName: string, handler: Fn): Fn {
+  const allowedRoles = gatedRoles.get(handler) ?? ALL_ROLES;
   return async (args) => {
-    const agent = normalizeAgent(args['agent'] as string | undefined);
-    if (!allowed.has(agent)) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              error: 'forbidden',
-              tool: toolName,
-              caller_role: agent,
-              allowed_roles: [...allowedRoles],
-              ...(agent === 'unknown'
-                ? missingAgentDiagnostics(toolName, allowedRoles, args['agent'])
-                : {}),
-            }),
-          },
-        ],
-      };
+    if (normalizeAgent(args['agent']) === 'unknown') {
+      return forbidden(toolName, 'unknown', allowedRoles, args['agent']);
     }
     return handler(args);
   };

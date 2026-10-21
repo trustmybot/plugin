@@ -41,7 +41,7 @@ Remote issue close: when `issue_close`, `bro_atomic_close` or `task_recover` clo
 
 `task_brief` returns the task's typed `verification[]` commands and `verification_run`: the latest run of them the close gate recorded (`{run_id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s, commands: [{ordinal, command, exit_code, elapsed_s}]}`, null when none), so bro and pr-reviewer read the result instead of running the commands again. `validation_history` rows carry the same shape as `verification_run` — the latest run started by the attempt's `created_at`. The shared reader is `verification-runs.ts`.
 
-These modules are the entire MCP surface bro and the subagents call. `index.ts` is the registration point; role-gating per tool is enforced by `requireRoles()` in `../middleware/agent-scope.ts`. See `../../README.md` for the tool-family overview, environment, and schema notes. Handlers are unit-tested at L2 (`../test/`).
+These modules are the entire MCP surface bro and the subagents call. `index.ts` is the registration point and wraps every handler in `requireAgent()`, so a call with a missing or invalid `agent` fails on every tool with `reason: agent_missing_or_invalid`; role-gating per tool is enforced by `requireRoles()` in `../middleware/agent-scope.ts`. `normalizeAgent` strips a leading `tmb:` (Claude Code's subagent namespace), so `tmb:swe` is `swe` and `tmb:pm` is a consultant. Read-only tools (`world_model_get`, `world_model_search`, `repos_list`, `task_brief`, `issue_snapshot_md`) admit consultants; write tools keep their narrower lists. See `../../README.md` for the tool-family overview, environment, and schema notes. Handlers are unit-tested at L2 (`../test/`).
 
 ## Discussions: single insert+embed path
 

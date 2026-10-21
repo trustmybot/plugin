@@ -5,11 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startClient, call, seedReviewerObservation } from './harness.mjs';
 
-// Role matrix coverage for tools that currently wrap handlers with `requireRoles`.
-// Tools without requireRoles (task_*, validation_*, issue_*, audit_*, audit_*,
-// skill_*) accept any caller — that's tracked as a protection gap (see issue
-// filed alongside this test file). When requireRoles is added there, add tests
-// to this file covering them.
+// Role matrix coverage for tools that wrap handlers with `requireRoles`. Every
+// registered tool, gated or not, rejects a missing or invalid `agent`.
 
 test('onboard_apply — bro allowed, others forbidden, missing agent forbidden', async (t) => {
   const { client, close } = await startClient();
@@ -56,22 +53,55 @@ test('config_set — bro only; architect/swe/pr-reviewer all forbidden', async (
   }
 });
 
-test('issue_snapshot_md — bro & pr-reviewer only; consultants forbidden', async (t) => {
+test('issue_snapshot_md — bro, pr-reviewer and consultants; swe forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Seed an issue so the handler has something to snapshot.
   const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'x', description: 'y', labels: ['Feature', 'Priority: Medium'] });
   assert.equal(seed.ok, true, `seed issue: ${JSON.stringify(seed)}`);
   const issueId = seed.data.id;
 
-  // Architect (now consultant role under the new doctrine) is dropped from the
-  // requireRoles list; only bro + pr-reviewer can call this report tool.
-  for (const wrongRole of ['swe', 'architect', 'cto']) {
-    const res = await call(client, 'issue_snapshot_md', { agent: wrongRole, issue_id: issueId });
-    assert.equal(res.ok, false, `${wrongRole} must be forbidden`);
-    assert.equal(res.error?.error, 'forbidden');
+  const res = await call(client, 'issue_snapshot_md', { agent: 'swe', issue_id: issueId });
+  assert.equal(res.ok, false, 'swe must be forbidden');
+  assert.equal(res.error?.error, 'forbidden');
+
+  for (const role of ['pm', 'tmb:pm']) {
+    const gate = await call(client, 'issue_snapshot_md', { agent: role, issue_id: issueId });
+    assert.notEqual(gate.error?.error, 'forbidden', `${role} passes the role gate; got ${JSON.stringify(gate)}`);
   }
+});
+
+test('consultants read world_model_get, world_model_search, repos_list, task_brief; not task_update_status', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const [tool, args] of [
+    ['world_model_get', {}],
+    ['world_model_search', { query: 'x' }],
+    ['repos_list', {}],
+    ['task_brief', { task_id: 999999 }],
+  ]) {
+    const res = await call(client, tool, { agent: 'pm', ...args });
+    assert.notEqual(res.error?.error, 'forbidden', `pm passes the ${tool} gate; got ${JSON.stringify(res)}`);
+  }
+
+  const write = await call(client, 'task_update_status', { agent: 'pm', task_id: '1', status: 'running' });
+  assert.equal(write.ok, false);
+  assert.equal(write.error?.error, 'forbidden');
+  assert.equal(write.error?.caller_role, 'consultant');
+});
+
+test('missing agent is rejected on a tool with no role gate', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const res = await call(client, 'issue_list', {});
+  assert.equal(res.ok, false, 'issue_list without agent must fail');
+  assert.equal(res.error?.reason, 'agent_missing_or_invalid');
+  assert.equal(res.error?.tool, 'issue_list');
+
+  const prefixed = await call(client, 'issue_list', { agent: 'tmb:swe' });
+  assert.equal(prefixed.ok, true, `tmb:swe is swe; got ${JSON.stringify(prefixed)}`);
 });
 
 test('discussion_append — workflow agents (bro/architect) can append questions; swe scope-restricted', async (t) => {

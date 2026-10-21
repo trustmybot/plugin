@@ -20,6 +20,7 @@ import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
 import { agentRunsBackfillTools } from './agent-runs-backfill.js';
 import { trajectoryDoctorTools } from './trajectory-doctor.js';
+import { requireAgent } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
 function decorateWithAgent(tools) {
@@ -91,7 +92,7 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
         ...backfill.definitions,
         ...doctor.definitions,
     ]);
-    toolHandlers = {
+    const handlers = {
         ...discussions.handlers,
         ...issues.handlers,
         ...milestones.handlers,
@@ -115,5 +116,6 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
         ...backfill.handlers,
         ...doctor.handlers,
     };
+    toolHandlers = Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, requireAgent(name, handler)]));
 }
 //# sourceMappingURL=index.js.map

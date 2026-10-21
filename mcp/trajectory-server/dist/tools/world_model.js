@@ -238,7 +238,7 @@ export function worldModelTools(db, graphHolder) {
         },
     ];
     const handlers = {
-        world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
+        world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
             let repo = args['repo'] ?? '';
             if (!repo) {
                 const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
@@ -284,7 +284,7 @@ export function worldModelTools(db, graphHolder) {
                 unmerged_work: unmerged.unmerged_work,
             });
         })),
-        world_model_search: requireRoles('world_model_search', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
+        world_model_search: requireRoles('world_model_search', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
             const query = args['query'];
             if (!query || typeof query !== 'string')
                 return err('query is required');

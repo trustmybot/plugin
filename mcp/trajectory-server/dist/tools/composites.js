@@ -1286,7 +1286,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             });
             return ok({ task_id: taskId, changed, files, verification });
         })),
-        task_brief: requireRoles('task_brief', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
+        task_brief: requireRoles('task_brief', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
             const taskId = args['task_id'];
             if (taskId === undefined || taskId === null)
                 return err('task_id is required');

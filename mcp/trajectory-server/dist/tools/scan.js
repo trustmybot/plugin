@@ -866,7 +866,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                     releaseLock(lockPath);
             }
         })),
-        repos_list: requireRoles('repos_list', ['bro', 'swe', 'pr-reviewer'], wrap(async () => {
+        repos_list: requireRoles('repos_list', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async () => {
             const rows = db.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
             return ok({ repos: rows });
         })),

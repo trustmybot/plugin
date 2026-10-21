@@ -1051,7 +1051,7 @@ export function scanTools(
 
     repos_list: requireRoles(
       'repos_list',
-      ['bro', 'swe', 'pr-reviewer'],
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrap(async () => {
         const rows = db.all<{
           name: string;

@@ -1509,7 +1509,7 @@ export function compositeTools(
 
     task_brief: requireRoles(
       'task_brief',
-      ['bro', 'swe', 'pr-reviewer'],
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
