@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Seed a stale world model + drift: README committed with v1 text,
-# deep_scan_completed audit row written (SQLite-side proxy for "kuzu world
-# model warm with v1 summary"), then README edited on disk without a commit.
+# deep_scan_completed audit row written (proxy for "world model warm with
+# v1 summary"), then README edited on disk without a commit.
 # The pre-state mimics "world model from yesterday's README" — bro should
 # detect the drift on the next scan.
 set -uo pipefail

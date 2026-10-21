@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-seed src/cli.py + a top-level README so the world model has something
 # to summarize. The scenario under test is: after a task close, the
-# post-task-close-rescan hook refreshes the world model (kuzu graph DB)
+# post-task-close-rescan hook refreshes the world model (wm_ tables)
 # and the project map stays current.
 #
 # In L6 chain mode rows 04+05 already pre-warmed the world model (row 04
@@ -87,8 +87,8 @@ if __name__ == "__main__":
     main()
 PY
 
-# Pre-warm the world model for L5 standalone runs. The kuzu graph DB is
-# populated by scan_run at runtime; here we seed the SQLite-side proxy
+# Pre-warm the world model for L5 standalone runs. The wm_ tables are
+# populated by scan_run at runtime; here we seed the proxy
 # (deep_scan_completed audit row + repos row) so bro starts with a warm
 # world model rather than hitting the world-model-cold gate.
 PROJECT_REAL=$(cd "$PROJECT" && pwd -P)

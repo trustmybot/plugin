@@ -2,8 +2,8 @@
 # Catch this repository's own paths and scripts in shipped prompt files.
 # TMB is general purpose: a prompt that names mcp/trajectory-server/src/, scripts/hooks/,
 # changelog.d/ or regen-generated.sh describes the user's project with this repo's layout.
-# Lines naming product internals every install has (CLAUDE_PLUGIN_ROOT, .claude/tmb/, kuzu,
-# the plugin cache) are allowed.
+# Lines naming product internals every install has (CLAUDE_PLUGIN_ROOT, .claude/tmb/, the
+# plugin cache) are allowed.
 #
 # Scans: agents/, commands/, templates/agents/ (depth 1) and every *.md under skills/.
 #
@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
 REPO_PATH_REGEX='mcp/trajectory-server|scripts/hooks/|scripts/maintenance/|changelog\.d|tests/l[0-9]|regen-generated|dist-fresh|docs/architecture'
-ALLOW_REGEX='CLAUDE_PLUGIN_ROOT|\.claude/tmb/|kuzu|plugin cache'
+ALLOW_REGEX='CLAUDE_PLUGIN_ROOT|\.claude/tmb/|plugin cache'
 
 FAIL=0
 

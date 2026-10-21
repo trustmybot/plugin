@@ -1,11 +1,11 @@
--- 06.02-codebase-memory-verify-on-drift (ADR 0002 — world model in kuzu)
--- Pre-state: a v1-summary Directory node exists in kuzu + the README on disk
+-- 06.02-codebase-memory-verify-on-drift (world model in the wm_ tables)
+-- Pre-state: a v1-summary wm_directories row exists + the README on disk
 -- now says v2. On the first code-touching ask, bro plans + dispatches. If/when
 -- bro fires scan_run (explicitly or via post-task-close-rescan), the
--- README-derived summary on the repo-root Directory node refreshes to v2.
+-- README-derived summary on the repo-root wm_directories row refreshes to v2.
 --
--- The kuzu side is queried directly in the L3 fixture (TBD post-v0.7). Here
--- the SQLite-side assertions verify the planning chain ran end-to-end.
+-- The wm_ row contents are covered by the trajectory-server's world-model
+-- unit tests. Here the assertions verify the planning chain ran end-to-end.
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,

@@ -2,16 +2,15 @@
 --
 -- Setup: workspace has two inner repos, api/ and app/, each registered by path
 -- in the `repos` table (path-keyed resolution — docs/architecture/REPO_RESOLUTION.md).
--- Bro runs /scan which writes Directory nodes per-repo into the sibling kuzu
--- graph DB (ADR 0002). The path-discipline contract — repo-relative paths,
--- repo-scoped writes — is identical to the pre-graph-DB regime; only the
--- substrate changed.
+-- Bro runs /scan which writes wm_directories rows per repo into the
+-- trajectory DB. The path-discipline contract — repo-relative paths,
+-- repo-scoped writes — is identical across world-model substrates.
 --
--- The kuzu node assertions (api dirs indexed; no workspace-rooted paths;
--- no cross-repo leak) live in the L3 kuzu integration fixture (TBD
--- post-v0.7). Here the SQLite-side assertion verifies both inner repos are
+-- The wm_ row assertions (api dirs indexed; no workspace-rooted paths;
+-- no cross-repo leak) live in the trajectory-server's world-model unit
+-- tests. Here the SQLite-side assertion verifies both inner repos are
 -- registered by path in the `repos` table (the registration that scopes
--- resolution + the precursor to the kuzu writes), and the deep_scan_completed
+-- resolution + the precursor to the wm_ writes), and the deep_scan_completed
 -- audit row exists.
 
 SELECT

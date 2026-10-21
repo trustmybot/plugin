@@ -28,9 +28,9 @@ describe('extractPurpose — deterministic per-file purpose', () => {
   it('reads the first // comment block of a ts file, stopping at the first sentence', () => {
     expectPurpose(
       'src/graph.ts',
-      '// World-model graph wrapper over kuzu native\n// bindings. See ADR 0002.\nimport x from "y";\n',
+      '// World-model graph wrapper over the SQLite\n// wm_ tables. See ADR 0002.\nimport x from "y";\n',
       'comment',
-      'World-model graph wrapper over kuzu native bindings.',
+      'World-model graph wrapper over the SQLite wm_ tables.',
     );
   });
 

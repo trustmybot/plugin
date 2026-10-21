@@ -11,7 +11,7 @@ The world model lives in the trajectory DB (`<project>/.claude/tmb/trajectory.db
 | Content | Project mental model: dirs and files, each file with a one-line purpose | Workflow audit: issues, tasks, discussions, validation, plugin metadata |
 | Bro's use | "What does this project look like?" / "Where does X live?" | "What did we decide?" / "What's open?" / "What did SWE commit?" |
 
-**Why SQLite.** The world model moved off a sibling Kuzu graph DB (schema v8 to v41). Kuzu brought a single-writer lock that a second session or an orphaned server could hold (`graph_db_open_failed`), a native destructor segfault at exit on Node 24/macOS, a native binding that could be missing after install, and a 531 MB install from an archived upstream, while its full-text and vector extensions were never wired up. The tree walk is one recursive CTE, and keyword and semantic search reuse the FTS5 and embedding machinery the workflow tables already have.
+**Why SQLite.** The world model moved off a sibling embedded graph DB (schema v8 to v41). That engine brought a single-writer lock that a second session or an orphaned server could hold (`graph_db_open_failed`), a native destructor segfault at exit on Node 24/macOS, a native binding that could be missing after install, and a 531 MB install from an archived upstream, while its full-text and vector extensions were never wired up. The tree walk is one recursive CTE, and keyword and semantic search reuse the FTS5 and embedding machinery the workflow tables already have.
 
 ## Schema
 
@@ -112,7 +112,7 @@ The world model has had four substrates, each replacing the last:
 
 - **`file_registry` (v6)** — one row per file (md5 + an LLM summary). Wrong granularity (a file summary says what a file *contains*, not what part of the system it *serves*), drift-sensitive (a one-line edit cleared the summary), and token-heavy. Dropped in v7.
 - **SQLite `directories` table (v7)** — the dir-level model as a stepping stone inside the existing trajectory DB. It validated that a README-first directory map is the right cold-start surface: ~10× fewer rows than per-file, and directory summaries change monthly (a part's role) rather than per-commit (a file's contents). Dropped in v8.
-- **Kuzu graph (v8–v41)** — the same dir-level model on an embedded graph engine, chosen for the import/call relations to follow. Its single-writer lock, native-binding install and exit-time crashes cost more than the graph queries it never ran. Schema v8 dropped the SQLite `directories` tables.
-- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. Kuzu graphs are not migrated; `/scan` rebuilds the map.
+- **Embedded graph DB (v8–v41)** — the same dir-level model on a separate graph engine, chosen for the import/call relations to follow. Its single-writer lock, native-binding install and exit-time crashes cost more than the graph queries it never ran. Schema v8 dropped the SQLite `directories` tables.
+- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map.
 
 File rows bring per-file state back with the two `file_registry` faults fixed: a purpose is one deterministic line (what the file is for, not what it contains) at zero token cost, and an edit only re-extracts when the content hash changes while an swe-written purpose survives it.

@@ -1,8 +1,8 @@
 # 05.04-multirepo-commit
 
-**Flow under test:** path discipline in a multi-repo workspace — path-keyed repo resolution (each inner repo registered by path in the `repos` table; see [`docs/architecture/REPO_RESOLUTION.md`](../../../../../docs/architecture/REPO_RESOLUTION.md)) + repo-relative indexing in the kuzu world model (graph DB per ADR 0002).
+**Flow under test:** path discipline in a multi-repo workspace — path-keyed repo resolution (each inner repo registered by path in the `repos` table; see [`docs/architecture/REPO_RESOLUTION.md`](../../../../../docs/architecture/REPO_RESOLUTION.md)) + repo-relative indexing in the world model (the `wm_` tables in the trajectory DB).
 
-**Pre-state**: `onboarding-named` fixture + workspace fixture with **two sibling inner git repos**, each with a top-level `README.md` so `/scan` produces author-curated dir summaries in the kuzu graph:
+**Pre-state**: `onboarding-named` fixture + workspace fixture with **two sibling inner git repos**, each with a top-level `README.md` so `/scan` produces author-curated dir summaries in the world model:
 
 ```
 PROJECT/
@@ -22,9 +22,9 @@ Both inner repos are registered by path in the `repos` table via `setup-l5.sh` �
 
 **Expected behavior**:
 1. Each operation resolves to its repo by path against `repos.path` — no global default-repo name
-2. Bro runs `scan_run` which populates the kuzu graph with Directory nodes for both inner repos
-3. Repo-relative paths land as kuzu node keys (no `api/` or `app/` prefix)
-4. Each node's `repo` field correctly distinguishes which inner repo it belongs to
+2. Bro runs `scan_run` which populates `wm_directories` with rows for both inner repos
+3. Repo-relative paths land as `wm_directories.path` values (no `api/` or `app/` prefix)
+4. Each row's `repo` column correctly distinguishes which inner repo it belongs to
 
 **L5 mode**: `setup-l5.sh` builds the two sibling repos + registers both by path in the `repos` table.
 **L6 mode**: standalone row, not in chain.

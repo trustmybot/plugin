@@ -9,12 +9,13 @@
 # This test drives health.sh against self-contained fixtures (a temp DB seeded
 # with plugin_meta/tasks/repos/plugin_config, a fake mcp-server.log, a fake
 # cache tree) and asserts the right PASS/FAIL + remediation per scenario across
-# all 7 checks, plus the duplicate-plugin and legacy-user-hooks warnings,
-# including the three kuzu
-# sub-diagnoses:
-#   - lock-contention   (another process holds the single-writer lock)
-#   - postinstall-skip   (native binding not installed)
-#   - missing-graph      (graph file gone → /scan)
+# all 7 checks, plus the duplicate-plugin and legacy-user-hooks warnings.
+# The world-model check covers:
+#   - tables with rows   → PASS
+#   - tables empty       → WARN naming /scan (not a FAIL)
+#   - tables missing     → FAIL, full restart (the server migrates on start)
+#   - a leftover graph file from the old store → INFO line, file kept
+#   - the DB file's bytes and mtime unchanged after the run (read-only probe)
 #
 # LOAD-BEARING (#144): NO MCP-server-state FAIL — server-unreachable,
 # schema-stale, world-model-unavailable — ever prescribes `/reload-plugins`.
@@ -66,7 +67,6 @@ export PATH="$STUB_DIR:$PATH"
 # Per-scenario fixture builder. Each scenario gets its own workspace tree so
 # nothing bleeds across cases:
 #   <root>/.claude/tmb/trajectory.db        — seeded DB (TRAJECTORY_DB_PATH)
-#   <root>/.claude/tmb/world-model.kuzu     — graph file (sibling of the DB)
 #   <root>/cache/...                        — fake installed plugin cache
 #   <root>/server.log                       — fake mcp-server.log
 # Args: <scenario-slug>
@@ -91,6 +91,8 @@ CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
 INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin');
 CREATE TABLE tasks (id INTEGER PRIMARY KEY, status TEXT, branch_id TEXT, commit_sha TEXT, prompt_bearing INTEGER DEFAULT 0);
 CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);
+CREATE TABLE wm_directories (id INTEGER PRIMARY KEY, repo TEXT, path TEXT, parent_path TEXT, summary TEXT);
+CREATE TABLE wm_files (id INTEGER PRIMARY KEY, repo TEXT, path TEXT, dir TEXT, purpose TEXT);
 EOF
   if [ -n "$labels" ]; then
     sqlite3 "$db" "INSERT INTO plugin_config (key, value_json) VALUES ('issue_classification_labels', '${labels}');"
@@ -102,24 +104,37 @@ add_task() {
   sqlite3 "$1" "INSERT INTO tasks (status, branch_id) VALUES ('$2', '$3');"
 }
 
-# make_cache <cache_dir> <target_schema> [<with_kuzu_binding:yes|no>]
-# Builds a fake installed-cache tree with a db.ts carrying TARGET_SCHEMA_VERSION
-# and (optionally) a present kuzu native binding (node_modules/kuzu/index.js).
+# seed_world_model <db> — a scanned world model: two directories, one file.
+seed_world_model() {
+  sqlite3 "$1" <<'EOF'
+INSERT INTO wm_directories (repo, path, parent_path, summary) VALUES ('plugin', '', NULL, 'root'), ('plugin', 'src', '', 'sources');
+INSERT INTO wm_files (repo, path, dir, purpose) VALUES ('plugin', 'src/main.ts', 'src', 'entry point');
+EOF
+}
+
+# make_cache <cache_dir> <target_schema>
+# Builds a fake installed-cache tree with a db.ts carrying TARGET_SCHEMA_VERSION.
 make_cache() {
-  local cache="$1" target="$2" with_kuzu="${3:-yes}"
+  local cache="$1" target="$2"
   mkdir -p "$cache/mcp/trajectory-server/src"
   printf 'const TARGET_SCHEMA_VERSION = %s;\n' "$target" > "$cache/mcp/trajectory-server/src/db.ts"
-  if [ "$with_kuzu" = "yes" ]; then
-    mkdir -p "$cache/mcp/trajectory-server/node_modules/kuzu"
-    printf 'module.exports = {};\n' > "$cache/mcp/trajectory-server/node_modules/kuzu/index.js"
-  fi
+}
+
+# db_state <db> — bytes checksum + mtime of the DB file, plus any sidecar files.
+db_state() {
+  local db="$1" m f sidecars=""
+  m=$(stat -c %Y "$db" 2>/dev/null || stat -f %m "$db")
+  for f in "$db"-*; do
+    [ -e "$f" ] && sidecars="$sidecars $f"
+  done
+  printf '%s %s%s\n' "$(cksum < "$db")" "$m" "$sidecars"
 }
 
 # run_health — invoke health.sh with a clean env. Every input is an explicit
 # override so resolution is deterministic and never touches the real install.
 # Globals consumed (set per scenario before calling):
 #   F_DB F_LOG F_CACHE F_INTENDED F_PGREP F_PLUGINROOT
-run_health() {
+run_health_rc() {
   env -i \
     PATH="$PATH" \
     HOME="$SANDBOX/home" \
@@ -129,12 +144,13 @@ run_health() {
     TMB_HEALTH_INTENDED_VERSION="${F_INTENDED:-}" \
     TMB_HEALTH_PGREP_COUNT="${F_PGREP:-}" \
     CLAUDE_PLUGIN_ROOT="${F_PLUGINROOT:-}" \
-    bash "$HEALTH" 2>&1 || true
+    bash "$HEALTH" 2>&1
 }
+run_health() { run_health_rc || true; }
 
 # Reset scenario globals to "healthy" defaults; each test overrides what it
 # exercises. Healthy baseline: server alive, versions match, schema matches,
-# graph opens, labels set, no stale state, no drift.
+# world model scanned, labels set, no stale state, no drift.
 TARGET_SCHEMA=24
 HEALTHY_VERSION="0.10.0-delta"
 
@@ -150,12 +166,9 @@ reset_scenario() {
   F_PGREP="1"
   F_PLUGINROOT=""
   seed_db "$F_DB" "$HEALTHY_VERSION" "$TARGET_SCHEMA" '["Bug","Feature","Docs"]'
-  make_cache "$F_CACHE" "$TARGET_SCHEMA" yes
-  # Graph file present (sibling of DB) so the world-model FS fallback is happy.
-  : > "$root/.claude/tmb/world-model.kuzu"
-  # Server log logs a successful graph open.
-  printf '{"kind":"graph_db_open","ok":true,"path":"%s"}\n' \
-    "$root/.claude/tmb/world-model.kuzu" > "$F_LOG"
+  seed_world_model "$F_DB"
+  make_cache "$F_CACHE" "$TARGET_SCHEMA"
+  : > "$F_LOG"
 }
 
 # Extract the remediation block (the `-> ...` lines) that follow a given FAIL
@@ -248,7 +261,7 @@ assert_contains "$rem" "/reload-plugins will NOT pick up the new server" "cache-
 test_case "check3 schema-version: DB schema < installed target → FAIL"
 reset_scenario schema-stale
 sqlite3 "$F_DB" "UPDATE plugin_meta SET schema_version=23 WHERE id=1;"
-make_cache "$F_CACHE" 24 yes
+make_cache "$F_CACHE" 24
 out=$(run_health)
 assert_contains "$out" "FAIL  schema-version: DB at v23 but installed server targets v24" "schema-version FAIL line"
 
@@ -261,59 +274,103 @@ test_case "check3 schema-version: LOAD-BEARING — /reload-plugins does NOT run 
 assert_contains "$rem" "/reload-plugins does NOT restart the server" "schema forbids reload as the fix"
 
 # ============================================================================
-# Check 4 — world-model (kuzu), sub-diagnosis A: lock-contention → FAIL
+# Check 4 — world-model: wm_ tables with rows → PASS naming the counts
 # ============================================================================
-test_case "check4a world-model: lock-contention → FAIL"
-reset_scenario kuzu-lock
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
-  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
+test_case "check4a world-model: scanned tables → PASS with counts"
+reset_scenario wm-scanned
 out=$(run_health)
-assert_contains "$out" "FAIL  world-model: kuzu open FAILED — graph file is locked" "kuzu lock FAIL line"
-
-test_case "check4a world-model lock: remediation kills the orphan + full restart"
-rem=$(remediation_after "$out" "FAIL  world-model")
-assert_contains "$rem" "single-writer lock" "lock remediation names the lock"
-assert_contains "$rem" "pkill -f 'trajectory-server/dist/index.js'" "lock remediation gives the kill command"
-assert_contains "$rem" "quit + relaunch" "lock remediation restarts"
-
-test_case "check4a world-model lock: LOAD-BEARING — no /reload-plugins"
-assert_not_contains "$rem" "/reload-plugins" "lock remediation never mentions /reload-plugins"
+assert_contains "$out" "PASS  world-model: 2 directories, 1 files" "world-model PASS line"
+assert_not_contains "$out" "WARN  world-model" "no empty warning"
+assert_not_contains "$out" "INFO  world-model" "no leftover line without a leftover file"
 
 # ============================================================================
-# Check 4 — kuzu sub-diagnosis B: postinstall skipped (binding missing) → FAIL
+# Check 4 — world-model: tables empty → WARN naming /scan, not a FAIL
 # ============================================================================
-test_case "check4b world-model: postinstall-skipped (binding missing) → FAIL"
-reset_scenario kuzu-postinstall
-printf '{"kind":"graph_db_open_failed","error_message":"Cannot find module kuzu","path":"%s"}\n' \
-  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
-# Rebuild cache WITHOUT the kuzu native binding.
-rm -rf "$F_CACHE"
-make_cache "$F_CACHE" "$TARGET_SCHEMA" no
+test_case "check4b world-model: empty tables → WARN pointing at /scan"
+reset_scenario wm-empty
+sqlite3 "$F_DB" "DELETE FROM wm_files; DELETE FROM wm_directories;"
+set +e
+out=$(run_health_rc)
+rc=$?
+set -e
+assert_contains "$out" "WARN  world-model: empty" "empty WARN line"
+rem=$(remediation_after "$out" "WARN  world-model")
+assert_contains "$rem" "run /scan" "empty remediation prescribes /scan"
+assert_not_contains "$out" "FAIL  world-model" "an empty world model is not a FAIL"
+assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
+assert_exit_code 0 "$rc" "exit code unchanged"
+
+# ============================================================================
+# Check 4 — world-model: tables missing → FAIL, full restart, NOT /reload
+# ============================================================================
+test_case "check4c world-model: tables missing → FAIL"
+reset_scenario wm-missing
+sqlite3 "$F_DB" "DROP TABLE wm_files; DROP TABLE wm_directories;"
 out=$(run_health)
-assert_contains "$out" "FAIL  world-model: kuzu open FAILED — native binding not installed" "kuzu postinstall FAIL line"
-
-test_case "check4b world-model postinstall: remediation = node install.js + full restart"
+assert_contains "$out" "FAIL  world-model: wm_directories / wm_files missing" "missing-tables FAIL line"
 rem=$(remediation_after "$out" "FAIL  world-model")
-assert_contains "$rem" "node install.js" "postinstall remediation runs install.js"
-assert_contains "$rem" "quit + relaunch" "postinstall remediation restarts"
-
-test_case "check4b world-model postinstall: LOAD-BEARING — no /reload-plugins"
-assert_not_contains "$rem" "/reload-plugins" "postinstall remediation never mentions /reload-plugins"
+assert_contains "$rem" "quit + relaunch" "missing-tables remediation restarts"
+assert_contains "$rem" "run /scan" "missing-tables remediation then scans"
+assert_not_contains "$rem" "/reload-plugins" "missing-tables remediation never mentions /reload-plugins"
 
 # ============================================================================
-# Check 4 — kuzu sub-diagnosis C: missing graph file → FAIL, /scan
+# Check 4 — a leftover graph file from the old store → INFO, never deleted
 # ============================================================================
-test_case "check4c world-model: graph file missing → FAIL"
-reset_scenario kuzu-missing
-# No failure logged; remove the graph file so the FS fallback catches it.
-: > "$F_LOG"
-rm -f "$ROOT/.claude/tmb/world-model.kuzu"
+test_case "check4d world-model: leftover world-model.kuzu beside trajectory.db → INFO line, file kept"
+reset_scenario wm-leftover
+legacy="$ROOT/.claude/tmb/world-model.kuzu"
+mkdir -p "$legacy"
+: > "$legacy/data"
+: > "$legacy.wal"
 out=$(run_health)
-assert_contains "$out" "FAIL  world-model: graph file missing" "kuzu missing-graph FAIL line"
+assert_contains "$out" "INFO  world-model: $legacy is an unused leftover" "leftover INFO line names the file"
+assert_contains "$out" "you may delete it" "leftover INFO line says the user may delete it"
+assert_contains "$out" "PASS  world-model: 2 directories, 1 files" "leftover does not change the verdict"
+assert_contains "$out" "== all checks passed ==" "an info line is not a failed check"
+[ -f "$legacy/data" ] && [ -f "$legacy.wal" ] && kept=yes || kept=no
+assert_eq "yes" "$kept" "leftover files are never deleted"
 
-test_case "check4c world-model missing: remediation = run /scan"
-rem=$(remediation_after "$out" "FAIL  world-model")
-assert_contains "$rem" "run /scan" "missing-graph remediation prescribes /scan"
+test_case "check4d world-model: a custom DB name looks for <db>.world-model.kuzu"
+custom_db="$ROOT/.claude/tmb/custom.db"
+cp "$F_DB" "$custom_db"
+F_DB="$custom_db"
+out=$(run_health)
+assert_not_contains "$out" "INFO  world-model" "the standard-name leftover belongs to trajectory.db, not custom.db"
+: > "$custom_db.world-model.kuzu"
+out=$(run_health)
+assert_contains "$out" "INFO  world-model: $custom_db.world-model.kuzu is an unused leftover" "custom DB leftover INFO line"
+
+# ============================================================================
+# Check 4 — the probe never writes the DB
+# ============================================================================
+test_case "check4e world-model: DB bytes and mtime unchanged after the check"
+reset_scenario wm-readonly
+touch -t 200001010000 "$F_DB"
+BEFORE=$(db_state "$F_DB")
+out=$(run_health)
+assert_contains "$out" "PASS  world-model" "world-model PASS on the probed DB"
+assert_eq "$BEFORE" "$(db_state "$F_DB")" "rollback-journal DB: bytes, mtime and sidecars unchanged"
+
+test_case "check4e world-model: a WAL DB with no -shm stays untouched"
+reset_scenario wm-readonly-wal
+sqlite3 "$F_DB" "PRAGMA journal_mode=WAL;" >/dev/null
+rm -f "$F_DB-wal" "$F_DB-shm"
+touch -t 200001010000 "$F_DB"
+BEFORE=$(db_state "$F_DB")
+out=$(run_health)
+assert_contains "$out" "PASS  world-model: 2 directories, 1 files" "world-model reads a cold WAL DB"
+assert_eq "$BEFORE" "$(db_state "$F_DB")" "WAL DB: bytes, mtime and sidecars unchanged"
+
+# ============================================================================
+# Check 4 — :memory: has nothing on disk to probe
+# ============================================================================
+test_case "check4f world-model: :memory: → PASS without a probe"
+reset_scenario wm-memory
+F_DB=":memory:"
+out=$(run_health)
+assert_contains "$out" "db:        :memory:" ":memory: override is preserved"
+assert_contains "$out" "PASS  world-model: in-memory trajectory DB" ":memory: world model PASS"
+assert_not_contains "$out" "INFO  world-model" ":memory: has no leftover graph file"
 
 # ============================================================================
 # Server log default — beside the trajectory DB, never under $HOME
@@ -321,72 +378,9 @@ assert_contains "$rem" "run /scan" "missing-graph remediation prescribes /scan"
 test_case "server-log default: resolves to <db-dir>/logs/mcp-server.log"
 reset_scenario log-default
 F_LOG=""
-mkdir -p "$ROOT/.claude/tmb/logs"
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
-  "$ROOT/.claude/tmb/world-model.kuzu" > "$ROOT/.claude/tmb/logs/mcp-server.log"
 out=$(run_health)
 assert_contains "$out" "server-log:$ROOT/.claude/tmb/logs/mcp-server.log" "default server log sits beside the DB"
 assert_not_contains "$out" "$SANDBOX/home" "default server log is not under HOME"
-
-test_case "server-log default: graph_db_open_failed is read from the project log"
-assert_contains "$out" "FAIL  world-model: kuzu open FAILED — graph file is locked" "project log drives the kuzu diagnosis"
-
-# ============================================================================
-# Check 4 — custom DB names map one-to-one to <db>.world-model.kuzu
-# ============================================================================
-test_case "check4d world-model: custom DB uses its own graph path"
-reset_scenario kuzu-custom
-custom_db="$ROOT/.claude/tmb/custom.db"
-mv "$F_DB" "$custom_db"
-F_DB="$custom_db"
-rm -f "$ROOT/.claude/tmb/world-model.kuzu"
-: > "$custom_db.world-model.kuzu"
-: > "$F_LOG"
-out=$(run_health)
-assert_contains "$out" "PASS  world-model" "custom DB graph path PASS"
-
-test_case "check4d world-model: custom DB does not share the standard graph path"
-rm -f "$custom_db.world-model.kuzu"
-: > "$ROOT/.claude/tmb/world-model.kuzu"
-out=$(run_health)
-assert_contains "$out" "FAIL  world-model: graph file missing" "custom DB ignores standard graph path"
-
-test_case "check4d world-model: ignores a successful log event for another graph"
-printf '{"kind":"graph_db_open","ok":true,"path":"%s"}\n' \
-  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
-out=$(run_health)
-assert_contains "$out" "FAIL  world-model: graph file missing" "old graph success cannot make current graph PASS"
-
-test_case "check4d world-model: ignores a failed log event for another graph"
-: > "$custom_db.world-model.kuzu"
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on old graph","path":"%s"}\n' \
-  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
-out=$(run_health)
-assert_contains "$out" "PASS  world-model" "old graph failure cannot make current graph FAIL"
-
-# ============================================================================
-# Check 4 — in-memory and reserved graph-path behavior
-# ============================================================================
-test_case "check4e world-model: :memory: needs no graph file"
-reset_scenario kuzu-memory
-F_DB=":memory:"
-: > "$F_LOG"
-out=$(run_health)
-assert_contains "$out" "db:        :memory:" ":memory: override is preserved"
-assert_contains "$out" "PASS  world-model" ":memory: graph is healthy without a file"
-assert_not_contains "$out" "FAIL  world-model" ":memory: is never checked with -e"
-
-test_case "check4f world-model: graph-shaped trajectory DB names are rejected"
-reset_scenario kuzu-reserved-db
-reserved_db="$ROOT/.claude/tmb/world-model.kuzu"
-rm -f "$reserved_db"
-mv "$F_DB" "$reserved_db"
-F_DB="$reserved_db"
-: > "$F_LOG"
-out=$(run_health)
-assert_contains "$out" "FAIL  world-model: trajectory DB filename is reserved for graph storage" "reserved DB name FAIL line"
-rem=$(remediation_after "$out" "FAIL  world-model")
-assert_contains "$rem" "Choose a different trajectory DB filename" "reserved DB remediation"
 
 # ============================================================================
 # Check 5 — label-config: unset issue_classification_labels → FAIL
@@ -458,16 +452,15 @@ assert_eq "" "$residual" "server-state remediation has no positive /reload-plugi
 test_case "sweep: schema-stale emits NO bare /reload-plugins directive"
 reset_scenario sweep-schema
 sqlite3 "$F_DB" "UPDATE plugin_meta SET schema_version=23 WHERE id=1;"
-make_cache "$F_CACHE" 24 yes
+make_cache "$F_CACHE" 24
 out=$(run_health)
 rem=$(remediation_after "$out" "FAIL  schema-version")
 residual=$(printf '%s\n' "$rem" | grep -F '/reload-plugins' | grep -vF 'does NOT restart the server' || true)
 assert_eq "" "$residual" "schema-state remediation has no positive /reload-plugins directive"
 
-test_case "sweep: world-model-unavailable (lock) emits NO /reload-plugins at all"
-reset_scenario sweep-kuzu
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
-  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
+test_case "sweep: world-model tables missing emits NO /reload-plugins at all"
+reset_scenario sweep-world-model
+sqlite3 "$F_DB" "DROP TABLE wm_files; DROP TABLE wm_directories;"
 out=$(run_health)
 rem=$(remediation_after "$out" "FAIL  world-model")
 assert_not_contains "$rem" "/reload-plugins" "world-model remediation never mentions /reload-plugins"

@@ -12,7 +12,7 @@ describe('extractPurpose — deterministic per-file purpose', () => {
         expectPurpose('tools/sync.py', '#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n"""Sync the local mirror with the\nupstream registry.\n\nLonger notes.\n"""\nimport os\n', 'docstring', 'Sync the local mirror with the upstream registry.');
     });
     it('reads the first // comment block of a ts file, stopping at the first sentence', () => {
-        expectPurpose('src/graph.ts', '// World-model graph wrapper over kuzu native\n// bindings. See ADR 0002.\nimport x from "y";\n', 'comment', 'World-model graph wrapper over kuzu native bindings.');
+        expectPurpose('src/graph.ts', '// World-model graph wrapper over the SQLite\n// wm_ tables. See ADR 0002.\nimport x from "y";\n', 'comment', 'World-model graph wrapper over the SQLite wm_ tables.');
     });
     it('skips a license line and reads a /* */ block', () => {
         expectPurpose('lib/index.js', '// SPDX-License-Identifier: MIT\n\n/*\n * Router for inbound webhook events\n */\nexport {};\n', 'comment', 'Router for inbound webhook events');

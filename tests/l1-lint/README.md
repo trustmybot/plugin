@@ -88,7 +88,6 @@ bash tests/l1-lint/link-check.sh
 | [`shellcheck-hooks.sh`](./shellcheck-hooks.sh) | Shellcheck violations in hook scripts |
 | [`no-grep-q-in-pipelines.sh`](./no-grep-q-in-pipelines.sh) | A `\| grep -q` (or `--quiet`, `egrep`/`fgrep`/`rg -q`) in a `*.sh` under `tests/`, `scripts/` or `hooks/` that sets pipefail, in any `*/lib/*.sh` under `scripts/` or `tests/` (sourced libraries inherit pipefail from their callers), or in a command string of `tests/l5-l6/l6-chain/chain-manifest.json` (eval'd under pipefail); long options before `-q` (`--fixed-strings -q`), `-e PAT -q` and a line ending in `\|` with grep on the next line are caught too — `grep -q` closes the pipe on the first match, the upstream can die of SIGPIPE and the pipeline fails although the pattern was present; write `cmd \| grep PAT >/dev/null` (`--self-test` runs `fixtures/no-grep-q-in-pipelines/`) |
 | [`dir-toolchain.sh`](./dir-toolchain.sh) | Per-directory toolchain expectations |
-| [`kuzu-trusted-dep.sh`](./kuzu-trusted-dep.sh) | kuzu trusted-dependency declaration |
 | [`symlink-targets.sh`](./symlink-targets.sh) | Symlinks pointing at missing targets |
 | [`main-guard-files-present.sh`](./main-guard-files-present.sh) | Required main-guard files present |
 | [`no-secrets-in-source.sh`](./no-secrets-in-source.sh) | Secrets committed to source |

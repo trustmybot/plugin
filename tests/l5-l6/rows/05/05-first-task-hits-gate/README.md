@@ -23,7 +23,7 @@ The prompt is a natural full-feature ask, so bro typically also dispatches SWE +
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `deep_scan_completed` audit row (proxy for kuzu graph warm); `tasks` ≥1; `repos` ≥1; `agent_runs` (`agent_type='bro'`) ≥1 |
+| `outcome.sql` | `deep_scan_completed` audit row (proxy for the world model warm); `tasks` ≥1; `repos` ≥1; `agent_runs` (`agent_type='bro'`) ≥1 |
 | `outcome-coherence.json` | matching row counts |
 | `outcome-usage.json` | bro invoked `tmb_planning` (from the stream-json run log) |
 | `outcome-git.json` | `base_branch_unchanged: true` |

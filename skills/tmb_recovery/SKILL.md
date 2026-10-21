@@ -1,6 +1,6 @@
 ---
 name: tmb_recovery
-description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable (retry, identify the lock holder, reconnect the binding). Loaded reactively on the first failure of a session.
+description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface), the trajectory-server is unreachable (degraded sqlite3 readonly fallback), or the world model is unavailable or empty (reconnect the server, or run /scan). Loaded reactively on the first failure of a session.
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
@@ -63,20 +63,11 @@ The MCP child process was alive at session start but is now gone — CC's plugin
 2. Restart Claude Code — server re-spawns on fresh session.
 3. If the first `mcp__plugin_tmb_*` call still fails, the failure has escalated into the MCP-absent case — follow B.1.
 
-## C. World model unavailable
+## C. World model unavailable or empty
 
-The graph store is temporarily unreadable — `world_model_get`/`world_model_search` return `warning: world-model-unavailable`, or `scan_run` returns `graph_db_open_failed`. Three moves restore access.
+The world model is a set of tables in the trajectory DB, so it is reachable whenever the trajectory-server is.
 
-1. **Retry once.** The server re-attempts the graph open on each call, throttled to about one attempt every few seconds. A brief lock — another process opening the graph for a moment — clears on its own; pause, repeat the call, and it confirms.
-2. **A persisting lock error names its holder.** Another live process holds the graph open. `lsof <project>/.claude/tmb/world-model.kuzu` lists the holder PIDs; `ps -o pid,ppid,command -p <pid>` traces each PID to its owning CC session. A live session's server legitimately owns the graph — let that session finish or close it, and this session's next call recovers on its own. (The SessionStart orphan scan surfaces the same holders as lock-conflicts.)
-3. **A missing native binding** shows up right after a plugin upgrade: the error names a missing kuzu module rather than a lock. The SessionStart banner finishes the pending install on its own; once it reports done, reconnect the trajectory-server through `/mcp` (or quit and relaunch CC) so a fresh server process loads the binding.
+1. **`warning: world-model-empty`** — no scan has filled it yet. Run `/scan` (`scan_run`).
+2. **`warning: world-model-unavailable`**, or `scan_run` returning `graph_db_open_failed` — the server has no handle on the trajectory DB. Treat it as §B.2: reconnect the trajectory-server through `/mcp` (or quit and relaunch CC) so a fresh server process opens the DB.
 
-**Pre-restart bind check** (when a restart's value is uncertain): from the installed plugin cache's `mcp/trajectory-server` dir, run
-
-```bash
-node -e "const kuzu=require('kuzu'); new kuzu.Database('<project>/.claude/tmb/world-model.kuzu'); console.log('bind ok')"
-```
-
-`bind ok` means a fresh server process will open the graph; a lock failure means a holder still lives — return to step 2.
-
-Graph data survives all of these — recovery restores access, with no re-scan needed.
+Scanned data survives a restart — only an empty world model needs `/scan`.

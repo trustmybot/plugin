@@ -31,9 +31,7 @@ SELECT
 FROM agent_runs
 WHERE agent_type = 'bro';
 
--- World model lives in the sibling kuzu graph DB post-ADR 0002, not in
--- this SQLite trajectory.db. The deep_scan_completed audit row above is
--- the SQLite-side proxy for "scan ran successfully → kuzu graph warm."
--- A direct kuzu state check would require querying world-model.kuzu —
--- outside this outcome.sql's scope; covered by the L3 kuzu integration
--- fixture (TBD post-v0.7).
+-- The world model lives in this trajectory.db's wm_ tables. The
+-- deep_scan_completed audit row above is the proxy for "scan ran
+-- successfully → world model warm"; the wm_ row contents are covered by
+-- the trajectory-server's world-model unit tests.

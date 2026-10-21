@@ -67,7 +67,7 @@ test_case "rescan from worktree cwd finds ≥1 repo (project root from the argum
 # Run the invoker with cwd set to the worktree path (inner path) and the
 # project root passed explicitly: it scans session_dir=$WS, not the cwd, and
 # discovers repo-a.
-# Hard timeout of 60s: if scan hangs (kuzu init, lock, git-log) the test
+# Hard timeout of 60s: if scan hangs (DB lock, git-log) the test
 # fails loudly instead of stalling the entire runner.
 OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" "$WS" 2>&1) || true )
 

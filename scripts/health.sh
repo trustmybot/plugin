@@ -4,7 +4,8 @@
 # Standalone bash — deliberately NOT an MCP tool. It must be able to diagnose
 # states in which the MCP server itself is DOWN (chicken-and-egg), so it reads
 # only the trajectory DB (via sqlite3), the server log, and the plugin cache
-# filesystem. No LLM, no MCP round-trip, no guessing.
+# filesystem. No LLM, no MCP round-trip, no guessing. Every DB read goes
+# through _tmb_db_read_ro: the DB is never opened writable.
 #
 # Runs 7 checks; each prints exactly one `PASS`/`FAIL` line, and every FAIL
 # prints the ONE correct remediation directly under it.
@@ -12,12 +13,16 @@
 #   1. server-reachable   — is the trajectory-server process alive?
 #   2. cache-version      — DB-recorded plugin_version == installed (intended) version?
 #   3. schema-version     — DB schema_version == the installed server's TARGET?
-#   4. world-model        — kuzu graph openable? (graph_db_open_failed sub-diagnosis)
+#   4. world-model        — wm_ tables present in the trajectory DB? (read-only)
 #   5. label-config       — issue_classification_labels configured, not the bare default?
 #   6. stale-state        — orphaned worktrees / pending|running tasks?
 #   7. hook-cache-drift   — running hooks load from the cache, not the dev checkout?
 #
-# Plus two warnings, printed only when they apply and never counted as a FAIL:
+# Plus warnings and info lines, printed only when they apply and never counted
+# as a FAIL:
+#   world-model (WARN) — the world-model tables are empty; run /scan.
+#   world-model (INFO) — a leftover graph file from the old store sits beside
+#   the DB; the user may delete it (health.sh never deletes or writes).
 #   duplicate-plugin — more than one enabled copy of this plugin applies to the
 #   project; Claude Code registers the hooks of only one of them.
 #   legacy-user-hooks — the user-scope settings.json still runs pre-1.1.0
@@ -68,6 +73,14 @@ remediate() {
   for line in "$@"; do
     printf '      -> %s\n' "$line"
   done
+}
+# db_read <sql> — read the trajectory DB without ever opening it writable
+# (_tmb_db_read_ro, 500ms busy timeout); prints nothing on error.
+db_read() {
+  local out
+  out=$(TMB_DB_WRITE_TIMEOUT_MS=500 _tmb_db_read_ro "$DB" "$1")
+  [ -n "$out" ] && [ "$out" != "__ERR__" ] && printf '%s\n' "$out"
+  return 0
 }
 
 DB=""
@@ -173,7 +186,7 @@ fi
 # ===========================================================================
 DB_PLUGIN_VERSION=""
 if [ -n "$DB" ] && tmb_have_sqlite; then
-  DB_PLUGIN_VERSION=$(tmb_sqlite_ro "$DB" "SELECT plugin_version FROM plugin_meta WHERE id = 1;")
+  DB_PLUGIN_VERSION=$(db_read "SELECT plugin_version FROM plugin_meta WHERE id = 1;")
 fi
 if [ -z "$INTENDED_VERSION" ]; then
   pass "cache-version: intended version unknown — skipping (no installed_plugins.json)"
@@ -196,7 +209,7 @@ fi
 # ===========================================================================
 DB_SCHEMA_VERSION=""
 if [ -n "$DB" ] && tmb_have_sqlite; then
-  DB_SCHEMA_VERSION=$(tmb_sqlite_ro "$DB" "SELECT schema_version FROM plugin_meta WHERE id = 1;")
+  DB_SCHEMA_VERSION=$(db_read "SELECT schema_version FROM plugin_meta WHERE id = 1;")
 fi
 # The server's TARGET schema lives in its source as `const TARGET_SCHEMA_VERSION = N`.
 # Read it from the INSTALLED cache (src or dist), so we compare the DB against
@@ -229,94 +242,61 @@ else
 fi
 
 # ===========================================================================
-# 4. world-model (kuzu) — graph openable? graph_db_open_failed sub-diagnosis
+# 4. world-model — wm_ tables in the trajectory DB (read-only probe)
 # ===========================================================================
-# The standard graph is <...>/world-model.kuzu; custom DBs use
-# <db-path>.world-model.kuzu so each DB has a distinct graph. DB filenames
-# shaped like graph artifacts are reserved to prevent cross-type collisions.
-KUZU_FILE=""
-KUZU_PATH_ERROR=""
-if [ -n "$DB" ]; then
-  if [ "$DB" = ":memory:" ]; then
-    KUZU_FILE=":memory:"
-  elif [ "${DB##*/}" = "trajectory.db" ]; then
-    KUZU_FILE="${DB%trajectory.db}world-model.kuzu"
-  else
-    DB_BASENAME_LOWER=$(printf '%s' "${DB##*/}" | tr '[:upper:]' '[:lower:]')
-    case "$DB_BASENAME_LOWER" in
-      world-model.kuzu|*.world-model.kuzu)
-        KUZU_PATH_ERROR="trajectory DB filename is reserved for graph storage (${DB##*/})"
-        ;;
-      *)
-        KUZU_FILE="${DB}.world-model.kuzu"
-        ;;
-    esac
+# The world model is the wm_directories / wm_files tables inside the trajectory
+# DB, filled by /scan.
+WM_TABLES="'wm_directories','wm_files'"
+WM_TABLE_COUNT=""
+WM_COUNTS=""
+if [ -n "$DB" ] && [ "$DB" != ":memory:" ] && tmb_have_sqlite; then
+  WM_TABLE_COUNT=$(_tmb_db_read_ro "$DB" \
+    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ($WM_TABLES);")
+  if [ "$WM_TABLE_COUNT" = "2" ]; then
+    WM_COUNTS=$(_tmb_db_read_ro "$DB" \
+      "SELECT (SELECT COUNT(*) FROM wm_directories) || ' ' || (SELECT COUNT(*) FROM wm_files);")
   fi
 fi
-# Most recent graph event for the graph path currently being checked. The
-# server log is shared across TRAJECTORY_DB_PATH overrides, so an unscoped
-# "last event wins" lookup can report another database's graph as healthy.
-LAST_GRAPH_LINE=""
-if [ -f "$SERVER_LOG" ] && command -v jq >/dev/null 2>&1; then
-  LAST_GRAPH_LINE=$(jq -Rrc --arg path "$KUZU_FILE" '
-    fromjson?
-    | select(
-        (.kind == "graph_db_open" or .kind == "graph_db_open_failed")
-        and .path == $path
-      )
-  ' "$SERVER_LOG" 2>/dev/null | tail -1)
-fi
-KUZU_MODULE_DIR=""
-[ -n "$CACHE_DIR" ] && KUZU_MODULE_DIR="$CACHE_DIR/mcp/trajectory-server/node_modules/kuzu"
+WM_DIRS="${WM_COUNTS%% *}"
+WM_FILES="${WM_COUNTS##* }"
 
-if [ -n "$KUZU_PATH_ERROR" ]; then
-  fail "world-model: $KUZU_PATH_ERROR"
+if [ -z "$DB" ]; then
+  pass "world-model: trajectory DB unresolved — skipping"
+elif [ "$DB" = ":memory:" ]; then
+  pass "world-model: in-memory trajectory DB — nothing on disk to probe"
+elif ! tmb_have_sqlite; then
+  pass "world-model: sqlite3 unavailable — skipping"
+elif [ "$WM_TABLE_COUNT" = "__ERR__" ] || [ "$WM_COUNTS" = "__ERR__" ] || [ -z "$WM_TABLE_COUNT" ]; then
+  fail "world-model: cannot read the world-model tables"
   remediate \
-    "Choose a different trajectory DB filename; world-model.kuzu and *.world-model.kuzu are reserved for graph storage."
+    "Is the DB present/queryable? db=$DB"
+elif [ "$WM_TABLE_COUNT" != "2" ]; then
+  fail "world-model: wm_directories / wm_files missing from the trajectory DB"
+  remediate \
+    "Fully quit + relaunch Claude Code — the server creates the tables when it migrates the DB on start." \
+    "Then build the world model: run /scan."
+elif [ "$WM_DIRS" = "0" ]; then
+  pass "world-model: tables present"
+  printf 'WARN  world-model: empty — no directories scanned yet\n'
+  remediate "Build the world model: run /scan."
 else
-  case "$LAST_GRAPH_LINE" in
-    *graph_db_open_failed*)
-      # A failure is the latest signal. Sub-diagnose by error_message.
-      if printf '%s' "$LAST_GRAPH_LINE" | grep -iE 'could not set lock|lock.*world-model' >/dev/null; then
-        fail "world-model: kuzu open FAILED — graph file is locked by another process"
-        remediate \
-          "A concurrent/orphan trajectory-server holds the single-writer lock." \
-          "Close the other Claude Code session, OR kill the orphan: pkill -f 'trajectory-server/dist/index.js'" \
-          "Then fully quit + relaunch THIS session. The .kuzu data is intact — do NOT /scan."
-      elif [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
-        fail "world-model: kuzu open FAILED — native binding not installed (postinstall skipped)"
-        remediate \
-          "cd $KUZU_MODULE_DIR && node install.js" \
-          "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
-      else
-        fail "world-model: kuzu open FAILED — see server log"
-        remediate \
-          "Inspect the error: grep graph_db_open_failed ${SERVER_LOG:-<project>/.claude/${PLUGIN_NAME}/logs/mcp-server.log} | tail -1" \
-          "If the native binding is missing: cd ${KUZU_MODULE_DIR:-<cache>/mcp/trajectory-server/node_modules/kuzu} && node install.js, then full restart." \
-          "The .kuzu data survives — only /scan if the graph file is gone."
-      fi
-      ;;
-    *graph_db_open*)
-      pass "world-model: kuzu graph opened successfully (per server log)"
-      ;;
-    *)
-      # No log evidence either way — fall back to filesystem checks.
-      if [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
-        fail "world-model: kuzu native binding missing (no index.js — postinstall skipped)"
-        remediate \
-          "cd $KUZU_MODULE_DIR && node install.js" \
-          "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
-      elif [ "$KUZU_FILE" = ":memory:" ]; then
-        pass "world-model: in-memory graph configured (no persistent graph file)"
-      elif [ -n "$KUZU_FILE" ] && [ ! -e "$KUZU_FILE" ]; then
-        fail "world-model: graph file missing ($KUZU_FILE)"
-        remediate \
-          "Build the world model: run /scan."
-      else
-        pass "world-model: kuzu binding present, graph file exists (no failure logged)"
-      fi
-      ;;
-  esac
+  pass "world-model: $WM_DIRS directories, $WM_FILES files"
+fi
+
+# The world model used to live in a separate graph file beside the DB
+# (<dir>/world-model.kuzu, or <db>.world-model.kuzu for a custom DB name).
+# Nothing reads it any more; report it, never delete it.
+LEGACY_GRAPH=""
+if [ -n "$DB" ] && [ "$DB" != ":memory:" ]; then
+  if [ "${DB##*/}" = "trajectory.db" ]; then
+    LEGACY_GRAPH="${DB%trajectory.db}world-model.kuzu"
+  else
+    LEGACY_GRAPH="${DB}.world-model.kuzu"
+  fi
+fi
+if [ -n "$LEGACY_GRAPH" ] && [ -e "$LEGACY_GRAPH" ]; then
+  printf 'INFO  world-model: %s is an unused leftover from the old graph store — TMB no longer reads it; you may delete it (and any %s.* files beside it).\n' \
+    "$LEGACY_GRAPH" "${LEGACY_GRAPH##*/}"
 fi
 
 # ===========================================================================
@@ -324,7 +304,7 @@ fi
 # ===========================================================================
 LABELS_RAW=""
 if [ -n "$DB" ] && tmb_have_sqlite; then
-  LABELS_RAW=$(tmb_config_raw "issue_classification_labels" "$DB")
+  LABELS_RAW=$(db_read "SELECT value_json FROM plugin_config WHERE key = 'issue_classification_labels';")
 fi
 LABEL_COUNT=0
 if [ -n "$LABELS_RAW" ] && command -v jq >/dev/null 2>&1; then
@@ -352,7 +332,7 @@ if [ -n "$WS_ROOT" ] && [ -d "$WS_ROOT/.claude/worktrees" ]; then
 fi
 PENDING_TASKS=""
 if [ -n "$DB" ] && tmb_have_sqlite; then
-  PENDING_TASKS=$(tmb_sqlite_ro "$DB" "
+  PENDING_TASKS=$(db_read "
     SELECT id || ' [' || status || '] ' || COALESCE(branch_id,'')
       FROM tasks
      WHERE status IN ('pending','running');
