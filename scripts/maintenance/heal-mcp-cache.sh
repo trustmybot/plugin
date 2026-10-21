@@ -42,10 +42,10 @@ DETECTED_CHANNELS=()
 if [ -f "$INSTALLED_JSON" ]; then
   while IFS= read -r entry; do
     [ -n "$entry" ] && DETECTED_CHANNELS+=("$entry")
-  done < <(jq -r '.plugins | keys[]' "$INSTALLED_JSON" 2>/dev/null | grep -E '^tmb' || true)
+  done < <(jq -r '.plugins | keys[]' "$INSTALLED_JSON" 2>/dev/null | grep -E '^tmb@' || true)
 fi
 
-# Allow --channel override (stable or rc) and --dry-run (Step C preview).
+# Allow --channel override (stable, rc or dev) and --dry-run (Step C preview).
 CHANNEL_ARG=""
 DRY_RUN=0
 ARGS=("$@")
@@ -63,34 +63,39 @@ while [ $i -lt ${#ARGS[@]} ]; do
 done
 
 if [ -n "$CHANNEL_ARG" ]; then
-  if [ "$CHANNEL_ARG" = "stable" ]; then
-    PLUGIN_NAME="tmb"
-  else
-    PLUGIN_NAME="tmb-${CHANNEL_ARG}"
-  fi
+  case "$CHANNEL_ARG" in
+    stable) PLUGIN_ENTRY="tmb@trustmybot" ;;
+    rc) PLUGIN_ENTRY="tmb@trustmybot-rc" ;;
+    dev) PLUGIN_ENTRY="tmb@trustmybot-dev" ;;
+    *)
+      printf 'Unknown channel: %s\n' "$CHANNEL_ARG" >&2
+      printf 'Pass --channel stable|rc|dev.\n' >&2
+      exit 2
+      ;;
+  esac
 elif [ "${#DETECTED_CHANNELS[@]}" -eq 1 ]; then
-  PLUGIN_NAME="${DETECTED_CHANNELS[0]%%@*}"
+  PLUGIN_ENTRY="${DETECTED_CHANNELS[0]}"
 elif [ "${#DETECTED_CHANNELS[@]}" -gt 1 ]; then
   printf 'Multiple tmb channels installed: %s\n' "${DETECTED_CHANNELS[*]}" >&2
-  printf 'Pass --channel stable|rc to choose.\n' >&2
+  printf 'Pass --channel stable|rc|dev to choose.\n' >&2
   exit 2
 else
   printf 'No tmb installation found in %s\n' "$INSTALLED_JSON" >&2
-  printf 'Pass --channel stable|rc to specify explicitly.\n' >&2
+  printf 'Pass --channel stable|rc|dev to specify explicitly.\n' >&2
   exit 1
 fi
 
-MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
+PLUGIN_NAME="tmb"
+MARKETPLACE_OWNER="${PLUGIN_ENTRY#*@}"
 
 CACHE_DIR="${HOME}/.claude/plugins/cache/${MARKETPLACE_OWNER}"
-PLUGIN_ENTRY="${PLUGIN_NAME}@${MARKETPLACE_OWNER}"
 if [ "$MARKETPLACE_OWNER" = "trustmybot" ]; then
   INSTALL_SCOPE="project"
 else
   INSTALL_SCOPE="local"
 fi
 SCOPE_DOC="docs/reference/INSTALL.md#recommended-scope-project-or-local"
-MCP_SERVER_KEY="plugin:${PLUGIN_NAME}:trajectory-server"
+MCP_SERVER_KEY="plugin:tmb:trajectory-server"
 
 if ! command -v jq >/dev/null 2>&1; then
   printf 'Error: jq is required but not on PATH.\n' >&2
@@ -174,8 +179,8 @@ VERSIONS_DIR="${CACHE_DIR}/${PLUGIN_NAME}"
 # Active version from installed_plugins.json — the version CC currently resolves.
 ACTIVE_VERSION=""
 if [ -f "$INSTALLED_JSON" ]; then
-  ACTIVE_VERSION=$(jq -r --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" '
-    (.plugins[$entry] // .plugins[$name] // [])
+  ACTIVE_VERSION=$(jq -r --arg entry "$PLUGIN_ENTRY" '
+    (.plugins[$entry] // [])
     | map(.version) | map(select(. != null and . != "unknown"))
     | first // empty
   ' "$INSTALLED_JSON" 2>/dev/null || true)
@@ -281,11 +286,11 @@ total_count=0
 if [ -f "$INSTALLED_JSON" ]; then
   manifest_exists="yes"
   total_count=$(jq -r '.plugins | length' "$INSTALLED_JSON" 2>/dev/null || echo 0)
-  matching_count=$(jq --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" \
-    '[.plugins | to_entries[] | select(.key == $name or .key == $entry)] | length' \
+  matching_count=$(jq --arg entry "$PLUGIN_ENTRY" \
+    '[.plugins | to_entries[] | select(.key == $entry)] | length' \
     "$INSTALLED_JSON" 2>/dev/null || echo 0)
-  recorded_scope=$(jq -r --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" \
-    '(.plugins[$entry] // .plugins[$name] // []) | map(.scope // empty) | first // empty' \
+  recorded_scope=$(jq -r --arg entry "$PLUGIN_ENTRY" \
+    '(.plugins[$entry] // []) | map(.scope // empty) | first // empty' \
     "$INSTALLED_JSON" 2>/dev/null || true)
 fi
 case "$recorded_scope" in
@@ -347,7 +352,7 @@ if [ "$cache_exists" = "yes" ]; then
 fi
 if [ "$matching_count" -gt 0 ]; then
   printf '  jq "del(.plugins[\"%s\"])" %s   (%s entries)\n' \
-    "$PLUGIN_NAME" "$INSTALLED_JSON" "$matching_count"
+    "$PLUGIN_ENTRY" "$INSTALLED_JSON" "$matching_count"
 fi
 
 printf '\nProceed with Step B (cache nuke)? (y/N) '
@@ -373,7 +378,7 @@ fi
 
 if [ "$matching_count" -gt 0 ]; then
   tmp="${INSTALLED_JSON}.tmp.$$"
-  jq --arg name "$PLUGIN_NAME" 'del(.plugins[$name])' \
+  jq --arg entry "$PLUGIN_ENTRY" 'del(.plugins[$entry])' \
     "$INSTALLED_JSON" > "$tmp"
   mv -f "$tmp" "$INSTALLED_JSON"
   printf 'Removed %s entries from %s\n' "$matching_count" "$INSTALLED_JSON"
