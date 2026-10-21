@@ -13,11 +13,17 @@
 #      nothing is recorded.
 #   3. A temporary worktree <repo>/.claude/worktrees/integrate-<task_id>.XXXXXX,
 #      detached at commit_sha, runs `git rebase <base>`. A conflict is aborted
-#      → exit 2, branch and DB unchanged.
-#   4. The `git patch-id --stable` list of <base>..commit_sha and of
-#      <base>..<rebased> must match, else exit 2.
-#   5. Each untracked node_modules of the main checkout beside a tracked
-#      package.json is symlinked into the worktree (GH 1541).
+#      → exit 2, branch and DB unchanged. Each untracked node_modules of the
+#      main checkout beside a tracked package.json is symlinked into the
+#      worktree (GH 1541).
+#   4. When scripts/maintenance/regen-generated.sh exists and either side of
+#      the rebase touched a path the worktree's .gitattributes marks
+#      merge=tmb-regen, the script runs in the worktree (GH 1652); a failure
+#      → exit 2, branch and DB unchanged. Tracked files it changes are
+#      amended into the rebased tip, keeping its author and message.
+#   5. The `git patch-id --stable` list of <base>..commit_sha and of
+#      <base>..<rebased>, both over source paths only (every merge=tmb-regen
+#      path excluded), must match, else exit 2.
 #      verification[] runs in the temporary worktree and is recorded as a
 #      verification_runs row (source manual, commit_sha = the rebased SHA).
 #      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
@@ -27,7 +33,8 @@
 # points at commit_sha, or at a rebase of it with a passing recorded run.
 # git-push-guard.sh denies a push of a rebased task commit without such a run.
 #
-# Each command is bounded by what is left of the budget,
+# The regen run is bounded by the whole budget on its own; each verification
+# command is bounded by what is left of the budget,
 # plugin_config.verification_timeout_s (default 900 s; TMB_VERIFICATION_TIMEOUT_S
 # overrides it), capped at 1800 s, when `timeout` or `gtimeout` is installed.
 # stdout carries only the SHA; progress and failures go to stderr.
@@ -181,15 +188,6 @@ if ! (cd "$WT" && GIT_EDITOR=true git rebase -q "$BASE_SHA") >&2; then
 fi
 NEW_SHA=$(git -C "$WT" rev-parse --verify HEAD) || die 4 "cannot read the rebased HEAD"
 
-patch_ids() {
-  g rev-list --reverse --no-merges "$1" | g diff-tree --stdin -p -r --root | g patch-id --stable | cut -d' ' -f1
-}
-REVIEWED_IDS=$(patch_ids "${BASE_SHA}..${COMMIT_SHA}")
-REBASED_IDS=$(patch_ids "${BASE_SHA}..${NEW_SHA}")
-if [ "$REVIEWED_IDS" != "$REBASED_IDS" ]; then
-  die 2 "the rebase changed task $TASK_ID's patches (patch-id of ${BASE}..reviewed differs from ${BASE}..rebased); $BRANCH and the DB are unchanged"
-fi
-
 # Untracked node_modules never reach a fresh worktree; link the main
 # checkout's install beside each tracked package.json (GH 1541).
 while IFS= read -r -d '' PKG; do
@@ -216,6 +214,47 @@ esac
 TIMEOUT_BIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
 [ -n "$TIMEOUT_BIN" ] || say "no timeout/gtimeout installed; commands run without the ${TIMEOUT_S}s bound"
 TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
+
+REGEN_SCRIPT=scripts/maintenance/regen-generated.sh
+REGEN_ATTR="attr:merge=tmb-regen"
+
+regen_touched() {
+  local side
+  for side in "${BASE_SHA}...${COMMIT_SHA}" "${COMMIT_SHA}...${BASE_SHA}"; do
+    [ -z "$(git -C "$WT" diff --name-only "$side" -- ":(${REGEN_ATTR})")" ] || return 0
+  done
+  return 1
+}
+
+# A rebase that dropped every task commit leaves HEAD at the base; never amend it.
+if [ "$NEW_SHA" != "$BASE_SHA" ] && [ -f "$WT/$REGEN_SCRIPT" ] && regen_touched; then
+  say "regenerating generated files with $REGEN_SCRIPT"
+  REGEN_RC=0
+  if [ -n "$TIMEOUT_BIN" ]; then
+    (cd "$WT" && PATH="$TOOLCHAIN_PATH" "$TIMEOUT_BIN" "$TIMEOUT_S" bash "$REGEN_SCRIPT" </dev/null) >&2 || REGEN_RC=$?
+  else
+    (cd "$WT" && PATH="$TOOLCHAIN_PATH" bash "$REGEN_SCRIPT" </dev/null) >&2 || REGEN_RC=$?
+  fi
+  [ "$REGEN_RC" -eq 0 ] || die 2 "$REGEN_SCRIPT exited $REGEN_RC in the rebased worktree; $BRANCH and the DB are unchanged"
+  if [ -n "$(git -C "$WT" status --porcelain --untracked-files=no)" ]; then
+    { git -C "$WT" add -u && git -C "$WT" commit -q --amend --no-edit; } >&2 \
+      || die 4 "could not amend the regenerated files into the rebased commit; $BRANCH and the DB are unchanged"
+    NEW_SHA=$(git -C "$WT" rev-parse --verify HEAD) || die 4 "cannot read the amended HEAD"
+  fi
+fi
+
+# Source paths only: every path the worktree's .gitattributes routes to the
+# tmb-regen merge driver is rebuilt above, not replayed (GH 1652).
+patch_ids() {
+  git -C "$WT" rev-list --reverse --no-merges "$1" \
+    | git -C "$WT" diff-tree --stdin -p -r --root -- . ":(exclude,${REGEN_ATTR})" \
+    | git -C "$WT" patch-id --stable | cut -d' ' -f1
+}
+REVIEWED_IDS=$(patch_ids "${BASE_SHA}..${COMMIT_SHA}")
+REBASED_IDS=$(patch_ids "${BASE_SHA}..${NEW_SHA}")
+if [ "$REVIEWED_IDS" != "$REBASED_IDS" ]; then
+  die 2 "the rebase changed task $TASK_ID's source patches (patch-id of ${BASE}..reviewed differs from ${BASE}..rebased); $BRANCH and the DB are unchanged"
+fi
 
 export TMB_DB_WRITE_TIMEOUT_MS=5000
 export TMB_DB_WRITE_RUN_BUDGET_MS=10000
