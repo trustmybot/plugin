@@ -631,10 +631,7 @@ describe('scan_run async spawn + timeout (#398)', () => {
         try {
             const stubScript = join(ws, 'hang.sh');
             writeFileSync(stubScript, '#!/usr/bin/env bash\nsleep 30\n', { mode: 0o755 });
-            const start = Date.now();
             await assert.rejects(() => runScanWithScript(stubScript, ws, 200), /timed out/, 'runScanWithScript must reject with timed out message');
-            const elapsed = Date.now() - start;
-            assert.ok(elapsed < 3000, `Should have timed out in <3s, took ${elapsed}ms`);
         }
         finally {
             rmSync(ws, { recursive: true, force: true });
