@@ -22,7 +22,7 @@ if (dbPath !== ':memory:') {
   mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 
-const db = new TrajectoryDB(dbPath);
+const db = new TrajectoryDB(dbPath, undefined, { migrate: true });
 
 function readPackageVersion(): string {
   try {

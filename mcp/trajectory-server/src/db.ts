@@ -73,11 +73,20 @@ export interface TrajectoryDBDependencies {
   readonly trustedProjectRoot?: string;
 }
 
+export interface TrajectoryDBOptions {
+  /**
+   * Upgrade an older-schema DB in place. Only the trajectory-server entries
+   * pass true; any other opener of an older DB throws and changes nothing.
+   */
+  readonly migrate?: boolean;
+}
+
 export class TrajectoryDB {
   private db: DatabaseSync;
   private readonly pluginVersion: string | null;
   private readonly serverLog: TrajectoryLog;
   private readonly sqlLog: TrajectoryLog;
+  private readonly migrate: boolean;
   readonly dbPath: string;
 
   /**
@@ -89,7 +98,11 @@ export class TrajectoryDB {
    */
   readonly legacyNoPluginMeta: boolean = false;
 
-  constructor(dbPath: string, dependencies?: TrajectoryDBDependencies) {
+  constructor(
+    dbPath: string,
+    dependencies?: TrajectoryDBDependencies,
+    options: TrajectoryDBOptions = {},
+  ) {
     // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
     // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
     // unconditionally — it's required on 22 and a no-op on 24+.
@@ -99,6 +112,7 @@ export class TrajectoryDB {
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
+    this.migrate = options.migrate === true;
     if (
       dbPath !== ':memory:' &&
       resolvedDependencies.trustedProjectRoot !== undefined
@@ -241,6 +255,12 @@ export class TrajectoryDB {
     if (storedVersion > TARGET_SCHEMA_VERSION) {
       throw new Error(
         `TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`,
+      );
+    }
+
+    if (storedVersion < TARGET_SCHEMA_VERSION && !this.migrate) {
+      throw new Error(
+        `TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`,
       );
     }
 

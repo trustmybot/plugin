@@ -165,7 +165,7 @@ describe('pre-migration backup (GH 1624)', () => {
     );
     assert.ok(statSync(`${dbPath}-wal`).size > 0, 'the row must still be in the -wal file');
 
-    const db = new TrajectoryDB(dbPath, noLog);
+    const db = new TrajectoryDB(dbPath, noLog, { migrate: true });
     db.close();
     holder.close();
 

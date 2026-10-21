@@ -1,5 +1,3 @@
 # Scripts that name the DB file without resolving where it lives.
 # health.sh derives the kuzu sibling from an already-resolved DB path's basename.
 scripts/health.sh
-# run-scan.mjs gets its DB path from the server's resolver; the name appears in comments.
-scripts/maintenance/run-scan.mjs

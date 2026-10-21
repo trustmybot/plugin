@@ -46,6 +46,7 @@ export class TrajectoryDB {
     pluginVersion;
     serverLog;
     sqlLog;
+    migrate;
     dbPath;
     /**
      * True when the DB opened with user tables present but NO plugin_meta table
@@ -55,7 +56,7 @@ export class TrajectoryDB {
      * degraded signal so the upgrade is not silent. Non-fatal.
      */
     legacyNoPluginMeta = false;
-    constructor(dbPath, dependencies) {
+    constructor(dbPath, dependencies, options = {}) {
         // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
         // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
         // unconditionally — it's required on 22 and a no-op on 24+.
@@ -64,6 +65,7 @@ export class TrajectoryDB {
         this.pluginVersion = resolvedDependencies.pluginVersion;
         this.serverLog = resolvedDependencies.serverLog;
         this.sqlLog = resolvedDependencies.sqlLog;
+        this.migrate = options.migrate === true;
         if (dbPath !== ':memory:' &&
             resolvedDependencies.trustedProjectRoot !== undefined) {
             assertSafeProjectWritePath(resolvedDependencies.trustedProjectRoot, dbPath, 'Trajectory database', 'file');
@@ -183,6 +185,9 @@ export class TrajectoryDB {
         const storedVersion = versionRow.schema_version;
         if (storedVersion > TARGET_SCHEMA_VERSION) {
             throw new Error(`TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`);
+        }
+        if (storedVersion < TARGET_SCHEMA_VERSION && !this.migrate) {
+            throw new Error(`TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`);
         }
         if (storedVersion < TARGET_SCHEMA_VERSION) {
             backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);

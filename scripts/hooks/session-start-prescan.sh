@@ -219,7 +219,7 @@ if [ "$WM_DIRS" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   INVOKER="$SCRIPT_DIR/../maintenance/run-scan-initial.mjs"
 
   if [ "$SKIP_AUTO_PRESCAN" != "1" ] && [ -f "$SCAN_SH" ] && [ -f "$INVOKER" ] && command -v node >/dev/null 2>&1; then
-    node --experimental-sqlite "$INVOKER" >/dev/null 2>&1 &
+    TRAJECTORY_DB_PATH="$DB_PATH" node --experimental-sqlite "$INVOKER" >/dev/null 2>&1 &
     disown
     COLD_NOTE="world model was cold — a deterministic scan is running in the background; re-read world_model_get before planning"
   else

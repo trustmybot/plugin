@@ -55,7 +55,7 @@ function runWrites(workerId: string, writes: number): Record<string, unknown> {
 
 function runOpen(): Record<string, unknown> {
   try {
-    const db = new TrajectoryDB(dbPath!, dependencies);
+    const db = new TrajectoryDB(dbPath!, dependencies, { migrate: true });
     const version = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta WHERE id = 1',
     )?.schema_version;

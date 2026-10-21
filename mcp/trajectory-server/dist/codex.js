@@ -21539,6 +21539,7 @@ var TrajectoryDB = class {
   pluginVersion;
   serverLog;
   sqlLog;
+  migrate;
   dbPath;
   /**
    * True when the DB opened with user tables present but NO plugin_meta table
@@ -21548,12 +21549,13 @@ var TrajectoryDB = class {
    * degraded signal so the upgrade is not silent. Non-fatal.
    */
   legacyNoPluginMeta = false;
-  constructor(dbPath, dependencies) {
+  constructor(dbPath, dependencies, options = {}) {
     const resolvedDependencies = resolveDependencies(dependencies);
     this.dbPath = dbPath;
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
+    this.migrate = options.migrate === true;
     if (dbPath !== ":memory:" && resolvedDependencies.trustedProjectRoot !== void 0) {
       assertSafeProjectWritePath(
         resolvedDependencies.trustedProjectRoot,
@@ -21656,6 +21658,11 @@ var TrajectoryDB = class {
     if (storedVersion > TARGET_SCHEMA_VERSION) {
       throw new Error(
         `TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`
+      );
+    }
+    if (storedVersion < TARGET_SCHEMA_VERSION && !this.migrate) {
+      throw new Error(
+        `TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`
       );
     }
     if (storedVersion < TARGET_SCHEMA_VERSION) {
@@ -25149,7 +25156,7 @@ function openRuntime(projectRoot, plugin2, now2, lastUsedOrder, graphHolderFacto
       serverLog: logger.serverLog,
       sqlLog: logger.sqlLog,
       trustedProjectRoot: context.projectRoot
-    });
+    }, { migrate: true });
     const graph = graphHolderFactory?.(context) ?? GraphHolder.fixed(new WorldModelGraph(db));
     return {
       context,
