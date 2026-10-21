@@ -21,6 +21,27 @@ export interface Gates {
   verifications: Row[];
 }
 
+export interface WmNode {
+  repo: string;
+  path: string;
+  parent_path: string | null;
+  summary: string | null;
+  file_count: number;
+}
+
+export interface WorldModel {
+  available: boolean;
+  repos: string[];
+  nodes: WmNode[];
+}
+
+export interface WorldModelSearch {
+  available: boolean;
+  hits: Row[];
+}
+
+export const query = (params: Record<string, string>) => new URLSearchParams(params).toString();
+
 const POLL_MS = 2000;
 
 async function getJson<T>(path: string): Promise<T> {

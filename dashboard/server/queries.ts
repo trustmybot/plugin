@@ -132,3 +132,90 @@ export function audit(db: DatabaseSync, limit: number): Row[] {
     limit,
   );
 }
+
+const WM_TABLE_COUNT = 4;
+const WM_DEFAULT_DEPTH = 2;
+const WM_MAX_DEPTH = 5;
+const WM_DEFAULT_HITS = 20;
+const WM_MAX_HITS = 100;
+
+function worldModelAvailable(db: DatabaseSync): boolean {
+  const found = one(
+    db,
+    `SELECT COUNT(*) AS n FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN ('wm_directories', 'wm_files', 'wm_directories_fts', 'wm_files_fts')`,
+  );
+  return Number(found?.['n'] ?? 0) === WM_TABLE_COUNT;
+}
+
+export function clampDepth(raw: string | null): number {
+  if (raw === null || raw.trim() === '') return WM_DEFAULT_DEPTH;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 0), WM_MAX_DEPTH) : WM_DEFAULT_DEPTH;
+}
+
+export function clampHits(raw: string | null): number {
+  if (raw === null || raw.trim() === '') return WM_DEFAULT_HITS;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
+}
+
+// The directory at `path` (default: the repo root) plus its descendants down to
+// `depth` levels below it. `repo` defaults to the first repo by name.
+export function worldModel(db: DatabaseSync, repo: string | null, path: string, depth: number): Row {
+  if (!worldModelAvailable(db)) return { available: false, repos: [], nodes: [] };
+  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r['repo']));
+  const target = repo ?? repos[0];
+  if (target === undefined) return { available: true, repos, nodes: [] };
+  const nodes = all(
+    db,
+    `WITH RECURSIVE sub(id, path, lvl) AS (
+       SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+       UNION
+       SELECT c.id, c.path, s.lvl + 1
+         FROM wm_directories c JOIN sub s ON c.parent_path = s.path
+        WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
+     )
+     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count
+       FROM wm_directories d
+      WHERE d.id IN (SELECT id FROM sub)
+      ORDER BY d.path`,
+    target,
+    path,
+    target,
+    depth,
+  );
+  return { available: true, repos, nodes };
+}
+
+export function ftsPhrase(raw: string): string {
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
+// FTS5 hits over directory path + summary and file path + purpose, best bm25
+// first. The whole query is one FTS phrase, so FTS syntax in it is plain text.
+export function worldModelSearch(db: DatabaseSync, query: string, limit: number): Row {
+  if (!worldModelAvailable(db)) return { available: false, hits: [] };
+  if (query.trim() === '') return { available: true, hits: [] };
+  const phrase = ftsPhrase(query.trim());
+  const hits = all(
+    db,
+    `SELECT kind, repo, path, text, rank FROM (
+       SELECT 'directory' AS kind, d.repo AS repo, d.path AS path, d.summary AS text,
+              bm25(wm_directories_fts) AS rank
+         FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+        WHERE wm_directories_fts MATCH ?
+       UNION ALL
+       SELECT 'file', f.repo, f.path, f.purpose, bm25(wm_files_fts)
+         FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
+        WHERE wm_files_fts MATCH ?
+     )
+     ORDER BY rank, path
+     LIMIT ?`,
+    phrase,
+    phrase,
+    limit,
+  );
+  return { available: true, hits };
+}

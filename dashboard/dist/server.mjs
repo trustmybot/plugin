@@ -233,6 +233,82 @@ function audit(db, limit) {
     limit
   );
 }
+var WM_TABLE_COUNT = 4;
+var WM_DEFAULT_DEPTH = 2;
+var WM_MAX_DEPTH = 5;
+var WM_DEFAULT_HITS = 20;
+var WM_MAX_HITS = 100;
+function worldModelAvailable(db) {
+  const found = one(
+    db,
+    `SELECT COUNT(*) AS n FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN ('wm_directories', 'wm_files', 'wm_directories_fts', 'wm_files_fts')`
+  );
+  return Number(found?.["n"] ?? 0) === WM_TABLE_COUNT;
+}
+function clampDepth(raw) {
+  if (raw === null || raw.trim() === "") return WM_DEFAULT_DEPTH;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 0), WM_MAX_DEPTH) : WM_DEFAULT_DEPTH;
+}
+function clampHits(raw) {
+  if (raw === null || raw.trim() === "") return WM_DEFAULT_HITS;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
+}
+function worldModel(db, repo, path, depth) {
+  if (!worldModelAvailable(db)) return { available: false, repos: [], nodes: [] };
+  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r["repo"]));
+  const target = repo ?? repos[0];
+  if (target === void 0) return { available: true, repos, nodes: [] };
+  const nodes = all(
+    db,
+    `WITH RECURSIVE sub(id, path, lvl) AS (
+       SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+       UNION
+       SELECT c.id, c.path, s.lvl + 1
+         FROM wm_directories c JOIN sub s ON c.parent_path = s.path
+        WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
+     )
+     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count
+       FROM wm_directories d
+      WHERE d.id IN (SELECT id FROM sub)
+      ORDER BY d.path`,
+    target,
+    path,
+    target,
+    depth
+  );
+  return { available: true, repos, nodes };
+}
+function ftsPhrase(raw) {
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+function worldModelSearch(db, query, limit) {
+  if (!worldModelAvailable(db)) return { available: false, hits: [] };
+  if (query.trim() === "") return { available: true, hits: [] };
+  const phrase = ftsPhrase(query.trim());
+  const hits = all(
+    db,
+    `SELECT kind, repo, path, text, rank FROM (
+       SELECT 'directory' AS kind, d.repo AS repo, d.path AS path, d.summary AS text,
+              bm25(wm_directories_fts) AS rank
+         FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+        WHERE wm_directories_fts MATCH ?
+       UNION ALL
+       SELECT 'file', f.repo, f.path, f.purpose, bm25(wm_files_fts)
+         FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
+        WHERE wm_files_fts MATCH ?
+     )
+     ORDER BY rank, path
+     LIMIT ?`,
+    phrase,
+    phrase,
+    limit
+  );
+  return { available: true, hits };
+}
 
 // server/main.ts
 var HOST = "127.0.0.1";
@@ -288,7 +364,15 @@ function handleApi(db, url, res) {
         return sendJson(res, 200, audit(db, clampLimit(url.searchParams.get("limit"))));
       case "version":
         return sendJson(res, 200, { data_version: dataVersion(db) });
+      case "world-model": {
+        const p = url.searchParams;
+        return sendJson(res, 200, worldModel(db, p.get("repo") || null, p.get("path") ?? "", clampDepth(p.get("depth"))));
+      }
     }
+  }
+  if (parts.length === 2 && resource === "world-model" && id === "search") {
+    const p = url.searchParams;
+    return sendJson(res, 200, worldModelSearch(db, p.get("q") ?? "", clampHits(p.get("limit"))));
   }
   if (parts.length === 2 && resource === "issues" && /^-?\d+$/.test(id)) {
     const detail = issueDetail(db, Number(id));

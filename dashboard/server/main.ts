@@ -58,7 +58,15 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
       case 'gates': return sendJson(res, 200, q.gates(db));
       case 'audit': return sendJson(res, 200, q.audit(db, clampLimit(url.searchParams.get('limit'))));
       case 'version': return sendJson(res, 200, { data_version: q.dataVersion(db) });
+      case 'world-model': {
+        const p = url.searchParams;
+        return sendJson(res, 200, q.worldModel(db, p.get('repo') || null, p.get('path') ?? '', q.clampDepth(p.get('depth'))));
+      }
     }
+  }
+  if (parts.length === 2 && resource === 'world-model' && id === 'search') {
+    const p = url.searchParams;
+    return sendJson(res, 200, q.worldModelSearch(db, p.get('q') ?? '', q.clampHits(p.get('limit'))));
   }
   if (parts.length === 2 && resource === 'issues' && /^-?\d+$/.test(id!)) {
     const detail = q.issueDetail(db, Number(id));
