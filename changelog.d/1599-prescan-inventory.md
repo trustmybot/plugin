@@ -1,0 +1,2 @@
+### Fixed
+- **The session-start inventory lists only directories and finds stacks one level down** (GH 1599): "Top-level dirs" counted files such as `LICENSE`, `README.md` and `install.sh` as directories, and they used up its 10-entry cap. It now lists directories only. "Stacks detected" read manifests only at a repo's root, so a project with its `package.json` in `framework/` showed `(none detected)`. When the root holds no manifest, each immediate subdirectory is checked and the stack is labelled with it, e.g. `Node (framework/)`.

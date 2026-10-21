@@ -175,13 +175,16 @@ const VALID_SCAN_SOURCES = new Set([
 
 // Compute whether the current scan differs from the previous deep_scan_completed
 // audit row in a way that warrants an arch-doc refresh (#2881). Currently a
-// coarse heuristic: repo-set delta OR top-level dir set delta. Refinable later
-// with package-manager / language-set deltas.
+// coarse heuristic: repo-set delta OR top-level dir set delta OR a scan that
+// refilled an empty world model (GH 1593). Refinable later with
+// package-manager / language-set deltas.
 export function detectStructuralChange(
   db: TrajectoryDB,
   currentRepos: Array<{ name: string }>,
   currentTopDirs: Set<string>,
+  refilledEmptyGraph = false,
 ): boolean {
+  if (refilledEmptyGraph) return true;
   const prev = db.get<{ content_json: string }>(
     `SELECT content_json FROM audit
      WHERE event_type = 'deep_scan_completed'
@@ -958,9 +961,10 @@ export function scanTools(
         const rawSource = (args['source'] as string | undefined) ?? 'bro_auto_initial';
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
 
-        // A holder that recorded an open failure surfaces it as
+        // No holder: the world model lives in the trajectory DB itself. A
+        // holder that recorded an open failure surfaces it as
         // graph_db_open_failed rather than scanning without a world model.
-        const graph = graphHolder?.ensureGraph() ?? null;
+        const graph = graphHolder ? graphHolder.ensureGraph() : new WorldModelGraph(db);
         const graphOpenError = graphHolder?.openError ?? null;
         if (!graph && graphOpenError) {
           return err(`graph_db_open_failed: ${graphOpenError}`);
@@ -1002,6 +1006,10 @@ export function scanTools(
 
         try {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
+          if (!graph && out.files.length > 0) {
+            return err('world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged');
+          }
+          const dirsBefore = graph?.directoryCount() ?? 0;
           const stats = persistScan(db, graph, out, sessionDir);
 
           // Milestones: reconcile from each repo's remote, then seed one
@@ -1023,7 +1031,12 @@ export function scanTools(
           // tooling (the scan-side renderer pass, manual diagnostic queries)
           // can decide whether the scan changed the project shape.
           const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
-          const structuralChange = detectStructuralChange(db, out.repos, topDirs);
+          const structuralChange = detectStructuralChange(
+            db,
+            out.repos,
+            topDirs,
+            dirsBefore === 0 && stats.dirs_upserted > 0,
+          );
 
           // Emit deep_scan_completed audit row. Attach to the system issue
           // (id=-1) — this is a session-level event, not work-issue scoped.
