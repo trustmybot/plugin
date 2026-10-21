@@ -13,14 +13,19 @@
 # The DB is the one the hooks resolve (tmb_db_path in
 # scripts/hooks/lib/query-task.sh): TRAJECTORY_DB_PATH, else
 # <CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db. Never the cwd's.
+# The row is written through tmb_db_write (scripts/hooks/lib/db-write.sh):
+# busy timeout, foreign keys on, one BEGIN IMMEDIATE transaction.
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # DB path resolution (scripts/hooks/lib/query-task.sh)
 # ---------------------------------------------------------------------------
+TMB_LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/scripts/hooks/lib"
 # shellcheck source=scripts/hooks/lib/query-task.sh
-. "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/scripts/hooks/lib/query-task.sh"
+. "$TMB_LIB/query-task.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$TMB_LIB/db-write.sh"
 
 # Prints the resolved DB, else where it was expected (empty when nothing names it).
 resolve_db_path() {
@@ -63,15 +68,8 @@ if [[ "$VERDICT" != "pass" && "$VERDICT" != "fail" ]]; then
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# SQL string escaping (single-quote escape)
-# ---------------------------------------------------------------------------
-sql_escape() {
-  printf '%s' "$1" | sed "s/'/''/g"
-}
-
-SAFE_FEEDBACK=$(sql_escape "$FEEDBACK")
-SAFE_SESSION=$(sql_escape "$SESSION_ID")
+SAFE_FEEDBACK=$(tmb_sql_quote "$FEEDBACK")
+SAFE_SESSION=$(tmb_sql_quote "$SESSION_ID")
 
 # ---------------------------------------------------------------------------
 # Resolve DB and insert
@@ -83,13 +81,14 @@ if [[ ! -f "$DB_PATH" ]]; then
   exit 1
 fi
 
-CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+CREATED_AT=$(tmb_now_iso)
 
-sqlite3 "$DB_PATH" "
-INSERT INTO validation_attempts
+if ! tmb_db_write "$DB_PATH" "INSERT INTO validation_attempts
   (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
 VALUES
-  ($TASK_ID, $ATTEMPT_N, 'pr-reviewer', '$VERDICT', '$SAFE_FEEDBACK', 0, '$SAFE_SESSION', '$CREATED_AT');
-"
+  ($TASK_ID, $ATTEMPT_N, 'pr-reviewer', '$VERDICT', '$SAFE_FEEDBACK', 0, '$SAFE_SESSION', '$CREATED_AT');"; then
+  printf '{"error":"db-write-failed","path":"%s","hint":"tmb_db_write reported the cause on stderr."}\n' "$DB_PATH"
+  exit 1
+fi
 
 printf '{"ok":true,"task_id":%s,"attempt_n":%s,"verdict":"%s"}\n' "$TASK_ID" "$ATTEMPT_N" "$VERDICT"

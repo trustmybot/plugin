@@ -154,6 +154,8 @@ run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-to
 run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
 run_step "L1 lint: tmb_gate_read SQL is read-only" bash "$HERE/l1-lint/gate-read-sql-readonly.sh"
 run_step "L1 lint: no direct sqlite3 writes in scripts" bash "$HERE/l1-lint/no-direct-sqlite-write.sh"
+run_step "L1 lint: every sqlite3 call sets a busy timeout" bash "$HERE/l1-lint/sqlite3-needs-timeout.sh"
+run_step "L1 lint: sqlite3 fallback roles match the server" bash "$HERE/l1-lint/sqlite3-fallback-roles.sh"
 run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
 run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
 run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"

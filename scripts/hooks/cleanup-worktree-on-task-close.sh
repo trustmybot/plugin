@@ -78,15 +78,15 @@ command -v git >/dev/null 2>&1 || exit 0
 case "$TOOL_NAME" in
   *validation_record)
     case "$_CWC_HAS_PASS" in "EXISTS (SELECT 1 FROM validation_attempts va"*) ;; *) exit 0 ;; esac
-    PASSED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM tasks t WHERE t.id=${SAFE_TASK_ID} AND t.status='closed' AND ${_CWC_HAS_PASS};" 2>/dev/null)
+    PASSED=$(tmb_sqlite_ro "$DB_PATH" "SELECT 1 FROM tasks t WHERE t.id=${SAFE_TASK_ID} AND t.status='closed' AND ${_CWC_HAS_PASS};")
     [ "$PASSED" = "1" ] || exit 0
     ;;
 esac
 
-BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null)
+BRANCH_ID=$(tmb_sqlite_ro "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;")
 [ -n "$BRANCH_ID" ] || exit 0
 
-TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT repo FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null || true)
+TASK_REPO=$(tmb_sqlite_ro "$DB_PATH" "SELECT repo FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;")
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 if [ -n "$TASK_REPO" ]; then

@@ -1,0 +1,9 @@
+# Lines exempt from sqlite3-needs-timeout.sh: <path><TAB><substring of the line><TAB><reason>.
+# Only a DB that is not the trajectory DB: a private copy or a scratch DB no other process opens.
+skills/tmb_planning/scripts/assert-sql.sh	sqlite3 "$snap/ref.db" "PRAGMA journal_mode=DELETE;"	private mktemp copy of the DB; no other connection can hold a lock on it
+skills/tmb_planning/scripts/assert-sql.sh	sqlite3 -readonly -bail "$snap/ref.db"	private mktemp copy of the DB; no other connection can hold a lock on it
+skills/tmb_planning/scripts/assert-sql.sh	sqlite3 "$db" "CREATE TABLE t	--self-test scratch DB in a private mktemp dir
+skills/tmb_planning/scripts/assert-sql.sh	sqlite3 "$wal" "PRAGMA journal_mode=WAL;	--self-test scratch DB in a private mktemp dir
+skills/tmb_planning/scripts/assert-sql.sh	sqlite3 "$walonly" ".dbconfig no_ckpt_on_close on"	self-test against a scratch DB it creates; not trajectory.db
+skills/tmb_planning/scripts/assert-sql.sh	sqlite3 "$held" "PRAGMA journal_mode=WAL;	self-test against a scratch DB it creates; not trajectory.db
+skills/tmb_planning/scripts/assert-sql.sh	| sqlite3 "$held" >/dev/null &	self-test against a scratch DB it creates; not trajectory.db

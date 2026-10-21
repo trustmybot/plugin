@@ -136,6 +136,13 @@ test_case "task_update_status role rejection: architect not allowed"
 out=$(call_lib "tmb_fallback_task_update_status 42 closed architect" 2>&1 || true)
 assert_contains "$out" "not allowed for 'task_update_status'" "role rejection message"
 
+test_case "task_update_status: a tmb:-prefixed agent is the role it names, as on the server"
+rc=0; call_lib "tmb_fallback_task_update_status 42 needs_validation tmb:swe" >/dev/null || rc=$?
+assert_eq "0" "$rc" "tmb:swe is allowed as swe"
+assert_eq "needs_validation" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")" "status written for tmb:swe"
+out=$(call_lib "tmb_fallback_validation_record 42 9 tmb:swe pass 'nope'" 2>&1 || true)
+assert_contains "$out" "not allowed for 'validation_record'" "tmb:swe is swe, not pr-reviewer or a consultant"
+
 test_case "task_update_status without commit_sha: status updated, sha unchanged"
 call_lib "tmb_fallback_task_update_status 42 running swe" >/dev/null
 status=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")
@@ -154,14 +161,19 @@ test_case "discussion_append happy path: audit row written"
 count=$(audit_count_for "discussion_append")
 assert_eq "1" "$count" "audit row after discussion_append"
 
-test_case "discussion_append role rejection: unknown agent blocked"
-out=$(call_lib "tmb_fallback_discussion_append 1 ghost note 'haxor' ghost" 2>&1 || true)
+test_case "discussion_append role rejection: an agent that is no role is blocked"
+out=$(call_lib "tmb_fallback_discussion_append 1 ghost note 'haxor' '9ghost'" 2>&1 || true)
 assert_contains "$out" "not allowed for 'discussion_append'" "role rejection"
 
 test_case "discussion_append SQL injection: single-quote in body round-trips"
 call_lib "tmb_fallback_discussion_append 1 bro note \"it's bro's note\" bro" >/dev/null
 body=$(sqlite3 "$DB" "SELECT body FROM discussions WHERE issue_id=1 ORDER BY id DESC LIMIT 1;")
 assert_eq "it's bro's note" "$body" "single-quote in body"
+
+test_case "discussion_append: a consultant is allowed, as on the server"
+rc=0; call_lib "tmb_fallback_discussion_append 1 architect analysis 'consultant view' architect" >/dev/null || rc=$?
+assert_eq "0" "$rc" "consultant write succeeds"
+assert_eq "architect" "$(sqlite3 "$DB" "SELECT author FROM discussions WHERE body='consultant view';")" "consultant row written"
 
 # ---------------------------------------------------------------------------
 # tmb_fallback_audit_append
@@ -176,8 +188,8 @@ test_case "audit_append happy path: audit self-row written"
 count=$(audit_count_for "audit_append")
 assert_eq "1" "$count" "audit self-row after audit_append"
 
-test_case "audit_append role rejection: unknown agent blocked"
-out=$(call_lib "tmb_fallback_audit_append 1 '' ghost planning_complete 'x' '{}' ghost" 2>&1 || true)
+test_case "audit_append role rejection: an agent that is no role is blocked"
+out=$(call_lib "tmb_fallback_audit_append 1 '' '9ghost' planning_complete 'x' '{}' '9ghost'" 2>&1 || true)
 assert_contains "$out" "not allowed for 'audit_append'" "role rejection"
 
 audit_rows() {

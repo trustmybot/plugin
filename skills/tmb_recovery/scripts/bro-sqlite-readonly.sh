@@ -91,8 +91,16 @@ readonly_refusal_json() {
 # ---------------------------------------------------------------------------
 DB_PATH=""
 
+# sqlite_ro <sqlite3 args>... — a read-only sqlite3 with a busy timeout, so a
+# concurrent writer makes the read wait instead of failing at once.
+sqlite_ro() {
+  local ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
+  [[ "$ms" =~ ^[0-9]+$ ]] || ms=1500
+  sqlite3 -readonly -cmd ".timeout ${ms}" "$@"
+}
+
 run_query() {
-  sqlite3 -readonly -json "$DB_PATH" "$1" 2>/dev/null
+  sqlite_ro -json "$DB_PATH" "$1" 2>/dev/null
 }
 
 run_query_param() {
@@ -100,7 +108,7 @@ run_query_param() {
   # Values are always integer IDs or short strings; we single-quote and escape
   # any single quotes inside the value (SQL escaping: '' for ').
   local query="$1"
-  sqlite3 -readonly -json "$DB_PATH" "$query" 2>/dev/null
+  sqlite_ro -json "$DB_PATH" "$query" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -362,7 +370,7 @@ main() {
       exit 1
     fi
     local count
-    count=$(sqlite3 -readonly "$DB_PATH" "SELECT COUNT(*) FROM issues;" 2>/dev/null || echo "-1")
+    count=$(sqlite_ro "$DB_PATH" "SELECT COUNT(*) FROM issues;" 2>/dev/null || echo "-1")
     printf '{"ok":true,"db_path":"%s","issues_count":%s}\n' "$DB_PATH" "$count"
     exit 0
   fi

@@ -6,7 +6,8 @@
 # itself is what keeps a hook read from writing. Checked:
 #   - every call site of tmb_gate_read and tmb_sqlite_ro under scripts/: each
 #     statement of the SQL argument (after whitespace and comments) starts with
-#     SELECT, WITH (without INSERT/UPDATE/DELETE/REPLACE), or a read-only
+#     SELECT, WITH (without INSERT/UPDATE/DELETE/REPLACE; the replace()
+#     scalar function is a read), or a read-only
 #     PRAGMA: `journal_mode` or `user_version` without `=`, or `table_info(...)`.
 #     The SQL must be a literal: a bare variable cannot be checked and is
 #     flagged (the one exemption: tmb_sqlite_ro handing its own argument on);
@@ -39,7 +40,7 @@ scan() {
       my ($kw) = $s =~ /^([A-Za-z]+)/;
       return "statement has no keyword" unless defined $kw;
       $kw = uc $kw;
-      return 1 if ($kw eq "SELECT" || $kw eq "WITH") && $s !~ /\b(INSERT|UPDATE|DELETE|REPLACE)\b/i;
+      return 1 if ($kw eq "SELECT" || $kw eq "WITH") && $s !~ /\b(?:INSERT|UPDATE|DELETE)\b|\bREPLACE\b(?!\s*\()/i;
       if ($kw eq "PRAGMA") {
         return 1 if $s =~ /^PRAGMA\s+(?:\w+\.)?(journal_mode|user_version)\s*$/i;
         return 1 if $s =~ /^PRAGMA\s+(?:\w+\.)?table_info\s*\(\s*[\w"\x27]+\s*\)\s*$/i;

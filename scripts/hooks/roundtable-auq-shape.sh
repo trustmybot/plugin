@@ -18,7 +18,7 @@ fi
 
 tmb_have_sqlite || { exit 0; }
 
-RT_ID=$(sqlite3 "$DB" "
+RT_ID=$(tmb_sqlite_ro "$DB" "
   SELECT r.id FROM roundtables r
   WHERE r.state = 'awaiting_human'
     AND NOT EXISTS (
@@ -26,7 +26,7 @@ RT_ID=$(sqlite3 "$DB" "
       WHERE v.roundtable_id = r.id AND v.participant = 'human'
     )
   ORDER BY r.id DESC LIMIT 1;
-" 2>/dev/null) || true
+")
 
 [ -z "$RT_ID" ] && { exit 0; }
 
