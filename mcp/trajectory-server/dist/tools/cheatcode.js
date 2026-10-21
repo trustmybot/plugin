@@ -175,6 +175,7 @@ export function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
         });
     });
 }
+const PROPOSED_PR_TARGET = 'proposed-pr';
 export function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate), '--scope', scope], { ...projectSpawnOptions(projectRoot), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -984,8 +985,9 @@ export function cheatcodeTools(db) {
             if (kind === 'skill' || kind === 'plugin') {
                 const targetSet = new Set();
                 for (const att of out.attachments) {
-                    if (att.target)
+                    if (att.target && !(kind === 'skill' && att.target === PROPOSED_PR_TARGET)) {
                         targetSet.add(att.target);
+                    }
                 }
                 if (target)
                     targetSet.add(target);
@@ -999,6 +1001,17 @@ export function cheatcodeTools(db) {
                         materialized.push(result);
                 }
             }
+            // A skill whose skills: entry was written is installed (GH 1619): report
+            // the materialized surfaces, not the install script's proposed-PR stand-in.
+            // With nothing materialized the proposed PR remains the only outcome.
+            const skillWritten = kind === 'skill' && materialized.length > 0;
+            const installed = skillWritten ? true : out.installed;
+            const method = skillWritten ? 'agent-frontmatter' : out.method;
+            const scriptAttachments = skillWritten ? [] : out.attachments;
+            const attachments = skillWritten
+                ? materialized.map((m) => ({ target: m.target, artifact: m.artifact }))
+                : out.attachments;
+            const proposedPr = skillWritten ? null : out.proposed_pr;
             // Provenance, derived from the source (#152): a marketplace ref →
             // 'marketplace'; a raw external repo URL → 'external'. Never a lifecycle
             // word — the install lifecycle lives in `status`.
@@ -1010,7 +1023,7 @@ export function cheatcodeTools(db) {
                 const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, origin, description, sourceUrl, filePath, out.version ?? null, trustTier, placementScope, installedAt]);
                 const id = Number(res.lastInsertRowid);
-                for (const att of out.attachments) {
+                for (const att of scriptAttachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`, [id, att.target, att.artifact, installedAt]);
                 }
@@ -1020,25 +1033,25 @@ export function cheatcodeTools(db) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`, [id, m.target, m.artifact, installedAt]);
                 }
-                auditCheatcode('cheatcode_install', `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`, JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }), installedAt);
+                auditCheatcode('cheatcode_install', `Cheatcode install: '${name}' (kind=${kind}, method=${method})`, JSON.stringify({ name, kind, source_url: sourceUrl, method }), installedAt);
                 auditCheatcode('cheatcode_installed', `Cheatcode installed: '${name}' → cheatcode_id=${id}`, JSON.stringify({
                     cheatcode_id: id,
                     name,
                     kind,
                     source_url: sourceUrl,
-                    installed: out.installed,
-                    attachments: out.attachments,
+                    installed,
+                    attachments,
                 }), installedAt);
                 return id;
             });
             return ok({
-                installed: out.installed,
+                installed,
                 cheatcode_id: cheatcodeId,
                 candidate: out.candidate,
-                method: out.method,
+                method,
                 version: out.version,
                 scope: placementScope,
-                attachments: out.attachments,
+                attachments,
                 // Every materialized prompt-surface path (the .claude/agents/<target>.md
                 // or .claude/CLAUDE.md written in the user project), one element per
                 // bound target. Empty when nothing materialized (no target, or none
@@ -1048,10 +1061,9 @@ export function cheatcodeTools(db) {
                     artifact: m.artifact,
                     path: m.path,
                 })),
-                // Skill installs carry the install script's proposed agent-frontmatter
-                // PR payload alongside the materialized surface — the canonical
-                // upstream contribution, distinct from the project-local materialize.
-                proposed_pr: out.proposed_pr,
+                // A skill install with no materialized surface carries the install
+                // script's proposed agent-frontmatter PR payload instead.
+                proposed_pr: proposedPr,
                 error: out.error,
             });
         })),

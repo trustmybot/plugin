@@ -238,6 +238,8 @@ export function runVetWithScript(
   });
 }
 
+const PROPOSED_PR_TARGET = 'proposed-pr';
+
 interface InstallAttachment {
   target: string;
   artifact: string;
@@ -1170,7 +1172,9 @@ export function cheatcodeTools(db: TrajectoryDB): {
         if (kind === 'skill' || kind === 'plugin') {
           const targetSet = new Set<string>();
           for (const att of out.attachments) {
-            if (att.target) targetSet.add(att.target);
+            if (att.target && !(kind === 'skill' && att.target === PROPOSED_PR_TARGET)) {
+              targetSet.add(att.target);
+            }
           }
           if (target) targetSet.add(target);
           const refusedTargets = writesOutside(targetSet);
@@ -1182,6 +1186,18 @@ export function cheatcodeTools(db: TrajectoryDB): {
             if (result) materialized.push(result);
           }
         }
+
+        // A skill whose skills: entry was written is installed (GH 1619): report
+        // the materialized surfaces, not the install script's proposed-PR stand-in.
+        // With nothing materialized the proposed PR remains the only outcome.
+        const skillWritten = kind === 'skill' && materialized.length > 0;
+        const installed = skillWritten ? true : out.installed;
+        const method = skillWritten ? 'agent-frontmatter' : out.method;
+        const scriptAttachments = skillWritten ? [] : out.attachments;
+        const attachments: InstallAttachment[] = skillWritten
+          ? materialized.map((m) => ({ target: m.target, artifact: m.artifact }))
+          : out.attachments;
+        const proposedPr = skillWritten ? null : out.proposed_pr;
 
         // Provenance, derived from the source (#152): a marketplace ref →
         // 'marketplace'; a raw external repo URL → 'external'. Never a lifecycle
@@ -1199,7 +1215,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           );
           const id = Number(res.lastInsertRowid);
 
-          for (const att of out.attachments) {
+          for (const att of scriptAttachments) {
             db.run(
               `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`,
@@ -1219,8 +1235,8 @@ export function cheatcodeTools(db: TrajectoryDB): {
 
           auditCheatcode(
             'cheatcode_install',
-            `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
+            `Cheatcode install: '${name}' (kind=${kind}, method=${method})`,
+            JSON.stringify({ name, kind, source_url: sourceUrl, method }),
             installedAt,
           );
           auditCheatcode(
@@ -1231,8 +1247,8 @@ export function cheatcodeTools(db: TrajectoryDB): {
               name,
               kind,
               source_url: sourceUrl,
-              installed: out.installed,
-              attachments: out.attachments,
+              installed,
+              attachments,
             }),
             installedAt,
           );
@@ -1240,13 +1256,13 @@ export function cheatcodeTools(db: TrajectoryDB): {
         });
 
         return ok({
-          installed: out.installed,
+          installed,
           cheatcode_id: cheatcodeId,
           candidate: out.candidate,
-          method: out.method,
+          method,
           version: out.version,
           scope: placementScope,
-          attachments: out.attachments,
+          attachments,
           // Every materialized prompt-surface path (the .claude/agents/<target>.md
           // or .claude/CLAUDE.md written in the user project), one element per
           // bound target. Empty when nothing materialized (no target, or none
@@ -1256,10 +1272,9 @@ export function cheatcodeTools(db: TrajectoryDB): {
             artifact: m.artifact,
             path: m.path,
           })),
-          // Skill installs carry the install script's proposed agent-frontmatter
-          // PR payload alongside the materialized surface — the canonical
-          // upstream contribution, distinct from the project-local materialize.
-          proposed_pr: out.proposed_pr,
+          // A skill install with no materialized surface carries the install
+          // script's proposed agent-frontmatter PR payload instead.
+          proposed_pr: proposedPr,
           error: out.error,
         });
       }),
