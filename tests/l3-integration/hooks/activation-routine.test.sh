@@ -19,17 +19,25 @@ TRANSCRIPT_PLAIN="$TMPDIR/transcript-plain.jsonl"
 
 export TRAJECTORY_DB_PATH="$DB"
 
-# Stub pgrep so the MCP-liveness check is hermetic: the server counts as
-# running unless $MCP_DOWN exists.
+# Stub pgrep so the MCP-liveness check is hermetic: `pgrep -f <pattern>`
+# matches the pattern against the fake command lines in $PROCS (exit 1 when
+# none match, as pgrep does); $PGREP_FAIL makes it exit 3, as pgrep does when
+# it cannot list processes (sandbox).
+PROCS="$TMPDIR/procs"
 MCP_DOWN="$TMPDIR/mcp-down"
+PGREP_FAIL="$TMPDIR/pgrep-fail"
+SERVER_HERE="node $PLUGIN_ROOT/mcp/trajectory-server/dist/index.js"
+printf '%s\n' "$SERVER_HERE" > "$PROCS"
 mkdir -p "$TMPDIR/bin"
 cat > "$TMPDIR/bin/pgrep" <<EOF
 #!/usr/bin/env bash
+[ -e "$PGREP_FAIL" ] && { echo "pgrep: Cannot get process list" >&2; exit 3; }
 [ -e "$MCP_DOWN" ] && exit 1
-echo 99999
+grep -nE -- "\$2" "$PROCS" | cut -d: -f1 | grep . || exit 1
 EOF
 chmod +x "$TMPDIR/bin/pgrep"
 export PATH="$TMPDIR/bin:$PATH"
+export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 
 sqlite3 "$DB" "
   CREATE TABLE plugin_config (
@@ -193,13 +201,26 @@ touch "$MCP_DOWN"
 out=$(run_hook "$(input '@bro status')")
 ctx=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext')
 assert_contains "$ctx" "Bro: HALT" "HALT emitted"
-assert_contains "$ctx" "tmb_recovery §C" "recovery pointer"
+assert_contains "$ctx" "tmb_recovery §B" "recovery pointer"
 assert_contains "$ctx" "onboarded=" "pre-fetched state still injected"
 
 test_case "non-bro prompt + server absent: silent"
 out=$(run_hook "$(input 'just a normal question')")
 assert_eq "" "$out" "no output outside bro mode"
 rm -f "$MCP_DOWN"
+
+test_case "GH 1606: pgrep cannot list processes (exit 3): no HALT"
+touch "$PGREP_FAIL"
+out=$(run_hook "$(input '@bro status')")
+assert_not_contains "$out" "HALT" "unknown liveness is not evidence of absence"
+assert_contains "$out" "onboarded=" "pre-fetched state still injected"
+rm -f "$PGREP_FAIL"
+
+test_case "GH 1606: server running from another plugin root: no HALT"
+printf '%s\n' "node /elsewhere/tmb/1.2.0-dev.10/mcp/trajectory-server/dist/index.js" > "$PROCS"
+out=$(CLAUDE_PLUGIN_ROOT=/elsewhere/tmb/1.2.0-dev.11 run_hook "$(input '@bro status')")
+assert_not_contains "$out" "HALT" "a server under another version dir counts as running"
+printf '%s\n' "$SERVER_HERE" > "$PROCS"
 
 # ---- DB-missing graceful path ----
 

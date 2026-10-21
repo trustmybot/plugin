@@ -13,10 +13,12 @@
 #   - the transcript shows a prior "Entering bro mode." line AND no later
 #     "exit bro mode" / "stop being bro".
 #
-# MCP HALT: in bro mode the hook also checks that this plugin's
-# trajectory-server process is running. By UserPromptSubmit the session is up,
-# so an absent server is evidence (unlike a SessionStart sample): the context
-# then carries the HALT + recovery pointer (tmb_recovery §C).
+# MCP HALT: in bro mode the hook also checks that a trajectory-server process
+# is running, from any plugin root (version dirs and marketplaces differ). By
+# UserPromptSubmit the session is up, so an absent server is evidence (unlike a
+# SessionStart sample): the context then carries the HALT + recovery pointer
+# (tmb_recovery §B). Only pgrep exit 1 (no match) counts as absent; exit >= 2
+# (e.g. a sandbox that cannot list processes) is unknown and stays silent.
 #
 # Session id: the context ends with session_id=<id> (the payload's session_id,
 # when it is 8–64 chars of [A-Za-z0-9_-]) so bro can pass it to task_provision /
@@ -78,13 +80,10 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 HALT_TEXT=""
 if command -v pgrep >/dev/null 2>&1; then
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    _pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
-  else
-    _pattern="trajectory-server/dist/index.js"
-  fi
-  if [ "$({ pgrep -f "$_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')" = "0" ]; then
-    HALT_TEXT="⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §C and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads."
+  _pgrep_rc=0
+  pgrep -f "trajectory-server/dist/index.js" >/dev/null 2>&1 || _pgrep_rc=$?
+  if [ "$_pgrep_rc" = 1 ]; then
+    HALT_TEXT="⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads."
   fi
 fi
 

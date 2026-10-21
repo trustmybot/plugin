@@ -58,7 +58,7 @@ fi
 
 CONTEXT=""
 if [ "$pgrep_count" -eq 0 ]; then
-  CONTEXT="trajectory-server not detected yet at SessionStart; if a trajectory tool returns is_error, load tmb_recovery §C"
+  CONTEXT="trajectory-server not detected yet at SessionStart; if a trajectory tool returns is_error, load tmb_recovery §B"
 fi
 
 # --- Install-scope notice, once per session ---------------------------------
