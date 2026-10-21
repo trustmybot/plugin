@@ -1,13 +1,10 @@
 /**
  * Builds an idempotent shutdown() and wires the signal + stdin-EOF watchdog.
  *
- * The kuzu world-model graph is a single-writer store: the server holds an
- * exclusive lock on `world-model.kuzu` for its whole lifetime. A graceful exit
- * releases it via closeGraph(). But when the parent `claude` process dies
- * ungracefully (terminal close, Force-Quit, `kill -9`, crash, OOM) no
- * SIGINT/SIGTERM reaches this stdio child — it reparents to launchd and would
- * hold the lock forever, so later servers fail to open the graph
- * (`Could not set lock on file`) and fall back to world-model-empty.
+ * A graceful exit closes the trajectory DB via closeDb(). But when the parent
+ * `claude` process dies ungracefully (terminal close, Force-Quit, `kill -9`,
+ * crash, OOM) no SIGINT/SIGTERM reaches this stdio child — it reparents to
+ * launchd and would linger as an orphan holding its DB handle open.
  *
  * The portable fix: when the parent dies for ANY reason the OS closes the
  * child's stdin write-end, so the child sees EOF. Listening for stdin
@@ -27,7 +24,6 @@ export function createShutdown(deps) {
         shuttingDown = true;
         deps.log(signal);
         deps.closeDb();
-        deps.closeGraph();
         deps.exit(0);
     };
 }

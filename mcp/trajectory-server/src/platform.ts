@@ -21,7 +21,6 @@ import {
 export interface RuntimePaths {
   readonly stateDir: string | null;
   readonly trajectoryDb: string;
-  readonly graphDb: string;
   readonly logDir: string;
 }
 
@@ -219,7 +218,6 @@ export function createClaudeRuntimeContext(opts?: {
   const paths = freezePaths({
     stateDir,
     trajectoryDb,
-    graphDb: resolveGraphDbPath(trajectoryDb),
     logDir: claudeLogDirFor(trajectoryDb, plugin.name),
   });
 
@@ -250,7 +248,6 @@ export function deriveCodexRuntimePaths(input: {
   return freezePaths({
     stateDir,
     trajectoryDb,
-    graphDb: resolveGraphDbPath(trajectoryDb),
     logDir: join(stateDir, 'logs'),
   });
 }
@@ -284,7 +281,6 @@ export function createCodexRuntimeContext(
   const writablePaths = [
     ['stateDir', paths.stateDir, 'directory'],
     ['trajectoryDb', paths.trajectoryDb, 'file'],
-    ['graphDb', paths.graphDb, 'directory'],
     ['logDir', paths.logDir, 'directory'],
     ['serverLog', join(paths.logDir, 'mcp-server.log'), 'file'],
     ['sqlLog', join(paths.logDir, 'sql.log'), 'file'],
@@ -312,33 +308,6 @@ export function createCodexRuntimeContext(
     plugin,
     paths,
   });
-}
-
-/**
- * Keep each SQLite file paired with exactly one graph directory.
- *
- * The standard trajectory.db retains its historical sibling name. Custom DB
- * names include their basename so two overrides in one directory cannot share
- * a graph accidentally. Graph-shaped DB filenames are reserved so one
- * runtime's graph output cannot also be another runtime's SQLite input.
- */
-export function resolveGraphDbPath(trajectoryDbPath: string): string {
-  if (trajectoryDbPath === ':memory:') return ':memory:';
-  const dbName = basename(trajectoryDbPath);
-  const normalizedDbName = dbName.toLowerCase();
-  if (
-    normalizedDbName === 'world-model.kuzu' ||
-    normalizedDbName.endsWith('.world-model.kuzu')
-  ) {
-    throw new Error(
-      `Trajectory DB filename "${dbName}" is reserved for graph storage`,
-    );
-  }
-  const graphName =
-    dbName === 'trajectory.db'
-      ? 'world-model.kuzu'
-      : `${dbName}.world-model.kuzu`;
-  return join(dirname(trajectoryDbPath), graphName);
 }
 
 /**

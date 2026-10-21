@@ -5,7 +5,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 ## Where state lives
 
 - **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. Holds the workflow audit: issues, tasks, discussions, audit, validation, plugin metadata. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. Project-local, gitignored, per-developer.
-- **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/` for the standard `trajectory.db`. A custom `TRAJECTORY_DB_PATH` maps to `<db-basename>.world-model.kuzu`; graph-shaped trajectory filenames are reserved. Holds bro's project mental picture: Directory nodes + CONTAINS edges, File nodes (one-line purpose, content hash) + HAS_FILE edges (more node/edge types in follow-up slices). See `docs/architecture/WORLD_MODEL.md`.
+- **World model** — the `wm_directories` / `wm_files` tables (plus FTS5 and embedding side tables) in the same trajectory DB. Holds bro's project mental picture: directories with summaries and files with a one-line purpose and content hash, rebuilt by `/scan`. See `docs/architecture/WORLD_MODEL.md`.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **Issue milestone** — `issues.milestone` column (nullable `TEXT`), a composite FK `(milestone, repo)` into the per-repo `milestones` table (#155, schema v23). See `docs/architecture/ERD.md`.
 - **Architectural decisions** — recorded as `kind=decision` discussions in the trajectory DB.
@@ -49,7 +49,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - `/roundtable <topic>` — multi-agent deliberation with checkbox/radio AUQ ratification (full procedure in `commands/roundtable.md`)
 - `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `plugin_config('onboarded')` is unset; Human-typed for later changes (full procedure in `commands/onboard.md`)
 - `/monitor <PR_number>` — invokes `tmb_comment-triage` skill: fetches review comments, plans tasks, dispatches SWE per ratified comment
-- `/scan` — triggers `scan_run` to rebuild the world model graph (directory and file nodes in kuzu) and refresh the repos registry
+- `/scan` — triggers `scan_run` to rebuild the world model (`wm_directories` / `wm_files` in the trajectory DB) and refresh the repos registry
 - `/tmb:agent-create <role> <question>` — spawns a consultant subagent with the given domain role and seed question
 
 Runtime location: `plugin/commands/<name>.md`.

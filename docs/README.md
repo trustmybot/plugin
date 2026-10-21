@@ -2,13 +2,13 @@
 
 Developer documentation for the TMB plugin. Read these when you're contributing to the plugin itself.
 
-**Not part of bro's runtime context.** Nothing in this tree is auto-loaded into a Claude Code session. Bro's runtime lives in `CLAUDE.md`, `agents/`, `skills/`, `hooks/`, the trajectory DB, and the kuzu world model.
+**Not part of bro's runtime context.** Nothing in this tree is auto-loaded into a Claude Code session. Bro's runtime lives in `CLAUDE.md`, `agents/`, `skills/`, `hooks/`, and the trajectory DB (workflow audit plus the world model).
 
 If something in `docs/` turns out to be load-bearing for bro's behavior, inline it where bro actually reads it.
 
 | File / folder | Purpose |
 |---|---|
-| `reference/REFERENCE.md` | Where workflow state lives (trajectory DB, kuzu world model, CC config) |
+| `reference/REFERENCE.md` | Where workflow state lives (trajectory DB, world model, CC config) |
 | `reference/CONFIG_KEYS.md` | `plugin_config` key registry (generated) |
 | `reference/MULTI_PLATFORM.md` | OS compatibility notes |
 | `reference/INSTALL.md` | Recommended install scope and what `/onboard` writes where |

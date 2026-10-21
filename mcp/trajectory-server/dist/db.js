@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 41;
+export const TARGET_SCHEMA_VERSION = 42;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -607,6 +607,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 41 && toVersion >= 41) {
         migrateV40toV41(db);
+    }
+    if (fromVersion < 42 && toVersion >= 42) {
+        migrateV41toV42(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2245,6 +2248,53 @@ function migrateV40toV41(db) {
         throw err;
     }
 }
+// v41→v42: the world model moves into this DB (GH 1632) as wm_directories and
+// wm_files. There is no data to carry over: the first scan_run rebuilds both,
+// and until then world_model_get reports world-model-empty. The FTS5 indexes,
+// their triggers and the embedding tables arrive with the schema.sql re-apply.
+function migrateV41toV42(db) {
+    beginImmediate(db);
+    try {
+        db.exec(`
+      CREATE TABLE IF NOT EXISTS wm_directories (
+          id                 INTEGER PRIMARY KEY,
+          repo               TEXT    NOT NULL,
+          path               TEXT    NOT NULL,
+          parent_path        TEXT,
+          summary            TEXT,
+          summary_source     TEXT    NOT NULL,
+          summary_updated_at TEXT,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (repo, path)
+      )
+    `);
+        db.exec(`
+      CREATE TABLE IF NOT EXISTS wm_files (
+          id              INTEGER PRIMARY KEY,
+          repo            TEXT    NOT NULL,
+          path            TEXT    NOT NULL,
+          dir             TEXT    NOT NULL,
+          purpose         TEXT    NOT NULL DEFAULT '',
+          purpose_source  TEXT    NOT NULL DEFAULT 'none',
+          content_md5     TEXT    NOT NULL DEFAULT '',
+          size_bytes      INTEGER NOT NULL DEFAULT 0,
+          last_commit_sha TEXT    NOT NULL DEFAULT '',
+          updated_at      TEXT    NOT NULL,
+          UNIQUE (repo, path)
+      )
+    `);
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //
 //   1. repos gains a remotes column so issue-scoped sync resolves the per-repo
@@ -2764,8 +2814,8 @@ function migrateV7toV8(db) {
     beginImmediate(db);
     try {
         // Drop the SQLite directories infrastructure — world model moved to
-        // kuzu graph DB (ADR 0002). World-model data is rebuilt from /scan on
-        // first use; nothing to migrate out.
+        // a separate graph DB (ADR 0002; back in this DB as wm_* since v42). Data
+        // is rebuilt from /scan on first use; nothing to migrate out.
         db.exec('DROP TRIGGER IF EXISTS directories_au_new');
         db.exec('DROP TRIGGER IF EXISTS directories_au');
         db.exec('DROP TRIGGER IF EXISTS directories_ad');

@@ -1,6 +1,6 @@
 # src/tools
 
-The MCP tool modules for the trajectory server — one TypeScript file per domain. Each module exports a factory (e.g. `issueTools(db)`) returning `{ definitions, handlers }`: the JSON-Schema tool definitions Claude sees and the handlers that run against the SQLite trajectory DB (and, for some, the kuzu world-model graph). `index.ts` wires every module's definitions + handlers together and decorates each with the `agent` param used for role-gating.
+The MCP tool modules for the trajectory server — one TypeScript file per domain. Each module exports a factory (e.g. `issueTools(db)`) returning `{ definitions, handlers }`: the JSON-Schema tool definitions Claude sees and the handlers that run against the SQLite trajectory DB. `index.ts` wires every module's definitions + handlers together and decorates each with the `agent` param used for role-gating.
 
 ## Grouped by domain
 
@@ -26,7 +26,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Metering backfill | `agent-runs-backfill.ts` | `agent_runs_backfill` |
 | Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`; surfaces `rename_candidates`), `repos_list` |
 | Repos | `repos.ts` | `repo_rename` |
-| World model | `world_model.ts` | `world_model_get` (kuzu graph + an `unmerged_work` field: closed-task branches with a live local ref whose tip is not yet merged into the target), `world_model_search` |
+| World model | `world_model.ts` | `world_model_get` (the `wm_` tables + an `unmerged_work` field: closed-task branches with a live local ref whose tip is not yet merged into the target), `world_model_search` |
 | Data contracts | `trajectory-doctor.ts` | `trajectory_doctor` (bro, read-only; `record`, `ids`) — runs the contract list in `../data-contracts.ts` on a separate read-only connection with a per-statement timeout (`TMB_DOCTOR_STATEMENT_TIMEOUT_MS`, default 2000); a contract needing a newer `plugin_meta.schema_version` than the DB has is skipped as `schema vN < vM`. `checkTrajectoryDbFile` runs the same check on a DB file without opening it as a `TrajectoryDB`, so nothing migrates |
 
 A repo's git remotes live in `repo_remotes`; every tool reads and writes them through `../repos/remotes.ts` (`repoRemotes`, `syncRemotes`, `setRemoteSync`, `primaryRemote`, `upsertRepoRemotes`) — `scan_run` and `onboard_apply` write the git facts (name, url, provider, primary), and `pr_monitor_comments_get`, `repo_rename` and `onboard_state_get` read every row (PR/MR lookup follows the git push remote, not the sync choice). A row's `sync` flag is the Human's onboard Remote choice: `onboard_apply`'s `remote` answer (`setRemoteSync`) marks one remote per chosen provider and clears the rest; a new row starts at `sync = is_primary`, and `scan_run` never changes it. Issue and milestone sync read only the `sync = 1` rows (`syncRemotes`), so a provider without one is never spawned, even under `issue_sync = 'both'`. `onboard_state_get` / `onboard_apply` report remotes as `[{name, provider, url, sync}]`, primary first; `onboard_apply`'s `applied.remotes` lists only the representative repo's `sync = 1` rows.

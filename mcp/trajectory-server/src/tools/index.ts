@@ -1,7 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import type { GraphHolder } from '../graph-db.js';
+import type { GraphHolder } from '../graph.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
 import { milestoneTools } from './milestones.js';

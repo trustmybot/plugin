@@ -14,7 +14,7 @@ import { startBackfill } from './embeddings/backfill.js';
 import { embed } from './embeddings/model.js';
 import { reconcileAtStartup } from './tools/cheatcode-reconcile.js';
 import { recordEmbeddingTransitions } from './embeddings/health.js';
-import { WorldModelGraph, resolveGraphDbPath, GraphHolder } from './graph-db.js';
+import { WorldModelGraph, GraphHolder } from './graph.js';
 import { createShutdown, installShutdownHandlers } from './shutdown.js';
 
 const dbPath = resolveDbPath();
@@ -37,23 +37,8 @@ function readPackageVersion(): string {
 
 const packageVersion = readPackageVersion();
 
-// World-model graph DB (ADR 0002) — separate kuzu file beside trajectory.db.
-// If kuzu fails to load (missing native binary, sandbox), surface but don't
-// crash — world_model_* will return 'world-model-unavailable'; trajectory
-// workflow continues to function.
-//
-// The holder is shared BY REFERENCE with registerTools so a failed open can
-// recover in-process: ensureGraph() lazily re-attempts (throttled) on later
-// tool calls. On cold-start write-lock contention (the prescan race, #590) the
-// WorldModelGraph constructor already retries with backoff; if it still fails,
-// the holder records the lock-error message so scan_run reports a real
-// graph_db_open_failed instead of a phantom "scan already running" (#591).
-const graphPath = resolveGraphDbPath(dbPath);
-const graphHolder = new GraphHolder({
-  open: () => new WorldModelGraph(graphPath),
-  log: (entry) => serverLogSync({ ...entry, path: graphPath }),
-});
-graphHolder.attemptOpen();
+// The world model shares the trajectory DB handle (GH 1632).
+const graphHolder = GraphHolder.fixed(new WorldModelGraph(db));
 
 const server = new Server(
   { name: 'trajectory-server', version: packageVersion },
@@ -111,7 +96,6 @@ function maybeRecordTrajectory(
 
 const shutdown = createShutdown({
   closeDb: () => db.close(),
-  closeGraph: () => graphHolder.graph?.close(),
   log: (signal) => serverLogSync({ kind: 'shutdown', signal, pid: process.pid }),
   exit: (code) => process.exit(code),
   pid: process.pid,

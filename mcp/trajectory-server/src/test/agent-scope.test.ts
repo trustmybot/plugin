@@ -11,7 +11,7 @@ import {
   requireRoles,
 } from '../middleware/agent-scope.js';
 import { registerTools, toolHandlers } from '../tools/index.js';
-import { GraphHolder } from '../graph-db.js';
+import { GraphHolder } from '../graph.js';
 import type { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
 import type { Issue } from '../types.js';

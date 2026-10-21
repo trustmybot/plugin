@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pinScanEnv, tempDB } from './helpers.js';
 import { repoTools, renameRepo } from '../tools/repos.js';
-import { WorldModelGraph, GraphHolder } from '../graph-db.js';
+import { WorldModelGraph, GraphHolder } from '../graph.js';
 import type { TrajectoryDB } from '../db.js';
+import { scanTools } from '../tools/scan.js';
+import { worldModelTools } from '../tools/world_model.js';
 import { primaryRemote, upsertRepoRemotes } from '../repos/remotes.js';
 
 const scanPin = pinScanEnv();
@@ -241,29 +243,21 @@ describe('repo_rename — graph', () => {
     seed(db);
     const failing = {
       renameRepo: () => {
-        throw new Error('kuzu exploded');
+        throw new Error('graph exploded');
       },
     } as unknown as WorldModelGraph;
     const r = await rename(db, { old: 'old', new: 'renamed' }, GraphHolder.fixed(failing));
     assert.ok(!r.isError, JSON.stringify(r));
     const out = parse(r);
     assert.equal(out['graph'], 'deferred');
-    assert.equal(out['graph_error'], 'kuzu exploded');
+    assert.equal(out['graph_error'], 'graph exploded');
     assert.equal(countOn(db, 'issues', 'renamed'), 1);
     const audit = db.get<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'repo_renamed'`);
     assert.equal((JSON.parse(audit!.content_json) as Record<string, unknown>)['graph'], 'deferred');
     db.close();
   });
 
-  // kuzu runs in a child process so its native destructor crash on exit
-  // (kuzu v0.11 / Node 24 / macOS) cannot fail this file; see world_model.test.ts.
-  it('re-keys Directory nodes: world_model_get(new) returns the tree, old is empty', () => {
-    try {
-      new WorldModelGraph(':memory:').close();
-    } catch {
-      console.log('  SKIP: kuzu not available in this environment');
-      return;
-    }
+  it('re-keys directories and files: world_model_get(new) returns the tree, old is empty', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'repo-rename-graph-'));
     try {
       const repoRoot = join(ws, 'app');
@@ -276,65 +270,38 @@ describe('repo_rename — graph', () => {
       execFileSync('git', ['add', '.'], { cwd: repoRoot });
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: repoRoot });
 
-      const distRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-      const script = `
-import { TrajectoryDB } from '${distRoot}/db.js';
-import { WorldModelGraph, GraphHolder } from '${distRoot}/graph-db.js';
-import { scanTools } from '${distRoot}/tools/scan.js';
-import { repoTools } from '${distRoot}/tools/repos.js';
-import { worldModelTools } from '${distRoot}/tools/world_model.js';
-
-const ws = ${JSON.stringify(ws)};
-const db = new TrajectoryDB(':memory:');
-const graph = new WorldModelGraph(ws + '/world-model.kuzu');
-const holder = GraphHolder.fixed(graph);
-const s = await scanTools(db, holder, ':memory:').handlers.scan_run({ agent: 'bro', session_dir: ws });
-if (s.isError) { console.log(JSON.stringify({ ok: false, msg: s.content[0].text })); process.exit(1); }
-const before = graph.allDirectoriesForRepo('app').length;
-const r = await repoTools(db, holder).handlers.repo_rename({ agent: 'bro', old: 'app', new: 'app2', reason: 'test' });
-const out = JSON.parse(r.content[0].text);
-const wm = worldModelTools(db, holder).handlers.world_model_get;
-const gNew = JSON.parse((await wm({ agent: 'bro', repo: 'app2', depth: null })).content[0].text);
-const gOld = JSON.parse((await wm({ agent: 'bro', repo: 'app', depth: null })).content[0].text);
-const keys = graph.allDirectoriesForRepo('app2').map((n) => n.key);
-const api = gNew.root?.children?.find((c) => c.path === 'src')?.children?.some((c) => c.path === 'src/api') ?? false;
-const files = graph.allFilesForRepo('app2').map((f) => f.path).sort();
-const linkedFiles = [...graph.filePathsWithDirectory('app2')].sort();
-const oldFiles = graph.allFilesForRepo('app').length;
-graph.close();
-db.close();
-console.log(JSON.stringify({ ok: true, before, renameError: r.isError ?? false, out, newRoot: gNew.root !== null, api, oldWarning: gOld.warning, oldRoot: gOld.root, keys, files, linkedFiles, oldFiles }));
-`;
-      let stdout = '';
-      try {
-        stdout = execFileSync(process.execPath, ['--experimental-sqlite', '--input-type=module'], {
-          input: script,
-          encoding: 'utf8',
-          timeout: 30000,
-        });
-      } catch (e: unknown) {
-        const se = e as { stdout?: string; stderr?: string; status?: number };
-        if (se.stdout?.trim()) stdout = se.stdout;
-        else throw new Error(`child process failed (exit ${se.status}): ${se.stderr?.slice(0, 500) ?? ''}`);
-      }
-      const res = JSON.parse(stdout.trim().split('\n').find((l) => l.startsWith('{')) ?? '{}') as {
-        ok?: boolean; msg?: string; before?: number; renameError?: boolean;
-        out?: Record<string, unknown>; newRoot?: boolean; api?: boolean; oldWarning?: string; oldRoot?: unknown; keys?: string[];
-        files?: string[]; linkedFiles?: string[]; oldFiles?: number;
+      const db = tempDB();
+      const graph = new WorldModelGraph(db);
+      const holder = GraphHolder.fixed(graph);
+      const s = (await scanTools(db, holder, ':memory:').handlers['scan_run']!({ agent: 'bro', session_dir: ws })) as unknown as RawResult;
+      assert.ok(!s.isError, s.content[0]!.text);
+      const before = graph.allDirectoriesForRepo('app').length;
+      const r = await rename(db, { old: 'app', new: 'app2' }, holder);
+      const out = parse(r);
+      const wm = worldModelTools(db, holder).handlers['world_model_get']!;
+      const gNew = parse((await wm({ agent: 'bro', repo: 'app2', depth: null })) as unknown as RawResult) as {
+        root: { children?: Array<{ path: string; children?: Array<{ path: string }> }> } | null;
       };
-      assert.ok(res.ok !== false, `child: ${res.msg ?? 'unknown'}`);
-      assert.ok((res.before ?? 0) >= 3, 'scan populated app nodes');
-      assert.equal(res.renameError, false, JSON.stringify(res.out));
-      assert.equal(res.out!['graph'], 'rekeyed');
-      assert.equal(res.out!['graph_nodes'], res.before);
-      assert.ok(res.newRoot, 'world_model_get(app2) returns the tree');
-      assert.ok(res.api, 'CONTAINS edges re-linked under the new repo');
-      assert.equal(res.oldWarning, 'world-model-empty', 'world_model_get(app) is empty');
-      assert.equal(res.oldRoot, null);
-      assert.ok(res.keys!.every((k) => k === WorldModelGraph.dirKey('app2', JSON.parse(k)[1] as string)), 'keys recomputed with dirKey');
-      assert.deepEqual(res.files, ['app2/README.md', 'app2/src/api/h.ts'], 'File nodes re-keyed under the new repo');
-      assert.deepEqual(res.linkedFiles, res.files, 'HAS_FILE edges re-linked under the new repo');
-      assert.equal(res.oldFiles, 0, 'no File nodes left under the old repo');
+      const gOld = parse((await wm({ agent: 'bro', repo: 'app', depth: null })) as unknown as RawResult);
+      const files = graph.allFilesForRepo('app2').map((f) => f.path).sort();
+
+      assert.ok(before >= 3, 'scan populated app directories');
+      assert.equal(r.isError ?? false, false, JSON.stringify(out));
+      assert.equal(out['graph'], 'rekeyed');
+      assert.equal(out['graph_nodes'], before);
+      assert.ok(gNew.root !== null, 'world_model_get(app2) returns the tree');
+      const api = gNew.root?.children?.find((c) => c.path === 'src')?.children?.some((c) => c.path === 'src/api') ?? false;
+      assert.ok(api, 'parent links survive under the new repo');
+      assert.equal(gOld['warning'], 'world-model-empty', 'world_model_get(app) is empty');
+      assert.equal(gOld['root'], null);
+      assert.ok(
+        graph.allDirectoriesForRepo('app2').every((d) => d.key === WorldModelGraph.dirKey('app2', d.path)),
+        'keys recomputed with dirKey',
+      );
+      assert.deepEqual(files, ['app2/README.md', 'app2/src/api/h.ts'], 'files re-keyed under the new repo');
+      assert.deepEqual([...graph.filePathsWithDirectory('app2')].sort(), files, 'files keep their directory link');
+      assert.equal(graph.allFilesForRepo('app').length, 0, 'no files left under the old repo');
+      db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

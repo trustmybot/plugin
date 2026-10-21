@@ -1,7 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import type { GraphHolder, WorldModelGraph } from '../graph-db.js';
+import type { GraphHolder, WorldModelGraph } from '../graph.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertAudit } from './audit.js';
 import { taskWorktreePath } from './composites.js';
@@ -215,7 +215,7 @@ export function repoTools(
     {
       name: 'repo_rename',
       description:
-        'Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model nodes (graph deferred to the next scan_run when kuzu is down). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).',
+        'Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model rows (graph deferred to the next scan_run when the re-key fails). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).',
       inputSchema: {
         type: 'object',
         properties: {

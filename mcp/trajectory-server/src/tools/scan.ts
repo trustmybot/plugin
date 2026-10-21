@@ -7,8 +7,8 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
-import { WorldModelGraph } from '../graph-db.js';
-import type { FileNode, GraphHolder } from '../graph-db.js';
+import { WorldModelGraph } from '../graph.js';
+import type { FileNode, GraphHolder } from '../graph.js';
 import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -344,8 +344,8 @@ function persistDirectoriesGraph(
     else subdirsByParent.set(key, [basename(entry.path)]);
   }
 
-  // Two-pass: first upsert all Directory nodes (so CONTAINS edge targets
-  // exist), then create CONTAINS edges from each child to its parent.
+  // Two-pass: first upsert every directory row, then link each child to its
+  // parent once both rows exist.
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
@@ -475,17 +475,15 @@ function persistFilesGraph(
   plan: FilePlan,
 ): { files_upserted: number; files_retired: number } {
   let files_retired = 0;
-  graph.transaction(() => {
-    for (const n of plan.writes) graph.upsertFile(n);
-    for (const r of out.repos) {
-      const linked = graph.filePathsWithDirectory(r.name);
-      for (const n of plan.nodes) {
-        if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
-      }
-      const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
-      files_retired += graph.pruneFiles(r.name, keep);
+  for (const n of plan.writes) graph.upsertFile(n);
+  for (const r of out.repos) {
+    const linked = graph.filePathsWithDirectory(r.name);
+    for (const n of plan.nodes) {
+      if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
     }
-  });
+    const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
+    files_retired += graph.pruneFiles(r.name, keep);
+  }
   return { files_upserted: plan.writes.length, files_retired };
 }
 
@@ -595,8 +593,8 @@ export interface StaleRepoKept {
   reason: 'task_referenced' | 'row_referenced';
 }
 
-// Persist repos[] to SQLite (transactional) and Directory + File nodes to the
-// kuzu world model.
+// Persist repos[] and the world model (wm_directories + wm_files), each in its
+// own transaction.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired,
 // unless a task or another row still references them; those are kept and
@@ -708,41 +706,40 @@ function persistScan(
   let files_extracted = 0;
   let files_retired = 0;
 
-  // Retire kuzu nodes for repos actually removed above (prune all their dirs).
-  if (graph) {
-    for (const r of retired) {
-      const n = graph.pruneDirectories(r.name, new Set());
-      dirs_retired += n;
-      files_retired += graph.pruneFiles(r.name, new Set());
-    }
-  }
-
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
     const plan = planFiles(graph, persisted, now);
     files_extracted = plan.extracted;
-    const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes));
-    dirs_upserted = stats.dirs_upserted;
-    dirs_readme_summarized = stats.dirs_readme_summarized;
-    dirs_structural_summarized = stats.dirs_structural_summarized;
-
-    // Prune stale directory nodes for each scanned repo (handles renames).
-    const dirMap = deriveDirectoryEntries(persisted);
-    for (const r of persisted.repos) {
-      const keepKeys = new Set<string>();
-      for (const [, entry] of dirMap) {
-        if (entry.repo === r.name) {
-          keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
-        }
+    graph.transaction(() => {
+      // Retire the world model of repos actually removed above.
+      for (const r of retired) {
+        dirs_retired += graph.pruneDirectories(r.name, new Set());
+        files_retired += graph.pruneFiles(r.name, new Set());
       }
-      graph.pruneDirectories(r.name, keepKeys);
-    }
 
-    const fileStats = persistFilesGraph(graph, persisted, plan);
-    files_upserted = fileStats.files_upserted;
-    files_retired += fileStats.files_retired;
+      const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes));
+      dirs_upserted = stats.dirs_upserted;
+      dirs_readme_summarized = stats.dirs_readme_summarized;
+      dirs_structural_summarized = stats.dirs_structural_summarized;
+
+      // Prune stale directory rows for each scanned repo (handles renames).
+      const dirMap = deriveDirectoryEntries(persisted);
+      for (const r of persisted.repos) {
+        const keepKeys = new Set<string>();
+        for (const [, entry] of dirMap) {
+          if (entry.repo === r.name) {
+            keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+          }
+        }
+        graph.pruneDirectories(r.name, keepKeys);
+      }
+
+      const fileStats = persistFilesGraph(graph, persisted, plan);
+      files_upserted = fileStats.files_upserted;
+      files_retired += fileStats.files_retired;
+    });
   }
 
   return {
@@ -887,7 +884,7 @@ export function scanTools(
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory + File nodes to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
+        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -932,20 +929,12 @@ export function scanTools(
         const rawSource = (args['source'] as string | undefined) ?? 'bro_auto_initial';
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
 
-        // #590/#591: when the server lost the cold-start kuzu write-lock race
-        // its graph is null because the open hit a lock error. ensureGraph()
-        // re-attempts (throttled) so a since-freed lock recovers here in-process.
-        // If it's still locked, surface graph_db_open_failed — NOT a scan-lock
-        // message — so the operator isn't sent chasing a phantom "scan already
-        // running" with a dead pid. A genuinely-absent kuzu (missing native
-        // binding, sandbox) has no lock error and falls through to the no-op
-        // graph path below.
+        // A holder that recorded an open failure surfaces it as
+        // graph_db_open_failed rather than scanning without a world model.
         const graph = graphHolder?.ensureGraph() ?? null;
         const graphOpenError = graphHolder?.openError ?? null;
         if (!graph && graphOpenError) {
-          return err(
-            `graph_db_open_failed: ${graphOpenError} — another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`,
-          );
+          return err(`graph_db_open_failed: ${graphOpenError}`);
         }
 
         // #339: lock file prevents concurrent scans. Lock lives beside the DB.

@@ -12,7 +12,7 @@ function seedFixtureIssue(db, now) {
     return Number(res.lastInsertRowid);
 }
 describe('schema — current table set, default values, constraints', () => {
-    it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
+    it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in wm_ tables, GH 1632)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -34,12 +34,19 @@ describe('schema — current table set, default values, constraints', () => {
             'verification_run_commands',
             // #155 repos-centric schema — milestones FK hub
             'milestones',
-            // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
+            // #2905 FTS5 virtual tables
             'discussions_fts',
             'audit_fts',
-            // #2905 embedding tables (workflow tables only)
+            // #2905 embedding tables
             'discussions_embeddings',
             'audit_embeddings',
+            // GH 1632 world model
+            'wm_directories',
+            'wm_files',
+            'wm_directories_fts',
+            'wm_files_fts',
+            'wm_directories_embeddings',
+            'wm_files_embeddings',
             // #659 cheatcode install stage
             'cheatcodes',
             'cheatcode_attachments',
@@ -154,11 +161,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.throws(() => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`), /UNIQUE/, 'one row per (task_id, spawn_id)');
         db.close();
     });
-    it('fresh DB has schema_version = 41 in plugin_meta', () => {
+    it('fresh DB has schema_version = 42 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 41);
+        assert.equal(meta.schema_version, 42);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
@@ -257,10 +264,10 @@ describe('schema — current table set, default values, constraints', () => {
         ]);
         db.close();
     });
-    it('directories table does NOT exist post-v8 (world model lives in kuzu — ADR 0002)', () => {
+    it('legacy directories table does NOT exist (world model lives in wm_directories, GH 1632)', () => {
         const db = tempDB();
         const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='directories'");
-        assert.equal(row, undefined, 'directories table must be absent — world model moved to kuzu graph DB');
+        assert.equal(row, undefined, 'the pre-v8 directories table must stay absent');
         db.close();
     });
     it('eval_results has the A/B columns (#131) on a fresh DB', () => {

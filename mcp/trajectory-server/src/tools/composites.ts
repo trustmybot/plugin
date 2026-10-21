@@ -27,7 +27,7 @@ import {
 } from './issues.js';
 import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
-import type { GraphHolder } from '../graph-db.js';
+import type { GraphHolder } from '../graph.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
@@ -902,7 +902,7 @@ export function compositeTools(
     {
       name: 'task_brief',
       description:
-        "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+        "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: 'object',
         properties: {

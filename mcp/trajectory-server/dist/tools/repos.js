@@ -158,7 +158,7 @@ export function repoTools(db, graphHolder = null) {
     const definitions = [
         {
             name: 'repo_rename',
-            description: 'Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model nodes (graph deferred to the next scan_run when kuzu is down). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).',
+            description: 'Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model rows (graph deferred to the next scan_run when the re-key fails). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).',
             inputSchema: {
                 type: 'object',
                 properties: {

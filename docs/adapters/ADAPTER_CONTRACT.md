@@ -16,7 +16,7 @@ Two terms carry the whole document.
 - The **trajectory DB schema** — [`../../mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql) and its migrations.
 - The **MCP tool contracts** — tool names, argument shapes, role scoping, and return shapes served by `mcp/trajectory-server/`.
 - The **shared workflow skills and shared protected persona bodies** — `skills/*/SKILL.md`, the prose bodies of `agents/*.md`, and `templates/agents/*.md`. Protected personas include workflow principals and shared consultant templates.
-- The **world model** — the kuzu graph, its node/edge shape, and the scan that populates it.
+- The **world model** — the `wm_` tables in the trajectory DB, their directory/file shape, and the scan that populates them.
 
 **Adapter.** The per-platform edge, and nothing more:
 

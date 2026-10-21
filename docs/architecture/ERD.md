@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 41`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 42`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -17,7 +17,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.sh` fails when they drift. The prose around them is hand-written.
 
-The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
+The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. See `docs/architecture/WORLD_MODEL.md`.
 
 The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the cheatcodes acquired via the install pipeline (`origin='marketplace'` from a registered marketplace ref, `origin='external'` from a raw repo URL). Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 41`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 42`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -57,6 +57,8 @@ erDiagram
     discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
     audit ||--o| audit_embeddings : "audit_id (CASCADE)"
     cheatcodes ||--o{ cheatcode_attachments : "cheatcode_id (CASCADE)"
+    wm_directories ||--o| wm_directories_embeddings : "dir_id (CASCADE)"
+    wm_files ||--o| wm_files_embeddings : "file_id (CASCADE)"
 
     repos {
         TEXT name PK
@@ -290,6 +292,44 @@ erDiagram
         TEXT target "NOT NULL"
         TEXT artifact "NOT NULL"
         TEXT created_at "NOT NULL"
+    }
+
+    wm_directories {
+        INTEGER id PK "NOT NULL"
+        TEXT repo "NOT NULL"
+        TEXT path "NOT NULL"
+        TEXT parent_path
+        TEXT summary
+        TEXT summary_source "NOT NULL"
+        TEXT summary_updated_at
+        INTEGER file_count "NOT NULL"
+    }
+
+    wm_files {
+        INTEGER id PK "NOT NULL"
+        TEXT repo "NOT NULL"
+        TEXT path "NOT NULL"
+        TEXT dir "NOT NULL"
+        TEXT purpose "NOT NULL"
+        TEXT purpose_source "NOT NULL"
+        TEXT content_md5 "NOT NULL"
+        INTEGER size_bytes "NOT NULL"
+        TEXT last_commit_sha "NOT NULL"
+        TEXT updated_at "NOT NULL"
+    }
+
+    wm_directories_embeddings {
+        INTEGER dir_id PK,FK "NOT NULL; → wm_directories.id CASCADE"
+        BLOB embedding "NOT NULL"
+        TEXT model_id "NOT NULL"
+        TEXT embedded_at "NOT NULL"
+    }
+
+    wm_files_embeddings {
+        INTEGER file_id PK,FK "NOT NULL; → wm_files.id CASCADE"
+        BLOB embedding "NOT NULL"
+        TEXT model_id "NOT NULL"
+        TEXT embedded_at "NOT NULL"
     }
 ```
 
@@ -602,6 +642,60 @@ Table constraints:
 | `artifact` | TEXT | NOT NULL |  |  |
 | `created_at` | TEXT | NOT NULL |  |  |
 
+### `wm_directories`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `repo` | TEXT | NOT NULL |  |  |
+| `path` | TEXT | NOT NULL |  |  |
+| `parent_path` | TEXT | nullable |  |  |
+| `summary` | TEXT | nullable |  |  |
+| `summary_source` | TEXT | NOT NULL |  |  |
+| `summary_updated_at` | TEXT | nullable |  |  |
+| `file_count` | INTEGER | NOT NULL | `0` |  |
+
+Table constraints:
+
+- UNIQUE `(repo, path)`
+
+### `wm_files`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `repo` | TEXT | NOT NULL |  |  |
+| `path` | TEXT | NOT NULL |  |  |
+| `dir` | TEXT | NOT NULL |  |  |
+| `purpose` | TEXT | NOT NULL | `''` |  |
+| `purpose_source` | TEXT | NOT NULL | `'none'` |  |
+| `content_md5` | TEXT | NOT NULL | `''` |  |
+| `size_bytes` | INTEGER | NOT NULL | `0` |  |
+| `last_commit_sha` | TEXT | NOT NULL | `''` |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+
+Table constraints:
+
+- UNIQUE `(repo, path)`
+
+### `wm_directories_embeddings`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `dir_id` | INTEGER | NOT NULL |  | PK; FK → `wm_directories.id` ON DELETE CASCADE |
+| `embedding` | BLOB | NOT NULL |  |  |
+| `model_id` | TEXT | NOT NULL |  |  |
+| `embedded_at` | TEXT | NOT NULL |  |  |
+
+### `wm_files_embeddings`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `file_id` | INTEGER | NOT NULL |  | PK; FK → `wm_files.id` ON DELETE CASCADE |
+| `embedding` | BLOB | NOT NULL |  |  |
+| `model_id` | TEXT | NOT NULL |  |  |
+| `embedded_at` | TEXT | NOT NULL |  |  |
+
 ## Foreign keys
 
 SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's default when the schema names no action, and like `RESTRICT` it refuses to delete a parent that still has children.
@@ -631,6 +725,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
 | `audit_embeddings` | `audit_id` | `audit(id)` | CASCADE |
 | `cheatcode_attachments` | `cheatcode_id` | `cheatcodes(id)` | CASCADE |
+| `wm_directories_embeddings` | `dir_id` | `wm_directories(id)` | CASCADE |
+| `wm_files_embeddings` | `file_id` | `wm_files(id)` | CASCADE |
 
 ## Search indexes
 
@@ -640,6 +736,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 |---|---|---|---|---|---|
 | `discussions_fts` | `discussions.id` | `body` | `porter unicode61` | `discussions_fts_config`, `discussions_fts_data`, `discussions_fts_docsize`, `discussions_fts_idx` | `discussions_ai` (AFTER INSERT), `discussions_ad` (AFTER DELETE), `discussions_au` (AFTER UPDATE) |
 | `audit_fts` | `audit.id` | `summary`, `content_json` | `porter unicode61` | `audit_fts_config`, `audit_fts_data`, `audit_fts_docsize`, `audit_fts_idx` | `audit_ai` (AFTER INSERT), `audit_ad` (AFTER DELETE), `audit_au` (AFTER UPDATE) |
+| `wm_directories_fts` | `wm_directories.id` | `path`, `summary` | `porter unicode61` | `wm_directories_fts_config`, `wm_directories_fts_data`, `wm_directories_fts_docsize`, `wm_directories_fts_idx` | `wm_directories_ai` (AFTER INSERT), `wm_directories_ad` (AFTER DELETE), `wm_directories_au` (AFTER UPDATE), `wm_directories_embedding_stale` (AFTER UPDATE) |
+| `wm_files_fts` | `wm_files.id` | `path`, `purpose` | `porter unicode61` | `wm_files_fts_config`, `wm_files_fts_data`, `wm_files_fts_docsize`, `wm_files_fts_idx` | `wm_files_ai` (AFTER INSERT), `wm_files_ad` (AFTER DELETE), `wm_files_au` (AFTER UPDATE), `wm_files_embedding_stale` (AFTER UPDATE) |
 
 ## Indexes
 
@@ -665,10 +763,16 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_discussions_embeddings_model` | `discussions_embeddings` | `model_id` |  |  |
 | `idx_audit_embeddings_model` | `audit_embeddings` | `model_id` |  |  |
 | `idx_cheatcode_attachments_cheatcode` | `cheatcode_attachments` | `cheatcode_id` |  |  |
+| `idx_wm_directories_parent` | `wm_directories` | `repo, parent_path` |  |  |
+| `idx_wm_files_dir` | `wm_files` | `repo, dir` |  |  |
+| `idx_wm_directories_embeddings_model` | `wm_directories_embeddings` | `model_id` |  |  |
+| `idx_wm_files_embeddings_model` | `wm_files_embeddings` | `model_id` |  |  |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
 | _UNIQUE constraint_ | `agents` | `name` | yes | |
 | _UNIQUE constraint_ | `pr_review_runs` | `pr_number, repo` | yes | |
 | _UNIQUE constraint_ | `cheatcodes` | `name, kind` | yes | |
+| _UNIQUE constraint_ | `wm_directories` | `repo, path` | yes | |
+| _UNIQUE constraint_ | `wm_files` | `repo, path` | yes | |
 
 ## Eval mode
 
@@ -747,10 +851,10 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `cheatcodes` | Unified capability registry (#101). One row per capability, split by `origin`: `'builtin'` = plugin-shipped tmb_* skills (`source_url` NULL, `file_path` set); `'marketplace'` = acquired from a registered Claude Code marketplace ref and `'external'` = acquired from a raw external repo URL, both through the discover → vet → install pipeline (`source_url` set). `kind` is `skill|mcp|plugin`; `scope` is the placement enum `global|template|project-local`. CHECKs enforce the shape (skill rows carry `file_path`, acquired rows carry `source_url`, builtin rows do not). `status` has no CHECK: builtin skills move `draft` → `pending_review` → `active` → `deprecated` through `skill_register` / `skill_promote`, installs move between `installed`, `active` and `broken` (see ENUMS). The natural key is `UNIQUE (name, kind)` (schema v32): a plugin and the MCP server it bundles share a name (`linear` plugin → `linear` server), and both rows coexist. A plugin-bundled server discovered by `/scan` carries `source_url = 'mcp:<plugin>/<server>'`. |
 | `agents` | Agent registry: one row per backbone agent or consultant. `file_path` names the root the prompt file ships from — `plugin:` (relative to the installed plugin root: the backbone `agents/*.md` and the consultant `templates/agents/*.md` seeds) or `project:` (relative to the workspace root: `.claude/agents/<name>.md`) — the schema CHECK (`file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'`, schema v34) only tests the prefix, and SQLite's `LIKE` ignores case. The tools are the strict layer: `agent_register` / `agent_resolve` accept only a lower-case `plugin:` or `project:` marker followed by a non-empty path and refuse anything else with `invalid_file_path`. The backbone agents `swe` and `pr-reviewer` must be `plugin:`: a `project:` file of the same name would shadow the backbone, so `agent_register` refuses it. Registering a `project:` path for a `plugin:` consultant promotes the row. `agent_list` (filter `root`), `agent_register` and `agent_resolve` return each row's absolute `resolved_path`. |
 | `cheatcode_attachments` | One row per artifact an install wired (plugin manifest, MCP registration, proposed skill-frontmatter PR). FK to `cheatcodes.id` ON DELETE CASCADE so `cheatcode_uninstall` reverses exactly what was installed. |
-| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class. `name` is the primary key seven tables reference `ON DELETE RESTRICT` — `milestones`, `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `agent_runs` — plus `repo_remotes` `ON DELETE CASCADE`, and the world model keys every `Directory` node on it; `pr_review_runs.repo` holds the remote's host slug, not a name. The name changes only through `repo_rename` (bro), which moves the row, all seven children and its `repo_remotes` rows, the `pr_review_runs` slug and the kuzu nodes in one transaction checked by `foreign_key_check` and records `repo_renamed`. `scan_run` never renames: a discovered repo whose canonical path or primary remote URL matches a row it did not rediscover is returned in `rename_candidates` with a `repo_rename_detected` audit row, and no second row is inserted. Carries per-repo policy (`target_branch`, `branching_model`, `protected_branches`; the remotes are its `repo_remotes` rows) — this row is the **sole source of truth** (#980): guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. `repo_remotes` is kept in sync with each repo's actual git remotes by `scan_run` (#979). There is no global `plugin_config` fallback. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
+| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class. `name` is the primary key seven tables reference `ON DELETE RESTRICT` — `milestones`, `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `agent_runs` — plus `repo_remotes` `ON DELETE CASCADE`, and the world model keys every `wm_directories` / `wm_files` row on it; `pr_review_runs.repo` holds the remote's host slug, not a name. The name changes only through `repo_rename` (bro), which moves the row, all seven children and its `repo_remotes` rows, the `pr_review_runs` slug and the `wm_` rows in one transaction checked by `foreign_key_check` and records `repo_renamed`. `scan_run` never renames: a discovered repo whose canonical path or primary remote URL matches a row it did not rediscover is returned in `rename_candidates` with a `repo_rename_detected` audit row, and no second row is inserted. Carries per-repo policy (`target_branch`, `branching_model`, `protected_branches`; the remotes are its `repo_remotes` rows) — this row is the **sole source of truth** (#980): guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. `repo_remotes` is kept in sync with each repo's actual git remotes by `scan_run` (#979). There is no global `plugin_config` fallback. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
 | `repo_remotes` | A repo's git remotes, one row per `(repo, name)` (schema v35, GH 1225). `scan_run` and `onboard_apply` write them through `upsertRepoRemotes` (`src/repos/remotes.ts`), which replaces the set: vanished remotes go, the rest keep their `created_at`. `provider` comes from the URL host (`github`, `gitlab`, else `other`); `is_primary` marks `origin`, else the first remote. Every reader goes through one accessor per language — `repoRemotes` / `primaryRemote` in TS (issue sync, milestone sync, `pr_monitor`, `repo_rename`, `onboard_state_get`), `tmb_repo_remotes` in `scripts/hooks/lib/resolve-repo.sh` for hooks — and tool results still expose the list as `[{name, provider, url}]`, primary first. |
 | `milestones` | One row per GitHub-style milestone, scoped per repo (schema v23, #155). Primary key is the composite `(name, repo)` and `repo` FKs `repos.name` (ON DELETE RESTRICT), so the same milestone name lives independently under each repo. `state` is `open`/`closed`. `issues.milestone` is a nullable composite FK `(milestone, repo) → (name, repo)`; rows are reconciled from the remote and seeded (`v<next-patch>`) by `scan_run`, upserted by an explicit `issue_create` milestone, and closed by `milestone_close` or the remote. |
-| _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
+| _(world model)_ | `wm_directories` + `wm_files` with FTS5 and embedding side tables, populated by `scan_run` via `src/graph.ts`. A derived cache: no foreign keys into the workflow tables, rebuilt by `/scan`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, `pr_review_bots`, `model_prices` (USD per 1M tokens per model, for `task_stats.cost_estimate`), and the onboard answers `headless_enforcement` / `sandbox_enforcement` (with `sandbox_settings`, the record of what TMB wrote into the project's sandbox block). The repo-scoped policy (`target_branch`, `branching_model`, `protected_branches` on the `repos` row, and the repo's `repo_remotes` rows) is NOT here (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md) for the canonical key list. |
 | `plugin_meta` | Schema + plugin version; `schema_version` is the version at the top of this page. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | One row per metered run of an agent, covering the time window `[started_at, completed_at)`. Bro has one row per CC session (`task_id` and `issue_id` NULL), written and metered by the `bro-turn-usage.sh` Stop hook; per-task bro rows opened by older versions stay as history. Swe rows open at the Agent spawn (`record-swe-spawn.sh`, `spawn_id` = `tool_use:<tool_use_id>`, with `session_id` and `effort`), are bound to the subagent's `agent_id` at its first `task_brief` (`swe-brief-gate.sh`; `task_brief` opens one itself when the spawn left none) and are metered by the `swe-atomic-close.sh` SubagentStop hook, whose latest stop sets `exit_reason`. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it (the key of a bro row). The total is computed, not stored (`tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens`). `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` closes rows left open on already-terminal tasks. Schema v33 adds four audit columns: `root_dir` (where the run may write — the project for bro rows, the task worktree for swe rows; read by the `containment-guard` hook), `model` (the dominant `message.model` of the run, written by the metering hooks), `host` (`claude`/`codex`) and `exit_reason` (stamped by whoever closes the row; see ENUMS). `task_stats` counts a task's swe and pr-reviewer rows and prices them by `plugin_config.model_prices` (`{"<model>": {input, output, cache_read, cache_creation}}` USD per 1M tokens, seeded `{}`) into `cost_estimate`, with unpriced rows' tokens reported as `unpriced_tokens`. |
@@ -764,7 +868,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 
 ## How agents use this
 
-- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_provision`, `task_update_status` (closes tasks after verifying SWE's return), `audit_append`, `scan_run` (writes `repos` SQLite + Directory nodes / CONTAINS edges in kuzu, `deep_scan_completed` audit), `repo_rename` (renames a repo across SQLite and kuzu). Reads the world model via `world_model_get` / `world_model_search` (kuzu queries) as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
+- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_provision`, `task_update_status` (closes tasks after verifying SWE's return), `audit_append`, `scan_run` (writes `repos` + `wm_directories` / `wm_files`, `deep_scan_completed` audit), `repo_rename` (renames a repo across the workflow and `wm_` tables). Reads the world model via `world_model_get` / `world_model_search` as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
 - **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_append` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks. Reads the world model when scoping unfamiliar parts of the codebase.
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, mcp_available)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call. The server decides who the reviewer was: the `reviewer-identity-observe` hook records the calling subagent's `session_id` and `agent_id` (`reviewer_identity_observed`), and `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from the newest unconsumed row for `(task_id, attempt_n)` observed within the last 600 s, ignoring caller values; an older row is never consumed (`subagent_session_unavailable` with the row's age); consuming a row marks every older unconsumed row for the same `(task_id, attempt_n)` superseded (`superseded`, `superseded_by`, `superseded_at`). Independence rule: the verdict is refused (`reviewer_not_independent`) when no `agent_id` was observed (the main loop, i.e. bro) or the `agent_id` is a swe `agent_runs.spawn_id` of the same task; with no observed row it is refused (`subagent_session_unavailable`) unless `mcp_available: false` (honor-system), which keeps the caller's session id, leaves `reviewer_agent_id` NULL and audits `validation_session_unverified`; it never overwrites a verified (`mcp_available = 1`) verdict (`verified_verdict_exists`).
 - **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis')` to record their position. Server-rejected on `task_provision`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.

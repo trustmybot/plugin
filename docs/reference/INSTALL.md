@@ -30,7 +30,7 @@ Everything lives under the project root (`CLAUDE_PROJECT_DIR`), which the projec
 
 | Path | Written by | What |
 |---|---|---|
-| `.claude/tmb/trajectory.db` (+ `world-model.kuzu`) | MCP server | Workflow state and the world model |
+| `.claude/tmb/trajectory.db` | MCP server | Workflow state and the world model |
 | `.claude/tmb/logs/` | MCP server, hooks | `mcp-server.log`, `sql.log`, `issue-sync.log`, `mcp-health.log`, per-session CC logs |
 | `.claude/tmb/sessions/<session_id>.plugin-hooks` | SessionStart hook | 0-byte marker: this session runs the plugin's own hooks (pruned after 24 h) |
 | `.claude/tmb/sessions/<session_id>.install-notice` | SessionStart hook | 0-byte marker: the install-scope notice was shown this session (pruned after 24 h) |

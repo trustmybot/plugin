@@ -4,10 +4,9 @@ import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
-import { WorldModelGraph } from '../graph-db.js';
 import { createProjectLogger } from '../logger.js';
 import { DatabaseSync } from 'node:sqlite';
-import { createClaudeRuntimeContext, createCodexRuntimeContext, deriveCodexRuntimePaths, claudeProjectRootOfDb, findExistingClaudeDbUp, otherClaudeDbs, probeClaudeDb, resolveGraphDbPath, } from '../platform.js';
+import { createClaudeRuntimeContext, createCodexRuntimeContext, deriveCodexRuntimePaths, claudeProjectRootOfDb, findExistingClaudeDbUp, otherClaudeDbs, probeClaudeDb, } from '../platform.js';
 import { repoRowPath } from '../utils/repo-paths.js';
 function fixture() {
     const root = mkdtempSync(join(tmpdir(), 'tmb-platform-'));
@@ -52,7 +51,6 @@ describe('runtime contexts', () => {
             });
             assert.equal(context.paths.stateDir, join(canonicalProject, '.tmb', 'tmb'));
             assert.equal(context.paths.trajectoryDb, join(canonicalProject, '.tmb', 'tmb', 'trajectory.db'));
-            assert.equal(context.paths.graphDb, join(canonicalProject, '.tmb', 'tmb', 'world-model.kuzu'));
             assert.equal(context.paths.logDir, join(canonicalProject, '.tmb', 'tmb', 'logs'));
             assert.ok(!existsSync(join(project, '.tmb')));
             assert.ok(!existsSync(join(project, '.claude')));
@@ -151,12 +149,6 @@ describe('runtime contexts', () => {
                 kind: 'file',
                 dangling: true,
             },
-            {
-                name: 'graph DB',
-                targetParts: ['.tmb', 'tmb', 'world-model.kuzu'],
-                kind: 'file',
-                dangling: true,
-            },
             { name: 'log directory', targetParts: ['.tmb', 'tmb', 'logs'], kind: 'dir' },
             {
                 name: 'server log',
@@ -232,7 +224,6 @@ describe('runtime contexts', () => {
                 db.close();
             }
             assert.notEqual(contexts[0].paths.trajectoryDb, contexts[1].paths.trajectoryDb);
-            assert.notEqual(contexts[0].paths.graphDb, contexts[1].paths.graphDb);
             assert.notEqual(contexts[0].paths.logDir, contexts[1].paths.logDir);
             assert.ok(existsSync(join(projectA, '.tmb', 'tmb', 'trajectory.db')));
             assert.ok(existsSync(join(projectB, '.tmb', 'tmb', 'trajectory.db')));
@@ -270,9 +261,6 @@ describe('runtime contexts', () => {
                 sqlLog: () => { },
                 trustedProjectRoot: context.projectRoot,
             }), /symbolic link/);
-            assert.throws(() => new WorldModelGraph(context.paths.graphDb, {
-                trustedProjectRoot: context.projectRoot,
-            }), /symbolic link/);
             assert.equal(existsSync(join(outside, 'tmb')), false);
         }
         finally {
@@ -291,19 +279,6 @@ describe('path derivation', () => {
             projectRoot: 'relative',
             pluginName: 'tmb',
         }), /absolute path/);
-    });
-    it('maps graph paths one-to-one and reserves graph-shaped DB names', () => {
-        assert.equal(resolveGraphDbPath(':memory:'), ':memory:');
-        assert.equal(resolveGraphDbPath('/project/state/trajectory.db'), '/project/state/world-model.kuzu');
-        assert.equal(resolveGraphDbPath('/project/state/custom.db'), '/project/state/custom.db.world-model.kuzu');
-        assert.notEqual(resolveGraphDbPath('/project/state/a.db'), resolveGraphDbPath('/project/state/b.db'));
-        for (const reserved of [
-            '/project/state/world-model.kuzu',
-            '/project/state/custom.db.world-model.kuzu',
-            '/project/state/WORLD-MODEL.KUZU',
-        ]) {
-            assert.throws(() => resolveGraphDbPath(reserved), /reserved for graph storage/);
-        }
     });
 });
 describe('findExistingClaudeDbUp (the one DB-location rule)', () => {

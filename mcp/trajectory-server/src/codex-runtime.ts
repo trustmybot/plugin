@@ -1,9 +1,8 @@
 import { execFile } from 'node:child_process';
 import { mkdirSync, realpathSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { TrajectoryDB } from './db.js';
-import { GraphHolder, WorldModelGraph } from './graph-db.js';
+import { GraphHolder, WorldModelGraph } from './graph.js';
 import { createProjectLogger } from './logger.js';
 import {
   createCodexRuntimeContext,
@@ -17,7 +16,7 @@ const GIT_MAX_BUFFER_BYTES = 64 * 1024;
 const DEFAULT_GIT_TIMEOUT_MS = 60_000;
 
 export type RuntimeInitializeStatus = 'created' | 'reused';
-export type RuntimeGraphStatus = 'deferred' | 'unavailable';
+export type RuntimeGraphStatus = 'ready';
 
 export type CodexRuntimeErrorCode =
   | 'missing_project_root'
@@ -553,14 +552,7 @@ function openRuntime(
       trustedProjectRoot: context.projectRoot,
     });
     const graph = graphHolderFactory?.(context) ??
-      new GraphHolder({
-        open: () =>
-          new WorldModelGraph(context.paths.graphDb, {
-            trustedProjectRoot: context.projectRoot,
-          }),
-        log: (entry) =>
-          logger.serverLogSync({ ...entry, path: context.paths.graphDb }),
-      });
+      GraphHolder.fixed(new WorldModelGraph(db));
 
     return {
       context,
@@ -606,22 +598,18 @@ function resultFor(
     plugin_version: runtime.context.plugin.version,
     state_dir: runtime.context.paths.stateDir,
     trajectory_db: runtime.context.paths.trajectoryDb,
-    graph_db: runtime.context.paths.graphDb,
+    graph_db: runtime.context.paths.trajectoryDb,
     log_dir: runtime.context.paths.logDir,
     schema_version: row.schema_version,
-    graph_available: graphDependencyAvailable(),
-    graph_status: graphDependencyAvailable() ? 'deferred' : 'unavailable',
+    graph_available: true,
+    graph_status: 'ready',
   });
 }
 
 function closeRuntime(runtime: RuntimeResources): void {
   if (runtime.closed) return;
   runtime.closed = true;
-  try {
-    runtime.graph.graph?.close();
-  } finally {
-    runtime.db.close();
-  }
+  runtime.db.close();
 }
 
 function normalizeRuntimeError(error: unknown): CodexRuntimeError {
@@ -647,13 +635,4 @@ function capacityError(): CodexRuntimeError {
     'runtime_capacity_exceeded',
     'No Codex runtime capacity is available for this initialization.',
   );
-}
-
-function graphDependencyAvailable(): boolean {
-  try {
-    createRequire(import.meta.url).resolve('kuzu');
-    return true;
-  } catch {
-    return false;
-  }
 }

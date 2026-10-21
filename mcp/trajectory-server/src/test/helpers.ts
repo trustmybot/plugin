@@ -83,10 +83,9 @@ export function pinScanEnv(): ScanEnvPin {
   };
 }
 
-// runGraphScript runs an ES-module body in a child node process (kuzu's native
-// destructor can segfault at exit on Node 24/macOS, which must not fail the
-// parent suite). `$DIST` in the body is replaced with the dist/ root; the body
-// reports by printing one JSON line, which is parsed and returned.
+// runGraphScript runs an ES-module body in a child node process. `$DIST` in the
+// body is replaced with the dist/ root; the body reports by printing one JSON
+// line, which is parsed and returned.
 export function runGraphScript(body: string, timeoutMs = 60000): Record<string, unknown> {
   const distRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
   const script = body.split('$DIST').join(distRoot);
@@ -108,4 +107,21 @@ export function runGraphScript(body: string, timeoutMs = 60000): Record<string, 
   const line = stdout.trim().split('\n').reverse().find((l) => l.startsWith('{'));
   if (!line) throw new Error(`graph script printed no JSON: ${stdout.slice(0, 500)}`);
   return JSON.parse(line) as Record<string, unknown>;
+}
+
+// bagOfWordsLoader stands in for the embedding model: each lower-cased word
+// hashes into one of 64 buckets and the vector is L2-normalised, so texts that
+// share words score a higher cosine. No model download, fully deterministic.
+export function bagOfWordsLoader(): () => Promise<(text: string) => Promise<{ data: Float32Array }>> {
+  return async () => async (text: string) => {
+    const v = new Float32Array(64);
+    for (const word of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+      let h = 2166136261;
+      for (let i = 0; i < word.length; i++) h = Math.imul(h ^ word.charCodeAt(i), 16777619);
+      v[(h >>> 0) % 64]! += 1;
+    }
+    const norm = Math.hypot(...v) || 1;
+    for (let i = 0; i < v.length; i++) v[i]! /= norm;
+    return { data: v };
+  };
 }
