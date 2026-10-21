@@ -36,11 +36,6 @@
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" ensure-kuzu-installed",
-            "timeout": 6
-          },
-          {
-            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" substrate-preflight",
             "timeout": 6
           },

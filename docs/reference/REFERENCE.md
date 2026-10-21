@@ -84,7 +84,6 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `plugin-hooks-marker.sh` | SessionStart | Mark the session as running the plugin's hooks (`<project>/.claude/tmb/sessions/<id>.plugin-hooks`) so the opt-in headless shim yields |
 | `session-start-persona.sh` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth), plus a line for duplicate enabled copies or pre-1.1.0 hooks left in `~/.claude/settings.json` |
-| `ensure-kuzu-installed.sh` | SessionStart | Lazy-install kuzu native binary for the world-model graph DB (first session after plugin install/update) |
 | `substrate-preflight.sh` | SessionStart | Verify the trajectory DB + world-model substrates are reachable before the session proceeds |
 | `orphan-scan.sh` | SessionStart | Report this project's stale trajectory DBs, duplicate server procs and unpinned caches left by upgrades (cleans only when opted in) |
 | `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin installed mid-session, then `/reload-plugins`) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |

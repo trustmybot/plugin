@@ -59,8 +59,8 @@ test('FTS5 virtual tables are queryable on fresh schema', () => {
     'audit_fts: FTS5 MATCH query must not throw on fresh schema',
   );
 
-  // directories_fts is intentionally absent — the world model lives in the
-  // sibling kuzu graph DB (ADR 0002), not in this SQLite trajectory.db.
+  // directories_fts is intentionally absent — the world model's FTS indexes
+  // are wm_directories_fts / wm_files_fts (schema v42).
   db.close();
 });
 
@@ -95,7 +95,7 @@ test('embedding tables accept inserts after parent row created', () => {
   }, 'audit_embeddings must accept insert after parent audit row exists');
 
   // directories_embeddings is intentionally absent — world model embeddings
-  // live in the sibling kuzu graph DB (ADR 0002).
+  // live in wm_directories_embeddings / wm_files_embeddings (schema v42).
   db.close();
 });
 

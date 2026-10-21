@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-LOG="${TMPDIR:-/tmp}/tmb-kuzu-install.log"
+LOG="${TMPDIR:-/tmp}/tmb-install.log"
 echo x > "$LOG"
 cat /tmp/tmb-out.log
 grep foo /tmp/a.log > "$TMPDIR/b"

@@ -51,7 +51,7 @@ while IFS= read -r f; do
 done <<< "$HITS"
 
 if [ "$FAIL" -ne 0 ]; then
-  printf '\nno-file-registry-refs: FAIL — file_registry was retired in v7. Use world_model_get / world_model_search (kuzu graph DB) or scan_run.\n' >&2
+  printf '\nno-file-registry-refs: FAIL — file_registry was retired in v7. Use world_model_get / world_model_search (wm_ tables in the trajectory DB) or scan_run.\n' >&2
   exit 1
 fi
 

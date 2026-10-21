@@ -10,10 +10,10 @@ SELECT
   'deep_scan_completed audit row (got ' || COUNT(*) || ', expected >=1) — bro self-fired scan_run' AS description
 FROM audit WHERE event_type = 'deep_scan_completed';
 
--- World model lives in the sibling kuzu graph DB post-ADR 0002, not in this
--- SQLite trajectory.db. The deep_scan_completed audit row above is the
--- SQLite-side proxy for "world model warm." A direct kuzu state check would
--- require querying world-model.kuzu — outside this outcome.sql's scope.
+-- The world model lives in this trajectory.db's wm_ tables. The
+-- deep_scan_completed audit row above is the proxy for "world model warm";
+-- the wm_ row contents are covered by the trajectory-server's world-model
+-- unit tests.
 
 -- Bro proceeds with planning after the scan.
 SELECT

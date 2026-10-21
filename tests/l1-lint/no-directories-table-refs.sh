@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Regression guard: the SQLite `directories` table was dropped in schema v8
-# (ADR 0002). The kuzu graph DB is the sole world-model store. Any new
-# CREATE TABLE directories / INSERT INTO directories / FROM directories
-# in production code, prompts, tests, or docs is drift back toward the
-# pre-kuzu design.
+# (ADR 0002). The world model now lives in the wm_ tables of the trajectory
+# DB (v42). Any new CREATE TABLE directories / INSERT INTO directories /
+# FROM directories in production code, prompts, tests, or docs is drift back
+# toward the v7 design.
 #
 # Allowed exceptions (historical migration + guard itself):
 #  - mcp/trajectory-server/src/db.ts — migrateV7toV8 DROP TABLE (historical)
@@ -45,7 +45,7 @@ while IFS= read -r f; do
 done <<< "$HITS"
 
 if [ "$FAIL" -ne 0 ]; then
-  printf '\nno-directories-table-refs: FAIL — directories table was dropped in v8. Use world_model_get / world_model_search (kuzu graph DB) or scan_run.\n' >&2
+  printf '\nno-directories-table-refs: FAIL — directories table was dropped in v8. Use world_model_get / world_model_search (wm_ tables in the trajectory DB) or scan_run.\n' >&2
   exit 1
 fi
 

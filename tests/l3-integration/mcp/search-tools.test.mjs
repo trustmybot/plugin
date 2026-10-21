@@ -441,7 +441,7 @@ test('world_model_search — semantic on empty DB returns unavailable warning', 
     agent: 'bro', query: 'http handlers', mode: 'semantic',
   });
   assert.equal(res.ok, true);
-  // kuzu absent → 'world-model-unavailable'; kuzu present but no embeddings → 'semantic_unavailable'
+  // no world-model handle → 'world-model-unavailable'; world model present but no embeddings → 'semantic_unavailable'
   const VALID_WARNINGS = ['semantic_unavailable', 'world-model-unavailable'];
   assert.ok(
     VALID_WARNINGS.includes(res.data.warning),
@@ -508,7 +508,7 @@ test('cold-fallback — world_model_search semantic: response.warning is unavail
 
   assert.equal(res.ok, true, 'cold-fallback: world_model_search must not throw');
   assert.ok(Array.isArray(res.data.results));
-  // kuzu absent → 'world-model-unavailable'; kuzu present, no embeddings → 'semantic_unavailable'
+  // no world-model handle → 'world-model-unavailable'; world model present, no embeddings → 'semantic_unavailable'
   const VALID_WARNINGS = ['semantic_unavailable', 'world-model-unavailable'];
   assert.ok(
     VALID_WARNINGS.includes(res.data.warning),

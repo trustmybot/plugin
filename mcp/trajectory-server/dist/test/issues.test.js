@@ -1386,7 +1386,7 @@ describe('issue_create dedup (#91/#775)', () => {
         assert.ok(!first.isError);
         const distinct = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
-            objective: 'Upgrade the kuzu world-model graph schema migration',
+            objective: 'Upgrade the SQLite world-model schema migration',
             labels: VALID_LABELS,
         });
         const distinctIssue = parseResult(distinct);

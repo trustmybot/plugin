@@ -48,9 +48,9 @@ RUN rm -rf node_modules \
 # We assert two things from one cold boot:
 #   (1) tools/list returns onboard_state_get — the server actually started.
 #   (2) NO ERR_MODULE_NOT_FOUND for @modelcontextprotocol/sdk anywhere in stderr.
-# kuzu + @huggingface/transformers stay external/lazy and degrade gracefully —
-# their ERR_MODULE_NOT_FOUND is EXPECTED here and is NOT a failure (world model
-# → world-model-unavailable, semantic search → FTS). We only reject the SDK one.
+# @huggingface/transformers stays external/lazy and degrades gracefully — its
+# ERR_MODULE_NOT_FOUND is EXPECTED here and is NOT a failure (semantic search
+# → FTS). We only reject the SDK one.
 RUN test ! -e mcp/trajectory-server/node_modules \
  || (echo "❌ FAIL: node_modules present — cold-MCP assertion must run before bun install" && exit 1)
 RUN echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \

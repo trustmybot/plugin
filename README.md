@@ -67,7 +67,7 @@ Details: [`CLAUDE.md`](CLAUDE.md), [`agents/swe.md`](agents/swe.md), [`agents/pr
 
 Two complementary memory tiers, both project-local and gitignored:
 - **Trajectory store** (`trajectory.db`, SQLite) — *procedural memory*: issues, discussions, ADR decisions, task specs, validation verdicts, append-only audit. Survives context resets and session kills — bro rehydrates and resumes.
-- **World model** (`world-model.kuzu`, kuzu graph + RAG) — *semantic memory + long-context management*: the codebase compressed into a navigable directory graph (README-derived summaries, parent/child edges), queried via `world_model_get` / `world_model_search`. The agent reasons from a small, stable map instead of re-ingesting the repo every turn — the context-engineering layer that keeps cold starts cheap and deterministic.
+- **World model** (`wm_` tables in `trajectory.db`, SQLite + FTS5 + embeddings) — *semantic memory + long-context management*: the codebase compressed into a navigable directory tree (README-derived summaries, parent/child links, one-line file purposes), queried via `world_model_get` / `world_model_search`. The agent reasons from a small, stable map instead of re-ingesting the repo every turn — the context-engineering layer that keeps cold starts cheap and deterministic.
 
 Refreshed by `/scan` + the post-task-close rescan.
 

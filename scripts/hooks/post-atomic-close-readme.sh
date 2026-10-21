@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook on bro_atomic_close: surface a README-staleness nudge.
 #
-# The kuzu world model derives each directory's summary from that dir's
+# The world model derives each directory's summary from that dir's
 # README.md (scan_run walks the README tree). When a task closes having
 # touched files under a directory whose README.md is missing or older than
 # the commit that just landed, that dir's world-model summary is now stale —
