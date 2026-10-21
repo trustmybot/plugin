@@ -1,0 +1,19 @@
+# Fixture for sqlite3-needs-timeout.sh --self-test: every line marked VIOLATION must be reported.
+sqlite3 "$DB" "SELECT 1" # VIOLATION
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks;" 2>/dev/null) # VIOLATION
+ROW=$(sqlite3 -readonly "$DB" "SELECT id FROM issues LIMIT 1") # VIOLATION
+sqlite3 -bail "$DB_PATH" "INSERT INTO audit_log (event) VALUES ('x');" || exit 1 # VIOLATION
+[ -f "$DB" ] && sqlite3 "$DB" "DELETE FROM tasks WHERE id = 1;" # VIOLATION
+if sqlite3 "$DB" "SELECT 1" >/dev/null; then echo ok; fi # VIOLATION
+out=$(echo "SELECT 1;" | sqlite3 "$DB") # VIOLATION
+/usr/bin/sqlite3 "$DB" "SELECT 1" # VIOLATION
+env LC_ALL=C sqlite3 "$DB" "SELECT 1" # VIOLATION
+set -- sqlite3 -readonly "$DB" "$SQL" # VIOLATION
+sqlite3 "$DB" <<SQL # VIOLATION
+UPDATE tasks SET status = 'closed' WHERE id = 1;
+SQL
+sqlite3 "$DB" "UPDATE tasks # VIOLATION
+  SET status = 'closed'
+  WHERE id = 1;"
+sqlite3 -batch \
+  "$DB" "SELECT 1" # VIOLATION

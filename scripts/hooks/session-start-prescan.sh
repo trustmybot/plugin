@@ -136,13 +136,17 @@ if [ -n "$PROJECT_ROOT" ] && [ -d "$PROJECT_ROOT" ]; then
 fi
 
 # Open issues + pending tasks from the trajectory DB.
-OPEN_ISSUES=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM issues WHERE status='open';" 2>/dev/null || echo 0)
-PENDING_TASKS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running');" 2>/dev/null || echo 0)
-
 # World model status. The world model lives in the kuzu graph (ADR 0002), not
 # SQLite. cold = no deep_scan_completed row (the registry-cold gate's signal);
 # otherwise the newest repos.last_scanned_at decides warm (< 7 days) vs stale.
-WORLD_MODEL_SCANNED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed';" 2>/dev/null || echo 0)
+COUNTS=$(tmb_sqlite_ro "$DB_PATH" "SELECT
+  (SELECT COUNT(*) FROM issues WHERE status='open'),
+  (SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running')),
+  (SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed');")
+IFS='|' read -r OPEN_ISSUES PENDING_TASKS WORLD_MODEL_SCANNED <<<"$COUNTS"
+OPEN_ISSUES="${OPEN_ISSUES:-0}"
+PENDING_TASKS="${PENDING_TASKS:-0}"
+WORLD_MODEL_SCANNED="${WORLD_MODEL_SCANNED:-0}"
 
 tracked_source_count() {
   local dir="$1"

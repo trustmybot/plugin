@@ -104,7 +104,7 @@ tmb_db_read_budget() {
   fi
   case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
   [ "$ms" -gt 0 ] || ms=1
-  script="$(printf '.timeout %s\n' "$ms"; cat)"
+  script="$(cat)"
   if _tmb_db_wal_cold "$db"; then
     out=$(printf '%s\n' "$script" | _tmb_budget_run 0 "$ms" "$db") || rc=$?
   else
@@ -119,8 +119,8 @@ tmb_db_read_budget() {
 }
 
 # _tmb_budget_run <readonly:1|0> <budget_ms> <db>
-# Runs the SQL script on stdin through sqlite3 and kills it once the budget
-# is spent (exit 124).
+# Runs the SQL script on stdin through sqlite3 (busy timeout = the budget) and
+# kills it once the budget is spent (exit 124).
 _tmb_budget_run() {
   local kill_after_pl='
     my $ms = shift @ARGV;
@@ -133,9 +133,9 @@ _tmb_budget_run() {
     alarm 0;
     exit(($? >> 8) & 0xff);'
   if [ "$1" = 1 ]; then
-    set -- "$2" sqlite3 -readonly "$3"
+    set -- "$2" sqlite3 -readonly -cmd ".timeout $2" "$3"
   else
-    set -- "$2" sqlite3 "$3"
+    set -- "$2" sqlite3 -cmd ".timeout $2" "$3"
   fi
   perl -MTime::HiRes=alarm -e "$kill_after_pl" "$@" 2>/dev/null
 }

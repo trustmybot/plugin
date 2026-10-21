@@ -64,6 +64,15 @@ for cwd in / "$WT"; do
   assert_eq "0" "$(sqlite3 "$DECOY/.claude/tmb/trajectory.db" "SELECT COUNT(*) FROM validation_attempts;")" "decoy DB untouched"
 done
 
+test_case "validation-record-fallback.sh waits out a concurrent writer; a quote in feedback survives"
+printf 'BEGIN IMMEDIATE;\n.shell sleep 0.6\nCOMMIT;\n' | sqlite3 "$PROJECT_DB" >/dev/null 2>&1 &
+holder=$!
+sleep 0.2
+out=$(run_in / bash "$VALIDATION" 7 50 fail "it's not done" sess-lock)
+wait "$holder"
+assert_contains "$out" '"ok":true' "insert waited for the writer's lock"
+assert_eq "it's not done" "$(sqlite3 "$PROJECT_DB" "SELECT feedback FROM validation_attempts WHERE attempt_n = 50;")" "feedback stored verbatim"
+
 test_case "no .claude dir appears in either cwd"
 if [ -e /.claude ]; then _fail "/.claude exists"; else _pass; fi
 if [ -e "$WT/.claude" ]; then _fail "$WT/.claude created"; else _pass; fi

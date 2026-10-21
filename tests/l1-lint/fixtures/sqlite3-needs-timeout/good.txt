@@ -1,0 +1,23 @@
+# Fixture for sqlite3-needs-timeout.sh --self-test: nothing here may be reported.
+# sqlite3 "$DB" "SELECT 1" is fine inside a comment.
+command -v sqlite3 >/dev/null 2>&1 || exit 0
+if ! command -v sqlite3 >/dev/null; then exit 0; fi
+type sqlite3 >/dev/null
+_check sqlite3 "sqlite3 CLI on PATH"
+echo "sqlite3 not on PATH" >&2
+log "falling back to sqlite3 for the read"
+TMB_SQLITE=sqlite3
+sqlite3 -cmd ".timeout ${TMB_DB_WRITE_TIMEOUT_MS:-1500}" "$DB" "SELECT 1"
+ROW=$(sqlite3 -readonly -cmd ".timeout 500" "$DB" "SELECT id FROM issues")
+sqlite3 -cmd ".timeout 1500" -bail \
+  "$DB" "SELECT 1"
+sqlite3 "$DB" "PRAGMA busy_timeout = 1500; SELECT 1;"
+sqlite3 "$DB" <<SQL
+.timeout 1500
+UPDATE tasks SET status = 'closed' WHERE id = 1;
+SQL
+sqlite3 "$DB" "PRAGMA busy_timeout=1500;
+  UPDATE tasks SET status = 'closed' WHERE id = 1;"
+set -- "$2" sqlite3 -readonly -cmd ".timeout $2" "$3"
+tmb_sqlite_ro "$DB" "SELECT 1"
+tmb_db_write "$DB" "UPDATE tasks SET status = 'closed' WHERE id = 1;"

@@ -125,9 +125,7 @@ if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
       AGENT_TARGETS="swe pr-reviewer bro"
       DB=$(tmb_db_path 2>/dev/null || true)
       if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-        CONSULTANT_ROLES=$(sqlite3 "$DB" \
-          "SELECT name FROM agents WHERE kind='consultant';" \
-          2>/dev/null || true)
+        CONSULTANT_ROLES=$(tmb_sqlite_ro "$DB" "SELECT name FROM agents WHERE kind='consultant';")
         while IFS= read -r role; do
           [ -n "$role" ] || continue
           AGENT_TARGETS="$AGENT_TARGETS $(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
@@ -186,9 +184,7 @@ if [ "${TMB_DISABLE_CONSULTANT_HINT:-0}" != "1" ]; then
   # Named-role check requires DB (consultant registry). Only run if DB exists.
   DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-    CONSULTANT_NAMES=$(sqlite3 "$DB" \
-      "SELECT name FROM agents WHERE kind='consultant';" \
-      2>/dev/null || true)
+    CONSULTANT_NAMES=$(tmb_sqlite_ro "$DB" "SELECT name FROM agents WHERE kind='consultant';")
     while IFS= read -r role; do
       [ -n "$role" ] || continue
       role_lc=$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')
@@ -350,7 +346,7 @@ if [ "${TMB_DISABLE_PUSH_INTENT_HINT:-0}" != "1" ]; then
   if [ -n "$matched" ]; then
     DB=$(tmb_db_path 2>/dev/null || true)
     if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-      PENDING=$(sqlite3 "$DB" "
+      PENDING=$(tmb_sqlite_ro "$DB" "
         SELECT t.id || '|' || t.branch_id || '|' || substr(COALESCE(t.title, ''), 1, 60)
           FROM tasks t
          WHERE t.status IN ('needs_validation', 'completed', 'closed')
@@ -360,7 +356,7 @@ if [ "${TMB_DISABLE_PUSH_INTENT_HINT:-0}" != "1" ]; then
               WHERE v.task_id = t.id
                 AND v.verdict = 'pass'
            );
-      " 2>/dev/null || true)
+      ")
 
       if [ -n "$PENDING" ]; then
         PENDING_COUNT=$(printf '%s\n' "$PENDING" | wc -l | tr -d ' ')
@@ -411,7 +407,7 @@ if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
       if [ -n "$matched" ]; then
         DB=$(tmb_db_path 2>/dev/null || true)
         if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-          ONBOARDED=$(sqlite3 "$DB" "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;" 2>/dev/null || true)
+          ONBOARDED=$(tmb_sqlite_ro "$DB" "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;")
           if [ "$ONBOARDED" = "1" ]; then
             CTX="🔁 reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (project already onboarded — switching shape, not initial setup).
 
@@ -459,7 +455,7 @@ if [ "${TMB_DISABLE_HEADLESS_HINT:-0}" != "1" ]; then
       if [ -n "$matched" ]; then
         DB=$(tmb_db_path 2>/dev/null || true)
         if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-          WANTED=$(sqlite3 "$DB" "SELECT 1 WHERE EXISTS (SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true') AND NOT EXISTS (SELECT 1 FROM plugin_config WHERE key='headless_enforcement' AND value_json='\"yes\"');" 2>/dev/null || true)
+          WANTED=$(tmb_sqlite_ro "$DB" "SELECT 1 WHERE EXISTS (SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true') AND NOT EXISTS (SELECT 1 FROM plugin_config WHERE key='headless_enforcement' AND value_json='\"yes\"');")
           if [ "$WANTED" = "1" ]; then
             PROJECT=$(tmb_project_root)
             SETTINGS="${PROJECT:-<project>}/.claude/settings.local.json"
@@ -502,12 +498,12 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
   if [ -n "$matched" ]; then
     DB=$(tmb_db_path 2>/dev/null || true)
     if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-      RESUME=$(sqlite3 -separator $'\x1f' "$DB" "
+      RESUME=$(tmb_sqlite_ro "$DB" "
         SELECT
           t.id,
           t.issue_id,
-          t.branch_id,
-          substr(COALESCE(t.title, ''), 1, 60),
+          COALESCE(t.branch_id, ''),
+          replace(substr(COALESCE(t.title, ''), 1, 60), '|', '/'),
           substr(COALESCE(i.objective, ''), 1, 80)
         FROM tasks t
         JOIN issues i ON i.id = t.issue_id
@@ -516,10 +512,10 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
           AND i.status = 'open'
         ORDER BY a.id DESC
         LIMIT 1;
-      " 2>/dev/null || true)
+      ")
 
       if [ -n "$RESUME" ]; then
-        IFS=$'\x1f' read -r task_id issue_id branch_id title objective <<< "$RESUME"
+        IFS='|' read -r task_id issue_id branch_id title objective <<< "$RESUME"
         CTX="↩️  resume-intent hint: the user's prompt contains '${matched}'. There's a pending task that already has \`planning_complete\` audit — resume that, do NOT create new tasks or replan.
 
   task_id=${task_id}

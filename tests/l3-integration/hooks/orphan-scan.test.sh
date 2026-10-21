@@ -4,8 +4,8 @@
 #
 # Cases:
 #   (a) the current session's own server is never flagged
-#   (b) a live other-session server is reported as a lock-conflict and survives
-#       clean mode (TMB_ORPHAN_SCAN_CLEAN=1)
+#   (b) a live other-session server is not reported (SQLite WAL serves
+#       concurrent sessions) and survives clean mode (TMB_ORPHAN_SCAN_CLEAN=1)
 #   (c) a dead-owner server is flagged stale and IS killed in clean mode
 #
 # Process trees are fabricated with sleep subprocesses re-parented as needed:
@@ -95,7 +95,7 @@ assert_not_contains "$out" "trajectory-server" "own server produces no proc repo
 assert_not_contains "$out" "lock-conflict" "own server is not a lock-conflict"
 assert_eq "" "$out" "own server → silent"
 
-# --- (b) live other-session server → lock-conflict, survives clean mode ------
+# --- (b) live other-session server → silent, survives clean mode ------------
 PF_OTHER="$TMPDIR_BASE/other.pids"; : > "$PF_OTHER"
 spawn_live_tree "$PF_OTHER"
 sleep 0.6
@@ -104,13 +104,13 @@ OTHER_SRV=$(awk '/^SRV/{print $2}' "$PF_OTHER")
 OTHER_HOOK=$(awk '/^HOOK/{print $2}' "$PF_OTHER")
 PIDS_TO_KILL+=("$OTHER_CC" "$OTHER_SRV" "$OTHER_HOOK")
 
-test_case "live other-session server is reported as a lock-conflict"
+test_case "live other-session server is not reported"
 out=$(TMB_ORPHAN_SCAN_PROJECT_DIR="$PROJECT_DIR" TMB_ORPHAN_SCAN_HOME="$SCAN_HOME" \
       TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE="$OTHER_SRV" \
       TMB_ORPHAN_SCAN_SELF_PID="$SELF_HOOK" run_hook)
-assert_contains "$out" "lock-conflict" "live other server → lock-conflict"
-assert_contains "$out" "pid $OTHER_SRV" "lock-conflict names the holder pid"
+assert_not_contains "$out" "lock-conflict" "live other server is no lock-conflict"
 assert_not_contains "$out" "stale duplicate" "live owner is never called stale"
+assert_eq "" "$out" "live other server → silent"
 
 test_case "live other-session server is NOT killed in clean mode"
 out=$(TMB_ORPHAN_SCAN_PROJECT_DIR="$PROJECT_DIR" TMB_ORPHAN_SCAN_HOME="$SCAN_HOME" \

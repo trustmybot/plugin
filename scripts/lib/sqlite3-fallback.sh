@@ -19,12 +19,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../hooks/lib/db-write.sh
 . "$SCRIPT_DIR/../hooks/lib/db-write.sh"
 
-# Allowed roles per MCP tool (mirrors mcp/trajectory-server/src/middleware/agent-scope.ts)
-# Update if the server's requireRoles for these tools changes.
+# Allowed roles per MCP tool: each tool's requireRoles list in
+# mcp/trajectory-server/src/tools/*.ts, in the same order.
+# tests/l1-lint/sqlite3-fallback-roles.sh fails when the two drift.
 _TMB_FALLBACK_ROLES_validation_record='pr-reviewer'
 _TMB_FALLBACK_ROLES_task_update_status='bro,swe'
-_TMB_FALLBACK_ROLES_discussion_append='bro,architect,swe,pr-reviewer'
-_TMB_FALLBACK_ROLES_audit_append='bro,architect,swe,pr-reviewer'
+_TMB_FALLBACK_ROLES_discussion_append='bro,swe,pr-reviewer,consultant'
+_TMB_FALLBACK_ROLES_audit_append='bro,swe,pr-reviewer,consultant'
 _TMB_FALLBACK_ROLES_issue_close='bro'
 
 _tmb_require_db() {
@@ -35,6 +36,19 @@ _tmb_require_db() {
   echo "$db"
 }
 
+# _tmb_fallback_role <agent>
+# The role the server's normalizeAgent (middleware/agent-scope.ts) gives
+# <agent>: bro, swe or pr-reviewer as named; any other slug matching
+# ^[a-z][a-z0-9_-]*$ is a consultant; anything else is unknown.
+_tmb_fallback_role() {
+  local a
+  a=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$a" in
+    bro|swe|pr-reviewer) printf '%s' "$a" ;;
+    *) if [[ "$a" =~ ^[a-z][a-z0-9_-]*$ ]]; then printf consultant; else printf unknown; fi ;;
+  esac
+}
+
 _tmb_fallback_check_role() {
   local tool="$1" agent="$2"
   local var="_TMB_FALLBACK_ROLES_${tool}"
@@ -43,7 +57,7 @@ _tmb_fallback_check_role() {
     echo "sqlite3-fallback: unknown tool '$tool'" >&2; return 1
   fi
   case ",$allowed," in
-    *",$agent,"*) return 0;;
+    *",$(_tmb_fallback_role "$agent"),"*) return 0;;
     *) echo "sqlite3-fallback: role '$agent' not allowed for '$tool' (allowed: $allowed)" >&2; return 1;;
   esac
 }
@@ -140,11 +154,8 @@ tmb_fallback_audit_append() {
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role audit_append "$agent" || return 1
-  local writer="$agent"
-  case "$agent" in
-    bro|swe|pr-reviewer) ;;
-    *) writer=consultant ;;
-  esac
+  local writer
+  writer=$(_tmb_fallback_role "$agent")
   tmb_audit_writer_check sqlite3-fallback "$event_type" "$writer" || return 1
   if [ -n "$from_node" ] && [ "$from_node" != "$agent" ]; then
     echo "sqlite3-fallback: from_node '$from_node' does not match the calling agent '$agent'" >&2; return 1

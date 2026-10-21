@@ -28,25 +28,17 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
-# Resolve the carrier issue_id for this roundtable.
-ISSUE_ID=$(sqlite3 "$DB_PATH" "SELECT issue_id FROM roundtables WHERE id=${RT_ID} LIMIT 1;" 2>/dev/null || true)
-[ -n "$ISSUE_ID" ] || exit 0
-ISSUE_ID=$(tmb_sql_int "$ISSUE_ID")
-[ -n "$ISSUE_ID" ] || exit 0
-
-ANALYSES=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM discussions WHERE issue_id=${ISSUE_ID} AND kind='analysis';" 2>/dev/null || echo 0)
-DECISIONS=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM discussions WHERE issue_id=${ISSUE_ID} AND kind='decision';" 2>/dev/null || echo 0)
-RT_STATE=$(sqlite3 "$DB_PATH" \
-  "SELECT state || '|' || COALESCE(outcome,'') FROM roundtables WHERE id=${RT_ID} LIMIT 1;" 2>/dev/null || true)
-VOTES=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM roundtable_votes WHERE roundtable_id=${RT_ID};" 2>/dev/null || echo 0)
-SUMMARY_EVT=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_summary' AND issue_id=${ISSUE_ID};" 2>/dev/null || echo 0)
-
-RT_STATUS=$(printf '%s' "$RT_STATE" | cut -d'|' -f1)
-RT_OUTCOME=$(printf '%s' "$RT_STATE" | cut -d'|' -f2-)
+# One read: the carrier issue_id, its capture counts, and the roundtable's
+# state and outcome (last, so a '|' inside the outcome stays in it).
+ROW=$(tmb_sqlite_ro "$DB_PATH" "SELECT r.issue_id,
+    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'analysis'),
+    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'decision'),
+    (SELECT COUNT(*) FROM roundtable_votes v WHERE v.roundtable_id = r.id),
+    (SELECT COUNT(*) FROM audit a WHERE a.event_type = 'roundtable_summary' AND a.issue_id = r.issue_id),
+    r.state, COALESCE(r.outcome, '')
+  FROM roundtables r WHERE r.id = ${RT_ID} LIMIT 1;")
+IFS='|' read -r ISSUE_ID ANALYSES DECISIONS VOTES SUMMARY_EVT RT_STATUS RT_OUTCOME <<<"$ROW"
+[ -n "$(tmb_sql_int "${ISSUE_ID:-}")" ] || exit 0
 
 MISSING=""
 [ "$ANALYSES"    -ge 1 ]      || MISSING="$MISSING analysis-discussions"

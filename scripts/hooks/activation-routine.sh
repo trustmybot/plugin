@@ -105,10 +105,9 @@ halt_only() {
 DB_PATH=$(tmb_db_path_advisory activation-routine) || halt_only
 tmb_have_sqlite || halt_only
 
-ONBOARDED_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)
-PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
-  "SELECT id, objective FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;" \
-  2>/dev/null)
+ONBOARDED_ROW_COUNT=$(tmb_sqlite_ro "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';")
+PENDING=$(tmb_sqlite_ro "$DB_PATH" \
+  "SELECT id, COALESCE(objective, '') FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;")
 
 # Two states the hook must distinguish:
 #   - row absent  → first contact; bro must auto-fire /onboard
@@ -122,8 +121,8 @@ else
 fi
 
 if [ -n "$PENDING" ]; then
-  PENDING_ID="${PENDING%%$'\x1f'*}"
-  PENDING_OBJ="${PENDING#*$'\x1f'}"
+  PENDING_ID="${PENDING%%|*}"
+  PENDING_OBJ="${PENDING#*|}"
   PENDING_LINE="pending=#${PENDING_ID}: ${PENDING_OBJ}"
 else
   PENDING_LINE="pending=<none>"

@@ -433,6 +433,15 @@ assert_contains "$out" "resume-intent hint" "unquoted resume intent fires"
 assert_contains "$out" "task_reopen(task_id=2" "resume hint routes the pending task through task_reopen"
 assert_not_contains "$out" "git switch" "resume hint never switches the main checkout"
 
+test_case "resume hint: each field parsed whole, a | in title or objective included"
+sqlite3 "$HINT_DB" "UPDATE tasks SET title = 'next | task' WHERE id = 2; UPDATE issues SET objective = 'auth | work' WHERE id = 1;" >/dev/null
+out=$(run_hook_db "keep going")
+assert_contains "$out" "task_reopen(task_id=2, reason" "task_id is the bare id"
+assert_contains "$out" "branch_id=feat/next" "branch_id parsed"
+assert_contains "$out" "title='next / task'" "a | in the title is shown as /"
+assert_contains "$out" "issue.objective='auth | work'" "the objective keeps its |"
+sqlite3 "$HINT_DB" "UPDATE tasks SET title = 'next task' WHERE id = 2; UPDATE issues SET objective = 'auth work' WHERE id = 1;" >/dev/null
+
 sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');" >/dev/null
 
 test_case "reonboard-intent: 'switch to gitflow' on an onboarded project → hint names onboard_state_get"

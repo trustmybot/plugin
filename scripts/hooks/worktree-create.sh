@@ -116,19 +116,15 @@ tmb_have_sqlite || {
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 
 SAFE_BRANCH="$(printf '%s' "$BRANCH_NAME" | sed "s/'/''/g")"
-TASK_COUNT=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM tasks WHERE branch_id='$SAFE_BRANCH';" \
-  2>/dev/null || echo 0)
+TASK_COUNT=$(tmb_sqlite_ro "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE branch_id='$SAFE_BRANCH';")
 
-if [ "$TASK_COUNT" = "0" ]; then
+if [ "${TASK_COUNT:-0}" = "0" ]; then
   # No matching task — single-repo fallback (repos.path), else workspace root.
   REPO_ABS=$(tmb_repo_single_path "$DB_PATH" 2>/dev/null || true)
   [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
   WORKTREE_PATH="$REPO_ABS/.claude/worktrees/$SLUG"
 else
-  REPO=$(sqlite3 "$DB_PATH" \
-    "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;" \
-    2>/dev/null || true)
+  REPO=$(tmb_sqlite_ro "$DB_PATH" "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;")
 
   # Resolve tasks.repo (a repo name) via repos.path; when it is unset, fall back
   # to the sole registered repo (single-repo), else the workspace root.

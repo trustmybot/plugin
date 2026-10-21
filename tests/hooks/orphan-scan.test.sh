@@ -19,7 +19,13 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/orphan-scan.sh"
 PLUGIN_NAME="tmb"
 
 TMPROOT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-orphan-scan.XXXXXX")
-trap 'rm -rf "$TMPROOT"' EXIT
+SPAWNED=()
+cleanup() {
+  local p
+  for p in "${SPAWNED[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
+  rm -rf "$TMPROOT"
+}
+trap cleanup EXIT
 
 # slug must match the hook's project_slug(): non-alphanumeric runs → '-'.
 slug_for() { printf '%s' "$1" | sed -E 's/[^A-Za-z0-9]+/-/g'; }
@@ -172,5 +178,83 @@ done
 PATH="$CURATED_BIN" TMB_ORPHAN_SCAN_HOME="$HOME8" TMB_ORPHAN_SCAN_PROJECT_DIR="$PROJ8" \
   bash "$HOOK" <<<'{"hook_event_name":"SessionStart"}' >/dev/null 2>&1
 assert_exit_code 0 "$?" "soft-fail with missing lsof/sqlite3"
+
+# ===========================================================================
+# Process-tree cases. A "CC" is a bash whose argv[0] is the given command line,
+# double-forked so it re-parents to init: no real CC above it (the session
+# running this suite) can stand in when the surrogate is not recognised. It
+# spawns a trajectory-server child and a hook child; DB holders and the hook's
+# own pid are pinned via TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE / _SELF_PID.
+
+# spawn_cc_tree <pidfile> <cc command line> — writes CC/SRV/HOOK <pid> lines.
+spawn_cc_tree() {
+  local pf="$1" cc="$2" tries=0 pid
+  : >"$pf"
+  ( ( exec -a "$cc" bash -c '
+        ( exec -a "node /x/mcp/trajectory-server/dist/index.js" sleep 300 ) &
+        echo "SRV $!" >>"$0"
+        ( exec -a cc-hook-runner sleep 300 ) &
+        echo "HOOK $!" >>"$0"
+        echo "CC $$" >>"$0"
+        wait
+      ' "$pf" ) & )
+  while [ "$(wc -l <"$pf")" -lt 3 ] && [ "$tries" -lt 50 ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
+  while read -r _ pid; do SPAWNED+=("$pid"); done <"$pf"
+}
+pid_of() { awk -v k="$1" '$1 == k {print $2}' "$2"; }
+
+run_tree_hook() {
+  local home="$1" project="$2" holders="$3" self="$4" clean="${5:-0}"
+  TMB_ORPHAN_SCAN_HOME="$home" \
+  TMB_ORPHAN_SCAN_PROJECT_DIR="$project" \
+  TMB_ORPHAN_SCAN_CLEAN="$clean" \
+  TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE="$holders" \
+  TMB_ORPHAN_SCAN_SELF_PID="$self" \
+    bash "$HOOK" <<<'{"hook_event_name":"SessionStart"}' 2>/dev/null || true
+}
+
+HOME9="$TMPROOT/h9"
+PROJ9="$TMPROOT/proj9"
+mkdir -p "$HOME9/.claude/plugins/cache" "$HOME9/.claude/projects"
+make_db "$PROJ9/.claude/$PLUGIN_NAME/trajectory.db" 26
+spawn_cc_tree "$TMPROOT/self.pids" "claude"
+SELF_HOOK9=$(pid_of HOOK "$TMPROOT/self.pids")
+
+# ===========================================================================
+test_case "a live sibling session's server is not reported as a lock-conflict"
+spawn_cc_tree "$TMPROOT/sibling.pids" "claude --resume"
+SIB_SRV=$(pid_of SRV "$TMPROOT/sibling.pids")
+out=$(run_tree_hook "$HOME9" "$PROJ9" "$SIB_SRV" "$SELF_HOOK9")
+assert_not_contains "$out" "lock-conflict" "live sibling server is no lock-conflict"
+assert_not_contains "$out" "stale duplicate" "live sibling server is not stale"
+assert_eq "" "$out" "live sibling server → silent"
+run_tree_hook "$HOME9" "$PROJ9" "$SIB_SRV" "$SELF_HOOK9" 1 >/dev/null
+sleep 0.2
+kill -0 "$SIB_SRV" 2>/dev/null && _pass || _fail "live sibling server was killed in clean mode"
+
+# ===========================================================================
+test_case "an unrecognised parent leaves its server ownerless (stale)"
+spawn_cc_tree "$TMPROOT/notcc.pids" "node /opt/tools/bin/not-claude"
+NOTCC_SRV=$(pid_of SRV "$TMPROOT/notcc.pids")
+out=$(run_tree_hook "$HOME9" "$PROJ9" "$NOTCC_SRV" "$SELF_HOOK9")
+assert_contains "$out" "stale duplicate trajectory-server on this project's live DB: pid $NOTCC_SRV" "server under a non-CC parent is stale"
+
+# ===========================================================================
+for cc in "node /opt/tools/bin/claude" \
+          "/home/u/.local/share/claude/versions/2.1.305" \
+          "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js" \
+          "/Users/u/Library/Application Support/Claude/claude-code/2.1.305/claude.app/Contents/MacOS/claude"; do
+  test_case "\`$cc\` is recognised as a CC process"
+  spawn_cc_tree "$TMPROOT/cc.pids" "$cc"
+  CC_SRV=$(pid_of SRV "$TMPROOT/cc.pids")
+  CC_HOOK=$(pid_of HOOK "$TMPROOT/cc.pids")
+  out=$(run_tree_hook "$HOME9" "$PROJ9" "$CC_SRV" "$SELF_HOOK9")
+  assert_eq "" "$out" "its server has a live owner → silent"
+  out=$(run_tree_hook "$HOME9" "$PROJ9" "$CC_SRV" "$CC_HOOK")
+  assert_eq "" "$out" "its own hook resolves it as this session → silent"
+done
 
 summarize
