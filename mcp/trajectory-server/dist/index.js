@@ -20835,7 +20835,7 @@ var StdioServerTransport = class {
 };
 
 // src/db.ts
-import { copyFileSync, readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
+import { readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
 import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance as performance2 } from "node:perf_hooks";
@@ -21466,6 +21466,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 
 // src/db.ts
 var TARGET_SCHEMA_VERSION = 41;
+var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21505,12 +21506,9 @@ var TrajectoryDB = class {
     }
     this.db = new DatabaseSync2(dbPath2);
     try {
-      this.db.exec("PRAGMA journal_mode = WAL");
-      this.db.exec("PRAGMA foreign_keys = ON");
-      this.db.exec("PRAGMA busy_timeout = 5000");
+      this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+      execRetryingLockUpgrade(this.db, "PRAGMA journal_mode = WAL");
       this.legacyNoPluginMeta = this.applySchema();
-      this.syncPluginVersion();
-      this.syncBuiltinVersions();
     } catch (error2) {
       try {
         this.db.close();
@@ -21519,9 +21517,42 @@ var TrajectoryDB = class {
       throw error2;
     }
   }
+  /**
+   * Applies schema.sql, migrating first when the stored version is behind, and
+   * stamps the plugin version — all under one BEGIN IMMEDIATE so concurrent
+   * cold starts serialise: the first process migrates, the rest re-read the
+   * version inside the lock and find it current. Table-rebuild migrations need
+   * foreign_keys OFF, and the pragma is a no-op inside a transaction, so it is
+   * switched off around the lock (the Django SQLite schema-editor pattern);
+   * each rebuild still runs its own foreign_key_check before it is released.
+   */
   applySchema() {
     const schemaDir = dirname2(fileURLToPath(import.meta.url));
     const sql = readFileSync2(join3(schemaDir, "schema.sql"), "utf8");
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    let outcome;
+    try {
+      outcome = withImmediateTransaction(this.db, () => {
+        const applied = this.applySchemaLocked(sql, schemaDir);
+        this.syncPluginVersion();
+        this.syncBuiltinVersions();
+        return applied;
+      });
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
+    }
+    if (outcome.migratedFrom !== null) {
+      this.serverLog({
+        kind: "schema_migrated",
+        level: "info",
+        db_path: this.dbPath,
+        from_version: outcome.migratedFrom,
+        to_version: TARGET_SCHEMA_VERSION
+      });
+    }
+    return outcome.isLegacy;
+  }
+  applySchemaLocked(sql, schemaDir) {
     const applyEvalIfNeeded = () => {
       if (process.env["TMB_EVAL_MODE"] === "1") {
         const evalSql = readFileSync2(join3(schemaDir, "schema-eval.sql"), "utf8");
@@ -21554,14 +21585,14 @@ var TrajectoryDB = class {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return isLegacy;
+      return { isLegacy, migratedFrom: null };
     }
     const versionRow = this.db.prepare("SELECT schema_version FROM plugin_meta LIMIT 1").get();
     if (versionRow === void 0) {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return false;
+      return { isLegacy: false, migratedFrom: null };
     }
     const storedVersion = versionRow.schema_version;
     if (storedVersion > TARGET_SCHEMA_VERSION) {
@@ -21570,25 +21601,27 @@ var TrajectoryDB = class {
       );
     }
     if (storedVersion < TARGET_SCHEMA_VERSION) {
-      backupDbBeforeMigration(this.db, this.dbPath, TARGET_SCHEMA_VERSION);
+      backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
       runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
       this.db.exec(sql);
       this.db.prepare("UPDATE plugin_meta SET schema_version = ? WHERE id = 1").run(TARGET_SCHEMA_VERSION);
       applyEvalIfNeeded();
       verifySeed();
-      return false;
+      return { isLegacy: false, migratedFrom: storedVersion };
     }
     this.db.exec(sql);
     applyEvalIfNeeded();
     verifySeed();
-    return false;
+    return { isLegacy: false, migratedFrom: null };
   }
+  /**
+   * Runs inside applySchema's BEGIN IMMEDIATE, so the write lock is already
+   * held (acquired under busy_timeout) and the UPDATE cannot hit SQLITE_BUSY.
+   * Any failure is logged and fails the open rather than passing as success.
+   */
   syncPluginVersion() {
     if (!this.pluginVersion) return;
-    try {
-      this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(this.pluginVersion);
-    } catch {
-    }
+    this.runVersionSync("plugin_meta", `UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`);
   }
   /**
    * Backfill the builtin cheatcodes' `version` to the plugin version (#111).
@@ -21600,9 +21633,21 @@ var TrajectoryDB = class {
    */
   syncBuiltinVersions() {
     if (!this.pluginVersion) return;
+    this.runVersionSync("cheatcodes", `UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`);
+  }
+  runVersionSync(target, sql) {
     try {
-      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(this.pluginVersion);
-    } catch {
+      this.db.prepare(sql).run(this.pluginVersion);
+    } catch (err20) {
+      this.serverLog({
+        kind: "plugin_version_sync_failed",
+        level: "error",
+        db_path: this.dbPath,
+        target,
+        plugin_version: this.pluginVersion,
+        message: err20 instanceof Error ? err20.message : String(err20)
+      });
+      throw err20;
     }
   }
   run(sql, params) {
@@ -21685,23 +21730,12 @@ var TrajectoryDB = class {
     }
   }
   /**
-   * Wraps `fn` in a SQLite transaction. better-sqlite3 had a built-in
-   * `db.transaction(fn)` helper; node:sqlite does not, so we issue
-   * BEGIN/COMMIT/ROLLBACK explicitly.
+   * Wraps `fn` in a BEGIN IMMEDIATE transaction (a SAVEPOINT when nested).
+   * node:sqlite has no `db.transaction(fn)` helper, so BEGIN/COMMIT/ROLLBACK
+   * are issued explicitly.
    */
   transaction(fn) {
-    this.db.exec("BEGIN");
-    try {
-      const result2 = fn();
-      this.db.exec("COMMIT");
-      return result2;
-    } catch (err20) {
-      try {
-        this.db.exec("ROLLBACK");
-      } catch {
-      }
-      throw err20;
-    }
+    return withImmediateTransaction(this.db, fn);
   }
   get isOpen() {
     return this.db.isOpen;
@@ -21747,7 +21781,56 @@ function noThrowTrajectoryLog(log) {
 function nowISO() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
+var transactionDepth = /* @__PURE__ */ new WeakMap();
+var SQLITE_BUSY = 5;
+var backoffCell = new Int32Array(new SharedArrayBuffer(4));
+function isBusyError(err20) {
+  if (!(err20 instanceof Error)) return false;
+  const errcode = err20.errcode;
+  return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err20.message.includes("database is locked");
+}
+function execRetryingLockUpgrade(db2, sql) {
+  const deadline = performance2.now() + BUSY_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      db2.exec(sql);
+      return;
+    } catch (err20) {
+      if (!isBusyError(err20) || performance2.now() >= deadline) throw err20;
+      Atomics.wait(backoffCell, 0, 0, 5 + Math.random() * 45);
+    }
+  }
+}
+function beginImmediate(db2) {
+  const depth = transactionDepth.get(db2) ?? 0;
+  db2.exec(depth === 0 ? "BEGIN IMMEDIATE" : `SAVEPOINT tmb_tx_${depth}`);
+  transactionDepth.set(db2, depth + 1);
+}
+function commitTransaction(db2) {
+  const depth = (transactionDepth.get(db2) ?? 1) - 1;
+  db2.exec(depth === 0 ? "COMMIT" : `RELEASE tmb_tx_${depth}`);
+  transactionDepth.set(db2, depth);
+}
+function rollbackTransaction(db2) {
+  const depth = (transactionDepth.get(db2) ?? 1) - 1;
+  transactionDepth.set(db2, depth);
+  db2.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO tmb_tx_${depth}; RELEASE tmb_tx_${depth}`);
+}
+function withImmediateTransaction(db2, fn) {
+  beginImmediate(db2);
+  try {
+    const result2 = fn();
+    commitTransaction(db2);
+    return result2;
+  } catch (err20) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err20;
+  }
+}
+function backupDbBeforeMigration(dbPath2, targetVersion) {
   if (!dbPath2 || dbPath2 === ":memory:") return;
   const dir = dirname2(dbPath2);
   const base = basename2(dbPath2);
@@ -21759,13 +21842,15 @@ function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
     if (existing) return;
   } catch {
   }
-  try {
-    db2.prepare("PRAGMA wal_checkpoint(FULL)").get();
-  } catch {
-  }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const backupPath = `${dbPath2}.pre-v${targetVersion}.${timestamp}.bak`;
-  copyFileSync(dbPath2, backupPath);
+  const snapshot = new DatabaseSync2(dbPath2);
+  try {
+    snapshot.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    snapshot.prepare("VACUUM INTO ?").run(backupPath);
+  } finally {
+    snapshot.close();
+  }
 }
 function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 2 && toVersion >= 2) {
@@ -21889,6 +21974,14 @@ function runMigrations(db2, fromVersion, toVersion) {
     migrateV40toV41(db2);
   }
 }
+function deleteBuiltinCheatcodeAttachments(db2, name) {
+  if (!tableExists(db2, "cheatcode_attachments")) return;
+  db2.prepare(
+    // LINT-ALLOW: mirrors the ON DELETE CASCADE that foreign_keys OFF suppresses during migration (GH 1624).
+    `DELETE FROM cheatcode_attachments
+      WHERE cheatcode_id IN (SELECT id FROM cheatcodes WHERE name = ? AND origin = 'builtin')`
+  ).run(name);
+}
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
   return cols.some((c) => c.name === column);
@@ -21917,7 +22010,7 @@ function rebuildTable(db2, table, createBody, columns) {
   }
 }
 function migrateV8toV9(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "agent_runs")) {
       if (!hasColumn(db2, "agent_runs", "cache_read_tokens")) {
@@ -21948,34 +22041,34 @@ function migrateV8toV9(db2) {
         );
       }
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV9toV10(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "tasks")) {
       if (!hasColumn(db2, "tasks", "prompt_bearing")) {
         db2.exec("ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0");
       }
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV10toV11(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "repos")) {
       if (!hasColumn(db2, "repos", "target_branch")) {
@@ -21988,34 +22081,34 @@ function migrateV10toV11(db2) {
         db2.exec("ALTER TABLE repos ADD COLUMN protected_branches TEXT");
       }
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV11toV12(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "agent_runs")) {
       if (!hasColumn(db2, "agent_runs", "usage_baseline_json")) {
         db2.exec("ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT");
       }
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV12toV13(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "tasks")) {
       if (!hasColumn(db2, "tasks", "files")) {
@@ -22025,17 +22118,17 @@ function migrateV12toV13(db2) {
         db2.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
       }
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV13toV14(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec(`
       CREATE TABLE IF NOT EXISTS cheatcodes (
@@ -22062,52 +22155,52 @@ function migrateV13toV14(db2) {
     db2.exec(
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV14toV15(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "cheatcodes") && !hasColumn(db2, "cheatcodes", "scope")) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV15toV16(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("DROP TABLE IF EXISTS rule_invocations");
     db2.exec("DROP TABLE IF EXISTS rules");
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV16toV17(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("DROP TABLE IF EXISTS commands");
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22118,7 +22211,7 @@ function migrateV17toV18(db2) {
     return;
   }
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("DROP TABLE IF EXISTS skills_new");
     db2.exec(`
@@ -22147,10 +22240,10 @@ function migrateV17toV18(db2) {
         `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22165,7 +22258,7 @@ function migrateV18toV19(db2) {
     return;
   }
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (!cheatcodesUnified) {
       db2.exec("DROP TABLE IF EXISTS cheatcodes_new");
@@ -22247,10 +22340,10 @@ function migrateV18toV19(db2) {
         `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills\u2192cheatcodes unification`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22262,8 +22355,9 @@ function migrateV19toV20(db2) {
   if (!tableExists(db2, "cheatcodes")) {
     return;
   }
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
+    deleteBuiltinCheatcodeAttachments(db2, "tmb_agent-creator");
     db2.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
     db2.exec(`
       INSERT OR IGNORE INTO cheatcodes
@@ -22280,10 +22374,10 @@ function migrateV19toV20(db2) {
         `migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22311,7 +22405,7 @@ function migrateV28toV29(db2) {
   const VERDICTS = "'pass','fail','escalate'";
   const DISCUSSION_KINDS = "'intent','question','answer','decision','note','analysis'";
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "pr_review_runs")) {
       db2.exec("DELETE FROM pr_review_runs WHERE pr_number = 0");
@@ -22555,10 +22649,10 @@ function migrateV28toV29(db2) {
         `migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22595,7 +22689,7 @@ var TIMESTAMP_COLUMNS = [
 ];
 function migrateV29toV30(db2) {
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     const probes = [
       ["agents", "kind", "kind NOT IN ('backbone','consultant')"],
@@ -22815,10 +22909,10 @@ function migrateV29toV30(db2) {
         `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22828,7 +22922,7 @@ function migrateV29toV30(db2) {
 }
 function migrateV30toV31(db2) {
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "agent_runs") && (hasColumn(db2, "agent_runs", "tokens_total") || hasColumn(db2, "agent_runs", "usage_baseline_json"))) {
       rebuildTable(
@@ -22885,10 +22979,10 @@ function migrateV30toV31(db2) {
         `migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -22900,7 +22994,7 @@ var OWN_MCP_SERVER_NAME = "trajectory-server";
 function migrateV31toV32(db2) {
   if (!tableExists(db2, "cheatcodes")) return;
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (!/UNIQUE\s*\(\s*name\s*,\s*kind\s*\)/.test(readTableSql(db2, "cheatcodes"))) {
       rebuildTable(
@@ -23000,10 +23094,10 @@ function migrateV31toV32(db2) {
         `migrateV31toV32: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v32 rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23015,7 +23109,7 @@ var ISO_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 function migrateV32toV33(db2) {
   if (!tableExists(db2, "agent_runs")) return;
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (!hasColumn(db2, "agent_runs", "exit_reason") || !/'backfill'/.test(readTableSql(db2, "agent_runs"))) {
       rebuildTable(
@@ -23129,10 +23223,10 @@ function migrateV32toV33(db2) {
         `migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23144,7 +23238,7 @@ function migrateV33toV34(db2) {
   if (!tableExists(db2, "agents")) return;
   if (!hasColumn(db2, "agents", "scope") && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db2, "agents"))) return;
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     const root = hasColumn(db2, "agents", "scope") ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END" : "'plugin:'";
     db2.exec(`
@@ -23178,10 +23272,10 @@ function migrateV33toV34(db2) {
         `migrateV33toV34: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v34 rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23192,7 +23286,7 @@ function migrateV33toV34(db2) {
 function migrateV34toV35(db2) {
   if (!tableExists(db2, "repos")) return;
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec(`
       CREATE TABLE IF NOT EXISTS repo_remotes (
@@ -23272,10 +23366,10 @@ function migrateV34toV35(db2) {
         `migrateV34toV35: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v35 rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23312,7 +23406,7 @@ function migrateV35toV36(db2) {
   `);
 }
 function migrateV36toV37(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "tasks") && !hasColumn(db2, "tasks", "effort")) {
       db2.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
@@ -23320,10 +23414,10 @@ function migrateV36toV37(db2) {
     if (tableExists(db2, "agent_runs") && !hasColumn(db2, "agent_runs", "effort")) {
       db2.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23333,7 +23427,7 @@ function migrateV37toV38(db2) {
   if (!tableExists(db2, "audit")) return;
   const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
   const placeholders = documented.map(() => "?").join(", ");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.prepare(
       `UPDATE audit
@@ -23343,10 +23437,10 @@ function migrateV37toV38(db2) {
               event_type = 'legacy_event'
         WHERE event_type NOT IN (${placeholders})`
     ).run(...documented);
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23357,7 +23451,7 @@ function migrateV38toV39(db2) {
   const legacyWaiver = (alias) => `${alias}.event_type = 'verification_gate_waived' AND ${alias}.from_node = 'swe'
           AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
   const taskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec(
       `UPDATE audit
@@ -23371,10 +23465,10 @@ function migrateV38toV39(db2) {
                          AND ${taskId("k")} IS ${taskId("audit")}
                          AND k.id < audit.id)`
     );
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23386,14 +23480,14 @@ function migrateV39toV40(db2) {
 }
 function migrateV40toV41(db2) {
   if (!tableExists(db2, "repo_remotes") || hasColumn(db2, "repo_remotes", "sync")) return;
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
     db2.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23406,7 +23500,7 @@ function migrateV22toV23(db2) {
     return rows.length === 1 ? rows[0].name : null;
   };
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "repos")) {
       if (!hasColumn(db2, "repos", "remotes")) {
@@ -23574,10 +23668,10 @@ function migrateV22toV23(db2) {
         `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23588,7 +23682,7 @@ function migrateV22toV23(db2) {
 function migrateV23toV24(db2) {
   if (!tableExists(db2, "cheatcodes")) return;
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec(`
       -- LINT-ALLOW: v23\u2192v24 WHERE-scoped cleanup of leaked scan-ingest rows (#150).
@@ -23646,10 +23740,10 @@ function migrateV23toV24(db2) {
         `migrateV23toV24: foreign_key_check found ${violations.length} dangling reference(s) after the cheatcodes rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23661,8 +23755,9 @@ function migrateV24toV25(db2) {
   if (!tableExists(db2, "cheatcodes")) {
     return;
   }
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
+    deleteBuiltinCheatcodeAttachments(db2, "tmb_push-triage");
     db2.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
     db2.exec(`
       INSERT OR IGNORE INTO cheatcodes
@@ -23683,10 +23778,10 @@ function migrateV24toV25(db2) {
         `migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23696,7 +23791,7 @@ function migrateV25toV26(db2) {
   if (!tableExists(db2, "validation_attempts")) return;
   if (hasColumn(db2, "validation_attempts", "mcp_available")) return;
   db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("DROP TABLE IF EXISTS validation_attempts_new");
     db2.exec(`
@@ -23731,10 +23826,10 @@ function migrateV25toV26(db2) {
         `migrateV25toV26: foreign_key_check found ${violations.length} dangling reference(s) after the validation_attempts rebuild`
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -23744,7 +23839,7 @@ function migrateV25toV26(db2) {
 }
 function migrateV26toV27(db2) {
   if (!tableExists(db2, "plugin_config")) return;
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "repos")) {
       const scalarFromConfig = (key) => {
@@ -23786,17 +23881,17 @@ function migrateV26toV27(db2) {
       // LINT-ALLOW: v27 migration intentionally removes the drained global policy keys (#980).
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV7toV8(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("DROP TRIGGER IF EXISTS directories_au_new");
     db2.exec("DROP TRIGGER IF EXISTS directories_au");
@@ -23807,17 +23902,17 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_embeddings");
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV6toV7(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec("DROP TRIGGER IF EXISTS file_registry_au_new");
     db2.exec("DROP TRIGGER IF EXISTS file_registry_au");
@@ -23827,17 +23922,17 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_embeddings");
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV5toV6(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     db2.exec(
       "CREATE TABLE IF NOT EXISTS directories (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL DEFAULT '', path TEXT NOT NULL, parent_path TEXT, summary TEXT, summary_source TEXT CHECK (summary_source IN ('readme','llm','manual')) DEFAULT 'llm', summary_updated_at TEXT, file_count INTEGER NOT NULL DEFAULT 0, UNIQUE(repo, path))"
@@ -23866,17 +23961,17 @@ function migrateV5toV6(db2) {
     db2.exec(
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV4toV5(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "issues")) {
       if (!hasColumn(db2, "issues", "gh_iid")) {
@@ -23892,17 +23987,17 @@ function migrateV4toV5(db2) {
         "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL"
       );
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV3toV4(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "discussions")) {
       db2.exec(`
@@ -23946,17 +24041,17 @@ function migrateV3toV4(db2) {
         ON file_registry_embeddings(model_id)
       `);
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV2toV3(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "discussions")) {
       db2.exec(`
@@ -24048,17 +24143,17 @@ function migrateV2toV3(db2) {
       `);
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
   }
 }
 function migrateV1toV2(db2) {
-  db2.exec("BEGIN");
+  beginImmediate(db2);
   try {
     if (tableExists(db2, "identity") && tableExists(db2, "plugin_config")) {
       const row = db2.prepare("SELECT COUNT(*) AS n FROM identity").get();
@@ -24233,10 +24328,10 @@ function migrateV1toV2(db2) {
         );
       }
     }
-    db2.exec("COMMIT");
+    commitTransaction(db2);
   } catch (err20) {
     try {
-      db2.exec("ROLLBACK");
+      rollbackTransaction(db2);
     } catch {
     }
     throw err20;
@@ -33033,9 +33128,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const labels = suppliedLabels ?? defaultSyncLabels(db2);
         const now2 = nowISO();
         const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
-        const milestoneResolution = resolveDefaultMilestone(db2, null, issueRepo);
-        const milestone = milestoneResolution.milestone;
         const result2 = db2.transaction(() => {
+          const milestoneResolution = resolveDefaultMilestone(db2, null, issueRepo);
+          const milestone = milestoneResolution.milestone;
           db2.run(
             `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
              VALUES (?, '', 'open', ?, ?, ?, ?, ?)`,

@@ -79,9 +79,10 @@ The trajectory DB is per-project and unaffected by the channel switch — your d
 
 When the MCP server starts and finds `plugin_meta.schema_version < TARGET_SCHEMA_VERSION`:
 
-1. **Backup.** A copy is written to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` next to the live DB. One backup per target version — re-opening the same DB after migration does not create additional backups.
-2. **Migrate.** Each version-step runs inside its own SQLite transaction. If a step fails, that step's transaction rolls back and your DB is left at the last version that committed cleanly. The backup is still there.
-3. **Bump.** `plugin_meta.schema_version` updates to the new target. Subsequent boots see the new version and skip migrations.
+1. **Lock.** The server takes the DB's write lock (`BEGIN IMMEDIATE`) and re-reads `schema_version`. When several sessions start at once, the first one migrates and the rest wait, then find the DB already current and skip the migration.
+2. **Backup.** A `VACUUM INTO` snapshot is written to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` next to the live DB; it includes writes still in the `-wal` file. One backup per target version — re-opening the same DB after migration does not create additional backups.
+3. **Migrate.** The whole version chain runs inside that one transaction. If any step fails, everything rolls back and your DB is left at the version it started at. The backup is still there.
+4. **Bump.** `plugin_meta.schema_version` updates to the new target. Subsequent boots see the new version and skip migrations.
 
 ### What the migration chain does
 
@@ -225,7 +226,7 @@ You're running a plugin that's older than the DB. Two ways out:
 
 ### Migration crashed mid-step
 
-The transaction wrapping the migration step rolls back. Your DB stays at the old version. Common causes: filesystem full, locked DB (another CC session is running against it).
+The transaction wrapping the migration rolls back. Your DB stays at the old version. Common causes: filesystem full, or another session held the write lock for longer than the 5-second busy timeout.
 
 - Free disk space / close the other session, then restart CC. Migration re-runs from scratch.
 - The pre-migration backup is still there if you'd rather roll back: restore the `.bak` file.

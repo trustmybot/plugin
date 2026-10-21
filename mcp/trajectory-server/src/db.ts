@@ -1,4 +1,4 @@
-import { copyFileSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -17,6 +17,8 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
 export const TARGET_SCHEMA_VERSION = 41;
+
+const BUSY_TIMEOUT_MS = 5000;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -110,12 +112,12 @@ export class TrajectoryDB {
     }
     this.db = new DatabaseSync(dbPath);
     try {
-      this.db.exec('PRAGMA journal_mode = WAL');
-      this.db.exec('PRAGMA foreign_keys = ON');
-      this.db.exec('PRAGMA busy_timeout = 5000');
+      // busy_timeout comes first so every lock taken from here on waits for it.
+      // The WAL switch is the one statement before BEGIN IMMEDIATE that takes a
+      // lock, and its SHARED→EXCLUSIVE upgrade bypasses the busy handler.
+      this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+      execRetryingLockUpgrade(this.db, 'PRAGMA journal_mode = WAL');
       this.legacyNoPluginMeta = this.applySchema();
-      this.syncPluginVersion();
-      this.syncBuiltinVersions();
     } catch (error) {
       try {
         this.db.close();
@@ -126,10 +128,47 @@ export class TrajectoryDB {
     }
   }
 
+  /**
+   * Applies schema.sql, migrating first when the stored version is behind, and
+   * stamps the plugin version — all under one BEGIN IMMEDIATE so concurrent
+   * cold starts serialise: the first process migrates, the rest re-read the
+   * version inside the lock and find it current. Table-rebuild migrations need
+   * foreign_keys OFF, and the pragma is a no-op inside a transaction, so it is
+   * switched off around the lock (the Django SQLite schema-editor pattern);
+   * each rebuild still runs its own foreign_key_check before it is released.
+   */
   private applySchema(): boolean {
     const schemaDir = dirname(fileURLToPath(import.meta.url));
     const sql = readFileSync(join(schemaDir, 'schema.sql'), 'utf8');
 
+    this.db.exec('PRAGMA foreign_keys = OFF');
+    let outcome: { isLegacy: boolean; migratedFrom: number | null };
+    try {
+      outcome = withImmediateTransaction(this.db, () => {
+        const applied = this.applySchemaLocked(sql, schemaDir);
+        this.syncPluginVersion();
+        this.syncBuiltinVersions();
+        return applied;
+      });
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON');
+    }
+    if (outcome.migratedFrom !== null) {
+      this.serverLog({
+        kind: 'schema_migrated',
+        level: 'info',
+        db_path: this.dbPath,
+        from_version: outcome.migratedFrom,
+        to_version: TARGET_SCHEMA_VERSION,
+      });
+    }
+    return outcome.isLegacy;
+  }
+
+  private applySchemaLocked(
+    sql: string,
+    schemaDir: string,
+  ): { isLegacy: boolean; migratedFrom: number | null } {
     const applyEvalIfNeeded = (): void => {
       if (process.env['TMB_EVAL_MODE'] === '1') {
         const evalSql = readFileSync(join(schemaDir, 'schema-eval.sql'), 'utf8');
@@ -181,7 +220,7 @@ export class TrajectoryDB {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return isLegacy;
+      return { isLegacy, migratedFrom: null };
     }
 
     const versionRow = this.db
@@ -194,7 +233,7 @@ export class TrajectoryDB {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return false;
+      return { isLegacy: false, migratedFrom: null };
     }
 
     const storedVersion = versionRow.schema_version;
@@ -206,7 +245,7 @@ export class TrajectoryDB {
     }
 
     if (storedVersion < TARGET_SCHEMA_VERSION) {
-      backupDbBeforeMigration(this.db, this.dbPath, TARGET_SCHEMA_VERSION);
+      backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
       runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
       this.db.exec(sql);
       this.db
@@ -214,25 +253,24 @@ export class TrajectoryDB {
         .run(TARGET_SCHEMA_VERSION);
       applyEvalIfNeeded();
       verifySeed();
-      return false;
+      return { isLegacy: false, migratedFrom: storedVersion };
     }
 
     // storedVersion === TARGET_SCHEMA_VERSION — idempotent reapply.
     this.db.exec(sql);
     applyEvalIfNeeded();
     verifySeed();
-    return false;
+    return { isLegacy: false, migratedFrom: null };
   }
 
+  /**
+   * Runs inside applySchema's BEGIN IMMEDIATE, so the write lock is already
+   * held (acquired under busy_timeout) and the UPDATE cannot hit SQLITE_BUSY.
+   * Any failure is logged and fails the open rather than passing as success.
+   */
   private syncPluginVersion(): void {
     if (!this.pluginVersion) return;
-    try {
-      this.db
-        .prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`)
-        .run(this.pluginVersion);
-    } catch {
-      // Silent skip — leave existing value unchanged.
-    }
+    this.runVersionSync('plugin_meta', `UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`);
   }
 
   /**
@@ -245,12 +283,22 @@ export class TrajectoryDB {
    */
   private syncBuiltinVersions(): void {
     if (!this.pluginVersion) return;
+    this.runVersionSync('cheatcodes', `UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`);
+  }
+
+  private runVersionSync(target: string, sql: string): void {
     try {
-      this.db
-        .prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`)
-        .run(this.pluginVersion);
-    } catch {
-      // Silent skip — a DB without the cheatcodes table leaves builtins untouched.
+      this.db.prepare(sql).run(this.pluginVersion);
+    } catch (err) {
+      this.serverLog({
+        kind: 'plugin_version_sync_failed',
+        level: 'error',
+        db_path: this.dbPath,
+        target,
+        plugin_version: this.pluginVersion,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
     }
   }
 
@@ -340,25 +388,12 @@ export class TrajectoryDB {
   }
 
   /**
-   * Wraps `fn` in a SQLite transaction. better-sqlite3 had a built-in
-   * `db.transaction(fn)` helper; node:sqlite does not, so we issue
-   * BEGIN/COMMIT/ROLLBACK explicitly.
+   * Wraps `fn` in a BEGIN IMMEDIATE transaction (a SAVEPOINT when nested).
+   * node:sqlite has no `db.transaction(fn)` helper, so BEGIN/COMMIT/ROLLBACK
+   * are issued explicitly.
    */
   transaction<T>(fn: () => T): T {
-    this.db.exec('BEGIN');
-    try {
-      const result = fn();
-      this.db.exec('COMMIT');
-      return result;
-    } catch (err) {
-      try {
-        this.db.exec('ROLLBACK');
-      } catch {
-        // ROLLBACK can fail if the txn was already broken; surface the
-        // original error, not the rollback error.
-      }
-      throw err;
-    }
+    return withImmediateTransaction(this.db, fn);
   }
 
   get isOpen(): boolean {
@@ -469,8 +504,90 @@ export function resolveRepoByPath(db: TrajectoryDB, gitRoot: string): RepoRow | 
 }
 
 
+const transactionDepth = new WeakMap<DatabaseSync, number>();
+
+const SQLITE_BUSY = 5;
+const backoffCell = new Int32Array(new SharedArrayBuffer(4));
+
+function isBusyError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const errcode = (err as Error & { errcode?: unknown }).errcode;
+  return (
+    (typeof errcode === 'number' && (errcode & 0xff) === SQLITE_BUSY) ||
+    err.message.includes('database is locked')
+  );
+}
+
+/**
+ * Runs a statement that reads under SHARED and then needs EXCLUSIVE outside a
+ * transaction, such as `PRAGMA journal_mode = WAL` on a fresh file. When two
+ * connections both hold SHARED and want the upgrade, SQLite returns
+ * SQLITE_BUSY at once instead of calling the busy handler (waiting would
+ * deadlock), so busy_timeout never applies. Retries with a 5–50 ms jittered
+ * backoff until BUSY_TIMEOUT_MS runs out, then rethrows.
+ */
+function execRetryingLockUpgrade(db: DatabaseSync, sql: string): void {
+  const deadline = performance.now() + BUSY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      db.exec(sql);
+      return;
+    } catch (err) {
+      if (!isBusyError(err) || performance.now() >= deadline) throw err;
+      Atomics.wait(backoffCell, 0, 0, 5 + Math.random() * 45);
+    }
+  }
+}
+
+/**
+ * Opens a write transaction. BEGIN IMMEDIATE takes the write lock up front,
+ * where the busy handler waits for it; a deferred BEGIN that reads then writes
+ * fails SQLITE_BUSY on the lock upgrade without the busy handler ever running.
+ * A nested call opens a SAVEPOINT inside the outer transaction.
+ */
+function beginImmediate(db: DatabaseSync): void {
+  const depth = transactionDepth.get(db) ?? 0;
+  db.exec(depth === 0 ? 'BEGIN IMMEDIATE' : `SAVEPOINT tmb_tx_${depth}`);
+  transactionDepth.set(db, depth + 1);
+}
+
+function commitTransaction(db: DatabaseSync): void {
+  const depth = (transactionDepth.get(db) ?? 1) - 1;
+  db.exec(depth === 0 ? 'COMMIT' : `RELEASE tmb_tx_${depth}`);
+  transactionDepth.set(db, depth);
+}
+
+function rollbackTransaction(db: DatabaseSync): void {
+  const depth = (transactionDepth.get(db) ?? 1) - 1;
+  transactionDepth.set(db, depth);
+  db.exec(depth === 0 ? 'ROLLBACK' : `ROLLBACK TO tmb_tx_${depth}; RELEASE tmb_tx_${depth}`);
+}
+
+function withImmediateTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  beginImmediate(db);
+  try {
+    const result = fn();
+    commitTransaction(db);
+    return result;
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // ROLLBACK can fail if the txn was already broken; surface the
+      // original error, not the rollback error.
+    }
+    throw err;
+  }
+}
+
+/**
+ * Snapshots the DB with VACUUM INTO before a migration. VACUUM cannot run
+ * inside a transaction and the caller holds BEGIN IMMEDIATE, so the snapshot
+ * is taken on a second connection: under WAL it reads the last committed
+ * state (including -wal contents not yet checkpointed) while the migrating
+ * connection holds the write lock but has not written.
+ */
 function backupDbBeforeMigration(
-  db: DatabaseSync,
   dbPath: string,
   targetVersion: number,
 ): void {
@@ -484,23 +601,18 @@ function backupDbBeforeMigration(
     );
     if (existing) return;
   } catch {
-    // Directory not readable — fall through; copy will surface the real error.
-  }
-
-  // Flush WAL into the main DB file before copyFileSync. Without this the
-  // backup captures only the main .db (pending WAL writes are excluded), so
-  // a user restoring from .bak after a crashed migration would silently
-  // lose any pre-migration writes that hadn't checkpointed yet.
-  try {
-    db.prepare('PRAGMA wal_checkpoint(FULL)').get();
-  } catch {
-    // Checkpoint can fail if another connection holds the lock. Proceed
-    // with a best-effort backup rather than fail the boot.
+    // Directory not readable — fall through; VACUUM INTO will surface the real error.
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = `${dbPath}.pre-v${targetVersion}.${timestamp}.bak`;
-  copyFileSync(dbPath, backupPath);
+  const snapshot = new DatabaseSync(dbPath);
+  try {
+    snapshot.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    snapshot.prepare('VACUUM INTO ?').run(backupPath);
+  } finally {
+    snapshot.close();
+  }
 }
 
 function runMigrations(
@@ -630,6 +742,18 @@ function runMigrations(
   }
 }
 
+// Migrations run with foreign_keys OFF (see applySchema), so the
+// cheatcode_attachments ON DELETE CASCADE does not fire; delete the children
+// explicitly before a builtin cheatcode row is removed.
+function deleteBuiltinCheatcodeAttachments(db: DatabaseSync, name: string): void {
+  if (!tableExists(db, 'cheatcode_attachments')) return;
+  db.prepare(
+    // LINT-ALLOW: mirrors the ON DELETE CASCADE that foreign_keys OFF suppresses during migration (GH 1624).
+    `DELETE FROM cheatcode_attachments
+      WHERE cheatcode_id IN (SELECT id FROM cheatcodes WHERE name = ? AND origin = 'builtin')`,
+  ).run(name);
+}
+
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
     name: string;
@@ -686,7 +810,7 @@ function rebuildTable(
 }
 
 function migrateV8toV9(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'agent_runs')) {
       if (!hasColumn(db, 'agent_runs', 'cache_read_tokens')) {
@@ -722,10 +846,10 @@ function migrateV8toV9(db: DatabaseSync): void {
         );
       }
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -734,17 +858,17 @@ function migrateV8toV9(db: DatabaseSync): void {
 }
 
 function migrateV9toV10(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'tasks')) {
       if (!hasColumn(db, 'tasks', 'prompt_bearing')) {
         db.exec('ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0');
       }
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -753,7 +877,7 @@ function migrateV9toV10(db: DatabaseSync): void {
 }
 
 function migrateV10toV11(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'repos')) {
       if (!hasColumn(db, 'repos', 'target_branch')) {
@@ -766,10 +890,10 @@ function migrateV10toV11(db: DatabaseSync): void {
         db.exec('ALTER TABLE repos ADD COLUMN protected_branches TEXT');
       }
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -778,17 +902,17 @@ function migrateV10toV11(db: DatabaseSync): void {
 }
 
 function migrateV11toV12(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'agent_runs')) {
       if (!hasColumn(db, 'agent_runs', 'usage_baseline_json')) {
         db.exec('ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT');
       }
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -801,7 +925,7 @@ function migrateV11toV12(db: DatabaseSync): void {
 // rows keep that empty default, so the hooks skip enforcement for pre-migration
 // tasks. See docs/architecture/TYPED_RAILS.md.
 function migrateV12toV13(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'tasks')) {
       if (!hasColumn(db, 'tasks', 'files')) {
@@ -811,10 +935,10 @@ function migrateV12toV13(db: DatabaseSync): void {
         db.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
       }
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -828,7 +952,7 @@ function migrateV12toV13(db: DatabaseSync): void {
 // and would create them in the fresh-DB path too; creating them here keeps the
 // migration self-contained and idempotent regardless of starting shape.
 function migrateV13toV14(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS cheatcodes (
@@ -855,10 +979,10 @@ function migrateV13toV14(db: DatabaseSync): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)',
     );
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -873,15 +997,15 @@ function migrateV13toV14(db: DatabaseSync): void {
 // migrations and the column already matching name+default keeps both paths in
 // sync.
 function migrateV14toV15(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'cheatcodes') && !hasColumn(db, 'cheatcodes', 'scope')) {
       db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -890,7 +1014,7 @@ function migrateV14toV15(db: DatabaseSync): void {
 }
 
 function migrateV15toV16(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Drop the dead rules + rule_invocations registry (#97 schema audit):
     // honor-system-only, 0 rows everywhere, zero readers. Drop the child
@@ -899,10 +1023,10 @@ function migrateV15toV16(db: DatabaseSync): void {
     db.exec('DROP TABLE IF EXISTS rule_invocations');
     // LINT-ALLOW: v15→v16 migration retires the dead rules registry (#97 schema audit).
     db.exec('DROP TABLE IF EXISTS rules');
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -911,7 +1035,7 @@ function migrateV15toV16(db: DatabaseSync): void {
 }
 
 function migrateV16toV17(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Drop the dead commands catalog (#97 schema audit): seed-only, read only
     // by command_list; nothing routes on it (CC discovers commands/*.md
@@ -919,10 +1043,10 @@ function migrateV16toV17(db: DatabaseSync): void {
     // table references it.
     // LINT-ALLOW: v16→v17 migration retires the dead commands catalog (#97 schema audit).
     db.exec('DROP TABLE IF EXISTS commands');
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -952,7 +1076,7 @@ function migrateV17toV18(db: DatabaseSync): void {
   // re-checked afterward. After the rename skills(name) still holds every
   // referenced name, so the check passes.
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
     db.exec('DROP TABLE IF EXISTS skills_new');
@@ -983,10 +1107,10 @@ function migrateV17toV18(db: DatabaseSync): void {
         `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`,
       );
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -1018,7 +1142,7 @@ function migrateV18toV19(db: DatabaseSync): void {
   }
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // (1) Bring cheatcodes to the unified shape. Two pre-v19 starting points:
     //   - cheatcodes exists (pre-#101 install shape): rebuild it, mapping each
@@ -1125,10 +1249,10 @@ function migrateV18toV19(db: DatabaseSync): void {
         `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills→cheatcodes unification`,
       );
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -1149,8 +1273,9 @@ function migrateV19toV20(db: DatabaseSync): void {
   if (!tableExists(db, 'cheatcodes')) {
     return;
   }
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
+    deleteBuiltinCheatcodeAttachments(db, 'tmb_agent-creator');
     // LINT-ALLOW: v19→v20 removes the dangling tmb_agent-creator builtin row (dir deleted v0.7.0, no invocations reference it) (#102).
     db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
     db.exec(`
@@ -1168,10 +1293,10 @@ function migrateV19toV20(db: DatabaseSync): void {
         `migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`,
       );
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -1247,7 +1372,7 @@ function migrateV28toV29(db: DatabaseSync): void {
   const DISCUSSION_KINDS = "'intent','question','answer','decision','note','analysis'";
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'pr_review_runs')) {
       // LINT-ALLOW: v29 retires the validation_record audit sentinels; verdicts live in validation_attempts.
@@ -1474,10 +1599,10 @@ function migrateV28toV29(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -1541,7 +1666,7 @@ const TIMESTAMP_COLUMNS: Array<[string, string]> = [
 // on the old shape, so a re-run against a v30 shape is a no-op.
 function migrateV29toV30(db: DatabaseSync): void {
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     const probes: Array<[string, string, string]> = [
       ['agents', 'kind', "kind NOT IN ('backbone','consultant')"],
@@ -1742,10 +1867,10 @@ function migrateV29toV30(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -1765,7 +1890,7 @@ function migrateV29toV30(db: DatabaseSync): void {
 // against a v31 shape is a no-op.
 function migrateV30toV31(db: DatabaseSync): void {
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (
       tableExists(db, 'agent_runs') &&
@@ -1816,10 +1941,10 @@ function migrateV30toV31(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -1858,7 +1983,7 @@ function migrateV31toV32(db: DatabaseSync): void {
   if (!tableExists(db, 'cheatcodes')) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (!/UNIQUE\s*\(\s*name\s*,\s*kind\s*\)/.test(readTableSql(db, 'cheatcodes'))) {
       rebuildTable(
@@ -1958,10 +2083,10 @@ function migrateV31toV32(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -1992,7 +2117,7 @@ function migrateV32toV33(db: DatabaseSync): void {
   if (!tableExists(db, 'agent_runs')) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (!hasColumn(db, 'agent_runs', 'exit_reason') || !/'backfill'/.test(readTableSql(db, 'agent_runs'))) {
       rebuildTable(
@@ -2099,10 +2224,10 @@ function migrateV32toV33(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -2126,7 +2251,7 @@ function migrateV33toV34(db: DatabaseSync): void {
   if (!hasColumn(db, 'agents', 'scope') && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db, 'agents'))) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     const root = hasColumn(db, 'agents', 'scope')
       ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END"
@@ -2160,10 +2285,10 @@ function migrateV33toV34(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -2191,7 +2316,7 @@ function migrateV34toV35(db: DatabaseSync): void {
   if (!tableExists(db, 'repos')) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS repo_remotes (
@@ -2274,10 +2399,10 @@ function migrateV34toV35(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -2328,7 +2453,7 @@ function migrateV35toV36(db: DatabaseSync): void {
 // (nullable) records the effort a run was spawned at. Existing task rows take
 // 'medium'; existing runs stay NULL. A re-run is a no-op.
 function migrateV36toV37(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'effort')) {
       db.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
@@ -2336,10 +2461,10 @@ function migrateV36toV37(db: DatabaseSync): void {
     if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'effort')) {
       db.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -2357,7 +2482,7 @@ function migrateV37toV38(db: DatabaseSync): void {
   if (!tableExists(db, 'audit')) return;
   const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
   const placeholders = documented.map(() => '?').join(', ');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     db.prepare(
       `UPDATE audit
@@ -2367,10 +2492,10 @@ function migrateV37toV38(db: DatabaseSync): void {
               event_type = 'legacy_event'
         WHERE event_type NOT IN (${placeholders})`,
     ).run(...documented);
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -2391,7 +2516,7 @@ function migrateV38toV39(db: DatabaseSync): void {
           AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
   const taskId = (alias: string): string =>
     `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     db.exec(
       `UPDATE audit
@@ -2405,10 +2530,10 @@ function migrateV38toV39(db: DatabaseSync): void {
                          AND ${taskId('k')} IS ${taskId('audit')}
                          AND k.id < audit.id)`,
     );
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -2427,14 +2552,14 @@ function migrateV39toV40(db: DatabaseSync): void {
 // milestone sync follow. Each repo's primary remote starts as its only synced one.
 function migrateV40toV41(db: DatabaseSync): void {
   if (!tableExists(db, 'repo_remotes') || hasColumn(db, 'repo_remotes', 'sync')) return;
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     db.exec('ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))');
     db.exec('UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1');
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -2475,7 +2600,7 @@ function migrateV22toV23(db: DatabaseSync): void {
   };
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // (1) the repos remotes column — the per-repo remote list. scan_run populates
     // it from each repo's actual git remotes (#979); migrateV26toV27 drains any
@@ -2685,10 +2810,10 @@ function migrateV22toV23(db: DatabaseSync): void {
         `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`,
       );
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -2720,7 +2845,7 @@ function migrateV23toV24(db: DatabaseSync): void {
   if (!tableExists(db, 'cheatcodes')) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // (#150) Drop the scan-ingest garbage before the rebuild copies rows over.
     // Charset gate + header-word denylist. Builtins (origin='builtin') are never
@@ -2788,10 +2913,10 @@ function migrateV23toV24(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -2811,8 +2936,9 @@ function migrateV24toV25(db: DatabaseSync): void {
   if (!tableExists(db, 'cheatcodes')) {
     return;
   }
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
+    deleteBuiltinCheatcodeAttachments(db, 'tmb_push-triage');
     // LINT-ALLOW: v24→v25 removes the split tmb_push-triage builtin row, replaced by two rows below (#161).
     db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
     db.exec(`
@@ -2834,10 +2960,10 @@ function migrateV24toV25(db: DatabaseSync): void {
         `migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`,
       );
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -2855,7 +2981,7 @@ function migrateV25toV26(db: DatabaseSync): void {
   if (hasColumn(db, 'validation_attempts', 'mcp_available')) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // LINT-ALLOW: scratch table for the SQLite CHECK-rebuild swap (#157).
     db.exec('DROP TABLE IF EXISTS validation_attempts_new');
@@ -2894,10 +3020,10 @@ function migrateV25toV26(db: DatabaseSync): void {
       );
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -2916,7 +3042,7 @@ function migrateV25toV26(db: DatabaseSync): void {
 function migrateV26toV27(db: DatabaseSync): void {
   if (!tableExists(db, 'plugin_config')) return;
 
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'repos')) {
       const scalarFromConfig = (key: string): string | null => {
@@ -2968,10 +3094,10 @@ function migrateV26toV27(db: DatabaseSync): void {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')",
     ).run();
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // original error wins
     }
@@ -2980,7 +3106,7 @@ function migrateV26toV27(db: DatabaseSync): void {
 }
 
 function migrateV7toV8(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Drop the SQLite directories infrastructure — world model moved to
     // kuzu graph DB (ADR 0002). World-model data is rebuilt from /scan on
@@ -2997,10 +3123,10 @@ function migrateV7toV8(db: DatabaseSync): void {
     db.exec('DROP TABLE IF EXISTS directories_fts');
     // LINT-ALLOW: v7→v8 migration retires the SQLite world-model tables per ADR 0002 (graph DB substrate).
     db.exec('DROP TABLE IF EXISTS directories');
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -3009,7 +3135,7 @@ function migrateV7toV8(db: DatabaseSync): void {
 }
 
 function migrateV6toV7(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Drop file_registry infrastructure — superseded by the directory-level
     // world model (ADR 0001). Order matters: triggers reference the virtual
@@ -3025,10 +3151,10 @@ function migrateV6toV7(db: DatabaseSync): void {
     db.exec('DROP TABLE IF EXISTS file_registry_fts');
     // LINT-ALLOW: v6→v7 migration retires file_registry per ADR 0001 (world-model substrate replaces per-file index).
     db.exec('DROP TABLE IF EXISTS file_registry');
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -3037,7 +3163,7 @@ function migrateV6toV7(db: DatabaseSync): void {
 }
 
 function migrateV5toV6(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     db.exec(
       "CREATE TABLE IF NOT EXISTS directories (" +
@@ -3079,10 +3205,10 @@ function migrateV5toV6(db: DatabaseSync): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)',
     );
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -3091,7 +3217,7 @@ function migrateV5toV6(db: DatabaseSync): void {
 }
 
 function migrateV4toV5(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     if (tableExists(db, 'issues')) {
       if (!hasColumn(db, 'issues', 'gh_iid')) {
@@ -3107,10 +3233,10 @@ function migrateV4toV5(db: DatabaseSync): void {
         "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL",
       );
     }
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -3119,7 +3245,7 @@ function migrateV4toV5(db: DatabaseSync): void {
 }
 
 function migrateV3toV4(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Source-table guards. The synthetic legacy-v1 upgrade fixture only
     // seeds plugin_meta + plugin_config, so the FK references would fail
@@ -3171,10 +3297,10 @@ function migrateV3toV4(db: DatabaseSync): void {
       `);
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -3183,7 +3309,7 @@ function migrateV3toV4(db: DatabaseSync): void {
 }
 
 function migrateV2toV3(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Source-table guards. On a synthetic legacy-v1 upgrade path (only
     // plugin_meta + plugin_config seeded), the base content tables don't
@@ -3285,10 +3411,10 @@ function migrateV2toV3(db: DatabaseSync): void {
       db.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }
@@ -3297,7 +3423,7 @@ function migrateV2toV3(db: DatabaseSync): void {
 }
 
 function migrateV1toV2(db: DatabaseSync): void {
-  db.exec('BEGIN');
+  beginImmediate(db);
   try {
     // Translate the legacy onboarded marker forward before dropping its table.
     // Pre-#2876, `identity` was a single-row marker (presence == onboarded).
@@ -3509,10 +3635,10 @@ function migrateV1toV2(db: DatabaseSync): void {
       }
     }
 
-    db.exec('COMMIT');
+    commitTransaction(db);
   } catch (err) {
     try {
-      db.exec('ROLLBACK');
+      rollbackTransaction(db);
     } catch {
       // Original error wins.
     }

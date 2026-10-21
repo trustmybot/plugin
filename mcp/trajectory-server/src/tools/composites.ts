@@ -1917,9 +1917,9 @@ export function compositeTools(
         // Resolve the issue's repo (explicit arg, else the sole registered repo)
         // so the milestone default + FK insert bind to the right repo (#15).
         const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
-        const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
-        const milestone = milestoneResolution.milestone;
         const result = db.transaction(() => {
+          const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
+          const milestone = milestoneResolution.milestone;
           db.run(
             `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
              VALUES (?, '', 'open', ?, ?, ?, ?, ?)`,

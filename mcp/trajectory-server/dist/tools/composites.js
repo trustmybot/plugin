@@ -1597,9 +1597,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             // Resolve the issue's repo (explicit arg, else the sole registered repo)
             // so the milestone default + FK insert bind to the right repo (#15).
             const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
-            const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
-            const milestone = milestoneResolution.milestone;
             const result = db.transaction(() => {
+                const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
+                const milestone = milestoneResolution.milestone;
                 db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
              VALUES (?, '', 'open', ?, ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo, JSON.stringify(labels)]);
                 const row = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
