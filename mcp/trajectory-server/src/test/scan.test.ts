@@ -444,6 +444,42 @@ describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
     }
   });
 
+  it('warns no_sync_remote for a repo whose remotes are all unsynced while issue_sync is on, and not when it is off (GH 1601)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-warn-'));
+    try {
+      const root = mkRepo(ws, 'app', { 'README.md': 'a\n' });
+      execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: root });
+      mkRepo(ws, 'local', { 'README.md': 'l\n' });
+      const db = tempDB();
+      const tools = scanTools(db, null);
+      const noSpawn = (): { status: number; stdout: string; stderr: string } => ({ status: 1, stdout: '', stderr: '' });
+      const scan = async (): Promise<unknown> => {
+        const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws, _spawnFn: noSpawn });
+        assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+        return parse(r)['warnings'];
+      };
+      assert.deepEqual(await scan(), []);
+      setRemoteSync(db, 'app', []);
+
+      assert.deepEqual(await scan(), [], "issue_sync 'off'");
+      db.run(`DELETE FROM plugin_config WHERE key = 'issue_sync'`);
+      assert.deepEqual(await scan(), [], 'a missing issue_sync counts as off');
+
+      db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('issue_sync', '"auto"')`);
+      assert.deepEqual(await scan(), [{
+        repo: 'app',
+        reason: 'no_sync_remote',
+        hint: 'Issue and milestone sync reach no remote for this repo; re-run /onboard to choose the Remote.',
+      }]);
+
+      db.run(`UPDATE plugin_config SET value_json = '"off"' WHERE key = 'issue_sync'`);
+      assert.deepEqual(await scan(), []);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('scan still succeeds (remotes=[]) when a repo path is unreadable / not a git repo', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-unreadable-'));
     try {

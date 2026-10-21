@@ -494,6 +494,31 @@ function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
     }
     return candidates;
 }
+// Repos with remotes but no sync = 1 row while issue_sync is on: issue and
+// milestone sync reach nothing for them (GH 1601).
+function noSyncRemoteWarnings(db, repos) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+    let issueSync = 'off';
+    try {
+        if (row)
+            issueSync = String(JSON.parse(row.value_json));
+    }
+    catch {
+        issueSync = 'off';
+    }
+    if (issueSync === 'off')
+        return [];
+    return repos
+        .filter((repo) => {
+        const remotes = repoRemotes(db, repo);
+        return remotes.length > 0 && !remotes.some((r) => r.sync);
+    })
+        .map((repo) => ({
+        repo,
+        reason: 'no_sync_remote',
+        hint: 'Issue and milestone sync reach no remote for this repo; re-run /onboard to choose the Remote.',
+    }));
+}
 // Persist repos[] and the world model (wm_directories + wm_files), each in its
 // own transaction.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
@@ -714,7 +739,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
     const definitions = [
         {
             name: 'scan_run',
-            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
+            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. warnings (always an array, empty when none) lists repos whose remotes have no sync row while issue_sync is on (reason no_sync_remote). Hard timeout: 10 minutes.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -800,7 +825,9 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 // v<next-patch> where none exist. Never fails the scan.
                 const spawnFn = args['_spawnFn'];
                 const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
-                for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
+                const upsertedRepos = out.repos.filter((repo) => !renamedTo.has(repo.name));
+                const warnings = noSyncRemoteWarnings(db, upsertedRepos.map((r) => r.name));
+                for (const r of upsertedRepos) {
                     try {
                         syncRepoMilestones(db, r.name, r.path, spawnFn);
                     }
@@ -848,6 +875,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                     plugin_inventory: pluginInventory,
                     mcp_inventory: mcpInventory,
                     ...stats,
+                    warnings,
                 });
             }
             finally {

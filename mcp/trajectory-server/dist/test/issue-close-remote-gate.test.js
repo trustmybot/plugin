@@ -306,4 +306,23 @@ describe('remote close follows the onboard Remote choice (GH 1590)', () => {
         db.close();
     });
 });
+describe('remote close skip reasons (GH 1601)', () => {
+    it("an issue whose repo is unresolvable under explicit issue_sync='gh' reports repo_unresolved, not not_synced", async () => {
+        const db = tempDB();
+        registerRepo(db, ['github']);
+        db.run(`INSERT INTO repos (name, path) VALUES ('lib', '/tmp/lib')`);
+        setIssueSync(db, 'gh');
+        const issueId = seedLinkedIssue(db, { gh: 42 });
+        db.run(`UPDATE issues SET repo = NULL WHERE id = ?`, [issueId]);
+        const { spawned, _spawnFn } = makeSpawnFn();
+        const r = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issueId), _spawnFn });
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        assert.deepEqual(parse(r)['remote'], {
+            synced: false,
+            remotes: [{ remote_kind: 'github', remote_iid: 42, closed: false, skipped: 'repo_unresolved' }],
+        });
+        assert.equal(remoteCloses(spawned).length, 0);
+        db.close();
+    });
+});
 //# sourceMappingURL=issue-close-remote-gate.test.js.map

@@ -149,8 +149,9 @@ export function remotesView(
 
 // Replace a repo's remote set with `remotes`: rows for names no longer present
 // go, the rest are upserted keeping their created_at and sync, and the primary
-// is re-chosen. A new row starts at sync = is_primary. Runs inside the caller's
-// transaction.
+// is re-chosen. A new name whose URL matches a dropped row is a rename and
+// carries that row's sync; any other new row starts at sync = is_primary. Runs
+// inside the caller's transaction.
 export function upsertRepoRemotes(db: TrajectoryDB, repo: string, remotes: ReadonlyArray<RemoteInput>): void {
   const unique: RemoteInput[] = [];
   const seen = new Set<string>();
@@ -160,15 +161,29 @@ export function upsertRepoRemotes(db: TrajectoryDB, repo: string, remotes: Reado
     unique.push(r);
   }
   const primary = primaryIndex(unique);
-  db.run(
-    `DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`,
-    [repo, JSON.stringify(unique.map((r) => r.name))],
+  const names = JSON.stringify(unique.map((r) => r.name));
+  const existing = new Set(
+    db.all<{ name: string }>(`SELECT name FROM repo_remotes WHERE repo = ?`, [repo]).map((r) => r.name),
   );
+  const dropped = db.all<{ url: string; sync: number }>(
+    `SELECT url, sync FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?)) ORDER BY rowid`,
+    [repo, names],
+  );
+  db.run(`DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`, [repo, names]);
   unique.forEach((r, i) => {
+    const isPrimary = i === primary ? 1 : 0;
+    let sync = isPrimary;
+    if (!existing.has(r.name)) {
+      const renamedFrom = dropped.findIndex((d) => d.url === r.url);
+      if (renamedFrom >= 0) {
+        sync = dropped[renamedFrom]!.sync;
+        dropped.splice(renamedFrom, 1);
+      }
+    }
     db.run(
       `INSERT INTO repo_remotes (repo, name, provider, url, is_primary, sync) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
-      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0, i === primary ? 1 : 0],
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, isPrimary, sync],
     );
   });
 }

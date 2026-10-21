@@ -1,6 +1,6 @@
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { projectRootFromDbPath } from './containment.js';
-import { syncRemotes } from '../repos/remotes.js';
+import { repoRemotes, syncRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
@@ -232,6 +232,18 @@ function syncedBackends(backend, ctx) {
     const wanted = backend === 'both' ? ['gh', 'glab'] : [backend];
     return wanted.filter((b) => ctx.remoteFor(b) !== null);
 }
+const CLI_PROVIDER = { gh: 'github', glab: 'gitlab' };
+const CLI_LABEL = { gh: 'GitHub', glab: 'GitLab' };
+// The backends among `clis` the repo has a remote for that is not a sync row:
+// the provider exists but was not the Remote chosen at onboard.
+function unsyncedBackends(db, ctx, clis) {
+    const providers = new Set(repoRemotes(db, ctx.repoName).map((r) => r.provider));
+    return clis.filter((c) => ctx.remoteFor(c) === null && providers.has(CLI_PROVIDER[c]));
+}
+function notSyncedHint(clis) {
+    const names = clis.map((c) => CLI_LABEL[c]).join(' and ');
+    return `The ${names} remote is not the Remote chosen at onboard; re-run /onboard to change the Remote choice.`;
+}
 // Remote adoption (#36). Resolve the backend for a remote_iid (explicit arg, or
 // the repo's sole configured remote) and verify the remote issue exists via
 // gh/glab before any local link is persisted. Shared by issue_create's adopt-
@@ -278,7 +290,8 @@ async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, 
 // responsibility — this is only the remote-sync half, and every remote close
 // goes through `remoteSyncGate`: a gated-off close spawns nothing and leaves one
 // `issue_close_remote_skipped` audit row. A linked remote whose provider has no
-// sync row is never spawned and reports `skipped: 'not_synced'`; `synced` means
+// sync row is never spawned and reports `skipped: 'not_synced'`, or
+// `skipped: 'repo_unresolved'` when the issue's repo resolves to no repos row; `synced` means
 // at least one synced target and every one of them closed. Sync failures are
 // logged, never thrown: a remote hiccup must not fail the local close. Shared
 // by `issue_close`, `bro_atomic_close` and `task_recover`.
@@ -320,7 +333,11 @@ export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
     }
     for (const target of targets) {
         const closeRemote = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab') ?? null;
-        if (closeCtx === null || closeRemote === null) {
+        if (closeCtx === null) {
+            target.skipped = 'repo_unresolved';
+            continue;
+        }
+        if (closeRemote === null) {
             target.skipped = 'not_synced';
             continue;
         }
@@ -688,7 +705,17 @@ export function issueTools(db, dbPath = '', options = {}) {
                         const glRemoteUrl = glRemote?.url ?? null;
                         const ghBlank = !ghRemoteUrl;
                         const glBlank = !glRemoteUrl;
-                        if (ghBlank && glBlank) {
+                        const unsynced = ghBlank && glBlank ? unsyncedBackends(db, syncCtx, ['gh', 'glab']) : [];
+                        if (ghBlank && glBlank && unsynced.length > 0) {
+                            serverLog({ event: 'issue_sync_skip', reason: 'not_synced', issueId, backend });
+                            syncDiagnostic = {
+                                sync_skipped: true,
+                                reason: 'not_synced',
+                                backend,
+                                hint: notSyncedHint(unsynced),
+                            };
+                        }
+                        else if (ghBlank && glBlank) {
                             serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
                             syncDiagnostic = {
                                 sync_skipped: true,
@@ -794,7 +821,16 @@ export function issueTools(db, dbPath = '', options = {}) {
                     else {
                         const remote = syncCtx.remoteFor(createBackend);
                         const remoteUrl = remote?.url ?? null;
-                        if (!remoteUrl) {
+                        if (!remoteUrl && unsyncedBackends(db, syncCtx, [createBackend]).length > 0) {
+                            serverLog({ event: 'issue_sync_skip', reason: 'not_synced', issueId, backend: createBackend });
+                            syncDiagnostic = {
+                                sync_skipped: true,
+                                reason: 'not_synced',
+                                backend: createBackend,
+                                hint: notSyncedHint([createBackend]),
+                            };
+                        }
+                        else if (!remoteUrl) {
                             serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend: createBackend });
                             syncDiagnostic = {
                                 sync_skipped: true,
@@ -1205,7 +1241,12 @@ export function issueTools(db, dbPath = '', options = {}) {
                             targets.push({ cli: 'gh', iid: row.gh_iid });
                         if (reachable.includes('glab') && row.gl_iid != null)
                             targets.push({ cli: 'glab', iid: row.gl_iid });
-                        if (targets.length === 0) {
+                        const wanted = backend === 'both' ? ['gh', 'glab'] : [backend];
+                        const unreachable = wanted.filter((cli) => !reachable.includes(cli) && (cli === 'gh' ? row.gh_iid : row.gl_iid) != null);
+                        if (targets.length === 0 && unreachable.length > 0) {
+                            syncDiagnostic = { sync_skipped: true, reason: 'not_synced', backend, hint: notSyncedHint(unreachable) };
+                        }
+                        else if (targets.length === 0) {
                             syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
                         }
                         else {
