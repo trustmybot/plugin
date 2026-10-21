@@ -4,11 +4,11 @@ type Row = Record<string, unknown>;
 
 const RECENT_LIMIT = 200;
 
-function all(db: DatabaseSync, sql: string, ...params: Array<string | number>): Row[] {
+function all(db: DatabaseSync, sql: string, ...params: Array<string | number | null>): Row[] {
   return db.prepare(sql).all(...params) as Row[];
 }
 
-function one(db: DatabaseSync, sql: string, ...params: Array<string | number>): Row | undefined {
+function one(db: DatabaseSync, sql: string, ...params: Array<string | number | null>): Row | undefined {
   return db.prepare(sql).get(...params) as Row | undefined;
 }
 
@@ -54,11 +54,43 @@ export function issues(db: DatabaseSync): Row[] {
   );
 }
 
+export function schemaVersion(db: DatabaseSync): number | null {
+  const row = one(db, `SELECT schema_version FROM plugin_meta WHERE id = 1`);
+  return row ? Number(row['schema_version']) : null;
+}
+
+export function issueUpdatedAt(db: DatabaseSync, id: number): string | null {
+  const row = one(db, `SELECT updated_at FROM issues WHERE id = ?`, id);
+  return row ? String(row['updated_at']) : null;
+}
+
+function configStringList(db: DatabaseSync, key: string): string[] | null {
+  const row = one(db, `SELECT value_json FROM plugin_config WHERE key = ?`, key);
+  if (!row) return null;
+  try {
+    const parsed: unknown = JSON.parse(String(row['value_json']));
+    return Array.isArray(parsed) && parsed.every((v) => typeof v === 'string') ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function issueDetail(db: DatabaseSync, id: number): Row | null {
   const issue = one(db, `SELECT * FROM issues WHERE id = ?`, id);
   if (!issue) return null;
+  const repo = issue['repo'] === null ? null : String(issue['repo']);
   return {
     issue,
+    label_taxonomy: {
+      classification: configStringList(db, 'issue_classification_labels'),
+      priority: configStringList(db, 'issue_priority_labels'),
+    },
+    milestones: all(
+      db,
+      `SELECT DISTINCT name FROM milestones WHERE repo IS ? OR ? IS NULL ORDER BY name`,
+      repo,
+      repo,
+    ).map((r) => String(r['name'])),
     discussions: all(
       db,
       `SELECT id, author, kind, body, created_at FROM discussions

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 export type Row = Record<string, unknown>;
 
@@ -14,6 +14,8 @@ export interface IssueDetail {
   issue: Row;
   discussions: Row[];
   tasks: Row[];
+  label_taxonomy: { classification: string[] | null; priority: string[] | null };
+  milestones: string[];
 }
 
 export interface Gates {
@@ -69,4 +71,36 @@ export function useLiveRefresh(): void {
     }
     seen.current = data.data_version;
   }, [data, client]);
+}
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: Row,
+  ) {
+    super(typeof body['message'] === 'string' ? body['message'] : String(body['error'] ?? `HTTP ${status}`));
+  }
+}
+
+const token = () => document.querySelector<HTMLMetaElement>('meta[name="tmb-token"]')?.content ?? '';
+
+async function postJson(path: string, body: Row): Promise<Row> {
+  const res = await fetch(`/api/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-tmb-token': token() },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Row;
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data;
+}
+
+export type IssueAction = 'edit' | 'comment' | 'close';
+
+export function useIssueWrite(id: string, action: IssueAction) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Row) => postJson(`issues/${id}/${action}`, body),
+    onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== '__version' }),
+  });
 }
