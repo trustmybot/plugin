@@ -191,7 +191,7 @@ proc_cmd()  { ps -o command= -p "$1" 2>/dev/null || printf ''; }
 is_cc_cmd() {
   local word words
   read -ra words <<<"$1"
-  for word in "${words[@]}"; do
+  for word in ${words[@]+"${words[@]}"}; do
     case "$word" in
       claude|claude.exe|*/claude|*/claude.exe|*/claude/versions/*|*/claude-code/cli.js|*/claude-code/cli.mjs) return 0 ;;
     esac

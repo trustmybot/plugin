@@ -10,13 +10,20 @@
 # pass `-cmd ".timeout ${TMB_DB_WRITE_TIMEOUT_MS:-1500}"` yourself.
 #
 # Scanned: *.sh / *.bash / extensionless files under scripts/, skills/, hooks/.
-# An invocation is `sqlite3` (or a path ending in /sqlite3) in command position
-# (line start, after `$(`, `(`, `{`, a backtick, `;` `&` `|` `!`, a shell keyword, or
-# an exec/command/env/nohup/time/timeout/xargs wrapper) followed by an argument,
-# or `sqlite3` followed by an option anywhere (`set -- sqlite3 -readonly ...`).
-# Its text runs from that line through open double quotes, `\` continuations
-# or a heredoc body; it passes when that text holds `.timeout` or
-# `busy_timeout`. Comment lines are skipped.
+# Each file is lexed as shell: `\` continuations joined, quotes, `$( )`,
+# backticks, `${ }`, process substitution and heredocs honoured, and the text
+# split into simple commands at unquoted `;` `&` `|` `(` `)` and newlines, so
+# a case arm `a)`, `{`, `then`, `do`, `else`, `!`, `&&`, `||`, `|`, `$(` and a
+# backtick all start a command. A command invokes sqlite3 when, after leading
+# keywords, VAR=x assignments and sudo / nice / env / command / exec / time /
+# timeout N / nohup / xargs wrappers (with their options), its name is
+# `sqlite3`, a path ending in /sqlite3 (quoted or not), or `$V` / `${V}` /
+# `${V:-sqlite3}` for a variable the file assigns sqlite3 (or
+# `$(command -v sqlite3)`). `sqlite3` followed by an option anywhere in a
+# command (`set -- sqlite3 -readonly ...`) counts too. The invocation passes
+# when its own arguments, redirections or heredoc body (after the sqlite3
+# word, up to the end of that command) hold `.timeout` or `busy_timeout`.
+# Comments, quoted messages and heredoc text are data, never commands.
 #
 # Allowlist: tests/l1-lint/sqlite3-needs-timeout.allowlist —
 # <path><TAB><substring of the line><TAB><reason>, only for a DB that is not
@@ -36,72 +43,345 @@ FIXTURES="tests/l1-lint/fixtures/sqlite3-needs-timeout"
 
 # scan <allowlist> <file>... — prints file:line: <line> per violation; exits 1 on any.
 scan() {
-  perl -e '
-  use strict; use warnings;
-  my ($allowlist, @files) = @ARGV;
-  my @allow;
-  my $bad = 0;
-  if (open my $al, "<", $allowlist) {
-    while (<$al>) {
-      chomp;
-      next if /^\s*(#|$)/;
-      my ($path, $sub, $reason) = split /\t/, $_, 3;
-      if (!defined $sub || !length $sub || !defined $reason || $reason !~ /\S/) {
-        print "ALLOWLIST $allowlist:$.: needs <path><TAB><substring><TAB><reason>\n";
-        $bad = 1;
+  perl - "$@" <<'PERL'
+use strict; use warnings;
+
+my ($allowlist, @files) = @ARGV;
+my @allow;
+my $bad = 0;
+if (open my $al, "<", $allowlist) {
+  while (<$al>) {
+    chomp;
+    next if /^\s*(#|$)/;
+    my ($path, $sub, $reason) = split /\t/, $_, 3;
+    if (!defined $sub || !length $sub || !defined $reason || $reason !~ /\S/) {
+      print "ALLOWLIST $allowlist:$.: needs <path><TAB><substring><TAB><reason>\n";
+      $bad = 1;
+      next;
+    }
+    push @allow, { path => $path, sub => $sub, used => 0 };
+  }
+}
+
+our ($s, $i, $n, @cmds, @pending, $lost);
+
+sub newcmd { my $c = { words => [], extra => [] }; push @cmds, $c; return $c }
+
+sub skipws {
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq " " || $c eq "\t") { $i++; next }
+    if ($c eq "\\" && substr($s, $i + 1, 1) eq "\n") { $i += 2; next }
+    last;
+  }
+}
+
+sub read_heredocs {
+  while (my $h = shift @pending) {
+    my $body = "";
+    while ($i < $n) {
+      my $e = index($s, "\n", $i);
+      $e = $n if $e < 0;
+      my $line = substr($s, $i, $e - $i);
+      $i = $e + 1;
+      (my $t = $line) =~ s/^\s+|\s+$//g;
+      last if $t eq $h->{delim};
+      $body .= "$line\n";
+    }
+    $i = $n if $i > $n;
+    push @{ $h->{cmd}{extra} }, $body;
+  }
+}
+
+sub arith {
+  my $d = shift;
+  while ($i < $n && $d > 0) {
+    my $c = substr($s, $i++, 1);
+    $d++ if $c eq "(";
+    $d-- if $c eq ")";
+  }
+  $lost ||= "unterminated \$((" if $d > 0;
+}
+
+sub dollar_paren {
+  if (substr($s, $i, 3) eq "\$((") { $i += 3; arith(2); return }
+  $i += 2;
+  parse(")");
+}
+
+sub squote {
+  my $e = index($s, "'", $i + 1);
+  if ($e < 0) { $lost ||= "unterminated '"; $e = $n }
+  my $v = substr($s, $i + 1, $e - $i - 1);
+  $i = $e + 1;
+  return $v;
+}
+
+sub dquote {
+  my ($vr) = @_;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq "\\") {
+      my $d = substr($s, $i + 1, 1);
+      $$vr .= $d eq "\n" ? "" : $d =~ /[\$`"\\]/ ? $d : "\\$d";
+      $i += 2;
+      next;
+    }
+    if ($c eq "\"") { $i++; return }
+    if ($c eq "`") { my $st = $i++; parse("`"); $$vr .= substr($s, $st, $i - $st); next }
+    if ($c eq "\$" && substr($s, $i + 1, 1) eq "(") { my $st = $i; dollar_paren(); $$vr .= substr($s, $st, $i - $st); next }
+    if ($c eq "\$" && substr($s, $i + 1, 1) eq "{") { my $st = $i; $i += 2; brace(1); $$vr .= substr($s, $st, $i - $st); next }
+    $$vr .= $c;
+    $i++;
+  }
+  $lost ||= "unterminated \"";
+}
+
+sub brace {
+  my ($inq) = @_;
+  my $d = 1;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq "\\") { $i += 2; next }
+    if ($c eq "}") { $i++; return if --$d == 0; next }
+    if ($c eq "\$" && substr($s, $i + 1, 1) eq "{") { $i += 2; $d++; next }
+    if ($c eq "\$" && substr($s, $i + 1, 1) eq "(") { dollar_paren(); next }
+    if ($c eq "\"") { $i++; my $junk = ""; dquote(\$junk); next }
+    if ($c eq "'" && !$inq) { squote(); next }
+    if ($c eq "`") { $i++; parse("`"); next }
+    $i++;
+  }
+  $lost ||= "unterminated \${";
+}
+
+sub lex_word {
+  my ($term) = @_;
+  my $start = $i;
+  my $val = "";
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq "\\") {
+      my $d = substr($s, $i + 1, 1);
+      $i += 2;
+      $val .= $d unless $d eq "\n";
+      next;
+    }
+    last if $c =~ /[ \t\r\n;&|<>()]/;
+    if ($c eq "`") {
+      last if $term eq "`";
+      my $st = $i++;
+      parse("`");
+      $val .= substr($s, $st, $i - $st);
+      next;
+    }
+    if ($c eq "'") { $val .= squote(); next }
+    if ($c eq "\"") { $i++; dquote(\$val); next }
+    if ($c eq "\$") {
+      my $d = substr($s, $i + 1, 1);
+      if ($d eq "'") {
+        $i += 2;
+        while ($i < $n) {
+          my $x = substr($s, $i, 1);
+          if ($x eq "\\") { $val .= substr($s, $i + 1, 1); $i += 2; next }
+          last if $x eq "'";
+          $val .= $x;
+          $i++;
+        }
+        $i++;
         next;
       }
-      push @allow, { path => $path, sub => $sub, used => 0 };
+      if ($d eq "(") { my $st = $i; dollar_paren(); $val .= substr($s, $st, $i - $st); next }
+      if ($d eq "{") { my $st = $i; $i += 2; brace(0); $val .= substr($s, $st, $i - $st); next }
+    }
+    if ($c eq "=" && substr($s, $i + 1, 1) eq "(" && $val =~ /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?$/) {
+      my $st = $i;
+      $i += 2;
+      while (1) {
+        while ($i < $n && substr($s, $i, 1) =~ /[ \t\r\n]/) { $i++ }
+        if ($i < $n && substr($s, $i, 1) eq "#") { my $e = index($s, "\n", $i); $i = $e < 0 ? $n : $e; next }
+        if ($i >= $n) { $lost ||= "unterminated array"; last }
+        if (substr($s, $i, 1) eq ")") { $i++; last }
+        my $w = lex_word("");
+        $i++ unless defined $w;
+      }
+      $val .= substr($s, $st, $i - $st);
+      next;
+    }
+    $val .= $c;
+    $i++;
+  }
+  return undef if $i == $start;
+  return { raw => substr($s, $start, $i - $start), val => $val, pos => $start };
+}
+
+sub redirect {
+  my ($cmd) = @_;
+  if (substr($s, $i, 2) =~ /^[<>]\(/) {
+    my $st = $i;
+    $i += 2;
+    parse(")");
+    push @{ $cmd->{words} }, { raw => substr($s, $st, $i - $st), val => "", pos => $st };
+    return;
+  }
+  if (substr($s, $i, 3) eq "<<<") {
+    $i += 3;
+    skipws();
+    my $w = lex_word("");
+    push @{ $cmd->{extra} }, $w->{raw} if $w;
+    return;
+  }
+  if (substr($s, $i, 2) eq "<<") {
+    $i += 2;
+    $i++ if substr($s, $i, 1) eq "-";
+    skipws();
+    my $w = lex_word("");
+    push @pending, { delim => $w->{val}, cmd => $cmd } if $w && $w->{val} =~ /^[A-Za-z_][\w.-]*$/;
+    return;
+  }
+  $i++ while $i < $n && substr($s, $i, 1) =~ /[<>&|]/;
+  $i++ if substr($s, $i, 1) eq "-";
+  skipws();
+  my $w = lex_word("");
+  push @{ $cmd->{extra} }, $w->{raw} if $w;
+}
+
+sub parse {
+  my ($term) = @_;
+  my $cmd = newcmd();
+  my ($depth, $case) = (0, 0);
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq "\\" && substr($s, $i + 1, 1) eq "\n") { $i += 2; next }
+    if ($c eq " " || $c eq "\t" || $c eq "\r") { $i++; next }
+    if ($c eq "\n") { $i++; $cmd = newcmd(); read_heredocs() if @pending; next }
+    if ($c eq "#") { my $e = index($s, "\n", $i); $i = $e < 0 ? $n : $e; next }
+    if ($c eq "`" && $term eq "`") { $i++; return }
+    if ($c eq ")") {
+      $i++;
+      if ($depth > 0) { $depth-- }
+      elsif ($term eq ")" && !$case) { return }
+      $cmd = newcmd();
+      next;
+    }
+    if ($c eq "(") { $i++; $depth++; $cmd = newcmd(); next }
+    if ($c eq "&" && substr($s, $i + 1, 1) eq ">") { $i++; redirect($cmd); next }
+    if ($c =~ /[;&|]/) { $i++; $cmd = newcmd(); next }
+    if ($c eq "<" || $c eq ">") { redirect($cmd); next }
+    my $w = lex_word($term);
+    if (!defined $w) { $i++; next }
+    next if $w->{raw} =~ /^\d+$/ && substr($s, $i, 1) =~ /[<>]/;
+    if (!@{ $cmd->{words} }) {
+      $case++ if $w->{val} eq "case";
+      $case-- if $w->{val} eq "esac" && $case;
+    }
+    push @{ $cmd->{words} }, $w;
+  }
+  $lost ||= "unterminated " . ($term eq "`" ? "backtick" : "\$( or (") if $term ne "";
+}
+
+sub cmd_name {
+  my ($w) = @_;
+  my ($k, $m) = (0, scalar @$w);
+  my $opts = sub {
+    my ($witharg) = @_;
+    while ($k < $m && $w->[$k]{val} =~ /^-/) {
+      my $o = $w->[$k++]{val};
+      $k++ if $o =~ $witharg;
+    }
+  };
+  while ($k < $m) {
+    my $v = $w->[$k]{val};
+    if ($v =~ /^(?:if|then|elif|else|do|while|until|!|\{|nohup)$/
+        || $w->[$k]{raw} =~ /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=/) { $k++; next }
+    if ($v eq "time")    { $k++; $opts->(qr/^$/); next }
+    if ($v eq "exec")    { $k++; $opts->(qr/^-a$/); next }
+    if ($v eq "nice")    { $k++; $opts->(qr/^-n$/); next }
+    if ($v eq "sudo")    { $k++; $opts->(qr/^-[ugCDprtUT]$/); next }
+    if ($v eq "xargs")   { $k++; $opts->(qr/^-[IdEnLPsa]$/); next }
+    if ($v eq "timeout") { $k++; $opts->(qr/^-[sk]$/); $k++; next }
+    if ($v eq "command") {
+      last if $k + 1 < $m && $w->[$k + 1]{val} =~ /^-[vV]/;
+      $k++;
+      $opts->(qr/^$/);
+      next;
+    }
+    if ($v eq "env") {
+      $k++;
+      while ($k < $m) {
+        my $o = $w->[$k]{val};
+        if ($o =~ /^-[uCS]$/) { $k += 2; next }
+        if ($o =~ /^-/ || $w->[$k]{raw} =~ /^[A-Za-z_]\w*=/) { $k++; next }
+        last;
+      }
+      next;
+    }
+    last;
+  }
+  return $k;
+}
+
+my $SQLITE = qr{^(?:\S*/)?sqlite3$};
+my $SQLVAL = qr{^(?:(?:\S*/)?sqlite3|\$\((?:command[ \t]+-v|which|type[ \t]+-P)[ \t]+sqlite3\))$};
+
+sub is_sqlite {
+  my ($w, $vars) = @_;
+  return 1 if $w->{val} =~ $SQLITE;
+  if ($w->{raw} =~ /^"?\$\{?([A-Za-z_]\w*)(?::?-([^}]*))?\}?"?$/) {
+    return 1 if $vars->{$1} || (defined $2 && $2 =~ $SQLITE);
+  }
+  return 0;
+}
+
+for my $file (@files) {
+  open my $fh, "<", $file or next;
+  local $/;
+  $s = <$fh>;
+  close $fh;
+  ($i, $n, @cmds, @pending, $lost) = (0, length $s);
+  parse("") while $i < $n;
+  if ($lost) {
+    print "$file: the lint could not lex this file ($lost); fix the file or teach the lexer the construct\n";
+    $bad = 1;
+    next;
+  }
+  my %vars;
+  for my $c (@cmds) {
+    for my $w (@{ $c->{words} }) {
+      my ($name, $value) = $w->{val} =~ /^([A-Za-z_]\w*)=(.*)$/s or next;
+      $vars{$name} = 1 if $value =~ $SQLVAL;
     }
   }
-  my $arg = qr{(?=[ \t]+(?:[-"\x27\$<\\/~.:]|$)|[ \t]*$)};
-  my $bin = qr{(?:[^\s;&|()`"\x27]*/)?sqlite3};
-  my $wrap = qr{(?:(?:exec|command|nohup|time|env|xargs|timeout[ \t]+\S+)[ \t]+)};
-  my $assign = qr{(?:[A-Za-z_]\w*=\S*[ \t]+)};
-  my $cmdpos = qr{(?:^|[;&|(\{`]|\b(?:if|elif|then|do|else|while|until)|!)[ \t]*$assign*$wrap?$assign*$bin$arg};
-  my $optpos = qr{(?<![\w.-])$bin[ \t]+-[A-Za-z]};
-  for my $file (@files) {
-    open my $fh, "<", $file or next;
-    my @lines = <$fh>;
-    close $fh;
-    chomp @lines;
-    for my $i (0 .. $#lines) {
-      my $l = $lines[$i];
-      next if $l =~ /^\s*#/;
-      (my $probe = $l) =~ s/\b(?:command[ \t]+-v|type|which|hash)[ \t]+sqlite3\b//g;
-      next unless $probe =~ $cmdpos || $probe =~ $optpos;
-      my $buf = $l;
-      if ($l =~ /<<-?[ \t]*["\x27]?([A-Za-z_]\w*)/) {
-        my $delim = $1;
-        for (my $j = $i + 1; $j <= $#lines; $j++) {
-          (my $t = $lines[$j]) =~ s/^\s+|\s+$//g;
-          last if $t eq $delim;
-          $buf .= "\n$lines[$j]";
-        }
-      } else {
-        my $q = sub { my $s = shift; $s =~ s/\\"//g; return ($s =~ tr/"//) };
-        my $open = $q->($l) % 2;
-        my $cont = $l =~ /\\\s*$/;
-        for (my $j = $i + 1; ($open || $cont) && $j <= $#lines; $j++) {
-          $buf .= "\n$lines[$j]";
-          $open = !$open if $q->($lines[$j]) % 2;
-          $cont = $lines[$j] =~ /\\\s*$/;
-        }
-      }
-      next if $buf =~ /\.timeout\b|busy_timeout/;
+  my @lines = split /\n/, $s, -1;
+  my %seen;
+  for my $c (@cmds) {
+    my $w = $c->{words};
+    next unless @$w;
+    my $k = cmd_name($w);
+    my @at;
+    push @at, $k if $k < @$w && is_sqlite($w->[$k], \%vars);
+    for my $j ($k + 1 .. $#$w - 1) {
+      push @at, $j if $w->[$j]{val} =~ $SQLITE && $w->[$j + 1]{val} =~ /^-/;
+    }
+    for my $j (@at) {
+      my $own = join "\n", (map { $_->{raw} } @$w[$j + 1 .. $#$w]), @{ $c->{extra} };
+      next if $own =~ /\.timeout\b|busy_timeout/;
+      my $ln = 1 + (substr($s, 0, $w->[$j]{pos}) =~ tr/\n//);
+      next if $seen{$ln}++;
+      my $l = $lines[$ln - 1];
       my ($hit) = grep { $_->{path} eq $file && index($l, $_->{sub}) >= 0 } @allow;
       if ($hit) { $hit->{used} = 1; next }
       (my $t = $l) =~ s/^\s+//;
-      printf "%s:%d: %s\n", $file, $i + 1, $t;
+      printf "%s:%d: %s\n", $file, $ln, $t;
       $bad = 1;
     }
   }
-  for (grep { !$_->{used} } @allow) {
-    print "ALLOWLIST $allowlist: stale entry (no hit): $_->{path}\t$_->{sub}\n";
-    $bad = 1;
-  }
-  exit $bad;
-' "$@"
+}
+for (grep { !$_->{used} } @allow) {
+  print "ALLOWLIST $allowlist: stale entry (no hit): $_->{path}\t$_->{sub}\n";
+  $bad = 1;
+}
+exit $bad;
+PERL
 }
 
 # Line numbers of the `# VIOLATION` markers in bad.txt; a marker on a `\`

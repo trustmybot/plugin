@@ -38,11 +38,13 @@ _tmb_require_db() {
 
 # _tmb_fallback_role <agent>
 # The role the server's normalizeAgent (middleware/agent-scope.ts) gives
-# <agent>: bro, swe or pr-reviewer as named; any other slug matching
-# ^[a-z][a-z0-9_-]*$ is a consultant; anything else is unknown.
+# <agent>, lowercased with a leading `tmb:` (the namespace a Claude Code
+# subagent_type carries) dropped: bro, swe or pr-reviewer as named; any other
+# slug matching ^[a-z][a-z0-9_-]*$ is a consultant; anything else is unknown.
 _tmb_fallback_role() {
   local a
   a=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  a="${a#tmb:}"
   case "$a" in
     bro|swe|pr-reviewer) printf '%s' "$a" ;;
     *) if [[ "$a" =~ ^[a-z][a-z0-9_-]*$ ]]; then printf consultant; else printf unknown; fi ;;

@@ -17,3 +17,42 @@ sqlite3 "$DB" "UPDATE tasks # VIOLATION
   WHERE id = 1;"
 sqlite3 -batch \
   "$DB" "SELECT 1" # VIOLATION
+S=sqlite3; $S "$DB" "SELECT 1" # VIOLATION
+SQLITE=/usr/bin/sqlite3
+out=$("$SQLITE" -readonly "$DB" "SELECT 1") # VIOLATION
+Q=$(command -v sqlite3)
+${Q} "$DB" .tables # VIOLATION
+"${SQLITE_BIN:-sqlite3}" "$DB" "SELECT 1" # VIOLATION
+"sqlite3" "$DB" "SELECT 1" # VIOLATION
+'sqlite3' "$DB" "SELECT 1" # VIOLATION
+case "$mode" in
+  ro) sqlite3 -readonly "$DB" "SELECT 1" ;; # VIOLATION
+  (rw) sqlite3 "$DB" "DELETE FROM tasks" ;; # VIOLATION
+esac
+case "$1" in read) n=$(sqlite3 "$DB" "SELECT 1");; esac # VIOLATION
+{ sqlite3 "$DB" "SELECT 1"; } # VIOLATION
+if [ -f "$DB" ]; then sqlite3 "$DB" "SELECT 1" # VIOLATION
+else sqlite3 "$DB" "SELECT 2" # VIOLATION
+fi
+while read -r id; do sqlite3 "$DB" "DELETE FROM tasks WHERE id = $id"; done < ids # VIOLATION
+! sqlite3 "$DB" "PRAGMA quick_check" >/dev/null && exit 1 # VIOLATION
+true || sqlite3 "$DB" "SELECT 1" # VIOLATION
+cd "$dir"; sqlite3 "$DB" "SELECT 1" # VIOLATION
+n=`sqlite3 "$DB" "SELECT 1"` # VIOLATION
+sqlite3 trajectory.db "SELECT 1" # VIOLATION
+sqlite3 trajectory.db < schema.sql # VIOLATION
+sudo -u tmb sqlite3 "$DB" "SELECT 1" # VIOLATION
+nice -n 10 sqlite3 "$DB" "SELECT 1" # VIOLATION
+env -i PATH="$PATH" TMB=1 sqlite3 "$DB" "SELECT 1" # VIOLATION
+command sqlite3 "$DB" "SELECT 1" # VIOLATION
+exec sqlite3 "$DB" "SELECT 1" # VIOLATION
+time sqlite3 "$DB" "SELECT 1" # VIOLATION
+timeout -k 1 5 sqlite3 "$DB" "SELECT 1" # VIOLATION
+nohup sqlite3 "$DB" "VACUUM" >/dev/null 2>&1 & # VIOLATION
+printf '%s\n' "$DB" | xargs -I{} sqlite3 {} "SELECT 1" # VIOLATION
+sqlite3 "$DB" "SELECT 1"; sqlite3 -cmd ".timeout 1500" "$DB" "SELECT 2" # VIOLATION
+out=$(sqlite3 "$DB" "SELECT 1") && log ".timeout hit" # VIOLATION
+sqlite3 "$DB" "SELECT sql FROM sqlite_master" | grep busy_timeout # VIOLATION
+X=".timeout 1500" sqlite3 "$DB" "SELECT 1" # VIOLATION
+sqlite3 "$DB" \
+  "SELECT 1" && echo ".timeout" # VIOLATION
