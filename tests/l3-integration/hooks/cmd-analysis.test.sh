@@ -88,7 +88,7 @@ assert_eq "/w/skills/a.md" "$(wpaths 'cd skills && echo x > a.md' /w)" "cd appli
 assert_eq "/w/skills/a.md" "$(wpaths 'cd src && echo x > ../skills/a.md' /w)" ".. normalized"
 assert_eq "/w/a.md,/w/b.md" "$(wpaths '(cd sub && true) ; echo > a.md; echo > b.md' /w)" "a subshell cd does not leak"
 assert_eq "/w/s/a.md" "$(wpaths "bash -c 'echo x > s/a.md'" /w)" "bash -c body"
-assert_eq "skills/a.md" "$(wpaths 'cd "$X" && echo x > skills/a.md' /w)" "an unknown dir keeps the path as written"
+assert_eq 'UNRESOLVED:X:$X/skills/a.md' "$(wpaths 'cd "$X" && echo x > skills/a.md' /w)" "a relative path after cd \$X is judged under \$X (GH 1595)"
 assert_eq "skills/a.md" "$(wpaths 'cd skills && echo x > a.md')" "no cwd: relative to the caller's dir"
 assert_eq "" "$(wpaths 'cat skills/a.md; grep -r x skills/' /w)" "reads write nothing"
 
@@ -556,7 +556,7 @@ assert_eq "" "$(wpaths "$(heredoc 'python3 -' "import zipfile; print(zipfile.Zip
 assert_eq "/etc/x.tgz" "$(wpaths "$(heredoc 'python3 -' "import tarfile; tarfile.open('/etc/x.tgz', 'w:gz')")" /w)" "tarfile w:gz"
 assert_eq "/etc/x" "$(wpaths "$(heredoc 'python3 -' "import subprocess; subprocess.run(['cp', 'a', '/etc/x'])")" /w)" "subprocess.run list"
 assert_eq "/etc/x" "$(wpaths "$(heredoc 'python3 -' "import subprocess; subprocess.run('cp a /etc/x', shell=True, check=True, env={'HOME': '/root'})")" /w)" "subprocess.run shell string; env is ignored"
-assert_eq "UNRESOLVED:\$():\$()" "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "import subprocess" "dst = '/etc/x'" "subprocess.check_call(['cp', 'a', dst])")")" /w)" "a variable argument fails closed"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "import subprocess" "dst = '/etc/x'" "subprocess.check_call(['cp', 'a', dst])")")" /w)" "a variable argument fails closed"
 assert_eq "/etc/x" "$(wpaths "$(heredoc 'python3 -' "import os; os.system('rm -rf /etc/x')")" /w)" "os.system"
 assert_eq "/etc/x" "$(wpaths "$(heredoc 'node -' "require('child_process').execSync('cp a /etc/x')")" /w)" "node execSync"
 assert_eq "/etc/x" "$(wpaths "$(heredoc 'node -' "const { spawnSync } = require('child_process'); spawnSync('cp', ['a', '/etc/x'])")" /w)" "node spawnSync"
@@ -579,10 +579,10 @@ assert_eq "" "$(pyw 'import subprocess, sys' "subprocess.run([sys.executable, '-
 assert_eq "/w/x" "$(nodew "require('child_process').spawnSync('touch', ['x'], { cwd: '..', stdio: 'inherit' })")" "node {cwd: ...} is a leading cd"
 assert_eq "/w/x" "$(nodew "require('child_process').spawn('touch ../x', { shell: true })")" "node shell: true runs a shell string"
 assert_eq "/w/x" "$(wpaths "$(heredoc 'ruby' 'system("touch", "x", chdir: "..")')" /w/wt)" "ruby chdir:"
-assert_eq "UNRESOLVED:\$():\$()" "$(pyw 'import subprocess' "d = '..'" "subprocess.run(['rm', '-rf', d])")" "a variable argument is unresolvable"
-assert_eq "UNRESOLVED:\$():\$()" "$(pyw 'import subprocess' "subprocess.run(['rm', '-rf', 'x'], cwd=d)")" "a variable cwd is unresolvable"
-assert_eq "UNRESOLVED:\$():\$()" "$(pyw 'import subprocess' "subprocess.run(' '.join(['rm', '-rf', '..']), shell=True)")" "a computed command is unresolvable"
-assert_eq "UNRESOLVED:\$():\$()" "$(nodew "require('child_process').execSync(\`rm -rf \${d}\`)")" "a template literal command is unresolvable"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(pyw 'import subprocess' "d = '..'" "subprocess.run(['rm', '-rf', d])")" "a variable argument is unresolvable"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(pyw 'import subprocess' "subprocess.run(['rm', '-rf', 'x'], cwd=d)")" "a variable cwd is unresolvable"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(pyw 'import subprocess' "subprocess.run(' '.join(['rm', '-rf', '..']), shell=True)")" "a computed command is unresolvable"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(nodew "require('child_process').execSync(\`rm -rf \${d}\`)")" "a template literal command is unresolvable"
 
 test_case "tmb_cmd_write_paths: renamed process imports are resolved, unresolvable ones fail closed (GH 1531)"
 assert_eq "/etc/x" "$(pyw 'import subprocess as sp' "sp.run(['rm', '-rf', '/etc/x'])")" "import subprocess as sp"
@@ -593,11 +593,11 @@ assert_eq "/etc/x" "$(pyw 'from os import system' "system('rm -rf /etc/x')")" "f
 assert_eq "/etc/x" "$(nodew "const {execSync: x} = require('child_process'); x('rm -rf /etc/x')")" "node const {execSync: x}"
 assert_eq "/etc/x" "$(nodew "const cp = require('child_process'); cp.execSync('rm -rf /etc/x')")" "node const cp = require"
 assert_eq "/etc/x" "$(nodew "import { execSync as run } from 'child_process'; run('rm -rf /etc/x')")" "node import { execSync as run }"
-assert_eq "UNRESOLVED:\$():\$()" "$(pyw 'import subprocess' 'f = subprocess.run' "f(['touch', 'x'])")" "a process function held in a variable"
-assert_eq "UNRESOLVED:\$():\$()" "$(pyw 'import os' "getattr(os, 'system')('touch x')")" "getattr(os, ...)"
-assert_eq "UNRESOLVED:\$():\$()" "$(pyw "__import__('subprocess').run(['touch', 'x'])")" "__import__('subprocess')"
-assert_eq "UNRESOLVED:\$():\$()" "$(nodew "const m = require('child_process'); const f = m.execSync; f('touch x')")" "node: a process function held in a variable"
-assert_eq "UNRESOLVED:\$():\$(),/w/wt/x" "$(nodew "const cp = await import('child_process'); cp.execSync('touch x')")" "node: a dynamic import"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(pyw 'import subprocess' 'f = subprocess.run' "f(['touch', 'x'])")" "a process function held in a variable"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(pyw 'import os' "getattr(os, 'system')('touch x')")" "getattr(os, ...)"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(pyw "__import__('subprocess').run(['touch', 'x'])")" "__import__('subprocess')"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)" "$(nodew "const m = require('child_process'); const f = m.execSync; f('touch x')")" "node: a process function held in a variable"
+assert_eq "UNRESOLVED:\$(proc):\$(proc),/w/wt/x" "$(nodew "const cp = await import('child_process'); cp.execSync('touch x')")" "node: a dynamic import"
 assert_eq "" "$(pyw 'import subprocess' 'try:' "    subprocess.check_call(['make', 'test'])" 'except subprocess.CalledProcessError as e:' '    print(e)')" "subprocess exceptions and constants are not calls"
 assert_eq "" "$(pyw 'from os import path' "print(path.join('a', 'b'))")" "other os names"
 
@@ -612,7 +612,7 @@ for imp in "import cp from 'child_process'" 'import cp from "child_process"' "im
 done
 
 test_case "tmb_cmd_write_paths: a process call is judged only when its parts are plain literals (GH 1531)"
-U='UNRESOLVED:$():$()'
+U='UNRESOLVED:$(proc):$(proc)'
 assert_eq "$U" "$(pyw 'import os' "os.system('rm -rf %s' % '..')")" "% formatting"
 assert_eq "$U" "$(pyw 'import subprocess' "subprocess.run('rm -rf %s' % '..', shell=True)")" "% formatting with shell=True"
 assert_eq "$U" "$(pyw 'import os' "os.system('rm -rf {}'.format('..'))")" ".format()"
@@ -642,7 +642,7 @@ assert_eq "$U" "$(pyw 'from os import chdir' 'import subprocess' "chdir('..')" "
 assert_eq "$U" "$(nodew "process.chdir('..'); require('child_process').execSync('rm -rf cg-task')")" "node process.chdir"
 assert_eq "$U" "$(wpaths "$(heredoc 'perl' "chdir '..'; system('rm', '-rf', 'cg-task');")" /w/wt)" "perl chdir"
 assert_eq "$U" "$(wpaths "$(heredoc 'ruby' "Dir.chdir('..')"$'\n'"system('rm -rf cg-task')")" /w/wt)" "ruby Dir.chdir"
-assert_eq "UNRESOLVED:\$():\$()/a.txt" "$(pyw 'import os' "os.chdir('..')" "open('a.txt', 'w').write('x')")" "a relative write after a chdir"
+assert_eq "UNRESOLVED:\$(proc):\$(proc)/a.txt" "$(pyw 'import os' "os.chdir('..')" "open('a.txt', 'w').write('x')")" "a relative write after a chdir"
 assert_eq "/etc/x" "$(pyw 'import os' "os.chdir('..')" "open('/etc/x', 'w').write('x')")" "an absolute write after a chdir is still judged"
 
 test_case "tmb_cmd_write_paths: qx, %x and string evaluation (GH 1531)"
@@ -765,6 +765,57 @@ for framing in '<task-notification><task-id>1</task-id>' '[SYSTEM NOTIFICATION -
   if tmb_is_harness_turn "$framing"; then _pass; else _fail "not a harness turn: $framing"; fi
 done
 if tmb_is_harness_turn "port the parser to Rust"; then _fail "a Human prompt is not a harness turn"; else _pass; fi
+
+test_case "GH 1595/1610: a same-command VAR=<literal> resolves a cd or -C dir"
+last() { stmts "$1" | awk -F'|' '{print $NF}'; }
+assert_eq '/abs#git -C $R status' "$(last 'R=/abs; git -C $R status')" "R=/abs; git -C \$R"
+assert_eq '/abs#git -C ${R} status' "$(last 'R=/abs && git -C "${R}" status')" "a braced, quoted \${R} after &&"
+assert_eq '/w/B#git commit' "$(last 'export WT=/w/B; cd $WT && git commit')" "export WT=<literal>; cd \$WT"
+assert_eq '/w/B#git add f|/w/B#git commit' "$(stmts 'WT=/w/B; cd "$WT" && git add f && git commit' | awk -F'|' '{print $(NF-1) "|" $NF}')" "WT=<literal>; cd \"\$WT\" && git add && git commit"
+assert_eq '/b#git -C $R status' "$(last 'R=/a; R=/b; git -C $R status')" "the latest assignment wins"
+for c in 'true && R=/b; git -C $R status' 'if x; then R=/a; fi; git -C $R status' 'for R in /a; do :; done; git -C $R status' \
+  '(R=/b); git -C $R status' 'R=/a | true; git -C $R status' 'R=/a & git -C $R status' 'f() { R=/a; }; git -C $R status' \
+  'R=/a; eval x; git -C $R status' 'R=/a; source x; git -C $R status' 'R=$(pwd); git -C $R status' \
+  'R=/a; unset R; git -C $R status' 'R=/a; read R; git -C $R status' \
+  'R=/a; case x in x) R=/b;; esac; git -C $R status' 'R=/a; R+=/b; git -C $R status' 'R=/a; R[0]=/b; git -C $R status' \
+  'R=/a; declare -n R=S; git -C $R status' 'R=/a; typeset -n R=S; git -C $R status' 'R=/a; local -n R=S; git -C $R status' \
+  'R=/a; builtin eval R=/b; git -C $R status' 'R=/a; mapfile R < f; git -C $R status' 'R=/a; readarray R < f; git -C $R status' \
+  'R=/a; time R=/b; git -C $R status' 'R=/a; > f R=/b; git -C $R status' "R=/a; trap 'R=/b' DEBUG; git -C \$R status" \
+  'R=/a; let R=1; git -C $R status' 'R=/a; coproc R=/b; git -C $R status' 'R=/a; ((R=1)); git -C $R status' \
+  'R=/a; echo $((R=1)); git -C $R status' 'R=/a; IFS=/; git -C $R status' \
+  'R=/a; echo $[R=0]; git -C $R status' 'R=/a; echo ${A[R=0]}; git -C $R status' \
+  'R=/a; echo ${X:R=0}; git -C $R status' 'R=/a; echo ${X:0:R=0}; git -C $R status' \
+  'R=/a; echo "x $[R=0]"; git -C $R status' \
+  $'R=/a; true <<EOF\n$[R=0]\nEOF\ngit -C $R status' $'R=/a; true <<EOF\n${A[R=0]}\nEOF\ngit -C $R status' \
+  $'R=/a; echo <<EOF\n$[R=0]\nEOF\ngit -C $R status' $'R=/a; echo <<EOF\n${A[R=0]}\nEOF\ngit -C $R status' \
+  'R=/a; echo $X[R=0]; git -C $R status' 'R=/a; echo $#X[R=0]; git -C $R status' \
+  'R=/a; echo $+X[R=0]; git -C $R status' 'R=/a; echo "$X[R=0]"; git -C $R status' \
+  'R=/a; printf %d R=0; git -C $R status' \
+  'R=/a; [ R=0 -eq 0 ]; git -C $R status' 'R=/a; test R=0 -eq 0; git -C $R status' \
+  'R=/a; true *(e:R=0:); git -C $R status' 'R=/a; echo x?(e:R=0:); git -C $R status' \
+  'R=/a; ls (x); git -C $R status' 'R=/a; echo a > f; git -C $R status' 'R=/a; echo {a,b}; git -C $R status' \
+  'R=/a; echo x*; git -C $R status' 'R=/a; ls x?; git -C $R status' 'R=/a; echo [a]; git -C $R status' \
+  'R=/a; echo "a>b"; git -C $R status' 'R=/a; echo "(x)"; git -C $R status' 'R=/a; echo "{$R}"; git -C $R status' \
+  'O=/b; R=$O; git -C $R status'; do
+  assert_eq '-#git -C $R status' "$(last "$c")" "unknown: $c"
+done
+
+test_case "GH 1595: a relative path after an unresolvable cd is never bare"
+assert_eq 'UNRESOLVED:UNSET:$UNSET/f' "$(wpaths 'cd $UNSET && touch f' /w)" "cd \$UNSET && touch f"
+assert_eq 'UNRESOLVED:PWD:$PWD/f' "$(wpaths 'cd - && touch f' /w)" "cd - && touch f"
+assert_eq 'UNRESOLVED:U:$U' "$(wpaths 'git -C $U add f' /w)" "git -C \$U add"
+assert_eq '/b/f' "$(wpaths 'D=/b; cd $D && touch f' /w)" "a literal-set variable resolves"
+
+test_case "GH 1602: an inline program's non-literal process call is \$(proc), not \$()"
+assert_eq 'UNRESOLVED:$(proc):$(proc)' "$(pyw 'import subprocess' 'for n in range(3):' "    subprocess.run(['true', str(n)])")" "subprocess.run(['true', str(n)])"
+assert_eq 'UNRESOLVED:X:$X/x' "$(pyw 'import os' 'os.system("cd $X && touch x")')" "a literal shell string still names its variable"
+
+test_case "GH 1595: tmb_deny_ambiguous_git_target names an unresolvable dir"
+OUT=$(tmb_deny_ambiguous_git_target 'git commit' unresolved | jq -r .hookSpecificOutput.permissionDecisionReason)
+assert_contains "$OUT" "ambiguous_git_target" "keeps the token"
+assert_contains "$OUT" "comes through a variable" "says the dir is unresolvable"
+assert_not_contains "$OUT" "names no directory" "not the no-directory reason"
+assert_contains "$(tmb_deny_ambiguous_git_target 'git commit')" "names no directory" "the plain form is unchanged"
 
 test_case "tmb_strip_quoted_spans"
 assert_eq "see   and   then" "$(tmb_strip_quoted_spans 'see `git push` and "push it" then')" "backticks and double quotes"

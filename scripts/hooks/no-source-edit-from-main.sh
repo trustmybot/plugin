@@ -122,6 +122,14 @@ case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
 
+# Sanctioned scratch: `.claude/tmb/scratch/` is TMB's own scratch dir, never
+# source. A `..` in the path could climb out of it, and a scratch dir inside
+# an enforcement surface is that surface, so both stay guarded.
+case "$TARGET" in
+  */../*|../*|*/..|*/scripts/hooks/*|scripts/hooks/*) ;;
+  */.claude/tmb/scratch/*|.claude/tmb/scratch/*) exit 0 ;;
+esac
+
 if [ "$(tmb_db_state)" = "error" ]; then
   tmb_deny_db_unavailable no-source-edit-from-main
   exit 0
@@ -225,7 +233,7 @@ esac
 # worktree-only even for swe, and bro/unknown/absent roles still fail closed.
 if [ "$AGENT_TYPE" = "swe" ]; then exit 0; fi
 
-REASON="BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session."
+REASON="BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {

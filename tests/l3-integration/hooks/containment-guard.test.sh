@@ -19,6 +19,13 @@ CACHE="$SANDBOX/model-cache"
 DB="$PROJECT/.claude/tmb/trajectory.db"
 HOST_TMP="$SANDBOX/host-tmp"
 mkdir -p "$WT/src" "$(dirname "$DB")" "$CACHE" "$HOST_TMP"
+# The sandbox itself sits under the harness's /tmp/claude-<uid>, which the
+# hook allows; a fake uid keeps that allowance from covering the sandbox.
+FAKE_UID=4242424
+SHIM="$SANDBOX/shim"
+mkdir -p "$SHIM"
+printf '#!/bin/sh\n[ "$1" = -u ] && { echo %s; exit 0; }\nexec /usr/bin/id "$@"\n' "$FAKE_UID" > "$SHIM/id"
+chmod +x "$SHIM/id"
 sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 NOW="2026-10-11T10:00:00.000Z"
 sqlite3 "$DB" "
@@ -43,7 +50,7 @@ run() {
      + (if $at == "" then {} else {agent_type:$at} end)
      + (if ($at | test("swe$")) and $tr != "" then {agent_transcript_path:$tr} else {} end)')
   (cd "$1" 2>/dev/null || cd "$SANDBOX" || exit 1
-   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" CLAUDE_CONFIG_DIR="" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" bash "$HOOK" 2>&1)
+   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" CLAUDE_CONFIG_DIR="" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" PATH="$SHIM:$PATH" bash "$HOOK" 2>&1)
 }
 write() { jq -nc --arg p "$1" '{file_path:$p, content:"x"}'; }
 bash_cmd() { jq -nc --arg c "$1" '{command:$c}'; }
@@ -381,6 +388,42 @@ assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import c
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, inspect, sys' "p = 'out.txt'" 'pr = cProfile.Profile()' "inspect.getattr_static(pr, 'run')(pr, sys.argv[1])" "open(p, 'w').write('x')")")")")" "swe: inspect.getattr_static(pr, 'run') rebinding a variable write path"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'from cProfile import Profile as P' "p = 'out.txt'" "P.runctx(o, sys.argv[1], globals(), None)" "open(p, 'w').write('x')")")")")" "swe: a class-method runctx rebinding a variable write path"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, sys' 'cProfile.Profile().run("pass").run(sys.argv[1])')")")")" "swe: a chained Profile().run returns the profiler"
+
+test_case "GH 1597: the harness's /tmp/claude-<uid> and .claude/tmb/scratch/ are sanctioned scratch"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Write "$(write "/tmp/claude-$FAKE_UID/x")")")" "swe Write under /tmp/claude-<uid> with \$TMPDIR elsewhere"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "echo x > /tmp/claude-$FAKE_UID/y")")")" "bro Bash redirect under /tmp/claude-<uid>"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Write "$(write "/tmp/claude-$FAKE_UID-other/x")")")" "a sibling of /tmp/claude-<uid> is not covered"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Write "$(write "$PROJECT/.claude/tmb/scratch/x.py")")")" "bro Write to <project>/.claude/tmb/scratch/"
+OUT=$(run "$PROJECT" "" Write "$(write /etc/tmb-cg)")
+assert_contains "$OUT" "$PROJECT/.claude/tmb/scratch/" "the deny names the sanctioned scratch dir"
+assert_contains "$OUT" "/tmp/claude-$FAKE_UID" "the deny names the harness temp dir"
+
+test_case "GH 1595: bro's cwd is judged only when the command writes"
+OTHER_REPO="$SANDBOX/other-repo"
+mkdir -p "$OTHER_REPO"
+git -C "$OTHER_REPO" init -q
+assert_eq "allow" "$(decision "$(run "$OTHER_REPO" "" Bash "$(bash_cmd "git -C $PROJECT status")")")" "bro: git -C <project> status from another repo"
+assert_eq "allow" "$(decision "$(run "$OTHER_REPO" "" Bash "$(bash_cmd "ls $PROJECT")")")" "bro: a read from another repo"
+OUT=$(run "$OTHER_REPO" "" Bash "$(bash_cmd 'touch f')")
+assert_eq "deny" "$(decision "$OUT")" "bro: a relative write from another repo"
+assert_contains "$OUT" "$OTHER_REPO" "the reason names the write's real dir"
+
+test_case "GH 1595: a relative write after cd \$VAR is judged under the variable"
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'cd $UNSET && touch f')")
+assert_eq "deny" "$(decision "$OUT")" "bro: cd \$UNSET && touch f"
+assert_contains "$OUT" '$UNSET' "the reason names the variable"
+assert_not_contains "$OUT" "is outside" "never judged as a bare path under the cwd"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "D=$PROJECT/src; cd \$D && touch f")")")" "bro: D=<root>/src; cd \$D && touch f"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'D=/etc; cd $D && touch f')")")" "bro: D=/etc; cd \$D && touch f"
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'cd - && touch f')")
+assert_eq "deny" "$(decision "$OUT")" "bro: cd - && touch f"
+assert_contains "$OUT" "cd, pushd or popd" "the reason names the unresolvable cd"
+
+test_case "GH 1602: a non-literal process call in an inline program gets its own reason"
+OUT=$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import subprocess' 'for n in range(3):' "    subprocess.run(['true', str(n)])")")")
+assert_eq "deny" "$(decision "$OUT")" "swe: subprocess.run(['true', str(n)])"
+assert_not_contains "$OUT" '$()' "not reported as a command substitution"
+assert_contains "$OUT" "process call in an inline program" "the reason names the process call"
 
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"

@@ -106,11 +106,12 @@ dir_in_worktree() {
 }
 
 # need_dir <dir> <statement> — deny ambiguous_git_target when the statement's
-# dir is ambiguous; return 1 when it is unknown or does not exist yet (a clone
-# the same command creates) — there is no branch to judge.
+# dir is ambiguous (naming a dir the command gave through a variable, `cd -` or
+# popd when DIR_UNRES is set); return 1 when it is unknown or does not exist
+# yet (a clone the same command creates) — there is no branch to judge.
 need_dir() {
   case "$1" in
-    '?') tmb_deny_ambiguous_git_target "$2"; exit 0 ;;
+    '?') tmb_deny_ambiguous_git_target "$2" "$DIR_UNRES"; exit 0 ;;
     -|'') return 1 ;;
   esac
   [ -d "$1" ]
@@ -192,9 +193,115 @@ _rule2_inline_landings() {
   '
 }
 
+# ff_sync_other_ok <statement>
+# Exit 0 when <statement> is on the short list a fast-forward sync may share
+# its command with: cd, echo, printf, true, false, test, [, pwd, or git
+# fetch / status / log / diff / show / rev-parse with no word holding `:`
+# (no refspec or config that could write a ref), and no redirect. Anything
+# else (a branch change, a git alias, a script, a nested shell, a write to
+# .git/HEAD) fails closed.
+ff_sync_other_ok() {
+  local stmt="$1" sub
+  local -a w
+  case "$stmt" in *'>'*|*'<'*) return 1 ;; esac
+  read -r -a w <<< "$stmt"
+  case "${w[0]:-}" in
+    cd|echo|printf|true|false|test|'['|pwd) return 0 ;;
+    git) ;;
+    *) return 1 ;;
+  esac
+  case "$stmt" in *:*) return 1 ;; esac
+  sub=$(tmb_git_subcommand "$stmt")
+  case "${sub%% *}" in
+    fetch|status|log|diff|show|rev-parse) return 0 ;;
+  esac
+  return 1
+}
+
+# ff_sync_switch <index> <dir>
+# Print the branch statement <index> switches to when it is exactly
+# `git [-C <dir>] switch|checkout [-q|--quiet] <name>` in <dir>, <name> is a
+# local branch, and the command joins it to the next statement with `&&`,
+# with only the command start, `;` or `&&` before it (a `!` or `||` could
+# skip the switch). Nothing otherwise.
+ff_sync_switch() {
+  local i="$1" dir="$2" stmt flat needle head tail k=1 name
+  local -a w
+  [ "$i" -ge 0 ] && [ "${S_DIRS[$i]:-}" = "$dir" ] || return 0
+  stmt="${S_STMTS[$i]}"
+  read -r -a w <<< "$stmt"
+  [ "${w[0]:-}" = git ] || return 0
+  [ "${w[1]:-}" != -C ] || k=3
+  case "${w[$k]:-}" in switch|checkout) ;; *) return 0 ;; esac
+  k=$((k + 1))
+  case "${w[$k]:-}" in -q|--quiet) k=$((k + 1)) ;; esac
+  name="${w[$k]:-}"
+  [ -n "$name" ] && [ "${name#-}" = "$name" ] && [ $((k + 1)) -eq "${#w[@]}" ] || return 0
+  git -C "$dir" rev-parse --verify --quiet "refs/heads/$name" >/dev/null 2>&1 || return 0
+  flat=$(tmb_cmd_strip_literals "$CMD" | tr '\n' ';' | tr -s ' \t' '  ')
+  needle="$stmt && ${S_STMTS[$((i + 1))]:-}"
+  case "$flat" in *"$needle"*) ;; *) return 0 ;; esac
+  head="${flat%%"$needle"*}"
+  tail="${flat#*"$needle"}"
+  case "$tail" in *"$needle"*) return 0 ;; esac
+  case "${tail:0:1}" in ''|' '|';'|'|'|'&'|')') ;; *) return 0 ;; esac
+  head="${head%"${head##*[! ]}"}"
+  case "$head" in ''|*';'|*'&&') printf '%s' "$name" ;; esac
+}
+
+# ff_upstream_sync <index> <dir> <subcommand>
+# Exit 0 when statement <index>, run in the main checkout <dir>, is
+# `merge --ff-only <target>` (with only -q / -v / --stat / --progress style
+# options) that fast-forwards a branch to its own remote-tracking upstream.
+# Two shapes only, each with every other statement passing ff_sync_other_ok:
+#   (a) no switch: the branch is the one checked out in <dir>;
+#   (b) the statement right before it is ff_sync_switch's exact switch, whose
+#       branch it is.
+# <target> is @{u} / @{upstream} or names the same ref as <branch>@{u}, and
+# branch.<branch>.remote is set and not `.` (a local upstream is integration).
+ff_upstream_sync() {
+  local idx="$1" dir="$2" w target="" ff="" branch remote up j skip=-1
+  local -a words
+  case "${S_DIRS[$idx]:-}" in -|'?'|'') return 1 ;; esac
+  read -r -a words <<< "${3#merge}"
+  for w in ${words[@]+"${words[@]}"}; do
+    case "$w" in
+      --ff-only) ff=1 ;;
+      -q|--quiet|-v|--verbose|--stat|--no-stat|-n|--progress|--no-progress) ;;
+      -*) return 1 ;;
+      *) [ -z "$target" ] || return 1; target="$w" ;;
+    esac
+  done
+  [ -n "$ff" ] && [ -n "$target" ] || return 1
+  branch=$(ff_sync_switch $((idx - 1)) "${S_DIRS[$idx]}")
+  [ -z "$branch" ] || skip=$((idx - 1))
+  for ((j = 0; j < ${#S_STMTS[@]}; j++)); do
+    [ "$j" -ne "$idx" ] && [ "$j" -ne "$skip" ] && [ -n "${S_STMTS[$j]}" ] || continue
+    ff_sync_other_ok "${S_STMTS[$j]}" || return 1
+  done
+  [ -n "$branch" ] || branch=$(git -C "$dir" branch --show-current 2>/dev/null || true)
+  [ -n "$branch" ] || return 1
+  git -C "$dir" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1 || return 1
+  remote=$(git -C "$dir" config --get "branch.$branch.remote" 2>/dev/null || true)
+  [ -n "$remote" ] && [ "$remote" != . ] || return 1
+  up=$(git -C "$dir" rev-parse --symbolic-full-name "$branch@{u}" 2>/dev/null || true)
+  case "$up" in refs/remotes/?*) ;; *) return 1 ;; esac
+  case "$target" in '@{u}'|'@{upstream}') return 0 ;; esac
+  [ "$(git -C "$dir" rev-parse --symbolic-full-name "$target" 2>/dev/null || true)" = "$up" ]
+}
+
+S_DIRS=()
+S_STMTS=()
+while IFS="$(printf '\t')" read -r DIR STMT; do
+  S_DIRS+=("$DIR")
+  S_STMTS+=("$STMT")
+done <<< "$STMTS"
+IDX=-1
+
 INLINE_LANDINGS=$(_rule2_inline_landings "$(printf '%s\n' "$STMTS" | cut -f2-)")
 
 while IFS="$(printf '\t')" read -r DIR STMT <&3; do
+  IDX=$((IDX + 1))
   [ -n "$STMT" ] || continue
   SUB=$(tmb_git_subcommand "$STMT")
   FORGE=""
@@ -209,8 +316,12 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
 
   # A dir behind a variable, `cd -` or popd is judged like a statement that
   # names none: ambiguous when the payload cwd's repo has linked worktrees
-  # (as git-push-guard), else the payload cwd.
-  [ "$DIR" != - ] || DIR=$(tmb_cwd_state "$CWD")
+  # (as git-push-guard, with the unresolved-dir remedy), else the payload cwd.
+  DIR_UNRES=""
+  if [ "$DIR" = - ]; then
+    DIR_UNRES=unresolved
+    DIR=$(tmb_cwd_state "$CWD")
+  fi
 
   # H8: no resolvable repo (the multi-repo workspace root, a dir outside any repo) →
   # no guessed policy. An ambiguous dir still names its repo.
@@ -261,10 +372,17 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
     # --- Rule 2a: local integration is PR-only in the main checkout ---
     # merge / rebase / cherry-pick are SWE mechanics inside a task worktree and
     # denied in the main checkout whatever the target (a data-derived protected
-    # set can always miss a base the agent believes in).
+    # set can always miss a base the agent believes in). The one exception is a
+    # fast-forward of a branch to its own upstream (ff_upstream_sync).
     merge|"merge "*|rebase|"rebase "*|cherry-pick|"cherry-pick "*)
       need_dir "$DIR" "$STMT" || continue
       if ! dir_in_worktree "$DIR"; then
+        case "$SUB" in
+          merge|"merge "*)
+            ff_upstream_sync "$IDX" "$DIR" "$SUB" && continue
+            deny "BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only.$(rule2_recovery "$DIR") To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch."
+            ;;
+        esac
         deny "BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only.$(rule2_recovery "$DIR")"
       fi
       ;;

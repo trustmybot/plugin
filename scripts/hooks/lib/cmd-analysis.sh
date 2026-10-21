@@ -70,8 +70,20 @@
 #     - `?` (ambiguous) when <cwd> is a repo with linked worktrees — the
 #       statement may run in any of them, so a guard that needs its branch
 #       must deny with tmb_deny_ambiguous_git_target;
-#     - `-` (unknown) when the path is behind a variable, or after popd;
-#       `cd -` returns to the dir before the preceding cd (unknown without one).
+#     - `-` (unknown) when the path is behind a variable the command does
+#       not set to a literal, or after popd; `cd -` returns to the dir before
+#       the preceding cd (unknown without one). $VAR / ${VAR} in a top-level
+#       cd or -C dir resolves only when every statement before it, in a flat
+#       `;` / `&&` sequence, is on an allowlist: `VAR=<literal>` / `export
+#       VAR=<literal>` (no expansion; one after `&&` leaves its VAR unknown)
+#       or a simple command starting with cd, git, echo, true, false, ls,
+#       cat, pwd, mkdir or touch; and each such statement has no `<<`, every
+#       `$` in it is a bare `$NAME` not followed by `[` or exactly `${NAME}`,
+#       and, quoted or not, it has none of * ? [ ] ( ) < > ` and no `{`
+#       outside an exact `${NAME}` (zsh math in test / [ and glob
+#       qualifiers can assign). Any other statement, keyword, wrapper,
+#       redirect, subshell, command substitution, pipe, `||`, `&` or IFS /
+#       shell-managed assignment makes every variable unknown from there on.
 #
 # tmb_cmd_write_paths <command> [<cwd>] [raw] [<root>]
 #   Every path the command writes, one per line, statement by statement
@@ -131,13 +143,16 @@
 #   A VAR=value prefix does not reach its own command's words, as in the
 #   shell: `HOME=/x cat > "$HOME/f"` is judged on the host's $HOME/f. A path that still holds a variable (one never set
 #   here, set by read, or built by $( ) / backticks) prints
-#   `UNRESOLVED:<var>:<path>` (<var> is `$()` for a command substitution);
+#   `UNRESOLVED:<var>:<path>` (<var> is `$()` for a command substitution,
+#   `$(proc)` for an inline program's process call it cannot follow);
 #   every caller handles that form. A relative path is joined to its
 #   statement's own dir (a preceding cd / pushd, a subshell restoring it,
 #   git -C for git mv) and normalized: absolute when <cwd> is given, else
 #   relative to the caller's dir; with `raw`, joined without collapsing `..`
 #   (for a caller that canonicalizes symlinks itself). A relative path after
-#   `cd $X` is printed as written. The write guards (swe-boundary.sh,
+#   `cd $X` is judged as `$X/<path>`; after a dir it cannot tell (`cd -`
+#   without a prior cd, popd) it is `UNRESOLVED:PWD:$PWD/<path>`, never bare.
+#   The write guards (swe-boundary.sh,
 #   no-source-edit-from-main.sh, containment-guard.sh) take their written
 #   paths from here and nowhere else.
 #
@@ -212,8 +227,9 @@
 # tmb_payload_cwd <hook-input-json>
 #   Prints the payload `.cwd`, else $PWD.
 #
-# tmb_deny_ambiguous_git_target <statement>
-#   Prints the PreToolUse deny for a statement whose dir is `?`.
+# tmb_deny_ambiguous_git_target <statement> [unresolved]
+#   Prints the PreToolUse deny for a statement whose dir is `?`, or, with
+#   `unresolved`, `-` (a dir behind a variable, `cd -` or popd).
 #
 # tmb_agent_role <hook-input-json>
 #   The role of the agent making the tool call, from its identity alone: the
@@ -673,7 +689,44 @@ _tmb_cmd_statements_enc() {
       if (lead == "@") return "@" p
       return (p == "") ? "/" : p
     }
+    function getvar(name,   n, e, k, j, v) {
+      if (!vok || !vtop) return bad
+      v = bad
+      n = split(vs, e, vsep)
+      for (k = 2; k <= n; k++) {
+        j = index(e[k], veq)
+        if (substr(e[k], 1, j - 1) == name) v = substr(e[k], j + 1)
+      }
+      return v
+    }
+    function setvar(name, v) { vs = vs vsep name veq v }
+    function subst(p,   out, m, rest, name, len, v) {
+      out = ""
+      while ((m = index(p, "$")) > 0) {
+        out = out substr(p, 1, m - 1); rest = substr(p, m + 1)
+        if (match(rest, /^\{[A-Za-z_][A-Za-z0-9_]*\}/)) { name = substr(rest, 2, RLENGTH - 2); len = RLENGTH }
+        else if (match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)) { name = substr(rest, 1, RLENGTH); len = RLENGTH }
+        else return bad
+        v = getvar(name)
+        if (v == bad) return bad
+        out = out v; p = substr(rest, len + 1)
+      }
+      return out p
+    }
+    function assignword(a, uncertain,   j, nm, v) {
+      j = index(a, "="); nm = substr(a, 1, j - 1); v = substr(a, j + 1)
+      if (nm ~ vspecial) return 0
+      if (uncertain || v ~ /[$`*?[~\\\001-\023]/) v = bad
+      setvar(nm, v)
+      return 1
+    }
+    function whyof(d, dw, p,   j) {
+      if (p ~ /^[$`\/~]/ || d != "-") return d wsep p
+      if (dw == "") return ""
+      return dw "/" p
+    }
     function resolve(d, p) {
+      if (p ~ /\$/ && p !~ /[`\001-\006\016-\023]/) { p = subst(p); if (p == bad) return "-" }
       if (p == "" || p ~ /[$`\001-\006\016-\023]/) return "-"
       if (p == "~") p = home
       else if (substr(p, 1, 2) == "~/") p = home substr(p, 2)
@@ -681,34 +734,62 @@ _tmb_cmd_statements_enc() {
       if (d == "-") return "-"
       return norm(d "/" p)
     }
-    function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained, cdw) {
+    function vend(ok) { if (vtop) { if (!ok || vkill) vok = 0; vkill = 0 } }
+    function vplainexp(s,   m, t, k) {
+      if (index(s, "<<")) return 0
+      t = s; gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", t)
+      for (k = 1; k <= length(vbad); k++) if (index(t, substr(vbad, k, 1))) return 0
+      while ((m = index(s, "$")) > 0) {
+        s = substr(s, m + 1)
+        if (match(s, /^\{[A-Za-z_][A-Za-z0-9_]*\}/) || (match(s, /^[A-Za-z_][A-Za-z0-9_]*/) && substr(s, RLENGTH + 1, 1) != "[")) s = substr(s, RLENGTH + 1)
+        else return 0
+      }
+      return 1
+    }
+    function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained, cdw, plain, csure, dw, na, aw, ok) {
       chained = (fsep == "&&"); fsep = ""
+      vtop = (sp == 0 && qsp == 0 && !bt)
+      if (!vplainexp(stmt)) vok = 0
+      csure = !cond; cond = 0
       n = split(stmt, w, /[ \t]+/)
       stmt = ""
-      first = 1; asg = ""; cdw = ""
+      first = 1; asg = ""; cdw = ""; na = 0; plain = 1
       waspiped = piped; piped = 0; lastout = ""; lastdir = cur; sawwhile = 0
       while (first <= n) {
         if (w[first] == "") { first++; continue }
         if (w[first] == "while") sawwhile = 1
-        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { first++; continue }
-        if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { asg = asg (asg == "" ? "" : " ") w[first]; first++; continue }
+        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { plain = 0; first++; continue }
+        if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { asg = asg (asg == "" ? "" : " ") w[first]; aw[++na] = w[first]; first++; continue }
         if (w[first] ~ /^(sudo|env|command|nohup|time|exec)$/) {
-          first = unwrap(w, n, first)
+          first = unwrap(w, n, first); plain = 0
           for (k = 1; k <= udn; k++) cdw = cdw (cdw == "" ? "" : " ") "--chdir=" ud[k]
           continue
         }
         break
       }
       if (first > n) {
-        if (assign && asg != "") { printf "=%s\t%s\n", cur (assign ? sep old : ""), asg; if (!chained) old = "-" }
+        ok = plain
+        if (vtop && plain) for (k = 1; k <= na; k++) if (!assignword(aw[k], !csure)) ok = 0
+        if (assign && asg != "") { printf "=%s\t%s\n", cur (assign ? sep old : ""), asg; if (!chained) { old = "-"; owhy = "" } }
+        vend(ok)
         return
       }
       a0 = w[first]
+      ok = plain && na == 0
+      if (ok && a0 == "export") {
+        for (k = first + 1; k <= n; k++) {
+          if (w[k] == "") continue
+          if (w[k] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) ok = 0
+          else if (vtop && !assignword(w[k], !csure)) ok = 0
+        }
+      } else if (ok) {
+        ok = (a0 ~ vplain)
+      }
       out = a0
       for (k = first + 1; k <= n; k++) if (w[k] != "") out = out " " w[k]
       if (cdw != "") { out = cdw " " out; a0 = "" }
       lastout = out
-      d = cur; o = old
+      d = cur; o = old; dw = cwhy
       if (a0 == "cd" || a0 == "pushd") {
         p = ""
         for (k = first + 1; k <= n; k++) {
@@ -716,11 +797,11 @@ _tmb_cmd_statements_enc() {
           if (w[k] ~ /^-[LPe@]+$/) continue
           p = w[k]; break
         }
-        if (p == "-" && a0 == "cd") { t = cur; cur = old; old = t }
-        else if (p == "" || p == "-") { old = cur; cur = "-" }
-        else { old = cur; cur = resolve(cur, p) }
+        if (p == "-" && a0 == "cd") { t = cur; cur = old; old = t; t = cwhy; cwhy = owhy; owhy = t }
+        else if (p == "" || p == "-") { old = cur; owhy = cwhy; cur = "-"; cwhy = (p == "" && a0 == "cd") ? "-" wsep "$HOME" : "" }
+        else { old = cur; owhy = cwhy; t = resolve(cur, p); cwhy = (t == "-") ? whyof(cur, cwhy, p) : ""; cur = t }
       } else if (a0 == "popd") {
-        old = cur; cur = "-"
+        old = cur; owhy = cwhy; cur = "-"; cwhy = ""
       } else if (assign && a0 == "read") {
         mk = sawwhile ? donesrc(i) : ""
         if (mk == "" && waspiped) mk = pipesrc
@@ -730,15 +811,18 @@ _tmb_cmd_statements_enc() {
       } else if (a0 == "git") {
         for (k = first + 1; k <= n; k++) {
           if (w[k] == "") continue
-          if (w[k] == "-C") { d = resolve(d, w[k + 1]); k++; continue }
+          if (w[k] == "-C") { t = resolve(d, w[k + 1]); dw = (t == "-") ? whyof(d, dw, w[k + 1]) : ""; d = t; k++; continue }
           if (w[k] == "-c") { k++; continue }
           if (w[k] ~ /^-/) continue
           break
         }
       }
-      printf "%s\t%s\n", d (assign ? sep o : ""), out
-      if (!chained) old = "-"
+      printf "%s\t%s\n", d (assign ? sep o ((d == "-" && dw != "") ? sep dw : "") : ""), out
+      if (!chained) { old = "-"; owhy = "" }
+      vend(ok)
     }
+    function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; stack[++sp] = cur }
+    function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; cur = stack[sp--] } }
     function rawword(t,   k, m, ch, out, x) {
       out = ""; m = length(t)
       for (k = 1; k <= m; k++) {
@@ -753,7 +837,13 @@ _tmb_cmd_statements_enc() {
     }
     BEGIN {
       sep = sprintf("%c", 18); old = "-"
+      wsep = sprintf("%c", 20); vsep = sprintf("%c", 28); veq = sprintf("%c", 29); bad = sprintf("%c", 1)
+      vs = ""; cwhy = ""; owhy = ""; cond = 0; vok = 1; vkill = 0; vtop = 1
+      vplain = "^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$"
+      vbad = "*?[](){<>`" sprintf("%c%c%c%c%c", 3, 4, 15, 16, 17)
+      vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
+      if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
       cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""
       qo = sprintf("%c", 7); qc = sprintf("%c", 8)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
@@ -766,41 +856,45 @@ _tmb_cmd_statements_enc() {
         nx = substr(buf, i + 1, 1)
         if (c == qo) {
           qsp++; qstmt[qsp] = stmt; qcur[qsp] = cur; qold[qsp] = old; qstart[qsp] = i + 1; qsps[qsp] = sp
+          qwhy[qsp] = cwhy; qowhy[qsp] = owhy; vkill = 1
           stmt = ""; continue
         }
         if (c == qc) {
           if (qsp == 0) continue
           flush()
           stmt = qstmt[qsp] "$" enc[8] rawword(substr(buf, qstart[qsp], i - qstart[qsp])) enc[9]
-          cur = qcur[qsp]; old = qold[qsp]; sp = qsps[qsp]; qsp--
+          cur = qcur[qsp]; old = qold[qsp]; sp = qsps[qsp]; cwhy = qwhy[qsp]; owhy = qowhy[qsp]; qsp--
           continue
         }
         if (c == "\n" || c == ";") { flush(); continue }
         if (c == "&") {
           if (nx == ">" || substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
-          if (nx == "&") { i++; fsep = "&&" }
-          flush(); continue
+          if (nx == "&") { i++; fsep = "&&"; flush(); cond = 1 } else { vkill = 1; flush() }
+          continue
         }
         if (c == "|") {
           if (substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
           p1 = (nx != "|" && nx != "&")
           if (!p1) i++
+          vkill = 1
           flush()
           if (assign && p1) { piped = 1; pipesrc = (lastout != "") ? srcmark(lastout, lastdir) : "" }
           continue
         }
         if (c == "(") {
+          vkill = 1
           if (substr(stmt, length(stmt), 1) ~ /[$<>]/) {
             if (assign && substr(stmt, length(stmt), 1) == "$") stmt = stmt enc[8] enc[9] forsrc(i)
             else stmt = substr(stmt, 1, length(stmt) - 1)
           }
-          flush(); ostack[sp + 1] = old; stack[++sp] = cur; continue
+          flush(); push(); continue
         }
-        if (c == ")") { flush(); if (sp > 0) { old = ostack[sp]; cur = stack[sp--] }; continue }
+        if (c == ")") { flush(); if (sp == 0) vok = 0; pop(); continue }
         if (c == "`") {
+          vkill = 1
           if (assign && !bt) stmt = stmt "$" enc[8] enc[9]
           flush()
-          if (bt) { bt = 0; if (sp > 0) { old = ostack[sp]; cur = stack[sp--] } } else { bt = 1; ostack[sp + 1] = old; stack[++sp] = cur }
+          if (bt) { bt = 0; pop() } else { bt = 1; push() }
           continue
         }
         stmt = stmt c
@@ -1128,26 +1222,26 @@ _tmb_cmd_interp_writes() {
 # holds only while its command and cwd are plain string literals or lists of
 # them with nothing applied, and every other argument is a literal, a known
 # option whose value cannot move the process (env=, stdout=, stdio, …), or a
-# node callback; anything else makes the call `$()` (unresolvable), as does a
+# node callback; anything else makes the call `$(proc)` (unresolvable), as does a
 # process function or module the program reaches some other way
 # (`f = subprocess.run`, getattr(os, …), __import__, a dynamic import) and a
 # string it evaluates (exec / eval, new Function). A python call that runs a
 # code string (cProfile / profile run / runctx, pdb run / runeval / runctx,
 # timeit timeit / repeat stmt and setup, compile) writes what that code
 # writes, scanned as the program's own (nested to depth 3), while every code
-# string is a plain literal, and is `$()` otherwise (a timeit lambda is no
-# code string, a bare name is `$()`; dump_stats(p) writes p, as does the
+# string is a plain literal, and is `$(proc)` otherwise (a timeit lambda is no
+# code string, a bare name is `$(proc)`; dump_stats(p) writes p, as does the
 # filename of cProfile / profile run / runctx). A profiler, tracer, debugger
-# or Timer object is always `$()`: any reference to trace.Trace /
+# or Timer object is always `$(proc)`: any reference to trace.Trace /
 # cProfile.Profile / profile.Profile / pdb.Pdb / bdb.Bdb / timeit.Timer,
 # called, chained or not, since the object reaches its runner unseen
 # (Profile().run returns the profiler, type(t) is Timer); the module-level
 # functions are the way to use them. With a code-string runner, a write the scan
-# cannot resolve (fail-closed, below) adds `$()`, since the code can rebind
+# cannot resolve (fail-closed, below) adds `$(proc)`, since the code can rebind
 # any variable. builtins / __builtins__ reached as a value, a .__self__, the
 # string literal 'builtins' or '__self__' itself (a computed key such as
 # sys.modules['built' + 'ins'] is not caught) and exec / eval / compile
-# referenced without a call or through an alias are `$()`. A chdir (os.chdir, process.chdir, perl chdir, Dir.chdir)
+# referenced without a call or through an alias are `$(proc)`. A chdir (os.chdir, process.chdir, perl chdir, Dir.chdir)
 # makes every process call and every relative path the program writes
 # unresolvable. A program a read only names (open(p),
 # json.load(open(p)), os.listdir(p), sys.path.insert(0, p)) adds nothing.
@@ -1183,9 +1277,9 @@ _tmb_cmd_prog_writes() {
     case "$lit" in
       T$'\t'?*) out="${out}${lit#T$'\t'}"$'\n' ;;
       S$'\t'?*)
-        if [ "$cd" = 1 ]; then out="${out}\$()"$'\n'
+        if [ "$cd" = 1 ]; then out="${out}\$(proc)"$'\n'
         else out="${out}$(_tmb_cmd_proc_writes "$(printf '%s' "${lit#S$'\t'}" | tr '\037' '\n')")"$'\n'; fi ;;
-      U) out="${out}\$()"$'\n' ;;
+      U) out="${out}\$(proc)"$'\n' ;;
       Q$'\t'?*) src="${src}${lit#Q$'\t'}"$'\n' ;;
     esac
   done <<< "$scan"
@@ -1195,9 +1289,9 @@ _tmb_cmd_prog_writes() {
     reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
     writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
     out="${out}$(_tmb_cmd_prog_literals "$src" "$reads" "$writes" "$raw")"
-    [ "$run" = 0 ] || out="${out}"$'\n'"\$()"
+    [ "$run" = 0 ] || out="${out}"$'\n'"\$(proc)"
   fi
-  [ "$cd" = 0 ] || out=$(printf '%s' "$out" | awk 'NF { print (/^[\/~$]/ ? "" : "$()/") $0 }')
+  [ "$cd" = 0 ] || out=$(printf '%s' "$out" | awk 'NF { print (/^[\/~$]/ ? "" : "$(proc)/") $0 }')
   out=$(printf '%s' "$out" | awk 'NF && !seen[$0]++')
   if [ -n "$out" ]; then printf '%s\n' "$out"; elif [ "${3:-}" = "operands" ]; then printf -- '-\n'; fi
 }
@@ -1797,7 +1891,7 @@ _tmb_cmd_prog_calls() {
 # _tmb_cmd_proc_writes <command>
 # The paths a process call's shell command writes, judged as a command of its
 # own (_tmb_cmd_write_paths_in), as written relative to the program's dir: a
-# variable the command does not set stays as written. `$()` (unresolvable)
+# variable the command does not set stays as written. `$(proc)` (unresolvable)
 # for a path under a dir it cannot tell, a statement whose command is not a
 # literal, or an interpreter reading a program from stdin it is not given.
 _tmb_cmd_proc_writes() {
@@ -1811,17 +1905,18 @@ _tmb_cmd_proc_writes() {
     read -r -a words <<< "$rest"
     [ "${#words[@]}" -gt 0 ] || continue
     p=$(tmb_cmd_decode "${words[0]}")
-    case "$p" in *'$'*|*'`'*) printf '%s\n' "\$()"; continue ;; esac
-    case "$cmd" in *'<<'*) ;; *) [ -z "$(_tmb_cmd_stdin_interp "${words[@]}")" ] || printf '%s\n' "\$()" ;; esac
+    case "$p" in *'$'*|*'`'*) printf '%s\n' "\$(proc)"; continue ;; esac
+    case "$cmd" in *'<<'*) ;; *) [ -z "$(_tmb_cmd_stdin_interp "${words[@]}")" ] || printf '%s\n' "\$(proc)" ;; esac
   done < <(_tmb_cmd_statements_enc "$cmd" "@" 0 assign)
   while IFS= read -r p; do
+    case "$p" in UNRESOLVED:PWD:*) p="\$(proc)" ;; esac
     p="${p#UNRESOLVED:*:}"
     case "$p" in
       '') continue ;;
       "$base") p=. ;;
       "$base"/*) p="${p#"$base"/}" ;;
       /*|'~'*|'$'*) ;;
-      *) p="\$()/$p" ;;
+      *) p="\$(proc)/$p" ;;
     esac
     printf '%s\n' "$p"
   done < <(_tmb_cmd_write_paths_in "$cmd" "$base" "@" 0)
@@ -2097,7 +2192,8 @@ _tmb_cmd_git_tree() {
 
 # _tmb_cmd_join <dir-token> <path> <cwd>
 # <path> joined to its statement's dir token and normalized; as written when
-# the dir is unknown or the path holds a variable.
+# the path holds a variable, `UNRESOLVED:PWD:$PWD/<path>` when the dir is
+# unknown.
 _tmb_cmd_join() {
   local dir="${1:-}" p="${2:-}" cwd="${3:-}" base
   case "$p" in *'$'*|*'`'*) printf '%s\n' "$p"; return 0 ;; esac
@@ -2109,7 +2205,10 @@ _tmb_cmd_join() {
     /*) base="" ;;
     *)
       case "$dir" in
-        -) printf '%s\n' "$p"; return 0 ;;
+        -)
+          if [ "$p" = . ]; then printf 'UNRESOLVED:PWD:$PWD\n'; else printf 'UNRESOLVED:PWD:$PWD/%s\n' "$p"; fi
+          return 0
+          ;;
         @) base="$cwd" ;;
         @/*) base="${cwd:+${cwd%/}}${cwd:+/}${dir#@/}" ;;
         *) base="$dir" ;;
@@ -2179,9 +2278,9 @@ _tmb_cmd_heredoc_align() {
 # assignments accumulate in the caller-scoped _TMB_CMD_VARS.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
-  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old mark chain
+  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old why mark chain
   local -a words progs
-  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-"
+  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-" _TMB_CMD_WHY=""
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
   case "$cmd" in *'<<'*) bodies=$(_tmb_cmd_heredoc_align "$cmd" "$listing") ;; esac
   while IFS="$(printf '\t')" read -r dir stmt; do
@@ -2189,7 +2288,10 @@ _tmb_cmd_write_paths_in() {
     old="${dir#*$'\022'}"
     [ "$old" != "$dir" ] || old="-"
     dir="${dir%%$'\022'*}"
+    why=""
+    case "$old" in *$'\022'*) why="${old#*$'\022'}"; old="${old%%$'\022'*}" ;; esac
     _TMB_CMD_OLDTOK="$old"
+    _TMB_CMD_WHY="$why"
     read -r -a words <<< "$stmt"
     [ "${#words[@]}" -gt 0 ] || continue
     if [ "${dir#=}" != "$dir" ]; then
@@ -2200,7 +2302,7 @@ _tmb_cmd_write_paths_in() {
     if [ "$depth" -lt 3 ]; then
       inner=$(_tmb_cmd_inner "$stmt")
       if [ -n "$inner" ]; then
-        _tmb_cmd_write_paths_in "$(tmb_cmd_decode "$inner")" "$cwd" "$dir"$'\022'"$old" $((depth + 1))
+        _tmb_cmd_write_paths_in "$(tmb_cmd_decode "$inner")" "$cwd" "$dir"$'\022'"$old"${why:+$'\022'$why} $((depth + 1))
         continue
       fi
     fi
@@ -2211,7 +2313,7 @@ _tmb_cmd_write_paths_in() {
       stmt="${words[*]}"
     fi
     chain=""
-    [ "$dir" != "-" ] || chain=1
+    [ "$dir" != "-" ] || [ -n "$why" ] || chain=1
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
@@ -2233,7 +2335,7 @@ _tmb_cmd_write_paths_in() {
       done <<< "$bodies"
       for prog in ${progs[@]+"${progs[@]}"}; do
         if [ "$kind" = "sh" ]; then
-          [ "$depth" -lt 3 ] && _tmb_cmd_write_paths_in "$prog" "$cwd" "$dir"$'\022'"$old" $((depth + 1))
+          [ "$depth" -lt 3 ] && _tmb_cmd_write_paths_in "$prog" "$cwd" "$dir"$'\022'"$old"${why:+$'\022'$why} $((depth + 1))
         else
           while IFS= read -r p; do
             [ -n "$p" ] && _tmb_cmd_emit "$dir" "$p" "$cwd"
@@ -2329,9 +2431,24 @@ _tmb_cmd_exec_writes() {
 # _tmb_cmd_emit <dir-token> <path> <cwd>
 # Prints <path> joined to its statement's dir, once per value its variables
 # resolve to; `UNRESOLVED:<var>:<path>` when a variable (or a $( ) /
-# backtick, named `$()`) cannot be resolved from this command.
+# backtick, named `$()`; `$(proc)` from an inline program) cannot be
+# resolved from this command. A relative
+# <path> in an unknown dir that came from a cd / git -C through a variable
+# (_TMB_CMD_WHY: `<dir-token>\024<encoded dir word>`) is re-judged as written
+# under that word.
 _tmb_cmd_emit() {
   local dir="${1:-}" p="${2:-}" cwd="${3:-}" v base
+  if [ "$dir" = "-" ] && [ -n "${_TMB_CMD_WHY:-}" ]; then
+    case "$p" in
+      /*|'~'*|'$'*|'`'*) ;;
+      *)
+        v=$(tmb_cmd_decode "${_TMB_CMD_WHY#*$'\024'}")
+        [ "$p" = . ] || v="${v%/}/$p"
+        _tmb_cmd_emit_under "${_TMB_CMD_WHY%%$'\024'*}" "$v" "$cwd"
+        return 0
+        ;;
+    esac
+  fi
   case "$p" in
     *'$'*|*'`'*) ;;
     *) _tmb_cmd_join "$dir" "$p" "$cwd"; return 0 ;;
@@ -2344,11 +2461,20 @@ _tmb_cmd_emit() {
   case "$p" in
     /*|'~'*|'$'*|'`'*) ;;
     *)
-      base=$(_tmb_cmd_join "$dir" . "$cwd")
-      [ "$base" = "." ] || p="${base%/}/$p"
+      if [ "$dir" = "-" ]; then
+        p="\$PWD/$p"
+      else
+        base=$(_tmb_cmd_join "$dir" . "$cwd")
+        [ "$base" = "." ] || p="${base%/}/$p"
+      fi
       ;;
   esac
   printf 'UNRESOLVED:%s:%s\n' "$_TMB_CMD_UNRES" "$p"
+}
+
+_tmb_cmd_emit_under() {
+  local _TMB_CMD_WHY=""
+  _tmb_cmd_emit "$@"
 }
 
 # _tmb_cmd_var_set <name> <value-as-written>
@@ -2845,7 +2971,7 @@ _tmb_cmd_env_var() {
 # from _TMB_CMD_VARS (else the default, else _tmb_cmd_env_var) into the
 # array _TMB_CMD_EXP (every combination of values, at most 16). Non-zero,
 # with the variable in _TMB_CMD_UNRES, when one cannot be resolved; a $( ) or
-# backtick is `$()`.
+# backtick is `$()`, an inline program's `$(proc)` marker `$(proc)`.
 _tmb_cmd_expand() {
   local rest="${1:-}" lit name op def vals v a k cut
   local -a acc=("") nxt
@@ -2861,6 +2987,7 @@ _tmb_cmd_expand() {
     for ((k = 0; k < ${#acc[@]}; k++)); do acc[$k]="${acc[$k]}${lit}"; done
     op=""; def=""; cut=""
     case "$rest" in
+      '$(proc)'*) _TMB_CMD_UNRES='$(proc)'; return 1 ;;
       '`'*|'$('*) _TMB_CMD_UNRES='$()'; return 1 ;;
       '${'*)
         a="${rest#??}"
@@ -2961,7 +3088,13 @@ tmb_payload_cwd() {
 }
 
 tmb_deny_ambiguous_git_target() {
-  jq -nc --arg r "BLOCKED: ambiguous_git_target: \`${1:-git}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …" \
+  local r
+  if [ "${2:-}" = unresolved ]; then
+    r="BLOCKED: ambiguous_git_target: \`${1:-git}\` runs in a directory that comes through a variable, \`cd -\` or popd the guard cannot resolve, and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Pass the literal path: git -C <path> or cd <path> && …"
+  else
+    r="BLOCKED: ambiguous_git_target: \`${1:-git}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …"
+  fi
+  jq -nc --arg r "$r" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
 }
 
