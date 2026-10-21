@@ -39,7 +39,6 @@ import {
   remotesView,
   repoRemotes,
   setRemoteSync,
-  syncRemotes,
   upsertRepoRemotes,
   type RemoteProvider,
   type SyncProvider,
@@ -206,40 +205,70 @@ function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
   );
 }
 
-// Read the four repo-scoped policy keys from the repos table and its
-// repo_remotes rows — the sole source of truth (#980). The first row is the
-// representative sample the `applied` payload and the workspace PR-target Keep
-// option read; rows may differ after per-repo applies.
-// Returns null for each field on an empty repos table or a NULL column.
+type RemoteView = ReturnType<typeof remotesView>;
+
+interface RepoPolicy {
+  repo: string;
+  branching_model: string | null;
+  pr_target: string | null;
+  protected_branches: unknown;
+  remotes: RemoteView;
+}
+
+function parseJsonColumn(s: string | null): unknown {
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+// Each repos row's four repo-scoped policy keys, from its columns and its
+// repo_remotes rows — the sole source of truth (#980), in name order.
+function readRepoPolicies(db: TrajectoryDB): RepoPolicy[] {
+  return db
+    .all<{
+      name: string;
+      target_branch: string | null;
+      branching_model: string | null;
+      protected_branches: string | null;
+    }>(`SELECT name, target_branch, branching_model, protected_branches FROM repos ORDER BY name`)
+    .map((row) => ({
+      repo: row.name,
+      branching_model: row.branching_model,
+      pr_target: row.target_branch,
+      protected_branches: parseJsonColumn(row.protected_branches),
+      remotes: remotesView(repoRemotes(db, row.name)),
+    }));
+}
+
+// The first repos row: the representative sample the workspace Keep options
+// read. Null fields on an empty repos table or a NULL column.
 function readRepoPolicy(db: TrajectoryDB): {
   branching_model: string | null;
   pr_target: string | null;
   protected_branches: unknown;
-  remote_list: Array<{ name: string; provider: string; url: string }> | null;
+  remote_list: RemoteView | null;
 } {
-  const row = db.get<{
-    name: string;
-    target_branch: string | null;
-    branching_model: string | null;
-    protected_branches: string | null;
-  }>(
-    `SELECT name, target_branch, branching_model, protected_branches
-       FROM repos ORDER BY name LIMIT 1`,
-  );
-  const parseJson = (s: string | null): unknown => {
-    if (!s) return null;
-    try {
-      return JSON.parse(s);
-    } catch {
-      return null;
-    }
-  };
+  const first = readRepoPolicies(db)[0];
   return {
-    branching_model: row?.branching_model ?? null,
-    pr_target: row?.target_branch ?? null,
-    protected_branches: parseJson(row?.protected_branches ?? null),
-    remote_list: row ? remotesView(repoRemotes(db, row.name)) : null,
+    branching_model: first?.branching_model ?? null,
+    pr_target: first?.pr_target ?? null,
+    protected_branches: first?.protected_branches ?? null,
+    remote_list: first?.remotes ?? null,
   };
+}
+
+// The workspace policy as onboard_state_get and the workspace onboard_apply
+// report it: a lone repo's keys at the top level, or one `repos[]` entry per
+// repo when there are several, so no repo stands in for the rest (GH 1589).
+function workspacePolicyView(
+  policies: RepoPolicy[],
+  single: Omit<RepoPolicy, 'repo' | 'remotes'> & { remotes: RemoteView | null },
+): Record<string, unknown> {
+  if (policies.length >= 2) return { repos: policies };
+  return single;
 }
 
 interface RepoPolicyRow {
@@ -965,14 +994,17 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         // on cold restart (#95).
         const first_run = !onboarded;
 
-        const policy = readRepoPolicy(db);
+        const policies = readRepoPolicies(db);
+        const first = policies[0];
         return ok({
           first_run,
           current: {
-            branching_model: policy.branching_model,
-            pr_target: policy.pr_target,
-            protected_branches: policy.protected_branches,
-            remotes: policy.remote_list,
+            ...workspacePolicyView(policies, {
+              branching_model: first?.branching_model ?? null,
+              pr_target: first?.pr_target ?? null,
+              protected_branches: first?.protected_branches ?? null,
+              remotes: first?.remotes ?? null,
+            }),
             issue_sync: readConfig(db, 'issue_sync'),
             headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
             sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
@@ -1340,13 +1372,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           warning = remoteWarnings.join('; ');
         }
 
-        const representative = db.get<{ name: string }>(`SELECT name FROM repos ORDER BY name LIMIT 1`);
-        const remotes = representative ? remotesView(syncRemotes(db, representative.name)) : [];
-
-        const managed = readRepoPolicy(db);
-        const appliedModel = managed.branching_model ?? branching_model ?? 'github-flow';
-        const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
-        const appliedProtected = Array.isArray(managed.protected_branches)
+        const policies = readRepoPolicies(db);
+        const managed = policies[0];
+        const appliedModel = managed?.branching_model ?? branching_model ?? 'github-flow';
+        const appliedTarget = managed?.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
+        const appliedProtected = Array.isArray(managed?.protected_branches)
           ? managed.protected_branches
           : deriveProtectedBranches(appliedModel, appliedTarget);
 
@@ -1392,10 +1422,12 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           ...(strayPaths !== undefined ? { stray_dbs: removeStrayDbs(strayPaths) } : {}),
           applied: {
             onboarded: true,
-            branching_model: appliedModel,
-            pr_target: appliedTarget,
-            protected_branches: appliedProtected,
-            remotes,
+            ...workspacePolicyView(policies, {
+              branching_model: appliedModel,
+              pr_target: appliedTarget,
+              protected_branches: appliedProtected,
+              remotes: managed?.remotes ?? [],
+            }),
             issue_sync,
             headless_enforcement,
             headless_shim,

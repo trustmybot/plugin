@@ -34422,25 +34422,35 @@ function writeConfig(db2, key, value) {
     [key, JSON.stringify(value)]
   );
 }
+function parseJsonColumn(s) {
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+function readRepoPolicies(db2) {
+  return db2.all(`SELECT name, target_branch, branching_model, protected_branches FROM repos ORDER BY name`).map((row) => ({
+    repo: row.name,
+    branching_model: row.branching_model,
+    pr_target: row.target_branch,
+    protected_branches: parseJsonColumn(row.protected_branches),
+    remotes: remotesView(repoRemotes(db2, row.name))
+  }));
+}
 function readRepoPolicy(db2) {
-  const row = db2.get(
-    `SELECT name, target_branch, branching_model, protected_branches
-       FROM repos ORDER BY name LIMIT 1`
-  );
-  const parseJson = (s) => {
-    if (!s) return null;
-    try {
-      return JSON.parse(s);
-    } catch {
-      return null;
-    }
-  };
+  const first = readRepoPolicies(db2)[0];
   return {
-    branching_model: row?.branching_model ?? null,
-    pr_target: row?.target_branch ?? null,
-    protected_branches: parseJson(row?.protected_branches ?? null),
-    remote_list: row ? remotesView(repoRemotes(db2, row.name)) : null
+    branching_model: first?.branching_model ?? null,
+    pr_target: first?.pr_target ?? null,
+    protected_branches: first?.protected_branches ?? null,
+    remote_list: first?.remotes ?? null
   };
+}
+function workspacePolicyView(policies, single) {
+  if (policies.length >= 2) return { repos: policies };
+  return single;
 }
 function parseStoredRecommendation(json2) {
   if (!json2) return null;
@@ -34972,14 +34982,17 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
         const first_run = !onboarded;
-        const policy = readRepoPolicy(db2);
+        const policies = readRepoPolicies(db2);
+        const first = policies[0];
         return ok16({
           first_run,
           current: {
-            branching_model: policy.branching_model,
-            pr_target: policy.pr_target,
-            protected_branches: policy.protected_branches,
-            remotes: policy.remote_list,
+            ...workspacePolicyView(policies, {
+              branching_model: first?.branching_model ?? null,
+              pr_target: first?.pr_target ?? null,
+              protected_branches: first?.protected_branches ?? null,
+              remotes: first?.remotes ?? null
+            }),
             issue_sync: readConfig(db2, "issue_sync"),
             headless_enforcement: readConfig(db2, "headless_enforcement") ?? "no",
             sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
@@ -35282,12 +35295,11 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         } else if (remoteWarnings.length > 0) {
           warning = remoteWarnings.join("; ");
         }
-        const representative = db2.get(`SELECT name FROM repos ORDER BY name LIMIT 1`);
-        const remotes = representative ? remotesView(syncRemotes(db2, representative.name)) : [];
-        const managed = readRepoPolicy(db2);
-        const appliedModel = managed.branching_model ?? branching_model ?? "github-flow";
-        const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
-        const appliedProtected = Array.isArray(managed.protected_branches) ? managed.protected_branches : deriveProtectedBranches(appliedModel, appliedTarget);
+        const policies = readRepoPolicies(db2);
+        const managed = policies[0];
+        const appliedModel = managed?.branching_model ?? branching_model ?? "github-flow";
+        const appliedTarget = managed?.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
+        const appliedProtected = Array.isArray(managed?.protected_branches) ? managed.protected_branches : deriveProtectedBranches(appliedModel, appliedTarget);
         const headless_shim = applyHeadlessShim(headless);
         let sandbox;
         try {
@@ -35325,10 +35337,12 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           ...strayPaths !== void 0 ? { stray_dbs: removeStrayDbs(strayPaths) } : {},
           applied: {
             onboarded: true,
-            branching_model: appliedModel,
-            pr_target: appliedTarget,
-            protected_branches: appliedProtected,
-            remotes,
+            ...workspacePolicyView(policies, {
+              branching_model: appliedModel,
+              pr_target: appliedTarget,
+              protected_branches: appliedProtected,
+              remotes: managed?.remotes ?? []
+            }),
             issue_sync,
             headless_enforcement,
             headless_shim,
