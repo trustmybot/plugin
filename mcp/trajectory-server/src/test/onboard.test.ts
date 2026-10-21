@@ -2161,7 +2161,13 @@ describe('onboard records the Remote choice on repo_remotes.sync (GH 1590)', () 
     assert.deepEqual(syncState(db, 'gamma'), [['origin', 'gitlab', false]]);
     assert.equal(data.warning, 'no github remote on repo "gamma"; issues for it will not sync to GitHub');
     const applied = data.applied as Record<string, unknown>;
-    assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'github', url: GH('alpha'), sync: true }]);
+    const repos = applied.repos as Array<{ repo: string; remotes: unknown }>;
+    assert.equal(applied.remotes, undefined);
+    assert.deepEqual(repos.map((r) => r.repo), ['alpha', 'beta', 'gamma']);
+    assert.deepEqual(repos[0]!.remotes, [
+      { name: 'origin', provider: 'github', url: GH('alpha'), sync: true },
+      { name: 'mirror', provider: 'gitlab', url: GL('alpha'), sync: false },
+    ]);
     db.close();
   });
 
@@ -2194,6 +2200,97 @@ describe('onboard records the Remote choice on repo_remotes.sync (GH 1590)', () 
     const missing = await apply(tools, { shape: 'remote', repo: 'gamma', branching_model: 'github-flow', remote: ['github'] });
     assert.equal(missing.warning, 'no github remote on repo "gamma"; issues for it will not sync to GitHub');
     assert.deepEqual(syncState(db, 'gamma'), [['origin', 'gitlab', false]]);
+    db.close();
+  });
+});
+
+describe('onboard reports policy per repo in a multi-repo workspace (GH 1589)', () => {
+  const POLICY_KEYS = ['branching_model', 'pr_target', 'protected_branches', 'remotes'];
+  const GH_PLUGIN = 'https://github.com/acme/plugin.git';
+  const GL_BENCH = 'git@gitlab.com:acme/benchmarks.git';
+
+  const stateCurrent = async (tools: ReturnType<typeof onboardTools>): Promise<Record<string, unknown>> =>
+    parse(await call(tools.handlers, 'onboard_state_get', {})).current as Record<string, unknown>;
+
+  function twoRepoWorkspace(): TrajectoryDB {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO repos (path, name, target_branch, branching_model, protected_branches) VALUES
+         (?, 'plugin', 'dev', 'gitflow', '["main","dev"]'),
+         (?, 'benchmarks', 'main', 'github-flow', '["main"]')`,
+      [gitRepoWithRemotes({ origin: GH_PLUGIN }), gitRepoWithRemotes({ origin: GL_BENCH })],
+    );
+    upsertRepoRemotes(db, 'plugin', [{ name: 'origin', provider: 'github', url: GH_PLUGIN }]);
+    upsertRepoRemotes(db, 'benchmarks', [{ name: 'origin', provider: 'gitlab', url: GL_BENCH }]);
+    return db;
+  }
+
+  it('two repos: current drops the workspace-level policy keys and lists each repo with its own values', async () => {
+    const db = twoRepoWorkspace();
+    const current = await stateCurrent(onboardTools(db));
+    for (const key of POLICY_KEYS) assert.equal(key in current, false, `current.${key} must be absent`);
+    const repos = current.repos as unknown[];
+    assert.equal(repos.length, 2);
+    assert.deepEqual(repos, [
+      {
+        repo: 'benchmarks',
+        branching_model: 'github-flow',
+        pr_target: 'main',
+        protected_branches: ['main'],
+        remotes: [{ name: 'origin', provider: 'gitlab', url: GL_BENCH, sync: true }],
+      },
+      {
+        repo: 'plugin',
+        branching_model: 'gitflow',
+        pr_target: 'dev',
+        protected_branches: ['main', 'dev'],
+        remotes: [{ name: 'origin', provider: 'github', url: GH_PLUGIN, sync: true }],
+      },
+    ]);
+    db.close();
+  });
+
+  it('one repo: current keeps the top-level policy keys and has no repos list', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+       VALUES ('/repo/plugin', 'plugin', 'dev', 'gitflow', '["main","dev"]')`,
+    );
+    upsertRepoRemotes(db, 'plugin', [{ name: 'origin', provider: 'github', url: GH_PLUGIN }]);
+    const current = await stateCurrent(onboardTools(db));
+    assert.equal('repos' in current, false);
+    assert.equal(current.branching_model, 'gitflow');
+    assert.equal(current.pr_target, 'dev');
+    assert.deepEqual(current.protected_branches, ['main', 'dev']);
+    assert.deepEqual(current.remotes, [{ name: 'origin', provider: 'github', url: GH_PLUGIN, sync: true }]);
+    db.close();
+  });
+
+  it('one repo: the final workspace apply returns the remotes onboard_state_get then reports, unsynced ones included', async () => {
+    const db = dbWithRepo({ origin: GH_PLUGIN, mirror: GL_BENCH }, 'plugin');
+    const tools = onboardTools(db);
+    const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'remote', remote: ['github'], issue_sync: 'auto' }));
+    assert.equal(data.ok, true, String(data.error));
+    const applied = data.applied as Record<string, unknown>;
+    assert.deepEqual(applied.remotes, [
+      { name: 'origin', provider: 'github', url: GH_PLUGIN, sync: true },
+      { name: 'mirror', provider: 'gitlab', url: GL_BENCH, sync: false },
+    ]);
+    assert.deepEqual(applied.remotes, (await stateCurrent(tools)).remotes);
+    db.close();
+  });
+
+  it('two repos: the final workspace apply returns the same per-repo list onboard_state_get then reports', async () => {
+    const db = twoRepoWorkspace();
+    const tools = onboardTools(db);
+    const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'remote', remote: ['github'], issue_sync: 'auto' }));
+    assert.equal(data.ok, true, String(data.error));
+    const applied = data.applied as Record<string, unknown>;
+    for (const key of POLICY_KEYS) assert.equal(key in applied, false, `applied.${key} must be absent`);
+    const current = await stateCurrent(tools);
+    assert.deepEqual(applied.repos, current.repos);
+    const bench = (current.repos as Array<{ repo: string; remotes: unknown }>).find((r) => r.repo === 'benchmarks')!;
+    assert.deepEqual(bench.remotes, [{ name: 'origin', provider: 'gitlab', url: GL_BENCH, sync: false }]);
     db.close();
   });
 });
