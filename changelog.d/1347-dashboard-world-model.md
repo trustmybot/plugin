@@ -1,0 +1,2 @@
+### Added
+- **A project map in the dashboard, and `/tmb:dashboard` to start it** (GH 1347): a new Project map tab shows the world model `/scan` builds — pick a repo, expand its directory tree one level at a time with each directory's README summary and file count, and search directory and file descriptions by keyword. On a DB that has no world model yet, the tab says to open a Claude Code session and run `/scan`. `/tmb:dashboard` starts the dashboard in the background and gives you its URL. The dashboard still only reads the DB.
