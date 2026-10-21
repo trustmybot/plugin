@@ -36973,6 +36973,7 @@ function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
     });
   });
 }
+var PROPOSED_PR_TARGET = "proposed-pr";
 function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
   return new Promise((resolve3, reject) => {
     const child = spawn2(
@@ -37583,7 +37584,7 @@ function cheatcodeTools(db2) {
           [name, sourceUrl]
         );
         if (existing) {
-          const attachments = db2.all(
+          const attachments2 = db2.all(
             `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
             [existing.id]
           );
@@ -37591,7 +37592,7 @@ function cheatcodeTools(db2) {
             installed: false,
             idempotent: true,
             cheatcode: existing,
-            attachments
+            attachments: attachments2
           });
         }
         const approval = db2.get(
@@ -37646,7 +37647,9 @@ function cheatcodeTools(db2) {
         if (kind === "skill" || kind === "plugin") {
           const targetSet = /* @__PURE__ */ new Set();
           for (const att of out.attachments) {
-            if (att.target) targetSet.add(att.target);
+            if (att.target && !(kind === "skill" && att.target === PROPOSED_PR_TARGET)) {
+              targetSet.add(att.target);
+            }
           }
           if (target) targetSet.add(target);
           const refusedTargets = writesOutside(targetSet);
@@ -37657,6 +37660,12 @@ function cheatcodeTools(db2) {
             if (result2) materialized.push(result2);
           }
         }
+        const skillWritten = kind === "skill" && materialized.length > 0;
+        const installed = skillWritten ? true : out.installed;
+        const method = skillWritten ? "agent-frontmatter" : out.method;
+        const scriptAttachments = skillWritten ? [] : out.attachments;
+        const attachments = skillWritten ? materialized.map((m) => ({ target: m.target, artifact: m.artifact })) : out.attachments;
+        const proposedPr = skillWritten ? null : out.proposed_pr;
         const origin = deriveOrigin(sourceUrl);
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
@@ -37666,7 +37675,7 @@ function cheatcodeTools(db2) {
             [name, kind, origin, description, sourceUrl, filePath, out.version ?? null, trustTier, placementScope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
-          for (const att of out.attachments) {
+          for (const att of scriptAttachments) {
             db2.run(
               `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`,
@@ -37682,8 +37691,8 @@ function cheatcodeTools(db2) {
           }
           auditCheatcode(
             "cheatcode_install",
-            `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
+            `Cheatcode install: '${name}' (kind=${kind}, method=${method})`,
+            JSON.stringify({ name, kind, source_url: sourceUrl, method }),
             installedAt
           );
           auditCheatcode(
@@ -37694,21 +37703,21 @@ function cheatcodeTools(db2) {
               name,
               kind,
               source_url: sourceUrl,
-              installed: out.installed,
-              attachments: out.attachments
+              installed,
+              attachments
             }),
             installedAt
           );
           return id;
         });
         return ok19({
-          installed: out.installed,
+          installed,
           cheatcode_id: cheatcodeId,
           candidate: out.candidate,
-          method: out.method,
+          method,
           version: out.version,
           scope: placementScope,
-          attachments: out.attachments,
+          attachments,
           // Every materialized prompt-surface path (the .claude/agents/<target>.md
           // or .claude/CLAUDE.md written in the user project), one element per
           // bound target. Empty when nothing materialized (no target, or none
@@ -37718,10 +37727,9 @@ function cheatcodeTools(db2) {
             artifact: m.artifact,
             path: m.path
           })),
-          // Skill installs carry the install script's proposed agent-frontmatter
-          // PR payload alongside the materialized surface — the canonical
-          // upstream contribution, distinct from the project-local materialize.
-          proposed_pr: out.proposed_pr,
+          // A skill install with no materialized surface carries the install
+          // script's proposed agent-frontmatter PR payload instead.
+          proposed_pr: proposedPr,
           error: out.error
         });
       })

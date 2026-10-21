@@ -1171,6 +1171,28 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       assert.ok(att, 'attachment row records the materialization');
       assert.equal(att!.artifact, 'agent-md:.claude/agents/swe.md');
 
+      // GH 1619: the result reports the write it made, not a proposed PR.
+      assert.equal(out['installed'], true);
+      assert.equal(out['method'], 'agent-frontmatter');
+      assert.equal(out['proposed_pr'], null);
+      const resultAtts = out['attachments'] as { target: string; artifact: string }[];
+      assert.deepEqual(resultAtts, [{ target: 'swe', artifact: 'agent-md:.claude/agents/swe.md' }]);
+
+      const countByTarget = (t: string): number =>
+        db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM cheatcode_attachments WHERE target = ?`, [t])!.c;
+      assert.ok(countByTarget('swe') > 0, 'swe attachment row recorded');
+      assert.equal(countByTarget('proposed-pr'), 0, 'no phantom proposed-pr attachment row');
+
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'cheatcode_installed' ORDER BY id DESC LIMIT 1`,
+      );
+      const payload = JSON.parse(audit!.content_json) as {
+        installed: boolean;
+        attachments: { target: string }[];
+      };
+      assert.equal(payload.installed, true, 'audit records installed=true');
+      assert.ok(payload.attachments.every((a) => a.target !== 'proposed-pr'), 'audit has no proposed-pr');
+
       assertPluginRepoUntouched(snapshot);
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
