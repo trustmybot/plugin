@@ -4,6 +4,8 @@
 # with the quit-and-run-from-a-terminal message and leaves the fixture HOME's
 # .claude.json byte-identical. A control run from a "terminal" (both unset)
 # proves the fixture is one the script would otherwise edit.
+# GH 1611: each channel (stable, rc, dev) resolves to its own cache dir,
+# installed_plugins entry and the plugin:tmb:trajectory-server MCP key.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,6 +66,70 @@ assert_eq '["other"]' "$(jq -c '.projects["/work/demo"].disabledMcpServers' "$FA
 test_case "control: Step B skipped prints scoped uninstall + reinstall (stable → project)"
 assert_contains "$OUT" "claude plugin uninstall tmb@trustmybot --scope project, then reinstall with: claude plugin install tmb@trustmybot --scope project" "scoped manual recovery"
 assert_contains "$OUT" "INSTALL.md#recommended-scope-project-or-local" "scope rule link"
+
+# ---- Channel targeting (GH 1611) ----------------------------------------------
+# Each case seeds all three channel caches; only the targeted channel's cache,
+# installed_plugins entry and MCP key may change.
+new_home() {
+  local h="$WORKSPACE/$1"
+  local plugins="$2"
+  mkdir -p "$h/.claude/plugins"
+  for owner in trustmybot trustmybot-rc trustmybot-dev; do
+    mkdir -p "$h/.claude/plugins/cache/$owner/tmb/1.0.0"
+  done
+  printf '{ "plugins": %s }\n' "$plugins" > "$h/.claude/plugins/installed_plugins.json"
+  cat > "$h/.claude.json" <<'JSON'
+{ "projects": { "/work/demo": { "disabledMcpServers": ["plugin:tmb:trajectory-server", "other"] } } }
+JSON
+  printf '%s' "$h"
+}
+caches_left() { (cd "$1/.claude/plugins/cache" && ls -1 | sort | tr '\n' ' '); }
+entries_left() { jq -r '.plugins | keys | join(" ")' "$1/.claude/plugins/installed_plugins.json"; }
+heal_in() {
+  local h="$1"; shift
+  printf 'y\ny\n' | env -u CLAUDE_PROJECT_DIR -u CLAUDE_PLUGIN_ROOT HOME="$h" bash "$SCRIPT" "$@" 2>&1
+}
+
+H=$(new_home rc-only '{ "tmb@trustmybot-rc": [ { "version": "1.0.0", "scope": "local" } ] }')
+set +e; OUT=$(heal_in "$H"); rc=$?; set -e
+test_case "rc auto-detected: exits 0"
+assert_eq "0" "$rc" "exit; output: $OUT"
+test_case "rc auto-detected: only cache/trustmybot-rc is removed"
+assert_eq "trustmybot trustmybot-dev " "$(caches_left "$H")" "caches left"
+test_case "rc auto-detected: entry tmb@trustmybot-rc is removed"
+assert_eq "" "$(entries_left "$H")" "entries left"
+assert_contains "$OUT" "claude plugin install tmb@trustmybot-rc --scope local" "reinstall hint"
+test_case "rc auto-detected: Step A clears plugin:tmb:trajectory-server"
+assert_eq '["other"]' "$(jq -c '.projects["/work/demo"].disabledMcpServers' "$H/.claude.json")" "disabledMcpServers"
+
+H=$(new_home dev-flag '{ "tmb@trustmybot": [ { "version": "1.0.0", "scope": "project" } ], "tmb@trustmybot-dev": [ { "version": "1.0.0", "scope": "local" } ] }')
+set +e; OUT=$(heal_in "$H" --channel dev); rc=$?; set -e
+test_case "--channel dev: exits 0"
+assert_eq "0" "$rc" "exit; output: $OUT"
+test_case "--channel dev: only cache/trustmybot-dev is removed"
+assert_eq "trustmybot trustmybot-rc " "$(caches_left "$H")" "caches left"
+test_case "--channel dev: only entry tmb@trustmybot-dev is removed"
+assert_eq "tmb@trustmybot" "$(entries_left "$H")" "entries left"
+test_case "--channel dev: Step A clears plugin:tmb:trajectory-server"
+assert_eq '["other"]' "$(jq -c '.projects["/work/demo"].disabledMcpServers' "$H/.claude.json")" "disabledMcpServers"
+
+H=$(new_home two-channels '{ "tmb@trustmybot": [ { "version": "1.0.0" } ], "tmb@trustmybot-dev": [ { "version": "1.0.0" } ] }')
+set +e; OUT=$(heal_in "$H"); rc=$?; set -e
+test_case "two channels, no flag: exits 2 naming stable|rc|dev"
+assert_eq "2" "$rc" "exit"
+assert_contains "$OUT" "Pass --channel stable|rc|dev to choose." "help"
+test_case "two channels, no flag: nothing removed"
+assert_eq "trustmybot trustmybot-dev trustmybot-rc " "$(caches_left "$H")" "caches left"
+assert_eq "tmb@trustmybot tmb@trustmybot-dev" "$(entries_left "$H")" "entries left"
+
+H=$(new_home stable-b '{ "tmb@trustmybot": [ { "version": "1.0.0", "scope": "project" } ] }')
+set +e; OUT=$(heal_in "$H"); rc=$?; set -e
+test_case "stable Step B yes: exits 0"
+assert_eq "0" "$rc" "exit; output: $OUT"
+test_case "stable Step B yes: only cache/trustmybot is removed"
+assert_eq "trustmybot-dev trustmybot-rc " "$(caches_left "$H")" "caches left"
+test_case "stable Step B yes: entry tmb@trustmybot is gone from installed_plugins.json"
+assert_eq "" "$(entries_left "$H")" "entries left"
 
 summarize
 printf "PASS heal-mcp-cache\n"
