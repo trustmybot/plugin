@@ -21,9 +21,12 @@
 #      merge=tmb-regen, the script runs in the worktree (GH 1652); a failure
 #      → exit 2, branch and DB unchanged. Tracked files it changes are
 #      amended into the rebased tip, keeping its author and message.
-#   5. The `git patch-id --stable` list of <base>..commit_sha and of
-#      <base>..<rebased>, both over source paths only (every merge=tmb-regen
-#      path excluded), must match, else exit 2.
+#   5. The `git patch-id --stable` lists of the commits a rebase picks from
+#      commit_sha and from <rebased> (`rev-list --cherry-pick --right-only
+#      <base>...<sha>`: a commit whose patch is already in <base>, such as a
+#      squash-merged parent branch's, is skipped), both over source paths only
+#      (every merge=tmb-regen path excluded), must match, else exit 2. No
+#      rebased commit left means the task's patch is already in <base> → exit 2.
 #      verification[] runs in the temporary worktree and is recorded as a
 #      verification_runs row (source manual, commit_sha = the rebased SHA).
 #      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
@@ -244,14 +247,22 @@ if [ "$NEW_SHA" != "$BASE_SHA" ] && [ -f "$WT/$REGEN_SCRIPT" ] && regen_touched;
 fi
 
 # Source paths only: every path the worktree's .gitattributes routes to the
-# tmb-regen merge driver is rebuilt above, not replayed (GH 1652).
+# tmb-regen merge driver is rebuilt above, not replayed (GH 1652). Commits are
+# listed the way a rebase picks them, so one already in the base as another
+# SHA (a squash-merged parent branch) is not drift (GH 1666).
+rebase_picks() {
+  git -C "$WT" rev-list --reverse --no-merges --cherry-pick --right-only "${BASE_SHA}...${1}"
+}
 patch_ids() {
-  git -C "$WT" rev-list --reverse --no-merges "$1" \
+  rebase_picks "$1" \
     | git -C "$WT" diff-tree --stdin -p -r --root -- . ":(exclude,${REGEN_ATTR})" \
     | git -C "$WT" patch-id --stable | cut -d' ' -f1
 }
-REVIEWED_IDS=$(patch_ids "${BASE_SHA}..${COMMIT_SHA}")
-REBASED_IDS=$(patch_ids "${BASE_SHA}..${NEW_SHA}")
+if [ -z "$(rebase_picks "$NEW_SHA")" ]; then
+  die 2 "task $TASK_ID's patch is already in $BASE; nothing to integrate, $BRANCH and the DB are unchanged"
+fi
+REVIEWED_IDS=$(patch_ids "$COMMIT_SHA")
+REBASED_IDS=$(patch_ids "$NEW_SHA")
 if [ "$REVIEWED_IDS" != "$REBASED_IDS" ]; then
   die 2 "the rebase changed task $TASK_ID's source patches (patch-id of ${BASE}..reviewed differs from ${BASE}..rebased); $BRANCH and the DB are unchanged"
 fi

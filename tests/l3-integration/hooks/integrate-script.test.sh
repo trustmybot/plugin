@@ -130,6 +130,36 @@ assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_run
 assert_no_temp_worktree
 cleanup
 
+# setup_stacked — feat/parent adds p.txt; feat/x-1 is cut from it and adds
+# a.txt (COMMIT); main squash-merges feat/parent, then adds m.txt (GH 1666).
+setup_stacked() {
+  setup none
+  g branch -q -D feat/x-1
+  g checkout -q -b feat/parent
+  commit_file p.txt parent
+  g checkout -q -b feat/x-1
+  commit_file a.txt task
+  COMMIT=$(g rev-parse HEAD)
+  g checkout -q main
+  g merge -q --squash feat/parent >/dev/null
+  g commit -qm "feat: parent (squash)"
+  commit_file m.txt moved
+  q "UPDATE tasks SET commit_sha = '$COMMIT';
+     UPDATE audit SET content_json = '{\"task_id\":1,\"commit_sha\":\"$COMMIT\"}';"
+}
+
+test_case "stacked on a squash-merged parent branch: not drift, exit 0 (GH 1666)"
+setup_stacked
+integrate main
+assert_exit_code 0 "$RC" "integrate.sh exit ($ERR)"
+NEW="$OUT"
+assert_eq "$(g rev-parse main)" "$(g rev-parse "$NEW^" 2>/dev/null)" "the rebased commit's parent is main"
+assert_eq "a.txt" "$(g diff "$NEW^" "$NEW" --name-only 2>/dev/null)" "the rebased commit changes only a.txt"
+assert_eq "$NEW" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "1|manual|0" "$(q "SELECT COUNT(*) || '|' || MAX(source) || '|' || MAX(exit_code) FROM verification_runs WHERE commit_sha = '$NEW';")" "a passing manual run on the printed SHA"
+assert_no_temp_worktree
+cleanup
+
 test_case "failing verification: exit 1, the failing run is recorded, branch unmoved"
 setup clean "$FAILING"
 integrate main
