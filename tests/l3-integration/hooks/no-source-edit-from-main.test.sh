@@ -511,4 +511,18 @@ test_case "absolute target whose parent directory is absent: BLOCK (fail-closed)
 out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$TMPDIR/missing-dir/x.ts" "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "absent parent directory still fails closed"
 
+test_case "GH 1597: .claude/tmb/scratch/ is sanctioned scratch: ALLOWED; .claude/scratch/ is not"
+out=$(run_hook "$(input 'Write' '.claude/tmb/scratch/x.py' "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "relative .claude/tmb/scratch/x.py"
+mkdir -p "$MANAGED_ROOT/.claude/tmb/scratch"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$MANAGED_ROOT/.claude/tmb/scratch/x.py" "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "<registered repo>/.claude/tmb/scratch/x.py"
+out=$(run_hook "$(input 'Write' '.claude/scratch/x.py' "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' ".claude/scratch/ is not the sanctioned dir"
+assert_contains "$out" ".claude/tmb/scratch/" "the deny names the sanctioned scratch dir"
+out=$(run_hook "$(input 'Write' '.claude/tmb/scratch/../../../src/x.py' "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "a .. climbing out of scratch stays guarded"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$MANAGED_ROOT/.claude/tmb/scratch/../../../src/x.py" "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "an absolute .. climbing out of scratch stays guarded"
+
 summarize

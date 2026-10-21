@@ -1,0 +1,2 @@
+### Fixed
+- **Commands that `cd` into a variable path are checked against the right directory** (GH 1610): `WT=<worktree>; cd $WT && git add f && git commit` now runs in the worktree instead of being blocked as outside the run's root, and `cd $UNSET && touch f` is reported as the unresolved `$UNSET/f`, not as a file next to your current directory. A read-only command such as `git -C <project> status` is no longer blocked just because the session's current directory is in another repo.

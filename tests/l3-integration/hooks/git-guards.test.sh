@@ -1119,4 +1119,140 @@ out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
 assert_not_contains "$out" '"permissionDecision":"deny"' "on a feature branch the commit is allowed"
 cleanup_repo
 
+# ---- GH 1595 / GH 1610: a dir the command sets in a variable is resolved ----
+
+test_case "GH 1595: 'R=<wt>; git -C \$R commit' with worktrees present → resolved, allowed"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" "R=$WT_PATH; git -C \$R commit -m x")
+assert_not_contains "$out" "ambiguous_git_target" "a variable set to a literal in the same command names the dir"
+assert_not_contains "$out" '"permissionDecision":"deny"' "the commit lands on fix/thing"
+out=$(run_hook_payload "swe" "$REPO_PATH" "R=$REPO_PATH; git -C \"\$R\" commit -m x")
+assert_contains "$out" "dev is a shared workflow base" "resolved to the main checkout, judged on its dev"
+cleanup_repo
+
+test_case "GH 1610: swe 'WT=<own worktree>; cd \$WT && git add f && git commit' → allowed"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" "WT=$WT_PATH; cd \$WT && git add f && git commit -m x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the cd target comes from the same command"
+out=$(run_hook_payload "swe" "$REPO_PATH" "export WT=$WT_PATH && cd \"\${WT}\" && git commit -m x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "export VAR=<literal> && cd \${VAR} resolves too"
+cleanup_repo
+
+test_case "GH 1595: 'cd \$UNSET && git commit' with worktrees present → unresolvable-dir deny, not 'names no directory'"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $UNSET && git commit -m x')
+assert_contains "$out" "ambiguous_git_target" "the deny keeps its token"
+assert_contains "$out" "comes through a variable" "the deny says the dir is behind something the guard cannot resolve"
+assert_contains "$out" "Pass the literal path" "the deny carries the remedy"
+assert_not_contains "$out" "names no directory" "the statement does name a dir"
+out=$(run_hook_payload "swe" "$REPO_PATH" "if true; then R=$WT_PATH; fi; cd \$R && git commit -m x")
+assert_contains "$out" "comes through a variable" "a conditional assignment is not trusted"
+out=$(run_hook_payload "" "$REPO_PATH" "R=$WT_PATH; echo \$[R=0]; git -C \$R merge fix/thing")
+assert_contains "$out" '"permissionDecision":"deny"' "arithmetic in an argument can reassign the variable"
+out=$(run_hook_payload "" "$REPO_PATH" "R=$WT_PATH; true <<EOF
+\$[R=0]
+EOF
+git -C \$R merge fix/thing")
+assert_contains "$out" '"permissionDecision":"deny"' "a heredoc body can reassign the variable"
+push_out=$(cd "$REPO_PATH" && jq -cn --arg d "$REPO_PATH" --arg c 'cd $UNSET && git push origin fix/thing' '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}' \
+  | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$PUSH_HOOK" 2>&1 || true)
+assert_contains "$push_out" "comes through a variable" "git-push-guard names the unresolvable dir the same way"
+cleanup_repo
+
+# ---- GH 1596: a fast-forward of a branch to its own upstream is a sync, not integration ----
+
+setup_ff_repo() {
+  local dir
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-guards-1596-XXXXXX")
+  (
+    cd "$dir" || exit 1
+    git init -q --bare origin.git
+    git init -q -b main work
+    cd work || exit 1
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md && git add . && git commit -qm init
+    git remote add origin "$dir/origin.git"
+    git push -q -u origin main
+    git switch -q -c feat/x
+    echo x > x && git add x && git commit -qm x
+    git push -q -u origin feat/x
+    git switch -q main
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES ('fixture', '$(git rev-parse --show-toplevel)', 'main', 'github-flow', '[\"main\"]');" >/dev/null
+  )
+  REPO_PATH="$(cd -P "$dir/work" && pwd)"
+  FF_ROOT="$dir"
+}
+
+test_case "GH 1596: 'git merge --ff-only origin/main' on main tracking origin/main, main checkout → allowed"
+setup_ff_repo
+out=$(run_hook_payload "" "$REPO_PATH" "git merge --ff-only origin/main")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a fast-forward to the branch's own upstream is a sync"
+out=$(run_hook_payload "" "$REPO_PATH" "git -C $REPO_PATH merge --ff-only @{u}")
+assert_not_contains "$out" '"permissionDecision":"deny"' "@{u} is always the branch's own upstream"
+out=$(run_hook_payload "" "$REPO_PATH" "git switch feat/x && git merge --ff-only origin/feat/x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "an inline switch && ff-only to the switched branch's upstream"
+rm -rf "$FF_ROOT"; REPO_PATH=""
+
+test_case "GH 1596: ff-only to another branch, a plain merge, or a ';'-joined switch stay denied"
+setup_ff_repo
+out=$(run_hook_payload "" "$REPO_PATH" "git merge --ff-only origin/feat/x")
+assert_contains "$out" "integration is PR-only" "ff-only to a branch other than the upstream is integration"
+assert_contains "$out" "git pull --ff-only" "the deny names the sync route"
+out=$(run_hook_payload "" "$REPO_PATH" "git merge origin/main")
+assert_contains "$out" "integration is PR-only" "a merge without --ff-only stays denied"
+out=$(run_hook_payload "" "$REPO_PATH" "git merge --ff-only --no-verify origin/main")
+assert_contains "$out" "integration is PR-only" "an unknown merge option stays denied"
+out=$(run_hook_payload "" "$REPO_PATH" "git switch feat/x; git merge --ff-only origin/feat/x")
+assert_contains "$out" "integration is PR-only" "a failed switch before ';' would fast-forward main onto feat/x"
+out=$(run_hook_payload "" "$REPO_PATH" "git switch feat/x && echo ok && git merge --ff-only origin/feat/x")
+assert_contains "$out" "integration is PR-only" "the switch must be the statement right before the merge"
+out=$(run_hook_payload "" "$REPO_PATH" "git rebase origin/main")
+assert_contains "$out" "integration is PR-only" "rebase is unchanged"
+assert_not_contains "$out" "git pull --ff-only" "the sync hint is for merges"
+out=$(run_hook_payload "" "$REPO_PATH" "git fetch origin && git merge --ff-only origin/main")
+assert_not_contains "$out" '"permissionDecision":"deny"' "fetch && ff-only to the upstream stays a sync"
+rm -rf "$FF_ROOT"; REPO_PATH=""
+
+test_case "GH 1596: on a feature branch, a switch to main the guard cannot follow does not borrow the feature branch's upstream"
+setup_ff_repo
+git -C "$REPO_PATH" switch -q feat/x
+git -C "$REPO_PATH" config alias.co checkout
+for c in "git switch -q main && git merge --ff-only origin/feat/x" \
+  "git checkout --quiet main && git merge --ff-only origin/feat/x" \
+  "git switch main >/dev/null && git merge --ff-only origin/feat/x" \
+  "git co main && git merge --ff-only origin/feat/x" \
+  "git switch --discard-changes main && git merge --ff-only origin/feat/x" \
+  "bash -c 'git switch -q main' && git merge --ff-only origin/feat/x" \
+  "echo x > .git/HEAD && git merge --ff-only origin/feat/x"; do
+  out=$(run_hook_payload "" "$REPO_PATH" "$c")
+  assert_contains "$out" "integration is PR-only" "denied: $c"
+done
+out=$(run_hook_payload "" "$REPO_PATH" "git switch -q main && git merge --ff-only origin/main")
+assert_not_contains "$out" '"permissionDecision":"deny"' "switch -q main && ff-only to main's own upstream is a sync"
+rm -rf "$FF_ROOT"; REPO_PATH=""
+
+test_case "GH 1596: a switch a '!' or '||' can skip, or a branch change anywhere in the command, voids the sync exception"
+setup_ff_repo
+for c in "! git switch feat/x && git merge --ff-only origin/feat/x" \
+  "true || git switch feat/x && git merge --ff-only origin/feat/x" \
+  "git branch -u origin/feat/x && git merge --ff-only @{u}" \
+  "git branch --set-upstream-to=origin/feat/x main; git merge --ff-only @{u}" \
+  "git reset -q --hard origin/feat/x; git merge --ff-only @{u}"; do
+  out=$(run_hook_payload "" "$REPO_PATH" "$c")
+  assert_contains "$out" "integration is PR-only" "denied: $c"
+done
+rm -rf "$FF_ROOT"; REPO_PATH=""
+
+test_case "GH 1596: a local upstream (branch.<b>.remote = .) is integration, not a sync"
+setup_ff_repo
+git -C "$REPO_PATH" branch -q -u feat/x main
+for c in "git merge --ff-only feat/x" "git merge --ff-only @{u}"; do
+  out=$(run_hook_payload "" "$REPO_PATH" "$c")
+  assert_contains "$out" "integration is PR-only" "denied: $c"
+done
+rm -rf "$FF_ROOT"; REPO_PATH=""
+
 summarize

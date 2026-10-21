@@ -195,7 +195,8 @@ unchecked_rebases() {
 while IFS="$(printf '\t')" read -r DIR STMT <&3; do
   [ -n "$STMT" ] || continue
   case "$DIR" in
-    '?'|-) tmb_deny_ambiguous_git_target "$STMT"; exit 0 ;;
+    '?') tmb_deny_ambiguous_git_target "$STMT"; exit 0 ;;
+    -) tmb_deny_ambiguous_git_target "$STMT" unresolved; exit 0 ;;
   esac
   # Pushes happen from the main checkout, where bro reaped the task commits;
   # a push run in .claude/worktrees/ is a direct push of unreviewed work.

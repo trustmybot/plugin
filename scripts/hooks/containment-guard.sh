@@ -119,6 +119,15 @@ HOST_TMP_C=""
 case "${TMPDIR:-}" in
   /?*) HOST_TMP_C=$(tmb_path_canonical "$TMPDIR") ;;
 esac
+# Claude Code's per-user temp root. /tmp is shared, so an existing one counts
+# only when it is a real dir this user owns, never a link planted by another.
+HARNESS_TMP="/tmp/claude-$(id -u)"
+HARNESS_TMP_C=""
+if [ ! -e "$HARNESS_TMP" ] && [ ! -L "$HARNESS_TMP" ]; then
+  HARNESS_TMP_C=$(tmb_path_canonical "$HARNESS_TMP")
+elif [ -d "$HARNESS_TMP" ] && [ ! -L "$HARNESS_TMP" ] && [ -O "$HARNESS_TMP" ]; then
+  HARNESS_TMP_C=$(tmb_path_canonical "$HARNESS_TMP")
+fi
 
 # cc_project_dir <dir> — Claude Code's canonical projects/<slug> dir for <dir>.
 cc_project_dir() {
@@ -151,7 +160,8 @@ under() {
 }
 
 # allowed <absolute-path> — inside the root, the model cache, the host temp
-# dir, a device, or (main session only) Claude Code's project and plans dirs.
+# dir, Claude Code's /tmp/claude-<uid>, a device, or (main session only)
+# Claude Code's project and plans dirs.
 allowed() {
   local c
   case "$1" in
@@ -162,6 +172,7 @@ allowed() {
   under "$c" "$ROOT_C" && return 0
   under "$c" "$CACHE_C" && return 0
   [ -n "$HOST_TMP_C" ] && [ "$HOST_TMP_C" != "/" ] && under "$c" "$HOST_TMP_C" && return 0
+  [ -n "$HARNESS_TMP_C" ] && under "$c" "$HARNESS_TMP_C" && return 0
   [ -n "$CC_PROJECT_C" ] && under "$c" "$CC_PROJECT_C" && return 0
   [ -n "$CC_SESSION_C" ] && under "$c" "$CC_SESSION_C" && return 0
   [ -n "$CC_PLANS_C" ] && under "$c" "$CC_PLANS_C"
@@ -184,7 +195,7 @@ deny() {
   fi
   tmb_audit_append "$DB" "$issue" '' "hook:containment-guard" "containment_denied" \
     "${TOOL_NAME} denied: ${path} is outside ${ROOT:-any root (unbound swe ${AGENT_ID})}" "$content" || true
-  [ -n "$reason" ] || reason="BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); keep scratch files inside it."
+  [ -n "$reason" ] || reason="BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${ROOT%/}/.claude/tmb/scratch/ (or /tmp/claude-$(id -u))."
   jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
@@ -221,22 +232,36 @@ if [ "$TOOL_NAME" != "Bash" ]; then
   exit 0
 fi
 
-[ -n "$UNBOUND" ] || [ -n "$BOUND" ] || allowed "$CWD" || deny "$CWD"
-
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
-[ -n "$COMMAND" ] || exit 0
-# unresolved <target> — a write target behind a variable this command does
-# not set: allowed only when the literal directory before the variable is
-# inside the root.
+WRITES=""
+[ -z "$COMMAND" ] || WRITES=$(tmb_cmd_write_paths "$COMMAND" "$CWD" raw "$ROOT")
+
+# A command that writes nothing (git -C <project> status from another repo's
+# cwd) is not judged by where it runs.
+[ -z "$WRITES" ] || [ -n "$UNBOUND" ] || [ -n "$BOUND" ] || allowed "$CWD" || deny "$CWD"
+[ -n "$WRITES" ] || exit 0
+
+# unresolved <target> <var> — a write target behind a variable this command
+# does not set: allowed only when the literal directory before the variable
+# is inside the root. The deny names what hides the path: <var>, a dir from a
+# cd / pushd / popd the guard cannot follow (PWD), a command substitution
+# ($()), or an inline program's process call ($(proc)).
 unresolved() {
-  local raw="$1" lit dir
+  local raw="$1" var="${2:-}" lit dir why
   lit="${raw%%[\$\`]*}"
   case "$lit" in
     */*) dir="${lit%/*}"; [ -n "$dir" ] || dir=/ ;;
     *) dir="" ;;
   esac
   if [ -n "$dir" ] && dir=$(expand "$dir") && allowed "$dir"; then return 0; fi
-  deny "$raw" "BLOCKED: write target \"$raw\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command."
+  case "$var" in
+    '$(proc)') why="comes from a process call in an inline program (subprocess, os.system, exec, spawn, …) whose command, arguments or cwd are not all plain literals, so the guard cannot tell what it writes; pass literal arguments, or run the command from the shell" ;;
+    '$()') why="is built by a command substitution or backticks the guard cannot evaluate; inline the path" ;;
+    PWD) why="is relative to a directory from a cd, pushd or popd the guard cannot resolve (cd -, popd, or a cd through a variable); cd to a literal path" ;;
+    '') why="depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command" ;;
+    *) why="depends on a variable the guard cannot resolve in this command: \$${var} is not set to a literal earlier in it; inline the path or set ${var}=<path> in the same command" ;;
+  esac
+  deny "$raw" "BLOCKED: write target \"$raw\" ${why}."
 }
 
 # glob_climbs <target> — a `..` after a glob component: the glob may match a
@@ -292,13 +317,15 @@ while IFS= read -r word; do
   fi
   case "$word" in
     UNRESOLVED:*)
+      var="${word#UNRESOLVED:}"
+      var="${var%%:*}"
       word="${word#UNRESOLVED:*:}"
-      if path=$(expand "$word"); then judge "$path"; else unresolved "$word"; fi
+      if path=$(expand "$word"); then judge "$path"; else unresolved "$word" "$var"; fi
       continue
       ;;
   esac
   path=$(expand "$word") || continue
   judge "$path"
-done < <(tmb_cmd_write_paths "$COMMAND" "$CWD" raw "$ROOT")
+done <<< "$WRITES"
 
 exit 0
