@@ -90,6 +90,11 @@ readonly_refusal_json() {
 # sqlite3 query helpers
 # ---------------------------------------------------------------------------
 DB_PATH=""
+READ_DB=""
+SNAP_DIR=""
+trap 'rm -rf "$SNAP_DIR"' EXIT
+trap 'rm -rf "$SNAP_DIR"; exit 130' INT
+trap 'rm -rf "$SNAP_DIR"; exit 143' TERM
 
 # sqlite_ro <sqlite3 args>... — a read-only sqlite3 with a busy timeout, so a
 # concurrent writer makes the read wait instead of failing at once.
@@ -99,8 +104,33 @@ sqlite_ro() {
   sqlite3 -readonly -cmd ".timeout ${ms}" "$@"
 }
 
+uri_path() {
+  local p="${1//\%/%25}"
+  p="${p//\?/%3f}"
+  printf '%s' "${p//\#/%23}"
+}
+
+# prepare_read_db — sets READ_DB, the file the queries read. A WAL DB with no
+# -shm (after a clean shutdown or a copy) may not open -readonly, so it is read
+# from a VACUUM INTO snapshot in a scratch dir removed on exit; with no -wal
+# either, the source is opened immutable. The DB and its -wal are never written.
+# A failed snapshot prints the sqlite error to stderr and exits 1.
+prepare_read_db() {
+  READ_DB="$DB_PATH"
+  _tmb_db_wal_cold "$DB_PATH" || return 0
+  local src="$DB_PATH"
+  [[ -e "$DB_PATH-wal" ]] || src="file:$(uri_path "$DB_PATH")?immutable=1"
+  SNAP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bro-sqlite-readonly.XXXXXX")
+  if ! sqlite3 -readonly "$src" ".timeout 5000" "VACUUM INTO '${SNAP_DIR//\'/\'\'}/snap.db'" >/dev/null 2>"$SNAP_DIR/err" \
+    || ! sqlite3 "$SNAP_DIR/snap.db" ".timeout 5000" "PRAGMA journal_mode=DELETE;" >/dev/null 2>"$SNAP_DIR/err"; then
+    printf 'bro-sqlite-readonly: snapshot of %s failed: %s\n' "$DB_PATH" "$(cat "$SNAP_DIR/err")" >&2
+    exit 1
+  fi
+  READ_DB="$SNAP_DIR/snap.db"
+}
+
 run_query() {
-  sqlite_ro -json "$DB_PATH" "$1" 2>/dev/null
+  sqlite_ro -json "$READ_DB" "$1" 2>/dev/null
 }
 
 run_query_param() {
@@ -108,7 +138,7 @@ run_query_param() {
   # Values are always integer IDs or short strings; we single-quote and escape
   # any single quotes inside the value (SQL escaping: '' for ').
   local query="$1"
-  sqlite_ro -json "$DB_PATH" "$query" 2>/dev/null
+  sqlite_ro -json "$READ_DB" "$query" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -369,8 +399,9 @@ main() {
       printf '{"error":"db-not-found","path":"%s","hint":"Set CLAUDE_PROJECT_DIR to the project root (or TRAJECTORY_DB_PATH to the DB)."}\n' "${DB_PATH:-unresolved}"
       exit 1
     fi
+    prepare_read_db
     local count
-    count=$(sqlite_ro "$DB_PATH" "SELECT COUNT(*) FROM issues;" 2>/dev/null || echo "-1")
+    count=$(sqlite_ro "$READ_DB" "SELECT COUNT(*) FROM issues;" 2>/dev/null || echo "-1")
     printf '{"ok":true,"db_path":"%s","issues_count":%s}\n' "$DB_PATH" "$count"
     exit 0
   fi
@@ -424,6 +455,7 @@ print(json.dumps({'supported_read_tools': $(printf '%s\n' "${SUPPORTED_READ_TOOL
 
   # Append fallback log entry (best-effort, never fail on logging errors)
   append_log "$tool"
+  prepare_read_db
 
   # Dispatch to tool implementation
   case "$tool" in
