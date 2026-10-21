@@ -53,7 +53,7 @@ SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro
 5. Runs `verification[]` in the temporary worktree and records it in `verification_runs` (source `manual`, the rebased SHA). A failure exits 1 and leaves the branch where it was. A pass moves `refs/heads/<branch_id>` to the rebased SHA, prints the SHA and exits 0. It refuses to move a branch that is checked out anywhere.
 6. Always removes the temporary worktree.
 
-`tasks.commit_sha` keeps the reviewed commit. `git-push-guard.sh` connects the two: a pushed commit that is no task's `commit_sha` but has a task commit's patch-id is that task's work rebased. The guard denies it when the task has no passing review. When the task has a passing review, the guard denies it unless a `verification_runs` row with exit code 0 names that exact SHA. Commits that match no task's patch-id are left alone.
+`tasks.commit_sha` keeps the reviewed commit. `git-push-guard.sh` connects the two: a pushed commit that is no task's `commit_sha` but has a task commit's patch-id is that task's work rebased. The guard denies it when the task has no passing review. When the task has a passing review, the guard denies it unless a `verification_runs` row with exit code 0 names that exact SHA. A commit matching no task's patch-id is compared again with the generated `mcp/*/dist` and `dashboard/dist` left out of both sides, so a rebase that rebuilt them is judged the same way. A commit with no source change has no such patch-id. Commits that match neither are left alone.
 
 ## Where files live, at a glance
 

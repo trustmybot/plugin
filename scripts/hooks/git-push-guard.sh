@@ -24,10 +24,16 @@
 # A commit matching several tasks is judged against a reviewed one if any.
 # Commits are paired by changed-path set before any patch-id is computed.
 #
+# Rebased with regenerated dist (GH 1627): a rebase that also rebuilt
+# mcp/*/dist or dashboard/dist has a new patch-id. A commit matching no task
+# commit's patch-id is compared again with those generated paths left out of
+# both sides; a match there is judged like any rebase. A commit with no source
+# change (dist only) has no source patch-id and never matches.
+#
 # Skips:
 #   - `git push --force` / `-f` (handled by git-guards.sh — destructive ops)
-#   - commits matching no task's commit_sha and no task commit's patch-id
-#     (pre-TMB or non-tracked work)
+#   - commits matching no task's commit_sha, no task commit's patch-id and no
+#     task commit's source-only patch-id (pre-TMB or non-tracked work)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,26 +77,61 @@ fi
 
 DB=$(tmb_db_path || true)
 
-# paths_sig <dir> — reads commit SHAs on stdin, prints "<changed paths>\t<sha>"
-# per non-merge commit that changes something. Equal patch-ids imply equal
-# changed-path sets, so this pairs candidates before any patch-id is computed.
+SOURCE_PATHS=(':(top)' ':(top,exclude,glob)mcp/*/dist/**' ':(top,exclude)dashboard/dist')
+
+# paths_sig <dir> [-- <pathspec>...] — reads commit SHAs on stdin, prints
+# "<changed paths>\t<sha>" per non-merge commit that changes something within
+# the pathspec. Equal patch-ids imply equal changed-path sets, so this pairs
+# candidates before any patch-id is computed.
 paths_sig() {
-  git -C "$1" diff-tree --stdin -r --root --name-only --format='commit %H' 2>/dev/null | awk '
+  local dir="$1"; shift
+  git -C "$dir" diff-tree --stdin -r --root --name-only --format='commit %H' "$@" 2>/dev/null | awk '
     function flush() { if (sha != "" && files != "") print files "\t" sha; sha = ""; files = "" }
     /^commit [0-9a-f]+$/ { flush(); sha = $2; next }
     NF { files = files "\037" $0 }
     END { flush() }'
 }
 
+# pair_by_paths <dir> <task_rows> <shas> [-- <pathspec>...] — prints
+# "<sha> <task sha>..." per commit in <shas> sharing its changed-path set with
+# task commits.
+pair_by_paths() {
+  local dir="$1" task_rows="$2" shas="$3"; shift 3
+  awk -F'\t' 'FILENAME == ARGV[1] { r[$1] = r[$1] " " $2; next } ($1 in r) { print $2 r[$1] }' \
+    <(printf '%s\n' "$task_rows" | cut -d'|' -f1 | paths_sig "$dir" "$@") \
+    <(printf '%s\n' "$shas" | paths_sig "$dir" "$@")
+}
+
+# task_matches <dir> <task_rows> <pairs> [-- <pathspec>...] — prints
+# "<sha>|<task_id>|<branch_id>|<reviewed>" per paired commit whose patch-id
+# within the pathspec equals a task commit's, a reviewed task preferred. A
+# commit with an empty patch has no patch-id and matches nothing.
+task_matches() {
+  local dir="$1" task_rows="$2" pairs="$3" ids; shift 3
+  ids=$(printf '%s\n' "$pairs" | tr ' ' '\n' | sort -u \
+    | git -C "$dir" diff-tree --stdin -p -r --root "$@" 2>/dev/null | git -C "$dir" patch-id --stable 2>/dev/null)
+  [ -n "$ids" ] || return 0
+  awk 'FILENAME == ARGV[1] { pid[$2] = $1; next }
+    FILENAME == ARGV[2] { task[substr($0, 1, index($0, "|") - 1)] = substr($0, index($0, "|")); next }
+    !($1 in pid) || seen[$1]++ { next }
+    { m = ""
+      for (i = 2; i <= NF; i++) if (($i in pid) && pid[$i] == pid[$1] && ($i in task)) {
+        if (m == "" || task[$i] ~ /[|]1$/) m = task[$i]
+        if (m ~ /[|]1$/) break
+      }
+      if (m != "") print $1 m }' \
+    <(printf '%s\n' "$ids") <(printf '%s\n' "$task_rows") <(printf '%s\n' "$pairs")
+}
+
 # unchecked_rebases <dir> <push_shas>
-# Prints "<sha>|<task_id>|<branch_id>|<reviewed 0/1>" for each pushed commit
-# that is no task's commit_sha, has the patch-id of a task's commit in this
-# repo, and either that task has no pass verdict or the commit has no
-# verification_runs row with exit_code 0 for itself. Prints __ERR__ when a DB
-# read fails.
+# Prints "<sha>|<task_id>|<branch_id>|<reviewed 0/1>|<full|src>" for each
+# pushed commit that is no task's commit_sha, has the patch-id (full) or else
+# the source-only patch-id (src) of a task's commit in this repo, and either
+# that task has no pass verdict or the commit has no verification_runs row
+# with exit_code 0 for itself. Prints __ERR__ when a DB read fails.
 unchecked_rebases() {
   local dir="$1" pushed="$2" values="" task_commits fresh root name safe_name repo_filter=""
-  local tasks full pairs ids matches in_list sha reviewed ok
+  local tasks full pairs matches src_matches rest in_list sha reviewed ok
   while IFS= read -r sha; do
     case "$sha" in ''|*[!0-9a-f]*) continue ;; esac
     values="${values:+$values,}('$sha')"
@@ -122,28 +163,21 @@ unchecked_rebases() {
     | awk '{ split($0, o, /[ |]/); if (o[2] == "commit") print o[1] substr($0, index($0, "|")) }')
   [ -n "$full" ] || return 0
 
-  pairs=$(awk -F'\t' 'FILENAME == ARGV[1] { r[$1] = r[$1] " " $2; next } ($1 in r) { print $2 r[$1] }' \
-    <(printf '%s\n' "$full" | cut -d'|' -f1 | paths_sig "$dir") \
-    <(printf '%s\n' "$fresh" | paths_sig "$dir"))
-  [ -n "$pairs" ] || return 0
+  matches=""
+  pairs=$(pair_by_paths "$dir" "$full" "$fresh")
+  [ -z "$pairs" ] || matches=$(task_matches "$dir" "$full" "$pairs" | sed 's/$/|full/')
 
-  ids=$(printf '%s\n' "$pairs" | tr ' ' '\n' | sort -u \
-    | git -C "$dir" diff-tree --stdin -p -r --root 2>/dev/null | git -C "$dir" patch-id --stable 2>/dev/null)
-  [ -n "$ids" ] || return 0
-  matches=$(awk 'FILENAME == ARGV[1] { pid[$2] = $1; next }
-    FILENAME == ARGV[2] { task[substr($0, 1, index($0, "|") - 1)] = substr($0, index($0, "|")); next }
-    !($1 in pid) || seen[$1]++ { next }
-    { m = ""
-      for (i = 2; i <= NF; i++) if (pid[$i] == pid[$1] && ($i in task)) {
-        if (m == "" || task[$i] ~ /[|]1$/) m = task[$i]
-        if (m ~ /[|]1$/) break
-      }
-      if (m != "") print $1 m }' \
-    <(printf '%s\n' "$ids") <(printf '%s\n' "$full") <(printf '%s\n' "$pairs"))
+  src_matches=""
+  rest=$(printf '%s\n' "$fresh" | grep -vxF -f <(printf '%s\n' "$matches" | cut -d'|' -f1) || true)
+  if [ -n "$rest" ]; then
+    pairs=$(pair_by_paths "$dir" "$full" "$rest" -- "${SOURCE_PATHS[@]}")
+    [ -z "$pairs" ] || src_matches=$(task_matches "$dir" "$full" "$pairs" -- "${SOURCE_PATHS[@]}" | sed 's/$/|src/')
+  fi
+  matches=$(printf '%s\n%s\n' "$matches" "$src_matches" | sed '/^$/d')
   [ -n "$matches" ] || return 0
 
   in_list=""
-  while IFS='|' read -r sha _ _ reviewed; do
+  while IFS='|' read -r sha _ _ reviewed _; do
     [ "$reviewed" = 1 ] || continue
     case "$sha" in ''|*[!0-9a-f]*) continue ;; esac
     in_list="${in_list:+$in_list,}'$sha'"
@@ -268,8 +302,9 @@ bro will spawn pr-reviewer for each unsigned task. On all-pass the push will pro
   COUNT=$(printf '%s\n' "$UNCHECKED" | wc -l | tr -d ' ')
   LIST=$(printf '%s\n' "$UNCHECKED" | awk -F'|' '{
     why = ($4 == 1) ? "no passing verification run for this commit" : "the task has no passing review"
-    printf "  - %s  rebase of task_id=%s  %s  (%s)\n", $1, $2, $3, why }')
-  DENY_REASON="BLOCKED: pushing ${COUNT} rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit but is not that commit:
+    kind = ($5 == "src") ? "rebase with regenerated dist" : "rebase"
+    printf "  - %s  %s of task_id=%s  %s  (%s)\n", $1, kind, $2, $3, why }')
+  DENY_REASON="BLOCKED: pushing ${COUNT} rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:
 
 ${LIST}
 A task with no passing review needs @bro review before push first. Then rebase it with integrate.sh, which re-runs verification[] on the rebased commit, records the run and only then moves the branch:
