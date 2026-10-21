@@ -4,10 +4,13 @@
 #   bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" <db> "<sql>" <expected> [--op eq|ge|le]
 #   bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" --self-test
 #
-# Runs <sql> read-only against a private VACUUM INTO snapshot of <db> (its -wal
-# folded in consistently, even while another connection writes), so <db> itself
-# is only ever read; point it at a cp of the reference data.
-# compares the single value it returns to <expected> and prints one line.
+# Runs <sql> read-only against a private VACUUM INTO snapshot of <db>, taken over
+# a read-only connection: rows still in its -wal are included (even while another
+# connection writes), and <db> and its -wal are never written or checkpointed.
+# A WAL-mode <db> with no -wal is opened immutable, so no -wal/-shm appears beside
+# it; a -wal without its -shm gets the -shm back, as for any reader.
+# Point it at a cp of the reference data.
+# Compares the single value it returns to <expected> and prints one line.
 #   eq  string equality (default)
 #   ge  numeric: result >= expected
 #   le  numeric: result <= expected
@@ -23,6 +26,12 @@ usage() {
 
 is_number() {
   [[ "${1:-}" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]
+}
+
+uri_path() {
+  local p="${1//\%/%25}"
+  p="${p//\?/%3f}"
+  printf '%s' "${p//\#/%23}"
 }
 
 assert_sql() {
@@ -44,9 +53,12 @@ assert_sql() {
   fi
   command -v sqlite3 >/dev/null 2>&1 || { echo "assert-sql: ERROR sqlite3 not on PATH"; return 2; }
 
-  local out rc=0
+  local out rc=0 src="$db"
+  if [ ! -e "$db-wal" ] && [ "$(od -An -tu1 -j18 -N1 "$db" | tr -d ' ')" = 2 ]; then
+    src="file:$(uri_path "$db")?immutable=1"
+  fi
   snap=$(mktemp -d "${TMPDIR:-/tmp}/assert-sql.XXXXXX")
-  sqlite3 "$db" ".timeout 5000" ".filectrl persist_wal 0" "VACUUM INTO '${snap//\'/\'\'}/ref.db'" 2>"$snap/err" \
+  sqlite3 -readonly "$src" ".timeout 5000" "VACUUM INTO '${snap//\'/\'\'}/ref.db'" >/dev/null 2>"$snap/err" \
     && sqlite3 "$snap/ref.db" "PRAGMA journal_mode=DELETE;" >/dev/null 2>"$snap/err" \
     && out=$(sqlite3 -readonly -bail "$snap/ref.db" "$sql" 2>"$snap/err") || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -92,7 +104,7 @@ mtime() {
 
 self_test() {
   local dir db self="${BASH_SOURCE[0]}" failures=0 before after
-  dir=$(mktemp -d)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/assert-sql-self-test.XXXXXX")
   trap 'rm -rf "$dir"' RETURN
   db="$dir/ref.db"
   sqlite3 "$db" "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT); INSERT INTO t (v) VALUES ('a'), ('b'), (NULL);"
@@ -139,6 +151,20 @@ self_test() {
   expect 2 "missing DB" "$dir/absent.db" "SELECT 1" 1
   expect 2 "bad op" "$db" "SELECT 1" 1 --op gt
 
+  one_line() {
+    local name="$1" lines
+    shift
+    lines=$(bash "$self" "$@" 2>/dev/null | grep -c '')
+    if [ "$lines" -eq 1 ]; then
+      echo "PASS $name prints one line"
+    else
+      echo "FAIL $name prints $lines lines, want 1"
+      failures=$((failures + 1))
+    fi
+  }
+  one_line "PASS" "$db" "SELECT count(*) FROM t" 3
+  one_line "FAIL" "$db" "SELECT count(*) FROM t" 4
+
   local wal="$dir/wal.db"
   sqlite3 "$wal" "PRAGMA journal_mode=WAL; CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('w');" >/dev/null
   rm -f "$wal-shm" "$wal-wal"
@@ -147,6 +173,22 @@ self_test() {
     echo "PASS WAL-mode copy left without -shm/-wal"
   else
     echo "FAIL WAL-mode copy grew a -shm/-wal"
+    failures=$((failures + 1))
+  fi
+
+  local walonly="$dir/wal-only.db" main_before main_after wal_before wal_after
+  sqlite3 "$walonly" ".dbconfig no_ckpt_on_close on" "PRAGMA journal_mode=WAL; CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('only-in-wal');" >/dev/null
+  rm -f "$walonly-shm"
+  touch -t 202001010000 "$walonly"
+  main_before="$(wc -c <"$walonly") $(mtime "$walonly")"
+  wal_before=$(wc -c 2>/dev/null <"$walonly-wal")
+  expect 0 "row only in -wal, -shm missing, is read" "$walonly" "SELECT v FROM t" only-in-wal
+  main_after="$(wc -c <"$walonly") $(mtime "$walonly")"
+  wal_after=$(wc -c 2>/dev/null <"$walonly-wal")
+  if [ "${wal_before:-0}" -gt 0 ] && [ "$main_before" = "$main_after" ] && [ "$wal_before" = "$wal_after" ]; then
+    echo "PASS -wal-only read leaves the main file's size and mtime, and its -wal, as they were"
+  else
+    echo "FAIL -wal-only read changed the DB (main '$main_before' -> '$main_after', -wal '${wal_before:-absent}' -> '${wal_after:-absent}')"
     failures=$((failures + 1))
   fi
 
