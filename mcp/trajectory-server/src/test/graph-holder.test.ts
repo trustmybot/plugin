@@ -1,204 +1,129 @@
-import { after, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  GraphHolder,
-  GRAPH_REOPEN_THROTTLE_MS,
-  type WorldModelGraph,
-} from '../graph-db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pinScanEnv, runGraphScript } from './helpers.js';
+import { GraphHolder, WorldModelGraph } from '../graph.js';
+import { WorldModelGraph as ShimGraph, resolveGraphDbPath } from '../graph-db.js';
+import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 
-const scanPin = pinScanEnv();
-after(() => scanPin.restore());
+function dir(repo: string, path: string, parent: string | null, summary = '') {
+  return {
+    repo,
+    path,
+    parent_path: parent,
+    summary,
+    summary_source: 'structural',
+    summary_updated_at: '',
+    file_count: 0,
+  };
+}
 
-// The holder is unit-tested with a dependency-injected opener + clock — no real
-// kuzu lock is simulated (that stays out of L2, as with the rest of the graph
-// suite). A fake graph is any non-null sentinel: the holder only ever stores
-// and returns it.
-const fakeGraph = { __fake: true } as unknown as WorldModelGraph;
-
-const LOCK_MSG = 'IO exception: Could not set lock on file world-model.kuzu';
-
-describe('GraphHolder — lazy re-open (GH #1077)', () => {
-  it('(a) fail-once-then-succeed: recovers on the next ensureGraph past the throttle window', () => {
-    let now = 1000;
-    let calls = 0;
-    const holder = new GraphHolder({
-      open: () => {
-        calls++;
-        if (calls === 1) throw new Error(LOCK_MSG);
-        return fakeGraph;
-      },
-      now: () => now,
-    });
-
-    // First attempt fails on the lock → null graph, lock message recorded.
-    assert.equal(holder.ensureGraph(), null, 'first open fails');
-    assert.equal(holder.openError, LOCK_MSG, 'lock error surfaced via openError');
-    assert.equal(calls, 1);
-
-    // Past the throttle window the holder re-attempts and recovers.
-    now += GRAPH_REOPEN_THROTTLE_MS + 1;
-    assert.equal(holder.ensureGraph(), fakeGraph, 'recovers once the lock frees');
-    assert.equal(calls, 2, 'exactly one retry');
-    assert.equal(holder.openError, null, 'recovery clears openError');
-
-    // Subsequent calls return the cached graph without re-opening.
-    assert.equal(holder.ensureGraph(), fakeGraph);
-    assert.equal(calls, 2, 'no further opens once the graph is live');
-  });
-
-  it('(b) throttle: repeated ensureGraph within the window attempts only one open', () => {
-    let now = 0;
-    let calls = 0;
-    const holder = new GraphHolder({
-      open: () => {
-        calls++;
-        throw new Error(LOCK_MSG);
-      },
-      now: () => now,
-    });
-
-    holder.ensureGraph(); // attempt 1 (fails)
-    now += 100;
-    holder.ensureGraph(); // within window — no attempt
-    now += GRAPH_REOPEN_THROTTLE_MS - 200;
-    holder.ensureGraph(); // still within window — no attempt
-    assert.equal(calls, 1, 'a persistent lock holder must not add per-call open latency');
-
-    // Crossing the window boundary permits the next attempt.
-    now += 200;
-    holder.ensureGraph();
-    assert.equal(calls, 2, 'one more attempt past the throttle window');
-  });
-
-  it('(c) persistent failure keeps returning null with an updated openError', () => {
-    let now = 0;
-    let calls = 0;
-    const messages = ['Could not set lock on file A', 'Could not set lock on file B'];
-    const holder = new GraphHolder({
-      open: () => {
-        const msg = messages[Math.min(calls, messages.length - 1)]!;
-        calls++;
-        throw new Error(msg);
-      },
-      now: () => now,
-      throttleMs: 100,
-    });
-
-    assert.equal(holder.ensureGraph(), null);
-    assert.equal(holder.openError, messages[0]);
-
-    now += 200;
-    assert.equal(holder.ensureGraph(), null, 'still down');
-    assert.equal(holder.openError, messages[1], 'openError tracks the latest failure');
-    assert.equal(holder.graph, null);
-  });
-
-  it('logs graph_db_open_failed only when the message changes, and graph_db_open on recovery', () => {
-    let now = 0;
-    let calls = 0;
-    const events: Array<Record<string, unknown>> = [];
-    const holder = new GraphHolder({
-      open: () => {
-        calls++;
-        if (calls <= 3) throw new Error(LOCK_MSG); // same message three times
-        return fakeGraph;
-      },
-      now: () => now,
-      throttleMs: 100,
-      log: (e) => events.push(e),
-    });
-
-    holder.attemptOpen(); // fail — logs graph_db_open_failed
-    now += 200;
-    holder.attemptOpen(); // fail, same message — no new log
-    now += 200;
-    holder.attemptOpen(); // fail, same message — no new log
-    const failLogs = events.filter((e) => e['kind'] === 'graph_db_open_failed');
-    assert.equal(failLogs.length, 1, 'repeated identical failures log once (no spam)');
-
-    now += 200;
-    holder.attemptOpen(); // success — logs graph_db_open with recovered:true
-    const openLogs = events.filter((e) => e['kind'] === 'graph_db_open');
-    assert.equal(openLogs.length, 1);
-    assert.equal(openLogs[0]!['recovered'], true, 'recovery is flagged');
-  });
-
-  it('a non-lock failure leaves openError null (scan_run falls through to the no-op path)', () => {
-    const holder = new GraphHolder({
-      open: () => {
-        throw new Error("Cannot find module 'kuzu'");
-      },
-      now: () => 0,
-    });
-    assert.equal(holder.ensureGraph(), null);
-    assert.equal(holder.openError, null, 'a missing binding is not a lock error');
-  });
-
-  it('GraphHolder.fixed(graph) is inert: returns the graph, never invokes an opener', () => {
-    const holder = GraphHolder.fixed(fakeGraph);
-    assert.equal(holder.ensureGraph(), fakeGraph);
-    assert.equal(holder.ensureGraph(), fakeGraph, 'stable across calls');
+describe('GraphHolder', () => {
+  it('fixed(graph) returns the same graph on every call', () => {
+    const graph = new WorldModelGraph(tempDB());
+    const holder = GraphHolder.fixed(graph);
+    assert.equal(holder.ensureGraph(), graph);
+    assert.equal(holder.ensureGraph(), graph);
     assert.equal(holder.openError, null);
   });
 
-  it('GraphHolder.fixed(null, msg) reports the error and never re-opens', () => {
-    const holder = GraphHolder.fixed(null, LOCK_MSG);
+  it('fixed(null, msg) reports the error and returns null', () => {
+    const holder = GraphHolder.fixed(null, 'graph unavailable');
     assert.equal(holder.ensureGraph(), null);
-    assert.equal(holder.openError, LOCK_MSG);
-    // Would throw if the fixed opener were ever called.
-    assert.doesNotThrow(() => holder.ensureGraph());
+    assert.equal(holder.openError, 'graph unavailable');
   });
 });
 
-describe('WorldModelGraph schema — File + HAS_FILE', () => {
-  it('a fresh graph has the File and HAS_FILE tables', () => {
-    const ws = mkdtempSync(join(tmpdir(), 'wm-schema-fresh-'));
-    try {
-      const out = runGraphScript(`
-import { WorldModelGraph } from '$DIST/graph-db.js';
-const g = new WorldModelGraph(${JSON.stringify(join(ws, 'world-model.kuzu'))});
-const tables = g.tableNames();
-g.close();
-console.log(JSON.stringify({ tables }));
-`);
-      assert.deepEqual(out['tables'], ['CONTAINS', 'Directory', 'File', 'HAS_FILE']);
-    } finally {
-      rmSync(ws, { recursive: true, force: true });
+describe('WorldModelGraph on the trajectory DB', () => {
+  it('lists the wm_ tables', () => {
+    const graph = new WorldModelGraph(tempDB());
+    const tables = graph.tableNames();
+    for (const t of ['wm_directories', 'wm_files', 'wm_directories_fts', 'wm_files_fts']) {
+      assert.ok(tables.includes(t), `${t} present in ${tables.join(',')}`);
     }
   });
 
-  it('opening a graph created without File/HAS_FILE adds them and keeps existing rows', () => {
-    const ws = mkdtempSync(join(tmpdir(), 'wm-schema-upgrade-'));
+  it('subtree honours depth and ancestors walk to the root', () => {
+    const graph = new WorldModelGraph(tempDB());
+    graph.transaction(() => {
+      graph.upsertDirectory(dir('app', '', null, 'root'));
+      graph.upsertDirectory(dir('app', 'src', ''));
+      graph.upsertDirectory(dir('app', 'src/lib', 'src'));
+      graph.upsertDirectory(dir('app', 'src/lib/deep', 'src/lib'));
+      graph.upsertDirectory(dir('other', '', null));
+    });
+
+    const all = graph.subtree('app', '', null).map((d) => d.path).sort();
+    assert.deepEqual(all, ['', 'src', 'src/lib', 'src/lib/deep']);
+    const shallow = graph.subtree('app', '', 1).map((d) => d.path).sort();
+    assert.deepEqual(shallow, ['', 'src']);
+    const fromSrc = graph.subtree('app', 'src', 1).map((d) => d.path).sort();
+    assert.deepEqual(fromSrc, ['src', 'src/lib']);
+
+    assert.deepEqual(
+      graph.ancestors('app', 'src/lib/deep').map((d) => d.path),
+      ['', 'src', 'src/lib', 'src/lib/deep'],
+    );
+    assert.equal(graph.directoryCount('app'), 4);
+    assert.equal(graph.directoryCount(), 5);
+  });
+
+  it('upserts keep row identity and keyword search ranks FTS matches', () => {
+    const graph = new WorldModelGraph(tempDB());
+    graph.upsertDirectory(dir('app', '', null));
+    graph.upsertDirectory(dir('app', 'billing', '', 'Invoice rendering and tax rules'));
+    graph.upsertDirectory(dir('app', 'auth', '', 'Login sessions'));
+    const firstId = graph.keywordSearchDirectories('app', 'invoice', 5)[0];
+    assert.equal(firstId?.path, 'billing');
+
+    graph.upsertDirectory(dir('app', 'billing', '', 'Invoice rendering, tax rules and refunds'));
+    const hits = graph.keywordSearchDirectories('app', 'refunds', 5);
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0]!.path, 'billing');
+    assert.ok(hits[0]!.score > 0, 'an FTS hit carries a positive score');
+  });
+
+  it('renameRepo re-keys directories and files', () => {
+    const graph = new WorldModelGraph(tempDB());
+    graph.upsertDirectory(dir('old', '', null));
+    graph.upsertFile({
+      repo: 'old',
+      path: WorldModelGraph.fileKey('old', 'a.ts'),
+      dir: '',
+      purpose: '',
+      purpose_source: 'none',
+      content_md5: 'x',
+      size_bytes: 1,
+      last_commit_sha: '',
+      updated_at: '',
+    });
+    assert.equal(graph.renameRepo('old', 'new'), 1);
+    assert.equal(graph.directoryCount('old'), 0);
+    assert.equal(graph.directoryCount('new'), 1);
+    assert.equal(graph.allFilesForRepo('new').length, 1);
+  });
+});
+
+describe('graph-db.js compatibility shim', () => {
+  it('opens its own handle from a path and doubles as a holder', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-shim-'));
     try {
-      const dbPath = join(ws, 'world-model.kuzu');
-      const out = runGraphScript(`
-import { createRequire } from 'node:module';
-const req = createRequire('$DIST/graph-db.js');
-const kuzu = req('kuzu');
-const raw = new kuzu.Database(${JSON.stringify(dbPath)});
-const conn = new kuzu.Connection(raw);
-conn.querySync('CREATE NODE TABLE Directory (key STRING, repo STRING, path STRING, parent_path STRING, summary STRING, summary_source STRING, summary_updated_at STRING, file_count INT64, PRIMARY KEY (key))');
-conn.querySync('CREATE REL TABLE CONTAINS (FROM Directory TO Directory)');
-conn.querySync(\`CREATE (:Directory {key: '["app",""]', repo: 'app', path: '', parent_path: '', summary: 'old', summary_source: 'structural', summary_updated_at: '', file_count: 0})\`);
-const before = conn.querySync('CALL show_tables() RETURN name').getAllSync().map((r) => r.name).sort();
-conn.closeSync();
-raw.closeSync();
-const { WorldModelGraph } = await import('$DIST/graph-db.js');
-const g = new WorldModelGraph(${JSON.stringify(dbPath)});
-const after = g.tableNames();
-const dirs = g.allDirectoriesForRepo('app').length;
-const files = g.allFilesForRepo('app').length;
-g.close();
-console.log(JSON.stringify({ before, after, dirs, files }));
-`);
-      assert.deepEqual(out['before'], ['CONTAINS', 'Directory'], 'fixture starts without File tables');
-      assert.deepEqual(out['after'], ['CONTAINS', 'Directory', 'File', 'HAS_FILE'], 'open adds File + HAS_FILE');
-      assert.equal(out['dirs'], 1, 'existing Directory rows survive the upgrade');
-      assert.equal(out['files'], 0);
+      const dbPath = join(ws, 'trajectory.db');
+      assert.equal(resolveGraphDbPath(dbPath), dbPath);
+      const graph = new ShimGraph(dbPath);
+      assert.equal(graph.ensureGraph(), graph);
+      assert.equal(graph.openError, null);
+      graph.upsertDirectory(dir('app', '', null));
+      graph.close();
+
+      const db = new TrajectoryDB(dbPath);
+      try {
+        assert.equal(new WorldModelGraph(db).directoryCount('app'), 1);
+      } finally {
+        db.close();
+      }
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

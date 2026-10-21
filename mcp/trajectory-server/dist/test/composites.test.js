@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pinScanEnv, tempDB } from './helpers.js';
 import { compositeTools, filesToDirs, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
-import { GraphHolder } from '../graph-db.js';
+import { GraphHolder } from '../graph.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';

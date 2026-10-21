@@ -77,8 +77,8 @@ describe('scan_run — workspace discovery + persistence', () => {
             mkRepo(ws, 'app', { 'src/main.py': 'def main():\n    pass\n', 'README.md': 'app\n' });
             mkRepo(ws, 'lib', { 'core.ts': 'export const x = 1;\n' });
             const db = tempDB();
-            // Pass null graph: world model writes are skipped (graph DB scope of
-            // this test is covered by L3 kuzu integration fixtures — TBD post-v0.7).
+            // Null graph: world model writes are skipped; the File-nodes suite below
+            // covers them.
             const tools = scanTools(db, null);
             const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             assert.ok(!result.isError, `scan_run failed: ${JSON.stringify(result)}`);
@@ -971,13 +971,13 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tempDB } from '$DIST/test/helpers.js';
-import { WorldModelGraph, GraphHolder } from '$DIST/graph-db.js';
+import { WorldModelGraph, GraphHolder } from '$DIST/graph.js';
 import { scanTools } from '$DIST/tools/scan.js';
 
 const ws = ${JSON.stringify(ws)};
 const repoRoot = ${JSON.stringify(repoRoot)};
 const db = tempDB();
-const graph = new WorldModelGraph(ws + '/world-model.kuzu');
+const graph = new WorldModelGraph(db);
 const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
 const git = (...a) => execFileSync('git', ['-C', repoRoot, ...a], { encoding: 'utf8' });
 const md5 = (rel) => createHash('md5').update(readFileSync(repoRoot + '/' + rel)).digest('hex');

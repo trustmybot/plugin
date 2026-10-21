@@ -33,7 +33,7 @@ node --test dist/test/*.test.js
 
 | Variable | Default | Description |
 |---|---|---|
-| `TRAJECTORY_DB_PATH` | `<CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db`; without a project root, the outermost existing DB walking up from `<cwd>` — see [Where the trajectory DB lives](../../docs/reference/TRAJECTORY_DB_LOCATION.md) | Absolute path to the SQLite database, or `:memory:` for ephemeral runs. Filenames `world-model.kuzu` and `*.world-model.kuzu` are reserved for graph storage and rejected. |
+| `TRAJECTORY_DB_PATH` | `<CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db`; without a project root, the outermost existing DB walking up from `<cwd>` — see [Where the trajectory DB lives](../../docs/reference/TRAJECTORY_DB_LOCATION.md) | Absolute path to the SQLite database, or `:memory:` for ephemeral runs. |
 | `TMB_EMBED_FAIL_THRESHOLD` | `5` | Consecutive failed embed calls that put the embedding model in the degraded state (see [Health](#health)). |
 | `TMB_EMBED_RETRY_MS` | unset (1 min, 5 min, then every 10 min) | One fixed delay between degraded-state re-attempts, for tests. |
 
@@ -76,7 +76,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
 | Scan (workspace + repos) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery; returns `rename_candidates`), `repos_list` |
 | Repos | `tools/repos.ts` | `repo_rename` (bro only; moves the `repos` row, its FK children, `pr_review_runs` slugs and world-model nodes in one transaction) |
-| World model | `tools/world_model.ts` | `world_model_get`, `world_model_search` → kuzu graph DB |
+| World model | `tools/world_model.ts` | `world_model_get`, `world_model_search` → `wm_` tables |
 | Metering backfill | `tools/agent-runs-backfill.ts` | `agent_runs_backfill` (bro: recover swe/pr-reviewer/bro `agent_runs` from Claude Code transcripts on disk, `usage_source = 'backfill'`, dry run by default) |
 | Data contracts | `tools/trajectory-doctor.ts` | `trajectory_doctor` (bro, read-only: runs `DATA_CONTRACTS` from `src/data-contracts.ts`; `record: true` logs one `trajectory_doctor_run` audit row) |
 

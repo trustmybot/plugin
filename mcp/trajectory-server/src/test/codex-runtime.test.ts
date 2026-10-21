@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { after, afterEach, describe, it } from 'node:test';
 import { TrajectoryDB } from '../db.js';
-import { GraphHolder } from '../graph-db.js';
+import { GraphHolder } from '../graph.js';
 import { readCodexPackageMetadata } from '../codex-package.js';
 import {
   CodexRuntimeError,
@@ -212,9 +212,10 @@ describe('Codex runtime manager', () => {
       assert.equal(created.project_root, realpathSync(project));
       assert.equal(created.plugin_name, plugin.name);
       assert.equal(created.plugin_version, plugin.version);
-      assert.equal(created.schema_version, 41);
+      assert.equal(created.schema_version, 42);
       assert.equal(created.graph_available, true);
-      assert.equal(created.graph_status, 'deferred');
+      assert.equal(created.graph_status, 'ready');
+      assert.equal(created.graph_db, created.trajectory_db);
       assert.ok(existsSync(created.trajectory_db));
       assert.equal(queryPluginVersion(created.trajectory_db), plugin.version);
       assert.ok(created.state_dir.startsWith(join(realpathSync(project), '.tmb')));
@@ -1542,11 +1543,6 @@ describe('Codex tool surface', () => {
 
     const runtimeManager = new CodexRuntimeManager({
       plugin: readCodexPackageMetadata(import.meta.url),
-      // Kuzu v0.11 has a known native destructor crash on Node 24/macOS; the
-      // shared graph suite covers real Kuzu in a child process. This test keeps
-      // the adapter flow in-process and exercises the documented unavailable
-      // degradation instead.
-      graphHolderFactory: () => GraphHolder.fixed(null),
     });
     try {
       const registry = createCodexToolRegistry(runtimeManager);

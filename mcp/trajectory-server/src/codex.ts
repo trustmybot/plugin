@@ -34,7 +34,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const shutdown = createShutdown({
   closeDb: () => manager.close(),
-  closeGraph: () => {},
   log: () => {},
   exit: (code) => process.exit(code),
   pid: process.pid,

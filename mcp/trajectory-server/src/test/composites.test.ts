@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 import { compositeTools, filesToDirs, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
-import { GraphHolder, type WorldModelGraph } from '../graph-db.js';
+import { GraphHolder, type WorldModelGraph } from '../graph.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';

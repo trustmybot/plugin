@@ -2,8 +2,8 @@ PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
 -- repos table: written by /scan. One row per discovered git repo under the
--- session dir. Kuzu world-model Directory nodes reference repos.name as their
--- root; this SQLite table is the deterministic precursor to the kuzu writes.
+-- session dir. World-model rows (wm_directories, wm_files) carry repos.name as
+-- their repo; this table is the deterministic precursor to those writes.
 -- repos(name) is the FK hub for the repos-centric schema (#155): every work
 -- table carries a repo column referencing it. Declared early so the work-table
 -- FKs below resolve at fresh-DB CREATE time.
@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 41, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 42, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -544,7 +544,113 @@ CREATE TABLE IF NOT EXISTS cheatcode_attachments (
 CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
     ON cheatcode_attachments(cheatcode_id);
 
--- World model lives in a sibling kuzu graph DB (ADR 0002), not in this
--- SQLite file. The previous v6 'directories' / 'directories_fts' /
--- 'directories_embeddings' tables were retired at v8 — see migrateV7toV8
--- in db.ts. scan_run populates the kuzu file via src/graph-db.ts.
+-- World model (GH 1632): bro's project map, written by scan_run through
+-- src/graph.ts. A derived cache rebuilt by every scan, so it carries no FK to
+-- repos; repo_rename moves its rows. The retired v6 'directories' tables (see
+-- migrateV7toV8) are unrelated.
+--   wm_directories: one row per directory. parent_path is NULL for the repo
+--     root ('') and the parent directory's path otherwise. summary comes from
+--     the directory README (summary_source='readme') or a structural fallback.
+--   wm_files: one row per tracked file. path is repo-relative; dir is its
+--     directory's path. purpose is extracted from the file head (or written
+--     by swe, purpose_source='swe'); content_md5 keys re-extraction.
+CREATE TABLE IF NOT EXISTS wm_directories (
+    id                 INTEGER PRIMARY KEY,
+    repo               TEXT    NOT NULL,
+    path               TEXT    NOT NULL,
+    parent_path        TEXT,
+    summary            TEXT,
+    summary_source     TEXT    NOT NULL,
+    summary_updated_at TEXT,
+    file_count         INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (repo, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_directories_parent ON wm_directories(repo, parent_path);
+
+CREATE TABLE IF NOT EXISTS wm_files (
+    id              INTEGER PRIMARY KEY,
+    repo            TEXT    NOT NULL,
+    path            TEXT    NOT NULL,
+    dir             TEXT    NOT NULL,
+    purpose         TEXT    NOT NULL DEFAULT '',
+    purpose_source  TEXT    NOT NULL DEFAULT 'none',
+    content_md5     TEXT    NOT NULL DEFAULT '',
+    size_bytes      INTEGER NOT NULL DEFAULT 0,
+    last_commit_sha TEXT    NOT NULL DEFAULT '',
+    updated_at      TEXT    NOT NULL,
+    UNIQUE (repo, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_files_dir ON wm_files(repo, dir);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS wm_directories_fts USING fts5(
+  path,
+  summary,
+  content='wm_directories',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS wm_directories_ai AFTER INSERT ON wm_directories BEGIN
+  INSERT INTO wm_directories_fts(rowid, path, summary) VALUES (new.id, new.path, new.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_directories_ad AFTER DELETE ON wm_directories BEGIN
+  INSERT INTO wm_directories_fts(wm_directories_fts, rowid, path, summary) VALUES ('delete', old.id, old.path, old.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_directories_au AFTER UPDATE ON wm_directories BEGIN
+  INSERT INTO wm_directories_fts(wm_directories_fts, rowid, path, summary) VALUES ('delete', old.id, old.path, old.summary);
+  INSERT INTO wm_directories_fts(rowid, path, summary) VALUES (new.id, new.path, new.summary);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS wm_files_fts USING fts5(
+  path,
+  purpose,
+  content='wm_files',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS wm_files_ai AFTER INSERT ON wm_files BEGIN
+  INSERT INTO wm_files_fts(rowid, path, purpose) VALUES (new.id, new.path, new.purpose);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_files_ad AFTER DELETE ON wm_files BEGIN
+  INSERT INTO wm_files_fts(wm_files_fts, rowid, path, purpose) VALUES ('delete', old.id, old.path, old.purpose);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_files_au AFTER UPDATE ON wm_files BEGIN
+  INSERT INTO wm_files_fts(wm_files_fts, rowid, path, purpose) VALUES ('delete', old.id, old.path, old.purpose);
+  INSERT INTO wm_files_fts(rowid, path, purpose) VALUES (new.id, new.path, new.purpose);
+END;
+
+-- World-model embeddings for semantic world_model_search: one vector per
+-- directory (path + summary) and per file with a purpose (path + purpose).
+-- Filled lazily by world_model_search and the startup backfill; a row whose
+-- embedded text changes drops its vector so the next backfill re-embeds it.
+CREATE TABLE IF NOT EXISTS wm_directories_embeddings (
+  dir_id INTEGER PRIMARY KEY REFERENCES wm_directories(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wm_directories_embeddings_model ON wm_directories_embeddings(model_id);
+
+CREATE TABLE IF NOT EXISTS wm_files_embeddings (
+  file_id INTEGER PRIMARY KEY REFERENCES wm_files(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wm_files_embeddings_model ON wm_files_embeddings(model_id);
+
+CREATE TRIGGER IF NOT EXISTS wm_directories_embedding_stale
+AFTER UPDATE OF path, summary ON wm_directories
+WHEN old.path IS NOT new.path OR old.summary IS NOT new.summary BEGIN
+  -- LINT-ALLOW: drops a stale derived vector; the backfill re-embeds the row.
+  DELETE FROM wm_directories_embeddings WHERE dir_id = old.id;
+END;
+CREATE TRIGGER IF NOT EXISTS wm_files_embedding_stale
+AFTER UPDATE OF path, purpose ON wm_files
+WHEN old.path IS NOT new.path OR old.purpose IS NOT new.purpose BEGIN
+  -- LINT-ALLOW: drops a stale derived vector; the backfill re-embeds the row.
+  DELETE FROM wm_files_embeddings WHERE file_id = old.id;
+END;

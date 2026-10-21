@@ -1,11 +1,15 @@
 import { requireRoles } from '../middleware/agent-scope.js';
-import { WorldModelGraph } from '../graph-db.js';
+import { WorldModelGraph } from '../graph.js';
+import { topKByCosine } from '../embeddings/store.js';
+import { backfillMissing, startWorldModelBackfill, WORLD_MODEL_TABLES } from '../embeddings/backfill.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
 import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
+const RRF_K = 60;
+const SEARCH_BACKFILL_LIMIT = 50;
 const UNMERGED_WORK_MAX_BRANCHES = 10;
 // Surface closed-task work living on un-merged feature branches (#1059). The
 // main checkout answers world_model_get from the directory tree alone, so a
@@ -111,6 +115,59 @@ function fileResult(h) {
         score: h.score,
     };
 }
+function dirHit(node) {
+    return { kind: 'dir', key: `dir:${node.key}`, node };
+}
+function fileHit(node) {
+    return { kind: 'file', key: `file:${node.path}`, node };
+}
+function hitResult(hit, score) {
+    return hit.kind === 'dir' ? dirResult({ ...hit.node, score }) : fileResult({ ...hit.node, score });
+}
+// Embed the rows a search would miss: a bounded batch inline so a fresh scan
+// is searchable at once, the rest in the background.
+async function backfillWorldModel(db) {
+    let saturated = false;
+    for (const table of WORLD_MODEL_TABLES) {
+        if ((await backfillMissing(db, table, SEARCH_BACKFILL_LIMIT)) >= SEARCH_BACKFILL_LIMIT)
+            saturated = true;
+    }
+    if (saturated)
+        startWorldModelBackfill(db);
+}
+async function cosineHits(db, graph, repo, query, k) {
+    const search = (table) => topKByCosine(db, table, query, k, [repo]);
+    const [dirs, files] = [await search('wm_directories'), await search('wm_files')];
+    const dirNodes = graph.directoriesByIds(dirs.map((d) => d.rowid));
+    const fileNodes = graph.filesByIds(files.map((f) => f.rowid));
+    const hits = [];
+    for (const d of dirs) {
+        const node = dirNodes.get(d.rowid);
+        if (node)
+            hits.push({ hit: dirHit(node), score: d.score });
+    }
+    for (const f of files) {
+        const node = fileNodes.get(f.rowid);
+        if (node)
+            hits.push({ hit: fileHit(node), score: f.score });
+    }
+    return hits.sort((a, b) => b.score - a.score);
+}
+// Reciprocal rank fusion: each ranked list adds 1/(RRF_K + rank + 1) to a hit.
+function fuse(lists) {
+    const fused = new Map();
+    for (const list of lists) {
+        list.forEach((hit, rank) => {
+            const rrf = 1 / (RRF_K + rank + 1);
+            const entry = fused.get(hit.key);
+            if (entry)
+                entry.score += rrf;
+            else
+                fused.set(hit.key, { hit, score: rrf });
+        });
+    }
+    return [...fused.values()].sort((a, b) => b.score - a.score);
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -210,14 +267,14 @@ export function worldModelTools(db, graphHolder) {
         },
         {
             name: 'world_model_search',
-            description: "Search dir summaries + file purposes by keyword/path. Returns top-K hits tagged kind 'dir'|'file'. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
+            description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'; without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' — cheaper than world_model_get.",
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     query: {
                         type: 'string',
-                        description: 'Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language.',
+                        description: 'Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match), plus path/text substrings; semantic matches natural language.',
                     },
                     mode: {
                         type: 'string',
@@ -262,11 +319,10 @@ export function worldModelTools(db, graphHolder) {
             if (!graph) {
                 return ok({ repo, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work });
             }
-            const nodes = graph.allDirectoriesForRepo(repo);
-            if (nodes.length === 0) {
+            if (graph.directoryCount(repo) === 0) {
                 return ok({ repo, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work });
             }
-            const rows = nodes;
+            const rows = graph.subtree(repo, path, depth);
             const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
             const tree = buildTree(rows, path, depth, { nodeCounter });
             if (!tree) {
@@ -306,36 +362,29 @@ export function worldModelTools(db, graphHolder) {
             if (!graph) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
             }
-            // Keyword: substring match over dir summary + path and file purpose +
-            // path, directories first. Score is constant
-            // until kuzu's FTS extension lands (follow-up post-v0.7).
-            // Semantic: requires kuzu's vector extension — also follow-up.
-            // Hybrid: falls back to keyword + 'semantic_unavailable' warning.
-            const dirHits = graph.keywordSearchDirectories(repo, query, k).map(dirResult);
-            const fileHits = graph.keywordSearchFiles(repo, query, k).map(fileResult);
-            const hits = [...dirHits, ...fileHits].slice(0, k);
-            if (mode === 'keyword') {
-                return ok({
-                    results: hits,
-                    total_matched: hits.length,
-                    mode: 'keyword',
-                });
-            }
-            if (mode === 'semantic') {
-                return ok({
-                    results: [],
-                    total_matched: 0,
-                    warning: 'semantic_unavailable',
-                    mode: 'semantic',
-                });
-            }
-            // hybrid — return keyword results with semantic_unavailable warning
-            return ok({
-                results: hits,
-                total_matched: hits.length,
-                warning: 'semantic_unavailable',
-                mode: 'hybrid',
-            });
+            const pool = mode === 'keyword' ? k : k * 4;
+            const keywordDirs = graph.keywordSearchDirectories(repo, query, pool).map((n) => ({ hit: dirHit(n), score: n.score }));
+            const keywordFiles = graph.keywordSearchFiles(repo, query, pool).map((n) => ({ hit: fileHit(n), score: n.score }));
+            const keywordRanked = [...keywordDirs, ...keywordFiles].sort((a, b) => b.score - a.score);
+            const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
+            const respond = (ranked, extra = {}) => {
+                const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
+                return ok({ results, total_matched: results.length, ...extra, mode });
+            };
+            if (mode === 'keyword')
+                return respond(keywordRanked);
+            await backfillWorldModel(db);
+            const semantic = await cosineHits(db, graph, repo, query, pool);
+            if (semantic.length === 0)
+                return respond(keywordRanked, { warning: 'semantic_unavailable' });
+            if (mode === 'semantic')
+                return respond(semantic);
+            return respond(fuse([
+                hitsOf(keywordDirs),
+                hitsOf(keywordFiles),
+                hitsOf(semantic.filter(({ hit }) => hit.kind === 'dir')),
+                hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
+            ]));
         })),
     };
     return { definitions, handlers };

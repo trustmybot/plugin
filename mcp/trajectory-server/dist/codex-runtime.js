@@ -1,9 +1,8 @@
 import { execFile } from 'node:child_process';
 import { mkdirSync, realpathSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { TrajectoryDB } from './db.js';
-import { GraphHolder, WorldModelGraph } from './graph-db.js';
+import { GraphHolder, WorldModelGraph } from './graph.js';
 import { createProjectLogger } from './logger.js';
 import { createCodexRuntimeContext, assertSafeProjectWritePath, UnsafeProjectWritePathError, } from './platform.js';
 const GIT_MAX_BUFFER_BYTES = 64 * 1024;
@@ -346,12 +345,7 @@ function openRuntime(projectRoot, plugin, now, lastUsedOrder, graphHolderFactory
             trustedProjectRoot: context.projectRoot,
         });
         const graph = graphHolderFactory?.(context) ??
-            new GraphHolder({
-                open: () => new WorldModelGraph(context.paths.graphDb, {
-                    trustedProjectRoot: context.projectRoot,
-                }),
-                log: (entry) => logger.serverLogSync({ ...entry, path: context.paths.graphDb }),
-            });
+            GraphHolder.fixed(new WorldModelGraph(db));
         return {
             context,
             db,
@@ -386,23 +380,18 @@ function resultFor(runtime, status) {
         plugin_version: runtime.context.plugin.version,
         state_dir: runtime.context.paths.stateDir,
         trajectory_db: runtime.context.paths.trajectoryDb,
-        graph_db: runtime.context.paths.graphDb,
+        graph_db: runtime.context.paths.trajectoryDb,
         log_dir: runtime.context.paths.logDir,
         schema_version: row.schema_version,
-        graph_available: graphDependencyAvailable(),
-        graph_status: graphDependencyAvailable() ? 'deferred' : 'unavailable',
+        graph_available: true,
+        graph_status: 'ready',
     });
 }
 function closeRuntime(runtime) {
     if (runtime.closed)
         return;
     runtime.closed = true;
-    try {
-        runtime.graph.graph?.close();
-    }
-    finally {
-        runtime.db.close();
-    }
+    runtime.db.close();
 }
 function normalizeRuntimeError(error) {
     if (error instanceof CodexRuntimeError)
@@ -417,14 +406,5 @@ function stateNotIgnoredError() {
 }
 function capacityError() {
     return new CodexRuntimeError('runtime_capacity_exceeded', 'No Codex runtime capacity is available for this initialization.');
-}
-function graphDependencyAvailable() {
-    try {
-        createRequire(import.meta.url).resolve('kuzu');
-        return true;
-    }
-    catch {
-        return false;
-    }
 }
 //# sourceMappingURL=codex-runtime.js.map

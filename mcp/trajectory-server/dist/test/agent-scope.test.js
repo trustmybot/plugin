@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeAgent, redactIssue, redactValidationRow, requireAgent, requireRoles, } from '../middleware/agent-scope.js';
 import { registerTools, toolHandlers } from '../tools/index.js';
-import { GraphHolder } from '../graph-db.js';
+import { GraphHolder } from '../graph.js';
 import { tempDB } from './helpers.js';
 function makeIssue(overrides = {}) {
     return {

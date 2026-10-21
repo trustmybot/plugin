@@ -185,10 +185,10 @@ describe('RRF rank-fusion math', () => {
         }
     });
 });
-describe('embedding tables exist in fresh DB (v8 — discussions, audit only; world model lives in kuzu)', () => {
-    it('fresh tempDB has both workflow embedding tables', () => {
+describe('embedding tables exist in fresh DB (workflow tables plus the world model, GH 1632)', () => {
+    it('fresh tempDB has every embedding table', () => {
         const db = tempDB();
-        for (const t of ['discussions_embeddings', 'audit_embeddings']) {
+        for (const t of ['discussions_embeddings', 'audit_embeddings', 'wm_directories_embeddings', 'wm_files_embeddings']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]);
             assert.ok(row !== undefined, `${t} must exist in fresh DB`);
         }
@@ -199,6 +199,8 @@ describe('embedding tables exist in fresh DB (v8 — discussions, audit only; wo
         for (const idx of [
             'idx_discussions_embeddings_model',
             'idx_audit_embeddings_model',
+            'idx_wm_directories_embeddings_model',
+            'idx_wm_files_embeddings_model',
         ]) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='index' AND name=?", [idx]);
             assert.ok(row !== undefined, `index ${idx} must exist`);

@@ -1,19 +1,54 @@
 import type { TrajectoryDB } from '../db.js';
-import { auditEmbedText, embedAndStore, type EmbeddableTable } from './store.js';
+import {
+  auditEmbedText,
+  embedAndStore,
+  worldModelEmbedText,
+  type EmbeddableTable,
+  type WorldModelEmbeddableTable,
+} from './store.js';
 import { serverLog } from '../logger.js';
 
-const MISSING_SQL: Record<EmbeddableTable, string> = {
-  discussions:
-    'SELECT id, body AS text FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings) ORDER BY id DESC LIMIT ?',
-  audit:
-    'SELECT id, summary AS text, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings) ORDER BY id DESC LIMIT ?',
+const MISSING_WHERE: Record<EmbeddableTable, string> = {
+  discussions: 'id NOT IN (SELECT discussion_id FROM discussions_embeddings)',
+  audit: 'id NOT IN (SELECT audit_id FROM audit_embeddings)',
+  wm_directories: 'id NOT IN (SELECT dir_id FROM wm_directories_embeddings)',
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings)",
 };
+
+const MISSING_SQL: Record<EmbeddableTable, string> = {
+  discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
+  audit: `SELECT id, summary AS text, content_json FROM audit WHERE ${MISSING_WHERE.audit} ORDER BY id DESC LIMIT ?`,
+  wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
+  wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`,
+};
+
+const BACKFILL_ORDER: readonly EmbeddableTable[] = ['discussions', 'audit', 'wm_directories', 'wm_files'];
+
+export const WORLD_MODEL_TABLES: readonly WorldModelEmbeddableTable[] = ['wm_directories', 'wm_files'];
+
+interface MissingRow {
+  id: number;
+  text: string;
+  content_json?: string | null;
+  body?: string | null;
+}
+
+function embedText(table: EmbeddableTable, r: MissingRow): string {
+  if (table === 'audit') return auditEmbedText(r.text, r.content_json ?? null);
+  if (table === 'wm_directories' || table === 'wm_files') return worldModelEmbedText(r.text, r.body ?? null);
+  return r.text;
+}
+
+export function countMissing(db: TrajectoryDB, table: EmbeddableTable): number {
+  return db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE ${MISSING_WHERE[table]}`)?.n ?? 0;
+}
 
 /**
  * Embeds up to `limit` rows of `table` that have no embeddings row (newest
  * first; a negative limit means no cap). Shared by boot-time `startBackfill`
- * and the lazy tick in audit_search / discussion_search. A failed embed is
- * logged and skipped, never thrown. Returns the number of rows attempted.
+ * and the lazy tick in audit_search / discussion_search / world_model_search.
+ * A failed embed is logged and skipped, never thrown. Returns the number of
+ * rows attempted.
  */
 export async function backfillMissing(
   db: TrajectoryDB,
@@ -21,10 +56,9 @@ export async function backfillMissing(
   limit = 50,
   onRow?: () => void,
 ): Promise<number> {
-  const rows = db.all<{ id: number; text: string; content_json?: string | null }>(MISSING_SQL[table], [limit]);
+  const rows = db.all<MissingRow>(MISSING_SQL[table], [limit]);
   for (const r of rows) {
-    const text = table === 'audit' ? auditEmbedText(r.text, r.content_json ?? null) : r.text;
-    await embedAndStore(db, table, r.id, text).catch((e) =>
+    await embedAndStore(db, table, r.id, embedText(table, r)).catch((e) =>
       console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e),
     );
     onRow?.();
@@ -32,17 +66,30 @@ export async function backfillMissing(
   return rows.length;
 }
 
+let worldModelBackfill: Promise<void> | null = null;
+
+/**
+ * Embeds every world-model row still missing a vector, in the background. A
+ * scan can add thousands of rows after the boot backfill ran; one call at a
+ * time, later calls while it runs are no-ops.
+ */
+export function startWorldModelBackfill(db: TrajectoryDB): void {
+  if (worldModelBackfill) return;
+  worldModelBackfill = (async () => {
+    for (const table of WORLD_MODEL_TABLES) {
+      if (!db.isOpen) return;
+      await backfillMissing(db, table, -1);
+    }
+  })()
+    .catch((e) => console.error('[embeddings] world-model backfill error:', e))
+    .finally(() => {
+      worldModelBackfill = null;
+    });
+}
+
 export async function startBackfill(db: TrajectoryDB): Promise<void> {
-  const counts = db.get<{
-    discussions: number;
-    audit: number;
-  }>(
-    `SELECT
-      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
-      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`,
-  );
-  if (!counts) return;
-  const total = counts.discussions + counts.audit;
+  const missing = BACKFILL_ORDER.map((table) => ({ table, n: countMissing(db, table) }));
+  const total = missing.reduce((sum, m) => sum + m.n, 0);
 
   serverLog({ event: 'embeddings_backfill_start', total });
 
@@ -54,8 +101,7 @@ export async function startBackfill(db: TrajectoryDB): Promise<void> {
       done++;
       if (done % 50 === 0) serverLog({ event: 'embeddings_backfill_progress', done, total });
     };
-    await backfillMissing(db, 'discussions', -1, progress);
-    await backfillMissing(db, 'audit', -1, progress);
+    for (const { table } of missing) await backfillMissing(db, table, -1, progress);
     serverLog({ event: 'embeddings_backfill_complete', done });
   })().catch((e) => console.error('[embeddings] backfill error:', e));
 }

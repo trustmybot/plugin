@@ -22,11 +22,20 @@ export function cosine(a, b) {
 const INSERT_SQL = {
     discussions: 'INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
     audit: 'INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
+    wm_directories: 'INSERT OR REPLACE INTO wm_directories_embeddings (dir_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
+    wm_files: 'INSERT OR REPLACE INTO wm_files_embeddings (file_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
 };
 const SELECT_SQL = {
     discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?',
     audit: 'SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?',
+    wm_directories: 'SELECT e.dir_id AS rowid, e.embedding FROM wm_directories_embeddings e JOIN wm_directories d ON d.id = e.dir_id WHERE e.model_id = ? AND d.repo = ?',
+    wm_files: 'SELECT e.file_id AS rowid, e.embedding FROM wm_files_embeddings e JOIN wm_files f ON f.id = e.file_id WHERE e.model_id = ? AND f.repo = ?',
 };
+/** World-model text is the path plus its summary or purpose, untrusted-content framing removed. */
+export function worldModelEmbedText(path, body) {
+    const text = (body ?? '').replace(/<\/?untrusted-content[^>]*>/g, '').trim();
+    return text ? `${path}: ${text}` : path;
+}
 export function auditEmbedText(summary, contentJson) {
     return contentJson && contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
 }
@@ -37,12 +46,12 @@ export async function embedAndStore(db, table, rowid, text) {
     const sql = INSERT_SQL[table];
     db.run(sql, [rowid, packEmbedding(v), MODEL_ID, new Date().toISOString()]);
 }
-export async function topKByCosine(db, table, query, k) {
+export async function topKByCosine(db, table, query, k, filterParams = []) {
     const qv = await embed(query);
     if (qv === null)
         return [];
     const sql = SELECT_SQL[table];
-    const rows = db.all(sql, [MODEL_ID]);
+    const rows = db.all(sql, [MODEL_ID, ...filterParams]);
     const scored = rows
         .map((r) => {
         const v = unpackEmbedding(r.embedding);

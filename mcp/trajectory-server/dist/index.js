@@ -6803,7 +6803,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync9, readFileSync as readFileSync11 } from "node:fs";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync11 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -13235,10 +13235,10 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
     }
     return void 0;
   });
-  const single2 = def.options.length === 1;
+  const single = def.options.length === 1;
   const first = def.options[0]._zod.run;
   inst._zod.parse = (payload, ctx) => {
-    if (single2) {
+    if (single) {
       return first(payload, ctx);
     }
     let async = false;
@@ -13291,10 +13291,10 @@ function handleExclusiveUnionResults(results, final, inst, ctx) {
 var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
   $ZodUnion.init(inst, def);
   def.inclusive = false;
-  const single2 = def.options.length === 1;
+  const single = def.options.length === 1;
   const first = def.options[0]._zod.run;
   inst._zod.parse = (payload, ctx) => {
-    if (single2) {
+    if (single) {
       return first(payload, ctx);
     }
     let async = false;
@@ -20937,18 +20937,6 @@ function resolveClaudeLogDir(opts) {
   const pluginName2 = resolveClaudePluginName(env);
   return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName2, { env, cwd, home }), pluginName2);
 }
-function resolveGraphDbPath(trajectoryDbPath) {
-  if (trajectoryDbPath === ":memory:") return ":memory:";
-  const dbName = basename(trajectoryDbPath);
-  const normalizedDbName = dbName.toLowerCase();
-  if (normalizedDbName === "world-model.kuzu" || normalizedDbName.endsWith(".world-model.kuzu")) {
-    throw new Error(
-      `Trajectory DB filename "${dbName}" is reserved for graph storage`
-    );
-  }
-  const graphName = dbName === "trajectory.db" ? "world-model.kuzu" : `${dbName}.world-model.kuzu`;
-  return join(dirname(trajectoryDbPath), graphName);
-}
 function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable path", expectedKind = "either") {
   if (!isAbsolute(projectRoot)) {
     throw new UnsafeProjectWritePathError(
@@ -21284,7 +21272,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
   { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
   { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
-  { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
+  { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
   { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
@@ -21465,7 +21453,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 41;
+var TARGET_SCHEMA_VERSION = 42;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -21972,6 +21960,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 41 && toVersion >= 41) {
     migrateV40toV41(db2);
+  }
+  if (fromVersion < 42 && toVersion >= 42) {
+    migrateV41toV42(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name) {
@@ -23426,7 +23417,7 @@ function migrateV36toV37(db2) {
 function migrateV37toV38(db2) {
   if (!tableExists(db2, "audit")) return;
   const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
-  const placeholders = documented.map(() => "?").join(", ");
+  const placeholders2 = documented.map(() => "?").join(", ");
   beginImmediate(db2);
   try {
     db2.prepare(
@@ -23435,7 +23426,7 @@ function migrateV37toV38(db2) {
                 CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
                 '$.legacy_event_type', event_type),
               event_type = 'legacy_event'
-        WHERE event_type NOT IN (${placeholders})`
+        WHERE event_type NOT IN (${placeholders2})`
     ).run(...documented);
     commitTransaction(db2);
   } catch (err20) {
@@ -23484,6 +23475,46 @@ function migrateV40toV41(db2) {
   try {
     db2.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
     db2.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
+    commitTransaction(db2);
+  } catch (err20) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV41toV42(db2) {
+  beginImmediate(db2);
+  try {
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS wm_directories (
+          id                 INTEGER PRIMARY KEY,
+          repo               TEXT    NOT NULL,
+          path               TEXT    NOT NULL,
+          parent_path        TEXT,
+          summary            TEXT,
+          summary_source     TEXT    NOT NULL,
+          summary_updated_at TEXT,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (repo, path)
+      )
+    `);
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS wm_files (
+          id              INTEGER PRIMARY KEY,
+          repo            TEXT    NOT NULL,
+          path            TEXT    NOT NULL,
+          dir             TEXT    NOT NULL,
+          purpose         TEXT    NOT NULL DEFAULT '',
+          purpose_source  TEXT    NOT NULL DEFAULT 'none',
+          content_md5     TEXT    NOT NULL DEFAULT '',
+          size_bytes      INTEGER NOT NULL DEFAULT 0,
+          last_commit_sha TEXT    NOT NULL DEFAULT '',
+          updated_at      TEXT    NOT NULL,
+          UNIQUE (repo, path)
+      )
+    `);
     commitTransaction(db2);
   } catch (err20) {
     try {
@@ -24571,12 +24602,20 @@ function cosine(a, b) {
 }
 var INSERT_SQL = {
   discussions: "INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
-  audit: "INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)"
+  audit: "INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
+  wm_directories: "INSERT OR REPLACE INTO wm_directories_embeddings (dir_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
+  wm_files: "INSERT OR REPLACE INTO wm_files_embeddings (file_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)"
 };
 var SELECT_SQL = {
   discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
-  audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?"
+  audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?",
+  wm_directories: "SELECT e.dir_id AS rowid, e.embedding FROM wm_directories_embeddings e JOIN wm_directories d ON d.id = e.dir_id WHERE e.model_id = ? AND d.repo = ?",
+  wm_files: "SELECT e.file_id AS rowid, e.embedding FROM wm_files_embeddings e JOIN wm_files f ON f.id = e.file_id WHERE e.model_id = ? AND f.repo = ?"
 };
+function worldModelEmbedText(path2, body) {
+  const text = (body ?? "").replace(/<\/?untrusted-content[^>]*>/g, "").trim();
+  return text ? `${path2}: ${text}` : path2;
+}
 function auditEmbedText(summary, contentJson) {
   return contentJson && contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
 }
@@ -24586,11 +24625,11 @@ async function embedAndStore(db2, table, rowid, text) {
   const sql = INSERT_SQL[table];
   db2.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
 }
-async function topKByCosine(db2, table, query, k) {
+async function topKByCosine(db2, table, query, k, filterParams = []) {
   const qv = await embed(query);
   if (qv === null) return [];
   const sql = SELECT_SQL[table];
-  const rows = db2.all(sql, [MODEL_ID]);
+  const rows = db2.all(sql, [MODEL_ID, ...filterParams]);
   const scored = rows.map((r) => {
     const v = unpackEmbedding(r.embedding);
     if (v.length !== qv.length) return null;
@@ -24601,29 +24640,53 @@ async function topKByCosine(db2, table, query, k) {
 }
 
 // src/embeddings/backfill.ts
-var MISSING_SQL = {
-  discussions: "SELECT id, body AS text FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings) ORDER BY id DESC LIMIT ?",
-  audit: "SELECT id, summary AS text, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings) ORDER BY id DESC LIMIT ?"
+var MISSING_WHERE = {
+  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings)",
+  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings)",
+  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings)",
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings)"
 };
+var MISSING_SQL = {
+  discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
+  audit: `SELECT id, summary AS text, content_json FROM audit WHERE ${MISSING_WHERE.audit} ORDER BY id DESC LIMIT ?`,
+  wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
+  wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
+};
+var BACKFILL_ORDER = ["discussions", "audit", "wm_directories", "wm_files"];
+var WORLD_MODEL_TABLES = ["wm_directories", "wm_files"];
+function embedText(table, r) {
+  if (table === "audit") return auditEmbedText(r.text, r.content_json ?? null);
+  if (table === "wm_directories" || table === "wm_files") return worldModelEmbedText(r.text, r.body ?? null);
+  return r.text;
+}
+function countMissing(db2, table) {
+  return db2.get(`SELECT COUNT(*) AS n FROM ${table} WHERE ${MISSING_WHERE[table]}`)?.n ?? 0;
+}
 async function backfillMissing(db2, table, limit = 50, onRow) {
   const rows = db2.all(MISSING_SQL[table], [limit]);
   for (const r of rows) {
-    const text = table === "audit" ? auditEmbedText(r.text, r.content_json ?? null) : r.text;
-    await embedAndStore(db2, table, r.id, text).catch(
+    await embedAndStore(db2, table, r.id, embedText(table, r)).catch(
       (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
     );
     onRow?.();
   }
   return rows.length;
 }
+var worldModelBackfill = null;
+function startWorldModelBackfill(db2) {
+  if (worldModelBackfill) return;
+  worldModelBackfill = (async () => {
+    for (const table of WORLD_MODEL_TABLES) {
+      if (!db2.isOpen) return;
+      await backfillMissing(db2, table, -1);
+    }
+  })().catch((e) => console.error("[embeddings] world-model backfill error:", e)).finally(() => {
+    worldModelBackfill = null;
+  });
+}
 async function startBackfill(db2) {
-  const counts = db2.get(
-    `SELECT
-      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
-      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`
-  );
-  if (!counts) return;
-  const total = counts.discussions + counts.audit;
+  const missing = BACKFILL_ORDER.map((table) => ({ table, n: countMissing(db2, table) }));
+  const total = missing.reduce((sum, m) => sum + m.n, 0);
   serverLog({ event: "embeddings_backfill_start", total });
   if (total === 0) return;
   (async () => {
@@ -24632,8 +24695,7 @@ async function startBackfill(db2) {
       done++;
       if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
     };
-    await backfillMissing(db2, "discussions", -1, progress);
-    await backfillMissing(db2, "audit", -1, progress);
+    for (const { table } of missing) await backfillMissing(db2, table, -1, progress);
     serverLog({ event: "embeddings_backfill_complete", done });
   })().catch((e) => console.error("[embeddings] backfill error:", e));
 }
@@ -24837,8 +24899,8 @@ function auditTools(db2) {
       let eventTypeFilter = "";
       let eventTypeParams = [];
       if (eventTypes && eventTypes.length > 0) {
-        const placeholders = eventTypes.map(() => "?").join(", ");
-        eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
+        const placeholders2 = eventTypes.map(() => "?").join(", ");
+        eventTypeFilter = " AND a.event_type IN (" + placeholders2 + ")";
         eventTypeParams = eventTypes;
       }
       const ftsQuery = toFtsQuery(query);
@@ -24895,13 +24957,13 @@ function auditTools(db2) {
         }
         return ok({ results: results2, total_matched: results2.length });
       }
-      const RRF_K = 60;
+      const RRF_K2 = 60;
       const ftsRows = fetchFtsRows(k * 4);
       const cosineResults = await topKByCosine(db2, "audit", query, k * 4);
       const semanticAvailable = cosineResults.length > 0;
       const scoreMap = /* @__PURE__ */ new Map();
       ftsRows.forEach((r, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
+        const rrf = 1 / (RRF_K2 + rank + 1);
         const existing = scoreMap.get(r.id);
         if (existing) {
           existing.rrf += rrf;
@@ -24910,7 +24972,7 @@ function auditTools(db2) {
         }
       });
       cosineResults.forEach((cr, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
+        const rrf = 1 / (RRF_K2 + rank + 1);
         const existing = scoreMap.get(cr.rowid);
         if (existing) {
           existing.rrf += rrf;
@@ -25297,13 +25359,13 @@ function discussionTools(db2) {
         }
         return ok2({ results: results2, total_matched: results2.length });
       }
-      const RRF_K = 60;
+      const RRF_K2 = 60;
       const ftsRows = fetchFtsRows(k * 4);
       const cosineResults = await topKByCosine(db2, "discussions", query, k * 4);
       const semanticAvailable = cosineResults.length > 0;
       const scoreMap = /* @__PURE__ */ new Map();
       ftsRows.forEach((r, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
+        const rrf = 1 / (RRF_K2 + rank + 1);
         const existing = scoreMap.get(r.id);
         if (existing) {
           existing.rrf += rrf;
@@ -25312,7 +25374,7 @@ function discussionTools(db2) {
         }
       });
       cosineResults.forEach((cr, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
+        const rrf = 1 / (RRF_K2 + rank + 1);
         const existing = scoreMap.get(cr.rowid);
         if (existing) {
           existing.rrf += rrf;
@@ -26197,7 +26259,7 @@ function closeOpenRunsForTask(db2, taskId, now2, exitReason) {
   ).changes;
 }
 function sweepRunsOfTerminalTasks(db2, now2) {
-  const placeholders = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
+  const placeholders2 = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
   return db2.run(
     `UPDATE agent_runs
         SET completed_at = ?,
@@ -26205,7 +26267,7 @@ function sweepRunsOfTerminalTasks(db2, now2) {
             exit_reason = CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured'
                                THEN 'swept_orphan' ELSE 'swept_stale' END
       WHERE completed_at IS NULL
-        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders2}))`,
     [now2, now2, ...TERMINAL_TASK_STATUSES]
   ).changes;
 }
@@ -28320,11 +28382,11 @@ function setConfigValues(db2, entries) {
 }
 function getConfigValues(db2, keys) {
   if (keys.length === 0) return Object.freeze({});
-  const placeholders = keys.map(() => "?").join(", ");
+  const placeholders2 = keys.map(() => "?").join(", ");
   const rows = db2.all(
     `SELECT key, value_json
      FROM plugin_config
-     WHERE key IN (${placeholders})`,
+     WHERE key IN (${placeholders2})`,
     [...keys]
   );
   const result2 = Object.fromEntries(
@@ -30182,9 +30244,9 @@ function reportTools(db2) {
       const taskIds = tasks.map((t) => String(t.id));
       let validationAttempts = [];
       if (taskIds.length > 0) {
-        const placeholders = taskIds.map(() => "?").join(", ");
+        const placeholders2 = taskIds.map(() => "?").join(", ");
         validationAttempts = db2.all(
-          "SELECT * FROM validation_attempts WHERE task_id IN (" + placeholders + ") ORDER BY task_id ASC, attempt_n ASC",
+          "SELECT * FROM validation_attempts WHERE task_id IN (" + placeholders2 + ") ORDER BY task_id ASC, attempt_n ASC",
           taskIds
         );
       }
@@ -30452,9 +30514,9 @@ function branchReportMdTools(db2) {
           return ok11({ markdown: lines.join("\n"), mode: "summary" });
         }
         const taskIds = tasks.map((t) => String(t.id));
-        const placeholders = taskIds.map(() => "?").join(", ");
+        const placeholders2 = taskIds.map(() => "?").join(", ");
         const validationAttempts = db2.all(
-          "SELECT * FROM validation_attempts WHERE task_id IN (" + placeholders + ") ORDER BY task_id ASC, attempt_n ASC",
+          "SELECT * FROM validation_attempts WHERE task_id IN (" + placeholders2 + ") ORDER BY task_id ASC, attempt_n ASC",
           taskIds
         );
         const auditEntries = db2.all(
@@ -32335,7 +32397,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -35232,172 +35294,54 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync10 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync10, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
-import { dirname as dirname10, join as join13 } from "node:path";
+import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname9, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
-// src/graph-db.ts
-import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync7, existsSync as existsSync9 } from "node:fs";
-import { dirname as dirname9 } from "node:path";
-function single(result2) {
-  return Array.isArray(result2) ? result2[0] : result2;
-}
-function isKuzuLockError(e) {
-  const msg = e instanceof Error ? e.message : String(e);
-  return /could not set lock/i.test(msg) || /lock.*world-model\.kuzu/i.test(msg);
-}
-var KUZU_OPEN_MAX_ATTEMPTS = 8;
-var KUZU_OPEN_BASE_DELAY_MS = 50;
-function sleepSync(ms) {
-  const sab = new Int32Array(new SharedArrayBuffer(4));
-  Atomics.wait(sab, 0, 0, ms);
-}
-var FILE_COLUMNS = "f.path, f.repo, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at";
-function toFileNode(r) {
+// src/graph.ts
+var SUBTREE_MAX_DEPTH = 256;
+var DIR_COLUMNS = "d.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count";
+var FILE_COLUMNS = "f.id, f.repo, f.path, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at";
+function toDirectoryNode(r) {
   return {
-    path: String(r["f.path"] ?? ""),
-    repo: String(r["f.repo"] ?? ""),
-    dir: String(r["f.dir"] ?? ""),
-    purpose: String(r["f.purpose"] ?? ""),
-    purpose_source: String(r["f.purpose_source"] ?? "none"),
-    content_md5: String(r["f.content_md5"] ?? ""),
-    size_bytes: Number(r["f.size_bytes"] ?? 0),
-    last_commit_sha: String(r["f.last_commit_sha"] ?? ""),
-    updated_at: String(r["f.updated_at"] ?? "")
+    key: WorldModelGraph.dirKey(r.repo, r.path),
+    repo: r.repo,
+    path: r.path,
+    parent_path: r.parent_path,
+    summary: r.summary || null,
+    summary_source: r.summary_source,
+    summary_updated_at: r.summary_updated_at || null,
+    file_count: Number(r.file_count)
   };
 }
+function toFileNode(r) {
+  return {
+    path: WorldModelGraph.fileKey(r.repo, r.path),
+    repo: r.repo,
+    dir: r.dir,
+    purpose: r.purpose,
+    purpose_source: r.purpose_source,
+    content_md5: r.content_md5,
+    size_bytes: Number(r.size_bytes),
+    last_commit_sha: r.last_commit_sha,
+    updated_at: r.updated_at
+  };
+}
+function placeholders(n) {
+  return Array.from({ length: n }, () => "?").join(", ");
+}
 var WorldModelGraph = class _WorldModelGraph {
+  constructor(db2) {
+    this.db = db2;
+  }
   db;
-  conn;
-  constructor(dbPath2, opts = {}) {
-    const validateWritePath = () => {
-      if (dbPath2 !== ":memory:" && opts.trustedProjectRoot !== void 0) {
-        assertSafeProjectWritePath(
-          opts.trustedProjectRoot,
-          dbPath2,
-          "World-model database",
-          "directory"
-        );
-      }
-    };
-    validateWritePath();
-    if (dbPath2 !== ":memory:" && !existsSync9(dirname9(dbPath2))) {
-      mkdirSync7(dirname9(dbPath2), { recursive: true });
-    }
-    validateWritePath();
-    const req = createRequire(import.meta.url);
-    const kuzu = req("kuzu");
-    this.db = _WorldModelGraph.openWithRetry(
-      kuzu,
-      dbPath2,
-      KUZU_OPEN_MAX_ATTEMPTS,
-      validateWritePath
-    );
-    try {
-      this.conn = new kuzu.Connection(this.db);
-      this.applySchema();
-    } catch (e) {
-      try {
-        this.db.closeSync();
-      } catch {
-      }
-      throw e;
-    }
-  }
-  // Open the kuzu Database, retrying with bounded exponential backoff when the
-  // open fails on write-lock contention. A non-lock error (missing binary,
-  // corrupt file) is rethrown immediately so it still surfaces as
-  // graph_db_open_failed. (#590)
-  static openWithRetry(kuzu, dbPath2, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS, beforeOpen = () => {
-  }) {
-    let lastErr;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        beforeOpen();
-        return new kuzu.Database(dbPath2);
-      } catch (e) {
-        if (!isKuzuLockError(e)) throw e;
-        lastErr = e;
-        if (attempt < maxAttempts - 1) {
-          sleepSync(KUZU_OPEN_BASE_DELAY_MS * 2 ** attempt);
-        }
-      }
-    }
-    throw lastErr;
-  }
-  applySchema() {
-    this.conn.querySync(
-      `CREATE NODE TABLE IF NOT EXISTS Directory (
-        key STRING,
-        repo STRING,
-        path STRING,
-        parent_path STRING,
-        summary STRING,
-        summary_source STRING,
-        summary_updated_at STRING,
-        file_count INT64,
-        PRIMARY KEY (key)
-      )`
-    );
-    this.conn.querySync(
-      `CREATE REL TABLE IF NOT EXISTS CONTAINS (FROM Directory TO Directory)`
-    );
-    this.conn.querySync(
-      `CREATE NODE TABLE IF NOT EXISTS File (
-        path STRING,
-        repo STRING,
-        dir STRING,
-        purpose STRING,
-        purpose_source STRING,
-        content_md5 STRING,
-        size_bytes INT64,
-        last_commit_sha STRING,
-        updated_at STRING,
-        PRIMARY KEY (path)
-      )`
-    );
-    this.conn.querySync(
-      `CREATE REL TABLE IF NOT EXISTS HAS_FILE (FROM Directory TO File)`
-    );
+  transaction(fn) {
+    return this.db.transaction(fn);
   }
   tableNames() {
-    const result2 = single(this.conn.querySync("CALL show_tables() RETURN name"));
-    const names = [];
-    try {
-      while (result2.hasNext()) {
-        names.push(String(result2.getNextSync()["name"] ?? ""));
-      }
-    } finally {
-      result2.close();
-    }
-    return names.sort();
-  }
-  rows(query, params) {
-    const stmt = this.conn.prepareSync(query);
-    const result2 = single(this.conn.executeSync(stmt, params));
-    const rows = [];
-    try {
-      while (result2.hasNext()) rows.push(result2.getNextSync());
-    } finally {
-      result2.close();
-    }
-    return rows;
-  }
-  // Run fn inside one kuzu write transaction; a throw rolls the batch back.
-  transaction(fn) {
-    this.conn.querySync("BEGIN TRANSACTION");
-    try {
-      const out = fn();
-      this.conn.querySync("COMMIT");
-      return out;
-    } catch (e) {
-      try {
-        this.conn.querySync("ROLLBACK");
-      } catch {
-      }
-      throw e;
-    }
+    return this.db.all(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'wm\\_%' ESCAPE '\\' ORDER BY name`
+    ).map((r) => r.name);
   }
   // File keys are '<repo>/<repo-relative path>'; repo names are directory
   // basenames, so the first '/' always separates the two.
@@ -35407,328 +35351,255 @@ var WorldModelGraph = class _WorldModelGraph {
   static relativeFilePath(node) {
     return node.path.startsWith(`${node.repo}/`) ? node.path.slice(node.repo.length + 1) : node.path;
   }
-  upsertFileStmt = null;
-  upsertHasFileStmt = null;
-  upsertFile(node) {
-    this.upsertFileStmt ??= this.conn.prepareSync(
-      `MERGE (f:File {path: $path})
-       SET f.repo = $repo,
-           f.dir = $dir,
-           f.purpose = $purpose,
-           f.purpose_source = $purpose_source,
-           f.content_md5 = $content_md5,
-           f.size_bytes = $size_bytes,
-           f.last_commit_sha = $last_commit_sha,
-           f.updated_at = $updated_at`
-    );
-    this.conn.executeSync(this.upsertFileStmt, { ...node });
-  }
-  upsertHasFile(repo, dir, filePath) {
-    this.upsertHasFileStmt ??= this.conn.prepareSync(
-      `MATCH (d:Directory {key: $dirKey}), (f:File {path: $filePath})
-       MERGE (d)-[:HAS_FILE]->(f)`
-    );
-    this.conn.executeSync(this.upsertHasFileStmt, { dirKey: _WorldModelGraph.dirKey(repo, dir), filePath });
-  }
-  allFilesForRepo(repo) {
-    return this.rows(`MATCH (f:File {repo: $repo}) RETURN ${FILE_COLUMNS}`, { repo }).map(toFileNode);
-  }
-  filesForDirectory(repo, dir) {
-    return this.rows(
-      `MATCH (f:File {repo: $repo, dir: $dir}) RETURN ${FILE_COLUMNS} ORDER BY f.path`,
-      { repo, dir }
-    ).map(toFileNode);
-  }
-  filePathsWithDirectory(repo) {
-    const rows = this.rows(
-      `MATCH (:Directory)-[:HAS_FILE]->(f:File {repo: $repo}) RETURN f.path`,
-      { repo }
-    );
-    return new Set(rows.map((r) => String(r["f.path"] ?? "")));
-  }
-  pruneFiles(repo, keepPaths) {
-    const stale = this.allFilesForRepo(repo).filter((f) => !keepPaths.has(f.path));
-    if (stale.length === 0) return 0;
-    const stmt = this.conn.prepareSync(`MATCH (f:File {path: $path}) DETACH DELETE f`);
-    for (const f of stale) this.conn.executeSync(stmt, { path: f.path });
-    return stale.length;
-  }
-  fileCoverage(repo) {
-    const rows = this.rows(
-      `MATCH (f:File {repo: $repo})
-       RETURN f.purpose_source AS source, COUNT(*) AS n, SUM(CASE WHEN f.purpose <> '' THEN 1 ELSE 0 END) AS with_purpose`,
-      { repo }
-    );
-    const coverage = { files: 0, with_purpose: 0, by_source: {} };
-    for (const r of rows) {
-      const n = Number(r["n"] ?? 0);
-      coverage.files += n;
-      coverage.with_purpose += Number(r["with_purpose"] ?? 0);
-      coverage.by_source[String(r["source"] ?? "none")] = n;
-    }
-    return coverage;
-  }
-  keywordSearchFiles(repo, query, k) {
-    return this.rows(
-      `MATCH (f:File {repo: $repo})
-       WHERE lower(f.purpose) CONTAINS $needle OR lower(f.path) CONTAINS $needle
-       RETURN ${FILE_COLUMNS}
-       ORDER BY f.path
-       LIMIT $k`,
-      { repo, needle: query.toLowerCase(), k }
-    ).map((r) => ({ ...toFileNode(r), score: 1 }));
-  }
+  // JSON tuple so a ':' (or any delimiter) in repo/path can't collide. (#282)
   static dirKey(repo, path2) {
     return JSON.stringify([repo, path2]);
   }
-  upsertDirectory(node) {
-    const key = _WorldModelGraph.dirKey(node.repo, node.path);
-    const stmt = this.conn.prepareSync(
-      `MERGE (d:Directory {key: $key})
-       SET d.repo = $repo,
-           d.path = $path,
-           d.parent_path = $parent_path,
-           d.summary = $summary,
-           d.summary_source = $summary_source,
-           d.summary_updated_at = $summary_updated_at,
-           d.file_count = $file_count`
+  upsertFile(node) {
+    this.db.run(
+      `INSERT INTO wm_files (repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repo, path) DO UPDATE SET
+         dir = excluded.dir,
+         purpose = excluded.purpose,
+         purpose_source = excluded.purpose_source,
+         content_md5 = excluded.content_md5,
+         size_bytes = excluded.size_bytes,
+         last_commit_sha = excluded.last_commit_sha,
+         updated_at = excluded.updated_at`,
+      [
+        node.repo,
+        _WorldModelGraph.relativeFilePath(node),
+        node.dir,
+        node.purpose,
+        node.purpose_source,
+        node.content_md5,
+        node.size_bytes,
+        node.last_commit_sha,
+        node.updated_at
+      ]
     );
-    this.conn.executeSync(stmt, {
-      key,
-      repo: node.repo,
-      path: node.path,
-      parent_path: node.parent_path ?? "",
-      summary: node.summary ?? "",
-      summary_source: node.summary_source,
-      summary_updated_at: node.summary_updated_at ?? "",
-      file_count: node.file_count
-    });
+  }
+  upsertHasFile(repo, dir, filePath) {
+    this.db.run(`UPDATE wm_files SET dir = ? WHERE repo = ? AND path = ? AND dir IS NOT ?`, [
+      dir,
+      repo,
+      _WorldModelGraph.relativeFilePath({ repo, path: filePath }),
+      dir
+    ]);
+  }
+  allFilesForRepo(repo) {
+    return this.db.all(`SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.repo = ? ORDER BY f.path`, [repo]).map(toFileNode);
+  }
+  filesForDirectory(repo, dir) {
+    return this.db.all(`SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.repo = ? AND f.dir = ? ORDER BY f.path`, [
+      repo,
+      dir
+    ]).map(toFileNode);
+  }
+  filePathsWithDirectory(repo) {
+    const rows = this.db.all(
+      `SELECT f.path FROM wm_files f
+         JOIN wm_directories d ON d.repo = f.repo AND d.path = f.dir
+        WHERE f.repo = ?`,
+      [repo]
+    );
+    return new Set(rows.map((r) => _WorldModelGraph.fileKey(repo, r.path)));
+  }
+  pruneFiles(repo, keepPaths) {
+    const stale = this.db.all(`SELECT id, path FROM wm_files WHERE repo = ?`, [repo]).filter((f) => !keepPaths.has(_WorldModelGraph.fileKey(repo, f.path)));
+    for (const f of stale) this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
+    return stale.length;
+  }
+  fileCoverage(repo) {
+    const rows = this.db.all(
+      `SELECT purpose_source AS source, COUNT(*) AS n, SUM(CASE WHEN purpose <> '' THEN 1 ELSE 0 END) AS with_purpose
+         FROM wm_files WHERE repo = ? GROUP BY purpose_source`,
+      [repo]
+    );
+    const coverage = { files: 0, with_purpose: 0, by_source: {} };
+    for (const r of rows) {
+      const n = Number(r.n);
+      coverage.files += n;
+      coverage.with_purpose += Number(r.with_purpose ?? 0);
+      coverage.by_source[r.source] = n;
+    }
+    return coverage;
+  }
+  // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
+  // better), then case-insensitive path/purpose substring hits at score 0.
+  keywordSearchFiles(repo, query, k) {
+    const ranked = withFtsGuard(
+      () => this.db.all(
+        `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
+           FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
+          WHERE wm_files_fts MATCH ? AND f.repo = ?
+          ORDER BY rank, f.path
+          LIMIT ?`,
+        [toFtsQuery(query), repo, k]
+      )
+    );
+    const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
+    if (hits.length >= k) return hits;
+    const seen = new Set(ranked.map((r) => r.id));
+    const needle = query.toLowerCase();
+    const substring = this.db.all(
+      `SELECT ${FILE_COLUMNS} FROM wm_files f
+          WHERE f.repo = ? AND (instr(lower(f.path), ?) > 0 OR instr(lower(f.purpose), ?) > 0)
+          ORDER BY f.path
+          LIMIT ?`,
+      [repo, needle, needle, k + seen.size]
+    ).filter((r) => !seen.has(r.id));
+    return [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k);
+  }
+  filesByIds(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const rows = this.db.all(
+      `SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.id IN (${placeholders(ids.length)})`,
+      ids
+    );
+    return new Map(rows.map((r) => [r.id, toFileNode(r)]));
+  }
+  upsertDirectory(node) {
+    this.db.run(
+      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repo, path) DO UPDATE SET
+         parent_path = excluded.parent_path,
+         summary = excluded.summary,
+         summary_source = excluded.summary_source,
+         summary_updated_at = excluded.summary_updated_at,
+         file_count = excluded.file_count`,
+      [
+        node.repo,
+        node.path,
+        node.parent_path,
+        node.summary,
+        node.summary_source,
+        node.summary_updated_at,
+        node.file_count
+      ]
+    );
   }
   upsertContains(parent, child) {
-    const parentKey = _WorldModelGraph.dirKey(parent.repo, parent.path);
-    const childKey = _WorldModelGraph.dirKey(child.repo, child.path);
-    const stmt = this.conn.prepareSync(
-      `MATCH (p:Directory {key: $parentKey}), (c:Directory {key: $childKey})
-       MERGE (p)-[:CONTAINS]->(c)`
+    if (parent.repo !== child.repo) return;
+    this.db.run(
+      `UPDATE wm_directories SET parent_path = ?
+        WHERE repo = ? AND path = ? AND parent_path IS NOT ?
+          AND EXISTS (SELECT 1 FROM wm_directories p WHERE p.repo = ? AND p.path = ?)`,
+      [parent.path, child.repo, child.path, parent.path, parent.repo, parent.path]
     );
-    this.conn.executeSync(stmt, { parentKey, childKey });
   }
   pruneDirectories(repo, keepKeys) {
-    const all = this.allDirectoriesForRepo(repo);
-    const toDelete = all.filter((d) => !keepKeys.has(d.key));
-    const stmt = this.conn.prepareSync(
-      `MATCH (d:Directory {key: $key}) DETACH DELETE d`
-    );
-    for (const d of toDelete) {
-      this.conn.executeSync(stmt, { key: d.key });
-    }
-    return toDelete.length;
+    const stale = this.db.all(`SELECT id, path FROM wm_directories WHERE repo = ?`, [repo]).filter((d) => !keepKeys.has(_WorldModelGraph.dirKey(repo, d.path)));
+    for (const d of stale) this.db.run(`DELETE FROM wm_directories WHERE id = ?`, [d.id]);
+    return stale.length;
   }
-  // Re-key every Directory node of oldRepo under newRepo in one kuzu
-  // transaction. The primary key embeds the repo (dirKey), so each node is
-  // re-created under its new key, its CONTAINS edges re-linked, and the old
-  // nodes detach-deleted. Returns the number of nodes moved.
+  // Move every directory and file row of oldRepo under newRepo in one
+  // transaction, replacing any leftover rows already filed under newRepo.
+  // Row ids survive, so FTS and embedding rows stay attached. Returns the
+  // number of directories moved.
   renameRepo(oldRepo, newRepo) {
-    const nodes = this.allDirectoriesForRepo(oldRepo);
-    if (nodes.length === 0) return 0;
-    const edges = this.containsEdgesForRepo(oldRepo);
-    const files = this.allFilesForRepo(oldRepo);
-    this.conn.querySync("BEGIN TRANSACTION");
-    try {
-      for (const n of nodes) {
-        this.upsertDirectory({
-          repo: newRepo,
-          path: n.path,
-          parent_path: n.parent_path,
-          summary: n.summary,
-          summary_source: n.summary_source,
-          summary_updated_at: n.summary_updated_at,
-          file_count: n.file_count
-        });
-      }
-      for (const e of edges) {
-        this.upsertContains({ repo: newRepo, path: e.parent }, { repo: newRepo, path: e.child });
-      }
-      const delFiles = this.conn.prepareSync(`MATCH (f:File {repo: $repo}) DETACH DELETE f`);
-      this.conn.executeSync(delFiles, { repo: oldRepo });
-      for (const f of files) {
-        const path2 = _WorldModelGraph.fileKey(newRepo, _WorldModelGraph.relativeFilePath(f));
-        this.upsertFile({ ...f, path: path2, repo: newRepo });
-        this.upsertHasFile(newRepo, f.dir, path2);
-      }
-      const del = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo}) DETACH DELETE d`);
-      this.conn.executeSync(del, { repo: oldRepo });
-      this.conn.querySync("COMMIT");
-    } catch (e) {
-      try {
-        this.conn.querySync("ROLLBACK");
-      } catch {
-      }
-      throw e;
-    }
-    return nodes.length;
-  }
-  containsEdgesForRepo(repo) {
-    const stmt = this.conn.prepareSync(
-      `MATCH (p:Directory {repo: $repo})-[:CONTAINS]->(c:Directory {repo: $repo})
-       RETURN p.path, c.path`
-    );
-    const result2 = single(this.conn.executeSync(stmt, { repo }));
-    const edges = [];
-    try {
-      while (result2.hasNext()) {
-        const r = result2.getNextSync();
-        edges.push({ parent: String(r["p.path"] ?? ""), child: String(r["c.path"] ?? "") });
-      }
-    } finally {
-      result2.close();
-    }
-    return edges;
+    return this.db.transaction(() => {
+      const moved = this.directoryCount(oldRepo);
+      if (moved === 0) return 0;
+      this.db.run(`DELETE FROM wm_directories WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_files WHERE repo = ?`, [newRepo]);
+      this.db.run(`UPDATE wm_directories SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_files SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      return moved;
+    });
   }
   allDirectoriesForRepo(repo) {
-    const stmt = this.conn.prepareSync(
-      `MATCH (d:Directory {repo: $repo})
-       RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count`
-    );
-    const result2 = single(this.conn.executeSync(stmt, { repo }));
-    const rows = [];
-    try {
-      while (result2.hasNext()) {
-        const r = result2.getNextSync();
-        rows.push({
-          key: r["d.key"],
-          repo: r["d.repo"],
-          path: r["d.path"],
-          parent_path: r["d.parent_path"] == null ? null : String(r["d.parent_path"]),
-          summary: r["d.summary"] || null,
-          summary_source: r["d.summary_source"],
-          summary_updated_at: r["d.summary_updated_at"] || null,
-          file_count: Number(r["d.file_count"] ?? 0)
-        });
-      }
-    } finally {
-      result2.close();
-    }
-    return rows;
+    return this.db.all(`SELECT ${DIR_COLUMNS} FROM wm_directories d WHERE d.repo = ? ORDER BY d.path`, [repo]).map(toDirectoryNode);
   }
+  // The directory at `path` plus its descendants down to `depth` levels below
+  // it (null = the whole subtree), via a recursive CTE over parent_path.
+  subtree(repo, path2, depth) {
+    const cap = depth === null ? SUBTREE_MAX_DEPTH : Math.max(0, Math.min(depth, SUBTREE_MAX_DEPTH));
+    return this.db.all(
+      `WITH RECURSIVE sub(id, path, lvl) AS (
+           SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+           UNION
+           SELECT c.id, c.path, s.lvl + 1
+             FROM wm_directories c JOIN sub s ON c.parent_path = s.path
+            WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
+         )
+         SELECT ${DIR_COLUMNS} FROM wm_directories d
+          WHERE d.id IN (SELECT id FROM sub)
+          ORDER BY d.path`,
+      [repo, path2, repo, cap]
+    ).map(toDirectoryNode);
+  }
+  // The directory at `path` and each of its ancestors, root first.
+  ancestors(repo, path2) {
+    return this.db.all(
+      `WITH RECURSIVE up(id, parent_path, lvl) AS (
+           SELECT id, parent_path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+           UNION
+           SELECT p.id, p.parent_path, u.lvl + 1
+             FROM wm_directories p JOIN up u ON p.path = u.parent_path
+            WHERE p.repo = ? AND u.lvl < ?
+         )
+         SELECT ${DIR_COLUMNS}, up.lvl FROM up JOIN wm_directories d ON d.id = up.id
+          ORDER BY up.lvl DESC`,
+      [repo, path2, repo, SUBTREE_MAX_DEPTH]
+    ).map(toDirectoryNode);
+  }
+  // FTS5 hits over path + summary ranked by bm25 (score = -bm25, higher is
+  // better), then case-insensitive path/summary substring hits at score 0.
   keywordSearchDirectories(repo, query, k) {
-    const lowered = query.toLowerCase();
-    const stmt = this.conn.prepareSync(
-      `MATCH (d:Directory {repo: $repo})
-       WHERE lower(d.summary) CONTAINS $needle OR lower(d.path) CONTAINS $needle
-       RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count
-       LIMIT $k`
+    const ranked = withFtsGuard(
+      () => this.db.all(
+        `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
+           FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+          WHERE wm_directories_fts MATCH ? AND d.repo = ?
+          ORDER BY rank, d.path
+          LIMIT ?`,
+        [toFtsQuery(query), repo, k]
+      )
     );
-    const result2 = single(this.conn.executeSync(stmt, { repo, needle: lowered, k }));
-    const rows = [];
-    try {
-      while (result2.hasNext()) {
-        const r = result2.getNextSync();
-        rows.push({
-          key: r["d.key"],
-          repo: r["d.repo"],
-          path: r["d.path"],
-          parent_path: r["d.parent_path"] == null ? null : String(r["d.parent_path"]),
-          summary: r["d.summary"] || null,
-          summary_source: r["d.summary_source"],
-          summary_updated_at: r["d.summary_updated_at"] || null,
-          file_count: Number(r["d.file_count"] ?? 0),
-          score: 1
-        });
-      }
-    } finally {
-      result2.close();
-    }
-    return rows;
+    const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
+    if (hits.length >= k) return hits;
+    const seen = new Set(ranked.map((r) => r.id));
+    const needle = query.toLowerCase();
+    const substring = this.db.all(
+      `SELECT ${DIR_COLUMNS} FROM wm_directories d
+          WHERE d.repo = ? AND (instr(lower(d.path), ?) > 0 OR instr(lower(coalesce(d.summary, '')), ?) > 0)
+          ORDER BY d.path
+          LIMIT ?`,
+      [repo, needle, needle, k + seen.size]
+    ).filter((r) => !seen.has(r.id));
+    return [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k);
   }
-  directoryCount() {
-    const result2 = single(this.conn.querySync("MATCH (d:Directory) RETURN COUNT(d) AS n"));
-    try {
-      if (result2.hasNext()) {
-        const row = result2.getNextSync();
-        return Number(row["n"] ?? 0);
-      }
-      return 0;
-    } finally {
-      result2.close();
-    }
+  directoriesByIds(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const rows = this.db.all(
+      `SELECT ${DIR_COLUMNS} FROM wm_directories d WHERE d.id IN (${placeholders(ids.length)})`,
+      ids
+    );
+    return new Map(rows.map((r) => [r.id, toDirectoryNode(r)]));
   }
+  directoryCount(repo) {
+    const row = repo === void 0 ? this.db.get(`SELECT COUNT(*) AS n FROM wm_directories`) : this.db.get(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ?`, [repo]);
+    return Number(row?.n ?? 0);
+  }
+  // The graph borrows the trajectory DB handle; its owner closes it.
   close() {
-    try {
-      this.conn.close();
-    } catch {
-    }
-    try {
-      this.db.close();
-    } catch {
-    }
-    this["conn"] = null;
-    this["db"] = null;
   }
 };
-var GRAPH_REOPEN_THROTTLE_MS = 5e3;
 var GraphHolder = class _GraphHolder {
-  graph = null;
-  openError = null;
-  lastAttemptMs = 0;
-  open;
-  now;
-  log;
-  throttleMs;
-  lastFailureMessage = null;
-  attempted = false;
-  constructor(opts) {
-    this.open = opts.open;
-    this.now = opts.now ?? Date.now;
-    this.log = opts.log ?? (() => {
-    });
-    this.throttleMs = opts.throttleMs ?? GRAPH_REOPEN_THROTTLE_MS;
+  constructor(graph, openError = null) {
+    this.graph = graph;
+    this.openError = openError;
   }
-  // Wrap an already-resolved graph (or a null-with-error) as an inert holder
-  // that never re-opens — for call sites that already own a graph instance.
+  graph;
+  openError;
   static fixed(graph, openError = null) {
-    const holder = new _GraphHolder({
-      open: () => {
-        throw new Error("fixed GraphHolder does not re-open");
-      }
-    });
-    holder.graph = graph;
-    holder.openError = openError;
-    holder.attempted = true;
-    holder.lastAttemptMs = Number.MAX_SAFE_INTEGER;
-    return holder;
+    return new _GraphHolder(graph, openError);
   }
-  // Return a live graph, re-attempting a failed open at most once per throttle
-  // window. Returns null while the open keeps failing (or has never succeeded).
   ensureGraph() {
-    if (this.graph) return this.graph;
-    if (this.attempted && this.now() - this.lastAttemptMs < this.throttleMs) {
-      return null;
-    }
-    return this.attemptOpen();
-  }
-  // Run one open attempt now, ignoring the throttle. Used at startup for the
-  // initial open and internally by ensureGraph() past the throttle window.
-  attemptOpen() {
-    this.attempted = true;
-    this.lastAttemptMs = this.now();
-    try {
-      this.graph = this.open();
-      const recovered = this.lastFailureMessage !== null;
-      this.openError = null;
-      this.lastFailureMessage = null;
-      this.log({ kind: "graph_db_open", ...recovered ? { recovered: true } : {} });
-      return this.graph;
-    } catch (e) {
-      const message2 = e instanceof Error ? e.message : String(e);
-      if (message2 !== this.lastFailureMessage) {
-        this.log({ kind: "graph_db_open_failed", error_message: message2 });
-      }
-      this.lastFailureMessage = message2;
-      this.openError = isKuzuLockError(e) ? message2 : null;
-      this.graph = null;
-      return null;
-    }
+    return this.graph;
   }
 };
 
@@ -35961,16 +35832,16 @@ function wrap4(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname10(fileURLToPath4(import.meta.url));
+  const here = dirname9(fileURLToPath4(import.meta.url));
   const candidates = [
     join13(here, "..", "..", "..", "..", "scripts", "scan.sh"),
     join13(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync10(c)) return c;
+  for (const c of candidates) if (existsSync9(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
     const c = join13(pluginRoot, "scripts", "scan.sh");
-    if (existsSync10(c)) return c;
+    if (existsSync9(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
@@ -36121,7 +35992,7 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
     const readmePath = join13(absDirPath, candidate);
-    if (!existsSync10(readmePath)) continue;
+    if (!existsSync9(readmePath)) continue;
     try {
       const raw = readFileSync6(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
@@ -36250,17 +36121,15 @@ function purposesByDirectory(nodes) {
 }
 function persistFilesGraph(graph, out, plan) {
   let files_retired = 0;
-  graph.transaction(() => {
-    for (const n of plan.writes) graph.upsertFile(n);
-    for (const r of out.repos) {
-      const linked = graph.filePathsWithDirectory(r.name);
-      for (const n of plan.nodes) {
-        if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
-      }
-      const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
-      files_retired += graph.pruneFiles(r.name, keep);
+  for (const n of plan.writes) graph.upsertFile(n);
+  for (const r of out.repos) {
+    const linked = graph.filePathsWithDirectory(r.name);
+    for (const n of plan.nodes) {
+      if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
     }
-  });
+    const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
+    files_retired += graph.pruneFiles(r.name, keep);
+  }
   return { files_upserted: plan.writes.length, files_retired };
 }
 function readRepoRemotes(path2) {
@@ -36405,36 +36274,35 @@ function persistScan(db2, graph, out, sessionDir) {
   let files_upserted = 0;
   let files_extracted = 0;
   let files_retired = 0;
-  if (graph) {
-    for (const r of retired) {
-      const n = graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
-      dirs_retired += n;
-      files_retired += graph.pruneFiles(r.name, /* @__PURE__ */ new Set());
-    }
-  }
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
     const plan = planFiles(graph, persisted, now2);
     files_extracted = plan.extracted;
-    const stats = persistDirectoriesGraph(graph, persisted, now2, purposesByDirectory(plan.nodes));
-    dirs_upserted = stats.dirs_upserted;
-    dirs_readme_summarized = stats.dirs_readme_summarized;
-    dirs_structural_summarized = stats.dirs_structural_summarized;
-    const dirMap = deriveDirectoryEntries(persisted);
-    for (const r of persisted.repos) {
-      const keepKeys = /* @__PURE__ */ new Set();
-      for (const [, entry] of dirMap) {
-        if (entry.repo === r.name) {
-          keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
-        }
+    graph.transaction(() => {
+      for (const r of retired) {
+        dirs_retired += graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
+        files_retired += graph.pruneFiles(r.name, /* @__PURE__ */ new Set());
       }
-      graph.pruneDirectories(r.name, keepKeys);
-    }
-    const fileStats = persistFilesGraph(graph, persisted, plan);
-    files_upserted = fileStats.files_upserted;
-    files_retired += fileStats.files_retired;
+      const stats = persistDirectoriesGraph(graph, persisted, now2, purposesByDirectory(plan.nodes));
+      dirs_upserted = stats.dirs_upserted;
+      dirs_readme_summarized = stats.dirs_readme_summarized;
+      dirs_structural_summarized = stats.dirs_structural_summarized;
+      const dirMap = deriveDirectoryEntries(persisted);
+      for (const r of persisted.repos) {
+        const keepKeys = /* @__PURE__ */ new Set();
+        for (const [, entry] of dirMap) {
+          if (entry.repo === r.name) {
+            keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+          }
+        }
+        graph.pruneDirectories(r.name, keepKeys);
+      }
+      const fileStats = persistFilesGraph(graph, persisted, plan);
+      files_upserted = fileStats.files_upserted;
+      files_retired += fileStats.files_retired;
+    });
   }
   return {
     repos_discovered: out.repos.length,
@@ -36486,7 +36354,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
   const definitions = [
     {
       name: "scan_run",
-      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory + File nodes to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
+      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36530,11 +36398,9 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
         const graph = graphHolder2?.ensureGraph() ?? null;
         const graphOpenError = graphHolder2?.openError ?? null;
         if (!graph && graphOpenError) {
-          return err16(
-            `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
-          );
+          return err16(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join13(dirname10(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join13(dirname9(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -36762,7 +36628,7 @@ function repoTools(db2, graphHolder2 = null) {
   const definitions = [
     {
       name: "repo_rename",
-      description: "Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model nodes (graph deferred to the next scan_run when kuzu is down). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).",
+      description: "Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model rows (graph deferred to the next scan_run when the re-key fails). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).",
       inputSchema: {
         type: "object",
         properties: {
@@ -36798,13 +36664,13 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname11, join as join15 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname10, join as join15 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { existsSync as existsSync11, readFileSync as readFileSync7 } from "node:fs";
+import { existsSync as existsSync10, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { isAbsolute as isAbsolute5, join as join14 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
@@ -36895,7 +36761,7 @@ function computeStatus(row, evidence, pluginRoot) {
     case "skill": {
       if (!row.file_path) return "broken";
       const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join14(pluginRoot, row.file_path);
-      return existsSync11(resolved) ? "active" : "broken";
+      return existsSync10(resolved) ? "active" : "broken";
     }
     case "mcp": {
       const bundled = /^mcp:([^/]+)\/(.+)$/.exec(row.source_url ?? "");
@@ -36978,16 +36844,16 @@ function wrap5(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname11(fileURLToPath5(import.meta.url));
+  const here = dirname10(fileURLToPath5(import.meta.url));
   const candidates = [
     join15(here, "..", "..", "..", "..", "scripts", name),
     join15(here, "..", "..", "..", "scripts", name)
   ];
-  for (const c of candidates) if (existsSync12(c)) return c;
+  for (const c of candidates) if (existsSync11(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
     const c = join15(pluginRoot, "scripts", name);
-    if (existsSync12(c)) return c;
+    if (existsSync11(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
 }
@@ -37246,11 +37112,11 @@ function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
     const c2 = join15(pluginRoot, "agents", `${target}.md`);
-    if (existsSync12(c2)) return c2;
+    if (existsSync11(c2)) return c2;
   }
-  const here = dirname11(fileURLToPath5(import.meta.url));
+  const here = dirname10(fileURLToPath5(import.meta.url));
   const c = join15(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync12(c)) return c;
+  if (existsSync11(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
@@ -37271,10 +37137,10 @@ function readManifestProvidedTools(manifestPath) {
 }
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync12(override) ? override : null;
+  if (override) return existsSync11(override) ? override : null;
   const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join15(process.env["HOME"] || "", ".claude");
   const registry2 = join15(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync12(registry2)) return null;
+  if (!existsSync11(registry2)) return null;
   let parsed;
   try {
     parsed = JSON.parse(readFileSync8(registry2, "utf8"));
@@ -37290,7 +37156,7 @@ function resolveInstalledPluginManifest(name) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
       const manifest = join15(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync12(manifest)) return manifest;
+      if (existsSync11(manifest)) return manifest;
     }
   }
   return null;
@@ -37379,20 +37245,20 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   if (target === "bro") {
     const claudeMd = join15(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync12(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
+    let body = existsSync11(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
 ` : `${body}${prefix}${reference}
 `;
-      mkdirSync8(claudeDir, { recursive: true });
+      mkdirSync7(claudeDir, { recursive: true });
       writeFileSync6(claudeMd, body);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
   const localAgentMd = join15(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync12(localAgentMd)) {
+  if (existsSync11(localAgentMd)) {
     content = readFileSync8(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
@@ -37405,7 +37271,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync8(dirname11(localAgentMd), { recursive: true });
+  mkdirSync7(dirname10(localAgentMd), { recursive: true });
   writeFileSync6(localAgentMd, updated);
   return {
     target,
@@ -37419,7 +37285,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
     const filePath = join15(projectRoot, rel);
-    if (!existsSync12(filePath)) return;
+    if (!existsSync11(filePath)) return;
     const content = readFileSync8(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
@@ -37429,7 +37295,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
     const filePath = join15(projectRoot, rel);
-    if (!existsSync12(filePath)) return;
+    if (!existsSync11(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     const body = readFileSync8(filePath, "utf8");
     if (!body.includes(reference)) return;
@@ -38021,6 +37887,8 @@ function cheatcodeTools(db2) {
 // src/tools/world_model.ts
 import { spawnSync as spawnSync11 } from "node:child_process";
 var WORLD_MODEL_GET_MAX_NODES = 500;
+var RRF_K = 60;
+var SEARCH_BACKFILL_LIMIT = 50;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
   if (!repo) return { unmerged_work: [] };
@@ -38115,6 +37983,50 @@ function fileResult(h) {
     score: h.score
   };
 }
+function dirHit(node) {
+  return { kind: "dir", key: `dir:${node.key}`, node };
+}
+function fileHit(node) {
+  return { kind: "file", key: `file:${node.path}`, node };
+}
+function hitResult(hit, score) {
+  return hit.kind === "dir" ? dirResult({ ...hit.node, score }) : fileResult({ ...hit.node, score });
+}
+async function backfillWorldModel(db2) {
+  let saturated = false;
+  for (const table of WORLD_MODEL_TABLES) {
+    if (await backfillMissing(db2, table, SEARCH_BACKFILL_LIMIT) >= SEARCH_BACKFILL_LIMIT) saturated = true;
+  }
+  if (saturated) startWorldModelBackfill(db2);
+}
+async function cosineHits(db2, graph, repo, query, k) {
+  const search = (table) => topKByCosine(db2, table, query, k, [repo]);
+  const [dirs, files] = [await search("wm_directories"), await search("wm_files")];
+  const dirNodes = graph.directoriesByIds(dirs.map((d) => d.rowid));
+  const fileNodes = graph.filesByIds(files.map((f) => f.rowid));
+  const hits = [];
+  for (const d of dirs) {
+    const node = dirNodes.get(d.rowid);
+    if (node) hits.push({ hit: dirHit(node), score: d.score });
+  }
+  for (const f of files) {
+    const node = fileNodes.get(f.rowid);
+    if (node) hits.push({ hit: fileHit(node), score: f.score });
+  }
+  return hits.sort((a, b) => b.score - a.score);
+}
+function fuse(lists) {
+  const fused = /* @__PURE__ */ new Map();
+  for (const list of lists) {
+    list.forEach((hit, rank) => {
+      const rrf = 1 / (RRF_K + rank + 1);
+      const entry = fused.get(hit.key);
+      if (entry) entry.score += rrf;
+      else fused.set(hit.key, { hit, score: rrf });
+    });
+  }
+  return [...fused.values()].sort((a, b) => b.score - a.score);
+}
 function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -38199,14 +38111,14 @@ function worldModelTools(db2, graphHolder2) {
     },
     {
       name: "world_model_search",
-      description: "Search dir summaries + file purposes by keyword/path. Returns top-K hits tagged kind 'dir'|'file'. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions \u2014 cheaper than world_model_get.",
+      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'; without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
           query: {
             type: "string",
-            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
+            description: "Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match), plus path/text substrings; semantic matches natural language."
           },
           mode: {
             type: "string",
@@ -38247,11 +38159,10 @@ function worldModelTools(db2, graphHolder2) {
         if (!graph) {
           return ok20({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
         }
-        const nodes = graph.allDirectoriesForRepo(repo);
-        if (nodes.length === 0) {
+        if (graph.directoryCount(repo) === 0) {
           return ok20({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
         }
-        const rows = nodes;
+        const rows = graph.subtree(repo, path2, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
@@ -38289,30 +38200,28 @@ function worldModelTools(db2, graphHolder2) {
         if (!graph) {
           return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
-        const dirHits = graph.keywordSearchDirectories(repo, query, k).map(dirResult);
-        const fileHits = graph.keywordSearchFiles(repo, query, k).map(fileResult);
-        const hits = [...dirHits, ...fileHits].slice(0, k);
-        if (mode === "keyword") {
-          return ok20({
-            results: hits,
-            total_matched: hits.length,
-            mode: "keyword"
-          });
-        }
-        if (mode === "semantic") {
-          return ok20({
-            results: [],
-            total_matched: 0,
-            warning: "semantic_unavailable",
-            mode: "semantic"
-          });
-        }
-        return ok20({
-          results: hits,
-          total_matched: hits.length,
-          warning: "semantic_unavailable",
-          mode: "hybrid"
-        });
+        const pool = mode === "keyword" ? k : k * 4;
+        const keywordDirs = graph.keywordSearchDirectories(repo, query, pool).map((n) => ({ hit: dirHit(n), score: n.score }));
+        const keywordFiles = graph.keywordSearchFiles(repo, query, pool).map((n) => ({ hit: fileHit(n), score: n.score }));
+        const keywordRanked = [...keywordDirs, ...keywordFiles].sort((a, b) => b.score - a.score);
+        const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
+        const respond = (ranked, extra = {}) => {
+          const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
+          return ok20({ results, total_matched: results.length, ...extra, mode });
+        };
+        if (mode === "keyword") return respond(keywordRanked);
+        await backfillWorldModel(db2);
+        const semantic = await cosineHits(db2, graph, repo, query, pool);
+        if (semantic.length === 0) return respond(keywordRanked, { warning: "semantic_unavailable" });
+        if (mode === "semantic") return respond(semantic);
+        return respond(
+          fuse([
+            hitsOf(keywordDirs),
+            hitsOf(keywordFiles),
+            hitsOf(semantic.filter(({ hit }) => hit.kind === "dir")),
+            hitsOf(semantic.filter(({ hit }) => hit.kind === "file"))
+          ])
+        );
       })
     )
   };
@@ -38320,7 +38229,7 @@ function worldModelTools(db2, graphHolder2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync13, readdirSync as readdirSync4, readFileSync as readFileSync9, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync12, readdirSync as readdirSync4, readFileSync as readFileSync9, statSync as statSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { basename as basename6, join as join16 } from "node:path";
 var UNBOUND_SAMPLE = 20;
@@ -38482,7 +38391,7 @@ function listTranscripts(dir) {
       continue;
     }
     const sub = join16(p, "subagents");
-    if (!existsSync13(sub) || !statSync4(sub).isDirectory()) continue;
+    if (!existsSync12(sub) || !statSync4(sub).isDirectory()) continue;
     for (const f of readdirSync4(sub).sort()) {
       if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join16(sub, f), session: name });
     }
@@ -38491,7 +38400,7 @@ function listTranscripts(dir) {
 }
 function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
-  if (existsSync13(meta3)) {
+  if (existsSync12(meta3)) {
     try {
       const t = normalizeRole(JSON.parse(readFileSync9(meta3, "utf8"))["agentType"]);
       if (t) return t;
@@ -38719,7 +38628,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
           if (!root) return errResult("no project root for this DB; pass transcripts_dir");
           dir = defaultTranscriptsDir(root);
         }
-        if (!existsSync13(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        if (!existsSync12(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
         return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
       } catch (e) {
         return errResult(e.message);
@@ -39477,7 +39386,6 @@ function createShutdown(deps) {
     shuttingDown = true;
     deps.log(signal);
     deps.closeDb();
-    deps.closeGraph();
     deps.exit(0);
   };
 }
@@ -39491,7 +39399,7 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
-  mkdirSync9(path.dirname(dbPath), { recursive: true });
+  mkdirSync8(path.dirname(dbPath), { recursive: true });
 }
 var db = new TrajectoryDB(dbPath);
 function readPackageVersion() {
@@ -39505,12 +39413,7 @@ function readPackageVersion() {
   }
 }
 var packageVersion = readPackageVersion();
-var graphPath = resolveGraphDbPath(dbPath);
-var graphHolder = new GraphHolder({
-  open: () => new WorldModelGraph(graphPath),
-  log: (entry) => serverLogSync({ ...entry, path: graphPath })
-});
-graphHolder.attemptOpen();
+var graphHolder = GraphHolder.fixed(new WorldModelGraph(db));
 var server = new Server(
   { name: "trajectory-server", version: packageVersion },
   { capabilities: { tools: {} } }
@@ -39550,7 +39453,6 @@ function maybeRecordTrajectory(toolName, args, result2) {
 }
 var shutdown = createShutdown({
   closeDb: () => db.close(),
-  closeGraph: () => graphHolder.graph?.close(),
   log: (signal) => serverLogSync({ kind: "shutdown", signal, pid: process.pid }),
   exit: (code) => process.exit(code),
   pid: process.pid
