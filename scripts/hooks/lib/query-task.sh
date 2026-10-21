@@ -64,9 +64,11 @@ _tmb_sqlite_once() {
 # open), except on a WAL DB with no -shm (_tmb_db_wal_cold), which -readonly
 # cannot open: that read, and a -readonly read failing with SQLITE_CANTOPEN
 # (14), run without -readonly. Such a read may create -shm/-wal beside the DB,
-# inside the project; the SQL is read-only (tests/l1-lint/gate-read-sql-readonly.sh),
-# so no page is written. Busy, SQL and corruption errors are never retried.
-# immutable=1 is not used: it reads stale pages while a writer is active.
+# inside the project. Its SQL is read-only (tests/l1-lint/gate-read-sql-readonly.sh),
+# but closing that connection checkpoints a non-empty -wal into the main file
+# and truncates the -wal; _tmb_db_probe reads through _tmb_db_read_ro instead.
+# Busy, SQL and corruption errors are never retried. immutable=1 is not used:
+# it reads stale pages while a writer is active.
 tmb_gate_read() {
   local db="${1:-}" sql="${2:-}" out rc=0 ro=1 ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
   case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
@@ -140,15 +142,53 @@ _tmb_budget_run() {
   perl -MTime::HiRes=alarm -e "$kill_after_pl" "$@" 2>/dev/null
 }
 
+# _tmb_db_immutable_uri <db>
+# The file: URI that opens <db> immutable: absolute, with %, ? and # escaped.
+_tmb_db_immutable_uri() {
+  local p="${1:-}"
+  case "$p" in /*) ;; *) p="${PWD%/}/$p" ;; esac
+  p="${p//\%/%25}"
+  p="${p//\?/%3f}"
+  printf 'file:%s?immutable=1' "${p//\#/%23}"
+}
+
+# _tmb_db_read_ro <db> <sql>
+# A read that never writes the DB: prints the output, or __ERR__ when it fails.
+# -readonly first; when that fails on a WAL DB with no -shm (_tmb_db_wal_cold),
+# once more through an immutable URI, as bro-sqlite-readonly.sh snapshots it.
+# Never a writable open, so no checkpoint moves the -wal into the main file
+# before a read-only helper snapshots it. An immutable read sees the main file
+# only, not rows still in a -wal.
+_tmb_db_read_ro() {
+  local db="${1:-}" sql="${2:-}" out rc=0 ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  if [ -z "$db" ] || [ ! -f "$db" ]; then
+    printf '__ERR__\n'
+    return 0
+  fi
+  out=$(_tmb_sqlite_once 1 "$ms" "$db" "$sql") || rc=$?
+  if [ "$rc" -ne 0 ] && _tmb_db_wal_cold "$db"; then
+    rc=0
+    out=$(_tmb_sqlite_once 1 "$ms" "$(_tmb_db_immutable_uri "$db")" "$sql") || rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then
+    [ -n "$out" ] && printf '%s\n' "$out"
+  else
+    printf '__ERR__\n'
+  fi
+  return 0
+}
+
 # _tmb_db_probe <db>
 # 0 = current schema (tasks.prompt_bearing exists), 1 = stale legacy schema,
 # 2 = the read itself failed (busy, corrupt, unreadable). With no sqlite3 the
-# DB cannot be probed and counts as current.
+# DB cannot be probed and counts as current. Reads through _tmb_db_read_ro, so
+# resolving the DB never writes it.
 _tmb_db_probe() {
   local db="${1:-}" cols
   [ -n "$db" ] && [ -f "$db" ] || return 1
   tmb_have_sqlite || return 0
-  cols=$(tmb_gate_read "$db" "SELECT name FROM pragma_table_info('tasks');")
+  cols=$(_tmb_db_read_ro "$db" "SELECT name FROM pragma_table_info('tasks');")
   case "$cols" in
     __ERR__) return 2 ;;
     *prompt_bearing*) return 0 ;;
