@@ -1178,12 +1178,15 @@ tmb_is_prompt_surface_path() {
 # _tmb_cmd_interp_writes <encoded-statement-words…>
 # The paths an interpreter one-liner (python -c, node -e/-p, perl -e/-E,
 # ruby -e) may write: the paths its program writes (_tmb_cmd_prog_writes),
-# plus, when it writes any, every operand after the program.
+# plus, when it writes any, every operand after the program. python -m with a
+# module that runs code from its arguments (timeit, cProfile, profile, trace,
+# pdb, runpy, code, doctest, pydoc, pickle, py_compile, compileall) is
+# `$(proc)` (unresolvable) whatever its arguments (GH 1571).
 _tmb_cmd_interp_writes() {
-  local argv0="${1##*/}" flags lang w prog="" k=1 n=$# found
+  local argv0="${1##*/}" flags lang w prog="" k=1 n=$# found mod pyopt=0 optarg=0
   local -a words=("$@")
   case "$argv0" in
-    python|python3|python[23].*) flags="-c"; lang=py ;;
+    python|python3|python[23].*) flags="-c"; lang=py; pyopt=1 ;;
     node|nodejs) flags="-e --eval -p --print"; lang=node ;;
     perl) flags="-e -E"; lang=perl ;;
     ruby) flags="-e"; lang=ruby ;;
@@ -1192,6 +1195,20 @@ _tmb_cmd_interp_writes() {
   while [ "$k" -lt "$n" ]; do
     w="${words[$k]}"
     k=$((k + 1))
+    if [ "$pyopt" = 1 ]; then
+      if [[ "$w" =~ ^-[bBdEhiIOPqRsSuvx]*m(.*)$ ]]; then
+        pyopt=0
+        mod="${BASH_REMATCH[1]}"
+        [ -n "$mod" ] || mod="${words[$k]:-}"
+        mod=$(tmb_cmd_decode "$mod")
+        case "$mod" in
+          timeit|cProfile|profile|trace|pdb|runpy|code|doctest|pydoc|pickle|py_compile|compileall) printf '%s\n' "\$(proc)"; return 0 ;;
+        esac
+      elif [ "$optarg" = 1 ]; then optarg=0
+      else
+        case "$w" in -W|-X) optarg=1 ;; -*) ;; *) pyopt=0 ;; esac
+      fi
+    fi
     case " $flags " in *" $w "*) prog=$(tmb_cmd_decode "${words[$k]:-}"); k=$((k + 1)); break ;; esac
   done
   [ -n "$prog" ] || return 0
@@ -1239,9 +1256,25 @@ _tmb_cmd_interp_writes() {
 # functions are the way to use them. With a code-string runner, a write the scan
 # cannot resolve (fail-closed, below) adds `$(proc)`, since the code can rebind
 # any variable. builtins / __builtins__ reached as a value, a .__self__, the
-# string literal 'builtins' or '__self__' itself (a computed key such as
-# sys.modules['built' + 'ins'] is not caught) and exec / eval / compile
-# referenced without a call or through an alias are `$(proc)`. A chdir (os.chdir, process.chdir, perl chdir, Dir.chdir)
+# string literal 'builtins' or '__self__' itself and exec / eval / compile
+# referenced without a call or through an alias are `$(proc)`. So is a
+# program that references at all — under any import alias, through
+# __import__ / import_module or sys.modules, called, chained or not — a path
+# that hides a write (GH 1571): the modules runpy, code, codeop, doctest,
+# pickle, marshal, shelve, importlib, pydoc, types and inspect (importing one
+# is enough); sys.modules (any index or .get); breakpoint; a __subclasses__ /
+# __globals__ / __code__ / __dict__ / __class__ / __bases__ / __mro__
+# attribute or that name as a string literal; getattr / setattr / delattr
+# whose name is not a plain string literal; any subscript or attribute of
+# globals() / locals() / vars(…); a builtin held as a value (exec, eval,
+# compile, open, __import__, getattr, setattr, delattr, globals, locals,
+# vars, type, breakpoint, input), which also covers a runner's return value
+# called (pdb.runeval('open')(…)); an __import__ of anything but a plain
+# literal; the argv-driven runners timeit / cProfile / profile / trace / pdb
+# .main (and pdb set_trace / post_mortem / pm); and a string literal, not raw,
+# with a \x, \u, \U, \N{ or octal escape, which cannot be matched as
+# written. python -m with such a runner is `$(proc)` too
+# (_tmb_cmd_interp_writes). A chdir (os.chdir, process.chdir, perl chdir, Dir.chdir)
 # makes every process call and every relative path the program writes
 # unresolvable. A program a read only names (open(p),
 # json.load(open(p)), os.listdir(p), sys.path.insert(0, p)) adds nothing.
@@ -1333,11 +1366,21 @@ _tmb_cmd_prog_scan() {
 # as a value or through a dunder attribute, a string literal exactly
 # 'builtins' / '__builtins__' / '__self__' (not a computed one) or a
 # .__self__ attribute, and an __import__ / import_module of builtins or a
-# runner module. The filename of cProfile / profile run (2nd) / runctx (4th)
+# runner module; so does every GH 1571 hidden-write path (see
+# _tmb_cmd_prog_writes): an import of runpy / code / codeop / doctest /
+# pickle / marshal / shelve / importlib / pydoc / types / inspect, sys.modules,
+# breakpoint, a __subclasses__ / __globals__ / __code__ / __dict__ /
+# __class__ / __bases__ / __mro__ attribute or string literal, a getattr /
+# setattr / delattr name or __import__ argument that is not a plain literal,
+# a subscript or attribute of globals() / locals() / vars(), a builtin held
+# as a value, a runner .main, and a non-raw string literal with a \x / \u /
+# \U / \N{ / octal escape (whose write path is `F`, never `T`). The
+# filename of cProfile / profile run (2nd) / runctx (4th)
 # and dump_stats are write paths. `C` for a chdir. Import
-# aliases (import subprocess as sp, from subprocess / os / builtins / runner
-# modules import f as g, node require / import of child_process) resolve to
-# the module's own names.
+# aliases (import subprocess as sp, from subprocess / os / builtins / sys /
+# runner modules import f as g, node require / import of child_process)
+# resolve to the module's own names; an import after a `:` (if x: import y)
+# counts as one.
 # `Q<TAB><quoted literal>` for each string literal outside the data a write
 # call writes. `A` when the program does not parse (an unterminated string,
 # unbalanced brackets).
@@ -1490,11 +1533,11 @@ _tmb_cmd_prog_calls() {
       f = substr(nm, 1, RLENGTH); r = substr(nm, RLENGTH + 1)
       if (f in mal) return mal[f] r
       if (lang == "py" && (f in fal) && fal[f] ~ clsre) return fal[f] r
-      if (lang == "py" && r != "") for (g in star) if ((g "." f) ~ clsre) return g "." f r
+      if (lang == "py" && r != "") for (g in star) if ((g "." f) ~ clsre || (g "." f) == "sys.modules") return g "." f r
       if (lang == "py" && r == "") {
         if (("subprocess" in star) && nm ~ /^(run|call|check_call|check_output|Popen|getoutput|getstatusoutput)$/) return "subprocess." nm
         if (("os" in star) && (nm ~ procos || nm ~ /^f?chdir$/)) return "os." nm
-        for (f in star) if ((f "." nm) ~ runre || (f "." nm) ~ clsre) return f "." nm
+        for (f in star) if ((f "." nm) ~ runre || (f "." nm) ~ clsre || (f "." nm) ~ mainre || (f "." nm) == "sys.modules") return f "." nm
       }
       return nm
     }
@@ -1509,10 +1552,30 @@ _tmb_cmd_prog_calls() {
       return o v
     }
     function pyref(cn, ch, k, st,   b, m) {
-      if (ch == "=" && substr(s, k + 1, 1) != "=") return
+      if (inimport(st)) return
       b = cn; sub(/^(builtins|__builtins__)[.]/, "", b)
+      if (cn ~ dunre || cn ~ /^sys[.]modules([.]|$)/ || cn ~ mainre || b ~ /^breakpoint([.]|$)/) { unres(); return }
+      if (ch == "=" && substr(s, k + 1, 1) != "=") return
       m = cn; sub(/[.].*$/, "", m)
-      if ((cn ~ /^(builtins|__builtins__)$/ || cn ~ /(^|[.])__self__([.]|$)/ || cn ~ clsre || cn ~ /^(builtins|__builtins__)[.]__/ || ((m in impd) && (cn == m || cn ~ /^[^.]+[.]__/)) || (b ~ /^(exec|eval|compile)([.]|$)/ && (ch != "(" || b ~ /[.]/)) || (cn ~ runre && ch != "(")) && !inimport(st)) unres()
+      if (cn ~ /^(builtins|__builtins__)$/ || cn ~ /(^|[.])__self__([.]|$)/ || cn ~ clsre || cn ~ /^(builtins|__builtins__)[.]__/ || ((m in impd) && (cn == m || cn ~ /^[^.]+[.]__/)) || (b ~ heldre && (ch != "(" || b ~ /[.]/)) || (cn ~ runre && ch != "(")) unres()
+    }
+    function pyesc(v,   i, ch) {
+      while ((i = index(v, "\\")) > 0) {
+        ch = substr(v, i + 1, 1)
+        if (ch ~ /[xuU0-7]/ || (ch == "N" && substr(v, i + 2, 1) == "{")) return 1
+        v = substr(v, i + 2)
+      }
+      return 0
+    }
+    function pycallref(t, cn,   b, k, c) {
+      b = cn; sub(/^(builtins|__builtins__)[.]/, "", b)
+      if (b ~ /^(getattr|setattr|delattr)$/ && !(np[t] >= 2 && pk[t, 2] == "L")) unres()
+      if (fname[t] ~ /(^|[.])(__import__|import_module)$/ && !(np[t] >= 1 && pk[t, 1] == "L")) unres()
+      if (b ~ /^(globals|locals|vars)$/) {
+        k = ip + 1; while (substr(s, k, 1) ~ /[ \t\n\\]/) k++
+        c = substr(s, k, 1)
+        if (c == "[" || c == ".") unres()
+      }
     }
     function runner(cn) {
       if (cn ~ runre) return (cn ~ /^timeit[.]/) ? "t" : "c"
@@ -1543,10 +1606,12 @@ _tmb_cmd_prog_calls() {
     function unres() { print "W"; print "U" }
     function addrange(st, ln) { nimp++; ims[nimp] = st; ime[nimp] = st + ln }
     function trim(x) { sub(/^[ \t\n]+/, "", x); sub(/[ \t\n]+$/, "", x); return x }
-    function pyimport(m,   mod, x, n, a, j, nm, al) {
-      sub(/^[\n; \t]+/, "", m)
+    function pyimport(m,   mod, x, n, a, j, nm, al, top) {
+      sub(/^[\n;: \t]+/, "", m)
       if (m ~ /^from/) {
         mod = m; sub(/^from[ \t]+/, "", mod); sub(/[ \t].*$/, "", mod)
+        top = mod; sub(/[.].*$/, "", top)
+        if (top ~ hidre) { unres(); return }
         if (mod !~ pymods && m !~ /[^A-Za-z0-9_]compile([^A-Za-z0-9_]|$)/) return
         x = m; sub(/^from[ \t]+[^ \t]+[ \t]+import[ \t]*/, "", x); gsub(/[()\\\n]/, " ", x)
         n = split(x, a, ",")
@@ -1554,7 +1619,7 @@ _tmb_cmd_prog_calls() {
           nm = trim(a[j]); al = nm
           if (nm ~ /[ \t]as[ \t]/) { sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm) }
           if (mod !~ pymods) { if (al == "compile") fal[al] = mod "." nm; continue }
-          if (mod == "builtins" && nm ~ /^(exec|eval|compile)$/ && al != nm) unres()
+          if (mod == "builtins" && nm ~ heldre && al != nm) unres()
           if (nm == "*") star[mod] = 1; else if (nm != "") fal[al] = mod "." nm
         }
         return
@@ -1564,6 +1629,8 @@ _tmb_cmd_prog_calls() {
       for (j = 1; j <= n; j++) {
         nm = trim(a[j]); al = nm
         if (nm ~ /[ \t]as[ \t]/) { sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm) }
+        top = nm; sub(/[.].*$/, "", top)
+        if (top ~ hidre) unres()
         if (nm ~ pymods && nm !~ /^(subprocess|os|builtins)$/) impd[nm] = 1
         if (al != nm && nm ~ pymods) mal[al] = nm
       }
@@ -1595,7 +1662,7 @@ _tmb_cmd_prog_calls() {
       qq = "[" q1 "\"]"
       exeset = (lang == "py" && s ~ /sys[.]executable[ \t]*=[^=]/) || (lang == "node" && s ~ /process[.]execPath[ \t]*=[^=]/)
       if (lang == "py") {
-        re = "(^|[\n;])[ \t]*(from[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]+import[ \t]*([(][^)]*[)]|[^\n;]*)|import[ \t]+[^\n;]*)"
+        re = "(^|[\n;:])[ \t]*(from[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]+import[ \t]*([(][^)]*[)]|[^\n;]*)|import[ \t]+[^\n;]*)"
         off = 1
         while (off <= length(s) && match(substr(s, off), re)) {
           st = off + RSTART - 1; ln = RLENGTH; m = substr(s, st, ln)
@@ -1639,12 +1706,13 @@ _tmb_cmd_prog_calls() {
           lastk = (np[t] == 1 && pk[t, 1] == "L") ? "P" : "PE"; lastv = pv[t, 1]
         }
         if (frun[t] != "") runjudge(t, frun[t])
+        if (lang == "py" && ty == "call") pycallref(t, fcn[t])
         if (fout[t] && (np[t] >= fout[t] || (t, "filename") in kk)) arg(t, fout[t], "filename")
       }
       tok("E", "")
     }
     function endpseudo() { while (d > 0 && ftype[d] == "pseudo") endone(); pc = 0 }
-    function hit(k, v) { print "W"; if (k == "L" && v != "") print "T\t" v; else print "F" }
+    function hit(k, v) { print "W"; if (k == "L" && v != "" && !(lang == "py" && pyesc(v))) print "T\t" v; else print "F" }
     function arg(t, i, kws,   n, a, j) {
       if (np[t] >= i) { hit(pk[t, i], pv[t, i]); return }
       n = split(kws, a, " ")
@@ -1751,7 +1819,7 @@ _tmb_cmd_prog_calls() {
       if (lang == "ruby" && (qc == "\"" || qc == "`") && index(v, "#{")) interp = 1
       if (lang == "node" && qc == "`" && index(v, "${")) interp = 1
       if (lang == "py" && d > 0 && fname[fid[d]] ~ /(^|[.])(__import__|import_module)$/ && v ~ pymods) unres()
-      if (lang == "py" && (v ~ /^(__builtins__|builtins|__self__)$/)) unres()
+      if (lang == "py" && (v ~ /^(__builtins__|builtins|__self__|__subclasses__|__globals__|__code__|__dict__|__class__|__bases__|__mro__)$/ || (pfx !~ /[rR]/ && pyesc(v)))) unres()
       if (!incontent()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
       tok(interp ? "E" : "L", v)
       if (lang == "py" && d > 0 && !interp) acode[fid[d]] = (pfx ~ /[rR]/) ? v : unesc(v)
@@ -1782,7 +1850,7 @@ _tmb_cmd_prog_calls() {
       if ((lang == "py" && cn ~ /^os[.]f?chdir$/) || (lang == "node" && nm == "process.chdir") || (lang == "perl" && nm == "chdir") || (lang == "ruby" && nm ~ /^(Dir[.]chdir|FileUtils[.](cd|chdir))$/)) print "C"
       if (ch == "(") {
         rn = (lang == "py") ? runner(cn) : ""
-        opn("call", ")", nm, rk, rv); frun[nf] = rn
+        opn("call", ")", nm, rk, rv); frun[nf] = rn; fcn[nf] = cn
         if (lang == "py") fout[nf] = (cn ~ /^(cProfile|profile)[.]run$/) ? 2 : ((cn ~ /^(cProfile|profile)[.]runctx$/) ? 4 : 0)
         ip = k + 1; return
       }
@@ -1815,10 +1883,16 @@ _tmb_cmd_prog_calls() {
       q1 = sprintf("%c", 39); n = length(s); ip = 1; d = 0; pc = 0; anom = 0
       spx = 0; nimp = 0
       procos = "^(system|popen|exec[lv]p?e?|spawn[lv]p?e?|posix_spawnp?)$"
-      pymods = "^(subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb)$"
+      hidmods = "runpy|code|codeop|doctest|pickle|marshal|shelve|importlib|pydoc|types|inspect"
+      mods = "subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb|sys|" hidmods
+      pymods = "^(" mods ")$"
+      hidre = "^(" hidmods ")$"
       runre = "^((cProfile|profile)[.](run|runctx)|pdb[.](run|runeval|runctx)|timeit[.](timeit|repeat))$"
       clsre = "^(trace[.]Trace|(cProfile|profile)[.]Profile|pdb[.]Pdb|bdb[.]Bdb|timeit[.]Timer)([.]|$)"
-      aliasre = "from[ \t]+(subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb)[ \t]+import|import([ \t][^\n;]*)?[ \t,](subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb)[ \t]+as[ \t]"
+      mainre = "^((timeit|cProfile|profile|trace|pdb)[.]main|pdb[.](set_trace|post_mortem|pm))([.]|$)"
+      heldre = "^(exec|eval|compile|open|__import__|getattr|setattr|delattr|globals|locals|vars|type|breakpoint|input)([.]|$)"
+      dunre = "(^|[.])(__subclasses__|__globals__|__code__|__dict__|__class__|__bases__|__mro__)([.]|$)"
+      aliasre = "from[ \t]+(" mods ")[ \t]+import|import([ \t][^\n;]*)?[ \t,](" mods ")[ \t]+as[ \t]"
       prescan()
       while (ip <= n && !anom) {
         c = substr(s, ip, 1)
