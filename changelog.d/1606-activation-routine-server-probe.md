@@ -1,0 +1,2 @@
+### Fixed
+- **Bro no longer halts on a running MCP server** (GH 1606): the activation routine reported `MCP trajectory-server is not running` when `pgrep` could not list processes (as in a sandbox) or when the server ran from another plugin version or marketplace directory. It now matches a server from any plugin root and halts only when `pgrep` finds no server; when the process list can't be read, it says nothing about the server. The HALT now points to `tmb_recovery §B` (server unreachable) instead of §C.
