@@ -9,7 +9,7 @@
 # Both candidates are plugin-kind: feature-dev (attaches to swe) and code-review
 # (attaches to pr-reviewer). The search fixture supplies both candidates so the
 # discovery step is deterministic; the vet fixture supplies the {repo, contents}
-# signal set for either candidate (plugin-kind forces a code-execution surface →
+# signal set for either candidate (its `hooks` entry is a code-execution surface →
 # 'caution' tier, gating the human approval); the install fixture supplies the
 # {installed, version, attachments} marketplace result that passes through
 # verbatim. No network on any step.

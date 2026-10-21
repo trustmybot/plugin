@@ -376,6 +376,28 @@ describe('cheatcode_vet', () => {
     assert.equal(out.signals.maintainer.login, null);
   });
 
+  it('assesses the chosen folder of a /tree/<ref>/<path> URL, not the whole repo (GH 1617)', async () => {
+    const mono = JSON.stringify({
+      repo: JSON.parse(VET_OFFICIAL).repo,
+      contents: ['.claude-plugin', 'hooks', 'skills'],
+      tree: [
+        { path: '.claude-plugin/plugin.json', type: 'blob', mode: '100644' },
+        { path: 'hooks/hooks.json', type: 'blob', mode: '100644' },
+        { path: 'skills/plain/SKILL.md', type: 'blob', mode: '100644' },
+        { path: 'skills/tooly/SKILL.md', type: 'blob', mode: '100644' },
+        { path: 'skills/tooly/scripts/run.sh', type: 'blob', mode: '100755' },
+      ],
+    });
+    const base = 'https://github.com/anthropics/mono/tree/main/skills';
+    const plain = await vet(mono, { name: 'plain', kind: 'plugin', source_url: `${base}/plain` });
+    const tooly = await vet(mono, { name: 'tooly', kind: 'plugin', source_url: `${base}/tooly` });
+    assert.deepEqual(plain.capabilities, []);
+    assert.equal(plain.trust_tier, 'trusted');
+    assert.deepEqual(tooly.capabilities, ['code_execution', 'fs_writes']);
+    assert.equal(tooly.trust_tier, 'caution');
+    assert.equal(plain.signals.reputation.stars, tooly.signals.reputation.stars);
+  });
+
   it('is deterministic: identical input yields identical output', async () => {
     const cand: VetCand = { name: 'hooky', kind: 'skill', source_url: 'https://github.com/someorg/hooky' };
     const a = await vet(VET_EXEC, cand);
