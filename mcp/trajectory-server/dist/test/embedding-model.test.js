@@ -149,6 +149,32 @@ describe('embedding model state', () => {
         await embed('again');
         assert.equal(auditCount(db, 'embeddings_recovered'), 1);
     });
+    it('a healthy start closes a degraded episode an earlier process left open, once', async () => {
+        const db = tempDB();
+        const openSince = '2026-01-01T00:00:00.000Z';
+        for (const createdAt of ['2025-12-31T23:00:00.000Z', openSince]) {
+            db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, 'trajectory-server', 'embeddings_degraded', 's', '{}', ?)`, [createdAt]);
+        }
+        const m = mockLoader();
+        resetEmbeddingModelForTests(m.loader);
+        recordEmbeddingTransitions(db);
+        assert.ok(await embed('warmup'));
+        assert.ok(await embed('again'));
+        const rows = auditRows(db, 'embeddings_recovered');
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].from_node, 'trajectory-server');
+        assert.deepEqual(JSON.parse(rows[0].content_json), { degraded_since: openSince, reason: 'process_start', retries: 0 });
+    });
+    it('a healthy start with no open degraded episode writes no recovered row', async () => {
+        const db = tempDB();
+        const m = mockLoader();
+        resetEmbeddingModelForTests(m.loader);
+        recordEmbeddingTransitions(db);
+        assert.ok(await embed('warmup'));
+        assert.equal(auditCount(db, 'embeddings_recovered'), 0);
+        assert.equal(auditCount(db, 'embeddings_degraded'), 0);
+    });
     it('a load failure degrades at once with a re-attempt; a failed re-attempt stays degraded without a second audit row', async () => {
         const db = tempDB();
         const m = mockLoader();

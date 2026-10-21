@@ -32,7 +32,11 @@ export function embedFailThreshold(env = process.env) {
     const raw = Number(env['TMB_EMBED_FAIL_THRESHOLD']);
     return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
 }
-/** Subscribe to degraded / recovered transitions; returns the unsubscribe. */
+/**
+ * Subscribe to model transitions; returns the unsubscribe. `ready` fires when
+ * a load outside the degraded state succeeds; a degraded model coming back
+ * fires `recovered` instead.
+ */
 export function onEmbeddingTransition(listener) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -57,8 +61,11 @@ function loadPipe() {
         const p = loader();
         pipePromise = p;
         p.then(() => {
-            if (pipePromise === p)
-                readySince = new Date(now()).toISOString();
+            if (pipePromise !== p)
+                return;
+            readySince = new Date(now()).toISOString();
+            if (!degraded)
+                emit({ kind: 'ready' });
         }, () => {
             if (pipePromise === p)
                 pipePromise = null;
