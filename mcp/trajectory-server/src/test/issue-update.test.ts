@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import { issueTools } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
-import { upsertRepoRemotes } from '../repos/remotes.js';
+import { setRemoteSync, upsertRepoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -262,3 +262,47 @@ describe('issue_adopt_remote metadata copy', () => {
   });
 });
 
+
+describe('issue_update skip reasons (GH 1601)', () => {
+  it('an issue linked only on an unsynced provider reports not_synced with the /onboard hint', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    setRemoteSync(db, 'app', ['gitlab']);
+    const tools = issueTools(db);
+    const id = await seed(db, tools);
+    await setSync(db, 'gh');
+    db.run('UPDATE issues SET gh_iid = 42 WHERE id = ?', [id]);
+    const { calls, spawnFn } = recordingSpawn();
+
+    const result = await call(tools.handlers, 'issue_update', { agent: 'bro', issue_id: String(id), objective: 'renamed', _spawnFn: spawnFn });
+    const sync = parseResult(result)._sync;
+    assert.equal(sync.sync_skipped, true);
+    assert.equal(sync.reason, 'not_synced');
+    assert.match(sync.hint, /\/onboard/);
+    assert.equal(calls.length, 0);
+    db.close();
+  });
+
+  for (const [label, synced] of [
+    ['both remotes synced', ['github', 'gitlab']],
+    ['only GitLab synced', ['gitlab']],
+  ] as const) {
+    it(`issue_sync=gh with a GitLab-only link and ${label} reports no_remote_iid`, async () => {
+      const db = tempDB();
+      registerSoleRepo(db);
+      setRemoteSync(db, 'app', synced);
+      const tools = issueTools(db);
+      const id = await seed(db, tools);
+      await setSync(db, 'gh');
+      db.run('UPDATE issues SET gl_iid = 7 WHERE id = ?', [id]);
+      const { calls, spawnFn } = recordingSpawn();
+
+      const result = await call(tools.handlers, 'issue_update', { agent: 'bro', issue_id: String(id), objective: 'renamed', _spawnFn: spawnFn });
+      const sync = parseResult(result)._sync;
+      assert.equal(sync.sync_skipped, true);
+      assert.equal(sync.reason, 'no_remote_iid');
+      assert.equal(calls.length, 0);
+      db.close();
+    });
+  }
+});

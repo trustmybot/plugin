@@ -21439,15 +21439,29 @@ function upsertRepoRemotes(db2, repo, remotes) {
     unique.push(r);
   }
   const primary = primaryIndex(unique);
-  db2.run(
-    `DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`,
-    [repo, JSON.stringify(unique.map((r) => r.name))]
+  const names = JSON.stringify(unique.map((r) => r.name));
+  const existing = new Set(
+    db2.all(`SELECT name FROM repo_remotes WHERE repo = ?`, [repo]).map((r) => r.name)
   );
+  const dropped = db2.all(
+    `SELECT url, sync FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?)) ORDER BY rowid`,
+    [repo, names]
+  );
+  db2.run(`DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`, [repo, names]);
   unique.forEach((r, i) => {
+    const isPrimary = i === primary ? 1 : 0;
+    let sync = isPrimary;
+    if (!existing.has(r.name)) {
+      const renamedFrom = dropped.findIndex((d) => d.url === r.url);
+      if (renamedFrom >= 0) {
+        sync = dropped[renamedFrom].sync;
+        dropped.splice(renamedFrom, 1);
+      }
+    }
     db2.run(
       `INSERT INTO repo_remotes (repo, name, provider, url, is_primary, sync) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
-      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0, i === primary ? 1 : 0]
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, isPrimary, sync]
     );
   });
 }
@@ -26603,6 +26617,16 @@ function syncedBackends(backend, ctx) {
   const wanted = backend === "both" ? ["gh", "glab"] : [backend];
   return wanted.filter((b) => ctx.remoteFor(b) !== null);
 }
+var CLI_PROVIDER = { gh: "github", glab: "gitlab" };
+var CLI_LABEL = { gh: "GitHub", glab: "GitLab" };
+function unsyncedBackends(db2, ctx, clis) {
+  const providers = new Set(repoRemotes(db2, ctx.repoName).map((r) => r.provider));
+  return clis.filter((c) => ctx.remoteFor(c) === null && providers.has(CLI_PROVIDER[c]));
+}
+function notSyncedHint(clis) {
+  const names = clis.map((c) => CLI_LABEL[c]).join(" and ");
+  return `The ${names} remote is not the Remote chosen at onboard; re-run /onboard to change the Remote choice.`;
+}
 async function verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
   if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
     return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
@@ -26670,7 +26694,11 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
   }
   for (const target of targets) {
     const closeRemote = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab") ?? null;
-    if (closeCtx === null || closeRemote === null) {
+    if (closeCtx === null) {
+      target.skipped = "repo_unresolved";
+      continue;
+    }
+    if (closeRemote === null) {
       target.skipped = "not_synced";
       continue;
     }
@@ -27022,7 +27050,16 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             const glRemoteUrl = glRemote?.url ?? null;
             const ghBlank = !ghRemoteUrl;
             const glBlank = !glRemoteUrl;
-            if (ghBlank && glBlank) {
+            const unsynced = ghBlank && glBlank ? unsyncedBackends(db2, syncCtx, ["gh", "glab"]) : [];
+            if (ghBlank && glBlank && unsynced.length > 0) {
+              serverLog({ event: "issue_sync_skip", reason: "not_synced", issueId, backend });
+              syncDiagnostic = {
+                sync_skipped: true,
+                reason: "not_synced",
+                backend,
+                hint: notSyncedHint(unsynced)
+              };
+            } else if (ghBlank && glBlank) {
               serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
               syncDiagnostic = {
                 sync_skipped: true,
@@ -27114,7 +27151,15 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           } else {
             const remote = syncCtx.remoteFor(createBackend);
             const remoteUrl = remote?.url ?? null;
-            if (!remoteUrl) {
+            if (!remoteUrl && unsyncedBackends(db2, syncCtx, [createBackend]).length > 0) {
+              serverLog({ event: "issue_sync_skip", reason: "not_synced", issueId, backend: createBackend });
+              syncDiagnostic = {
+                sync_skipped: true,
+                reason: "not_synced",
+                backend: createBackend,
+                hint: notSyncedHint([createBackend])
+              };
+            } else if (!remoteUrl) {
               serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend: createBackend });
               syncDiagnostic = {
                 sync_skipped: true,
@@ -27510,7 +27555,11 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             const targets = [];
             if (reachable.includes("gh") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
             if (reachable.includes("glab") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
-            if (targets.length === 0) {
+            const wanted = backend === "both" ? ["gh", "glab"] : [backend];
+            const unreachable = wanted.filter((cli) => !reachable.includes(cli) && (cli === "gh" ? row.gh_iid : row.gl_iid) != null);
+            if (targets.length === 0 && unreachable.length > 0) {
+              syncDiagnostic = { sync_skipped: true, reason: "not_synced", backend, hint: notSyncedHint(unreachable) };
+            } else if (targets.length === 0) {
               syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", backend, hint: "The issue has no remote iid for the resolved backend; the change is local only." };
             } else {
               const results = await Promise.all(targets.map(async (t) => ({
@@ -36201,6 +36250,24 @@ function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
   }
   return candidates;
 }
+function noSyncRemoteWarnings(db2, repos) {
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  let issueSync = "off";
+  try {
+    if (row) issueSync = String(JSON.parse(row.value_json));
+  } catch {
+    issueSync = "off";
+  }
+  if (issueSync === "off") return [];
+  return repos.filter((repo) => {
+    const remotes = repoRemotes(db2, repo);
+    return remotes.length > 0 && !remotes.some((r) => r.sync);
+  }).map((repo) => ({
+    repo,
+    reason: "no_sync_remote",
+    hint: "Issue and milestone sync reach no remote for this repo; re-run /onboard to choose the Remote."
+  }));
+}
 function persistScan(db2, graph, out, sessionDir) {
   const now2 = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
@@ -36356,7 +36423,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
   const definitions = [
     {
       name: "scan_run",
-      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
+      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes directory + file rows to the world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. warnings (always an array, empty when none) lists repos whose remotes have no sync row while issue_sync is on (reason no_sync_remote). Hard timeout: 10 minutes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36430,7 +36497,9 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           const stats = persistScan(db2, graph, out, sessionDir);
           const spawnFn = args["_spawnFn"];
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
-          for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
+          const upsertedRepos = out.repos.filter((repo) => !renamedTo.has(repo.name));
+          const warnings = noSyncRemoteWarnings(db2, upsertedRepos.map((r) => r.name));
+          for (const r of upsertedRepos) {
             try {
               syncRepoMilestones(db2, r.name, r.path, spawnFn);
             } catch (e) {
@@ -36466,7 +36535,8 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             structural_change: structuralChange,
             plugin_inventory: pluginInventory,
             mcp_inventory: mcpInventory,
-            ...stats
+            ...stats,
+            warnings
           });
         } finally {
           if (lockPath) releaseLock(lockPath);

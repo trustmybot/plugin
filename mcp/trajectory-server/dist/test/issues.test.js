@@ -2070,4 +2070,55 @@ describe('issue sync follows the onboard Remote choice (GH 1590)', () => {
         db.close();
     });
 });
+describe('issue_create skip reasons (GH 1601)', () => {
+    function recordingSpawn(calls) {
+        return (cmd, args) => {
+            calls.push({ cmd, args });
+            return { status: 0, stdout: '', stderr: '' };
+        };
+    }
+    async function create(db, calls) {
+        const r = await call(issueTools(db).handlers, 'issue_create', {
+            agent: 'bro', objective: 'skip reason', labels: VALID_LABELS, _spawnFn: recordingSpawn(calls),
+        });
+        assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+        return parseResult(r);
+    }
+    it("issue_sync='gh' with a GitHub row present but only GitLab synced reports not_synced with the /onboard hint", async () => {
+        const db = tempDB();
+        registerSoleRepo(db, undefined, ['gitlab']);
+        await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+        const calls = [];
+        const created = await create(db, calls);
+        assert.equal(created._sync.sync_skipped, true);
+        assert.equal(created._sync.reason, 'not_synced');
+        assert.equal(created._sync.backend, 'gh');
+        assert.match(created._sync.hint, /\/onboard/);
+        assert.equal(created.gh_iid ?? null, null);
+        assert.deepEqual(calls, []);
+        db.close();
+    });
+    it("issue_sync='gh' with no GitHub row at all keeps blank_remote_url", async () => {
+        const db = tempDB();
+        registerSoleRepo(db, [{ name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' }]);
+        await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+        const calls = [];
+        const created = await create(db, calls);
+        assert.equal(created._sync.reason, 'blank_remote_url');
+        assert.deepEqual(calls, []);
+        db.close();
+    });
+    it("issue_sync='both' with neither provider synced reports not_synced", async () => {
+        const db = tempDB();
+        registerSoleRepo(db, undefined, []);
+        await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
+        const calls = [];
+        const created = await create(db, calls);
+        assert.equal(created._sync.sync_skipped, true);
+        assert.equal(created._sync.reason, 'not_synced');
+        assert.match(created._sync.hint, /GitHub and GitLab/);
+        assert.deepEqual(calls, []);
+        db.close();
+    });
+});
 //# sourceMappingURL=issues.test.js.map

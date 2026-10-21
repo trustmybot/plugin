@@ -133,4 +133,46 @@ describe('repo_remotes.sync — the onboard Remote choice (GH 1590)', () => {
         db.close();
     });
 });
+describe('repo_remotes.sync survives a remote rename (GH 1601)', () => {
+    const syncOf = (db) => repoRemotes(db, 'app').map((r) => [r.name, r.sync]);
+    function appWith(remotes) {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/ws/app')`);
+        upsertRepoRemotes(db, 'app', remotes);
+        return db;
+    }
+    it('renaming a synced non-primary remote keeps sync = 1', () => {
+        const db = appWith([
+            { name: 'origin', url: 'https://github.com/me/app.git' },
+            { name: 'mirror', url: 'git@gitlab.com:me/app.git' },
+        ]);
+        setRemoteSync(db, 'app', ['gitlab']);
+        upsertRepoRemotes(db, 'app', [
+            { name: 'origin', url: 'https://github.com/me/app.git' },
+            { name: 'gitlab', url: 'git@gitlab.com:me/app.git' },
+        ]);
+        assert.deepEqual(syncOf(db), [['origin', false], ['gitlab', true]]);
+        db.close();
+    });
+    it('renaming an unchosen primary remote keeps sync = 0', () => {
+        const db = appWith([
+            { name: 'origin', url: 'https://github.com/me/app.git' },
+            { name: 'mirror', url: 'git@gitlab.com:me/app.git' },
+        ]);
+        setRemoteSync(db, 'app', ['gitlab']);
+        upsertRepoRemotes(db, 'app', [
+            { name: 'upstream', url: 'https://github.com/me/app.git' },
+            { name: 'mirror', url: 'git@gitlab.com:me/app.git' },
+        ]);
+        assert.deepEqual(syncOf(db), [['upstream', false], ['mirror', true]]);
+        db.close();
+    });
+    it('a new name with an unseen url still starts at sync = is_primary', () => {
+        const db = appWith([{ name: 'origin', url: 'https://github.com/me/app.git' }]);
+        setRemoteSync(db, 'app', []);
+        upsertRepoRemotes(db, 'app', [{ name: 'upstream', url: 'https://github.com/other/app.git' }]);
+        assert.deepEqual(syncOf(db), [['upstream', true]]);
+        db.close();
+    });
+});
 //# sourceMappingURL=repo-remotes.test.js.map
