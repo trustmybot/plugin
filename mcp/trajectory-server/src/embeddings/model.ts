@@ -31,6 +31,7 @@ export interface EmbeddingStatus {
 }
 
 export type EmbeddingTransition =
+  | { kind: 'ready' }
   | { kind: 'degraded'; reason: string; consecutive_failures: number }
   | { kind: 'recovered'; degraded_since: string; reason: string; retries: number };
 
@@ -69,7 +70,11 @@ export function embedFailThreshold(env: NodeJS.ProcessEnv = process.env): number
   return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
 }
 
-/** Subscribe to degraded / recovered transitions; returns the unsubscribe. */
+/**
+ * Subscribe to model transitions; returns the unsubscribe. `ready` fires when
+ * a load outside the degraded state succeeds; a degraded model coming back
+ * fires `recovered` instead.
+ */
 export function onEmbeddingTransition(listener: (t: EmbeddingTransition) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -97,7 +102,9 @@ function loadPipe(): Promise<EmbedPipe> {
     pipePromise = p;
     p.then(
       () => {
-        if (pipePromise === p) readySince = new Date(now()).toISOString();
+        if (pipePromise !== p) return;
+        readySince = new Date(now()).toISOString();
+        if (!degraded) emit({ kind: 'ready' });
       },
       () => {
         if (pipePromise === p) pipePromise = null;

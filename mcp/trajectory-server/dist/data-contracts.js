@@ -293,7 +293,7 @@ export function buildDataContracts(documentedEventTypes) {
             severity: 'warn',
             min_schema: 36,
             description: 'tasks closed in the last 7 days, and not before the first recorded verification run, with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run); skipped while no run is recorded',
-            skip_when: { sql: 'SELECT COUNT(*) = 0 FROM verification_runs', reason: 'no_v36_timestamp' },
+            skip_when: { sql: 'SELECT COUNT(*) = 0 FROM verification_runs', reason: 'no_verification_runs_recorded' },
             sql: `SELECT COUNT(*) FROM tasks t
              WHERE ${VERIFIED_CLOSE_SCOPE}
                AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit('r', 't')})`,

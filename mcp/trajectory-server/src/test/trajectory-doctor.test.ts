@@ -11,6 +11,8 @@ import { SCHEMA_V28_SQL } from './fixtures/schema-v28.js';
 import type { TrajectoryDB } from '../db.js';
 import { DATA_CONTRACTS, DATA_CONTRACTS_SCHEMA_VERSION, NULLABLE_COLUMNS, dataContractsJson, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { AUDIT_EVENT_TYPES } from '../audit-events.js';
+import { embed, resetEmbeddingModelForTests } from '../embeddings/model.js';
+import { recordEmbeddingTransitions } from '../embeddings/health.js';
 import { checkTrajectoryDbFile, runDataContracts, trajectoryDbReader, trajectoryDoctorTools, type ContractReader } from '../tools/trajectory-doctor.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -370,7 +372,7 @@ describe('data contracts', () => {
     const db = tempDB();
     const report = runDataContracts(trajectoryDbReader(db), DB_CONTRACTS, { env: {} });
     assert.deepEqual(report.violations, []);
-    assert.deepEqual(report.skipped, [{ id: 'verification_recorded_for_closed_tasks', reason: 'no_v36_timestamp' }]);
+    assert.deepEqual(report.skipped, [{ id: 'verification_recorded_for_closed_tasks', reason: 'no_verification_runs_recorded' }]);
     assert.equal(report.healthy, true);
   });
 
@@ -391,13 +393,29 @@ describe('data contracts', () => {
     assert.equal(violated(db, 'verification_recorded_for_closed_tasks'), true);
   });
 
-  it('verification_recorded_for_closed_tasks is skipped with no_v36_timestamp, healthy, while no run is recorded', () => {
+  it('verification_recorded_for_closed_tasks is skipped with no_verification_runs_recorded, healthy, while no run is recorded', () => {
     const db = tempDB();
     seedVerifiedClose(db, 'abc1234');
     const report = runDataContracts(trajectoryDbReader(db), [contract('verification_recorded_for_closed_tasks')], { env: {} });
-    assert.deepEqual(report.skipped, [{ id: 'verification_recorded_for_closed_tasks', reason: 'no_v36_timestamp' }]);
+    assert.deepEqual(report.skipped, [{ id: 'verification_recorded_for_closed_tasks', reason: 'no_verification_runs_recorded' }]);
     assert.deepEqual(report.violations, []);
     assert.equal(report.healthy, true);
+  });
+
+  it('embeddings_not_degraded holds after a healthy start following degraded processes (GH 1592)', async () => {
+    const db = tempDB();
+    seedAudit(db, 'embeddings_degraded', { reason: 'model load failed', consecutive_failures: 1 }, iso(-2 * HOUR), 'trajectory-server');
+    seedAudit(db, 'embeddings_degraded', { reason: 'model load failed', consecutive_failures: 1 }, iso(-HOUR), 'trajectory-server');
+    assert.equal(violated(db, 'embeddings_not_degraded'), true);
+
+    resetEmbeddingModelForTests(async () => async () => ({ data: [1, 0, 0] }));
+    try {
+      recordEmbeddingTransitions(db);
+      assert.ok(await embed('warmup'));
+    } finally {
+      resetEmbeddingModelForTests();
+    }
+    assert.equal(violated(db, 'embeddings_not_degraded'), false);
   });
 
   it('no_unfinished_verification_runs holds on an empty verification_runs table', () => {

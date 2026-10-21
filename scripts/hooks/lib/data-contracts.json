@@ -148,7 +148,7 @@
       "description": "tasks closed in the last 7 days, and not before the first recorded verification run, with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run); skipped while no run is recorded",
       "skip_when": {
         "sql": "SELECT COUNT(*) = 0 FROM verification_runs",
-        "reason": "no_v36_timestamp"
+        "reason": "no_verification_runs_recorded"
       },
       "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM verification_runs)\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)",
       "expect": {
