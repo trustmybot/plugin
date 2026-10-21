@@ -10,10 +10,44 @@
 #
 # How it works: rebuild dist/ in a temp location, diff against the committed
 # version. Any divergence → FAIL with instructions to rebuild + recommit.
+#
+# First, the installed esbuild must be the version bun.lock pins: a dist built
+# with another esbuild (e.g. a symlinked node_modules) otherwise passes (GH 1628).
+#
+# Usage: dist-fresh.sh [--self-test]
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+check_esbuild_version() {
+  local pkg_json="$1" lockfile="$2" installed locked
+  installed=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$pkg_json" | head -1)
+  locked=$(sed -n 's/^[[:space:]]*"esbuild":[[:space:]]*\[[[:space:]]*"esbuild@\([^"]*\)".*/\1/p' "$lockfile" | head -1)
+  if [ -z "$installed" ] || [ -z "$locked" ]; then
+    echo "dist-fresh: cannot read esbuild version (installed='$installed' from $pkg_json, locked='$locked' from $lockfile)" >&2
+    return 1
+  fi
+  if [ "$installed" != "$locked" ]; then
+    echo "dist-fresh: esbuild $installed installed but bun.lock pins $locked — run bun install --frozen-lockfile in mcp/trajectory-server" >&2
+    return 1
+  fi
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  FIX="$ROOT/tests/l1-lint/fixtures/dist-fresh"
+  if ! check_esbuild_version "$FIX/match/package.json" "$FIX/match/bun.lock"; then
+    echo "Dist-fresh self-test: FAIL — matching fixture rejected" >&2
+    exit 1
+  fi
+  if check_esbuild_version "$FIX/mismatch/package.json" "$FIX/mismatch/bun.lock" 2>/dev/null; then
+    echo "Dist-fresh self-test: FAIL — mismatched fixture accepted" >&2
+    exit 1
+  fi
+  echo "Dist-fresh self-test: PASS"
+  exit 0
+fi
+
 cd "$ROOT/mcp/trajectory-server"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-dist-fresh-XXXXXX")
@@ -28,6 +62,13 @@ if [ ! -x ./node_modules/.bin/tsc ] || [ ! -x ./node_modules/.bin/esbuild ]; the
   echo "  ⊘ tsc/esbuild not installed locally — skipping (run 'bun install' first)" >&2
   echo "Dist-fresh: SKIPPED"
   exit 0
+fi
+
+ESBUILD_PKG=./node_modules/esbuild/package.json
+[ -f "$ESBUILD_PKG" ] || ESBUILD_PKG="$ROOT/node_modules/esbuild/package.json"
+if ! check_esbuild_version "$ESBUILD_PKG" "$ROOT/bun.lock"; then
+  echo "Dist-fresh: FAIL" >&2
+  exit 1
 fi
 
 ./node_modules/.bin/tsc --outDir "$TMPDIR" >/dev/null
