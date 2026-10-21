@@ -2,7 +2,8 @@
 # Tests for scripts/hooks/session-start-prescan.sh.
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
 # ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
-# cold world-model banner, the duplicate-plugin line, the pre-1.1.0
+# cold world-model banner (cold = empty wm_directories), the Top-level dirs
+# and Stacks detected lines, the duplicate-plugin line, the pre-1.1.0
 # user-wide hooks line, and the Tooling line naming a missing jq, and no
 # Persona line (the persona hooks own that).
 set -euo pipefail
@@ -131,6 +132,9 @@ CTX=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null ||
 
 test_case "stable: Top-level dirs line present"
 assert_contains "$CTX" "Top-level dirs:" "Top-level dirs line present"
+
+test_case "Top-level dirs: a root holding files and a dir lists only the dir"
+assert_eq "Top-level dirs:    src" "$(printf '%s\n' "$CTX" | grep '^Top-level dirs:')" "README.txt is not a dir"
 
 test_case "stable: Stacks detected line present"
 assert_contains "$CTX" "Stacks detected:" "Stacks detected line present"
@@ -295,6 +299,13 @@ assert_contains "$NR_CTX" "  [alpha] " "alpha's commits are labelled"
 assert_contains "$NR_CTX" "  [beta] " "beta's commits are labelled"
 rm -f "$WS_ROOT/beta/package.json"
 
+test_case "a repo whose only manifest sits in a subdir names the stack and the subdir"
+mkdir -p "$WS_ROOT/beta/framework"
+printf '{}\n' > "$WS_ROOT/beta/framework/package.json"
+SUB_CTX=$( (cd "$NONREPO_CWD" && env CLAUDE_PROJECT_DIR="$WS_ROOT" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)
+assert_contains "$SUB_CTX" "Stacks detected:   alpha: (none detected); beta: Node (framework/)" "subdir stack labelled"
+rm -rf "$WS_ROOT/beta/framework"
+
 test_case "a repos row whose dir is gone is reported missing"
 sqlite3 "$DB" "INSERT INTO repos (name, path, last_scanned_at) VALUES ('gone', '$WS_ROOT/gone', '2026-01-01T00:00:00Z');"
 GONE_CTX=$( (cd "$NONREPO_CWD" && env CLAUDE_PROJECT_DIR="$WS_ROOT" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)
@@ -328,11 +339,28 @@ reset_db "$DB"
 
 # ---- warm session: recent scan, banner carries file count + age ----
 
-test_case "warm: context shows warm world model with file count and age"
+test_case "scan row + repos but an empty wm_directories reads cold and fires the auto-scan"
 kill_fixture_node
-sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');
+rm -f "$INVOCATION_FLAG"
+sqlite3 "$DB" "CREATE TABLE wm_directories (id INTEGER PRIMARY KEY, repo TEXT NOT NULL, path TEXT NOT NULL);
+  INSERT INTO audit (event_type) VALUES ('deep_scan_completed');
   INSERT INTO repos (name, path, file_count, last_scanned_at)
     VALUES ('fixture', '$FIXTURE_WS', 42, strftime('%Y-%m-%dT%H:%M:%fZ','now','-3 hours'));"
+EMPTY_WM_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
+EMPTY_WM_CTX=$(echo "$EMPTY_WM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$EMPTY_WM_CTX" "World model:       cold" "empty graph reads cold"
+assert_not_contains "$EMPTY_WM_CTX" "warm" "empty graph never reads warm"
+assert_contains "$EMPTY_WM_CTX" "scan is running in the background" "empty graph fires the auto-scan"
+sleep 0.5
+if [ -f "$INVOCATION_FLAG" ]; then
+  _pass
+else
+  _fail "auto-scan invoker was not called for an empty graph"
+fi
+
+test_case "warm: context shows warm world model with file count and age"
+kill_fixture_node
+sqlite3 "$DB" "INSERT INTO wm_directories (repo, path) VALUES ('fixture', '');"
 WARM_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$WARM_CTX" "World model:       warm (42 files, last scan 3h ago)" "warm banner with age"

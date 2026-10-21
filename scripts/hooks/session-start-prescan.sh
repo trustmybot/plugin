@@ -86,7 +86,7 @@ list_repos() {
 REPOS=$(list_repos)
 REPO_N=$(printf '%s' "$REPOS" | grep -c . || true)
 
-detect_stacks() {
+stacks_in() {
   local d="$1" s=""
   [ -f "$d/package.json" ] && s="$s Node"
   { [ -f "$d/pyproject.toml" ] || [ -f "$d/setup.py" ] || [ -f "$d/requirements.txt" ]; } && s="$s Python"
@@ -94,7 +94,26 @@ detect_stacks() {
   [ -f "$d/Cargo.toml" ] && s="$s Rust"
   [ -f "$d/Gemfile" ] && s="$s Ruby"
   [ -f "$d/composer.json" ] && s="$s PHP"
-  s="${s# }"
+  printf '%s' "${s# }"
+}
+
+# Root manifests first; with none there, one level down, labelled by subdir
+# and capped at SUBDIR_STACKS_MAX labels.
+SUBDIR_STACKS_MAX=3
+detect_stacks() {
+  local d="$1" s sub stack labels="" n=0
+  s=$(stacks_in "$d")
+  if [ -z "$s" ]; then
+    for sub in "$d"/*/; do
+      [ -d "$sub" ] || continue
+      for stack in $(stacks_in "$sub"); do
+        n=$((n + 1))
+        [ "$n" -le "$SUBDIR_STACKS_MAX" ] && labels="${labels:+$labels, }${stack} ($(basename "$sub")/)"
+      done
+    done
+    [ "$n" -gt "$SUBDIR_STACKS_MAX" ] && labels="${labels}, +$((n - SUBDIR_STACKS_MAX)) more"
+    s="$labels"
+  fi
   printf '%s' "${s:-(none detected)}"
 }
 
@@ -129,24 +148,24 @@ TOPLEVEL="(no project resolves)"
 if [ -n "$PROJECT_ROOT" ] && [ -d "$PROJECT_ROOT" ]; then
   TOPLEVEL=""
   for entry in "$PROJECT_ROOT"/*; do
-    [ -e "$entry" ] || continue
+    [ -d "$entry" ] || continue
     TOPLEVEL="$TOPLEVEL $(basename "$entry")"
   done
   TOPLEVEL=$(printf '%s' "$TOPLEVEL" | awk '{ for (i=1;i<=NF && i<=10;i++) printf("%s%s", (i>1?" ":""), $i) }')
 fi
 
 # Open issues + pending tasks from the trajectory DB.
-# World model status. The world model lives in the kuzu graph (ADR 0002), not
-# SQLite. cold = no deep_scan_completed row (the registry-cold gate's signal);
+# World model status. The world model lives in the trajectory DB's wm_*
+# tables (GH 1632). cold = no wm_directories row (a missing table reads 0);
 # otherwise the newest repos.last_scanned_at decides warm (< 7 days) vs stale.
 COUNTS=$(tmb_sqlite_ro "$DB_PATH" "SELECT
   (SELECT COUNT(*) FROM issues WHERE status='open'),
-  (SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running')),
-  (SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed');")
-IFS='|' read -r OPEN_ISSUES PENDING_TASKS WORLD_MODEL_SCANNED <<<"$COUNTS"
+  (SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running'));")
+IFS='|' read -r OPEN_ISSUES PENDING_TASKS <<<"$COUNTS"
 OPEN_ISSUES="${OPEN_ISSUES:-0}"
 PENDING_TASKS="${PENDING_TASKS:-0}"
-WORLD_MODEL_SCANNED="${WORLD_MODEL_SCANNED:-0}"
+WM_DIRS=$(tmb_sqlite_ro "$DB_PATH" "SELECT COUNT(*) FROM wm_directories;")
+[[ "$WM_DIRS" =~ ^[0-9]+$ ]] || WM_DIRS=0
 
 tracked_source_count() {
   local dir="$1"
@@ -185,7 +204,7 @@ relative_age() {
 }
 
 COLD_NOTE=""
-if [ "$WORLD_MODEL_SCANNED" = "0" ] || [ -z "$WORLD_MODEL_SCANNED" ]; then
+if [ "$WM_DIRS" = "0" ]; then
   WORLD_MODEL_LINE="cold (no scan yet; ${SOURCE_FILE_COUNT} source files)"
 elif [[ "$SCAN_AGE_SECS" =~ ^-?[0-9]+$ ]] && [ "$SCAN_AGE_SECS" -lt "$WORLD_MODEL_STALE_SECS" ]; then
   WORLD_MODEL_LINE="warm (${SCANNED_FILE_COUNT} files, last scan $(relative_age "$SCAN_AGE_SECS"))"
@@ -195,7 +214,7 @@ else
   WORLD_MODEL_LINE="stale (last scan unknown) — run /scan"
 fi
 
-if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
+if [ "$WM_DIRS" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   SCAN_SH="$SCRIPT_DIR/../scan.sh"
   INVOKER="$SCRIPT_DIR/../maintenance/run-scan-initial.mjs"
 

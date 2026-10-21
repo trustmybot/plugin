@@ -29338,7 +29338,8 @@ var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "bro_auto_post_change",
   "bro_auto_initial"
 ]);
-function detectStructuralChange(db, currentRepos, currentTopDirs) {
+function detectStructuralChange(db, currentRepos, currentTopDirs, refilledEmptyGraph = false) {
+  if (refilledEmptyGraph) return true;
   const prev = db.get(
     `SELECT content_json FROM audit
      WHERE event_type = 'deep_scan_completed'
@@ -29839,7 +29840,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         }
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
-        const graph = graphHolder?.ensureGraph() ?? null;
+        const graph = graphHolder ? graphHolder.ensureGraph() : new WorldModelGraph(db);
         const graphOpenError = graphHolder?.openError ?? null;
         if (!graph && graphOpenError) {
           return err3(`graph_db_open_failed: ${graphOpenError}`);
@@ -29869,6 +29870,10 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         }
         try {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
+          if (!graph && out.files.length > 0) {
+            return err3("world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged");
+          }
+          const dirsBefore = graph?.directoryCount() ?? 0;
           const stats = persistScan(db, graph, out, sessionDir);
           const spawnFn = args["_spawnFn"];
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
@@ -29882,7 +29887,12 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             }
           }
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
-          const structuralChange = detectStructuralChange(db, out.repos, topDirs);
+          const structuralChange = detectStructuralChange(
+            db,
+            out.repos,
+            topDirs,
+            dirsBefore === 0 && stats.dirs_upserted > 0
+          );
           const pluginInventory = out.plugin_inventory ?? null;
           const pluginNote = pluginInventory?.status === "unavailable" ? `; plugins unavailable: ${pluginInventory.note}` : "";
           const mcpInventory = out.mcp_inventory ?? null;
