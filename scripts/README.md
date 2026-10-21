@@ -13,6 +13,7 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 | `cheatcode-uninstall.sh` | Reverses one installed cheatcode and reports what was torn down. |
 | `release.sh` | Cuts a release from `main` after `dev` is merged and the version bump has landed. |
 | `prompt-author-lint.sh` | Pre-write lint for agent + skill files — flags pink-elephant negations and other prompt anti-patterns before a prompt file is written. |
+| `dashboard.sh` | Starts the local read-only dashboard (`dashboard/dist/server.mjs`) on `127.0.0.1` (port 7477, or `TMB_DASHBOARD_PORT`) over the resolved trajectory DB and prints its URL. See [`dashboard/README.md`](../dashboard/README.md). |
 
 ## Subdirectories
 
