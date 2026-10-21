@@ -50,8 +50,8 @@ db_in() {
 }
 
 # run_helper <project> <args>... — sets OUT, ERR, RC. The DB is named by
-# TRAJECTORY_DB_PATH: the CLAUDE_PROJECT_DIR walk-up probes the DB through
-# tmb_gate_read, which opens a WAL DB with no -shm without -readonly.
+# TRAJECTORY_DB_PATH, so no CLAUDE_PROJECT_DIR walk-up runs; the walk-up's
+# probe is covered by db-probe-readonly.test.sh.
 run_helper() {
   local proj="$1"
   shift
