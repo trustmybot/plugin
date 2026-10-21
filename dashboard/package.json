@@ -1,0 +1,28 @@
+{
+  "name": "@trustmybot/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:server": "esbuild server/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs",
+    "build:web": "rm -rf dist/web && mkdir -p dist/web && cp web/index.html dist/web/ && esbuild web/main.tsx --bundle --minify --format=esm --target=es2022 --jsx=automatic --define:process.env.NODE_ENV='\"production\"' --outfile=dist/web/app.js && tailwindcss -i web/styles.css -o dist/web/app.css --minify",
+    "build": "tsc --noEmit && bun run build:server && bun run build:web",
+    "start": "node dist/server.mjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "@tanstack/react-query": "^5.0.0",
+    "@tanstack/react-table": "^8.20.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
