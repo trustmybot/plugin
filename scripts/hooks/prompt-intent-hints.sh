@@ -40,6 +40,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 PROMPT_RAW=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 [ -n "$PROMPT_RAW" ] || exit 0
 
+# A `!` shell turn arrives as <bash-input>/<bash-stdout>/<bash-stderr> spans;
+# words in the command or its captured output are not Human intent (GH 1598).
+PROMPT_RAW=$(printf '%s' "$PROMPT_RAW" \
+  | perl -0777 -pe 's{<bash-(input|stdout|stderr)>.*?</bash-\1>}{}gs' 2>/dev/null) || exit 0
+[ -n "${PROMPT_RAW//[[:space:]]/}" ] || exit 0
+
 # Harness-turn early-exit — task/system notifications, subagent hand-backs,
 # agent and cross-session messages (tmb_is_harness_turn) carry embedded
 # content that trips the matchers, but every hint class describes HUMAN

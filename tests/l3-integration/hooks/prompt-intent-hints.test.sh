@@ -516,6 +516,23 @@ test_case "audit-intent: quoted 'audit' does NOT fire"
 out=$(run_hook 'the log line "audit row written" confused me')
 assert_not_contains "$out" "audit-intent hint" "quoted text is not audit intent"
 
+BASH_TURN='<bash-input>make check</bash-input><bash-stdout>check passed</bash-stdout><bash-stderr>check warning</bash-stderr>'
+
+test_case "bash-turn: '!' shell-turn spans alone emit no hint (GH 1598)"
+out=$(run_hook "$BASH_TURN")
+assert_not_contains "$out" "additionalContext" "shell input/output is not Human intent"
+
+test_case "bash-turn: typed text alongside the spans still fires the audit hint"
+out=$(run_hook "${BASH_TURN}
+please check the audit")
+assert_contains "$out" "audit-intent hint" "typed text outside the spans is still matched"
+
+test_case "bash-turn: multi-line stdout span is stripped"
+out=$(run_hook '<bash-input>ls</bash-input><bash-stdout>line one
+please check the audit
+line three</bash-stdout><bash-stderr></bash-stderr>')
+assert_not_contains "$out" "additionalContext" "multi-line stdout must be stripped whole"
+
 test_case "adr-required: 'report back to me' does NOT fire"
 out=$(run_hook "report back to me when it is done")
 assert_not_contains "$out" "architectural-change hint" "report … to is not port … to"
