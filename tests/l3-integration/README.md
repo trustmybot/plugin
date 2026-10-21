@@ -9,7 +9,7 @@ Deterministic integration tests that exercise the real wiring — the MCP server
 
 ## Hermetic hook tests
 
-- Stub `pgrep` on `PATH` in any test that runs activation-routine or mcp-health-check, so host processes don't change the result (see the stub at lines 22-32 of [`hooks/activation-routine.test.sh`](./hooks/activation-routine.test.sh)).
+- Stub `pgrep` on `PATH` in any test that runs activation-routine or mcp-health-check, so host processes don't change the result (see the stub in [`hooks/activation-routine.test.sh`](./hooks/activation-routine.test.sh)).
 - Never assert what `sqlite3 -readonly` can open: it varies by sqlite version. Probe it and branch.
 - Never reassign `TMPDIR` in a test; use a local `WORK` dir. `run.sh` exports `TMPDIR` for its footprint check, and GNU `mktemp` fails once a test has removed the exported dir. Older tests still assign `TMPDIR` themselves and predate this rule.
 - Create temp dirs with an explicit template under `$TMPDIR` and remove them. macOS `mktemp -d` ignores `TMPDIR`, so a leak passes `run.sh`'s footprint check locally and fails on Linux CI.

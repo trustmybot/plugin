@@ -79,7 +79,7 @@ assert_eq "3" "$(cat "$CALLS")" "three samples taken"
 assert_eq "SessionStart" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" "valid SessionStart output"
 ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
 assert_contains "$ctx" "trajectory-server not detected yet at SessionStart" "soft note"
-assert_contains "$ctx" "tmb_recovery §C" "points at the recovery doctrine"
+assert_contains "$ctx" "tmb_recovery §B" "points at the recovery doctrine"
 assert_not_contains "$out" "HALT" "never HALTs from a pgrep sample"
 assert_not_contains "$out" "rm -rf" "no destructive recipe"
 assert_eq "false" "$(tail -1 "$LOG_FILE" | jq -r '.mcp_alive')" "log mcp_alive=false"

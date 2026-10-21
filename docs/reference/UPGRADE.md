@@ -212,7 +212,7 @@ After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a
    ```
    Then run `claude plugin install tmb@trustmybot-rc --scope local` from the project root and relaunch CC.
 
-This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine.sh` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §C pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine.sh` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §B pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
 
 ### "stored schema_version N is newer than code's max M"
 
