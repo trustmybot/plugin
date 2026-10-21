@@ -1,0 +1,2 @@
+### Fixed
+- **The sqlite3 busy-timeout lint now catches indirect calls** (GH 1630): `tests/l1-lint/sqlite3-needs-timeout.sh` missed sqlite3 run from an array, through `eval`, `bash -c` or `find -exec`, through a `${V:-sqlite3}` or `command -v sqlite3` variable, as `"$(command -v sqlite3)"` or `"${SQ:?}"`, or behind `stdbuf`, `ionice`, `gtimeout` or `coproc`. It now flags each of these when no timeout is set, so a future hook can't add a lock-prone query in one of these forms without the lint failing.

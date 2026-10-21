@@ -41,3 +41,23 @@ printf '%s\n' "$DB" | xargs -I{} sqlite3 -cmd ".timeout 1500" {} "SELECT 1"
 out=$(sqlite3 -cmd ".timeout 1500" "$DB" "SELECT 1"); echo "$out"
 sqlite3 "$DB" <<<".timeout 1500
 SELECT 1;"
+cmd=(sqlite3 -cmd ".timeout 1500" "$DB"); "${cmd[@]}" "SELECT 1"
+args=(-readonly -cmd ".timeout 500" "$DB")
+sqlite3 "${args[@]}" "SELECT 1"
+eval "sqlite3 -cmd '.timeout 1500' \"\$DB\" 'SELECT 1'"
+eval "echo sqlite3 is missing"
+bash -c 'sqlite3 -cmd ".timeout 1500" "$DB" "SELECT 1"'
+bash -c 'echo "no sqlite3 here"'
+find "$dir" -name '*.db' -exec sqlite3 -cmd ".timeout 1500" {} "SELECT 1" \;
+find "$dir" -name 'sqlite3' -exec rm {} \;
+SQ="${TMB_SQLITE3:-sqlite3}"; $SQ -cmd ".timeout 1500" "$DB" "SELECT 1"
+SQL3=$(command -v sqlite3 || echo sqlite3)
+"$SQL3" -cmd ".timeout 1500" "$DB" "SELECT 1"
+"$(command -v sqlite3)" -cmd ".timeout 1500" "$DB" "SELECT 1"
+SQB=sqlite3; "${SQB:?}" -cmd ".timeout 1500" "$DB" "SELECT 1"
+"${UNSET_TOOL:?sqlite3 missing}" --version
+stdbuf -oL sqlite3 -cmd ".timeout 1500" "$DB" "SELECT 1"
+ionice -c 3 sqlite3 -cmd ".timeout 1500" "$DB" "VACUUM"
+gtimeout 5 sqlite3 -cmd ".timeout 1500" "$DB" "SELECT 1"
+coproc sqlite3 -cmd ".timeout 1500" "$DB"
+coproc DBQ { sqlite3 -cmd ".timeout 1500" "$DB"; }
