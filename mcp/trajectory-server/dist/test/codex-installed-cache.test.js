@@ -90,6 +90,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
                 NODE_PATH: '',
                 TMB_FORBID_LIVE_SYNC: '1',
                 TMB_SCAN_PLUGIN_JSON: scanPluginJson,
+                ...(process.env['TMPDIR'] ? { TMPDIR: process.env['TMPDIR'] } : {}),
             },
             stderr: 'pipe',
         });
