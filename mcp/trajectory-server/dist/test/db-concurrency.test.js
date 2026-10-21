@@ -132,7 +132,7 @@ describe('pre-migration backup (GH 1624)', () => {
         holder.exec(`INSERT INTO issues (objective, status, created_at, updated_at)
          VALUES ('written-just-before-backup', 'open', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z')`);
         assert.ok(statSync(`${dbPath}-wal`).size > 0, 'the row must still be in the -wal file');
-        const db = new TrajectoryDB(dbPath, noLog);
+        const db = new TrajectoryDB(dbPath, noLog, { migrate: true });
         db.close();
         holder.close();
         const backups = backupsOf(dbPath);

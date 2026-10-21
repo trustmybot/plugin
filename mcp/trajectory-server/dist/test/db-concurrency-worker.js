@@ -50,7 +50,7 @@ function runWrites(workerId, writes) {
 }
 function runOpen() {
     try {
-        const db = new TrajectoryDB(dbPath, dependencies);
+        const db = new TrajectoryDB(dbPath, dependencies, { migrate: true });
         const version = db.get('SELECT schema_version FROM plugin_meta WHERE id = 1')?.schema_version;
         db.close();
         return {

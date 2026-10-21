@@ -2,7 +2,9 @@
 # Tests for scripts/maintenance/run-scan.mjs: verifies that the standalone
 # rescan invoker derives session_dir from the trajectory.db walk-up, not
 # process.cwd(). When cwd is a worktree path (inner subdir), the invoker
-# must still find ≥1 repo under the workspace root.
+# must still find ≥1 repo under the workspace root. It needs an explicit
+# TRAJECTORY_DB_PATH and never migrates; the post-task-close-rescan.sh hook
+# supplies that path (GH 1639).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -99,5 +101,66 @@ if [ -f "$LOCK" ]; then
 else
   _pass
 fi
+
+# ── Test: the invoker never discovers the DB itself (GH 1639) ────────────────
+test_case "no TRAJECTORY_DB_PATH: exits 2 and scans nothing"
+RC=0
+NO_DB_OUT=$( (cd "$WT" && env -u TRAJECTORY_DB_PATH CLAUDE_PROJECT_DIR="$WS" node --experimental-sqlite "$INVOKER" "$WS" 2>&1) ) || RC=$?
+if [ "$RC" -eq 2 ] && echo "$NO_DB_OUT" | grep "TRAJECTORY_DB_PATH is not set" >/dev/null; then
+  _pass
+else
+  _fail "want exit 2 naming TRAJECTORY_DB_PATH, got exit $RC: $NO_DB_OUT"
+fi
+
+test_case "an older-schema DB: exits 1 with the refusal and stays unmigrated"
+OLD_DB="$TMPDIR/old/trajectory.db"
+mkdir -p "$(dirname "$OLD_DB")"
+cp "$DB" "$OLD_DB"
+sqlite3 "$OLD_DB" "UPDATE plugin_meta SET schema_version = schema_version - 1 WHERE id = 1;"
+OLD_VERSION=$(sqlite3 "$OLD_DB" "SELECT schema_version FROM plugin_meta WHERE id = 1;")
+RC=0
+OLD_OUT=$( (cd "$WT" && TRAJECTORY_DB_PATH="$OLD_DB" node --experimental-sqlite "$INVOKER" "$WS" 2>&1) ) || RC=$?
+if [ "$RC" -eq 1 ] && echo "$OLD_OUT" | grep "only the trajectory-server migrates the DB" >/dev/null \
+  && [ "$(sqlite3 "$OLD_DB" "SELECT schema_version FROM plugin_meta WHERE id = 1;")" = "$OLD_VERSION" ] \
+  && [ -z "$(find "$(dirname "$OLD_DB")" -name '*.bak')" ]; then
+  _pass
+else
+  _fail "want exit 1, the refusal, v$OLD_VERSION kept and no .bak; got exit $RC: $OLD_OUT"
+fi
+
+# ── Hook: post-task-close-rescan.sh hands the invoker an explicit DB path ────
+# A fake plugin tree whose run-scan.mjs records the TRAJECTORY_DB_PATH it got.
+FAKE="$TMPDIR/fake-plugin/scripts"
+mkdir -p "$FAKE/hooks/lib" "$FAKE/maintenance"
+cp "$PLUGIN_ROOT/scripts/hooks/post-task-close-rescan.sh" "$FAKE/hooks/"
+cp "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh" "$FAKE/hooks/lib/"
+RECORD="$TMPDIR/invoker-db-path"
+cat > "$FAKE/maintenance/run-scan.mjs" <<'FAKEINV'
+import { writeFileSync } from 'node:fs';
+writeFileSync(process.env.RECORD_PATH, process.env.TRAJECTORY_DB_PATH ?? '<unset>');
+FAKEINV
+CLOSE_EVENT='{"tool_name":"mcp__plugin_tmb_trajectory-server__bro_atomic_close"}'
+
+run_fake_hook() {
+  printf '%s' "$1" | (cd "$WT" && env -u TRAJECTORY_DB_PATH -u CLAUDE_PLUGIN_ROOT -u TMB_SKIP_AUTO_RESCAN \
+    CLAUDE_PROJECT_DIR="$WS" TMB_FORBID_LIVE_SYNC=1 RECORD_PATH="$RECORD" bash "$FAKE/hooks/post-task-close-rescan.sh")
+  for _ in $(seq 1 50); do [ -f "$RECORD" ] && break; sleep 0.1; done
+}
+
+test_case "hook passes the resolved DB as TRAJECTORY_DB_PATH"
+rm -f "$RECORD"
+run_fake_hook "$CLOSE_EVENT"
+if [ -f "$RECORD" ] && [ "$(cat "$RECORD")" = "$DB" ]; then
+  _pass
+else
+  _fail "invoker got '$(cat "$RECORD" 2>/dev/null || echo '<not run>')', want $DB"
+fi
+
+test_case "hook ignores other tools"
+rm -f "$RECORD"
+printf '%s' '{"tool_name":"mcp__plugin_tmb_trajectory-server__task_get"}' | (cd "$WT" && env -u TRAJECTORY_DB_PATH \
+  CLAUDE_PROJECT_DIR="$WS" TMB_FORBID_LIVE_SYNC=1 RECORD_PATH="$RECORD" bash "$FAKE/hooks/post-task-close-rescan.sh")
+sleep 0.3
+if [ -f "$RECORD" ]; then _fail "invoker ran for a non-close tool"; else _pass; fi
 
 summarize

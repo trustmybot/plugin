@@ -204,8 +204,8 @@ INVOCATION_FLAG="$TMPDIR/invoked"
 cat > "$FAKE_INVOKER_DIR/run-scan-initial.mjs" <<'FAKE'
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
-// Record invocation and exit cleanly.
-writeFileSync(process.env.INVOCATION_FLAG, '1');
+// Record the DB path the hook handed over and exit cleanly.
+writeFileSync(process.env.INVOCATION_FLAG, process.env.TRAJECTORY_DB_PATH ?? '<unset>');
 FAKE
 
 # Build a fake scripts tree: hooks/, maintenance/, and scan.sh (availability sentinel).
@@ -238,6 +238,19 @@ fi
 
 test_case "cold + invoker present: no Human-directed /scan instruction"
 assert_not_contains "$COLD_CTX" "tell the Human to run /scan" "no manual scan instruction"
+
+test_case "cold + invoker present: the invoker gets the resolved DB as TRAJECTORY_DB_PATH (GH 1639)"
+kill_fixture_node
+rm -f "$INVOCATION_FLAG"
+PROJECT_DB="$FIXTURE_WS/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$PROJECT_DB")"
+cp "$DB" "$PROJECT_DB"
+(cd "$FIXTURE_WS" && env -u TRAJECTORY_DB_PATH -u CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR="$FIXTURE_WS" TMB_FORBID_LIVE_SYNC=1 \
+  INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" >/dev/null 2>&1) || true
+for _ in $(seq 1 50); do [ -s "$INVOCATION_FLAG" ] && break; sleep 0.1; done
+assert_eq "$PROJECT_DB" "$(cat "$INVOCATION_FLAG" 2>/dev/null || echo '<not run>')" "invoker received the project DB path"
+kill_fixture_node
+rm -rf "$FIXTURE_WS/.claude"
 
 # ---- cold + TMB_SKIP_AUTO_PRESCAN=1: warn only, no invocation ----
 

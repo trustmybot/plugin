@@ -550,7 +550,7 @@ function openRuntime(
       serverLog: logger.serverLog,
       sqlLog: logger.sqlLog,
       trustedProjectRoot: context.projectRoot,
-    });
+    }, { migrate: true });
     const graph = graphHolderFactory?.(context) ??
       GraphHolder.fixed(new WorldModelGraph(db));
 

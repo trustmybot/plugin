@@ -21,6 +21,12 @@ Nothing under `$HOME` takes part in the rule.
 
 The project root is the directory holding the resolved DB (`<root>` in `<root>/.claude/<plugin>/trajectory.db`), on both sides: the hooks' `tmb_project_root`, the server's spawn cwd and its tool defaults. `CLAUDE_PROJECT_DIR` stands in only when no DB resolves. A relative `repos.path` resolves against the project root.
 
+## Who opens and migrates it
+
+Only the trajectory-server migrates the DB. Its two entries (`src/index.ts` for Claude Code, the Codex runtime behind `src/codex.ts`) open it with `new TrajectoryDB(path, deps, { migrate: true })`. Every other opener — maintenance scripts, smoke scripts, tests — opens without `migrate`, and on a DB whose `plugin_meta.schema_version` is older than the code's it throws `TrajectoryDB: schema v<stored> is older than this code's v<target>; only the trajectory-server migrates the DB. …` before it takes a backup or runs any DDL. A fresh DB and a current-version DB open normally. SQLite has no access control, so the opener enforces this, not the MCP role checks.
+
+Scripts that open the DB never run this rule. `scripts/maintenance/run-scan.mjs`, `run-scan-initial.mjs` and `mcp/trajectory-server/scripts/smoke-world-model.mjs` require `TRAJECTORY_DB_PATH` and exit 2 without it; the hooks that launch the scan invokers (`post-task-close-rescan.sh`, `session-start-prescan.sh`) resolve the path with `tmb_db_path` and pass it explicitly. To run one by hand against a project's data, point `TRAJECTORY_DB_PATH` at a copy.
+
 ## Other DBs
 
 `trajectory_doctor`'s `no_other_trajectory_dbs` contract (warn) lists every other live DB: those the walk from `CLAUDE_PROJECT_DIR` passed, and those below the project root up to four levels deep (dot directories and `node_modules` are skipped; a `standalone` project and everything under it is not counted). Each entry names the path with its issue and task counts. It is a file contract, so it runs in `trajectory_doctor` only, not in the SessionStart banner.

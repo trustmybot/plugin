@@ -31,10 +31,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INVOKER="$SCRIPT_DIR/../maintenance/run-scan.mjs"
 [ -f "$INVOKER" ] || exit 0
 command -v node >/dev/null 2>&1 || exit 0
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+# The invoker never discovers the DB itself (GH 1639); hand it the one the
+# hooks resolve.
+DB_PATH=$(tmb_db_path) || exit 0
 
 # Background + disown so bro's response isn't blocked. stderr ends up in
 # CC's debug log via the inherited fd; >/dev/null on stdout so the hook's
 # JSON-RPC channel stays clean.
-node --experimental-sqlite "$INVOKER" >/dev/null 2>&1 &
+TRAJECTORY_DB_PATH="$DB_PATH" node --experimental-sqlite "$INVOKER" >/dev/null 2>&1 &
 disown
 exit 0

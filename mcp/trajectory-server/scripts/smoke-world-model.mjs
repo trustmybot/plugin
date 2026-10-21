@@ -1,13 +1,27 @@
 #!/usr/bin/env node
-// Smoke test for the SQLite world model (GH 1632): scans a fixture repo into a
-// temp trajectory DB, then checks the wm_ tables, world_model_get depth=2 and
+// Smoke test for the SQLite world model (GH 1632): scans a fixture repo into the
+// TRAJECTORY_DB_PATH DB, then checks the wm_ tables, world_model_get depth=2 and
 // keyword + hybrid world_model_search. Exits non-zero on any failure.
-// Run after `bun run build`: node mcp/trajectory-server/scripts/smoke-world-model.mjs
+// Run after `bun run build`:
+//   TRAJECTORY_DB_PATH=<new or empty file> node mcp/trajectory-server/scripts/smoke-world-model.mjs
+// The DB path is required and never discovered (GH 1639); the smoke writes
+// fixture rows into it, so it refuses a DB that already holds data, and
+// removes the file when done.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const dbPath = process.env['TRAJECTORY_DB_PATH']?.trim();
+if (!dbPath || dbPath === ':memory:') {
+  console.error('world model smoke: TRAJECTORY_DB_PATH is not set: point it at a new or empty file for the smoke DB');
+  process.exit(2);
+}
+if (existsSync(dbPath) && statSync(dbPath).size > 0) {
+  console.error(`world model smoke: ${dbPath} already holds data; point TRAJECTORY_DB_PATH at a new or empty file`);
+  process.exit(2);
+}
 
 const dist = join(dirname(dirname(fileURLToPath(import.meta.url))), 'dist');
 const { TrajectoryDB } = await import(join(dist, 'db.js'));
@@ -46,11 +60,9 @@ function check(label, ok, detail = '') {
 
 const parse = (r) => JSON.parse(r.content[0].text);
 const ws = mkdtempSync(join(tmpdir(), 'tmb-wm-smoke-'));
-const dbPath = join(ws, 'trajectory.db');
 const mcpJson = join(ws, 'mcp-servers.json');
 writeFileSync(mcpJson, '{}');
 process.env['TMB_FORBID_LIVE_SYNC'] = '1';
-process.env['TRAJECTORY_DB_PATH'] = dbPath;
 process.env['TMB_SCAN_MCP_JSON'] = mcpJson;
 
 let db;
@@ -95,6 +107,7 @@ try {
   db?.close();
   resetEmbeddingModelForTests();
   rmSync(ws, { recursive: true, force: true });
+  for (const suffix of ['', '-wal', '-shm']) rmSync(`${dbPath}${suffix}`, { force: true });
 }
 
 if (failures.length > 0) {
