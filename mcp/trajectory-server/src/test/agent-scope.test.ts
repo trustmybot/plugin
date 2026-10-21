@@ -117,6 +117,84 @@ describe('agent-scope middleware', () => {
     assert.deepEqual(payload.allowed_roles, ['bro']);
   });
 
+  it('requireRoles with a known disallowed role omits the missing-agent diagnostics', async () => {
+    const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => ({
+      content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
+    });
+
+    const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
+    const result = await wrapped({ agent: 'swe' });
+
+    const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
+    assert.deepEqual(payload, {
+      error: 'forbidden',
+      tool: 'task_create_batch',
+      caller_role: 'swe',
+      allowed_roles: ['bro'],
+    });
+    assert.equal('reason' in payload, false);
+    assert.equal('agent_received' in payload, false);
+    assert.equal('valid_agents' in payload, false);
+    assert.equal('message' in payload, false);
+  });
+
+  it('requireRoles reports a missing agent as a missing argument, not a role restriction', async () => {
+    const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => ({
+      content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
+    });
+
+    const wrapped = requireRoles('x', ['bro'], passthrough);
+    const result = await wrapped({});
+
+    assert.ok(result.isError, 'Expected isError=true');
+    const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
+    assert.deepEqual(Object.keys(payload).slice(0, 4), [
+      'error',
+      'tool',
+      'caller_role',
+      'allowed_roles',
+    ]);
+    assert.equal(payload.error, 'forbidden');
+    assert.equal(payload.tool, 'x');
+    assert.equal(payload.caller_role, 'unknown');
+    assert.deepEqual(payload.allowed_roles, ['bro']);
+    assert.equal(payload.reason, 'agent_missing_or_invalid');
+    assert.equal(payload.agent_received, null);
+    for (const name of ['bro', 'swe', 'pr-reviewer']) {
+      assert.ok(payload.valid_agents.includes(name), `valid_agents missing ${name}`);
+    }
+    assert.ok(
+      payload.valid_agents.some((v: string) => v.includes('consultant')),
+      'valid_agents missing a consultant-slug entry',
+    );
+    assert.equal(typeof payload.message, 'string');
+    assert.match(payload.message, /agent/);
+    assert.match(payload.message, /missing/);
+    assert.match(payload.message, /not a role restriction/);
+    assert.match(payload.message, /received: null/);
+  });
+
+  it('requireRoles reports an invalid agent value and echoes it', async () => {
+    const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => ({
+      content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
+    });
+
+    const wrapped = requireRoles('x', ['bro'], passthrough);
+    const result = await wrapped({ agent: '!!!' });
+
+    assert.ok(result.isError, 'Expected isError=true');
+    const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
+    assert.equal(payload.error, 'forbidden');
+    assert.equal(payload.caller_role, 'unknown');
+    assert.deepEqual(payload.allowed_roles, ['bro']);
+    assert.equal(payload.reason, 'agent_missing_or_invalid');
+    assert.equal(payload.agent_received, '!!!');
+    assert.ok(payload.valid_agents.includes('bro'));
+    assert.ok(payload.message.includes('"!!!"'), 'message should echo the received value');
+    assert.match(payload.message, /not a role restriction/);
+    assert.match(payload.message, /x accepts: bro/);
+  });
+
   it('requireRoles delegates to handler when caller role is allowed', async () => {
     let called = false;
     const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => {

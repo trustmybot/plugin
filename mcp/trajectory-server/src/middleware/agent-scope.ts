@@ -22,6 +22,22 @@ export type { ValidationAttempt };
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+const VALID_AGENTS = ['bro', 'swe', 'pr-reviewer', 'consultant slug matching ^[a-z][a-z0-9_-]*$'];
+
+function missingAgentDiagnostics(toolName: string, allowedRoles: AgentRole[], received: unknown) {
+  const agentReceived = received === undefined ? null : received;
+  return {
+    reason: 'agent_missing_or_invalid',
+    agent_received: agentReceived,
+    valid_agents: VALID_AGENTS,
+    message:
+      `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). ` +
+      'This is a missing-argument error, not a role restriction — retry with agent set to your role: ' +
+      "'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. " +
+      `${toolName} accepts: ${allowedRoles.join(', ')}.`,
+  };
+}
+
 export function requireRoles(toolName: string, allowedRoles: AgentRole[], handler: Fn): Fn {
   const allowed = new Set(allowedRoles);
   return async (args) => {
@@ -37,6 +53,9 @@ export function requireRoles(toolName: string, allowedRoles: AgentRole[], handle
               tool: toolName,
               caller_role: agent,
               allowed_roles: [...allowedRoles],
+              ...(agent === 'unknown'
+                ? missingAgentDiagnostics(toolName, allowedRoles, args['agent'])
+                : {}),
             }),
           },
         ],
