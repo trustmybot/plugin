@@ -25823,6 +25823,16 @@ function normalizeAgent(name) {
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
   return "unknown";
 }
+var VALID_AGENTS = ["bro", "swe", "pr-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
+function missingAgentDiagnostics(toolName, allowedRoles, received) {
+  const agentReceived = received === void 0 ? null : received;
+  return {
+    reason: "agent_missing_or_invalid",
+    agent_received: agentReceived,
+    valid_agents: VALID_AGENTS,
+    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
+  };
+}
 function requireRoles(toolName, allowedRoles, handler) {
   const allowed = new Set(allowedRoles);
   return async (args) => {
@@ -25837,7 +25847,8 @@ function requireRoles(toolName, allowedRoles, handler) {
               error: "forbidden",
               tool: toolName,
               caller_role: agent,
-              allowed_roles: [...allowedRoles]
+              allowed_roles: [...allowedRoles],
+              ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, args["agent"]) : {}
             })
           }
         ]
