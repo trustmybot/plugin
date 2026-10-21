@@ -242,6 +242,140 @@ assert_no_temp_worktree
 assert_markers_intact
 cleanup
 
+# Generated files (GH 1652). .gitattributes routes gen/** to the tmb-regen
+# merge driver (keeps ours); scripts/maintenance/regen-generated.sh rebuilds
+# gen/out.txt from src/*.txt. src/s.txt holds l1..l7; the task changes l4 and
+# regenerates, then main moves with its own src/ change and regenerates, so
+# gen/out.txt conflicts on every rebase:
+#   gen      — src/base.txt (gen/out.txt is the only conflict)
+#   drift    — l2 of src/s.txt (merges cleanly, but the task's source patch
+#              context changes)
+#   conflict — l4 of src/s.txt (a real source conflict)
+#   absorbed — the task's own l4 change (the rebase drops the task commit)
+# The regen mode "fail" commits a regen script that exits 2.
+REGEN_OK='#!/usr/bin/env bash
+set -e
+cd "$(dirname "$0")/../.."
+cat src/*.txt > gen/out.txt'
+REGEN_FAIL='#!/usr/bin/env bash
+echo "regen-generated: toolchain missing" >&2
+exit 2'
+REGEN_PASSING='["grep -q l4-task src/s.txt", "bash scripts/maintenance/regen-generated.sh && git diff --exit-code -- gen"]'
+
+regen_commit() {
+  local msg="$1"
+  mkdir -p "$REPO/gen"
+  cat "$REPO"/src/*.txt > "$REPO/gen/out.txt"
+  g add -A src gen
+  g commit -qm "$msg"
+}
+
+s_lines() {
+  local line="$1" value="$2" i
+  for i in 1 2 3 4 5 6 7; do
+    if [ "$i" = "$line" ]; then printf '%s\n' "$value"; else printf 'l%s\n' "$i"; fi
+  done > "$REPO/src/s.txt"
+}
+
+# setup_regen <main-move> [<regen: ok|fail>]
+setup_regen() {
+  local move="$1" regen="${2:-ok}"
+  setup none "$REGEN_PASSING"
+  bash "$PLUGIN_ROOT/scripts/maintenance/install-merge-driver.sh" "$REPO" >/dev/null
+  g checkout -q main
+  g branch -q -D feat/x-1
+  printf 'gen/** merge=tmb-regen\n' > "$REPO/.gitattributes"
+  mkdir -p "$REPO/scripts/maintenance" "$REPO/src"
+  if [ "$regen" = fail ]; then
+    printf '%s\n' "$REGEN_FAIL" > "$REPO/scripts/maintenance/regen-generated.sh"
+  else
+    printf '%s\n' "$REGEN_OK" > "$REPO/scripts/maintenance/regen-generated.sh"
+  fi
+  s_lines 0 ''
+  g add .gitattributes scripts
+  regen_commit "chore: generated gen/out.txt"
+  g checkout -q -b feat/x-1
+  s_lines 4 l4-task
+  regen_commit "feat: l4"
+  COMMIT=$(g rev-parse HEAD)
+  g checkout -q main
+  case "$move" in
+    gen) printf 'base\n' > "$REPO/src/base.txt" ;;
+    drift) s_lines 2 l2-base ;;
+    conflict) s_lines 4 l4-base ;;
+    absorbed) s_lines 4 l4-task ;;
+  esac
+  regen_commit "feat: main moves ($move)"
+  q "UPDATE tasks SET commit_sha = '$COMMIT';
+     UPDATE audit SET content_json = '{\"task_id\":1,\"commit_sha\":\"$COMMIT\"}';"
+}
+
+# fresh_regen_matches <sha> — gen/ at <sha> equals a regen of <sha>'s src/.
+fresh_regen_matches() {
+  local check="$REPO/.claude/regen-check" rc=0
+  g worktree add -q --detach "$check" "$1"
+  (cd "$check" && bash scripts/maintenance/regen-generated.sh && git diff --quiet -- gen) || rc=$?
+  g worktree remove --force "$check"
+  return "$rc"
+}
+
+test_case "generated-file conflict only: regenerated, amended, verified, exit 0"
+setup_regen gen
+integrate main
+assert_exit_code 0 "$RC" "integrate.sh exit ($ERR)"
+NEW="$OUT"
+assert_eq "$NEW" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "$(g rev-parse main)" "$(g rev-parse "$NEW^" 2>/dev/null)" "the rebased commit's parent is main"
+assert_eq "feat: l4|Test" "$(g log -1 --format='%s|%an' "$NEW" 2>/dev/null)" "the amended commit keeps the task's message and author"
+assert_eq "$(printf 'base\nl1\nl2\nl3\nl4-task\nl5\nl6\nl7')" "$(g show "$NEW:gen/out.txt" 2>/dev/null)" "gen/out.txt holds both sides' sources"
+assert_no_temp_worktree
+if [ "$RC" -eq 0 ] && fresh_regen_matches "$NEW"; then _pass; else _fail "gen/out.txt at $NEW differs from a fresh regen"; fi
+assert_eq "1|manual|0" "$(q "SELECT COUNT(*) || '|' || MAX(source) || '|' || MAX(exit_code) FROM verification_runs WHERE commit_sha = '$NEW';")" "a passing manual run on the printed SHA"
+cleanup
+
+test_case "generated-file conflict with source drift: exit 2, nothing recorded"
+setup_regen drift
+integrate main
+assert_exit_code 2 "$RC" "integrate.sh exit ($ERR)"
+assert_contains "$ERR" "patch" "stderr names the patch-id mismatch"
+assert_eq "$COMMIT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_runs rows"
+assert_no_temp_worktree
+cleanup
+
+test_case "source conflict beside a generated-file conflict: exit 2"
+setup_regen conflict
+integrate main
+assert_exit_code 2 "$RC" "integrate.sh exit ($ERR)"
+assert_contains "$ERR" "conflicted" "stderr names the conflict"
+assert_eq "$COMMIT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_runs rows"
+assert_no_temp_worktree
+cleanup
+
+test_case "task change already on main: exit 2, main's commit is not amended"
+setup_regen absorbed
+MAIN_TIP=$(g rev-parse main)
+integrate main
+assert_exit_code 2 "$RC" "integrate.sh exit ($ERR)"
+assert_eq "$COMMIT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "$MAIN_TIP" "$(g rev-parse main)" "main tip"
+assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_runs rows"
+assert_no_temp_worktree
+cleanup
+
+test_case "failing regen: exit 2 naming regen-generated.sh, branch unmoved"
+setup_regen gen fail
+integrate main
+assert_exit_code 2 "$RC" "integrate.sh exit ($ERR)"
+assert_eq "" "$OUT" "nothing on stdout"
+assert_contains "$ERR" "regen-generated.sh exited 2" "stderr names the failing regen script"
+assert_contains "$ERR" "toolchain missing" "stderr carries the regen output"
+assert_eq "$COMMIT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "0" "$(q "SELECT COUNT(*) FROM verification_runs;")" "verification_runs rows"
+assert_no_temp_worktree
+cleanup
+
 # git-guards denies a rebase in the main checkout; the temporary worktree
 # integrate.sh rebases in is a linked worktree, where rebase is allowed, and
 # bro's own command is a script call git-guards does not judge as a rebase.
