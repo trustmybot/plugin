@@ -1,6 +1,6 @@
 {
   "name": "tmb",
-  "version": "1.1.0",
+  "version": "1.2.0-dev.36.gh1668",
   "description": "TMB plugin \u2014 bro orchestrates swe + pr-reviewer across a task-close and a push gate, backed by an MCP server: a SQLite trajectory log plus a world model in the same DB that helps agents understand and navigate complex codebases.",
   "author": {
     "name": "trustmybot",
