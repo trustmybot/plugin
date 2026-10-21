@@ -327,7 +327,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
   const handlers: Record<string, Fn> = {
     world_model_get: requireRoles(
       'world_model_get',
-      ['bro', 'swe', 'pr-reviewer'],
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrap(async (args) => {
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
@@ -384,7 +384,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
 
     world_model_search: requireRoles(
       'world_model_search',
-      ['bro', 'swe', 'pr-reviewer'],
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrap(async (args) => {
         const query = args['query'] as string;
         if (!query || typeof query !== 'string') return err('query is required');

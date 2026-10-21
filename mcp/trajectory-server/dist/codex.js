@@ -25817,8 +25817,9 @@ function isAlreadyExists(error2) {
 // src/middleware/agent-scope.ts
 var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
 function normalizeAgent(name) {
-  if (!name) return "unknown";
-  const lower = name.toLowerCase();
+  if (typeof name !== "string") return "unknown";
+  const lower = name.toLowerCase().replace(/^tmb:/, "");
+  if (!lower) return "unknown";
   if (FIRST_CLASS_ROLES.has(lower)) return lower;
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
   return "unknown";
@@ -25833,29 +25834,33 @@ function missingAgentDiagnostics(toolName, allowedRoles, received) {
     message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
   };
 }
+function forbidden(toolName, agent, allowedRoles, received) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "forbidden",
+          tool: toolName,
+          caller_role: agent,
+          allowed_roles: [...allowedRoles],
+          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
+        })
+      }
+    ]
+  };
+}
+var gatedRoles = /* @__PURE__ */ new WeakMap();
 function requireRoles(toolName, allowedRoles, handler) {
   const allowed = new Set(allowedRoles);
-  return async (args) => {
+  const gated = async (args) => {
     const agent = normalizeAgent(args["agent"]);
-    if (!allowed.has(agent)) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              error: "forbidden",
-              tool: toolName,
-              caller_role: agent,
-              allowed_roles: [...allowedRoles],
-              ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, args["agent"]) : {}
-            })
-          }
-        ]
-      };
-    }
+    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args["agent"]);
     return handler(args);
   };
+  gatedRoles.set(gated, [...allowedRoles]);
+  return gated;
 }
 function redactIssue(issue2, agent, opts) {
   if (agent === "swe" || agent === "unknown") {
@@ -29900,7 +29905,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
     ),
     repos_list: requireRoles(
       "repos_list",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap(async () => {
         const rows = db.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
         return ok3({ repos: rows });
@@ -30154,7 +30159,7 @@ function worldModelTools(db, graphHolder) {
   const handlers = {
     world_model_get: requireRoles(
       "world_model_get",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap2(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
@@ -30196,7 +30201,7 @@ function worldModelTools(db, graphHolder) {
     ),
     world_model_search: requireRoles(
       "world_model_search",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap2(async (args) => {
         const query = args["query"];
         if (!query || typeof query !== "string") return err4("query is required");

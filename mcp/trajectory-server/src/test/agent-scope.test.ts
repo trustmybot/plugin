@@ -1,11 +1,19 @@
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   normalizeAgent,
   redactIssue,
   redactValidationRow,
+  requireAgent,
   requireRoles,
 } from '../middleware/agent-scope.js';
+import { registerTools, toolHandlers } from '../tools/index.js';
+import { GraphHolder } from '../graph-db.js';
+import type { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import type { Issue } from '../types.js';
 import type { ValidationAttempt, AgentRole } from '../middleware/agent-scope.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -56,6 +64,20 @@ describe('agent-scope middleware', () => {
     assert.equal(normalizeAgent(''), 'unknown');
     assert.equal(normalizeAgent(undefined), 'unknown');
     assert.equal(normalizeAgent('SWE'), 'swe');
+  });
+
+  it('normalizeAgent strips a leading tmb: namespace, case-insensitively', () => {
+    assert.equal(normalizeAgent('tmb:swe'), 'swe');
+    assert.equal(normalizeAgent('TMB:Pr-Reviewer'), 'pr-reviewer');
+    assert.equal(normalizeAgent('tmb:bro'), 'bro');
+    assert.equal(normalizeAgent('tmb:pm'), 'consultant');
+    assert.equal(normalizeAgent('tmb:'), 'unknown');
+    assert.equal(normalizeAgent('tmb:tmb:swe'), 'unknown');
+  });
+
+  it('normalizeAgent treats a non-string agent as unknown', () => {
+    assert.equal(normalizeAgent(42), 'unknown');
+    assert.equal(normalizeAgent(null), 'unknown');
   });
 
   it('redactIssue drops description for swe', () => {
@@ -209,4 +231,118 @@ describe('agent-scope middleware', () => {
     assert.ok(called, 'Expected underlying handler to be invoked');
   });
 
+});
+
+describe('requireAgent', () => {
+  const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => ({
+    content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
+  });
+  const payloadOf = (r: CallToolResult) =>
+    JSON.parse((r.content[0] as { type: string; text: string }).text);
+
+  it('rejects a missing agent with the agent_missing_or_invalid diagnostics', async () => {
+    const result = await requireAgent('issue_list', passthrough)({});
+    assert.ok(result.isError);
+    const payload = payloadOf(result);
+    assert.equal(payload.error, 'forbidden');
+    assert.equal(payload.caller_role, 'unknown');
+    assert.equal(payload.reason, 'agent_missing_or_invalid');
+    assert.equal(payload.agent_received, null);
+    assert.deepEqual(payload.allowed_roles, ['bro', 'swe', 'pr-reviewer', 'consultant']);
+  });
+
+  it('rejects an invalid agent and names the gated tool roles', async () => {
+    const gated = requireRoles('issue_close', ['bro'], passthrough);
+    const payload = payloadOf(await requireAgent('issue_close', gated)({ agent: '!!!' }));
+    assert.equal(payload.reason, 'agent_missing_or_invalid');
+    assert.equal(payload.agent_received, '!!!');
+    assert.deepEqual(payload.allowed_roles, ['bro']);
+  });
+
+  it('passes any recognised caller through to the handler', async () => {
+    for (const agent of ['bro', 'swe', 'pr-reviewer', 'pm', 'tmb:swe']) {
+      const result = await requireAgent('issue_list', passthrough)({ agent });
+      assert.ok(!result.isError, `${agent} should pass`);
+    }
+  });
+});
+
+describe('registered tools: consultants on read tools, missing agent everywhere', () => {
+  let dir: string;
+  let db: TrajectoryDB;
+  let issueId: number;
+  let taskId: number;
+
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), 'tmb-role-gates-'));
+    mkdirSync(join(dir, '.claude', 'tmb'), { recursive: true });
+    db = tempDB({ path: join(dir, '.claude', 'tmb', 'trajectory.db') });
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [join(dir, 'app')]);
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at)
+       VALUES ('role gates', 'd', 'open', datetime('now'), datetime('now'))`,
+    );
+    issueId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'fix/role-gates', 't', 'd', 'running', '## Description', 'app', datetime('now'), datetime('now'))`,
+      [issueId],
+    );
+    taskId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    registerTools({} as never, db, db.dbPath, GraphHolder.fixed(null));
+  });
+
+  after(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const callTool = (name: string, args: Record<string, unknown>) => toolHandlers[name]!(args);
+  const payloadOf = (r: CallToolResult) =>
+    JSON.parse((r.content[0] as { type: string; text: string }).text);
+
+  it('a consultant succeeds on every read-only tool', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ['world_model_get', { repo: 'app' }],
+      ['world_model_search', { repo: 'app', query: 'parser' }],
+      ['repos_list', {}],
+      ['task_brief', { task_id: taskId }],
+      ['issue_snapshot_md', { issue_id: String(issueId) }],
+    ];
+    for (const [name, args] of calls) {
+      const result = await callTool(name, { agent: 'pm', ...args });
+      assert.ok(!result.isError, `${name} should admit pm; got ${JSON.stringify(result.content)}`);
+    }
+  });
+
+  it('a tmb:-prefixed consultant passes the same gates', async () => {
+    const result = await callTool('repos_list', { agent: 'tmb:pm' });
+    assert.ok(!result.isError, JSON.stringify(result.content));
+  });
+
+  it('a consultant is still forbidden on a write tool', async () => {
+    const result = await callTool('task_update_status', { agent: 'pm', task_id: String(taskId), status: 'completed' });
+    assert.ok(result.isError);
+    const payload = payloadOf(result);
+    assert.equal(payload.error, 'forbidden');
+    assert.equal(payload.caller_role, 'consultant');
+    assert.deepEqual(payload.allowed_roles, ['bro', 'swe']);
+  });
+
+  it('an ungated tool rejects a call with no agent', async () => {
+    const result = await callTool('issue_list', {});
+    assert.ok(result.isError);
+    const payload = payloadOf(result);
+    assert.equal(payload.reason, 'agent_missing_or_invalid');
+    assert.equal(payload.tool, 'issue_list');
+  });
+
+  it('every registered tool rejects a call with no agent', async () => {
+    const accepted: string[] = [];
+    for (const [name, handler] of Object.entries(toolHandlers)) {
+      const result = await handler({});
+      if (!result.isError || payloadOf(result).reason !== 'agent_missing_or_invalid') accepted.push(name);
+    }
+    assert.deepEqual(accepted, []);
+  });
 });

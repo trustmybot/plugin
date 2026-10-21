@@ -24245,9 +24245,11 @@ function migrateV1toV2(db2) {
 
 // src/middleware/agent-scope.ts
 var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
+var ALL_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
 function normalizeAgent(name) {
-  if (!name) return "unknown";
-  const lower = name.toLowerCase();
+  if (typeof name !== "string") return "unknown";
+  const lower = name.toLowerCase().replace(/^tmb:/, "");
+  if (!lower) return "unknown";
   if (FIRST_CLASS_ROLES.has(lower)) return lower;
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
   return "unknown";
@@ -24262,26 +24264,39 @@ function missingAgentDiagnostics(toolName, allowedRoles, received) {
     message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
   };
 }
+function forbidden(toolName, agent, allowedRoles, received) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "forbidden",
+          tool: toolName,
+          caller_role: agent,
+          allowed_roles: [...allowedRoles],
+          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
+        })
+      }
+    ]
+  };
+}
+var gatedRoles = /* @__PURE__ */ new WeakMap();
 function requireRoles(toolName, allowedRoles, handler) {
   const allowed = new Set(allowedRoles);
-  return async (args) => {
+  const gated = async (args) => {
     const agent = normalizeAgent(args["agent"]);
-    if (!allowed.has(agent)) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              error: "forbidden",
-              tool: toolName,
-              caller_role: agent,
-              allowed_roles: [...allowedRoles],
-              ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, args["agent"]) : {}
-            })
-          }
-        ]
-      };
+    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args["agent"]);
+    return handler(args);
+  };
+  gatedRoles.set(gated, [...allowedRoles]);
+  return gated;
+}
+function requireAgent(toolName, handler) {
+  const allowedRoles = gatedRoles.get(handler) ?? ALL_ROLES;
+  return async (args) => {
+    if (normalizeAgent(args["agent"]) === "unknown") {
+      return forbidden(toolName, "unknown", allowedRoles, args["agent"]);
     }
     return handler(args);
   };
@@ -30123,7 +30138,7 @@ function reportTools(db2) {
       lines.push("");
       return ok10({ markdown: lines.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler9(async (args) => {
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer", "consultant"], wrapHandler9(async (args) => {
       requireArg8(args, "agent");
       const issueId = requireArg8(args, "issue_id");
       const rawOutputPath = args["output_path"];
@@ -32711,7 +32726,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     ),
     task_brief: requireRoles(
       "task_brief",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap3(async (args) => {
         const taskId = args["task_id"];
         if (taskId === void 0 || taskId === null) return err15("task_id is required");
@@ -36497,7 +36512,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     ),
     repos_list: requireRoles(
       "repos_list",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap4(async () => {
         const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
         return ok17({ repos: rows });
@@ -38119,7 +38134,7 @@ function worldModelTools(db2, graphHolder2) {
   const handlers = {
     world_model_get: requireRoles(
       "world_model_get",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap6(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
@@ -38161,7 +38176,7 @@ function worldModelTools(db2, graphHolder2) {
     ),
     world_model_search: requireRoles(
       "world_model_search",
-      ["bro", "swe", "pr-reviewer"],
+      ["bro", "swe", "pr-reviewer", "consultant"],
       wrap6(async (args) => {
         const query = args["query"];
         if (!query || typeof query !== "string") return err18("query is required");
@@ -39305,7 +39320,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...backfill.definitions,
     ...doctor.definitions
   ]);
-  toolHandlers = {
+  const handlers = {
     ...discussions.handlers,
     ...issues.handlers,
     ...milestones.handlers,
@@ -39329,6 +39344,9 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...backfill.handlers,
     ...doctor.handlers
   };
+  toolHandlers = Object.fromEntries(
+    Object.entries(handlers).map(([name, handler]) => [name, requireAgent(name, handler)])
+  );
 }
 
 // src/embeddings/health.ts

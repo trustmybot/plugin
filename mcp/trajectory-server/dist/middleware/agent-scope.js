@@ -1,8 +1,11 @@
 const FIRST_CLASS_ROLES = new Set(['bro', 'swe', 'pr-reviewer']);
+const ALL_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'];
 export function normalizeAgent(name) {
-    if (!name)
+    if (typeof name !== 'string')
         return 'unknown';
-    const lower = name.toLowerCase();
+    const lower = name.toLowerCase().replace(/^tmb:/, '');
+    if (!lower)
+        return 'unknown';
     if (FIRST_CLASS_ROLES.has(lower))
         return lower;
     if (/^[a-z][a-z0-9_-]*$/.test(lower))
@@ -22,28 +25,40 @@ function missingAgentDiagnostics(toolName, allowedRoles, received) {
             `${toolName} accepts: ${allowedRoles.join(', ')}.`,
     };
 }
+function forbidden(toolName, agent, allowedRoles, received) {
+    return {
+        isError: true,
+        content: [
+            {
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'forbidden',
+                    tool: toolName,
+                    caller_role: agent,
+                    allowed_roles: [...allowedRoles],
+                    ...(agent === 'unknown' ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}),
+                }),
+            },
+        ],
+    };
+}
+const gatedRoles = new WeakMap();
 export function requireRoles(toolName, allowedRoles, handler) {
     const allowed = new Set(allowedRoles);
-    return async (args) => {
+    const gated = async (args) => {
         const agent = normalizeAgent(args['agent']);
-        if (!allowed.has(agent)) {
-            return {
-                isError: true,
-                content: [
-                    {
-                        type: 'text',
-                        text: JSON.stringify({
-                            error: 'forbidden',
-                            tool: toolName,
-                            caller_role: agent,
-                            allowed_roles: [...allowedRoles],
-                            ...(agent === 'unknown'
-                                ? missingAgentDiagnostics(toolName, allowedRoles, args['agent'])
-                                : {}),
-                        }),
-                    },
-                ],
-            };
+        if (!allowed.has(agent))
+            return forbidden(toolName, agent, allowedRoles, args['agent']);
+        return handler(args);
+    };
+    gatedRoles.set(gated, [...allowedRoles]);
+    return gated;
+}
+export function requireAgent(toolName, handler) {
+    const allowedRoles = gatedRoles.get(handler) ?? ALL_ROLES;
+    return async (args) => {
+        if (normalizeAgent(args['agent']) === 'unknown') {
+            return forbidden(toolName, 'unknown', allowedRoles, args['agent']);
         }
         return handler(args);
     };

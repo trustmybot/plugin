@@ -165,7 +165,7 @@ export function reportTools(db) {
             lines.push('');
             return ok({ markdown: lines.join('\n'), mode: 'detail' });
         }),
-        issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {
+        issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             const rawOutputPath = args['output_path'];
