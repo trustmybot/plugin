@@ -754,6 +754,30 @@ assert_contains "$(pyw 'import cProfile' 'pr = cProfile.Profile()' "pr.dump_stat
 assert_contains "$(pyw 'import cProfile' "open('out.txt', 'w')" 'pr = cProfile.Profile()' "pr.dump_stats('/etc/evil')")" "/etc/evil" "dump_stats beside a literal write"
 assert_eq "$U,/w/wt/out.prof" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' "pr.dump_stats('out.prof')")" "dump_stats of a relative path"
 
+test_case "tmb_cmd_write_paths: python paths that hide a write are unresolvable when referenced at all (GH 1571)"
+for prog in 'import runpy|runpy.run_path(sys.argv[1])' 'import code|code.interact(local=globals())' 'import doctest|doctest.run_docstring_examples(f, {})' \
+  'import codeop, types|c = codeop.compile_command(s)|types.FunctionType(c, {})()' 'import pickle|pickle.loads(b)' 'import marshal|marshal.loads(b)' \
+  "import shelve|shelve.open('x')" 'breakpoint()' 'import pdb|pdb.main()' 'import timeit|timeit.main()' 'import cProfile|cProfile.main()' \
+  "import sys|sys.modules['built' + 'ins'].exec(s)" 'import sys|sys.modules.get(n).run(s)' "globals()['__buil' + 'tins__']['exec'](s)" \
+  'import pydoc|pydoc.locate(n)(s)' 'import importlib|importlib.import_module(n).run(s)' "o = open|o(p, 'w')" "i = __import__|i('os').system(c)" \
+  "import pdb|pdb.runeval('open')(p, 'w')" '().__class__.__bases__[0].__subclasses__()' "f.__globals__['open'](p, 'w')" "getattr(obj, n)(p, 'w')" \
+  'vars(obj)[n](s)' "open('\\x2fetc\\x2fevil', 'w')" 'import inspect|inspect.getattr_static(o, n)' \
+  'if 1: import runpy; runpy.run_path(p)' '__import__(n).run(s)' 'from sys import *|modules[n].run(s)' 'from pdb import main as m|m()' \
+  'import pdb|pdb.set_trace()' "getattr(o, '__globals__')" "open('\\057etc', 'w')"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$U" "$(pyw "${lines[@]}")" "unresolvable: $prog"
+done
+assert_eq "" "$(pyw 'import json' "json.dumps({})")" "an ordinary module"
+assert_eq "/w/wt/out.txt" "$(pyw "open('out.txt', 'w').write('a\\\\n')")" "an escaped backslash is no hex escape"
+assert_eq "" "$(pyw 'class A: pass' "getattr(A(), 'x', None)")" "getattr with a literal name"
+assert_eq "" "$(pyw "import re" "re.compile(r'\\x41')")" "a raw string's backslash is no escape"
+for cmd in "python3 -m timeit -s \"open('/etc/evil','w')\" pass" 'python3 -m cProfile -o out.prof x.py' 'python3 -m pdb x.py' 'python3 -Im runpy x' 'python3 -mpickle x.pkl'; do
+  assert_eq "$U" "$(wpaths "$cmd" /w/wt)" "python -m runner: $cmd"
+done
+for cmd in 'python3 -m json.tool x.json' 'python3 -m pytest -q' 'python3 -m pytest -m pdb' 'python3 x.py -m pdb'; do
+  assert_eq "" "$(wpaths "$cmd" /w/wt)" "python -m other: $cmd"
+done
+
 test_case "tmb_agent_role reads identity only"
 assert_eq "swe" "$(tmb_agent_role '{"agent_type":"tmb:swe","cwd":"/r"}')" "prefixed agent_type"
 assert_eq "bro" "$(tmb_agent_role '{"cwd":"/r/.claude/worktrees/x"}')" "no agent_type is the main thread, whatever the cwd"

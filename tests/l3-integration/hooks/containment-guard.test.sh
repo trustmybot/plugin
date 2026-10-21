@@ -389,6 +389,16 @@ assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import c
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'from cProfile import Profile as P' "p = 'out.txt'" "P.runctx(o, sys.argv[1], globals(), None)" "open(p, 'w').write('x')")")")")" "swe: a class-method runctx rebinding a variable write path"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, sys' 'cProfile.Profile().run("pass").run(sys.argv[1])')")")")" "swe: a chained Profile().run returns the profiler"
 
+test_case "GH 1571: python paths that hide a write are unresolvable when referenced at all"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "python3 -m timeit -s \"open('/etc/tmb-cg','w')\" pass")")")" "swe: python -m timeit -s"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'python3 -m cProfile -o out.prof x.py')")")" "swe: python -m cProfile"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'python3 -m pdb x.py')")")" "swe: python -m pdb"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import runpy' "open('out.txt','w')")")")")" "swe: a program importing runpy"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'o = open' "o('/etc/tmb-cg', 'w')")")")")" "swe: open held as a value"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'python3 -m json.tool x.json')")")" "swe: python -m json.tool"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'python3 -m pytest -q')")")" "swe: python -m pytest"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "import json; open('out.txt','w').write(json.dumps({}))")")")")" "swe: an ordinary program writing inside its worktree"
+
 test_case "GH 1597: the harness's /tmp/claude-<uid> and .claude/tmb/scratch/ are sanctioned scratch"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Write "$(write "/tmp/claude-$FAKE_UID/x")")")" "swe Write under /tmp/claude-<uid> with \$TMPDIR elsewhere"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "echo x > /tmp/claude-$FAKE_UID/y")")")" "bro Bash redirect under /tmp/claude-<uid>"
