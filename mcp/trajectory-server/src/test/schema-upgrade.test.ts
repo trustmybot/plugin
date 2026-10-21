@@ -713,8 +713,8 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     // Open the legacy DB in WAL mode and write a row, leaving an
     // uncheckpointed WAL. We DO NOT close — that would auto-checkpoint
     // and defeat the test. The TrajectoryDB constructor below opens its
-    // own connection; its `backupDbBeforeMigration` must call
-    // `PRAGMA wal_checkpoint(FULL)` so the .bak captures this write.
+    // own connection; its `backupDbBeforeMigration` snapshots with
+    // `VACUUM INTO`, which reads -wal contents, so the .bak captures this write.
     const seedDb = new DatabaseSync(dbPath);
     seedDb.exec('PRAGMA journal_mode = WAL');
     seedDb.exec(
@@ -732,7 +732,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     assert.ok(backupFile, 'backup file must exist');
 
     // Open the .bak as a standalone DB (no WAL companion) and verify the
-    // pending-WAL row was captured by the checkpoint+copy sequence.
+    // pending-WAL row was captured by the VACUUM INTO snapshot.
     const bak = new DatabaseSync(join(dirname(dbPath), backupFile));
     const row = bak
       .prepare("SELECT objective FROM issues WHERE id = 42")
@@ -741,7 +741,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
 
     assert.ok(
       row && row.objective === 'wal-pending',
-      'pending WAL write must be visible in .bak — wal_checkpoint(FULL) failed to flush before copyFile',
+      'pending WAL write must be visible in .bak — the VACUUM INTO snapshot missed the -wal contents',
     );
 
     seedDb.close();

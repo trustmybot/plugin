@@ -4,8 +4,9 @@
 #   bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" <db> "<sql>" <expected> [--op eq|ge|le]
 #   bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" --self-test
 #
-# Runs <sql> read-only against a private snapshot of <db> (and its -wal, folded
-# in), so <db> itself is never opened; point it at a cp of the reference data.
+# Runs <sql> read-only against a private VACUUM INTO snapshot of <db> (its -wal
+# folded in consistently, even while another connection writes), so <db> itself
+# is only ever read; point it at a cp of the reference data.
 # compares the single value it returns to <expected> and prints one line.
 #   eq  string equality (default)
 #   ge  numeric: result >= expected
@@ -45,7 +46,7 @@ assert_sql() {
 
   local out rc=0
   snap=$(mktemp -d "${TMPDIR:-/tmp}/assert-sql.XXXXXX")
-  cp "$db" "$snap/ref.db" && { [ ! -f "$db-wal" ] || cp "$db-wal" "$snap/ref.db-wal"; } \
+  sqlite3 "$db" ".timeout 5000" ".filectrl persist_wal 0" "VACUUM INTO '${snap//\'/\'\'}/ref.db'" 2>"$snap/err" \
     && sqlite3 "$snap/ref.db" "PRAGMA journal_mode=DELETE;" >/dev/null 2>"$snap/err" \
     && out=$(sqlite3 -readonly -bail "$snap/ref.db" "$sql" 2>"$snap/err") || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -148,6 +149,24 @@ self_test() {
     echo "FAIL WAL-mode copy grew a -shm/-wal"
     failures=$((failures + 1))
   fi
+
+  local held="$dir/held.db" holder waited_open=0
+  sqlite3 "$held" "PRAGMA journal_mode=WAL; CREATE TABLE t (v TEXT);" >/dev/null
+  { echo "SELECT count(*) FROM t;"; sleep 5; } | sqlite3 "$held" >/dev/null &
+  holder=$!
+  while [ "$waited_open" -lt 50 ] && [ ! -e "$held-shm" ]; do
+    sleep 0.1
+    waited_open=$((waited_open + 1))
+  done
+  sqlite3 "$held" ".timeout 5000" "INSERT INTO t VALUES ('in-wal');"
+  if [ -s "$held-wal" ]; then
+    expect 0 "row only in -wal of a DB held open elsewhere is read" "$held" "SELECT v FROM t" in-wal
+  else
+    echo "FAIL setup: the held-open DB has no -wal content"
+    failures=$((failures + 1))
+  fi
+  kill "$holder" 2>/dev/null
+  wait "$holder" 2>/dev/null
 
   touch -t 202001010000 "$db"
   before=$(mtime "$db")
