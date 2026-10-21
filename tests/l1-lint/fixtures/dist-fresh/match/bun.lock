@@ -1,0 +1,7 @@
+{
+  "lockfileVersion": 1,
+  "packages": {
+    "@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.28.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-x"],
+    "esbuild": ["esbuild@0.28.2", "", { "optionalDependencies": { "@esbuild/darwin-arm64": "0.28.2" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-y"],
+  }
+}
