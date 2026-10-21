@@ -5,11 +5,7 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  try {
-    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-  } catch (e) {
-    throw mod = 0, e;
-  }
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -10509,6 +10505,7 @@ ZodNaN.create = (params) => {
     ...processCreateParams(params)
   });
 };
+var BRAND = Symbol("zod_brand");
 var ZodBranded = class extends ZodType {
   _parse(input) {
     const { ctx } = this._processInputParams(input);
@@ -10733,6 +10730,7 @@ function $constructor(name, initializer3, params) {
   Object.defineProperty(_, "name", { value: name });
   return _;
 }
+var $brand = Symbol("zod_brand");
 var $ZodAsyncError = class extends Error {
   constructor() {
     super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
@@ -10879,7 +10877,7 @@ function floatSafeRemainder2(val, step) {
   const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
-var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
+var EVALUATING = Symbol("evaluating");
 function defineLazy(object3, key, getter) {
   let value = void 0;
   Object.defineProperty(object3, key, {
@@ -14406,6 +14404,8 @@ function en_default2() {
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
 var _a;
+var $output = Symbol("ZodOutput");
+var $input = Symbol("ZodInput");
 var $ZodRegistry = class {
   constructor() {
     this._map = /* @__PURE__ */ new WeakMap();
@@ -19063,6 +19063,9 @@ function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
+// node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/Options.js
+var ignoreOverride = Symbol("Let zodToJsonSchema decide on which parser to use");
+
 // node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
 
@@ -20868,7 +20871,7 @@ import { createRequire as createRequire2 } from "node:module";
 import { isAbsolute as isAbsolute2 } from "node:path";
 
 // src/db.ts
-import { copyFileSync, readFileSync as readFileSync3, readdirSync as readdirSync2 } from "node:fs";
+import { readFileSync as readFileSync3, readdirSync as readdirSync2 } from "node:fs";
 import { basename as basename2, join as join4, dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -21528,6 +21531,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 
 // src/db.ts
 var TARGET_SCHEMA_VERSION = 41;
+var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21564,12 +21568,9 @@ var TrajectoryDB = class {
     }
     this.db = new DatabaseSync2(dbPath);
     try {
-      this.db.exec("PRAGMA journal_mode = WAL");
-      this.db.exec("PRAGMA foreign_keys = ON");
-      this.db.exec("PRAGMA busy_timeout = 5000");
+      this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+      execRetryingLockUpgrade(this.db, "PRAGMA journal_mode = WAL");
       this.legacyNoPluginMeta = this.applySchema();
-      this.syncPluginVersion();
-      this.syncBuiltinVersions();
     } catch (error2) {
       try {
         this.db.close();
@@ -21578,9 +21579,42 @@ var TrajectoryDB = class {
       throw error2;
     }
   }
+  /**
+   * Applies schema.sql, migrating first when the stored version is behind, and
+   * stamps the plugin version — all under one BEGIN IMMEDIATE so concurrent
+   * cold starts serialise: the first process migrates, the rest re-read the
+   * version inside the lock and find it current. Table-rebuild migrations need
+   * foreign_keys OFF, and the pragma is a no-op inside a transaction, so it is
+   * switched off around the lock (the Django SQLite schema-editor pattern);
+   * each rebuild still runs its own foreign_key_check before it is released.
+   */
   applySchema() {
     const schemaDir = dirname3(fileURLToPath2(import.meta.url));
     const sql = readFileSync3(join4(schemaDir, "schema.sql"), "utf8");
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    let outcome;
+    try {
+      outcome = withImmediateTransaction(this.db, () => {
+        const applied = this.applySchemaLocked(sql, schemaDir);
+        this.syncPluginVersion();
+        this.syncBuiltinVersions();
+        return applied;
+      });
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
+    }
+    if (outcome.migratedFrom !== null) {
+      this.serverLog({
+        kind: "schema_migrated",
+        level: "info",
+        db_path: this.dbPath,
+        from_version: outcome.migratedFrom,
+        to_version: TARGET_SCHEMA_VERSION
+      });
+    }
+    return outcome.isLegacy;
+  }
+  applySchemaLocked(sql, schemaDir) {
     const applyEvalIfNeeded = () => {
       if (process.env["TMB_EVAL_MODE"] === "1") {
         const evalSql = readFileSync3(join4(schemaDir, "schema-eval.sql"), "utf8");
@@ -21613,14 +21647,14 @@ var TrajectoryDB = class {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return isLegacy;
+      return { isLegacy, migratedFrom: null };
     }
     const versionRow = this.db.prepare("SELECT schema_version FROM plugin_meta LIMIT 1").get();
     if (versionRow === void 0) {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return false;
+      return { isLegacy: false, migratedFrom: null };
     }
     const storedVersion = versionRow.schema_version;
     if (storedVersion > TARGET_SCHEMA_VERSION) {
@@ -21629,25 +21663,27 @@ var TrajectoryDB = class {
       );
     }
     if (storedVersion < TARGET_SCHEMA_VERSION) {
-      backupDbBeforeMigration(this.db, this.dbPath, TARGET_SCHEMA_VERSION);
+      backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
       runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
       this.db.exec(sql);
       this.db.prepare("UPDATE plugin_meta SET schema_version = ? WHERE id = 1").run(TARGET_SCHEMA_VERSION);
       applyEvalIfNeeded();
       verifySeed();
-      return false;
+      return { isLegacy: false, migratedFrom: storedVersion };
     }
     this.db.exec(sql);
     applyEvalIfNeeded();
     verifySeed();
-    return false;
+    return { isLegacy: false, migratedFrom: null };
   }
+  /**
+   * Runs inside applySchema's BEGIN IMMEDIATE, so the write lock is already
+   * held (acquired under busy_timeout) and the UPDATE cannot hit SQLITE_BUSY.
+   * Any failure is logged and fails the open rather than passing as success.
+   */
   syncPluginVersion() {
     if (!this.pluginVersion) return;
-    try {
-      this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(this.pluginVersion);
-    } catch {
-    }
+    this.runVersionSync("plugin_meta", `UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`);
   }
   /**
    * Backfill the builtin cheatcodes' `version` to the plugin version (#111).
@@ -21659,9 +21695,21 @@ var TrajectoryDB = class {
    */
   syncBuiltinVersions() {
     if (!this.pluginVersion) return;
+    this.runVersionSync("cheatcodes", `UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`);
+  }
+  runVersionSync(target, sql) {
     try {
-      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(this.pluginVersion);
-    } catch {
+      this.db.prepare(sql).run(this.pluginVersion);
+    } catch (err5) {
+      this.serverLog({
+        kind: "plugin_version_sync_failed",
+        level: "error",
+        db_path: this.dbPath,
+        target,
+        plugin_version: this.pluginVersion,
+        message: err5 instanceof Error ? err5.message : String(err5)
+      });
+      throw err5;
     }
   }
   run(sql, params) {
@@ -21744,23 +21792,12 @@ var TrajectoryDB = class {
     }
   }
   /**
-   * Wraps `fn` in a SQLite transaction. better-sqlite3 had a built-in
-   * `db.transaction(fn)` helper; node:sqlite does not, so we issue
-   * BEGIN/COMMIT/ROLLBACK explicitly.
+   * Wraps `fn` in a BEGIN IMMEDIATE transaction (a SAVEPOINT when nested).
+   * node:sqlite has no `db.transaction(fn)` helper, so BEGIN/COMMIT/ROLLBACK
+   * are issued explicitly.
    */
   transaction(fn) {
-    this.db.exec("BEGIN");
-    try {
-      const result2 = fn();
-      this.db.exec("COMMIT");
-      return result2;
-    } catch (err5) {
-      try {
-        this.db.exec("ROLLBACK");
-      } catch {
-      }
-      throw err5;
-    }
+    return withImmediateTransaction(this.db, fn);
   }
   get isOpen() {
     return this.db.isOpen;
@@ -21806,7 +21843,56 @@ function noThrowTrajectoryLog(log) {
 function nowISO() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-function backupDbBeforeMigration(db, dbPath, targetVersion) {
+var transactionDepth = /* @__PURE__ */ new WeakMap();
+var SQLITE_BUSY = 5;
+var backoffCell = new Int32Array(new SharedArrayBuffer(4));
+function isBusyError(err5) {
+  if (!(err5 instanceof Error)) return false;
+  const errcode = err5.errcode;
+  return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err5.message.includes("database is locked");
+}
+function execRetryingLockUpgrade(db, sql) {
+  const deadline = performance.now() + BUSY_TIMEOUT_MS;
+  for (; ; ) {
+    try {
+      db.exec(sql);
+      return;
+    } catch (err5) {
+      if (!isBusyError(err5) || performance.now() >= deadline) throw err5;
+      Atomics.wait(backoffCell, 0, 0, 5 + Math.random() * 45);
+    }
+  }
+}
+function beginImmediate(db) {
+  const depth = transactionDepth.get(db) ?? 0;
+  db.exec(depth === 0 ? "BEGIN IMMEDIATE" : `SAVEPOINT tmb_tx_${depth}`);
+  transactionDepth.set(db, depth + 1);
+}
+function commitTransaction(db) {
+  const depth = (transactionDepth.get(db) ?? 1) - 1;
+  db.exec(depth === 0 ? "COMMIT" : `RELEASE tmb_tx_${depth}`);
+  transactionDepth.set(db, depth);
+}
+function rollbackTransaction(db) {
+  const depth = (transactionDepth.get(db) ?? 1) - 1;
+  transactionDepth.set(db, depth);
+  db.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO tmb_tx_${depth}; RELEASE tmb_tx_${depth}`);
+}
+function withImmediateTransaction(db, fn) {
+  beginImmediate(db);
+  try {
+    const result2 = fn();
+    commitTransaction(db);
+    return result2;
+  } catch (err5) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err5;
+  }
+}
+function backupDbBeforeMigration(dbPath, targetVersion) {
   if (!dbPath || dbPath === ":memory:") return;
   const dir = dirname3(dbPath);
   const base = basename2(dbPath);
@@ -21818,13 +21904,15 @@ function backupDbBeforeMigration(db, dbPath, targetVersion) {
     if (existing) return;
   } catch {
   }
-  try {
-    db.prepare("PRAGMA wal_checkpoint(FULL)").get();
-  } catch {
-  }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const backupPath = `${dbPath}.pre-v${targetVersion}.${timestamp}.bak`;
-  copyFileSync(dbPath, backupPath);
+  const snapshot = new DatabaseSync2(dbPath);
+  try {
+    snapshot.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    snapshot.prepare("VACUUM INTO ?").run(backupPath);
+  } finally {
+    snapshot.close();
+  }
 }
 function runMigrations(db, fromVersion, toVersion) {
   if (fromVersion < 2 && toVersion >= 2) {
@@ -21948,6 +22036,14 @@ function runMigrations(db, fromVersion, toVersion) {
     migrateV40toV41(db);
   }
 }
+function deleteBuiltinCheatcodeAttachments(db, name) {
+  if (!tableExists(db, "cheatcode_attachments")) return;
+  db.prepare(
+    // LINT-ALLOW: mirrors the ON DELETE CASCADE that foreign_keys OFF suppresses during migration (GH 1624).
+    `DELETE FROM cheatcode_attachments
+      WHERE cheatcode_id IN (SELECT id FROM cheatcodes WHERE name = ? AND origin = 'builtin')`
+  ).run(name);
+}
 function hasColumn(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   return cols.some((c) => c.name === column);
@@ -21976,7 +22072,7 @@ function rebuildTable(db, table, createBody, columns) {
   }
 }
 function migrateV8toV9(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "agent_runs")) {
       if (!hasColumn(db, "agent_runs", "cache_read_tokens")) {
@@ -22007,34 +22103,34 @@ function migrateV8toV9(db) {
         );
       }
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV9toV10(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "tasks")) {
       if (!hasColumn(db, "tasks", "prompt_bearing")) {
         db.exec("ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0");
       }
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV10toV11(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "repos")) {
       if (!hasColumn(db, "repos", "target_branch")) {
@@ -22047,34 +22143,34 @@ function migrateV10toV11(db) {
         db.exec("ALTER TABLE repos ADD COLUMN protected_branches TEXT");
       }
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV11toV12(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "agent_runs")) {
       if (!hasColumn(db, "agent_runs", "usage_baseline_json")) {
         db.exec("ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT");
       }
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV12toV13(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "tasks")) {
       if (!hasColumn(db, "tasks", "files")) {
@@ -22084,17 +22180,17 @@ function migrateV12toV13(db) {
         db.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
       }
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV13toV14(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS cheatcodes (
@@ -22121,52 +22217,52 @@ function migrateV13toV14(db) {
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV14toV15(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "cheatcodes") && !hasColumn(db, "cheatcodes", "scope")) {
       db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV15toV16(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("DROP TABLE IF EXISTS rule_invocations");
     db.exec("DROP TABLE IF EXISTS rules");
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV16toV17(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("DROP TABLE IF EXISTS commands");
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22177,7 +22273,7 @@ function migrateV17toV18(db) {
     return;
   }
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("DROP TABLE IF EXISTS skills_new");
     db.exec(`
@@ -22206,10 +22302,10 @@ function migrateV17toV18(db) {
         `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22224,7 +22320,7 @@ function migrateV18toV19(db) {
     return;
   }
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (!cheatcodesUnified) {
       db.exec("DROP TABLE IF EXISTS cheatcodes_new");
@@ -22306,10 +22402,10 @@ function migrateV18toV19(db) {
         `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills\u2192cheatcodes unification`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22321,8 +22417,9 @@ function migrateV19toV20(db) {
   if (!tableExists(db, "cheatcodes")) {
     return;
   }
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
+    deleteBuiltinCheatcodeAttachments(db, "tmb_agent-creator");
     db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
     db.exec(`
       INSERT OR IGNORE INTO cheatcodes
@@ -22339,10 +22436,10 @@ function migrateV19toV20(db) {
         `migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22370,7 +22467,7 @@ function migrateV28toV29(db) {
   const VERDICTS = "'pass','fail','escalate'";
   const DISCUSSION_KINDS = "'intent','question','answer','decision','note','analysis'";
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "pr_review_runs")) {
       db.exec("DELETE FROM pr_review_runs WHERE pr_number = 0");
@@ -22614,10 +22711,10 @@ function migrateV28toV29(db) {
         `migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22654,7 +22751,7 @@ var TIMESTAMP_COLUMNS = [
 ];
 function migrateV29toV30(db) {
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     const probes = [
       ["agents", "kind", "kind NOT IN ('backbone','consultant')"],
@@ -22874,10 +22971,10 @@ function migrateV29toV30(db) {
         `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22887,7 +22984,7 @@ function migrateV29toV30(db) {
 }
 function migrateV30toV31(db) {
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "agent_runs") && (hasColumn(db, "agent_runs", "tokens_total") || hasColumn(db, "agent_runs", "usage_baseline_json"))) {
       rebuildTable(
@@ -22944,10 +23041,10 @@ function migrateV30toV31(db) {
         `migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -22959,7 +23056,7 @@ var OWN_MCP_SERVER_NAME = "trajectory-server";
 function migrateV31toV32(db) {
   if (!tableExists(db, "cheatcodes")) return;
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (!/UNIQUE\s*\(\s*name\s*,\s*kind\s*\)/.test(readTableSql(db, "cheatcodes"))) {
       rebuildTable(
@@ -23059,10 +23156,10 @@ function migrateV31toV32(db) {
         `migrateV31toV32: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v32 rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23074,7 +23171,7 @@ var ISO_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 function migrateV32toV33(db) {
   if (!tableExists(db, "agent_runs")) return;
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (!hasColumn(db, "agent_runs", "exit_reason") || !/'backfill'/.test(readTableSql(db, "agent_runs"))) {
       rebuildTable(
@@ -23188,10 +23285,10 @@ function migrateV32toV33(db) {
         `migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23203,7 +23300,7 @@ function migrateV33toV34(db) {
   if (!tableExists(db, "agents")) return;
   if (!hasColumn(db, "agents", "scope") && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db, "agents"))) return;
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     const root = hasColumn(db, "agents", "scope") ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END" : "'plugin:'";
     db.exec(`
@@ -23237,10 +23334,10 @@ function migrateV33toV34(db) {
         `migrateV33toV34: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v34 rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23251,7 +23348,7 @@ function migrateV33toV34(db) {
 function migrateV34toV35(db) {
   if (!tableExists(db, "repos")) return;
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS repo_remotes (
@@ -23331,10 +23428,10 @@ function migrateV34toV35(db) {
         `migrateV34toV35: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v35 rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23371,7 +23468,7 @@ function migrateV35toV36(db) {
   `);
 }
 function migrateV36toV37(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "tasks") && !hasColumn(db, "tasks", "effort")) {
       db.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
@@ -23379,10 +23476,10 @@ function migrateV36toV37(db) {
     if (tableExists(db, "agent_runs") && !hasColumn(db, "agent_runs", "effort")) {
       db.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23392,7 +23489,7 @@ function migrateV37toV38(db) {
   if (!tableExists(db, "audit")) return;
   const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
   const placeholders = documented.map(() => "?").join(", ");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.prepare(
       `UPDATE audit
@@ -23402,10 +23499,10 @@ function migrateV37toV38(db) {
               event_type = 'legacy_event'
         WHERE event_type NOT IN (${placeholders})`
     ).run(...documented);
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23416,7 +23513,7 @@ function migrateV38toV39(db) {
   const legacyWaiver = (alias) => `${alias}.event_type = 'verification_gate_waived' AND ${alias}.from_node = 'swe'
           AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
   const taskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec(
       `UPDATE audit
@@ -23430,10 +23527,10 @@ function migrateV38toV39(db) {
                          AND ${taskId("k")} IS ${taskId("audit")}
                          AND k.id < audit.id)`
     );
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23445,14 +23542,14 @@ function migrateV39toV40(db) {
 }
 function migrateV40toV41(db) {
   if (!tableExists(db, "repo_remotes") || hasColumn(db, "repo_remotes", "sync")) return;
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
     db.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23465,7 +23562,7 @@ function migrateV22toV23(db) {
     return rows.length === 1 ? rows[0].name : null;
   };
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "repos")) {
       if (!hasColumn(db, "repos", "remotes")) {
@@ -23633,10 +23730,10 @@ function migrateV22toV23(db) {
         `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23647,7 +23744,7 @@ function migrateV22toV23(db) {
 function migrateV23toV24(db) {
   if (!tableExists(db, "cheatcodes")) return;
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec(`
       -- LINT-ALLOW: v23\u2192v24 WHERE-scoped cleanup of leaked scan-ingest rows (#150).
@@ -23705,10 +23802,10 @@ function migrateV23toV24(db) {
         `migrateV23toV24: foreign_key_check found ${violations.length} dangling reference(s) after the cheatcodes rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23720,8 +23817,9 @@ function migrateV24toV25(db) {
   if (!tableExists(db, "cheatcodes")) {
     return;
   }
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
+    deleteBuiltinCheatcodeAttachments(db, "tmb_push-triage");
     db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
     db.exec(`
       INSERT OR IGNORE INTO cheatcodes
@@ -23742,10 +23840,10 @@ function migrateV24toV25(db) {
         `migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23755,7 +23853,7 @@ function migrateV25toV26(db) {
   if (!tableExists(db, "validation_attempts")) return;
   if (hasColumn(db, "validation_attempts", "mcp_available")) return;
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("DROP TABLE IF EXISTS validation_attempts_new");
     db.exec(`
@@ -23790,10 +23888,10 @@ function migrateV25toV26(db) {
         `migrateV25toV26: foreign_key_check found ${violations.length} dangling reference(s) after the validation_attempts rebuild`
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -23803,7 +23901,7 @@ function migrateV25toV26(db) {
 }
 function migrateV26toV27(db) {
   if (!tableExists(db, "plugin_config")) return;
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "repos")) {
       const scalarFromConfig = (key) => {
@@ -23845,17 +23943,17 @@ function migrateV26toV27(db) {
       // LINT-ALLOW: v27 migration intentionally removes the drained global policy keys (#980).
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV7toV8(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("DROP TRIGGER IF EXISTS directories_au_new");
     db.exec("DROP TRIGGER IF EXISTS directories_au");
@@ -23866,17 +23964,17 @@ function migrateV7toV8(db) {
     db.exec("DROP TABLE IF EXISTS directories_embeddings");
     db.exec("DROP TABLE IF EXISTS directories_fts");
     db.exec("DROP TABLE IF EXISTS directories");
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV6toV7(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec("DROP TRIGGER IF EXISTS file_registry_au_new");
     db.exec("DROP TRIGGER IF EXISTS file_registry_au");
@@ -23886,17 +23984,17 @@ function migrateV6toV7(db) {
     db.exec("DROP TABLE IF EXISTS file_registry_embeddings");
     db.exec("DROP TABLE IF EXISTS file_registry_fts");
     db.exec("DROP TABLE IF EXISTS file_registry");
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV5toV6(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     db.exec(
       "CREATE TABLE IF NOT EXISTS directories (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL DEFAULT '', path TEXT NOT NULL, parent_path TEXT, summary TEXT, summary_source TEXT CHECK (summary_source IN ('readme','llm','manual')) DEFAULT 'llm', summary_updated_at TEXT, file_count INTEGER NOT NULL DEFAULT 0, UNIQUE(repo, path))"
@@ -23925,17 +24023,17 @@ function migrateV5toV6(db) {
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV4toV5(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "issues")) {
       if (!hasColumn(db, "issues", "gh_iid")) {
@@ -23951,17 +24049,17 @@ function migrateV4toV5(db) {
         "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL"
       );
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV3toV4(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "discussions")) {
       db.exec(`
@@ -24005,17 +24103,17 @@ function migrateV3toV4(db) {
         ON file_registry_embeddings(model_id)
       `);
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV2toV3(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "discussions")) {
       db.exec(`
@@ -24107,17 +24205,17 @@ function migrateV2toV3(db) {
       `);
       db.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
   }
 }
 function migrateV1toV2(db) {
-  db.exec("BEGIN");
+  beginImmediate(db);
   try {
     if (tableExists(db, "identity") && tableExists(db, "plugin_config")) {
       const row = db.prepare("SELECT COUNT(*) AS n FROM identity").get();
@@ -24292,10 +24390,10 @@ function migrateV1toV2(db) {
         );
       }
     }
-    db.exec("COMMIT");
+    commitTransaction(db);
   } catch (err5) {
     try {
-      db.exec("ROLLBACK");
+      rollbackTransaction(db);
     } catch {
     }
     throw err5;
@@ -24807,7 +24905,6 @@ var CodexRuntimeError = class extends Error {
     this.code = code;
     this.name = "CodexRuntimeError";
   }
-  code;
 };
 var CodexRuntimeManager = class {
   plugin;
@@ -25397,8 +25494,6 @@ var CodexAgentMaterializationError = class extends Error {
     this.details = details;
     this.name = "CodexAgentMaterializationError";
   }
-  code;
-  details;
 };
 var CodexAgentMaterializer = class {
   fs;
@@ -26089,8 +26184,6 @@ var AuditWriterError = class extends Error {
     this.eventType = eventType;
     this.writer = writer;
   }
-  eventType;
-  writer;
 };
 function insertAudit(db, entry) {
   assertAuditEventType(entry.event_type);
@@ -31025,8 +31118,6 @@ var CodexAdapterError = class extends Error {
     this.details = details;
     this.name = "CodexAdapterError";
   }
-  code;
-  details;
 };
 function adapterErrorResult(error2) {
   if (error2 instanceof CodexRuntimeError) {

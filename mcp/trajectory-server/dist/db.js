@@ -70,10 +70,11 @@ export class TrajectoryDB {
         }
         this.db = new DatabaseSync(dbPath);
         try {
-            // busy_timeout comes first: journal_mode=WAL on a file another process is
-            // initialising needs a lock, and without a timeout it fails SQLITE_BUSY.
+            // busy_timeout comes first so every lock taken from here on waits for it.
+            // The WAL switch is the one statement before BEGIN IMMEDIATE that takes a
+            // lock, and its SHARED→EXCLUSIVE upgrade bypasses the busy handler.
             this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-            this.db.exec('PRAGMA journal_mode = WAL');
+            execRetryingLockUpgrade(this.db, 'PRAGMA journal_mode = WAL');
             this.legacyNoPluginMeta = this.applySchema();
         }
         catch (error) {
@@ -384,6 +385,37 @@ export function resolveRepoByPath(db, gitRoot) {
     return row ?? null;
 }
 const transactionDepth = new WeakMap();
+const SQLITE_BUSY = 5;
+const backoffCell = new Int32Array(new SharedArrayBuffer(4));
+function isBusyError(err) {
+    if (!(err instanceof Error))
+        return false;
+    const errcode = err.errcode;
+    return ((typeof errcode === 'number' && (errcode & 0xff) === SQLITE_BUSY) ||
+        err.message.includes('database is locked'));
+}
+/**
+ * Runs a statement that reads under SHARED and then needs EXCLUSIVE outside a
+ * transaction, such as `PRAGMA journal_mode = WAL` on a fresh file. When two
+ * connections both hold SHARED and want the upgrade, SQLite returns
+ * SQLITE_BUSY at once instead of calling the busy handler (waiting would
+ * deadlock), so busy_timeout never applies. Retries with a 5–50 ms jittered
+ * backoff until BUSY_TIMEOUT_MS runs out, then rethrows.
+ */
+function execRetryingLockUpgrade(db, sql) {
+    const deadline = performance.now() + BUSY_TIMEOUT_MS;
+    for (;;) {
+        try {
+            db.exec(sql);
+            return;
+        }
+        catch (err) {
+            if (!isBusyError(err) || performance.now() >= deadline)
+                throw err;
+            Atomics.wait(backoffCell, 0, 0, 5 + Math.random() * 45);
+        }
+    }
+}
 /**
  * Opens a write transaction. BEGIN IMMEDIATE takes the write lock up front,
  * where the busy handler waits for it; a deferred BEGIN that reads then writes
