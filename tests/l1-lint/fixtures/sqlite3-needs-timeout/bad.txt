@@ -56,3 +56,21 @@ sqlite3 "$DB" "SELECT sql FROM sqlite_master" | grep busy_timeout # VIOLATION
 X=".timeout 1500" sqlite3 "$DB" "SELECT 1" # VIOLATION
 sqlite3 "$DB" \
   "SELECT 1" && echo ".timeout" # VIOLATION
+cmd=(sqlite3 "$DB"); "${cmd[@]}" "SELECT 1" # VIOLATION
+ro=(timeout 5 sqlite3 -readonly)
+"${ro[@]}" "$DB" "SELECT 1" # VIOLATION
+eval "sqlite3 \"\$DB\" 'SELECT 1'" # VIOLATION
+bash -c 'sqlite3 "$DB" "SELECT 1"' # VIOLATION
+sh -ec "sqlite3 \"\$1\" 'SELECT 1'" _ "$DB" # VIOLATION
+find "$dir" -name '*.db' -exec sqlite3 {} "SELECT 1" \; # VIOLATION
+SQ="${TMB_SQLITE3:-sqlite3}"; $SQ "$DB" "SELECT 1" # VIOLATION
+SQL3=$(command -v sqlite3 || echo sqlite3)
+"$SQL3" "$DB" "SELECT 1" # VIOLATION
+"$(command -v sqlite3)" "$DB" "SELECT 1" # VIOLATION
+SQB=sqlite3; "${SQB:?}" "$DB" "SELECT 1" # VIOLATION
+stdbuf -oL sqlite3 "$DB" "SELECT 1" # VIOLATION
+stdbuf -o L sqlite3 "$DB" "SELECT 1" # VIOLATION
+ionice -c 3 sqlite3 "$DB" "VACUUM" # VIOLATION
+gtimeout 5 sqlite3 "$DB" "SELECT 1" # VIOLATION
+coproc sqlite3 "$DB" # VIOLATION
+coproc DBQ { sqlite3 "$DB"; } # VIOLATION

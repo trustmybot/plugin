@@ -16,13 +16,18 @@
 # a case arm `a)`, `{`, `then`, `do`, `else`, `!`, `&&`, `||`, `|`, `$(` and a
 # backtick all start a command. A command invokes sqlite3 when, after leading
 # keywords, VAR=x assignments and sudo / nice / env / command / exec / time /
-# timeout N / nohup / xargs wrappers (with their options), its name is
-# `sqlite3`, a path ending in /sqlite3 (quoted or not), or `$V` / `${V}` /
-# `${V:-sqlite3}` for a variable the file assigns sqlite3 (or
-# `$(command -v sqlite3)`). `sqlite3` followed by an option anywhere in a
+# timeout N / gtimeout N / stdbuf / ionice / coproc [NAME {] / nohup / xargs
+# wrappers (with their options), its name is `sqlite3`, a path ending in
+# /sqlite3 (quoted or not), `$(command -v sqlite3 ...)`, or `$V` / `${V}` /
+# `${V:?}` / `${V:-sqlite3}` for a variable the file assigns sqlite3,
+# `${W:-sqlite3}` or `$(command -v sqlite3 ...)`; `"${A[@]}"` for an array
+# whose first command word is sqlite3 counts unless the array holds a timeout.
+# `find -exec sqlite3`, and the string run by `eval` or `sh|bash|zsh -c`, are
+# lexed as commands too. `sqlite3` followed by an option anywhere in a
 # command (`set -- sqlite3 -readonly ...`) counts too. The invocation passes
 # when its own arguments, redirections or heredoc body (after the sqlite3
-# word, up to the end of that command) hold `.timeout` or `busy_timeout`.
+# word, up to the end of that command), or an array expanded there, hold
+# `.timeout` or `busy_timeout`.
 # Comments, quoted messages and heredoc text are data, never commands.
 #
 # Allowlist: tests/l1-lint/sqlite3-needs-timeout.allowlist —
@@ -298,7 +303,14 @@ sub cmd_name {
     if ($v eq "nice")    { $k++; $opts->(qr/^-n$/); next }
     if ($v eq "sudo")    { $k++; $opts->(qr/^-[ugCDprtUT]$/); next }
     if ($v eq "xargs")   { $k++; $opts->(qr/^-[IdEnLPsa]$/); next }
-    if ($v eq "timeout") { $k++; $opts->(qr/^-[sk]$/); $k++; next }
+    if ($v eq "stdbuf")  { $k++; $opts->(qr/^-[ioe]$/); next }
+    if ($v eq "ionice")  { $k++; $opts->(qr/^-[cnp]$/); next }
+    if ($v =~ /^g?timeout$/) { $k++; $opts->(qr/^-[sk]$/); $k++; next }
+    if ($v eq "coproc") {
+      $k++;
+      $k++ if $k + 1 < $m && $w->[$k]{val} =~ /^[A-Za-z_]\w*$/ && $w->[$k + 1]{val} eq "{";
+      next;
+    }
     if ($v eq "command") {
       last if $k + 1 < $m && $w->[$k + 1]{val} =~ /^-[vV]/;
       $k++;
@@ -321,15 +333,56 @@ sub cmd_name {
 }
 
 my $SQLITE = qr{^(?:\S*/)?sqlite3$};
-my $SQLVAL = qr{^(?:(?:\S*/)?sqlite3|\$\((?:command[ \t]+-v|which|type[ \t]+-P)[ \t]+sqlite3\))$};
+my $LOOKUP = qr{(?:command[ \t]+-v|which|type[ \t]+-P)[ \t]+sqlite3\b[^)`]*};
+my $SQLVAL = qr{^(?:(?:\S*/)?sqlite3|\$\{[A-Za-z_]\w*:?[-=](?:\S*/)?sqlite3\}|\$\([ \t]*$LOOKUP\)|`[ \t]*$LOOKUP`)$};
+my $TIMEOUT = qr{\.timeout\b|busy_timeout};
 
+our (%vars, %arrays);
+
+# 0: not sqlite3, or an array that already carries a timeout; 1: sqlite3.
 sub is_sqlite {
-  my ($w, $vars) = @_;
-  return 1 if $w->{val} =~ $SQLITE;
-  if ($w->{raw} =~ /^"?\$\{?([A-Za-z_]\w*)(?::?-([^}]*))?\}?"?$/) {
-    return 1 if $vars->{$1} || (defined $2 && $2 =~ $SQLITE);
+  my ($w) = @_;
+  return 1 if $w->{val} =~ $SQLVAL;
+  if ($w->{raw} =~ /^"?\$\{([A-Za-z_]\w*)\[([^\]]*)\]\}"?$/) {
+    my $a = $arrays{$1} or return 0;
+    return $a->{sqlite} && !($2 =~ /^[@*]$/ && $a->{timeout}) ? 1 : 0;
+  }
+  if ($w->{raw} =~ /^"?\$\{?([A-Za-z_]\w*)(?:(:?[-=?+])([^}]*))?\}?"?$/) {
+    return 1 if $vars{$1} || $arrays{$1}{sqlite};
+    return 1 if defined $2 && $2 =~ /[-=]$/ && $3 =~ $SQLITE;
   }
   return 0;
+}
+
+sub array_timeout {
+  my ($raw) = @_;
+  return $raw =~ /\$\{([A-Za-z_]\w*)\[[@*]\]\}/ && $arrays{$1}{timeout};
+}
+
+sub line_of { my ($w) = @_; $w->{ln} // 1 + (substr($s, 0, $w->{pos}) =~ tr/\n//) }
+
+# Lexes shell text held in a string (an eval argument, a `bash -c` script, an
+# array body); every word it yields reports line $ln plus its own offset.
+sub subparse {
+  my ($src, $ln) = @_;
+  local ($s, $i, $n, @cmds, @pending, $lost) = ($src, 0, length $src);
+  parse("") while $i < $n;
+  for my $c (@cmds) { $_->{ln} = $ln + (substr($s, 0, $_->{pos}) =~ tr/\n//) for @{ $c->{words} } }
+  return @cmds;
+}
+
+# eval ARGS and sh/bash/zsh/dash/ksh -c SCRIPT run their string as shell.
+sub nested_source {
+  my ($w, $k) = @_;
+  my $v = $w->[$k]{val};
+  if ($v eq "eval" && $k + 1 < @$w) {
+    return (join(" ", map { $_->{val} } @$w[$k + 1 .. $#$w]), line_of($w->[$k + 1]));
+  }
+  return () unless $v =~ m{^(?:\S*/)?(?:ba|z|da|k)?sh$};
+  for (my $j = $k + 1; $j < $#$w && $w->[$j]{val} =~ /^-/; $j++) {
+    return ($w->[$j + 1]{val}, line_of($w->[$j + 1])) if $w->[$j]{val} =~ /^-[a-z]*c[a-z]*$/;
+  }
+  return ();
 }
 
 for my $file (@files) {
@@ -344,37 +397,61 @@ for my $file (@files) {
     $bad = 1;
     next;
   }
-  my %vars;
+  for (my $ci = 0; $ci < @cmds; $ci++) {
+    my $w = $cmds[$ci]{words};
+    next unless @$w;
+    my $k = cmd_name($w);
+    next if $k >= @$w;
+    my ($src, $ln) = nested_source($w, $k);
+    push @cmds, subparse($src, $ln) if defined $src && length $src;
+  }
+  local (%vars, %arrays);
   for my $c (@cmds) {
     for my $w (@{ $c->{words} }) {
       my ($name, $value) = $w->{val} =~ /^([A-Za-z_]\w*)=(.*)$/s or next;
       $vars{$name} = 1 if $value =~ $SQLVAL;
     }
   }
+  for my $c (@cmds) {
+    for my $w (@{ $c->{words} }) {
+      my ($name, $plus, $body) = $w->{raw} =~ /^([A-Za-z_]\w*)(\+?)=\((.*)\)$/s or next;
+      $arrays{$name}{timeout} ||= $body =~ $TIMEOUT ? 1 : 0;
+      next if $plus;
+      my ($first) = grep { @{ $_->{words} } } subparse($body, 1);
+      $arrays{$name}{sqlite} ||= $first && is_sqlite($first->{words}[cmd_name($first->{words})] // {val => "", raw => ""});
+    }
+  }
   my @lines = split /\n/, $s, -1;
-  my %seen;
+  my (%seen, %hits);
   for my $c (@cmds) {
     my $w = $c->{words};
     next unless @$w;
     my $k = cmd_name($w);
     my @at;
-    push @at, $k if $k < @$w && is_sqlite($w->[$k], \%vars);
-    for my $j ($k + 1 .. $#$w - 1) {
+    push @at, $k if $k < @$w && is_sqlite($w->[$k]);
+    my $find = $k < @$w && $w->[$k]{val} =~ m{^(?:\S*/)?find$};
+    for my $j ($find ? $k + 1 .. $#$w - 1 : ()) {
+      next unless $w->[$j]{val} =~ /^-(?:exec|execdir|ok|okdir)$/;
+      my $e = $j + 1 + cmd_name([@$w[$j + 1 .. $#$w]]);
+      push @at, $e if $e < @$w && is_sqlite($w->[$e]);
+    }
+    for my $j ($find ? () : $k + 1 .. $#$w - 1) {
       push @at, $j if $w->[$j]{val} =~ $SQLITE && $w->[$j + 1]{val} =~ /^-/;
     }
     for my $j (@at) {
       my $own = join "\n", (map { $_->{raw} } @$w[$j + 1 .. $#$w]), @{ $c->{extra} };
-      next if $own =~ /\.timeout\b|busy_timeout/;
-      my $ln = 1 + (substr($s, 0, $w->[$j]{pos}) =~ tr/\n//);
+      next if $own =~ $TIMEOUT || grep { array_timeout($_->{raw}) } @$w[$j + 1 .. $#$w];
+      my $ln = line_of($w->[$j]);
       next if $seen{$ln}++;
       my $l = $lines[$ln - 1];
       my ($hit) = grep { $_->{path} eq $file && index($l, $_->{sub}) >= 0 } @allow;
       if ($hit) { $hit->{used} = 1; next }
       (my $t = $l) =~ s/^\s+//;
-      printf "%s:%d: %s\n", $file, $ln, $t;
+      $hits{$ln} = "$file:$ln: $t\n";
       $bad = 1;
     }
   }
+  print @hits{ sort { $a <=> $b } keys %hits };
 }
 for (grep { !$_->{used} } @allow) {
   print "ALLOWLIST $allowlist: stale entry (no hit): $_->{path}\t$_->{sub}\n";
@@ -391,7 +468,7 @@ expected_lines() {
 }
 
 run_self_test() {
-  local fail=0 bad got expected good
+  local fail=0 bad got want expected good
   bad=$(scan /dev/null "$FIXTURES/bad.txt")
   got=$(printf '%s\n' "$bad" | sed -n 's/^[^:]*:\([0-9][0-9]*\):.*/\1/p' | tr '\n' ' ')
   expected=$(expected_lines "$FIXTURES/bad.txt" | tr '\n' ' ')
@@ -399,7 +476,12 @@ run_self_test() {
     printf 'sqlite3-needs-timeout self-test: bad.txt expected hits on lines [%s], got [%s]:\n%s\n' "$expected" "$got" "$bad" >&2
     fail=1
   fi
-  got=$(printf '%s' "$expected" | wc -w | tr -d ' ')
+  got=$(printf '%s\n' "$bad" | grep -c '^[^:]*:[0-9][0-9]*:')
+  want=$(printf '%s' "$expected" | wc -w | tr -d ' ')
+  if [ "$got" -ne "$want" ]; then
+    printf 'sqlite3-needs-timeout self-test: bad.txt has %d VIOLATION lines, %d reported\n' "$want" "$got" >&2
+    fail=1
+  fi
   if ! printf '%s\n' "$bad" | grep -F 'sqlite3 "$DB" "SELECT 1"' >/dev/null; then
     printf 'sqlite3-needs-timeout self-test: the bare sqlite3 "$DB" "SELECT 1" in bad.txt was not reported\n' >&2
     fail=1
