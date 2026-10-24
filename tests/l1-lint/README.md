@@ -47,6 +47,7 @@ bash tests/l1-lint/link-check.sh
 | [`tool-description-budget.sh`](./tool-description-budget.sh) | MCP tool descriptions over budget |
 | [`no-citations-in-prompts.sh`](./no-citations-in-prompts.sh) | Issue #s / PR URLs leaking into prompt files |
 | [`no-negative-directives.sh`](./no-negative-directives.sh) | Negative ("never…") directives in prompts |
+| [`no-kuzu-in-prompts.sh`](./no-kuzu-in-prompts.sh) | `kuzu` (any case) in `CLAUDE.md`, `agents/`, `commands/` or a `skills/` `*.md` — the world model is trajectory-DB tables (allowlist: `no-kuzu-in-prompts.allowlist`, entries `<path><TAB><substring><TAB><reason>`; `--self-test` runs `fixtures/kuzu-in-prompts/`) |
 | [`onboard-option-wording.sh`](./onboard-option-wording.sh) | An `/onboard` option `label` / `description` (or `BRANCHING_DESCRIPTIONS` entry) in `onboard.ts` that names an internal (trajectory, DB, hook, shim, PreToolUse, KV, wire, mirror, containment) fails; a description over 15 words warns. `--self-test` runs `fixtures/onboard-option-wording/` |
 | [`prompt-explicit-paths.sh`](./prompt-explicit-paths.sh) | A relative `.claude/` path, or `git push` / `switch` / `checkout` / `pull` without `-C`, in an agent, command or skill; takes an optional plugin-root argument, and `tests/l3-integration/hooks/prompt-explicit-paths-lint.test.sh` plants the failure cases |
 | [`local-agent-primitives.sh`](./local-agent-primitives.sh) | Local-agent primitive usage |

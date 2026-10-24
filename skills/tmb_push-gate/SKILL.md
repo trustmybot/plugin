@@ -49,4 +49,4 @@ Read the verdict + `mcp_available` off each task's validation row via `validatio
 
 ### Post-merge cleanup
 
-`git -C <repo path> switch <pr_target> && git -C <repo path> pull --ff-only && git -C <repo path> branch -d <feature>`. The SWE worktree stays through task close and is removed automatically once pr-reviewer passes the task or the branch merges, so a failed review reworks in place.
+Once `gh pr view <n> -R <slug> --json state` reports `MERGED` (`glab mr view <n> -R <slug> --output json` reports `merged`): `git -C <repo path> switch <pr_target> && git -C <repo path> pull --ff-only && git -C <repo path> branch -D <feature> && git -C <repo path> fetch --prune`. A squash merge leaves `<feature>` unmerged by ancestry, so the confirmed merge state is what clears it for `-D`; any other state leaves the branch in place. The SWE worktree stays through task close and is removed automatically once pr-reviewer passes the task or the branch merges, so a failed review reworks in place.
