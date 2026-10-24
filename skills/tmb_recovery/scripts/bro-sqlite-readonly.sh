@@ -89,6 +89,7 @@ readonly_refusal_json() {
 # ---------------------------------------------------------------------------
 # sqlite3 query helpers
 # ---------------------------------------------------------------------------
+TOOL=""
 DB_PATH=""
 READ_DB=""
 SNAP_DIR=""
@@ -129,16 +130,19 @@ prepare_read_db() {
   READ_DB="$SNAP_DIR/snap.db"
 }
 
+# run_query <sql> — prints the rows as a JSON array ([] when none). A failed
+# query prints "bro-sqlite-readonly: <tool> failed: <sqlite error>" to stderr
+# and exits 1.
 run_query() {
-  sqlite_ro -json "$READ_DB" "$1" 2>/dev/null
-}
-
-run_query_param() {
-  # sqlite3 doesn't support parameterized queries from CLI, so we escape manually.
-  # Values are always integer IDs or short strings; we single-quote and escape
-  # any single quotes inside the value (SQL escaping: '' for ').
-  local query="$1"
-  sqlite_ro -json "$READ_DB" "$query" 2>/dev/null
+  local out err
+  err=$(mktemp "${TMPDIR:-/tmp}/bro-sqlite-readonly-err.XXXXXX")
+  if ! out=$(sqlite_ro -json "$READ_DB" "$1" 2>"$err"); then
+    printf 'bro-sqlite-readonly: %s failed: %s\n' "$TOOL" "$(cat "$err")" >&2
+    rm -f "$err"
+    exit 1
+  fi
+  rm -f "$err"
+  printf '%s\n' "${out:-[]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -184,7 +188,7 @@ tool_issue_resume() {
 
   # Fetch issue (redacted for bro: no description field omitted since bro is full-trust)
   local issue_json
-  issue_json=$(run_query "SELECT id, objective, description, status, created_at, updated_at, closed_at, remote_iid, remote_kind FROM issues WHERE id = $safe_id;")
+  issue_json=$(run_query "SELECT id, objective, description, status, created_at, updated_at, closed_at, remote_kind, gh_iid, gl_iid FROM issues WHERE id = $safe_id;")
 
   if [[ -z "$issue_json" || "$issue_json" == "[]" ]]; then
     error_json "Not found: $issue_id"
@@ -227,7 +231,7 @@ tool_issue_get() {
   if [[ "$include_description" == "True" || "$include_description" == "true" || "$include_description" == "1" ]]; then
     cols="*"
   else
-    cols="id, objective, description, status, created_at, updated_at, closed_at, remote_iid, remote_kind"
+    cols="id, objective, description, status, created_at, updated_at, closed_at, remote_kind, gh_iid, gl_iid"
   fi
 
   local rows
@@ -348,7 +352,7 @@ tool_config_get() {
   safe_key=$(sql_escape "$key")
 
   local rows
-  rows=$(run_query "SELECT key, value_json, updated_at FROM plugin_config WHERE key = '$safe_key';")
+  rows=$(run_query "SELECT key, value_json FROM plugin_config WHERE key = '$safe_key';")
 
   if [[ -z "$rows" || "$rows" == "[]" ]]; then
     echo "null"
@@ -415,6 +419,7 @@ print(json.dumps({'supported_read_tools': $(printf '%s\n' "${SUPPORTED_READ_TOOL
   fi
 
   local tool="${1:-}"
+  TOOL="$tool"
   local args="${2:-}"
   if [[ -z "$args" ]]; then args='{}'; fi
 

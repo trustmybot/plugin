@@ -29,12 +29,11 @@ exec "$REAL_SQLITE3" "\$@"
 WRAP
 chmod +x "$BIN/sqlite3"
 
-SCHEMA="CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT);
-  CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT, description TEXT, status TEXT, created_at TEXT,
-    updated_at TEXT, closed_at TEXT, remote_iid TEXT, remote_kind TEXT);
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER, branch_id TEXT, status TEXT);"
-ROWS="INSERT INTO plugin_config VALUES ('sentinel', '\"wal-only\"', '2026-01-01T00:00:00Z');
-  INSERT INTO issues (id, objective, status) VALUES (1, 'row in the wal', 'open');"
+# shellcheck source=tests/l3-integration/hooks/fixtures/migrated-db.sh
+. "$HERE/fixtures/migrated-db.sh"
+ROWS="INSERT INTO plugin_config (key, value_json) VALUES ('sentinel', '\"wal-only\"');
+  INSERT INTO issues (id, objective, status, created_at, updated_at, remote_kind, gh_iid)
+    VALUES (1, 'row in the wal', 'open', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'github', 1629);"
 
 mtime() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
@@ -74,7 +73,7 @@ assert_scratch_clean() {
 HELD_PROJ="$TMP/held"
 HELD=$(db_in "$HELD_PROJ")
 mkdir -p "$(dirname "$HELD")"
-"$REAL_SQLITE3" "$HELD" "PRAGMA journal_mode=WAL; $SCHEMA" >/dev/null
+migrated_db "$HELD"
 mkfifo "$TMP/holder.fifo"
 "$REAL_SQLITE3" "$HELD" < "$TMP/holder.fifo" >/dev/null 2>&1 &
 HOLDER=$!
@@ -109,7 +108,8 @@ wal_copy() {
 test_case "setup: the copy's rows are only in its -wal, and it has no -shm"
 mkdir -p "$TMP/mainonly"
 cp "$PRISTINE/trajectory.db" "$TMP/mainonly/main.db"
-assert_eq "0" "$("$REAL_SQLITE3" "file:$TMP/mainonly/main.db?immutable=1" "SELECT count(*) FROM plugin_config;")" "main file holds no rows"
+assert_eq "0 0" "$("$REAL_SQLITE3" "file:$TMP/mainonly/main.db?immutable=1" "SELECT (SELECT count(*) FROM plugin_config WHERE key = 'sentinel') || ' ' || (SELECT count(*) FROM issues WHERE id = 1);")" "main file holds no seeded rows"
+MAIN_ISSUES=$("$REAL_SQLITE3" "file:$TMP/mainonly/main.db?immutable=1" "SELECT count(*) FROM issues;")
 if [ -s "$PRISTINE/trajectory.db-wal" ]; then _pass; else _fail "the -wal is empty"; fi
 
 COPY_PROJ="$TMP/copy"
@@ -138,14 +138,15 @@ COPY3_PROJ="$TMP/copy3"
 wal_copy "$COPY3_PROJ"
 run_helper "$COPY3_PROJ" --dry-run
 assert_contains "$OUT" "\"db_path\":\"$(db_in "$COPY3_PROJ")\"" "dry-run names the DB, not the snapshot"
-assert_contains "$OUT" '"issues_count":1' "dry-run counts the -wal row"
+assert_contains "$OUT" "\"issues_count\":$((MAIN_ISSUES + 1))" "dry-run counts the -wal row"
 assert_scratch_clean
 
 test_case "detached WAL DB (no -wal, no -shm): rows come back, nothing appears beside it"
 DET_PROJ="$TMP/detached"
 DET=$(db_in "$DET_PROJ")
 mkdir -p "$(dirname "$DET")"
-"$REAL_SQLITE3" "$DET" "PRAGMA journal_mode=WAL; $SCHEMA $ROWS PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null
+migrated_db "$DET"
+"$REAL_SQLITE3" "$DET" "$ROWS PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null
 rm -f "$DET-wal" "$DET-shm"
 touch -t 202001010000 "$DET"
 main_before=$(fingerprint "$DET")
@@ -181,7 +182,8 @@ test_case "a rollback-journal DB keeps the direct read-only path"
 DEL_PROJ="$TMP/delete"
 DEL=$(db_in "$DEL_PROJ")
 mkdir -p "$(dirname "$DEL")"
-"$REAL_SQLITE3" "$DEL" "PRAGMA journal_mode=DELETE; $SCHEMA $ROWS" >/dev/null
+migrated_db "$DEL"
+"$REAL_SQLITE3" "$DEL" "PRAGMA journal_mode=DELETE; $ROWS" >/dev/null
 run_helper "$DEL_PROJ" config_get '{"key":"sentinel"}'
 assert_eq '"wal-only"' "$OUT" "sentinel row read"
 assert_not_contains "$(cat "$LOG")" "VACUUM INTO" "no snapshot taken"
