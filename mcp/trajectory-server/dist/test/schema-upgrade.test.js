@@ -4123,6 +4123,21 @@ describe('schema upgrade — only a migrating opener upgrades the DB (GH 1639)',
         raw.close();
         assert.equal(wm, undefined, 'no migration DDL ran');
     });
+    for (const journalMode of ['wal', 'delete']) {
+        it(`a non-migrating open of a ${journalMode}-mode v41 DB leaves the file byte-identical (GH 1679)`, () => {
+            const tmpDir = makeTmpDir();
+            const dbPath = join(tmpDir, 'trajectory.db');
+            seedV41(dbPath);
+            const raw = new DatabaseSync(dbPath);
+            raw.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`);
+            raw.close();
+            const before = readFileSync(dbPath);
+            const sidecarsBefore = readdirSync(tmpDir).sort();
+            assert.throws(() => new TrajectoryDB(dbPath), /only the trajectory-server migrates the DB/);
+            assert.ok(readFileSync(dbPath).equals(before), 'the DB file must be byte-identical');
+            assert.deepEqual(readdirSync(tmpDir).sort(), sidecarsBefore, 'no -wal, -shm or .bak file is created');
+        });
+    }
     it('a migrating open of the same v41 DB upgrades it to v42', () => {
         const tmpDir = makeTmpDir();
         const dbPath = join(tmpDir, 'trajectory.db');
