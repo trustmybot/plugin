@@ -1,0 +1,10 @@
+{
+  "name": "tmb-runtime-deps",
+  "private": true,
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1"
+  },
+  "overrides": {
+    "sharp": "file:./sharp-stub"
+  }
+}

@@ -1,1 +1,2 @@
 askuserquestion-length-lint
+ensure-mcp-deps-installed

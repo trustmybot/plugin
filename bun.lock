@@ -12,7 +12,7 @@
       "name": "@trustmybot/trajectory-server",
       "version": "1.1.0",
       "dependencies": {
-        "@huggingface/transformers": "^3.0.0",
+        "@huggingface/transformers": "3.8.1",
         "@modelcontextprotocol/sdk": "^1.0",
       },
       "devDependencies": {

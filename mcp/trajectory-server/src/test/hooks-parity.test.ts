@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gateNames } from '../hooks/registry.js';
+import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -47,12 +48,46 @@ function parsedStdout(stdout: string): unknown {
   return stdout.trim() === '' ? null : JSON.parse(stdout);
 }
 
+/**
+ * ensure-mcp-deps-installed runs in the ready state: a temp plugin root whose
+ * MCP dir resolves @huggingface/transformers at the pinned version, and an
+ * empty temp data dir, so neither implementation installs anything.
+ */
+function readyDepsEnv(scratch: string): NodeJS.ProcessEnv {
+  const root = join(scratch, 'ready-root');
+  const mcp = join(root, 'mcp/trajectory-server');
+  const pkg = join(root, 'node_modules/@huggingface/transformers');
+  mkdirSync(mcp, { recursive: true });
+  mkdirSync(join(pkg, 'dist'), { recursive: true });
+  mkdirSync(join(scratch, 'data'), { recursive: true });
+  writeFileSync(join(mcp, 'package.json'), JSON.stringify({ name: 'traj', type: 'module' }));
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({
+    name: '@huggingface/transformers',
+    version: TRANSFORMERS_VERSION,
+    exports: { node: { import: { default: './dist/transformers.node.mjs' }, require: { default: './dist/transformers.node.cjs' } } },
+  }));
+  writeFileSync(join(pkg, 'dist/transformers.node.mjs'), 'export const pipeline = 1;\n');
+  writeFileSync(join(pkg, 'dist/transformers.node.cjs'), 'exports.pipeline = 1;\n');
+  return { CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: join(scratch, 'data') };
+}
+
+const GATE_ENV: Readonly<Record<string, (scratch: string) => NodeJS.ProcessEnv>> = {
+  'ensure-mcp-deps-installed': readyDepsEnv,
+};
+
 describe('hooks parity: bash vs node over the corpus', () => {
   let project: string;
+  let scratch: string;
+  const gateEnv = new Map<string, NodeJS.ProcessEnv>();
   before(() => {
     project = mkdtempSync(join(tmpdir(), 'tmb-hooks-parity-'));
+    scratch = mkdtempSync(join(tmpdir(), 'tmb-hooks-parity-scratch-'));
+    for (const [gate, build] of Object.entries(GATE_ENV)) gateEnv.set(gate, build(join(scratch, gate)));
   });
-  after(() => rmSync(project, { recursive: true, force: true }));
+  after(() => {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  });
 
   it('every registered gate has a corpus of at least 8 inputs', () => {
     assert.ok(gateNames().length > 0, 'the registry lists no gate');
@@ -78,7 +113,7 @@ describe('hooks parity: bash vs node over the corpus', () => {
       for (const locale of LOCALES) {
         it(`${gate} / ${file.slice(CORPUS_ROOT.length + gate.length + 2)} (LC_ALL=${locale})`, () => {
           const input = readFileSync(file);
-          const env = { ...process.env, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: locale };
+          const env = { ...process.env, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: locale, ...gateEnv.get(gate) };
           const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], input, env);
           const node = run(process.execPath, [HOOKS_BUNDLE, gate], input, env);
           assert.equal(node.code, bash.code, 'exit code');
@@ -88,7 +123,8 @@ describe('hooks parity: bash vs node over the corpus', () => {
     }
   }
 
-  it('the parity runs left the isolated project untouched', () => {
+  it('the parity runs left the isolated project and the ready-state data dir untouched', () => {
     assert.deepEqual(readdirSync(project), []);
+    assert.deepEqual(readdirSync(join(scratch, 'ensure-mcp-deps-installed/data')), []);
   });
 });
