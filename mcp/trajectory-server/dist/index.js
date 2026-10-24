@@ -6803,7 +6803,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync11 } from "node:fs";
+import { mkdirSync as mkdirSync9, readFileSync as readFileSync11 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -13056,10 +13056,10 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     const shape = def.shape;
     const propValues = {};
     for (const key in shape) {
-      const field = shape[key]._zod;
-      if (field.values) {
+      const field2 = shape[key]._zod;
+      if (field2.values) {
         propValues[key] ?? (propValues[key] = /* @__PURE__ */ new Set());
-        for (const v of field.values)
+        for (const v of field2.values)
           propValues[key].add(v);
       }
     }
@@ -28728,22 +28728,22 @@ function validateParentBranchId(branchId, db2, repoValue) {
   );
 }
 function validateTypedRailsFields(t) {
-  const checkStringArray = (value, field) => {
+  const checkStringArray = (value, field2) => {
     if (value === void 0 || value === null) return [];
     if (!Array.isArray(value)) {
       throw new Error(
-        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be an array of strings, got ${typeof value}.`
+        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field2}' must be an array of strings, got ${typeof value}.`
       );
     }
     if (value.length === 0) {
       throw new Error(
-        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be a non-empty array when provided (omit the field entirely ${field === "files" ? "to declare no expected scope: no edit-time notes, and every changed path is an extra at close" : "to disable the verification gate"}).`
+        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field2}' must be a non-empty array when provided (omit the field entirely ${field2 === "files" ? "to declare no expected scope: no edit-time notes, and every changed path is an extra at close" : "to disable the verification gate"}).`
       );
     }
     for (const el of value) {
       if (typeof el !== "string" || el.trim().length === 0) {
         throw new Error(
-          `typed_field_violation: task branch_id='${t.branch_id}' \u2014 every '${field}' entry must be a non-empty string.`
+          `typed_field_violation: task branch_id='${t.branch_id}' \u2014 every '${field2}' entry must be a non-empty string.`
         );
       }
     }
@@ -32259,12 +32259,12 @@ function openChangeRequestsForBranch(db2, repoName, repoPath, branchId, spawnFn)
   }
   return found;
 }
-function validateFenceAdditions(value, field) {
+function validateFenceAdditions(value, field2) {
   if (value === void 0 || value === null) return [];
-  if (!Array.isArray(value)) throw new Error(`${field} must be an array of strings.`);
+  if (!Array.isArray(value)) throw new Error(`${field2} must be an array of strings.`);
   for (const el of value) {
     if (typeof el !== "string" || el.trim().length === 0) {
-      throw new Error(`${field} entries must each be a non-empty string.`);
+      throw new Error(`${field2} entries must each be a non-empty string.`);
     }
   }
   return value;
@@ -32645,13 +32645,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
           );
         }
-        const validateStrArray = (value, field) => {
+        const validateStrArray = (value, field2) => {
           if (!Array.isArray(value) || value.length === 0) {
-            throw new Error(`task.${field} must be a non-empty array of strings.`);
+            throw new Error(`task.${field2} must be a non-empty array of strings.`);
           }
           for (const el of value) {
             if (typeof el !== "string" || el.trim().length === 0) {
-              throw new Error(`task.${field} entries must each be a non-empty string.`);
+              throw new Error(`task.${field2} entries must each be a non-empty string.`);
             }
           }
           return value;
@@ -33003,10 +33003,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (typeof reason !== "string" || reason.trim().length === 0) {
           return err15("reason must be a non-empty string");
         }
-        const replacement = (field) => {
-          if (args[field] === void 0) return void 0;
-          const value = validateFenceAdditions(args[field], field);
-          if (value.length === 0) throw new Error(`${field} must be a non-empty array of strings.`);
+        const replacement = (field2) => {
+          if (args[field2] === void 0) return void 0;
+          const value = validateFenceAdditions(args[field2], field2);
+          if (value.length === 0) throw new Error(`${field2} must be a non-empty array of strings.`);
           return value;
         };
         const newFiles = replacement("files");
@@ -33046,9 +33046,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           changes["spec_body"] = { old_length: (task.spec_body ?? "").length, new_length: newSpec.length };
         }
         const changed = Object.keys(changes);
-        const summaryParts = changed.map((field) => {
-          const c = changes[field];
-          return field === "spec_body" ? `spec_body ${c.old_length}\u2192${c.new_length} chars` : `${field} +${c.added.length}/-${c.removed.length}`;
+        const summaryParts = changed.map((field2) => {
+          const c = changes[field2];
+          return field2 === "spec_body" ? `spec_body ${c.old_length}\u2192${c.new_length} chars` : `${field2} +${c.added.length}/-${c.removed.length}`;
         });
         const files = newFiles ?? oldFiles;
         const verification = newVerification ?? oldVerification;
@@ -37088,15 +37088,16 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync12, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname10, join as join16 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync7 } from "node:fs";
+import { dirname as dirname11, join as join16 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { existsSync as existsSync11, readFileSync as readFileSync7 } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync7, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { isAbsolute as isAbsolute5, join as join15 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute5, join as join15 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -37166,16 +37167,85 @@ function parsePluginListing(text) {
   }
   return plugins;
 }
-async function probeRuntime(timeoutSec, projectRoot = null) {
+async function probeListings(timeoutSec, projectRoot) {
   const [mcpText, pluginText] = await Promise.all([
     runClaude(["mcp", "list"], timeoutSec, projectRoot),
     runClaude(["plugin", "list", "--json"], timeoutSec, projectRoot)
   ]);
   const mcpNames = /* @__PURE__ */ new Set([...mcpText === null ? [] : parseMcpListing(mcpText), ...claudeJsonMcpKeys()]);
+  const plugins = pluginText === null ? null : parsePluginListing(pluginText);
   return {
-    mcpServers: mcpNames.size > 0 ? mcpNames : null,
-    plugins: pluginText === null ? null : parsePluginListing(pluginText)
+    evidence: { mcpServers: mcpNames.size > 0 ? mcpNames : null, plugins },
+    listed: mcpText !== null || plugins !== null
   };
+}
+var PROBE_TTL_MS = 24 * 60 * 60 * 1e3;
+function readJson(path2) {
+  try {
+    return JSON.parse(readFileSync7(path2, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function field(value, key) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value[key] ?? null : null;
+}
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+function cliConfigFingerprint(projectRoot) {
+  const home = homedir3();
+  const claudeJson = readJson(join15(home, ".claude.json"));
+  const inProject = (...parts) => projectRoot === null ? null : readJson(join15(projectRoot, ...parts));
+  const inputs = {
+    claudeJsonMcpServers: field(claudeJson, "mcpServers"),
+    claudeJsonProjectMcpServers: projectRoot === null ? null : field(field(field(claudeJson, "projects"), projectRoot), "mcpServers"),
+    projectMcpJson: inProject(".mcp.json"),
+    enabledPlugins: {
+      user: field(readJson(join15(home, ".claude", "settings.json")), "enabledPlugins"),
+      project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
+      local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
+    },
+    installedPlugins: readJson(join15(home, ".claude", "plugins", "installed_plugins.json"))
+  };
+  return createHash("sha256").update(stableJson(inputs)).digest("hex");
+}
+function probeCachePath(projectRoot) {
+  return join15(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
+}
+function readProbeCache(projectRoot) {
+  if (projectRoot === null) return null;
+  const parsed = readJson(probeCachePath(projectRoot));
+  const fingerprint = field(parsed, "fingerprint");
+  const probedAt = field(parsed, "probed_at");
+  if (typeof fingerprint !== "string" || typeof probedAt !== "string" || Number.isNaN(Date.parse(probedAt))) return null;
+  return { fingerprint, probed_at: probedAt };
+}
+function writeProbeCache(projectRoot, cache) {
+  if (projectRoot === null) return;
+  const path2 = probeCachePath(projectRoot);
+  try {
+    mkdirSync7(dirname10(path2), { recursive: true });
+    writeFileSync6(path2, JSON.stringify(cache) + "\n");
+  } catch (e) {
+    serverLog({ kind: "cheatcode_probe_cache_write_failed", error_message: e instanceof Error ? e.message : String(e) });
+  }
+}
+function startupProbeReason(cache, fingerprint, nowMs) {
+  if (cache === null) return "no_cache";
+  if (cache.fingerprint !== fingerprint) return "fingerprint_changed";
+  if (nowMs - Date.parse(cache.probed_at) > PROBE_TTL_MS) return "ttl_expired";
+  return "fingerprint_unchanged";
+}
+function hasTrackedRuntimeRows(db2) {
+  return db2.get(
+    `SELECT COUNT(*) AS n FROM cheatcodes WHERE status IN ('active', 'broken') AND kind IN ('mcp', 'plugin')`
+  ).n > 0;
 }
 function pluginName(id) {
   return id.split("@")[0] ?? "";
@@ -37233,16 +37303,32 @@ function reconcileCheatcodes(db2, evidence, opts) {
   }
   return transitions;
 }
-async function reconcileNow(db2, identity) {
-  const evidence = await probeRuntime(healthcheckTimeoutSec(), projectRootFromDbPath(db2.dbPath));
-  const transitions = reconcileCheatcodes(db2, evidence, { ...identity, now: nowISO() });
+var NO_EVIDENCE = { mcpServers: null, plugins: null };
+async function probeAndReconcile(db2, identity, projectRoot, fingerprint) {
+  const { evidence, listed } = await probeListings(healthcheckTimeoutSec(), projectRoot);
+  const now2 = nowISO();
+  if (listed) writeProbeCache(projectRoot, { fingerprint, probed_at: now2 });
+  const transitions = reconcileCheatcodes(db2, evidence, { ...identity, now: now2 });
   return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
+}
+async function reconcileNow(db2, identity) {
+  const projectRoot = projectRootFromDbPath(db2.dbPath);
+  return probeAndReconcile(db2, identity, projectRoot, cliConfigFingerprint(projectRoot));
 }
 async function reconcileAtStartup(db2) {
   if (process.env["TMB_DISABLE_CHEATCODE_HEALTHCHECK"] === "1") return;
+  const identity = { fromNode: "server", writer: "server" };
   try {
-    const { transitions } = await reconcileNow(db2, { fromNode: "server", writer: "server" });
-    serverLog({ kind: "cheatcode_reconcile", transitions: transitions.length });
+    const projectRoot = projectRootFromDbPath(db2.dbPath);
+    let reason = "no_tracked_rows";
+    let fingerprint = "";
+    if (hasTrackedRuntimeRows(db2)) {
+      fingerprint = cliConfigFingerprint(projectRoot);
+      reason = startupProbeReason(readProbeCache(projectRoot), fingerprint, Date.now());
+    }
+    const probed = reason !== "no_tracked_rows" && reason !== "fingerprint_unchanged";
+    const { transitions } = probed ? await probeAndReconcile(db2, identity, projectRoot, fingerprint) : { transitions: reconcileCheatcodes(db2, NO_EVIDENCE, { ...identity, now: nowISO() }) };
+    serverLog({ kind: "cheatcode_reconcile", transitions: transitions.length, probed, reason });
   } catch (e) {
     serverLog({ kind: "cheatcode_reconcile", error_message: e instanceof Error ? e.message : String(e) });
   }
@@ -37268,7 +37354,7 @@ function wrap5(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname10(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const candidates = [
     join16(here, "..", "..", "..", "..", "scripts", name),
     join16(here, "..", "..", "..", "scripts", name)
@@ -37539,7 +37625,7 @@ function resolveGlobalAgentMd(target) {
     const c2 = join16(pluginRoot, "agents", `${target}.md`);
     if (existsSync12(c2)) return c2;
   }
-  const here = dirname10(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const c = join16(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync12(c)) return c;
   return null;
@@ -37676,8 +37762,8 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
       body = body.length === 0 ? `${reference}
 ` : `${body}${prefix}${reference}
 `;
-      mkdirSync7(claudeDir, { recursive: true });
-      writeFileSync6(claudeMd, body);
+      mkdirSync8(claudeDir, { recursive: true });
+      writeFileSync7(claudeMd, body);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
@@ -37696,8 +37782,8 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync7(dirname10(localAgentMd), { recursive: true });
-  writeFileSync6(localAgentMd, updated);
+  mkdirSync8(dirname11(localAgentMd), { recursive: true });
+  writeFileSync7(localAgentMd, updated);
   return {
     target,
     artifact: `agent-md:.claude/agents/${target}.md`,
@@ -37714,7 +37800,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
     const content = readFileSync8(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
-    if (updated !== content) writeFileSync6(filePath, updated);
+    if (updated !== content) writeFileSync7(filePath, updated);
     return;
   }
   if (artifact.startsWith("claude-md:")) {
@@ -37725,7 +37811,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
     const body = readFileSync8(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
-    writeFileSync6(filePath, updated);
+    writeFileSync7(filePath, updated);
   }
 }
 function cheatcodeTools(db2) {
@@ -39884,7 +39970,7 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
-  mkdirSync8(path.dirname(dbPath), { recursive: true });
+  mkdirSync9(path.dirname(dbPath), { recursive: true });
 }
 var db = new TrajectoryDB(dbPath, void 0, { migrate: true });
 function readPackageVersion() {
