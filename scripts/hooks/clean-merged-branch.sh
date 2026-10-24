@@ -6,9 +6,11 @@
 # its SWE worktree linger locally. This hook removes them:
 #   - derive the merged branch (explicit `<branch>` arg, else the current branch),
 #   - refuse to touch a protected branch (main/dev, plus repos.protected_branches),
-#   - confirm the branch is actually merged into its base (ancestor check),
+#   - confirm the branch's work is in its base (_cmb_integrated: ancestor, or a
+#     squash/rebase merge whose content the base already holds),
 #   - if the branch's worktree is dirty (uncommitted/untracked), skip + warn,
-#   - else `git worktree remove`, `git branch -d`, `git worktree prune`.
+#   - else `git worktree remove`, `git branch -D`, `git worktree prune`, then a
+#     best-effort `git fetch --prune`.
 #
 # Non-load-bearing: every path exits 0. Failures emit an informational note to
 # stderr (visible in CC's debug log) and never block. Remote deletion is out of
@@ -96,10 +98,9 @@ _clean_merged_branch_main() {
   # Don't delete the base itself.
   [ "$branch" != "$base" ] || exit 0
 
-  # Ancestor check: the branch tip must be reachable from the base (i.e. its
-  # commits are already merged). If not, do nothing — the merge may have been a
-  # different branch, or this is a squash/rebase merge we can't safely confirm.
-  if ! git -C "$repo_root" merge-base --is-ancestor "refs/heads/$branch" "refs/heads/$base" 2>/dev/null; then
+  # The branch's work must already be in the base (merge, squash or rebase).
+  # If not, do nothing — the merge may have been a different branch.
+  if ! _cmb_integrated "$repo_root" "refs/heads/$branch" "refs/heads/$base"; then
     exit 0
   fi
 
@@ -118,15 +119,10 @@ _clean_merged_branch_main() {
     }
   fi
 
-  # Delete the local branch. Try `git branch -d` first (git's own merged-safety
-  # check, relative to HEAD/upstream). When the main checkout is parked on a
-  # branch that doesn't contain the feature commits, `-d` refuses even though we
-  # have already PROVEN — via the base-relative ancestor check above — that the
-  # branch is fully merged into its base. In that proven-merged case only, fall
-  # back to `-D`. This is not a blind force: the merge is independently
-  # confirmed, so no commits can be lost.
-  if git -C "$repo_root" branch -d "$branch" >/dev/null 2>&1 \
-    || git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1; then
+  # `-D`, not `-d`: git's own merged check is ancestry relative to HEAD/upstream
+  # and refuses a squash-merged branch. _cmb_integrated above already proved
+  # the branch's content is in the base, so no work can be lost.
+  if git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1; then
     git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
     printf 'tmb: cleaned up merged branch %s%s\n' "$branch" \
       "${worktree_path:+ (worktree $worktree_path)}" >&2
@@ -134,6 +130,10 @@ _clean_merged_branch_main() {
     printf 'tmb: branch delete failed for %s — leaving in place\n' "$branch" >&2
     git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
   fi
+
+  # Best-effort prune of the merged branch's remote-tracking ref, detached so a
+  # slow or unreachable remote never holds the hook past its timeout.
+  (GIT_TERMINAL_PROMPT=0 git -C "$repo_root" fetch --prune --quiet </dev/null >/dev/null 2>&1 &)
 
   exit 0
 }
@@ -211,6 +211,26 @@ _cmb_base_branch() {
     fi
   fi
   tmb_repo_default_branch "$repo_root"
+}
+
+# _cmb_integrated <repo_root> <tip> <target>
+# Exit 0 when <tip>'s work is already in <target>. Twin of tipIntegratedInto in
+# mcp/trajectory-server/src/tools/world_model.ts (GH 1674), cheapest first:
+# ancestor; merging it into <target> is a no-op (`merge-tree --write-tree`
+# yields <target>'s tree — squash/rebase merges); `git cherry` finds every
+# branch commit's patch in <target>. A `[gone]` upstream is not evidence: a PR
+# closed unmerged looks the same.
+_cmb_integrated() {
+  local repo_root="$1" tip="$2" target="$3" merged target_tree cherry
+  git -C "$repo_root" merge-base --is-ancestor "$tip" "$target" 2>/dev/null && return 0
+  if merged=$(git -C "$repo_root" merge-tree --write-tree "$target" "$tip" 2>/dev/null); then
+    target_tree=$(git -C "$repo_root" rev-parse "$target^{tree}" 2>/dev/null) || target_tree=""
+    [ -n "$target_tree" ] && [ "${merged%%$'\n'*}" = "$target_tree" ] && return 0
+  fi
+  cherry=$(git -C "$repo_root" cherry "$target" "$tip" 2>/dev/null) || return 1
+  # Here-string, not a pipe: under pipefail, `grep -q` quitting early SIGPIPEs
+  # a writer of a long list, and `!` would read that as "no + lines".
+  ! grep -q '^+' <<<"$cherry"
 }
 
 # _cmb_worktree_for_branch <repo_root> <branch>

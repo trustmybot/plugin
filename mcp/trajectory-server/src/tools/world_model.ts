@@ -6,7 +6,7 @@ import type { DirectoryNode, FileNode, GraphHolder, Scored } from '../graph.js';
 import { topKByCosine, type WorldModelEmbeddableTable } from '../embeddings/store.js';
 import { backfillMissing, startWorldModelBackfill, WORLD_MODEL_TABLES } from '../embeddings/backfill.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -28,14 +28,48 @@ interface UnmergedBranch {
   merged_into_target: false;
 }
 
+type Integration = 'integrated' | 'unmerged' | 'unresolvable' | 'spawn-error';
+
+function git(repoPath: string, args: string[]): SpawnSyncReturns<string> {
+  return spawnSync('git', ['-C', repoPath, ...args], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
+}
+
+// Twin of clean-merged-branch.sh's _cmb_integrated (GH 1674). A tip counts as
+// integrated into target when any of these holds, cheapest first, each one
+// bounded git call:
+//   1. it is an ancestor of target (merge / fast-forward);
+//   2. merging it into target is a no-op — `merge-tree --write-tree` yields
+//      target's own tree (squash or rebase merge of any number of commits);
+//   3. `git cherry` finds every branch commit's patch already in target (a
+//      squashed single commit that target has since edited further).
+// An upstream reported `[gone]` is not used: a PR closed unmerged looks the same.
+export function tipIntegratedInto(repoPath: string, tip: string, target: string): Integration {
+  const ancestor = git(repoPath, ['merge-base', '--is-ancestor', tip, target]);
+  if (ancestor.error) return 'spawn-error';
+  if (ancestor.status === 0) return 'integrated';
+  if (ancestor.status !== 1) return 'unresolvable';
+
+  const merged = git(repoPath, ['merge-tree', '--write-tree', target, tip]);
+  if (merged.status === 0) {
+    const targetTree = git(repoPath, ['rev-parse', `${target}^{tree}`]);
+    const mergedTree = merged.stdout.split('\n')[0]?.trim();
+    if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return 'integrated';
+  }
+
+  const cherry = git(repoPath, ['cherry', target, tip]);
+  if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return 'integrated';
+  return 'unmerged';
+}
+
 // Surface closed-task work living on un-merged feature branches (#1059). The
 // main checkout answers world_model_get from the directory tree alone, so a
 // checkout sitting on the target branch hides work committed on branches that
 // have not merged yet — bro then reads an "empty" repo and holds. This walks
 // the tasks table (rows with a commit_sha, grouped by branch_id, newest first)
 // and keeps only branches that still have a live local ref whose tip is not yet
-// an ancestor of the repo's target branch. A deleted ref means the work was
-// integrated (squash-merge cleanup) or abandoned, so it is skipped. Fail-soft:
+// integrated into the repo's target branch (tipIntegratedInto: ancestor, or a
+// squash/rebase merge whose content target already holds). A deleted ref means
+// the work was integrated or abandoned, so it is skipped. Fail-soft:
 // a non-git repo path or any git spawn failure yields an empty list plus a
 // warning, never an is_error.
 function computeUnmergedWork(
@@ -93,9 +127,7 @@ function computeUnmergedWork(
   const unmerged_work: UnmergedBranch[] = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
     // Require a live local ref: a deleted branch means the work was integrated
-    // (squash-merge cleanup) or abandoned. Without this gate every squash-merged
-    // branch stays here forever, since a squashed tip is never an ancestor of
-    // the target.
+    // or abandoned.
     const refCheck = spawnSync(
       'git',
       ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch_id}`],
@@ -103,16 +135,11 @@ function computeUnmergedWork(
     );
     if (refCheck.status !== 0) continue; // absent ref → integrated or abandoned, skip
 
-    const mergeBase = spawnSync(
-      'git',
-      ['-C', repoPath, 'merge-base', '--is-ancestor', entry.tip, target],
-      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS },
-    );
-    if (mergeBase.error) {
+    const integration = tipIntegratedInto(repoPath, entry.tip, target);
+    if (integration === 'spawn-error') {
       return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
     }
-    if (mergeBase.status === 0) continue; // tip is an ancestor of target → merged, omit
-    if (mergeBase.status !== 1) continue; // dangling SHA / other error → skip defensively
+    if (integration !== 'unmerged') continue; // integrated, or a dangling SHA skipped defensively
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,
