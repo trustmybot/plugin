@@ -160,7 +160,8 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Writing code & tests
 
-- Self-documenting code; prefer deletion over addition; match the file's existing patterns. TypeScript for the MCP server, Bash for hooks. Emoji + Conventional Commit messages.
+- Self-documenting code; prefer deletion over addition; match the file's existing patterns. Emoji + Conventional Commit messages.
+- Don't write new shell: hooks, scripts and tools are TypeScript unless nothing else can run (GH 1692).
 - Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/l3-integration/hooks/*.test.sh`; new enforcement → a lint in `tests/l1-lint/`.
 - Prompt / skill / doc changes have no automated test — they rely on PR review, then the rc-time CI release-gate (L0–L6), for sign-off.
 - A task's `verification[]` exercises the layer that guards the surface it touches: hooks → the L3 hooks runner; migrations and destructive SQL → the L1 lints; `scripts/` or `mcp/trajectory-server/src/` → the whole `tests/l1-lint/` loop, not a hand-picked subset; MCP `dist/` → `dist-fresh`. Use at most one L3 runner per task, because the verification gate has one time budget (`verification_timeout_s`).
