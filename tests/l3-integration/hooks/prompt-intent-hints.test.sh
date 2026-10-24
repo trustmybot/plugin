@@ -44,6 +44,24 @@ test_case "empty prompt emits nothing"
 out=$(run_hook "")
 assert_not_contains "$out" "additionalContext" "empty prompt must be silent"
 
+test_case "whitespace-only prompt emits nothing"
+out=$(run_hook "$(printf '  \t\n \t \n\n   ')")
+assert_not_contains "$out" "additionalContext" "spaces, tabs and newlines alone must be silent"
+
+test_case "20k-char prompt still fires its hint within the 6 s hooks.json budget (GH 1711)"
+long_filler=$(printf 'lorem ipsum dolor sit amet consectetur %.0s' $(seq 1 520))
+long_prompt="${long_filler}
+Please install the superpowers skill"
+assert_eq "1" "$([ "${#long_prompt}" -ge 20000 ] && echo 1 || echo 0)" "prompt is at least 20,000 characters"
+out=$(
+  payload=$(jq -cn --arg p "$long_prompt" '{prompt:$p}')
+  cd "$PLUGIN_ROOT" || exit 1
+  printf '%s' "$payload" \
+  | TMB_DISABLE_CHEATCODE_INSTALL_HINT=0 TRAJECTORY_DB_PATH=/nonexistent.db \
+    perl -e 'alarm 6; exec @ARGV' bash "$HOOK" 2>&1 || true
+)
+assert_contains "$out" "cheatcode-install routing" "a hook killed at the budget prints nothing; the hint must arrive in time"
+
 # ---------------------------------------------------------------------------
 # cheatcode-install: install of a named plugin/skill/mcp/cheatcode
 # ---------------------------------------------------------------------------
