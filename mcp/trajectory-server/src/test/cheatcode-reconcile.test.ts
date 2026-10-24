@@ -1,14 +1,16 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
 import {
+  probeCachePath,
   probeChildEnv,
   reconcileAtStartup,
   reconcileCheatcodes,
+  reconcileNow,
   type RuntimeEvidence,
 } from '../tools/cheatcode-reconcile.js';
 
@@ -239,5 +241,155 @@ describe('reconcileAtStartup', () => {
     const row = db.get<{ status: string; updated_at: string }>('SELECT status, updated_at FROM cheatcodes WHERE id = ?', [id])!;
     assert.deepEqual({ ...row }, { status: 'active', updated_at: 'then' });
     assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_healthcheck'`)!.n, 0);
+  });
+});
+
+describe('reconcileAtStartup probe gating (GH 1698)', () => {
+  const saved = {
+    flag: process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'],
+    path: process.env['PATH'],
+    home: process.env['HOME'],
+  };
+  let root: string;
+  let home: string;
+  let callLog: string;
+  let db: TrajectoryDB;
+
+  const invocations = (): string[] =>
+    existsSync(callLog) ? readFileSync(callLog, 'utf8').split('\n').filter((line) => line !== '') : [];
+  const resetInvocations = (): void => writeFileSync(callLog, '');
+  const cachePath = (): string => probeCachePath(root);
+  const readCache = (): { fingerprint: string; probed_at: string } =>
+    JSON.parse(readFileSync(cachePath(), 'utf8')) as { fingerprint: string; probed_at: string };
+  const addRow = (name: string, kind: 'skill' | 'mcp' | 'plugin', status: string, sourceUrl: string, filePath: string | null = null): number =>
+    Number(
+      db.run(
+        `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, scope, status, installed_at, created_at, updated_at)
+         VALUES (?, ?, 'external', '', ?, ?, 'project-local', ?, 'then', 'then', 'then')`,
+        [name, kind, sourceUrl, filePath, status],
+      ).lastInsertRowid,
+    );
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'reconcile-gate-'));
+    home = join(root, 'home');
+    mkdirSync(home);
+    mkdirSync(join(root, 'project', '.claude', 'tmb'), { recursive: true });
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    callLog = join(root, 'claude-calls');
+    writeFileSync(
+      join(bin, 'claude'),
+      [
+        '#!/bin/sh',
+        `echo "$*" >> '${callLog}'`,
+        'if [ "$1" = mcp ]; then echo "srv: npx srv - Connected"; else echo "[]"; fi',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(join(bin, 'claude'), 0o755);
+    process.env['PATH'] = `${bin}:${saved.path ?? ''}`;
+    process.env['HOME'] = home;
+    delete process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'];
+    root = join(root, 'project');
+    db = tempDB({ path: join(root, '.claude', 'tmb', 'trajectory.db') });
+    db.run('DELETE FROM cheatcodes');
+  });
+
+  afterEach(() => {
+    db.close();
+    for (const [key, value] of [
+      ['TMB_DISABLE_CHEATCODE_HEALTHCHECK', saved.flag],
+      ['PATH', saved.path],
+      ['HOME', saved.home],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('spawns nothing when no mcp or plugin row is tracked, and still reconciles skill rows', async () => {
+    const skill = addRow('gone', 'skill', 'active', 'fixture:gone', join(root, 'missing', 'SKILL.md'));
+    addRow('candidate', 'plugin', 'candidate', 'fixture:candidate');
+
+    await reconcileAtStartup(db);
+
+    assert.deepEqual(invocations(), []);
+    assert.equal(existsSync(cachePath()), false);
+    assert.equal(db.get<{ status: string }>('SELECT status FROM cheatcodes WHERE id = ?', [skill])!.status, 'broken');
+  });
+
+  it('probes once, skips while inputs are unchanged, and re-probes on a config edit or an expired cache', async () => {
+    const srv = addRow('srv', 'mcp', 'broken', 'npx:srv');
+
+    await reconcileAtStartup(db);
+    assert.deepEqual(invocations().sort(), ['mcp list', 'plugin list --json']);
+    assert.equal(db.get<{ status: string }>('SELECT status FROM cheatcodes WHERE id = ?', [srv])!.status, 'active');
+    const first = readCache();
+    assert.match(first.fingerprint, /^[0-9a-f]{64}$/);
+    assert.equal(Number.isNaN(new Date(first.probed_at).getTime()), false);
+
+    resetInvocations();
+    await reconcileAtStartup(db);
+    assert.deepEqual(invocations(), []);
+
+    writeFileSync(join(root, '.mcp.json'), JSON.stringify({ mcpServers: { srv: { command: 'npx' } } }));
+    await reconcileAtStartup(db);
+    assert.deepEqual(invocations().sort(), ['mcp list', 'plugin list --json']);
+    assert.notEqual(readCache().fingerprint, first.fingerprint);
+
+    resetInvocations();
+    await reconcileAtStartup(db);
+    assert.deepEqual(invocations(), []);
+
+    const backdated = { ...readCache(), probed_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() };
+    writeFileSync(cachePath(), JSON.stringify(backdated));
+    await reconcileAtStartup(db);
+    assert.deepEqual(invocations().sort(), ['mcp list', 'plugin list --json']);
+    assert.ok(Date.parse(readCache().probed_at) > Date.parse(backdated.probed_at));
+  });
+
+  it('ignores ~/.claude.json changes outside the fingerprinted keys', async () => {
+    addRow('p', 'plugin', 'active', 'fixture:p');
+    const claudeJson = (numStartups: number): string =>
+      JSON.stringify({ numStartups, mcpServers: { srv: { command: 'npx' } }, projects: { [root]: { mcpServers: {} } } });
+    writeFileSync(join(home, '.claude.json'), claudeJson(1));
+
+    await reconcileAtStartup(db);
+    assert.equal(invocations().length, 2);
+
+    resetInvocations();
+    writeFileSync(join(home, '.claude.json'), claudeJson(2));
+    await reconcileAtStartup(db);
+    assert.deepEqual(invocations(), []);
+
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ numStartups: 2, mcpServers: { srv: { command: 'npx' } }, projects: { [root]: { mcpServers: { x: {} } } } }),
+    );
+    await reconcileAtStartup(db);
+    assert.equal(invocations().length, 2);
+  });
+
+  it('probes when the cache file is corrupt', async () => {
+    addRow('p', 'plugin', 'active', 'fixture:p');
+    writeFileSync(cachePath(), '{not json');
+
+    await reconcileAtStartup(db);
+
+    assert.equal(invocations().length, 2);
+    assert.match(readCache().fingerprint, /^[0-9a-f]{64}$/);
+  });
+
+  it('reconcileNow always probes and refreshes the cache', async () => {
+    await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
+    assert.equal(invocations().length, 2);
+    const cache = readCache();
+    assert.match(cache.fingerprint, /^[0-9a-f]{64}$/);
+
+    resetInvocations();
+    await reconcileNow(db, { fromNode: 'bro', writer: 'bro' });
+    assert.equal(invocations().length, 2);
+    assert.equal(readCache().fingerprint, cache.fingerprint);
   });
 });
