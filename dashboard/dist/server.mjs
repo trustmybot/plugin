@@ -791,6 +791,7 @@ var TrajectoryDB = class {
     this.db = new DatabaseSync2(dbPath);
     try {
       this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+      if (!this.migrate) this.refuseUnsupportedVersionBeforeWrite();
       execRetryingLockUpgrade(this.db, "PRAGMA journal_mode = WAL");
       this.legacyNoPluginMeta = this.applySchema();
     } catch (error) {
@@ -800,6 +801,18 @@ var TrajectoryDB = class {
       }
       throw error;
     }
+  }
+  /**
+   * A non-migrating opener refuses an older or newer schema before anything
+   * writes: the WAL switch rewrites the header of a rollback-journal DB, so
+   * the version is read first and the refusal leaves the file byte-identical.
+   * applySchemaLocked repeats the check under the write lock.
+   */
+  refuseUnsupportedVersionBeforeWrite() {
+    const pluginMetaExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_meta'").get();
+    if (pluginMetaExists === void 0) return;
+    const versionRow = this.db.prepare("SELECT schema_version FROM plugin_meta LIMIT 1").get();
+    if (versionRow !== void 0) assertOpenableVersion(versionRow.schema_version, false);
   }
   /**
    * Applies schema.sql, migrating first when the stored version is behind, and
@@ -879,16 +892,7 @@ var TrajectoryDB = class {
       return { isLegacy: false, migratedFrom: null };
     }
     const storedVersion = versionRow.schema_version;
-    if (storedVersion > TARGET_SCHEMA_VERSION) {
-      throw new Error(
-        `TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`
-      );
-    }
-    if (storedVersion < TARGET_SCHEMA_VERSION && !this.migrate) {
-      throw new Error(
-        `TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`
-      );
-    }
+    assertOpenableVersion(storedVersion, this.migrate);
     if (storedVersion < TARGET_SCHEMA_VERSION) {
       backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
       runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
@@ -1077,6 +1081,18 @@ function isBusyError(err3) {
   if (!(err3 instanceof Error)) return false;
   const errcode = err3.errcode;
   return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err3.message.includes("database is locked");
+}
+function assertOpenableVersion(storedVersion, migrate) {
+  if (storedVersion > TARGET_SCHEMA_VERSION) {
+    throw new Error(
+      `TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`
+    );
+  }
+  if (storedVersion < TARGET_SCHEMA_VERSION && !migrate) {
+    throw new Error(
+      `TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`
+    );
+  }
 }
 function execRetryingLockUpgrade(db, sql) {
   const deadline = performance.now() + BUSY_TIMEOUT_MS;
@@ -4339,13 +4355,15 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
 import { homedir as homedir2 } from "node:os";
 import { join as join6 } from "node:path";
 var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join6(homedir2(), ".cache", "huggingface");
-var MODEL_ID = "Xenova/bge-small-en-v1.5";
+var MODEL_REPO = "Xenova/bge-small-en-v1.5";
+var MODEL_DTYPE = "q8";
+var MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
 var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
 var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
 async function defaultLoader() {
   const { pipeline: pipeline2, env: env2 } = await Promise.resolve().then(() => (init_no_embeddings(), no_embeddings_exports));
   env2.cacheDir = TMB_MODEL_CACHE_DIR;
-  return await pipeline2("feature-extraction", MODEL_ID);
+  return await pipeline2("feature-extraction", MODEL_REPO, { dtype: MODEL_DTYPE });
 }
 var now = Date.now;
 var loader = defaultLoader;
@@ -4510,10 +4528,10 @@ async function topKByCosine(db, table, query, k, filterParams = []) {
 
 // ../mcp/trajectory-server/src/embeddings/backfill.ts
 var MISSING_WHERE = {
-  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings)",
-  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings)",
-  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings)",
-  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings)"
+  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
+  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)",
+  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings WHERE model_id = ?)",
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings WHERE model_id = ?)"
 };
 var MISSING_SQL = {
   discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
@@ -4527,7 +4545,7 @@ function embedText(table, r) {
   return r.text;
 }
 async function backfillMissing(db, table, limit = 50, onRow) {
-  const rows = db.all(MISSING_SQL[table], [limit]);
+  const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
   for (const r of rows) {
     await embedAndStore(db, table, r.id, embedText(table, r)).catch(
       (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
@@ -4604,16 +4622,22 @@ function insertAudit(db, entry) {
 // ../mcp/trajectory-server/src/tools/agent-runs.ts
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
 var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
   return db.run(
     `UPDATE agent_runs
         SET completed_at = ?,
             duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ?
-      WHERE task_id = ?
-        AND completed_at IS NULL`,
-    [now2, now2, exitReason, taskId]
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now2, now2, ...params]
   ).changes;
+}
+function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
 }
 
 // ../mcp/trajectory-server/src/tools/lifecycle.ts

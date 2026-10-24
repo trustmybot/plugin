@@ -88,7 +88,7 @@ The world model shares the trajectory DB's handle and its WAL-mode, busy-timeout
 | Mode | Behavior |
 |---|---|
 | `keyword` | FTS5 bm25 ranking over path + summary/purpose, then case-insensitive substring hits at score 0 |
-| `semantic` | Cosine over bge-small embeddings of `path: summary` / `path: purpose` |
+| `semantic` | Cosine over bge-small embeddings of `path: summary` / `path: purpose`. Vectors come from the q8 (quantized) bge-small model and are stored under `model_id` `Xenova/bge-small-en-v1.5@q8`; rows stored under another id are re-embedded by the backfill |
 | `hybrid` (default) | Reciprocal rank fusion (k = 60) of the keyword and semantic lists for directories and files |
 
 Embeddings are computed on demand: each `semantic` or `hybrid` search embeds up to 50 missing rows per table first and, when more are missing, starts a background backfill. When the embedding model is unavailable, `semantic` and `hybrid` return the keyword hits with `warning: 'semantic_unavailable'`.
