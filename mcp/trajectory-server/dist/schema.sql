@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 42, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 43, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -551,6 +551,10 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --   wm_directories: one row per directory. parent_path is NULL for the repo
 --     root ('') and the parent directory's path otherwise. summary comes from
 --     the directory README (summary_source='readme') or a structural fallback.
+--     For a README dir in a git repo (GH 1680): summary_sha is the last commit
+--     touching the README, commits_behind counts later commits touching the
+--     dir outside the README, dead_refs is a JSON array of repo-relative paths
+--     the README names that no longer exist. All three NULL otherwise.
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.
@@ -563,6 +567,9 @@ CREATE TABLE IF NOT EXISTS wm_directories (
     summary_source     TEXT    NOT NULL,
     summary_updated_at TEXT,
     file_count         INTEGER NOT NULL DEFAULT 0,
+    summary_sha        TEXT,
+    commits_behind     INTEGER,
+    dead_refs          TEXT,
     UNIQUE (repo, path)
 );
 

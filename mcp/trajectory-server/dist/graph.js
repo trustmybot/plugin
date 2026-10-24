@@ -1,6 +1,6 @@
-import { toFtsQuery, withFtsGuard } from './fts-query.js';
+import { toFtsOrQuery, toFtsQuery, withFtsGuard } from './fts-query.js';
 const SUBTREE_MAX_DEPTH = 256;
-const DIR_COLUMNS = 'd.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count';
+const DIR_COLUMNS = 'd.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count, d.summary_sha, d.commits_behind, d.dead_refs';
 const FILE_COLUMNS = 'f.id, f.repo, f.path, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at';
 function toDirectoryNode(r) {
     return {
@@ -12,7 +12,21 @@ function toDirectoryNode(r) {
         summary_source: r.summary_source,
         summary_updated_at: r.summary_updated_at || null,
         file_count: Number(r.file_count),
+        summary_sha: r.summary_sha ?? null,
+        commits_behind: r.commits_behind === null || r.commits_behind === undefined ? null : Number(r.commits_behind),
+        dead_refs: parseDeadRefs(r.dead_refs),
     };
+}
+function parseDeadRefs(raw) {
+    if (raw === null || raw === undefined)
+        return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string') : null;
+    }
+    catch {
+        return null;
+    }
 }
 function toFileNode(r) {
     return {
@@ -26,6 +40,18 @@ function toFileNode(r) {
         last_commit_sha: r.last_commit_sha,
         updated_at: r.updated_at,
     };
+}
+// bm25-ranked FTS rows for the all-terms query; when that matches nothing, the
+// same search over any non-stopword term.
+function rankWithFallback(query, search) {
+    const allTerms = toFtsQuery(query);
+    const all = withFtsGuard(() => search(allTerms));
+    if (all.length > 0)
+        return { rows: all, match: 'all_terms' };
+    const any = toFtsOrQuery(query);
+    if (any === null || any === allTerms)
+        return { rows: all, match: 'all_terms' };
+    return { rows: withFtsGuard(() => search(any)), match: 'any_term' };
 }
 function placeholders(n) {
     return Array.from({ length: n }, () => '?').join(', ');
@@ -125,16 +151,17 @@ export class WorldModelGraph {
         return coverage;
     }
     // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
-    // better), then case-insensitive path/purpose substring hits at score 0.
+    // better; any-term fallback per rankWithFallback), then case-insensitive
+    // path/purpose substring hits at score 0.
     keywordSearchFiles(repo, query, k) {
-        const ranked = withFtsGuard(() => this.db.all(`SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
+        const { rows: ranked, match } = rankWithFallback(query, (fts) => this.db.all(`SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
            FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
           WHERE wm_files_fts MATCH ? AND f.repo = ?
           ORDER BY rank, f.path
-          LIMIT ?`, [toFtsQuery(query), repo, k]));
+          LIMIT ?`, [fts, repo, k]));
         const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
         if (hits.length >= k)
-            return hits;
+            return { hits, match };
         const seen = new Set(ranked.map((r) => r.id));
         const needle = query.toLowerCase();
         const substring = this.db
@@ -143,7 +170,7 @@ export class WorldModelGraph {
           ORDER BY f.path
           LIMIT ?`, [repo, needle, needle, k + seen.size])
             .filter((r) => !seen.has(r.id));
-        return [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k);
+        return { hits: [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k), match };
     }
     filesByIds(ids) {
         if (ids.length === 0)
@@ -152,14 +179,17 @@ export class WorldModelGraph {
         return new Map(rows.map((r) => [r.id, toFileNode(r)]));
     }
     upsertDirectory(node) {
-        this.db.run(`INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+        this.db.run(`INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, path) DO UPDATE SET
          parent_path = excluded.parent_path,
          summary = excluded.summary,
          summary_source = excluded.summary_source,
          summary_updated_at = excluded.summary_updated_at,
-         file_count = excluded.file_count`, [
+         file_count = excluded.file_count,
+         summary_sha = excluded.summary_sha,
+         commits_behind = excluded.commits_behind,
+         dead_refs = excluded.dead_refs`, [
             node.repo,
             node.path,
             node.parent_path,
@@ -167,6 +197,9 @@ export class WorldModelGraph {
             node.summary_source,
             node.summary_updated_at,
             node.file_count,
+            node.summary_sha ?? null,
+            node.commits_behind ?? null,
+            node.dead_refs ? JSON.stringify(node.dead_refs) : null,
         ]);
     }
     upsertContains(parent, child) {
@@ -237,16 +270,17 @@ export class WorldModelGraph {
             .map(toDirectoryNode);
     }
     // FTS5 hits over path + summary ranked by bm25 (score = -bm25, higher is
-    // better), then case-insensitive path/summary substring hits at score 0.
+    // better; any-term fallback per rankWithFallback), then case-insensitive
+    // path/summary substring hits at score 0.
     keywordSearchDirectories(repo, query, k) {
-        const ranked = withFtsGuard(() => this.db.all(`SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
+        const { rows: ranked, match } = rankWithFallback(query, (fts) => this.db.all(`SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
            FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
           WHERE wm_directories_fts MATCH ? AND d.repo = ?
           ORDER BY rank, d.path
-          LIMIT ?`, [toFtsQuery(query), repo, k]));
+          LIMIT ?`, [fts, repo, k]));
         const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
         if (hits.length >= k)
-            return hits;
+            return { hits, match };
         const seen = new Set(ranked.map((r) => r.id));
         const needle = query.toLowerCase();
         const substring = this.db
@@ -255,7 +289,7 @@ export class WorldModelGraph {
           ORDER BY d.path
           LIMIT ?`, [repo, needle, needle, k + seen.size])
             .filter((r) => !seen.has(r.id));
-        return [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k);
+        return { hits: [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k), match };
     }
     directoriesByIds(ids) {
         if (ids.length === 0)

@@ -64,10 +64,10 @@ describe('WorldModelGraph on the trajectory DB', () => {
         graph.upsertDirectory(dir('app', '', null));
         graph.upsertDirectory(dir('app', 'billing', '', 'Invoice rendering and tax rules'));
         graph.upsertDirectory(dir('app', 'auth', '', 'Login sessions'));
-        const firstId = graph.keywordSearchDirectories('app', 'invoice', 5)[0];
+        const firstId = graph.keywordSearchDirectories('app', 'invoice', 5).hits[0];
         assert.equal(firstId?.path, 'billing');
         graph.upsertDirectory(dir('app', 'billing', '', 'Invoice rendering, tax rules and refunds'));
-        const hits = graph.keywordSearchDirectories('app', 'refunds', 5);
+        const { hits } = graph.keywordSearchDirectories('app', 'refunds', 5);
         assert.equal(hits.length, 1);
         assert.equal(hits[0].path, 'billing');
         assert.ok(hits[0].score > 0, 'an FTS hit carries a positive score');

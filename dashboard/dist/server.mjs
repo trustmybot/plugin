@@ -750,7 +750,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 42;
+var TARGET_SCHEMA_VERSION = 43;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env2 = process.env) {
   return resolveClaudePluginName(env2);
@@ -1280,6 +1280,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 42 && toVersion >= 42) {
     migrateV41toV42(db);
+  }
+  if (fromVersion < 43 && toVersion >= 43) {
+    migrateV42toV43(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -2832,6 +2835,28 @@ function migrateV41toV42(db) {
           UNIQUE (repo, path)
       )
     `);
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV42toV43(db) {
+  if (!tableExists(db, "wm_directories")) return;
+  beginImmediate(db);
+  try {
+    for (const [column, type] of [
+      ["summary_sha", "TEXT"],
+      ["commits_behind", "INTEGER"],
+      ["dead_refs", "TEXT"]
+    ]) {
+      if (!hasColumn(db, "wm_directories", column)) {
+        db.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
+      }
+    }
     commitTransaction(db);
   } catch (err3) {
     try {
@@ -4556,11 +4581,16 @@ async function backfillMissing(db, table, limit = 50, onRow) {
 }
 
 // ../mcp/trajectory-server/src/fts-query.ts
+function queryTokens(raw) {
+  return Array.from(raw.matchAll(/"([^"]*)"|\S+/g), (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()).filter(
+    (token) => token.length > 0
+  );
+}
+function quoted(token) {
+  return `"${token.replace(/"/g, '""')}"`;
+}
 function toFtsQuery(raw) {
-  const tokens = Array.from(
-    raw.matchAll(/"([^"]*)"|\S+/g),
-    (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()
-  ).filter((token) => token.length > 0).map((token) => `"${token.replace(/"/g, '""')}"`);
+  const tokens = queryTokens(raw).map(quoted);
   return tokens.length > 0 ? tokens.join(" ") : '""';
 }
 function withFtsGuard(run) {

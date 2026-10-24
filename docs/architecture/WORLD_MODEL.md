@@ -16,7 +16,7 @@ The world model lives in the trajectory DB (`<project>/.claude/tmb/trajectory.db
 ## Schema
 
 ```
-wm_directories            { id (PK), repo, path, parent_path, summary, summary_source, summary_updated_at, file_count }  UNIQUE (repo, path)
+wm_directories            { id (PK), repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs }  UNIQUE (repo, path)
 wm_files                  { id (PK), repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at }  UNIQUE (repo, path)
 wm_directories_fts        FTS5 over (path, summary)
 wm_files_fts              FTS5 over (path, purpose)
@@ -68,6 +68,18 @@ A NUL byte in the head (binary), an empty head, or no match yields `{purpose: ''
 
 **Directories.** For each directory the scan checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if present, content (truncated to ~1 KB) becomes the dir's `summary` with `summary_source='readme'`. Otherwise the scanner synthesizes a deterministic **structural** summary (`summary_source='structural'`): `<dir>/ — N files; <untrusted-content source="file-purpose"> <name>: <purpose>; … </untrusted-content>` with up to 5 file purposes sorted by name, framed once on a single line so the depth-2 first-line trim keeps the whole frame, or the immediate file names when no file has a purpose, then `subdirs: …` — so every node is non-empty and reachable by `world_model_search`, never `NULL`.
 
+**README drift** (v43, GH 1680). A README summary can go stale while the code under it moves on. For each directory whose README is tracked, the scan runs `git -C <root> …` (via `spawnSync`, bounded by a timeout) and writes three columns:
+
+| Column | Value |
+|---|---|
+| `summary_sha` | the last commit that touched the README (`git log -1 -- <dir>/<readme>`) |
+| `commits_behind` | `git rev-list --count <summary_sha>..HEAD -- <dir> ':!<dir>/<readme>'`: commits under the directory since the README last changed |
+| `dead_refs` | a JSON array of repo-relative paths the README names that no longer exist; `'[]'` when there are none |
+
+Dead references are found in the full README (not the 1 KB summary clip), with any `<untrusted-content …>` framing stripped first. The candidates are markdown link targets and backtick spans that look like paths. A backtick path is checked only when it has no `/` (and has a file extension) or its first segment is a tracked directory, at the repo root or under the README's directory. Anything starting with `..`, under `dist/`, or containing `${`, `<` or `*` is skipped. A candidate is dead when it exists neither relative to the README's directory nor relative to the repo root, and it is a markdown link or git deleted it. A ref with a `/` counts as deleted only when it matches a deleted path exactly, relative to the repo root or the README's directory; a bare filename counts only when a deleted file has that basename and no file tracked today does (a deleted `.claude/agents/swe.md` does not flag `swe.md` while `agents/swe.md` exists). The deleted set comes from one `git log --diff-filter=D --name-only --format=` and the tracked basenames from one `git ls-files`, each per repo per scan. Git runs outside the write transaction, so it never holds the DB lock.
+
+All three columns stay `NULL` for structural directories and for roots that are not git repos. Any git failure leaves them `NULL` and never fails the scan.
+
 Re-running `scan_run` is summary-preserving via upsert — existing rows update structural fields and refresh README-derived summaries.
 
 `scan_run` also has one SQLite side effect outside the graph: a resource-discovery pass (#124/#846) reconciles locally-present capabilities — project-local skills, enabled plugins, configured MCP servers — into the trajectory DB's `cheatcodes` table (`origin='installed'`, `source_url='scan_discovered'`). That write lands in the workflow tables; the world model holds only the directory and file layers. See [`CHEATCODES.md`](./CHEATCODES.md).
@@ -78,16 +90,20 @@ The world model shares the trajectory DB's handle and its WAL-mode, busy-timeout
 
 ## Querying
 
-`world_model_get(repo, path, depth)` returns a directory tree. A recursive CTE over `parent_path` selects the directory and its descendants down to `depth`; the tree is then built in TypeScript by linking each row to its parent. Default `depth=2` (root + immediate children); `depth=null` returns the full subtree.
+`world_model_get(repo, path, depth)` returns a directory tree. Every directory node carries `summary_sha`, `commits_behind`, `dead_refs` (an array) and `trust`. A recursive CTE over `parent_path` selects the directory and its descendants down to `depth`; the tree is then built in TypeScript by linking each row to its parent. Default `depth=2` (root + immediate children); `depth=null` returns the full subtree.
 
 - **Zoom-in** (`path` names a directory): the returned node also carries `files: [{path, purpose, purpose_source, content_md5}]` — that directory's own files, sorted by path, `path` repo-relative, each non-empty `purpose` framed as `file-purpose` untrusted content. Children never carry file arrays.
 - **Root call** (`path` omitted or `''`): the response adds `coverage: {files, with_purpose, by_source: {<purpose_source>: n}}` for the repo, so bro sees how much of the repo has a purpose. The default depth-2 tree carries no file arrays, so the cold-start call stays directory-sized.
 
-`world_model_search(query, mode='hybrid')` searches directories by `path` + `summary` and files by `path` + `purpose`. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`) or `kind: 'file'` (with `dir`, a framed `purpose`, `purpose_source`) and a `score`, capped at `k` results overall.
+`world_model_search(query, mode='hybrid')` searches directories by `path` + `summary` and files by `path` + `purpose`. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`) or `kind: 'file'` (with `dir`, a framed `purpose`, `purpose_source`) and a `score`, capped at `k` results overall. Directory results also carry `summary_sha`, `commits_behind`, `dead_refs` and `trust`.
+
+`trust` reads the drift columns: `'current'` when `commits_behind` is 0 and there are no dead refs, `'drifting(n)'` when `commits_behind` is n > 0, with `'dead_refs(k)'` appended after `, ` when the README names k dead paths (`'dead_refs(k)'` alone on an otherwise current README), and `null` for structural directories and non-git roots.
+
+**Sentence queries.** Keyword search first requires every query term (an FTS5 AND). When that matches no row, it reruns as an OR of the terms minus a small English stopword list, still ranked by bm25, so a question like "where does the invoice code live" finds the invoice directory. The response's `match` key says which ran: `'all_terms'` or `'any_term'`.
 
 | Mode | Behavior |
 |---|---|
-| `keyword` | FTS5 bm25 ranking over path + summary/purpose, then case-insensitive substring hits at score 0 |
+| `keyword` | FTS5 bm25 ranking over path + summary/purpose (all terms, else any non-stopword term), then case-insensitive substring hits at score 0 |
 | `semantic` | Cosine over bge-small embeddings of `path: summary` / `path: purpose`. Vectors come from the q8 (quantized) bge-small model and are stored under `model_id` `Xenova/bge-small-en-v1.5@q8`; rows stored under another id are re-embedded by the backfill |
 | `hybrid` (default) | Reciprocal rank fusion (k = 60) of the keyword and semantic lists for directories and files |
 
@@ -113,6 +129,6 @@ The world model has had four substrates, each replacing the last:
 - **`file_registry` (v6)** — one row per file (md5 + an LLM summary). Wrong granularity (a file summary says what a file *contains*, not what part of the system it *serves*), drift-sensitive (a one-line edit cleared the summary), and token-heavy. Dropped in v7.
 - **SQLite `directories` table (v7)** — the dir-level model as a stepping stone inside the existing trajectory DB. It validated that a README-first directory map is the right cold-start surface: ~10× fewer rows than per-file, and directory summaries change monthly (a part's role) rather than per-commit (a file's contents). Dropped in v8.
 - **Embedded graph DB (v8–v41)** — the same dir-level model on a separate graph engine, chosen for the import/call relations to follow. Its single-writer lock, native-binding install and exit-time crashes cost more than the graph queries it never ran. Schema v8 dropped the SQLite `directories` tables.
-- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map.
+- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map. v43 added the README drift columns (`summary_sha`, `commits_behind`, `dead_refs`) to `wm_directories` in place; they stay `NULL` until the next scan.
 
 File rows bring per-file state back with the two `file_registry` faults fixed: a purpose is one deterministic line (what the file is for, not what it contains) at zero token cost, and an edit only re-extracts when the content hash changes while an swe-written purpose survives it.
