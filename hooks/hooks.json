@@ -36,6 +36,11 @@
           },
           {
             "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" ensure-mcp-deps-installed",
+            "timeout": 6
+          },
+          {
+            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" substrate-preflight",
             "timeout": 6
           },
