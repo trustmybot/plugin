@@ -11,6 +11,7 @@ import { readmeDrift, readRepoHistory } from '../readme-drift.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
+import { indexRepoSymbols } from '../symbol-index.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import { projectRootFromDbPath } from './containment.js';
@@ -568,13 +569,14 @@ function noSyncRemoteWarnings(db, repos) {
         hint: 'Issue and milestone sync reach no remote for this repo; re-run /onboard to choose the Remote.',
     }));
 }
+const SYMBOL_STAT_KEYS = ['files_parsed', 'files_failed', 'symbols', 'edges', 'edges_resolved'];
 // Persist repos[] and the world model (wm_directories + wm_files), each in its
-// own transaction.
+// own transaction, then bring each scanned repo's symbol index up to date.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired,
 // unless a task or another row still references them; those are kept and
 // reported in repos_stale_kept (GH 1551).
-function persistScan(db, graph, out, sessionDir) {
+async function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
     const normSession = sessionDir.replace(/\/+$/, '');
     const existing = db.all(`SELECT name, path FROM repos`);
@@ -686,6 +688,20 @@ function persistScan(db, graph, out, sessionDir) {
             files_retired += fileStats.files_retired;
         });
     }
+    const symbols = { files_parsed: 0, files_failed: 0, symbols: 0, edges: 0, edges_resolved: 0 };
+    if (graph) {
+        for (const r of persisted.repos) {
+            try {
+                const repoStats = await indexRepoSymbols(db, r.name, r.path);
+                for (const key of SYMBOL_STAT_KEYS)
+                    symbols[key] += repoStats[key];
+            }
+            catch (e) {
+                symbols.error = `${r.name}: ${e.message}`;
+                serverLog({ event: 'symbol_index_error', repo: r.name, error: e.message });
+            }
+        }
+    }
     return {
         repos_discovered: out.repos.length,
         repos_upserted,
@@ -698,6 +714,7 @@ function persistScan(db, graph, out, sessionDir) {
         files_upserted,
         files_extracted,
         files_retired,
+        symbols,
         rename_candidates,
     };
 }
@@ -875,7 +892,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                     return err('world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged');
                 }
                 const dirsBefore = graph?.directoryCount() ?? 0;
-                const stats = persistScan(db, graph, out, sessionDir);
+                const stats = await persistScan(db, graph, out, sessionDir);
                 // Milestones: reconcile from each repo's remote, then seed one
                 // v<next-patch> where none exist. Never fails the scan.
                 const spawnFn = args['_spawnFn'];
@@ -910,7 +927,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                     issue_id: -1,
                     from_node: 'bro',
                     event_type: 'deep_scan_completed',
-                    summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ''}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
+                    summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ''}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired}; symbols ${stats.symbols.symbols} in ${stats.symbols.files_parsed} parsed files (${stats.symbols.files_failed} failed), edges ${stats.symbols.edges_resolved}/${stats.symbols.edges} resolved — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
                     content_json: JSON.stringify({
                         ...stats,
                         session_dir: out.session_dir,

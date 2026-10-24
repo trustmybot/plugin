@@ -17,9 +17,12 @@ The world model lives in the trajectory DB (`<project>/.claude/tmb/trajectory.db
 
 ```
 wm_directories            { id (PK), repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs }  UNIQUE (repo, path)
-wm_files                  { id (PK), repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at }  UNIQUE (repo, path)
+wm_files                  { id (PK), repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at, symbols_md5 }  UNIQUE (repo, path)
+wm_symbols                { id (PK), repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms }  UNIQUE (repo, path, kind, qualified_name)
+wm_edges                  { src_id → wm_symbols.id (CASCADE), dst_id → wm_symbols.id (SET NULL), dst_name, kind, resolution, line }
 wm_directories_fts        FTS5 over (path, summary)
 wm_files_fts              FTS5 over (path, purpose)
+wm_symbols_fts            FTS5 over (terms, signature, doc), external content on wm_symbols
 wm_directories_embeddings { dir_id → wm_directories.id, embedding, model_id, embedded_at }
 wm_files_embeddings       { file_id → wm_files.id, embedding, model_id, embedded_at }
 ```
@@ -38,7 +41,15 @@ At the `WorldModelGraph` interface (`src/graph.ts`) a directory `key` is the JSO
 
 Writer priority is swe > extraction: a scan never replaces an `swe` purpose. Freshness is keyed by `content_md5` — an unchanged hash keeps the row as written, a changed hash makes the scan re-extract (or, for an `swe` row, refresh only the md5/size/sha).
 
-Follow-up slices add symbol, import and call tables for code-structure reasoning.
+**Symbols (L1, v44, GH 1680).** The structural layer of [ADR 0001](./adr/0001-world-model-structural-layer.md). `src/parsing/` parses TypeScript, TSX, JavaScript and shell with tree-sitter (`web-tree-sitter` plus grammar `.wasm` files shipped in `dist/parsing/`, nothing installed at runtime) and reads SQL DDL with patterns. Each file yields:
+
+- one `module` symbol (`qualified_name` = the path, `doc` = the file's header comment) that owns its imports and top-level calls;
+- top-level definitions: `function`, `method` (as `Class.method`), `class`, `interface`, `type` (type aliases and enums), `const`, `sh_function`, and from SQL (`.sql` files and DDL in code strings) `sql_table`, `sql_index`, `sql_trigger`. Arrow functions and function expressions count only when bound at the top level, so closures are not indexed;
+- edges from each definition: `calls`, `instantiates` (`new X`), `imports`, `sources` and `runs` (shell), `reads_table` and `writes_table` (SQL in strings and heredocs), `indexes` and `triggers_on`.
+
+`signature` is the definition up to its body, `doc` the comment block directly above it, `body_hash` an md5 of the body with comments stripped, and `terms` the split-name words FTS indexes (`persistScan` → `persist scan`), plus the kind and file name. Calls resolve, in order, to a definition in the same file, the definition an import names, a function in a sourced shell file, or the one non-test definition of that name (4+ characters); the first three set `resolution='exact'`, the last `'name'`, and a call that matches none stays `'unresolved'` with `dst_id` NULL. Table edges resolve by name to a `sql_table`, preferring a non-test `.sql` file.
+
+Freshness is keyed by `symbols_md5`: a file is re-parsed only when it differs from `content_md5`. Re-parsing upserts the file's symbols by `(kind, qualified_name)`, so an unchanged symbol keeps its id and edges into it from other files stay attached; symbols gone from the file are deleted (their inbound edges' `dst_id` goes NULL and `resolution` back to `'unresolved'`), and the file's own edges are rebuilt and resolved. A file dropped from the tree takes its symbols and their edges with it. Build output (`dist/`), source maps, lockfiles, `node_modules/` and `vendor/` are not indexed, and neither are untracked files. The grammars load on the first scan that has a file to parse, never at server start.
 
 ## Population
 
@@ -82,7 +93,7 @@ All three columns stay `NULL` for structural directories and for roots that are 
 
 Re-running `scan_run` is summary-preserving via upsert — existing rows update structural fields and refresh README-derived summaries.
 
-`scan_run` also has one SQLite side effect outside the graph: a resource-discovery pass (#124/#846) reconciles locally-present capabilities — project-local skills, enabled plugins, configured MCP servers — into the trajectory DB's `cheatcodes` table (`origin='installed'`, `source_url='scan_discovered'`). That write lands in the workflow tables; the world model holds only the directory and file layers. See [`CHEATCODES.md`](./CHEATCODES.md).
+`scan_run` also has one SQLite side effect outside the graph: a resource-discovery pass (#124/#846) reconciles locally-present capabilities — project-local skills, enabled plugins, configured MCP servers — into the trajectory DB's `cheatcodes` table (`origin='installed'`, `source_url='scan_discovered'`). That write lands in the workflow tables; the world model holds only the directory, file and symbol layers. See [`CHEATCODES.md`](./CHEATCODES.md).
 
 ## Concurrency
 
@@ -95,17 +106,21 @@ The world model shares the trajectory DB's handle and its WAL-mode, busy-timeout
 - **Zoom-in** (`path` names a directory): the returned node also carries `files: [{path, purpose, purpose_source, content_md5}]` — that directory's own files, sorted by path, `path` repo-relative, each non-empty `purpose` framed as `file-purpose` untrusted content. Children never carry file arrays.
 - **Root call** (`path` omitted or `''`): the response adds `coverage: {files, with_purpose, by_source: {<purpose_source>: n}}` for the repo, so bro sees how much of the repo has a purpose. The default depth-2 tree carries no file arrays, so the cold-start call stays directory-sized.
 
-`world_model_search(query, mode='hybrid')` searches directories by `path` + `summary` and files by `path` + `purpose`. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`) or `kind: 'file'` (with `dir`, a framed `purpose`, `purpose_source`) and a `score`, capped at `k` results overall. Directory results also carry `summary_sha`, `commits_behind`, `dead_refs` and `trust`.
+`world_model_search(query, mode='hybrid')` searches directories by `path` + `summary`, files by `path` + `purpose`, and symbols by split name, signature and doc. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`), `kind: 'file'` (with `dir`, a framed `purpose`, `purpose_source`) or `kind: 'symbol'` (with `id`, `qualified_name`, `symbol_kind`, `path`, `line_start`, `line_end`, and `signature` and `doc` framed as `symbol-signature` / `symbol-doc` untrusted content) and a `score`, capped at `k` results overall. Directory results also carry `summary_sha`, `commits_behind`, `dead_refs` and `trust`.
+
+`world_model_symbol(id)` (or `qualified_name` with optional `repo` and `path`) returns one symbol's card: `{symbol, callers, callees, imports, reads_table, writes_table, tests}`. Each list holds up to 50 refs `{id, qualified_name, kind, repo, path, line_start}` plus a `truncated` flag. Callers are the non-test symbols that call, instantiate, run or source it; `tests` are the test-file symbols with any edge into it; for a `sql_table`, `reads_table` and `writes_table` list the readers and writers. When any edge of the symbol resolved by name or not at all, the card adds `note: "found by name; not all callers"`. Several definitions with the same name return `warning: 'ambiguous'` and their refs instead of a card.
 
 `trust` reads the drift columns: `'current'` when `commits_behind` is 0 and there are no dead refs, `'drifting(n)'` when `commits_behind` is n > 0, with `'dead_refs(k)'` appended after `, ` when the README names k dead paths (`'dead_refs(k)'` alone on an otherwise current README), and `null` for structural directories and non-git roots.
 
-**Sentence queries.** Keyword search first requires every query term (an FTS5 AND). When that matches no row, it reruns as an OR of the terms minus a small English stopword list, still ranked by bm25, so a question like "where does the invoice code live" finds the invoice directory. The response's `match` key says which ran: `'all_terms'` or `'any_term'`.
+**Sentence queries.** Keyword search first requires every query term (an FTS5 AND). When that matches no row, it reruns as an OR of the terms minus a small English stopword list, still ranked by bm25, so a question like "where does the invoice code live" finds the invoice directory. Symbol search falls back to OR when the AND form finds fewer than 3 symbols. The response's `match` key says which ran: `'all_terms'` or `'any_term'`.
+
+**Keyword ranking.** Symbol bm25 weights a name match (10) above a doc (4) or signature (3) match; `module` rows are left to the file hits. Results are then ranked per file path: a path scores `w / (10 + rank)` for the rank of its first symbol hit plus the same for its file-hit rank, so a file found both ways rises, with `w = 0.5` for test files and `changelog.d/` fragments and file hits under `dist/` or ending `.map` dropped. A path's first hit takes the path score and each later hit of the same path a falling share of it; directories score `1 / (10 + rank)` by their own rank.
 
 | Mode | Behavior |
 |---|---|
-| `keyword` | FTS5 bm25 ranking over path + summary/purpose (all terms, else any non-stopword term), then case-insensitive substring hits at score 0 |
+| `keyword` | FTS5 bm25 over path + summary/purpose and symbol names (all terms, else any non-stopword term) plus case-insensitive substring hits, ranked per path as above |
 | `semantic` | Cosine over bge-small embeddings of `path: summary` / `path: purpose`. Vectors come from the q8 (quantized) bge-small model and are stored under `model_id` `Xenova/bge-small-en-v1.5@q8`; rows stored under another id are re-embedded by the backfill |
-| `hybrid` (default) | Reciprocal rank fusion (k = 60) of the keyword and semantic lists for directories and files |
+| `hybrid` (default) | Reciprocal rank fusion (k = 60) of the keyword lists (directories; files and symbols) and the semantic lists for directories and files. Symbols have no embeddings |
 
 Embeddings are computed on demand: each `semantic` or `hybrid` search embeds up to 50 missing rows per table first and, when more are missing, starts a background backfill. When the embedding model is unavailable, `semantic` and `hybrid` return the keyword hits with `warning: 'semantic_unavailable'`.
 
@@ -116,6 +131,7 @@ Embeddings are computed on demand: each `semantic` or `hybrid` search embeds up 
 | Cold session, code-touching ask | `world_model_get(depth=2)` |
 | "Where in this codebase does X live" | `world_model_search(query='X', mode='hybrid')` |
 | Zoom into one part | `world_model_get(path='src/api', depth=1)` — includes each file's purpose |
+| "Who calls X / what does X touch" | `world_model_symbol(id)` from a search hit, or `world_model_symbol(qualified_name='X')` |
 | File-level detail (rare) | direct Read with explicit paths |
 
 ## Consumers
@@ -129,6 +145,6 @@ The world model has had four substrates, each replacing the last:
 - **`file_registry` (v6)** — one row per file (md5 + an LLM summary). Wrong granularity (a file summary says what a file *contains*, not what part of the system it *serves*), drift-sensitive (a one-line edit cleared the summary), and token-heavy. Dropped in v7.
 - **SQLite `directories` table (v7)** — the dir-level model as a stepping stone inside the existing trajectory DB. It validated that a README-first directory map is the right cold-start surface: ~10× fewer rows than per-file, and directory summaries change monthly (a part's role) rather than per-commit (a file's contents). Dropped in v8.
 - **Embedded graph DB (v8–v41)** — the same dir-level model on a separate graph engine, chosen for the import/call relations to follow. Its single-writer lock, native-binding install and exit-time crashes cost more than the graph queries it never ran. Schema v8 dropped the SQLite `directories` tables.
-- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map. v43 added the README drift columns (`summary_sha`, `commits_behind`, `dead_refs`) to `wm_directories` in place; they stay `NULL` until the next scan.
+- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map. v43 added the README drift columns (`summary_sha`, `commits_behind`, `dead_refs`) to `wm_directories` in place; they stay `NULL` until the next scan. v44 added the L1 symbol layer (`wm_symbols`, `wm_edges`, `wm_symbols_fts`) and `wm_files.symbols_md5`, which stays `NULL` until the next scan parses the file.
 
 File rows bring per-file state back with the two `file_registry` faults fixed: a purpose is one deterministic line (what the file is for, not what it contains) at zero token cost, and an edit only re-extracts when the content hash changes while an swe-written purpose survives it.

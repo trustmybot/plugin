@@ -232,7 +232,13 @@ export class WorldModelGraph {
     const stale = this.db
       .all<{ id: number; path: string }>(`SELECT id, path FROM wm_files WHERE repo = ?`, [repo])
       .filter((f) => !keepPaths.has(WorldModelGraph.fileKey(repo, f.path)));
-    for (const f of stale) this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
+    for (const f of stale) {
+      this.db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, f.path]);
+      this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
+    }
+    if (stale.length > 0) {
+      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+    }
     return stale.length;
   }
 
@@ -254,12 +260,13 @@ export class WorldModelGraph {
 
   // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
   // better; any-term fallback per rankWithFallback), then case-insensitive
-  // path/purpose substring hits at score 0.
+  // path/purpose substring hits at score 0. CROSS JOIN keeps the FTS match as
+  // the outer loop; a plain JOIN lets the planner walk every repo row instead.
   keywordSearchFiles(repo: string, query: string, k: number): KeywordResult<FileNode> {
     const { rows: ranked, match } = rankWithFallback(query, (fts) =>
       this.db.all<FileRow & { rank: number }>(
         `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
-           FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
+           FROM wm_files_fts CROSS JOIN wm_files f ON f.id = wm_files_fts.rowid
           WHERE wm_files_fts MATCH ? AND f.repo = ?
           ORDER BY rank, f.path
           LIMIT ?`,
@@ -337,18 +344,21 @@ export class WorldModelGraph {
     return stale.length;
   }
 
-  // Move every directory and file row of oldRepo under newRepo in one
+  // Move every directory, file and symbol row of oldRepo under newRepo in one
   // transaction, replacing any leftover rows already filed under newRepo.
-  // Row ids survive, so FTS and embedding rows stay attached. Returns the
-  // number of directories moved.
+  // Row ids survive, so FTS, embedding and edge rows stay attached. Returns
+  // the number of directories moved.
   renameRepo(oldRepo: string, newRepo: string): number {
     return this.db.transaction(() => {
       const moved = this.directoryCount(oldRepo);
       if (moved === 0) return 0;
       this.db.run(`DELETE FROM wm_directories WHERE repo = ?`, [newRepo]);
       this.db.run(`DELETE FROM wm_files WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_symbols WHERE repo = ?`, [newRepo]);
       this.db.run(`UPDATE wm_directories SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_files SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
       return moved;
     });
   }
@@ -405,7 +415,7 @@ export class WorldModelGraph {
     const { rows: ranked, match } = rankWithFallback(query, (fts) =>
       this.db.all<DirectoryRow & { rank: number }>(
         `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
-           FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+           FROM wm_directories_fts CROSS JOIN wm_directories d ON d.id = wm_directories_fts.rowid
           WHERE wm_directories_fts MATCH ? AND d.repo = ?
           ORDER BY rank, d.path
           LIMIT ?`,

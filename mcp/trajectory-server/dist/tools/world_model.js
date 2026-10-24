@@ -7,10 +7,14 @@ import { spawnSync } from 'node:child_process';
 import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
+import { isTestPath, keywordSearchSymbols, symbolById, symbolCard, symbolsByName, } from '../symbol-index.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
 const RRF_K = 60;
 const SEARCH_BACKFILL_LIMIT = 50;
 const UNMERGED_WORK_MAX_BRANCHES = 10;
+const SYMBOL_POOL = 40;
+const FILE_RANK_POOL = 20;
+const PATH_RANK_K = 10;
 function git(repoPath, args) {
     return spawnSync('git', ['-C', repoPath, ...args], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
 }
@@ -168,14 +172,89 @@ function fileResult(h) {
         score: h.score,
     };
 }
+// Symbol signatures and docs are copied out of file contents, so they leave
+// the server framed like purposes.
+function framedSymbol(s) {
+    return {
+        ...s,
+        signature: s.signature ? frameUntrusted('symbol-signature', s.signature) : '',
+        doc: s.doc ? frameUntrusted('symbol-doc', s.doc) : '',
+    };
+}
+function symbolResult(symbol, score) {
+    const s = framedSymbol(symbol);
+    return {
+        kind: 'symbol',
+        id: s.id,
+        repo: s.repo,
+        qualified_name: s.qualified_name,
+        symbol_kind: s.kind,
+        path: s.path,
+        line_start: s.start_line,
+        line_end: s.end_line,
+        signature: s.signature,
+        doc: s.doc,
+        score,
+    };
+}
 function dirHit(node) {
     return { kind: 'dir', key: `dir:${node.key}`, node };
 }
 function fileHit(node) {
     return { kind: 'file', key: `file:${node.path}`, node };
 }
+function symbolHit(node) {
+    return { kind: 'symbol', key: `symbol:${node.id}`, node };
+}
 function hitResult(hit, score) {
-    return hit.kind === 'dir' ? dirResult({ ...hit.node, score }) : fileResult({ ...hit.node, score });
+    if (hit.kind === 'dir')
+        return dirResult({ ...hit.node, score });
+    if (hit.kind === 'file')
+        return fileResult({ ...hit.node, score });
+    return symbolResult(hit.node, score);
+}
+function isBuildOutput(path) {
+    return /(^|\/)dist\//.test(path) || path.endsWith('.map');
+}
+function pathWeight(path) {
+    return isTestPath(path) || /(^|\/)changelog\.d\//.test(path) ? 0.5 : 1;
+}
+// Keyword ranking across dirs, files and symbols. A repo-relative path scores
+// w/(K + rank) once for the rank of its first symbol hit and once for its
+// file-hit rank, so a file matched both ways rises; tests and changelog
+// fragments count half. The path's first hit takes the path score, each later
+// hit of the same path a falling share of it. Dirs score by their own rank.
+function rankKeyword(dirs, files, symbols) {
+    const pathScore = new Map();
+    const bump = (path, rank) => pathScore.set(path, (pathScore.get(path) ?? 0) + pathWeight(path) / (PATH_RANK_K + rank));
+    const symbolRank = new Map();
+    for (const s of symbols)
+        if (!symbolRank.has(s.path))
+            symbolRank.set(s.path, symbolRank.size);
+    for (const [path, rank] of symbolRank)
+        bump(path, rank);
+    files.forEach((f, rank) => bump(WorldModelGraph.relativeFilePath(f), rank));
+    const seen = new Map();
+    const share = (path) => {
+        const n = seen.get(path) ?? 0;
+        seen.set(path, n + 1);
+        return (pathScore.get(path) ?? 0) / (n + 1);
+    };
+    const ranked = [];
+    dirs.forEach((d, rank) => ranked.push({ hit: dirHit(d), score: 1 / (PATH_RANK_K + rank), order: ranked.length }));
+    const firsts = [...pathScore.keys()].sort((a, b) => pathScore.get(b) - pathScore.get(a));
+    const symbolsByPath = new Map();
+    for (const s of symbols)
+        symbolsByPath.set(s.path, [...(symbolsByPath.get(s.path) ?? []), s]);
+    const fileByPath = new Map(files.map((f) => [WorldModelGraph.relativeFilePath(f), f]));
+    for (const path of firsts) {
+        for (const s of symbolsByPath.get(path) ?? [])
+            ranked.push({ hit: symbolHit(s), score: share(path), order: ranked.length });
+        const file = fileByPath.get(path);
+        if (file)
+            ranked.push({ hit: fileHit(file), score: share(path), order: ranked.length });
+    }
+    return ranked.sort((a, b) => b.score - a.score || a.order - b.order).map(({ hit, score }) => ({ hit, score }));
 }
 // Embed the rows a search would miss: a bounded batch inline so a fresh scan
 // is searchable at once, the rest in the background.
@@ -347,6 +426,24 @@ export function worldModelTools(db, graphHolder) {
                 required: ['agent', 'query'],
             },
         },
+        {
+            name: 'world_model_symbol',
+            description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete.",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    id: { type: 'number', description: 'Symbol id from a world_model_search hit.' },
+                    repo: {
+                        type: 'string',
+                        description: 'Repo name. Defaults to the sole registered repo; required in multi-repo projects without id.',
+                    },
+                    path: { type: 'string', description: 'Repo-relative file path, to pick one of several same-named symbols.' },
+                    qualified_name: { type: 'string', description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+                },
+                required: ['agent'],
+            },
+        },
     ];
     const handlers = {
         world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
@@ -418,11 +515,13 @@ export function worldModelTools(db, graphHolder) {
             }
             const pool = mode === 'keyword' ? k : k * 4;
             const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-            const fileSearch = graph.keywordSearchFiles(repo, query, pool);
-            const match = dirSearch.match === 'any_term' || fileSearch.match === 'any_term' ? 'any_term' : 'all_terms';
-            const keywordDirs = dirSearch.hits.map((n) => ({ hit: dirHit(n), score: n.score }));
-            const keywordFiles = fileSearch.hits.map((n) => ({ hit: fileHit(n), score: n.score }));
-            const keywordRanked = [...keywordDirs, ...keywordFiles].sort((a, b) => b.score - a.score);
+            const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
+            const symbolSearch = keywordSearchSymbols(db, repo, query, SYMBOL_POOL);
+            const match = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === 'any_term')
+                ? 'any_term'
+                : 'all_terms';
+            const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
+            const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
             const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
             const respond = (ranked, extra = {}) => {
                 const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
@@ -437,11 +536,54 @@ export function worldModelTools(db, graphHolder) {
             if (mode === 'semantic')
                 return respond(semantic);
             return respond(fuse([
-                hitsOf(keywordDirs),
-                hitsOf(keywordFiles),
+                dirSearch.hits.map(dirHit),
+                hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== 'dir')),
                 hitsOf(semantic.filter(({ hit }) => hit.kind === 'dir')),
                 hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
             ]));
+        })),
+        world_model_symbol: requireRoles('world_model_symbol', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
+            const id = args['id'];
+            let symbol = null;
+            if (typeof id === 'number') {
+                symbol = symbolById(db, id);
+                if (!symbol)
+                    return err(`symbol ${id} not found`);
+            }
+            else {
+                const name = args['qualified_name'];
+                if (typeof name !== 'string' || !name)
+                    return err('id or qualified_name is required');
+                let repo = args['repo'] ?? '';
+                if (!repo) {
+                    const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+                    if (available.length >= 2)
+                        return ok({ symbol: null, warning: 'repo-unspecified', available_repos: available });
+                    repo = resolveSoleRepo(db)?.name ?? '';
+                }
+                const path = args['path'];
+                const matches = symbolsByName(db, repo, name, typeof path === 'string' && path ? path : undefined);
+                if (matches.length === 0)
+                    return err(`symbol ${name} not found in repo ${repo || '(none)'}`);
+                const definitions = matches.filter((m) => m.kind !== 'module');
+                if (definitions.length > 1) {
+                    return ok({
+                        symbol: null,
+                        warning: 'ambiguous',
+                        matches: definitions.map((m) => ({
+                            id: m.id,
+                            qualified_name: m.qualified_name,
+                            kind: m.kind,
+                            repo: m.repo,
+                            path: m.path,
+                            line_start: m.start_line,
+                        })),
+                    });
+                }
+                symbol = matches[0];
+            }
+            const card = symbolCard(db, symbol);
+            return ok({ ...card, symbol: framedSymbol(card.symbol) });
         })),
     };
     return { definitions, handlers };

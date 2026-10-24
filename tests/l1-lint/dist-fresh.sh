@@ -98,6 +98,13 @@ perl scripts/postprocess-bundle.pl \
   --bundle --platform=node --format=esm --target=node22 --log-level=warning \
   | node --input-type=module > "$TMPDIR/hooks-gates.txt"
 cp src/schema*.sql "$TMPDIR/"
+mkdir -p "$TMPDIR/parsing"
+cp node_modules/web-tree-sitter/tree-sitter.wasm \
+  node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm \
+  node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm \
+  node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm \
+  node_modules/tree-sitter-bash/tree-sitter-bash.wasm \
+  "$TMPDIR/parsing/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)
 DIFF_OUT=$(diff -ru \

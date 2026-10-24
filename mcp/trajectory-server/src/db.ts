@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 43;
+export const TARGET_SCHEMA_VERSION = 44;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -785,6 +785,9 @@ function runMigrations(
   }
   if (fromVersion < 43 && toVersion >= 43) {
     migrateV42toV43(db);
+  }
+  if (fromVersion < 44 && toVersion >= 44) {
+    migrateV43toV44(db);
   }
 }
 
@@ -2673,6 +2676,27 @@ function migrateV42toV43(db: DatabaseSync): void {
       if (!hasColumn(db, 'wm_directories', column)) {
         db.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
       }
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v43→v44: the L1 symbol index (GH 1680, ADR 0001). wm_files gains
+// symbols_md5, NULL until the next scan_run parses the file; wm_symbols,
+// wm_edges and wm_symbols_fts come from the schema.sql reapply.
+function migrateV43toV44(db: DatabaseSync): void {
+  if (!tableExists(db, 'wm_files')) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, 'wm_files', 'symbols_md5')) {
+      db.exec('ALTER TABLE wm_files ADD COLUMN symbols_md5 TEXT');
     }
     commitTransaction(db);
   } catch (err) {
