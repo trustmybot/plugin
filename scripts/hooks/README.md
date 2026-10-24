@@ -17,7 +17,17 @@ Every `hooks/hooks.json` command is `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispat
 
 **Without jq.** `dispatch.sh` reads a registration's timeout and `onFailure` from hooks.json with awk (`tmb_registration` in `lib/registrations.sh`), so the fail-closed path holds on a host without jq. There a gate registered `onFailure: block` denies with `jq not found` before it runs; the deny-capable gates that check for jq themselves exit 1 with `jq not found` on stderr (the dispatcher turns that into the deny), and the observe-only `reviewer-identity-observe.sh` exits 0 with a stderr note. The SessionStart prescan prints `Tooling: jq not found — every TMB gate will deny until it is installed`.
 
-`tests/l1-lint/hooks-via-dispatcher.sh` keeps every registration on the dispatcher; `tests/l3-integration/hooks/dispatch.test.sh` covers dedup, install resolution, the shim yield, fail-closed gates, the chain, the no-jq path and the deny audit. The rule is written up in [`docs/architecture/CONTAINMENT.md`](../../docs/architecture/CONTAINMENT.md).
+`tests/l1-lint/hooks-via-dispatcher.sh` keeps every registration on the dispatcher; `tests/l3-integration/hooks/dispatch.test.sh` covers dedup, install resolution, the shim yield, fail-closed gates, the chain, the no-jq path, the deny audit and the TypeScript route. The rule is written up in [`docs/architecture/CONTAINMENT.md`](../../docs/architecture/CONTAINMENT.md).
+
+## TypeScript gates
+
+Gates are moving from bash to TypeScript one at a time (GH 1692); macOS is the bar.
+
+- **Where they live.** `mcp/trajectory-server/src/hooks/`: one `<gate>.ts` per gate, implementing `Gate` from `gate.ts` (payload in, stdout and exit code out). The build bundles `src/hooks/index.ts` to `dist/hooks.js`; `node dist/hooks.js <gate>` reads the payload from stdin, writes the gate's stdout and exits with its code. An unknown gate or an uncaught error prints one stderr line and exits 1, so a fail-closed gate denies, never allows.
+- **The registry.** `src/hooks/registry.ts` maps gate names to gates. `build:bundle` writes `dist/hooks-gates.txt` from it (sorted, one name per line); never edit that file by hand. Today it lists `askuserquestion-length-lint`.
+- **Routing.** `dispatch.sh` runs `node <install>/mcp/trajectory-server/dist/hooks.js <gate>` in place of `bash <gate>.sh` when the gate is an exact line of the install's `dist/hooks-gates.txt`, `dist/hooks.js` exists and `node` is on PATH; otherwise the `.sh` runs. Dedupe, locks, chains, timeouts, fail-closed and the deny audit are the same on both routes. The `.sh` stays beside each ported gate as its parity reference.
+- **The corpus and parity.** `tests/fixtures/hook-corpus/<gate>/*.json` holds payloads for each registered gate, at least 8. `src/test/hooks-parity.test.ts` runs every one through `bash scripts/hooks/<gate>.sh` and `node dist/hooks.js <gate>` under `LC_ALL=C` and `LC_ALL=en_US.UTF-8`, and fails on a different exit code, a different stdout (empty, or deep-equal JSON), or a registered gate with too small a corpus.
+- **The kill switch.** `TMB_HOOKS_IMPL=bash` runs every gate's `.sh`.
 
 ## Grouped by lifecycle
 

@@ -1,0 +1,2 @@
+### Changed
+- **Hook gates start running as TypeScript on macOS** (GH 1692): `dispatch.sh` runs a gate listed in `mcp/trajectory-server/dist/hooks-gates.txt` through `node dist/hooks.js <gate>` when node is on PATH, with the same dedupe, locks, fail-closed handling and deny audit as before; every other gate still runs its `.sh`. `askuserquestion-length-lint` is the first, with the same warnings as its bash version, which a parity test checks over a corpus of payloads. Set `TMB_HOOKS_IMPL=bash` to run every gate's `.sh` again.

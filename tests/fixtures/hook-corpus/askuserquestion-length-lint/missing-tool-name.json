@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_input": {
+    "questions": [
+      {
+        "options": [
+          {
+            "label": "one two three four five six",
+            "description": "d"
+          }
+        ]
+      }
+    ]
+  }
+}
