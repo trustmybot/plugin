@@ -263,3 +263,12 @@ tmb_audit_append() {
   sql=$(tmb_audit_sql "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "$guard") || return 2
   tmb_db_write "$db" "$sql"
 }
+
+# The usage rule of a closing agent_runs row, as the server's finalize helper
+# (mcp/trajectory-server/src/tools/agent-runs.ts) applies it: a row with no
+# token usage and no usage_source becomes 'unmeasured' (the marker the
+# swe_runs_metered doctor contract accepts); tokens or a source already written
+# are kept. TMB_RUN_UNMEASURED_SQL is a SET-clause item.
+TMB_RUN_NO_USAGE_SQL="COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0"
+# shellcheck disable=SC2034
+TMB_RUN_UNMEASURED_SQL="usage_source = COALESCE(usage_source, CASE WHEN ${TMB_RUN_NO_USAGE_SQL} THEN 'unmeasured' END)"

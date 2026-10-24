@@ -216,6 +216,12 @@ assert_eq "swept_orphan|1|unmeasured" \
   "$(q "SELECT exit_reason, completed_at IS NOT NULL, usage_source FROM agent_runs WHERE spawn_id='tool_use:tu-1';")" \
   "tu-1 swept_orphan"
 assert_eq "pending" "$(q "SELECT status FROM tasks WHERE id=7;")" "task 7 pending"
+spawn 7 tu-2 >/dev/null
+q "UPDATE agent_runs SET tokens_in = 12, usage_source = 'transcript' WHERE spawn_id='tool_use:tu-2';"
+refuse 7 tu-2
+assert_eq "swept_orphan|transcript|12" \
+  "$(q "SELECT exit_reason, usage_source, tokens_in FROM agent_runs WHERE spawn_id='tool_use:tu-2';")" \
+  "a rolled-back row carrying usage keeps its source (GH 1673)"
 
 test_case "(k) a bound row an hour old is never closed by the sweep, PermissionDenied or SubagentStop"
 reset7

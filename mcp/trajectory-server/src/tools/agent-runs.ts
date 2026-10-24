@@ -45,24 +45,50 @@ const UNBOUND_SWE_RUN_SQL = "(spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')";
 const WINDOW_MS_SQL =
   "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
 
+// A row carrying no token usage: what the swe_runs_metered doctor contract
+// counts unless usage_source is 'unmeasured'.
+const NO_USAGE_SQL =
+  'COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 ' +
+  'AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0';
+
+// The one usage rule of a closing row: no usage and no usage_source becomes
+// 'unmeasured'; tokens or a source already written are kept.
+const UNMEASURED_IF_NO_USAGE_SQL =
+  `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+
+// The one finalize path of the server: closes the open agent_runs rows that
+// match `where` at `now` with `exitReasonSql`. A row with no measured duration
+// takes its window length; a row with no usage is marked unmeasured. `params`
+// binds the placeholders of `exitReasonSql`, then of `where`. Returns rows
+// closed.
+function finalizeOpenRuns(
+  db: TrajectoryDB,
+  now: string,
+  exitReasonSql: string,
+  where: string,
+  params: unknown[],
+): number {
+  return db.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now, now, ...params],
+  ).changes;
+}
+
 // Closes every open agent_runs row (bro and swe) of a task at `now` with
-// `exitReason`. A row with no measured duration takes its window length.
-// Returns rows closed.
+// `exitReason`. Returns rows closed.
 export function closeOpenRunsForTask(
   db: TrajectoryDB,
   taskId: number,
   now: string,
   exitReason: RunExitReason,
 ): number {
-  return db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ?
-      WHERE task_id = ?
-        AND completed_at IS NULL`,
-    [now, now, exitReason, taskId],
-  ).changes;
+  return finalizeOpenRuns(db, now, '?', 'task_id = ?', [exitReason, taskId]);
 }
 
 // Closes every open agent_runs row whose task is already terminal: a row that
@@ -70,16 +96,13 @@ export function closeOpenRunsForTask(
 // closed.
 export function sweepRunsOfTerminalTasks(db: TrajectoryDB, now: string): number {
   const placeholders = [...TERMINAL_TASK_STATUSES].map(() => '?').join(', ');
-  return db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured'
-                               THEN 'swept_orphan' ELSE 'swept_stale' END
-      WHERE completed_at IS NULL
-        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
-    [now, now, ...TERMINAL_TASK_STATUSES],
-  ).changes;
+  return finalizeOpenRuns(
+    db,
+    now,
+    "CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured' THEN 'swept_orphan' ELSE 'swept_stale' END",
+    `task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+    [...TERMINAL_TASK_STATUSES],
+  );
 }
 
 const RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -119,15 +142,12 @@ export function openSweRun(
   rootDir: string | null,
 ): boolean {
   const orphanBefore = new Date(Date.parse(now) - SWE_ORPHAN_AFTER_MS).toISOString();
-  db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = 'swept_orphan'
-      WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
-        AND ${UNBOUND_SWE_RUN_SQL}
-        AND started_at IS NOT NULL AND started_at < ?`,
-    [now, now, task.id, orphanBefore],
+  finalizeOpenRuns(
+    db,
+    now,
+    "'swept_orphan'",
+    `task_id = ? AND agent_type = 'swe' AND ${UNBOUND_SWE_RUN_SQL} AND started_at IS NOT NULL AND started_at < ?`,
+    [task.id, orphanBefore],
   );
   const open = db.get<{ id: number }>(
     `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,

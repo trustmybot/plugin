@@ -27281,16 +27281,22 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
 // src/tools/agent-runs.ts
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
 var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
   return db.run(
     `UPDATE agent_runs
         SET completed_at = ?,
             duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ?
-      WHERE task_id = ?
-        AND completed_at IS NULL`,
-    [now2, now2, exitReason, taskId]
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now2, now2, ...params]
   ).changes;
+}
+function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
 }
 
 // src/tools/lifecycle.ts
