@@ -435,6 +435,20 @@ assert_eq "deny" "$(decision "$OUT")" "swe: subprocess.run(['true', str(n)])"
 assert_not_contains "$OUT" '$()' "not reported as a command substitution"
 assert_contains "$OUT" "process call in an inline program" "the reason names the process call"
 
+test_case "GH 1676: a write through an aliased or held write builtin gets its own reason"
+ALIAS_WHY="is written through an aliased or stored write builtin the guard can't resolve; call open() (or the write method) directly with a literal path"
+OUT=$(run "$WT" "swe" Bash "$(bash_cmd "python3 -c \"o=open; o('/etc/tmb-cg','w')\"")")
+assert_eq "deny" "$(decision "$OUT")" "swe: python3 -c \"o=open; o(...)\""
+assert_contains "$OUT" "$ALIAS_WHY" "the reason names the aliased write builtin"
+assert_not_contains "$OUT" "process call" "not reported as a process call"
+OUT=$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'writers = [open]' "writers[0]('/etc/tmb-cg', 'w')")")")
+assert_eq "deny" "$(decision "$OUT")" "swe: open held in a list"
+assert_contains "$OUT" "$ALIAS_WHY" "the reason names the held write builtin"
+OUT=$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import subprocess' 'f = subprocess.run' "f(['touch', '/etc/tmb-cg'])")")")
+assert_eq "deny" "$(decision "$OUT")" "swe: a process function held in a variable"
+assert_contains "$OUT" "process call in an inline program" "a process call keeps the process-call reason"
+assert_not_contains "$OUT" "write builtin" "a process call is not reported as a write builtin"
+
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
 mkdir -p "$BARE"

@@ -144,7 +144,8 @@
 #   shell: `HOME=/x cat > "$HOME/f"` is judged on the host's $HOME/f. A path that still holds a variable (one never set
 #   here, set by read, or built by $( ) / backticks) prints
 #   `UNRESOLVED:<var>:<path>` (<var> is `$()` for a command substitution,
-#   `$(proc)` for an inline program's process call it cannot follow);
+#   `$(proc)` for an inline program's process call it cannot follow,
+#   `$(alias-write)` for its write builtin held or aliased);
 #   every caller handles that form. A relative path is joined to its
 #   statement's own dir (a preceding cd / pushd, a subshell restoring it,
 #   git -C for git mv) and normalized: absolute when <cwd> is given, else
@@ -1268,11 +1269,12 @@ _tmb_cmd_interp_writes() {
 # whose name is not a plain string literal; any subscript or attribute of
 # globals() / locals() / vars(…); a builtin held as a value (exec, eval,
 # compile, open, __import__, getattr, setattr, delattr, globals, locals,
-# vars, type, breakpoint, input), which also covers a runner's return value
-# called (pdb.runeval('open')(…)); an __import__ of anything but a plain
-# literal; the argv-driven runners timeit / cProfile / profile / trace / pdb
-# .main (and pdb set_trace / post_mortem / pm); and a string literal, not raw,
-# with a \x, \u, \U, \N{ or octal escape, which cannot be matched as
+# vars, type, breakpoint, input; open is `$(alias-write)`, GH 1676), which
+# also covers a runner's return value called (pdb.runeval('open')(…)); an
+# __import__ of anything but a plain literal; the argv-driven runners
+# timeit / cProfile / profile / trace / pdb .main (and pdb set_trace /
+# post_mortem / pm); and a string literal, not raw, with a \x, \u, \U, \N{
+# or octal escape, which cannot be matched as
 # written. python -m with such a runner is `$(proc)` too
 # (_tmb_cmd_interp_writes). A chdir (os.chdir, process.chdir, perl chdir, Dir.chdir)
 # makes every process call and every relative path the program writes
@@ -1313,6 +1315,7 @@ _tmb_cmd_prog_writes() {
         if [ "$cd" = 1 ]; then out="${out}\$(proc)"$'\n'
         else out="${out}$(_tmb_cmd_proc_writes "$(printf '%s' "${lit#S$'\t'}" | tr '\037' '\n')")"$'\n'; fi ;;
       U) out="${out}\$(proc)"$'\n' ;;
+      H) out="${out}\$(alias-write)"$'\n' ;;
       Q$'\t'?*) src="${src}${lit#Q$'\t'}"$'\n' ;;
     esac
   done <<< "$scan"
@@ -1373,9 +1376,9 @@ _tmb_cmd_prog_scan() {
 # __class__ / __bases__ / __mro__ attribute or string literal, a getattr /
 # setattr / delattr name or __import__ argument that is not a plain literal,
 # a subscript or attribute of globals() / locals() / vars(), a builtin held
-# as a value, a runner .main, and a non-raw string literal with a \x / \u /
-# \U / \N{ / octal escape (whose write path is `F`, never `T`). The
-# filename of cProfile / profile run (2nd) / runctx (4th)
+# as a value (`W` and `H` for open), a runner .main, and a non-raw string
+# literal with a \x / \u / \U / \N{ / octal escape (whose write path is
+# `F`, never `T`). The filename of cProfile / profile run (2nd) / runctx (4th)
 # and dump_stats are write paths. `C` for a chdir. Import
 # aliases (import subprocess as sp, from subprocess / os / builtins / sys /
 # runner modules import f as g, node require / import of child_process)
@@ -1557,7 +1560,8 @@ _tmb_cmd_prog_calls() {
       if (cn ~ dunre || cn ~ /^sys[.]modules([.]|$)/ || cn ~ mainre || b ~ /^breakpoint([.]|$)/) { unres(); return }
       if (ch == "=" && substr(s, k + 1, 1) != "=") return
       m = cn; sub(/[.].*$/, "", m)
-      if (cn ~ /^(builtins|__builtins__)$/ || cn ~ /(^|[.])__self__([.]|$)/ || cn ~ clsre || cn ~ /^(builtins|__builtins__)[.]__/ || ((m in impd) && (cn == m || cn ~ /^[^.]+[.]__/)) || (b ~ heldre && (ch != "(" || b ~ /[.]/)) || (cn ~ runre && ch != "(")) unres()
+      if (cn ~ /^(builtins|__builtins__)$/ || cn ~ /(^|[.])__self__([.]|$)/ || cn ~ clsre || cn ~ /^(builtins|__builtins__)[.]__/ || ((m in impd) && (cn == m || cn ~ /^[^.]+[.]__/)) || (cn ~ runre && ch != "(")) unres()
+      else if (b ~ heldre && (ch != "(" || b ~ /[.]/)) held(b)
     }
     function pyesc(v,   i, ch) {
       while ((i = index(v, "\\")) > 0) {
@@ -1604,6 +1608,7 @@ _tmb_cmd_prog_calls() {
     }
     function inimport(p,   j) { for (j = 1; j <= nimp; j++) if (p >= ims[j] && p < ime[j]) return 1; return 0 }
     function unres() { print "W"; print "U" }
+    function held(nm) { if (nm ~ /^open([.]|$)/) { print "W"; print "H" } else unres() }
     function addrange(st, ln) { nimp++; ims[nimp] = st; ime[nimp] = st + ln }
     function trim(x) { sub(/^[ \t\n]+/, "", x); sub(/[ \t\n]+$/, "", x); return x }
     function pyimport(m,   mod, x, n, a, j, nm, al, top) {
@@ -1619,7 +1624,7 @@ _tmb_cmd_prog_calls() {
           nm = trim(a[j]); al = nm
           if (nm ~ /[ \t]as[ \t]/) { sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm) }
           if (mod !~ pymods) { if (al == "compile") fal[al] = mod "." nm; continue }
-          if (mod == "builtins" && nm ~ heldre && al != nm) unres()
+          if (mod == "builtins" && nm ~ heldre && al != nm) held(nm)
           if (nm == "*") star[mod] = 1; else if (nm != "") fal[al] = mod "." nm
         }
         return
@@ -2505,8 +2510,8 @@ _tmb_cmd_exec_writes() {
 # _tmb_cmd_emit <dir-token> <path> <cwd>
 # Prints <path> joined to its statement's dir, once per value its variables
 # resolve to; `UNRESOLVED:<var>:<path>` when a variable (or a $( ) /
-# backtick, named `$()`; `$(proc)` from an inline program) cannot be
-# resolved from this command. A relative
+# backtick, named `$()`; `$(proc)` / `$(alias-write)` from an inline
+# program) cannot be resolved from this command. A relative
 # <path> in an unknown dir that came from a cd / git -C through a variable
 # (_TMB_CMD_WHY: `<dir-token>\024<encoded dir word>`) is re-judged as written
 # under that word.
@@ -3045,7 +3050,8 @@ _tmb_cmd_env_var() {
 # from _TMB_CMD_VARS (else the default, else _tmb_cmd_env_var) into the
 # array _TMB_CMD_EXP (every combination of values, at most 16). Non-zero,
 # with the variable in _TMB_CMD_UNRES, when one cannot be resolved; a $( ) or
-# backtick is `$()`, an inline program's `$(proc)` marker `$(proc)`.
+# backtick is `$()`, an inline program's `$(proc)` / `$(alias-write)` marker
+# itself.
 _tmb_cmd_expand() {
   local rest="${1:-}" lit name op def vals v a k cut
   local -a acc=("") nxt
@@ -3062,6 +3068,7 @@ _tmb_cmd_expand() {
     op=""; def=""; cut=""
     case "$rest" in
       '$(proc)'*) _TMB_CMD_UNRES='$(proc)'; return 1 ;;
+      '$(alias-write)'*) _TMB_CMD_UNRES='$(alias-write)'; return 1 ;;
       '`'*|'$('*) _TMB_CMD_UNRES='$()'; return 1 ;;
       '${'*)
         a="${rest#??}"
