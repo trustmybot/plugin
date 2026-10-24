@@ -109,6 +109,29 @@ function computeUnmergedWork(db, repo) {
     }
     return { unmerged_work };
 }
+// How far a README summary can be trusted (GH 1680): 'current', 'drifting(n)'
+// when n commits touched the dir since the README did, 'dead_refs(k)' when it
+// names k deleted paths (joined with ', '); null when drift is unknown.
+export function trustOf(node) {
+    const behind = node.commits_behind ?? null;
+    if (behind === null)
+        return null;
+    const dead = node.dead_refs?.length ?? 0;
+    const parts = [];
+    if (behind > 0)
+        parts.push(`drifting(${behind})`);
+    if (dead > 0)
+        parts.push(`dead_refs(${dead})`);
+    return parts.length > 0 ? parts.join(', ') : 'current';
+}
+function driftView(node) {
+    return {
+        summary_sha: node.summary_sha ?? null,
+        commits_behind: node.commits_behind ?? null,
+        dead_refs: node.dead_refs ?? null,
+        trust: trustOf(node),
+    };
+}
 // File purposes are extracted from file contents, so they leave the server
 // framed as untrusted data; the graph keeps them raw.
 function framedPurpose(purpose) {
@@ -130,6 +153,7 @@ function dirResult(h) {
         summary: h.summary,
         summary_source: h.summary_source,
         file_count: h.file_count,
+        ...driftView(h),
         score: h.score,
     };
 }
@@ -264,6 +288,7 @@ export function buildTree(rows, rootPath, depth, opts) {
             summary_source: node.summary_source,
             summary_updated_at: node.summary_updated_at,
             file_count: node.file_count,
+            ...driftView(node),
             children,
         };
     }
@@ -273,7 +298,7 @@ export function worldModelTools(db, graphHolder) {
     const definitions = [
         {
             name: 'world_model_get',
-            description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+            description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -303,7 +328,7 @@ export function worldModelTools(db, graphHolder) {
                     agent: { type: 'string' },
                     query: {
                         type: 'string',
-                        description: 'Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match), plus path/text substrings; semantic matches natural language.',
+                        description: 'Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match; when none do, any non-stopword term, reported as match: any_term), plus path/text substrings; semantic matches natural language.',
                     },
                     mode: {
                         type: 'string',
@@ -392,13 +417,16 @@ export function worldModelTools(db, graphHolder) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
             }
             const pool = mode === 'keyword' ? k : k * 4;
-            const keywordDirs = graph.keywordSearchDirectories(repo, query, pool).map((n) => ({ hit: dirHit(n), score: n.score }));
-            const keywordFiles = graph.keywordSearchFiles(repo, query, pool).map((n) => ({ hit: fileHit(n), score: n.score }));
+            const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
+            const fileSearch = graph.keywordSearchFiles(repo, query, pool);
+            const match = dirSearch.match === 'any_term' || fileSearch.match === 'any_term' ? 'any_term' : 'all_terms';
+            const keywordDirs = dirSearch.hits.map((n) => ({ hit: dirHit(n), score: n.score }));
+            const keywordFiles = fileSearch.hits.map((n) => ({ hit: fileHit(n), score: n.score }));
             const keywordRanked = [...keywordDirs, ...keywordFiles].sort((a, b) => b.score - a.score);
             const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
             const respond = (ranked, extra = {}) => {
                 const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
-                return ok({ results, total_matched: results.length, ...extra, mode });
+                return ok({ results, total_matched: results.length, ...extra, mode, match });
             };
             if (mode === 'keyword')
                 return respond(keywordRanked);

@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=42 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=43 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -66,7 +66,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 42);
+    assert.equal(meta.schema_version, 43);
 
     db.close();
   });

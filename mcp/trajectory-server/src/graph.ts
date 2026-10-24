@@ -3,7 +3,7 @@
 // file is a wm_files row hung off its directory by dir. FTS5 indexes cover
 // directory summaries and file purposes (GH 1632).
 import type { TrajectoryDB } from './db.js';
-import { toFtsQuery, withFtsGuard } from './fts-query.js';
+import { toFtsOrQuery, toFtsQuery, withFtsGuard } from './fts-query.js';
 
 export interface DirectoryNode {
   key: string;
@@ -14,6 +14,10 @@ export interface DirectoryNode {
   summary_source: string;
   summary_updated_at: string | null;
   file_count: number;
+  // README drift (GH 1680); null for structural dirs and non-git roots.
+  summary_sha?: string | null;
+  commits_behind?: number | null;
+  dead_refs?: string[] | null;
 }
 
 export interface FileNode {
@@ -36,6 +40,15 @@ export interface FileCoverage {
 
 export type Scored<T> = T & { score: number };
 
+// Which FTS query form produced the keyword hits: every term (AND), or, when
+// that matched nothing, any non-stopword term (OR).
+export type KeywordMatch = 'all_terms' | 'any_term';
+
+export interface KeywordResult<T> {
+  hits: Array<Scored<T>>;
+  match: KeywordMatch;
+}
+
 const SUBTREE_MAX_DEPTH = 256;
 
 interface DirectoryRow {
@@ -47,6 +60,9 @@ interface DirectoryRow {
   summary_source: string;
   summary_updated_at: string | null;
   file_count: number;
+  summary_sha: string | null;
+  commits_behind: number | null;
+  dead_refs: string | null;
 }
 
 interface FileRow {
@@ -63,7 +79,7 @@ interface FileRow {
 }
 
 const DIR_COLUMNS =
-  'd.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count';
+  'd.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count, d.summary_sha, d.commits_behind, d.dead_refs';
 const FILE_COLUMNS =
   'f.id, f.repo, f.path, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at';
 
@@ -77,7 +93,20 @@ function toDirectoryNode(r: DirectoryRow): DirectoryNode {
     summary_source: r.summary_source,
     summary_updated_at: r.summary_updated_at || null,
     file_count: Number(r.file_count),
+    summary_sha: r.summary_sha ?? null,
+    commits_behind: r.commits_behind === null || r.commits_behind === undefined ? null : Number(r.commits_behind),
+    dead_refs: parseDeadRefs(r.dead_refs),
   };
+}
+
+function parseDeadRefs(raw: string | null | undefined): string[] | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 function toFileNode(r: FileRow): FileNode {
@@ -92,6 +121,17 @@ function toFileNode(r: FileRow): FileNode {
     last_commit_sha: r.last_commit_sha,
     updated_at: r.updated_at,
   };
+}
+
+// bm25-ranked FTS rows for the all-terms query; when that matches nothing, the
+// same search over any non-stopword term.
+function rankWithFallback<R>(query: string, search: (fts: string) => R[]): { rows: R[]; match: KeywordMatch } {
+  const allTerms = toFtsQuery(query);
+  const all = withFtsGuard(() => search(allTerms));
+  if (all.length > 0) return { rows: all, match: 'all_terms' };
+  const any = toFtsOrQuery(query);
+  if (any === null || any === allTerms) return { rows: all, match: 'all_terms' };
+  return { rows: withFtsGuard(() => search(any)), match: 'any_term' };
 }
 
 function placeholders(n: number): string {
@@ -213,20 +253,21 @@ export class WorldModelGraph {
   }
 
   // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
-  // better), then case-insensitive path/purpose substring hits at score 0.
-  keywordSearchFiles(repo: string, query: string, k: number): Array<Scored<FileNode>> {
-    const ranked = withFtsGuard(() =>
+  // better; any-term fallback per rankWithFallback), then case-insensitive
+  // path/purpose substring hits at score 0.
+  keywordSearchFiles(repo: string, query: string, k: number): KeywordResult<FileNode> {
+    const { rows: ranked, match } = rankWithFallback(query, (fts) =>
       this.db.all<FileRow & { rank: number }>(
         `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
            FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
           WHERE wm_files_fts MATCH ? AND f.repo = ?
           ORDER BY rank, f.path
           LIMIT ?`,
-        [toFtsQuery(query), repo, k],
+        [fts, repo, k],
       ),
     );
     const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
-    if (hits.length >= k) return hits;
+    if (hits.length >= k) return { hits, match };
     const seen = new Set(ranked.map((r) => r.id));
     const needle = query.toLowerCase();
     const substring = this.db
@@ -238,7 +279,7 @@ export class WorldModelGraph {
         [repo, needle, needle, k + seen.size],
       )
       .filter((r) => !seen.has(r.id));
-    return [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k);
+    return { hits: [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k), match };
   }
 
   filesByIds(ids: number[]): Map<number, FileNode> {
@@ -252,14 +293,17 @@ export class WorldModelGraph {
 
   upsertDirectory(node: Omit<DirectoryNode, 'key'>): void {
     this.db.run(
-      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, path) DO UPDATE SET
          parent_path = excluded.parent_path,
          summary = excluded.summary,
          summary_source = excluded.summary_source,
          summary_updated_at = excluded.summary_updated_at,
-         file_count = excluded.file_count`,
+         file_count = excluded.file_count,
+         summary_sha = excluded.summary_sha,
+         commits_behind = excluded.commits_behind,
+         dead_refs = excluded.dead_refs`,
       [
         node.repo,
         node.path,
@@ -268,6 +312,9 @@ export class WorldModelGraph {
         node.summary_source,
         node.summary_updated_at,
         node.file_count,
+        node.summary_sha ?? null,
+        node.commits_behind ?? null,
+        node.dead_refs ? JSON.stringify(node.dead_refs) : null,
       ],
     );
   }
@@ -352,20 +399,21 @@ export class WorldModelGraph {
   }
 
   // FTS5 hits over path + summary ranked by bm25 (score = -bm25, higher is
-  // better), then case-insensitive path/summary substring hits at score 0.
-  keywordSearchDirectories(repo: string, query: string, k: number): Array<Scored<DirectoryNode>> {
-    const ranked = withFtsGuard(() =>
+  // better; any-term fallback per rankWithFallback), then case-insensitive
+  // path/summary substring hits at score 0.
+  keywordSearchDirectories(repo: string, query: string, k: number): KeywordResult<DirectoryNode> {
+    const { rows: ranked, match } = rankWithFallback(query, (fts) =>
       this.db.all<DirectoryRow & { rank: number }>(
         `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
            FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
           WHERE wm_directories_fts MATCH ? AND d.repo = ?
           ORDER BY rank, d.path
           LIMIT ?`,
-        [toFtsQuery(query), repo, k],
+        [fts, repo, k],
       ),
     );
     const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
-    if (hits.length >= k) return hits;
+    if (hits.length >= k) return { hits, match };
     const seen = new Set(ranked.map((r) => r.id));
     const needle = query.toLowerCase();
     const substring = this.db
@@ -377,7 +425,7 @@ export class WorldModelGraph {
         [repo, needle, needle, k + seen.size],
       )
       .filter((r) => !seen.has(r.id));
-    return [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k);
+    return { hits: [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k), match };
   }
 
   directoriesByIds(ids: number[]): Map<number, DirectoryNode> {

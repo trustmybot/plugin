@@ -2896,9 +2896,9 @@ var require_compile = __commonJS({
       if (_sch)
         return _sch;
       const rootId = (0, resolve_1.getFullPath)(this.opts.uriResolver, sch.root.baseId);
-      const { es5, lines } = this.opts.code;
+      const { es5, lines: lines2 } = this.opts.code;
       const { ownProperties } = this.opts;
-      const gen = new codegen_1.CodeGen(this.scope, { es5, lines, ownProperties });
+      const gen = new codegen_1.CodeGen(this.scope, { es5, lines: lines2, ownProperties });
       let _ValidationError;
       if (sch.$async) {
         _ValidationError = gen.scopeValue("Error", {
@@ -3952,8 +3952,8 @@ var require_core = __commonJS({
         this._loading = {};
         this._cache = /* @__PURE__ */ new Map();
         opts = this.opts = { ...opts, ...requiredOptions(opts) };
-        const { es5, lines } = this.opts.code;
-        this.scope = new codegen_2.ValueScope({ scope: {}, prefixes: EXT_SCOPE_NAMES, es5, lines });
+        const { es5, lines: lines2 } = this.opts.code;
+        this.scope = new codegen_2.ValueScope({ scope: {}, prefixes: EXT_SCOPE_NAMES, es5, lines: lines2 });
         this.logger = getLogger(opts.logger);
         const formatOpt = opts.validateFormats;
         opts.validateFormats = false;
@@ -12301,9 +12301,9 @@ var Doc = class {
       return;
     }
     const content = arg;
-    const lines = content.split("\n").filter((x) => x);
-    const minIndent = Math.min(...lines.map((x) => x.length - x.trimStart().length));
-    const dedented = lines.map((x) => x.slice(minIndent)).map((x) => " ".repeat(this.indent * 2) + x);
+    const lines2 = content.split("\n").filter((x) => x);
+    const minIndent = Math.min(...lines2.map((x) => x.length - x.trimStart().length));
+    const dedented = lines2.map((x) => x.slice(minIndent)).map((x) => " ".repeat(this.indent * 2) + x);
     for (const line of dedented) {
       this.content.push(line);
     }
@@ -12312,8 +12312,8 @@ var Doc = class {
     const F = Function;
     const args = this?.args;
     const content = this?.content ?? [``];
-    const lines = [...content.map((x) => `  ${x}`)];
-    return new F(...args, lines.join("\n"));
+    const lines2 = [...content.map((x) => `  ${x}`)];
+    return new F(...args, lines2.join("\n"));
   }
 };
 
@@ -21526,7 +21526,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 42;
+var TARGET_SCHEMA_VERSION = 43;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -22056,6 +22056,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 42 && toVersion >= 42) {
     migrateV41toV42(db);
+  }
+  if (fromVersion < 43 && toVersion >= 43) {
+    migrateV42toV43(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -23390,7 +23393,7 @@ function migrateV34toV35(db) {
         `INSERT OR IGNORE INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)`
       );
       const canAudit = tableExists(db, "audit") && tableExists(db, "issues");
-      const skipped = (repo, raw, reason) => {
+      const skipped2 = (repo, raw, reason) => {
         if (!canAudit) return;
         db.exec(
           `INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
@@ -23404,7 +23407,7 @@ function migrateV34toV35(db) {
       for (const row of rows) {
         const parsed = parseLegacyRemotes(row.legacy);
         if (!parsed.ok) {
-          skipped(row.name, row.legacy, parsed.reason);
+          skipped2(row.name, row.legacy, parsed.reason);
           continue;
         }
         const primary = primaryIndex(parsed.entries);
@@ -23412,7 +23415,7 @@ function migrateV34toV35(db) {
           insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0);
         });
         if (parsed.dropped > 0) {
-          skipped(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? "y" : "ies"} without a url or with a duplicate name`);
+          skipped2(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? "y" : "ies"} without a url or with a duplicate name`);
         }
       }
       rebuildTable(
@@ -23608,6 +23611,28 @@ function migrateV41toV42(db) {
           UNIQUE (repo, path)
       )
     `);
+    commitTransaction(db);
+  } catch (err5) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err5;
+  }
+}
+function migrateV42toV43(db) {
+  if (!tableExists(db, "wm_directories")) return;
+  beginImmediate(db);
+  try {
+    for (const [column, type] of [
+      ["summary_sha", "TEXT"],
+      ["commits_behind", "INTEGER"],
+      ["dead_refs", "TEXT"]
+    ]) {
+      if (!hasColumn(db, "wm_directories", column)) {
+        db.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
+      }
+    }
     commitTransaction(db);
   } catch (err5) {
     try {
@@ -24463,12 +24488,75 @@ function migrateV1toV2(db) {
 }
 
 // src/fts-query.ts
+var STOPWORDS = /* @__PURE__ */ new Set([
+  "a",
+  "about",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "can",
+  "do",
+  "does",
+  "for",
+  "from",
+  "has",
+  "have",
+  "how",
+  "i",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "of",
+  "on",
+  "or",
+  "our",
+  "that",
+  "the",
+  "their",
+  "there",
+  "these",
+  "this",
+  "those",
+  "to",
+  "was",
+  "we",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "will",
+  "with",
+  "you",
+  "your"
+]);
+function queryTokens(raw) {
+  return Array.from(raw.matchAll(/"([^"]*)"|\S+/g), (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()).filter(
+    (token) => token.length > 0
+  );
+}
+function quoted(token) {
+  return `"${token.replace(/"/g, '""')}"`;
+}
 function toFtsQuery(raw) {
-  const tokens = Array.from(
-    raw.matchAll(/"([^"]*)"|\S+/g),
-    (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()
-  ).filter((token) => token.length > 0).map((token) => `"${token.replace(/"/g, '""')}"`);
+  const tokens = queryTokens(raw).map(quoted);
   return tokens.length > 0 ? tokens.join(" ") : '""';
+}
+function toFtsOrQuery(raw) {
+  const tokens = queryTokens(raw).filter((token) => {
+    const word = token.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    return word.length > 0 && !STOPWORDS.has(word);
+  });
+  return tokens.length > 0 ? tokens.map(quoted).join(" OR ") : null;
 }
 function withFtsGuard(run) {
   try {
@@ -24484,7 +24572,7 @@ function withFtsGuard(run) {
 
 // src/graph.ts
 var SUBTREE_MAX_DEPTH = 256;
-var DIR_COLUMNS = "d.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count";
+var DIR_COLUMNS = "d.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count, d.summary_sha, d.commits_behind, d.dead_refs";
 var FILE_COLUMNS = "f.id, f.repo, f.path, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at";
 function toDirectoryNode(r) {
   return {
@@ -24495,8 +24583,20 @@ function toDirectoryNode(r) {
     summary: r.summary || null,
     summary_source: r.summary_source,
     summary_updated_at: r.summary_updated_at || null,
-    file_count: Number(r.file_count)
+    file_count: Number(r.file_count),
+    summary_sha: r.summary_sha ?? null,
+    commits_behind: r.commits_behind === null || r.commits_behind === void 0 ? null : Number(r.commits_behind),
+    dead_refs: parseDeadRefs(r.dead_refs)
   };
+}
+function parseDeadRefs(raw) {
+  if (raw === null || raw === void 0) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : null;
+  } catch {
+    return null;
+  }
 }
 function toFileNode(r) {
   return {
@@ -24510,6 +24610,14 @@ function toFileNode(r) {
     last_commit_sha: r.last_commit_sha,
     updated_at: r.updated_at
   };
+}
+function rankWithFallback(query, search) {
+  const allTerms = toFtsQuery(query);
+  const all = withFtsGuard(() => search(allTerms));
+  if (all.length > 0) return { rows: all, match: "all_terms" };
+  const any2 = toFtsOrQuery(query);
+  if (any2 === null || any2 === allTerms) return { rows: all, match: "all_terms" };
+  return { rows: withFtsGuard(() => search(any2)), match: "any_term" };
 }
 function placeholders(n) {
   return Array.from({ length: n }, () => "?").join(", ");
@@ -24611,20 +24719,22 @@ var WorldModelGraph = class _WorldModelGraph {
     return coverage;
   }
   // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
-  // better), then case-insensitive path/purpose substring hits at score 0.
+  // better; any-term fallback per rankWithFallback), then case-insensitive
+  // path/purpose substring hits at score 0.
   keywordSearchFiles(repo, query, k) {
-    const ranked = withFtsGuard(
-      () => this.db.all(
+    const { rows: ranked, match } = rankWithFallback(
+      query,
+      (fts) => this.db.all(
         `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
            FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
           WHERE wm_files_fts MATCH ? AND f.repo = ?
           ORDER BY rank, f.path
           LIMIT ?`,
-        [toFtsQuery(query), repo, k]
+        [fts, repo, k]
       )
     );
     const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
-    if (hits.length >= k) return hits;
+    if (hits.length >= k) return { hits, match };
     const seen = new Set(ranked.map((r) => r.id));
     const needle = query.toLowerCase();
     const substring = this.db.all(
@@ -24634,7 +24744,7 @@ var WorldModelGraph = class _WorldModelGraph {
           LIMIT ?`,
       [repo, needle, needle, k + seen.size]
     ).filter((r) => !seen.has(r.id));
-    return [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k);
+    return { hits: [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k), match };
   }
   filesByIds(ids) {
     if (ids.length === 0) return /* @__PURE__ */ new Map();
@@ -24646,14 +24756,17 @@ var WorldModelGraph = class _WorldModelGraph {
   }
   upsertDirectory(node) {
     this.db.run(
-      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, path) DO UPDATE SET
          parent_path = excluded.parent_path,
          summary = excluded.summary,
          summary_source = excluded.summary_source,
          summary_updated_at = excluded.summary_updated_at,
-         file_count = excluded.file_count`,
+         file_count = excluded.file_count,
+         summary_sha = excluded.summary_sha,
+         commits_behind = excluded.commits_behind,
+         dead_refs = excluded.dead_refs`,
       [
         node.repo,
         node.path,
@@ -24661,7 +24774,10 @@ var WorldModelGraph = class _WorldModelGraph {
         node.summary,
         node.summary_source,
         node.summary_updated_at,
-        node.file_count
+        node.file_count,
+        node.summary_sha ?? null,
+        node.commits_behind ?? null,
+        node.dead_refs ? JSON.stringify(node.dead_refs) : null
       ]
     );
   }
@@ -24731,20 +24847,22 @@ var WorldModelGraph = class _WorldModelGraph {
     ).map(toDirectoryNode);
   }
   // FTS5 hits over path + summary ranked by bm25 (score = -bm25, higher is
-  // better), then case-insensitive path/summary substring hits at score 0.
+  // better; any-term fallback per rankWithFallback), then case-insensitive
+  // path/summary substring hits at score 0.
   keywordSearchDirectories(repo, query, k) {
-    const ranked = withFtsGuard(
-      () => this.db.all(
+    const { rows: ranked, match } = rankWithFallback(
+      query,
+      (fts) => this.db.all(
         `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
            FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
           WHERE wm_directories_fts MATCH ? AND d.repo = ?
           ORDER BY rank, d.path
           LIMIT ?`,
-        [toFtsQuery(query), repo, k]
+        [fts, repo, k]
       )
     );
     const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
-    if (hits.length >= k) return hits;
+    if (hits.length >= k) return { hits, match };
     const seen = new Set(ranked.map((r) => r.id));
     const needle = query.toLowerCase();
     const substring = this.db.all(
@@ -24754,7 +24872,7 @@ var WorldModelGraph = class _WorldModelGraph {
           LIMIT ?`,
       [repo, needle, needle, k + seen.size]
     ).filter((r) => !seen.has(r.id));
-    return [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k);
+    return { hits: [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k), match };
   }
   directoriesByIds(ids) {
     if (ids.length === 0) return /* @__PURE__ */ new Map();
@@ -25044,7 +25162,7 @@ function gitTimeoutOption(value) {
   return timeoutMs;
 }
 async function validateGitProjectRoot(canonical, runner, timeoutMs) {
-  const git2 = async (args) => {
+  const git3 = async (args) => {
     const result2 = await runner(canonical, args, timeoutMs);
     if (result2.timedOut === true) {
       throw new CodexRuntimeError(
@@ -25054,7 +25172,7 @@ async function validateGitProjectRoot(canonical, runner, timeoutMs) {
     }
     return result2;
   };
-  const topLevel = await git2(["rev-parse", "--show-toplevel"]);
+  const topLevel = await git3(["rev-parse", "--show-toplevel"]);
   if (!topLevel.ok) {
     throw new CodexRuntimeError(
       "project_root_not_git_toplevel",
@@ -25076,7 +25194,7 @@ async function validateGitProjectRoot(canonical, runner, timeoutMs) {
       "project_root must be the Git worktree top level, not a nested directory."
     );
   }
-  const ignored = await git2([
+  const ignored = await git3([
     "check-ignore",
     "--no-index",
     "--quiet",
@@ -25085,7 +25203,7 @@ async function validateGitProjectRoot(canonical, runner, timeoutMs) {
   if (!ignored.ok) {
     throw stateNotIgnoredError();
   }
-  const tracked = await git2(["ls-files", "-z", "--", ".tmb"]);
+  const tracked = await git3(["ls-files", "-z", "--", ".tmb"]);
   if (!tracked.ok || tracked.stdout.length > 0) {
     throw stateNotIgnoredError();
   }
@@ -28764,9 +28882,9 @@ function issueTools(db, dbPath = "", options = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync4 } from "node:child_process";
-import { closeSync as closeSync3, existsSync as existsSync3, openSync as openSync3, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname6, join as join10 } from "node:path";
+import { spawn, spawnSync as spawnSync5 } from "node:child_process";
+import { closeSync as closeSync3, existsSync as existsSync4, openSync as openSync3, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname as dirname6, join as join11 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/file-purpose.ts
@@ -28811,9 +28929,9 @@ function result(raw, source) {
   const purpose = normalizePurpose(raw);
   return purpose ? { purpose, source } : null;
 }
-function firstParagraph(lines) {
+function firstParagraph(lines2) {
   const out = [];
-  for (const l of lines) {
+  for (const l of lines2) {
     if (l.trim() === "") {
       if (out.length > 0) break;
       continue;
@@ -28828,13 +28946,13 @@ function stripBlockComment(body) {
 function fromJsdoc(head) {
   const blocks = head.matchAll(/\/\*\*([\s\S]*?)\*\//g);
   for (const m of blocks) {
-    const lines = stripBlockComment(m[1] ?? "");
-    const tagIdx = lines.findIndex((l) => /@(file|fileoverview)\b/.test(l));
+    const lines2 = stripBlockComment(m[1] ?? "");
+    const tagIdx = lines2.findIndex((l) => /@(file|fileoverview)\b/.test(l));
     if (tagIdx < 0) continue;
-    const tagged = lines[tagIdx].replace(/^.*@(file|fileoverview)\b/, "").trim();
-    const rest = lines.slice(tagIdx + 1);
+    const tagged = lines2[tagIdx].replace(/^.*@(file|fileoverview)\b/, "").trim();
+    const rest = lines2.slice(tagIdx + 1);
     const nextTag = rest.findIndex((l) => l.trim().startsWith("@"));
-    const text = tagged ? [tagged, ...nextTag < 0 ? rest : rest.slice(0, nextTag)] : lines.filter((l) => !l.trim().startsWith("@"));
+    const text = tagged ? [tagged, ...nextTag < 0 ? rest : rest.slice(0, nextTag)] : lines2.filter((l) => !l.trim().startsWith("@"));
     const r = result(firstParagraph(text), "jsdoc");
     if (r) return r;
   }
@@ -28847,17 +28965,17 @@ function proseLine(l) {
   return /[A-Za-z0-9]/.test(l) ? l : "";
 }
 function fromCommentBlock(head, style) {
-  const lines = head.split("\n");
+  const lines2 = head.split("\n");
   const offsets = [];
   let acc = 0;
-  for (const l of lines) {
+  for (const l of lines2) {
     offsets.push(acc);
     acc += l.length + 1;
   }
   let i = 0;
-  if (lines[0]?.startsWith("#!")) i = 1;
-  while (i < lines.length) {
-    const line = lines[i].trim();
+  if (lines2[0]?.startsWith("#!")) i = 1;
+  while (i < lines2.length) {
+    const line = lines2[i].trim();
     if (line === "") {
       i++;
       continue;
@@ -28865,8 +28983,8 @@ function fromCommentBlock(head, style) {
     const marker = style.line.find((m) => line.startsWith(m));
     if (marker) {
       const block = [];
-      while (i < lines.length) {
-        const l = lines[i].trim();
+      while (i < lines2.length) {
+        const l = lines2[i].trim();
         const m = style.line.find((mk) => l.startsWith(mk));
         if (!m) break;
         block.push(proseLine(l.slice(m.length).replace(/^[#/-]+/, "").trim()));
@@ -28878,7 +28996,7 @@ function fromCommentBlock(head, style) {
       continue;
     }
     if (style.block && line.startsWith("/*")) {
-      const start = offsets[i] + lines[i].indexOf("/*");
+      const start = offsets[i] + lines2[i].indexOf("/*");
       const close = head.indexOf("*/", start + 2);
       const body = head.slice(start + 2, close < 0 ? head.length : close).replace(/^\*+/, "");
       const content = stripBlockComment(body).map(proseLine).filter((l) => !isDirective(l));
@@ -28893,10 +29011,10 @@ function fromCommentBlock(head, style) {
   return null;
 }
 function fromPythonDocstring(head) {
-  const lines = head.split("\n");
+  const lines2 = head.split("\n");
   let i = 0;
-  while (i < lines.length && (lines[i].trim() === "" || lines[i].trim().startsWith("#"))) i++;
-  const rest = lines.slice(i).join("\n");
+  while (i < lines2.length && (lines2[i].trim() === "" || lines2[i].trim().startsWith("#"))) i++;
+  const rest = lines2.slice(i).join("\n");
   const m = /^[rRuU]?("""|''')([\s\S]*?)(?:\1|$)/.exec(rest) ?? /^[rRuU]?(["'])((?:\\.|(?!\1).)*)\1/.exec(rest);
   if (!m) return null;
   return result(firstParagraph((m[2] ?? "").split("\n")), "docstring");
@@ -28907,11 +29025,11 @@ function unquoteYaml(v) {
   return t;
 }
 function splitFrontmatter(head) {
-  const lines = head.split("\n");
-  if (lines[0]?.trim() !== "---") return { frontmatter: null, body: lines };
-  const close = lines.findIndex((l, idx) => idx > 0 && l.trim() === "---");
-  if (close < 0) return { frontmatter: lines.slice(1), body: [] };
-  return { frontmatter: lines.slice(1, close), body: lines.slice(close + 1) };
+  const lines2 = head.split("\n");
+  if (lines2[0]?.trim() !== "---") return { frontmatter: null, body: lines2 };
+  const close = lines2.findIndex((l, idx) => idx > 0 && l.trim() === "---");
+  if (close < 0) return { frontmatter: lines2.slice(1), body: [] };
+  return { frontmatter: lines2.slice(1, close), body: lines2.slice(close + 1) };
 }
 function fromFrontmatter(fm) {
   const idx = fm.findIndex((l) => /^description\s*:/.test(l));
@@ -28978,6 +29096,117 @@ function extractPurpose(path, head) {
   return found ?? NONE;
 }
 
+// src/readme-drift.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { existsSync as existsSync2 } from "node:fs";
+import { join as join9, posix } from "node:path";
+var HISTORY_TIMEOUT_MS = 3e4;
+var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
+function git(root, args, timeout = SUBPROCESS_TIMEOUT_MS) {
+  try {
+    const r = spawnSync3("git", ["-C", root, ...args], { encoding: "utf8", timeout, maxBuffer: HISTORY_MAX_BUFFER });
+    return r.status === 0 && !r.error ? r.stdout : null;
+  } catch {
+    return null;
+  }
+}
+function basename3(p) {
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+function lines(out) {
+  return out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+}
+function readRepoHistory(root, trackedDirs) {
+  const out = git(root, ["log", "--diff-filter=D", "--name-only", "--format="], HISTORY_TIMEOUT_MS);
+  if (out === null) return null;
+  const tracked = git(root, ["-c", "core.quotePath=false", "ls-files"], HISTORY_TIMEOUT_MS);
+  if (tracked === null) return null;
+  const deleted = new Set(lines(out));
+  const trackedBasenames = new Set(lines(tracked).map(basename3));
+  const deletedByBasename = /* @__PURE__ */ new Map();
+  for (const p of [...deleted].sort()) {
+    const name = basename3(p);
+    const list = deletedByBasename.get(name);
+    if (list) list.push(p);
+    else deletedByBasename.set(name, [p]);
+  }
+  return { root, deleted, deletedByBasename, trackedBasenames, trackedDirs };
+}
+function stripUntrustedFraming(text) {
+  return text.replace(/<\/?untrusted-content\b[^>]*>/g, "");
+}
+var LINK_TARGET = /!?\[[^\]]*\]\(\s*([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+var BACKTICK_SPAN = /(?<!`)`([^`\n]+)`(?!`)/g;
+var PATH_SHAPE = /^[A-Za-z0-9_.\-/@+]+$/;
+var FILE_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,9}$/;
+var URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+function skipped(ref) {
+  return ref.length === 0 || ref.startsWith("..") || /(^|\/)dist\//.test(ref) || ref.includes("${") || ref.includes("<") || ref.includes("*");
+}
+function linkCandidate(target) {
+  if (URL_SCHEME.test(target) || target.startsWith("#")) return null;
+  const path = target.replace(/[?#].*$/, "").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+  return path.length > 0 ? path : null;
+}
+function backtickCandidate(span, dir, trackedDirs) {
+  const ref = span.trim().replace(/:\d+(-\d+)?$/, "").replace(/^\.\//, "").replace(/\/+$/, "");
+  if (!PATH_SHAPE.test(ref) || ref.startsWith("/") || ref.includes("://")) return null;
+  const slash = ref.indexOf("/");
+  if (slash < 0) return FILE_EXTENSION.test(ref) ? ref : null;
+  const first = ref.slice(0, slash);
+  const tracked = trackedDirs.has(first) || dir !== "" && trackedDirs.has(`${dir}/${first}`);
+  return tracked ? ref : null;
+}
+function readmeCandidates(readme, dir, trackedDirs) {
+  const text = stripUntrustedFraming(readme);
+  const seen = /* @__PURE__ */ new Map();
+  for (const m of text.matchAll(LINK_TARGET)) {
+    const ref = linkCandidate(m[1]);
+    if (ref && !skipped(ref)) seen.set(ref, { ref, link: true });
+  }
+  for (const m of text.matchAll(BACKTICK_SPAN)) {
+    const ref = backtickCandidate(m[1], dir, trackedDirs);
+    if (ref && !skipped(ref) && !seen.has(ref)) seen.set(ref, { ref, link: false });
+  }
+  return [...seen.values()];
+}
+function relativeToDir(dir, ref) {
+  return dir === "" ? posix.normalize(ref) : posix.normalize(`${dir}/${ref}`);
+}
+function deletedBareName(ref, history) {
+  if (ref.includes("/") || history.trackedBasenames.has(ref)) return void 0;
+  return history.deletedByBasename.get(ref)?.[0];
+}
+function deadRefs(readme, dir, history) {
+  const dead = /* @__PURE__ */ new Set();
+  for (const { ref, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
+    const fromDir = relativeToDir(dir, ref);
+    if (existsSync2(join9(history.root, fromDir)) || existsSync2(join9(history.root, ref))) continue;
+    const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref) ? ref : deletedBareName(ref, history);
+    if (deletedHit) dead.add(deletedHit);
+    else if (link) dead.add(fromDir);
+  }
+  return [...dead].sort();
+}
+function readmeDrift(history, dir, readmeName, readme) {
+  const readmePath = dir === "" ? readmeName : `${dir}/${readmeName}`;
+  const sha = git(history.root, ["log", "-1", "--format=%H", "--", `:(literal)${readmePath}`])?.trim();
+  if (!sha) return null;
+  const dirSpec = dir === "" ? ":(literal)." : `:(literal)${dir}`;
+  const count = git(history.root, [
+    "rev-list",
+    "--count",
+    `${sha}..HEAD`,
+    "--",
+    dirSpec,
+    `:(exclude,literal)${readmePath}`
+  ]);
+  const commits_behind = count === null ? NaN : Number.parseInt(count.trim(), 10);
+  if (!Number.isFinite(commits_behind)) return null;
+  return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
+}
+
 // src/utils/untrusted.ts
 var UNTRUSTED_CLOSE = "</untrusted-content>";
 function frameUntrusted(source, content) {
@@ -28988,9 +29217,9 @@ ${UNTRUSTED_CLOSE}`;
 }
 
 // src/tools/milestones.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync2, readFileSync as readFileSync5 } from "node:fs";
-import { join as join9 } from "node:path";
+import { spawnSync as spawnSync4 } from "node:child_process";
+import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
+import { join as join10 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
@@ -29166,7 +29395,7 @@ function nextPatchMilestone(version2) {
   return `v${parts[0]}.${parts[1]}.${parts[2] + 1}`;
 }
 function readJsonVersion(path) {
-  if (!existsSync2(path)) return null;
+  if (!existsSync3(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync5(path, "utf8"));
     return typeof parsed.version === "string" && parseSemver(parsed.version) ? parsed.version : null;
@@ -29175,7 +29404,7 @@ function readJsonVersion(path) {
   }
 }
 function readTomlVersion(path, table) {
-  if (!existsSync2(path)) return null;
+  if (!existsSync3(path)) return null;
   let text;
   try {
     text = readFileSync5(path, "utf8");
@@ -29197,7 +29426,7 @@ function readTomlVersion(path, table) {
 }
 function highestVersionTag(repoPath) {
   try {
-    const r = spawnSync3("git", ["-C", repoPath, "tag", "--list", "v*"], { encoding: "utf8", timeout: 3e3 });
+    const r = spawnSync4("git", ["-C", repoPath, "tag", "--list", "v*"], { encoding: "utf8", timeout: 3e3 });
     if (r.status !== 0) return null;
     let best = null;
     for (const tag of (r.stdout ?? "").split("\n").map((t) => t.trim())) {
@@ -29214,10 +29443,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join9(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join9(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join9(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join9(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join10(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join10(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join10(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join10(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -29291,14 +29520,14 @@ function wrap(fn) {
 function resolveScanScript() {
   const here = dirname6(fileURLToPath3(import.meta.url));
   const candidates = [
-    join10(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join10(here, "..", "..", "..", "scripts", "scan.sh")
+    join11(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join11(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync3(c)) return c;
+  for (const c of candidates) if (existsSync4(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join10(pluginRoot, "scripts", "scan.sh");
-    if (existsSync3(c)) return c;
+    const c = join11(pluginRoot, "scripts", "scan.sh");
+    if (existsSync4(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
@@ -29397,7 +29626,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename3(p) {
+function basename4(p) {
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(i + 1) : p;
 }
@@ -29422,14 +29651,14 @@ function deriveDirectoryEntries(out) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename3(f.path));
+      entry.file_names.push(basename4(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join11 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
+  const join12 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -29440,27 +29669,57 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts.push(`${fileCount} (${join11(fileNames.slice().sort())})`);
+    parts.push(`${fileCount} (${join12(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join12(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
-function readReadmeSummary(absDirPath) {
-  for (const candidate of README_CANDIDATES) {
-    const readmePath = join10(absDirPath, candidate);
-    if (!existsSync3(readmePath)) continue;
+function readReadme(absDirPath, candidates = README_CANDIDATES) {
+  for (const name of candidates) {
+    const readmePath = join11(absDirPath, name);
+    if (!existsSync4(readmePath)) continue;
     try {
-      const raw = readFileSync6(readmePath, "utf8");
-      const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
-      return frameUntrusted("readme", clipped);
+      return { name, text: readFileSync6(readmePath, "utf8") };
     } catch {
     }
   }
   return null;
 }
-function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ */ new Map()) {
+function readReadmeSummary(absDirPath) {
+  const readme = readReadme(absDirPath);
+  if (!readme) return null;
+  const clipped = readme.text.length > README_MAX_BYTES ? readme.text.slice(0, README_MAX_BYTES) : readme.text;
+  return frameUntrusted("readme", clipped);
+}
+function planReadmeDrift(out) {
+  const drift = /* @__PURE__ */ new Map();
+  const dirMap = deriveDirectoryEntries(out);
+  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+  const histories = /* @__PURE__ */ new Map();
+  const historyFor = (repo, root) => {
+    if (!histories.has(repo)) {
+      const trackedDirs = /* @__PURE__ */ new Set();
+      for (const e of dirMap.values()) if (e.repo === repo && e.path !== "") trackedDirs.add(e.path);
+      histories.set(repo, readRepoHistory(root, trackedDirs));
+    }
+    return histories.get(repo) ?? null;
+  };
+  for (const entry of dirMap.values()) {
+    const root = repoPaths.get(entry.repo);
+    const tracked = README_CANDIDATES.filter((name) => entry.file_names.includes(name));
+    if (!root || tracked.length === 0) continue;
+    const history = historyFor(entry.repo, root);
+    if (!history) continue;
+    const readme = readReadme(entry.path === "" ? root : join11(root, entry.path), tracked);
+    if (!readme) continue;
+    const d = readmeDrift(history, entry.path, readme.name, readme.text);
+    if (d) drift.set(`${entry.repo} ${entry.path}`, d);
+  }
+  return drift;
+}
+function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ */ new Map(), driftByDir = /* @__PURE__ */ new Map()) {
   const repoPaths = /* @__PURE__ */ new Map();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
   const dirMap = deriveDirectoryEntries(out);
@@ -29472,13 +29731,13 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename3(entry.path));
-    else subdirsByParent.set(key, [basename3(entry.path)]);
+    if (list) list.push(basename4(entry.path));
+    else subdirsByParent.set(key, [basename4(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join10(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join11(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -29487,6 +29746,7 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
       subdirNames,
       purposesByDir.get(`${entry.repo} ${entry.path}`) ?? []
     );
+    const drift = readmeSummary !== null ? driftByDir.get(`${entry.repo} ${entry.path}`) : void 0;
     graph.upsertDirectory({
       repo: entry.repo,
       path: entry.path,
@@ -29494,7 +29754,10 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
       summary,
       summary_source: readmeSummary !== null ? "readme" : "structural",
       summary_updated_at: now2,
-      file_count: entry.file_count
+      file_count: entry.file_count,
+      summary_sha: drift?.summary_sha ?? null,
+      commits_behind: drift?.commits_behind ?? null,
+      dead_refs: drift?.dead_refs ?? null
     });
     if (readmeSummary !== null) dirs_readme_summarized++;
     else dirs_structural_summarized++;
@@ -29556,7 +29819,7 @@ function planFiles(graph, out, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join10(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join11(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -29570,7 +29833,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename3(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename4(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -29593,12 +29856,12 @@ function persistFilesGraph(graph, out, plan) {
 function readRepoRemotes(path) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync4("git", ["-C", path, "remote"], opts);
+    const listR = spawnSync5("git", ["-C", path, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync4("git", ["-C", path, "remote", "get-url", name], opts);
+      const urlR = spawnSync5("git", ["-C", path, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -29756,12 +30019,13 @@ function persistScan(db, graph, out, sessionDir) {
   if (graph) {
     const plan = planFiles(graph, persisted, now2);
     files_extracted = plan.extracted;
+    const drift = planReadmeDrift(persisted);
     graph.transaction(() => {
       for (const r of retired) {
         dirs_retired += graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
         files_retired += graph.pruneFiles(r.name, /* @__PURE__ */ new Set());
       }
-      const stats = persistDirectoriesGraph(graph, persisted, now2, purposesByDirectory(plan.nodes));
+      const stats = persistDirectoriesGraph(graph, persisted, now2, purposesByDirectory(plan.nodes), drift);
       dirs_upserted = stats.dirs_upserted;
       dirs_readme_summarized = stats.dirs_readme_summarized;
       dirs_structural_summarized = stats.dirs_structural_summarized;
@@ -29876,7 +30140,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         if (!graph && graphOpenError) {
           return err3(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join10(dirname6(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join11(dirname6(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -29972,10 +30236,10 @@ function scanTools(db, graphHolder = null, dbPath = "") {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 
 // src/utils/git-refs.ts
-import { execFileSync, spawnSync as spawnSync5 } from "node:child_process";
+import { execFileSync, spawnSync as spawnSync6 } from "node:child_process";
 function refResolves(repoPath, ref) {
   try {
     execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", ref], {
@@ -29988,7 +30252,7 @@ function refResolves(repoPath, ref) {
   }
 }
 function gitOut(repoPath, args) {
-  const res = spawnSync5("git", ["-C", repoPath, ...args], {
+  const res = spawnSync6("git", ["-C", repoPath, ...args], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -30010,21 +30274,21 @@ var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
-function git(repoPath, args) {
-  return spawnSync6("git", ["-C", repoPath, ...args], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+function git2(repoPath, args) {
+  return spawnSync7("git", ["-C", repoPath, ...args], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
 }
 function tipIntegratedInto(repoPath, tip, target) {
-  const ancestor = git(repoPath, ["merge-base", "--is-ancestor", tip, target]);
+  const ancestor = git2(repoPath, ["merge-base", "--is-ancestor", tip, target]);
   if (ancestor.error) return "spawn-error";
   if (ancestor.status === 0) return "integrated";
   if (ancestor.status !== 1) return "unresolvable";
-  const merged = git(repoPath, ["merge-tree", "--write-tree", target, tip]);
+  const merged = git2(repoPath, ["merge-tree", "--write-tree", target, tip]);
   if (merged.status === 0) {
-    const targetTree = git(repoPath, ["rev-parse", `${target}^{tree}`]);
+    const targetTree = git2(repoPath, ["rev-parse", `${target}^{tree}`]);
     const mergedTree = merged.stdout.split("\n")[0]?.trim();
     if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return "integrated";
   }
-  const cherry = git(repoPath, ["cherry", target, tip]);
+  const cherry = git2(repoPath, ["cherry", target, tip]);
   if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return "integrated";
   return "unmerged";
 }
@@ -30037,7 +30301,7 @@ function computeUnmergedWork(db, repo) {
   if (!repoRow) return { unmerged_work: [] };
   const repoPath = repoRowPath(db, repoRow.path);
   const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
-  const gitCheck = spawnSync6("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const gitCheck = spawnSync7("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -30062,7 +30326,7 @@ function computeUnmergedWork(db, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync6(
+    const refCheck = spawnSync7(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
@@ -30083,6 +30347,23 @@ function computeUnmergedWork(db, repo) {
   }
   return { unmerged_work };
 }
+function trustOf(node) {
+  const behind = node.commits_behind ?? null;
+  if (behind === null) return null;
+  const dead = node.dead_refs?.length ?? 0;
+  const parts = [];
+  if (behind > 0) parts.push(`drifting(${behind})`);
+  if (dead > 0) parts.push(`dead_refs(${dead})`);
+  return parts.length > 0 ? parts.join(", ") : "current";
+}
+function driftView(node) {
+  return {
+    summary_sha: node.summary_sha ?? null,
+    commits_behind: node.commits_behind ?? null,
+    dead_refs: node.dead_refs ?? null,
+    trust: trustOf(node)
+  };
+}
 function framedPurpose(purpose) {
   return purpose ? frameUntrusted("file-purpose", purpose) : "";
 }
@@ -30102,6 +30383,7 @@ function dirResult(h) {
     summary: h.summary,
     summary_source: h.summary_source,
     file_count: h.file_count,
+    ...driftView(h),
     score: h.score
   };
 }
@@ -30212,6 +30494,7 @@ function buildTree(rows, rootPath, depth, opts) {
       summary_source: node.summary_source,
       summary_updated_at: node.summary_updated_at,
       file_count: node.file_count,
+      ...driftView(node),
       children
     };
   }
@@ -30221,7 +30504,7 @@ function worldModelTools(db, graphHolder) {
   const definitions = [
     {
       name: "world_model_get",
-      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: "object",
         properties: {
@@ -30251,7 +30534,7 @@ function worldModelTools(db, graphHolder) {
           agent: { type: "string" },
           query: {
             type: "string",
-            description: "Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match), plus path/text substrings; semantic matches natural language."
+            description: "Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match; when none do, any non-stopword term, reported as match: any_term), plus path/text substrings; semantic matches natural language."
           },
           mode: {
             type: "string",
@@ -30334,13 +30617,16 @@ function worldModelTools(db, graphHolder) {
           return ok4({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
         const pool = mode === "keyword" ? k : k * 4;
-        const keywordDirs = graph.keywordSearchDirectories(repo, query, pool).map((n) => ({ hit: dirHit(n), score: n.score }));
-        const keywordFiles = graph.keywordSearchFiles(repo, query, pool).map((n) => ({ hit: fileHit(n), score: n.score }));
+        const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
+        const fileSearch = graph.keywordSearchFiles(repo, query, pool);
+        const match = dirSearch.match === "any_term" || fileSearch.match === "any_term" ? "any_term" : "all_terms";
+        const keywordDirs = dirSearch.hits.map((n) => ({ hit: dirHit(n), score: n.score }));
+        const keywordFiles = fileSearch.hits.map((n) => ({ hit: fileHit(n), score: n.score }));
         const keywordRanked = [...keywordDirs, ...keywordFiles].sort((a, b) => b.score - a.score);
         const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
         const respond = (ranked, extra = {}) => {
           const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
-          return ok4({ results, total_matched: results.length, ...extra, mode });
+          return ok4({ results, total_matched: results.length, ...extra, mode, match });
         };
         if (mode === "keyword") return respond(keywordRanked);
         await backfillWorldModel(db);

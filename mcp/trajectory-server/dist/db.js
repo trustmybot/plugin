@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 42;
+export const TARGET_SCHEMA_VERSION = 43;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -638,6 +638,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 42 && toVersion >= 42) {
         migrateV41toV42(db);
+    }
+    if (fromVersion < 43 && toVersion >= 43) {
+        migrateV42toV43(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2311,6 +2314,34 @@ function migrateV41toV42(db) {
           UNIQUE (repo, path)
       )
     `);
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v42→v43: README drift on wm_directories (GH 1680). summary_sha,
+// commits_behind and dead_refs stay NULL until the next scan_run fills them.
+function migrateV42toV43(db) {
+    if (!tableExists(db, 'wm_directories'))
+        return;
+    beginImmediate(db);
+    try {
+        for (const [column, type] of [
+            ['summary_sha', 'TEXT'],
+            ['commits_behind', 'INTEGER'],
+            ['dead_refs', 'TEXT'],
+        ]) {
+            if (!hasColumn(db, 'wm_directories', column)) {
+                db.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
+            }
+        }
         commitTransaction(db);
     }
     catch (err) {

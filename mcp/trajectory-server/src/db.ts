@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 42;
+export const TARGET_SCHEMA_VERSION = 43;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -782,6 +782,9 @@ function runMigrations(
   }
   if (fromVersion < 42 && toVersion >= 42) {
     migrateV41toV42(db);
+  }
+  if (fromVersion < 43 && toVersion >= 43) {
+    migrateV42toV43(db);
   }
 }
 
@@ -2645,6 +2648,32 @@ function migrateV41toV42(db: DatabaseSync): void {
           UNIQUE (repo, path)
       )
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v42→v43: README drift on wm_directories (GH 1680). summary_sha,
+// commits_behind and dead_refs stay NULL until the next scan_run fills them.
+function migrateV42toV43(db: DatabaseSync): void {
+  if (!tableExists(db, 'wm_directories')) return;
+  beginImmediate(db);
+  try {
+    for (const [column, type] of [
+      ['summary_sha', 'TEXT'],
+      ['commits_behind', 'INTEGER'],
+      ['dead_refs', 'TEXT'],
+    ] as const) {
+      if (!hasColumn(db, 'wm_directories', column)) {
+        db.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
+      }
+    }
     commitTransaction(db);
   } catch (err) {
     try {

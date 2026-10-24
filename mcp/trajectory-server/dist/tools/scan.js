@@ -7,6 +7,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
 import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
+import { readmeDrift, readRepoHistory } from '../readme-drift.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
@@ -243,18 +244,13 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     }
     return `${leaf}/ — ${parts.length > 0 ? parts.join('; ') : 'empty directory'}`;
 }
-export function readReadmeSummary(absDirPath) {
-    for (const candidate of README_CANDIDATES) {
-        const readmePath = join(absDirPath, candidate);
+function readReadme(absDirPath, candidates = README_CANDIDATES) {
+    for (const name of candidates) {
+        const readmePath = join(absDirPath, name);
         if (!existsSync(readmePath))
             continue;
         try {
-            const raw = readFileSync(readmePath, 'utf8');
-            const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
-            // A README is remotely-sourced text — frame it as untrusted data so any
-            // agent that later reads this world-model summary treats it as content,
-            // not instructions (#1036).
-            return frameUntrusted('readme', clipped);
+            return { name, text: readFileSync(readmePath, 'utf8') };
         }
         catch {
             // Unreadable — fall through.
@@ -262,7 +258,53 @@ export function readReadmeSummary(absDirPath) {
     }
     return null;
 }
-function persistDirectoriesGraph(graph, out, now, purposesByDir = new Map()) {
+export function readReadmeSummary(absDirPath) {
+    const readme = readReadme(absDirPath);
+    if (!readme)
+        return null;
+    const clipped = readme.text.length > README_MAX_BYTES ? readme.text.slice(0, README_MAX_BYTES) : readme.text;
+    // A README is remotely-sourced text — frame it as untrusted data so any
+    // agent that later reads this world-model summary treats it as content,
+    // not instructions (#1036).
+    return frameUntrusted('readme', clipped);
+}
+// README drift per directory, keyed '<repo> <path>': only for a README git
+// tracks, read whole (not the summary clip). Runs before the write transaction
+// so git calls never hold the DB lock; a repo or README git cannot answer for
+// is simply absent, leaving its columns NULL.
+function planReadmeDrift(out) {
+    const drift = new Map();
+    const dirMap = deriveDirectoryEntries(out);
+    const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+    const histories = new Map();
+    const historyFor = (repo, root) => {
+        if (!histories.has(repo)) {
+            const trackedDirs = new Set();
+            for (const e of dirMap.values())
+                if (e.repo === repo && e.path !== '')
+                    trackedDirs.add(e.path);
+            histories.set(repo, readRepoHistory(root, trackedDirs));
+        }
+        return histories.get(repo) ?? null;
+    };
+    for (const entry of dirMap.values()) {
+        const root = repoPaths.get(entry.repo);
+        const tracked = README_CANDIDATES.filter((name) => entry.file_names.includes(name));
+        if (!root || tracked.length === 0)
+            continue;
+        const history = historyFor(entry.repo, root);
+        if (!history)
+            continue;
+        const readme = readReadme(entry.path === '' ? root : join(root, entry.path), tracked);
+        if (!readme)
+            continue;
+        const d = readmeDrift(history, entry.path, readme.name, readme.text);
+        if (d)
+            drift.set(`${entry.repo} ${entry.path}`, d);
+    }
+    return drift;
+}
+function persistDirectoriesGraph(graph, out, now, purposesByDir = new Map(), driftByDir = new Map()) {
     const repoPaths = new Map();
     for (const r of out.repos)
         repoPaths.set(r.name, r.path);
@@ -293,6 +335,7 @@ function persistDirectoriesGraph(graph, out, now, purposesByDir = new Map()) {
         const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
         const summary = readmeSummary
             ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames, purposesByDir.get(`${entry.repo} ${entry.path}`) ?? []);
+        const drift = readmeSummary !== null ? driftByDir.get(`${entry.repo} ${entry.path}`) : undefined;
         graph.upsertDirectory({
             repo: entry.repo,
             path: entry.path,
@@ -301,6 +344,9 @@ function persistDirectoriesGraph(graph, out, now, purposesByDir = new Map()) {
             summary_source: readmeSummary !== null ? 'readme' : 'structural',
             summary_updated_at: now,
             file_count: entry.file_count,
+            summary_sha: drift?.summary_sha ?? null,
+            commits_behind: drift?.commits_behind ?? null,
+            dead_refs: drift?.dead_refs ?? null,
         });
         if (readmeSummary !== null)
             dirs_readme_summarized++;
@@ -613,13 +659,14 @@ function persistScan(db, graph, out, sessionDir) {
     if (graph) {
         const plan = planFiles(graph, persisted, now);
         files_extracted = plan.extracted;
+        const drift = planReadmeDrift(persisted);
         graph.transaction(() => {
             // Retire the world model of repos actually removed above.
             for (const r of retired) {
                 dirs_retired += graph.pruneDirectories(r.name, new Set());
                 files_retired += graph.pruneFiles(r.name, new Set());
             }
-            const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes));
+            const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes), drift);
             dirs_upserted = stats.dirs_upserted;
             dirs_readme_summarized = stats.dirs_readme_summarized;
             dirs_structural_summarized = stats.dirs_structural_summarized;
