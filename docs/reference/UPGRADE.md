@@ -53,7 +53,7 @@ If the SessionStart "newer plugin version … restart to apply" banner is showin
 Each update leaves the previous version's files in `~/.claude/plugins/cache/<owner>/tmb/<version>`. To reclaim that space, run the bundled GC — it keeps the active version plus the single previous one and removes the rest, never touching the active version:
 
 ```bash
-bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh --dry-run   # preview Step C
+bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh --dry-run   # preview Steps A, B and C
 bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh             # prompts before pruning
 ```
 
