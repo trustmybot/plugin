@@ -1,0 +1,2 @@
+### Added
+- **Architecture decision records, starting with ADR 0001** (GH 1680): `docs/architecture/adr/` now holds the plugin's design decisions, one per file, each with its context, options and consequences. ADR 0001 records the accepted plan for the world model's structural layer: TMB builds its own tree-sitter index of symbols, calls, imports and references inside the trajectory DB and uses LSP for precision checks, so agents can understand an area of the project without re-reading its code.
