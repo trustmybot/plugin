@@ -1,0 +1,19 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "options": [
+          {
+            "label": "This is a very long label indeed",
+            "description": "This description is also way too long and exceeds the fifteen word limit significantly",
+            "preview": "a\nb\nc\nd\ne"
+          }
+        ]
+      }
+    ]
+  },
+  "tool_use_id": "tu-corpus"
+}

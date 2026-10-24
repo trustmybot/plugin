@@ -1,0 +1,19 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "options": [
+          {
+            "label": "Ok",
+            "description": "Fine",
+            "preview": "line1\nline2\nline3\nline4\nline5"
+          }
+        ]
+      }
+    ]
+  },
+  "tool_use_id": "tu-corpus"
+}

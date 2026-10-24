@@ -90,6 +90,13 @@ fi
 perl scripts/postprocess-bundle.pl \
   "$TMPDIR/index.js" "$TMPDIR/index.js.map" \
   "$TMPDIR/codex.js" "$TMPDIR/codex.js.map"
+./node_modules/.bin/esbuild src/hooks/index.ts \
+  --bundle --platform=node --format=esm --target=node22 \
+  --external:@huggingface/transformers \
+  --outfile="$TMPDIR/hooks.js" --sourcemap >/dev/null 2>&1
+./node_modules/.bin/esbuild src/hooks/manifest.ts \
+  --bundle --platform=node --format=esm --target=node22 --log-level=warning \
+  | node --input-type=module > "$TMPDIR/hooks-gates.txt"
 cp src/schema*.sql "$TMPDIR/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)

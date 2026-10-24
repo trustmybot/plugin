@@ -47,6 +47,10 @@
 #     a fail-open gate's exit 1 writes none; on a write-locked DB a chain
 #     member denying near its budget returns one deny JSON and nothing on
 #     stderr, and a deny takes no longer than an allow (the write is detached)
+#   TypeScript gates: a gate in dist/hooks-gates.txt runs through
+#     node dist/hooks.js (with and without TMB state); TMB_HOOKS_IMPL=bash, no
+#     node on PATH, no dist/hooks.js or a gate not an exact manifest line runs
+#     the .sh; the real askuserquestion-length-lint runs from the bundle
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
 set -euo pipefail
@@ -751,8 +755,7 @@ last_denied() { sqlite3 -cmd ".timeout 3000" "$ADB" "SELECT $1 FROM audit WHERE 
 # writer lands after the hook exits) or after 5 s, then 0.3 s more for a
 # surplus row to show.
 rows_after() {
-  local i
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     [ "$(denied_rows)" -ge "$1" ] && break
     sleep 0.1
   done
@@ -838,8 +841,7 @@ assert_eq "$before" "$(rows_after "$before")" "no row"
 lock_adb() {
   ( printf 'BEGIN IMMEDIATE;\n'; sleep "$1"; printf 'COMMIT;\n' ) | sqlite3 "$ADB" >/dev/null 2>&1 &
   LOCKER=$!
-  local i
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     sqlite3 -cmd '.timeout 0' "$ADB" 'BEGIN IMMEDIATE; ROLLBACK;' >/dev/null 2>&1 || return 0
     sleep 0.1
   done
@@ -867,6 +869,86 @@ kill "$LOCKER" 2>/dev/null || true
 wait "$LOCKER" 2>/dev/null || true
 is_deny "$out" && _pass || _fail "no deny: $out"
 assert_eq "$((before + 1))" "$(rows_after $((before + 1)))" "the row lands after the hook returned and the lock was released"
+
+# ===========================================================================
+TSI="$TMP/ts/plugin"
+make_install "$TSI" TS
+mkdir -p "$TSI/mcp/trajectory-server/dist"
+cat > "$TSI/mcp/trajectory-server/dist/hooks.js" <<EOF
+import { appendFileSync, readFileSync } from 'node:fs';
+const input = readFileSync(0, 'utf8');
+appendFileSync('$RUNS', 'node ' + process.argv.slice(2).join(' ') + '\n');
+process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'from node ' + input.length } }) + '\n');
+EOF
+printf 'fx-ts\nfx-ts-other\n' > "$TSI/mcp/trajectory-server/dist/hooks-gates.txt"
+for g in fx-ts fx-ts-unlisted fx-ts-other-x; do
+  cat > "$TSI/scripts/hooks/$g.sh" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+echo "bash $g" >> "$RUNS"
+echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"from bash"}}'
+EOF
+done
+NOTS="$TMP/nots"
+mkdir -p "$NOTS"
+rm -f "$TMB_INSTALLED_JSON"
+
+test_case "TypeScript gate: a gate in the manifest runs through node, with or without TMB state"
+for proj in "$PROJ" "$NOTS"; do
+  reset_runs
+  P=$(payload "ls ts1 $proj" "tu-ts1-$proj")
+  out=$(CLAUDE_PROJECT_DIR="$proj" dispatch "$TSI" fx-ts "$P" 2>/dev/null)
+  assert_eq "node fx-ts" "$(ran)" "node ran the gate ($proj)"
+  assert_contains "$out" "from node ${#P}" "the gate read the payload and its stdout came back ($proj)"
+done
+
+test_case "TypeScript gate: TMB_HOOKS_IMPL=bash runs the .sh"
+reset_runs
+out=$(TMB_HOOKS_IMPL=bash dispatch "$TSI" fx-ts "$(payload "ls ts2" tu-ts2)" 2>/dev/null)
+assert_eq "bash fx-ts" "$(ran)" "the .sh ran"
+assert_contains "$out" "from bash" "its stdout came back"
+
+test_case "TypeScript gate: no node on PATH runs the .sh"
+. "$HERE/fixtures/no-jq-path.sh"
+NONODE=$(no_cmd_path "$TMP/nonode" node)
+reset_runs
+out=$(PATH="$NONODE" dispatch "$TSI" fx-ts "$(payload "ls ts3" tu-ts3)" 2>/dev/null)
+assert_eq "bash fx-ts" "$(ran)" "the .sh ran"
+assert_contains "$out" "from bash" "its stdout came back"
+
+test_case "TypeScript gate: a gate not an exact line of the manifest runs the .sh"
+for g in fx-ts-unlisted fx-ts-other-x; do
+  reset_runs
+  out=$(dispatch "$TSI" "$g" "$(payload "ls ts4 $g" "tu-ts4-$g")" 2>/dev/null)
+  assert_eq "bash $g" "$(ran)" "$g ran its .sh"
+done
+
+test_case "TypeScript gate: no dist/hooks.js runs the .sh"
+mv "$TSI/mcp/trajectory-server/dist/hooks.js" "$TMP/hooks.js.off"
+reset_runs
+out=$(dispatch "$TSI" fx-ts "$(payload "ls ts5" tu-ts5)" 2>/dev/null)
+assert_eq "bash fx-ts" "$(ran)" "the .sh ran"
+mv "$TMP/hooks.js.off" "$TSI/mcp/trajectory-server/dist/hooks.js"
+
+test_case "TypeScript gate (real): askuserquestion-length-lint runs from dist/hooks.js; TMB_HOOKS_IMPL=bash runs the .sh"
+SHIMBIN="$TMP/nodeshim"
+mkdir -p "$SHIMBIN"
+cat > "$SHIMBIN/node" <<EOF
+#!/usr/bin/env bash
+echo "node \$*" >> "$RUNS"
+exec "$(command -v node)" "\$@"
+EOF
+chmod +x "$SHIMBIN/node"
+AQ=$(jq -nc '{hook_event_name:"PreToolUse",session_id:"s-aq",tool_name:"AskUserQuestion",tool_use_id:"tu-aq",
+  tool_input:{questions:[{options:[{label:"one two three four five six",description:"d"}]}]}}')
+reset_runs
+out=$(printf '%s' "$AQ" | PATH="$SHIMBIN:$PATH" CLAUDE_PROJECT_DIR="$NOTS" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" askuserquestion-length-lint 2>/dev/null)
+assert_eq "node $PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js askuserquestion-length-lint" "$(ran)" "the bundle ran the gate"
+assert_contains "$out" "q0.opt0 label is 6 words" "the TypeScript gate warned"
+reset_runs
+out_sh=$(printf '%s' "$AQ" | TMB_HOOKS_IMPL=bash PATH="$SHIMBIN:$PATH" CLAUDE_PROJECT_DIR="$NOTS" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" askuserquestion-length-lint 2>/dev/null)
+assert_eq "" "$(ran)" "node never ran"
+assert_eq "$out" "$out_sh" "the .sh gave the same output"
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"

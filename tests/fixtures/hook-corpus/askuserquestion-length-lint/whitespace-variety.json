@@ -1,0 +1,19 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "options": [
+          {
+            "label": "  tab\tseparated\twords\there\tand\tmore  ",
+            "description": "line\nbroken\r\ndescription\u000bwith\fformfeeds",
+            "preview": "\n\nleading blank lines\nx\ny"
+          }
+        ]
+      }
+    ]
+  },
+  "tool_use_id": "tu-corpus"
+}

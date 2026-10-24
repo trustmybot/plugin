@@ -90,6 +90,13 @@
 #    (Claude Code ignores its stdout), and a chain's member deny is written by
 #    the member's own dispatch. No DB or a failed write records nothing; the
 #    decision and exit code are unchanged.
+# 8. TypeScript gates. A gate named on a line of
+#    <install>/mcp/trajectory-server/dist/hooks-gates.txt (written by the
+#    build from src/hooks/registry.ts) runs as
+#    `node <install>/mcp/trajectory-server/dist/hooks.js <gate>` in place of
+#    `bash <gate>.sh`, when node is on PATH and dist/hooks.js exists. Its .sh
+#    must still exist, and everything above applies to it unchanged.
+#    TMB_HOOKS_IMPL=bash is the kill switch: every gate runs its .sh.
 
 set -uo pipefail
 
@@ -416,20 +423,35 @@ if [ ! -f "$TARGET" ]; then
 fi
 export CLAUDE_PLUGIN_ROOT="$ROOT"
 
+# ts_gate — this gate is a line of the install's TypeScript gate manifest.
+ts_gate() {
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ "$line" = "$GATE" ] && return 0
+  done < "$ROOT/mcp/trajectory-server/dist/hooks-gates.txt"
+  return 1
+}
+
+GATE_CMD=(bash "$TARGET")
+if [ "${TMB_HOOKS_IMPL:-}" != "bash" ] && [ -f "$ROOT/mcp/trajectory-server/dist/hooks.js" ] \
+   && [ -f "$ROOT/mcp/trajectory-server/dist/hooks-gates.txt" ] && ts_gate && command -v node >/dev/null 2>&1; then
+  GATE_CMD=(node "$ROOT/mcp/trajectory-server/dist/hooks.js" "$GATE")
+fi
+
 LOCK_BASE=""
 if tmb_have_sqlite && STATE_DIR=$(tmb_state_dir 2>/dev/null); then
   LOCK_BASE="$(_tmb_canonical_dir "$STATE_DIR")/locks/events"
 fi
 
 if [ "$SHIM" = "0" ] && [ -z "$LOCK_BASE" ] && [ "$FAIL_CLOSED" = "0" ]; then
-  exec bash "$TARGET" ${PASS[@]+"${PASS[@]}"}
+  exec "${GATE_CMD[@]}" ${PASS[@]+"${PASS[@]}"}
 fi
 
 read_payload
 
 run_gate() {
   local out rc
-  out=$(printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"}; exit "${PIPESTATUS[1]}")
+  out=$(printf '%s' "$PAYLOAD" | "${GATE_CMD[@]}" ${PASS[@]+"${PASS[@]}"}; exit "${PIPESTATUS[1]}")
   rc=$?
   settle "$rc" "$out"
 }
@@ -534,7 +556,7 @@ record_bash_deny() {
 }
 
 hold() {
-  printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
+  printf '%s' "$PAYLOAD" | "${GATE_CMD[@]}" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
   local rc=${PIPESTATUS[1]}
   if [ "$rc" = "2" ] || { { [ "$rc" = "0" ] || [ "$FAIL_CLOSED" = "1" ]; } && grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null; }; then
     note_denied "$(deny_reason "$(cat "$LOCK/result" 2>/dev/null)" "$(cat "$LOCK/stderr" 2>/dev/null)")"

@@ -1,0 +1,45 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "First",
+        "options": [
+          {
+            "label": "Fine",
+            "description": "Fine"
+          },
+          {
+            "label": "one two three four five six seven",
+            "description": "ok"
+          },
+          {
+            "label": "Fine again",
+            "description": "This description is much too long and has way more than fifteen words total in it"
+          }
+        ]
+      },
+      {
+        "question": "Second",
+        "options": [
+          {
+            "label": "a b c d e",
+            "description": "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen"
+          },
+          {
+            "label": "x",
+            "description": "y",
+            "preview": "1\n2\n3\n4\n5\n6"
+          }
+        ]
+      },
+      {
+        "question": "Third",
+        "options": []
+      }
+    ]
+  },
+  "tool_use_id": "tu-corpus"
+}
