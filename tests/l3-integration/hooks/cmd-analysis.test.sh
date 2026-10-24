@@ -791,6 +791,51 @@ for prog in 'e = eval|e(s)' "g = getattr|g(o, 'x')" 'import subprocess|f = subpr
 done
 assert_eq "/w/wt/a.txt" "$(pyw "open('a.txt', 'w')")" "a direct open() with a literal path resolves"
 
+test_case "GH 1687: a held or aliased module-qualified write callable is \$(alias-write)"
+for prog in "import io|f = io.open|f('/etc/x', 'w')" "import os|o = os.open|o('/etc/x', 1)" "import shutil|m = shutil.move|m('a', '/etc/x')" \
+  "import shutil|m = shutil.copy|m('a', '/etc/x')" "import shutil as s|m = s.move|m('a', '/etc/x')" "from shutil import move as mv|m = mv|m('a', '/etc/x')" \
+  "from shutil import move|m = move|m('a', '/etc/x')" "from io import open as op|f = op|f('/etc/x', 'w')" "import os|ops = [os.remove]|ops[0]('/etc/x')" \
+  "import shutil|shutil.move.__call__('a', '/etc/x')" "import pathlib|w = pathlib.Path.write_text|w(pathlib.Path('/etc/x'), 's')" \
+  "from pathlib import Path|w = Path.write_text|w(Path('/etc/x'), 's')" "import os|r = os.rename|r('a', '/etc/x')" "import os|r = os.replace|r('a', '/etc/x')" \
+  "import os|r = os.unlink|r('/etc/x')" "import os|r = os.makedirs|r('/etc/x')" "import shutil|r = shutil.rmtree|r('/etc/x')" \
+  "import shutil|r = shutil.copyfile|r('a', '/etc/x')" "import shutil|r = shutil.copy2|r('a', '/etc/x')" "import shutil as sh|m = sh.move|m('a', '/etc/x')" \
+  "import shutil|m = (shutil.move)|m('a', '/etc/x')" "import shutil|f(shutil.move)" "import shutil|d = {'m': shutil.move}|d['m']('a', '/etc/x')" \
+  "import shutil, functools|p = functools.partial(shutil.move, 'a')|p('/etc/x')" "import zipfile|z = zipfile.ZipFile|z('/etc/x', 'w')" \
+  "from shutil import *|m = move|m('a', '/etc/x')" "from os import *|r = remove|r('/etc/x')" "import shutil|m = shutil . move|m('a', '/etc/x')" \
+  "import shutil as sh|m = sh . move|m('a', '/etc/x')" "import shutil|m = getattr(shutil, 'move')|m('a', '/etc/x')" "import io|f = getattr(io, 'open')|f('/etc/x', 'w')"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$AW" "$(pyw "${lines[@]}")" "alias-write: $prog"
+done
+assert_eq "/w/wt/a,/etc/x" "$(pyw 'from shutil import *' "move('a', '/etc/x')")" "a star-imported writer called directly resolves its paths"
+assert_eq "/w/wt/a,/w/wt/b" "$(pyw 'import shutil' "shutil.move('a', 'b')")" "a direct shutil.move resolves its paths"
+assert_eq "/w/wt/out" "$(pyw 'import shutil' "shutil.copy('a', 'out')")" "a direct shutil.copy resolves its dst"
+assert_eq "/w/wt/a,/etc/x" "$(pyw 'import shutil as s' "s.move('a', '/etc/x')")" "a call through an import alias resolves its paths"
+assert_eq "/etc/x" "$(pyw 'from os import remove' "remove('/etc/x')")" "a from-imported writer called directly resolves its path"
+assert_eq "/w/wt/b" "$(pyw 'import shutil' "shutil.copytree('a', 'b', copy_function=shutil.copy2)")" "a copy function passed to copytree writes under its dst"
+assert_contains "$(pyw 'import shutil' "shutil.copytree('/etc', 'b', copy_function=shutil.rmtree)")" '$(alias-write)' "a non-copy writer as copy_function is held"
+for prog in 'import sys|w = sys.stdout.write|w(s)' 'import copy|c = copy.copy|c(x)' 'd = {}|c = d.copy|c()' 'import os|j = os.path.join' 'import shutil|shutil.move = f' \
+  'import csv|for row in rows: print(row.open, row.close)' "import feedparser|for e in feedparser.parse('feed.xml').entries: print(e.link)" \
+  'import argparse|args = argparse.ArgumentParser().parse_args()|print(args.rm)' "import pandas as pd|df = pd.read_csv('prices.csv')|print(df.open.mean())" \
+  'from pathlib import Path|print(isinstance(p, Path))' 'm = shutil.move'; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "" "$(pyw "${lines[@]}")" "not a held writer: $prog"
+done
+for prog in "m = __import__('shutil').move|m('a', '/etc/x')" "o = __import__('io').open|o('/etc/x', 'w')" "s = __import__('shutil')|m = s.move|m('a', '/etc/x')" \
+  "m = __import__('shutil', fromlist=['move']).move|m('a', '/etc/x')" "getattr(__import__('shutil'), 'move')('a', '/etc/x')" \
+  "m = __import__('shutil') . move|m('a', '/etc/x')" "__import__('shutil').move.__call__('a', '/etc/x')" "z = __import__('zipfile').ZipFile|z('/etc/x', 'w')"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$AW" "$(pyw "${lines[@]}")" "alias-write through a literal __import__: $prog"
+done
+assert_contains "$(pyw 'import importlib' "m = importlib.import_module('shutil').move" "m('a', '/etc/x')")" '$(alias-write)' "a writer held off importlib.import_module is alias-write"
+assert_eq "/w/wt/a,/etc/x" "$(pyw "__import__('shutil').move('a', '/etc/x')")" "a direct __import__('shutil').move resolves its paths"
+assert_eq "/w/wt/a,/w/wt/b" "$(pyw "__import__('shutil').move('a', 'b')")" "a direct __import__('shutil').move inside the worktree resolves its paths"
+assert_eq "/w/wt/o.txt" "$(pyw "__import__('io').open('o.txt', 'w')")" "a direct __import__('io').open resolves its path"
+assert_eq "/etc/x" "$(pyw "__import__('pathlib').Path('/etc/x').write_text('s')")" "a Path off __import__('pathlib') is a Path receiver"
+for prog in "__import__('io').StringIO('x')" "j = __import__('json')|j.dumps(1)"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "" "$(pyw "${lines[@]}")" "not a held writer: $prog"
+done
+
 test_case "tmb_agent_role reads identity only"
 assert_eq "swe" "$(tmb_agent_role '{"agent_type":"tmb:swe","cwd":"/r"}')" "prefixed agent_type"
 assert_eq "bro" "$(tmb_agent_role '{"cwd":"/r/.claude/worktrees/x"}')" "no agent_type is the main thread, whatever the cwd"

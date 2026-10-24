@@ -246,7 +246,7 @@ WRITES=""
 # is inside the root. The deny names what hides the path: <var>, a dir from a
 # cd / pushd / popd the guard cannot follow (PWD), a command substitution
 # ($()), an inline program's process call ($(proc)), or its write builtin
-# held or aliased ($(alias-write)).
+# or module-qualified write callable held or aliased ($(alias-write)).
 unresolved() {
   local raw="$1" var="${2:-}" lit dir why
   lit="${raw%%[\$\`]*}"
