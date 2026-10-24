@@ -111,6 +111,8 @@ run_step "L1 lint: no bare mktemp (explicit path template)"  bash "$HERE/l1-lint
 run_step "L1 lint: no bare mktemp (self-test)" bash "$HERE/l1-lint/no-bare-mktemp.sh" --self-test
 run_step "L1 lint: no grep -q in pipelines (self-test)" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh" --self-test
 run_step "L1 lint: no grep -q in pipelines under pipefail" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh"
+run_step "L1 lint: no wall-clock asserts in tests" bash "$HERE/l1-lint/no-wall-clock-asserts.sh"
+run_step "L1 lint: no wall-clock asserts in tests (self-test)" bash "$HERE/l1-lint/no-wall-clock-asserts.sh" --self-test
 run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
