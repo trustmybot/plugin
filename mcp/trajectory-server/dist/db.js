@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 44;
+export const TARGET_SCHEMA_VERSION = 45;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -644,6 +644,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 44 && toVersion >= 44) {
         migrateV43toV44(db);
+    }
+    if (fromVersion < 45 && toVersion >= 45) {
+        migrateV44toV45(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2378,6 +2381,66 @@ function migrateV43toV44(db) {
             // Original error wins.
         }
         throw err;
+    }
+}
+// v44→v45: the L2 concept layer (GH 1680, ADR 0002). wm_symbols is rebuilt,
+// ids kept, so its kind CHECK admits 'hook' and it gains the nullable
+// run_order; its FTS triggers drop with the old table and come back with
+// wm_concepts, wm_concept_steps, wm_concept_claims and wm_concepts_fts in the
+// schema.sql reapply. wm_edges gains hint. symbols_md5 is cleared so the next
+// scan re-parses every file into the v45 rows (whole doc blocks, hook rows,
+// stored hints).
+function migrateV44toV45(db) {
+    if (!tableExists(db, 'wm_symbols'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    beginImmediate(db);
+    try {
+        if (tableExists(db, 'wm_edges') && !hasColumn(db, 'wm_edges', 'hint')) {
+            db.exec('ALTER TABLE wm_edges ADD COLUMN hint TEXT');
+        }
+        if (tableExists(db, 'wm_files') && hasColumn(db, 'wm_files', 'symbols_md5')) {
+            db.exec('UPDATE wm_files SET symbols_md5 = NULL');
+        }
+        if (!hasColumn(db, 'wm_symbols', 'run_order') || !readTableSql(db, 'wm_symbols').includes("'hook'")) {
+            rebuildTable(db, 'wm_symbols', `
+          id              INTEGER PRIMARY KEY,
+          repo            TEXT    NOT NULL,
+          path            TEXT    NOT NULL,
+          kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook')),
+          qualified_name  TEXT    NOT NULL,
+          signature       TEXT    NOT NULL DEFAULT '',
+          doc             TEXT    NOT NULL DEFAULT '',
+          start_line      INTEGER,
+          end_line        INTEGER,
+          body_hash       TEXT    NOT NULL,
+          exported        INTEGER NOT NULL DEFAULT 0,
+          terms           TEXT    NOT NULL DEFAULT '',
+          run_order       INTEGER,
+          UNIQUE (repo, path, kind, qualified_name)
+        `, [
+                ['id', 'NULL'], ['repo', "''"], ['path', "''"], ['kind', "'module'"], ['qualified_name', "''"],
+                ['signature', "''"], ['doc', "''"], ['start_line', 'NULL'], ['end_line', 'NULL'], ['body_hash', "''"],
+                ['exported', '0'], ['terms', "''"], ['run_order', 'NULL'],
+            ]);
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check(wm_edges)').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV44toV45: foreign_key_check found ${fkViolations.length} dangling reference(s) after the wm_symbols rebuild`);
+        }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
     }
 }
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.

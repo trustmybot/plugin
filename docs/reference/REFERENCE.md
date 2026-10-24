@@ -20,7 +20,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## MCP tools (full list)
 
-76 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
+79 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
 - **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_update`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`. The write tools return the issue row without its description; `issue_create`, `issue_update_description`, `issue_link` and `issue_adopt_remote` take `include_description: true` to echo it (bro/architect, as on `issue_get`). `issue_adopt_remote` takes an optional `repo` (a `repos` row name) to verify against; a repo-less issue in a multi-repo workspace needs it (`repo_unresolved` otherwise), and a successful adoption backfills the issue's null repo and copies the remote's milestone and labels into columns that are empty locally. `issue_update` (bro) changes an issue's `milestone`, `labels` (a full replacement set, validated like `issue_create`) or `objective` after creation, writes an `issue_updated` audit row with before/after, and mirrors the change to the linked gh/glab issue when `issue_sync` is on; its `_sync` field reports whether the mirror ran.
 - **milestones**: `milestone_close`
@@ -30,7 +30,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
 - **pr_monitor**: `pr_monitor_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_monitor_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
-- **world model** (bro's directory-level memory): `world_model_get` (annotated dir tree; a zoomed-in dir lists its files with purposes, the root call adds purpose coverage), `world_model_search` (keyword / semantic / hybrid over dirs, files and symbols, each hit tagged `kind`), `world_model_symbol` (one symbol's callers, callees, imports, tables read and written, and tests)
+- **world model** (bro's directory-level memory): `world_model_get` (annotated dir tree; a zoomed-in dir lists its files with purposes, the root call adds purpose coverage), `world_model_search` (keyword / semantic / hybrid over dirs, files and symbols, each hit tagged `kind`), `world_model_symbol` (one symbol's callers, callees, imports, tables read and written, and tests), `world_model_concepts` (search agent-written flows; a derived, unverified chain when none match), `world_model_concept_get` (one concept's ordered steps with per-step trust), `world_model_concept_upsert` (bro and consultants write a concept whose steps and claims check out)
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
 - **scan**: `scan_run`, `repos_list`

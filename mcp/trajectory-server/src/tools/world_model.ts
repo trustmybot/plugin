@@ -19,6 +19,17 @@ import {
   type ScoredSymbol,
   type SymbolRow,
 } from '../symbol-index.js';
+import {
+  CLAIMS,
+  CONCEPT_KINDS,
+  HANDOFFS,
+  derivedChain,
+  getConcept,
+  searchConcepts,
+  upsertConcept,
+  type ConceptInput,
+  type Step,
+} from '../world-model/concepts.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -476,6 +487,23 @@ export function buildTree(
   return descend(root, depth, 0);
 }
 
+const CONCEPT_LIMIT = 10;
+
+// A step's symbol text is copied out of file contents, and a derived step's
+// description is that text, so both leave the server framed.
+function framedStep(step: Step, derived: boolean): Step {
+  const symbol =
+    step.symbol && step.symbol.id !== null
+      ? {
+          ...step.symbol,
+          signature: step.symbol.signature ? frameUntrusted('symbol-signature', step.symbol.signature) : '',
+          doc: step.symbol.doc ? frameUntrusted('symbol-doc', step.symbol.doc) : '',
+        }
+      : step.symbol;
+  const description = derived && step.description ? frameUntrusted('symbol-doc', step.description) : step.description;
+  return { ...step, description, symbol };
+}
+
 export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | null): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -558,7 +586,76 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
         required: ['agent'],
       },
     },
+    {
+      name: 'world_model_concepts',
+      description:
+        "Search verified concepts (named, ordered flows over symbols) by bm25. Each hit has step_count and per-step trust counts. With no match, derived is a chain walked from the top symbol hit over exact calls/sources/runs edges, labelled 'derived, unverified'.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          query: { type: 'string' },
+          repo: { type: 'string', description: 'Defaults to the sole registered repo.' },
+        },
+        required: ['agent', 'query'],
+      },
+    },
+    {
+      name: 'world_model_concept_get',
+      description:
+        'One concept with its steps in order: description, trust, handoff and the anchored symbol resolved now (null when the anchor is gone; a file anchor is {id: null, kind: \'file\', qualified_name: <path>} with null signature, doc and lines).',
+      inputSchema: {
+        type: 'object',
+        properties: { agent: { type: 'string' }, id: { type: 'number' } },
+        required: ['agent', 'id'],
+      },
+    },
+    {
+      name: 'world_model_concept_upsert',
+      description:
+        "Write a concept, replacing any of the same repo+name. Every step must anchor a current symbol (kind '' anchors the file) and every claim must pass, or nothing is written. Scans then mark drifted steps suspect or broken.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          repo: { type: 'string' },
+          name: { type: 'string' },
+          kind: { type: 'string', enum: [...CONCEPT_KINDS] },
+          body: { type: 'string' },
+          steps: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                path: { type: 'string' },
+                kind: { type: 'string' },
+                qualified_name: { type: 'string' },
+                description: { type: 'string' },
+                handoff: { type: ['string', 'null'], enum: [...HANDOFFS, null] },
+              },
+              required: ['path', 'description'],
+            },
+          },
+          claims: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { claim: { type: 'string', enum: [...CLAIMS] }, args: { type: 'object' } },
+              required: ['claim', 'args'],
+            },
+          },
+        },
+        required: ['agent', 'name', 'steps'],
+      },
+    },
   ];
+
+  const conceptRepo = (arg: unknown): { name: string; warning?: 'repo-unspecified'; available_repos?: string[] } => {
+    if (typeof arg === 'string' && arg) return { name: arg };
+    const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+    if (available.length >= 2) return { name: '', warning: 'repo-unspecified', available_repos: available };
+    return { name: resolveSoleRepo(db)?.name ?? '' };
+  };
 
   const handlers: Record<string, Fn> = {
     world_model_get: requireRoles(
@@ -718,6 +815,50 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
         }
         const card = symbolCard(db, symbol);
         return ok({ ...card, symbol: framedSymbol(card.symbol) });
+      }),
+    ),
+
+    world_model_concepts: requireRoles(
+      'world_model_concepts',
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
+      wrap(async (args) => {
+        const query = args['query'];
+        if (typeof query !== 'string' || !query.trim()) return err('query is required');
+        const repo = conceptRepo(args['repo']);
+        if (repo.warning) return ok({ available: false, concepts: [], derived: null, ...repo });
+        const available = db.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== undefined;
+        if (!available) return ok({ available, concepts: [], derived: null });
+        const concepts = searchConcepts(db, repo.name, query, CONCEPT_LIMIT);
+        const derived = concepts.length === 0 ? derivedChain(db, repo.name, query) : null;
+        return ok({
+          available,
+          concepts,
+          derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null,
+        });
+      }),
+    ),
+
+    world_model_concept_get: requireRoles(
+      'world_model_concept_get',
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
+      wrap(async (args) => {
+        const id = args['id'];
+        if (typeof id !== 'number') return err('id is required');
+        const concept = getConcept(db, id);
+        if (!concept) return err(`concept ${id} not found`);
+        return ok({ ...concept, steps: concept.steps.map((st) => framedStep(st, false)) });
+      }),
+    ),
+
+    world_model_concept_upsert: requireRoles(
+      'world_model_concept_upsert',
+      ['bro', 'consultant'],
+      wrap(async (args) => {
+        const repo = conceptRepo(args['repo']);
+        if (repo.warning) return ok({ concept: null, ...repo });
+        const input = { ...args, repo: repo.name } as unknown as ConceptInput;
+        const repoPath = resolveSoleRepo(db, repo.name)?.path ?? null;
+        return ok(upsertConcept(db, input, { repoPath, agent: String(args['agent']) }));
       }),
     ),
   };

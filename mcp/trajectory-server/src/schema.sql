@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 44, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 45, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -573,7 +573,28 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     level, on the 'module' row). dst_name is the referenced name, kept when
 --     unresolved. resolution: 'exact' (same file, a resolved relative import or
 --     a sourced file), 'name' (the only candidate by name), 'unresolved'
---     (dst_id NULL). A re-parse rebuilds the file's outgoing edges.
+--     (dst_id NULL). A re-parse rebuilds the file's outgoing edges; a scan
+--     re-resolves non-exact edges whose dst_name it inserted or moved. hint
+--     (GH 1680) is the import specifier of an 'imports' edge or the receiver
+--     of a member call, kept so that re-resolution needs no re-parse.
+--   hook rows (GH 1680): each hooks/hooks.json entry is a kind='hook' symbol,
+--     qualified_name '<Event>#<pos>:<gate>', with run_order = event rank * 100
+--     + position (NULL on every other kind) and a 'runs' edge to its gate.
+--   wm_concepts (GH 1680, ADR 0002 L2): an agent-written, named run of steps
+--     (a flow, subsystem or invariant), unique per (repo, name). status is the
+--     worst step trust; status_reason names the step. verified_sha is the repo
+--     HEAD at the last upsert. steps_text is the step descriptions joined, the
+--     text wm_concepts_fts indexes beside name and body.
+--   wm_concept_steps: one ordered step per (concept_id, ordinal), anchored by
+--     the ADR 0001 key (repo, path, kind, qualified_name; kind '' anchors the
+--     file), not by wm_symbols.id, so a re-created symbol still matches.
+--     hash_at_verify is the anchor's body_hash (or content_md5) at upsert;
+--     handoff is how the step passes control to the next one (NULL on the
+--     last). trust: 'suspect' once the hash moves, 'broken' once the anchor
+--     is gone.
+--   wm_concept_claims: checkable facts a concept asserts (exists, calls,
+--     only_writers_of, tested_by), args a JSON object; last_result is 'pass'
+--     or 'fail: <why>' from the last evaluation.
 CREATE TABLE IF NOT EXISTS wm_directories (
     id                 INTEGER PRIMARY KEY,
     repo               TEXT    NOT NULL,
@@ -612,7 +633,7 @@ CREATE TABLE IF NOT EXISTS wm_symbols (
     id              INTEGER PRIMARY KEY,
     repo            TEXT    NOT NULL,
     path            TEXT    NOT NULL,
-    kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module')),
+    kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook')),
     qualified_name  TEXT    NOT NULL,
     signature       TEXT    NOT NULL DEFAULT '',
     doc             TEXT    NOT NULL DEFAULT '',
@@ -621,6 +642,7 @@ CREATE TABLE IF NOT EXISTS wm_symbols (
     body_hash       TEXT    NOT NULL,
     exported        INTEGER NOT NULL DEFAULT 0,
     terms           TEXT    NOT NULL DEFAULT '',
+    run_order       INTEGER,
     UNIQUE (repo, path, kind, qualified_name)
 );
 
@@ -630,11 +652,56 @@ CREATE TABLE IF NOT EXISTS wm_edges (
     dst_name    TEXT    NOT NULL,
     kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on')),
     resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
-    line        INTEGER
+    line        INTEGER,
+    hint        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_wm_edges_src ON wm_edges(src_id);
 CREATE INDEX IF NOT EXISTS idx_wm_edges_dst ON wm_edges(dst_id);
+
+CREATE TABLE IF NOT EXISTS wm_concepts (
+    id             INTEGER PRIMARY KEY,
+    repo           TEXT    NOT NULL,
+    kind           TEXT    NOT NULL CHECK (kind IN ('flow','subsystem','invariant')),
+    name           TEXT    NOT NULL,
+    body           TEXT    NOT NULL DEFAULT '',
+    status         TEXT    NOT NULL DEFAULT 'verified' CHECK (status IN ('verified','suspect','broken','retired')),
+    status_reason  TEXT,
+    verified_sha   TEXT,
+    verified_by    TEXT,
+    verified_at    TEXT,
+    created_at     TEXT    NOT NULL,
+    updated_at     TEXT    NOT NULL,
+    steps_text     TEXT    NOT NULL DEFAULT '',
+    UNIQUE (repo, name)
+);
+
+CREATE TABLE IF NOT EXISTS wm_concept_steps (
+    concept_id      INTEGER NOT NULL REFERENCES wm_concepts(id) ON DELETE CASCADE,
+    ordinal         INTEGER NOT NULL,
+    repo            TEXT    NOT NULL,
+    path            TEXT    NOT NULL,
+    kind            TEXT    NOT NULL DEFAULT '',
+    qualified_name  TEXT    NOT NULL DEFAULT '',
+    description     TEXT    NOT NULL,
+    handoff         TEXT    CHECK (handoff IN ('calls','sources','runs','hook_fires')),
+    hash_at_verify  TEXT    NOT NULL,
+    trust           TEXT    NOT NULL DEFAULT 'verified' CHECK (trust IN ('verified','suspect','broken')),
+    trust_reason    TEXT,
+    PRIMARY KEY (concept_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_concept_steps_anchor ON wm_concept_steps(repo, path);
+
+CREATE TABLE IF NOT EXISTS wm_concept_claims (
+    id           INTEGER PRIMARY KEY,
+    concept_id   INTEGER NOT NULL REFERENCES wm_concepts(id) ON DELETE CASCADE,
+    claim        TEXT    NOT NULL CHECK (claim IN ('exists','calls','only_writers_of','tested_by')),
+    args         TEXT    NOT NULL DEFAULT '{}',
+    last_result  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_concept_claims_concept ON wm_concept_claims(concept_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS wm_directories_fts USING fts5(
   path,
@@ -692,6 +759,26 @@ END;
 CREATE TRIGGER IF NOT EXISTS wm_symbols_au AFTER UPDATE OF terms, signature, doc ON wm_symbols BEGIN
   INSERT INTO wm_symbols_fts(wm_symbols_fts, rowid, terms, signature, doc) VALUES ('delete', old.id, old.terms, old.signature, old.doc);
   INSERT INTO wm_symbols_fts(rowid, terms, signature, doc) VALUES (new.id, new.terms, new.signature, new.doc);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS wm_concepts_fts USING fts5(
+  name,
+  body,
+  steps_text,
+  content='wm_concepts',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS wm_concepts_ai AFTER INSERT ON wm_concepts BEGIN
+  INSERT INTO wm_concepts_fts(rowid, name, body, steps_text) VALUES (new.id, new.name, new.body, new.steps_text);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_concepts_ad AFTER DELETE ON wm_concepts BEGIN
+  INSERT INTO wm_concepts_fts(wm_concepts_fts, rowid, name, body, steps_text) VALUES ('delete', old.id, old.name, old.body, old.steps_text);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_concepts_au AFTER UPDATE OF name, body, steps_text ON wm_concepts BEGIN
+  INSERT INTO wm_concepts_fts(wm_concepts_fts, rowid, name, body, steps_text) VALUES ('delete', old.id, old.name, old.body, old.steps_text);
+  INSERT INTO wm_concepts_fts(rowid, name, body, steps_text) VALUES (new.id, new.name, new.body, new.steps_text);
 END;
 
 -- World-model embeddings for semantic world_model_search: one vector per
