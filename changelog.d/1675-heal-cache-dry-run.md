@@ -1,0 +1,2 @@
+### Fixed
+- **`heal-mcp-cache.sh --dry-run` is a true preview** (GH 1675): before, only Step C was previewed. Steps A and B still prompted, and Step A defaulted to yes, so pressing Enter through a "dry run" edited `~/.claude.json` and could delete the plugin cache and its `installed_plugins.json` entry. Now every step prints a `[dry-run] Step X would: …` line naming the exact paths and commands, asks nothing, and changes nothing.

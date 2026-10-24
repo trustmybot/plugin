@@ -6,6 +6,7 @@
 # proves the fixture is one the script would otherwise edit.
 # GH 1611: each channel (stable, rc, dev) resolves to its own cache dir,
 # installed_plugins entry and the plugin:tmb:trajectory-server MCP key.
+# GH 1675: --dry-run previews Steps A, B and C without prompting or writing.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,6 +131,52 @@ test_case "stable Step B yes: only cache/trustmybot is removed"
 assert_eq "trustmybot-dev trustmybot-rc " "$(caches_left "$H")" "caches left"
 test_case "stable Step B yes: entry tmb@trustmybot is gone from installed_plugins.json"
 assert_eq "" "$(entries_left "$H")" "entries left"
+
+# ---- --dry-run is a pure preview (GH 1675) ------------------------------------
+# Every step has work to do; answering y to every prompt (or having no stdin)
+# must still leave HOME untouched.
+dry_home() {
+  local h="$WORKSPACE/$1"
+  mkdir -p "$h/.claude/plugins"
+  for v in 1.0.0 1.1.0 1.2.0; do
+    mkdir -p "$h/.claude/plugins/cache/trustmybot-dev/tmb/$v"
+    printf 'x\n' > "$h/.claude/plugins/cache/trustmybot-dev/tmb/$v/plugin.json"
+  done
+  printf '{ "plugins": { "tmb@trustmybot-dev": [ { "version": "1.2.0", "scope": "local" } ] } }\n' > "$h/.claude/plugins/installed_plugins.json"
+  cat > "$h/.claude.json" <<'JSON'
+{ "projects": { "/work/demo": { "disabledMcpServers": ["plugin:tmb:trajectory-server", "other"] } } }
+JSON
+  printf '%s' "$h"
+}
+home_snapshot() {
+  (cd "$1" && find . -print | sort && find . -type f -print0 | sort -z | xargs -0 cksum)
+}
+
+for stdin_mode in yes closed; do
+  H=$(dry_home "dry-$stdin_mode")
+  SNAP_BEFORE=$(home_snapshot "$H")
+  touch "$WORKSPACE/dry-$stdin_mode.marker"
+  set +e
+  if [ "$stdin_mode" = yes ]; then
+    OUT=$(printf 'y\n%.0s' 1 2 3 4 5 6 7 8 9 10 | env -u CLAUDE_PROJECT_DIR -u CLAUDE_PLUGIN_ROOT HOME="$H" bash "$SCRIPT" --channel dev --dry-run 2>&1)
+  else
+    OUT=$(env -u CLAUDE_PROJECT_DIR -u CLAUDE_PLUGIN_ROOT HOME="$H" bash "$SCRIPT" --channel dev --dry-run 2>&1 <&-)
+  fi
+  rc=$?
+  set -e
+
+  test_case "--dry-run (stdin $stdin_mode): exits 0"
+  assert_eq "0" "$rc" "exit; output: $OUT"
+  test_case "--dry-run (stdin $stdin_mode): HOME is identical before and after"
+  assert_eq "$SNAP_BEFORE" "$(home_snapshot "$H")" "HOME snapshot"
+  assert_eq "" "$(find "$H" -newer "$WORKSPACE/dry-$stdin_mode.marker" -print)" "nothing newer than marker"
+  test_case "--dry-run (stdin $stdin_mode): previews Steps A, B and C"
+  assert_contains "$OUT" "[dry-run] Step A would:" "Step A preview"
+  assert_contains "$OUT" "[dry-run] Step C would: rm -rf $H/.claude/plugins/cache/trustmybot-dev/tmb/1.0.0" "Step C preview"
+  assert_contains "$OUT" "[dry-run] Step B would: rm -rf $H/.claude/plugins/cache/trustmybot-dev;" "Step B preview"
+  test_case "--dry-run (stdin $stdin_mode): never prompts"
+  if printf '%s' "$OUT" | grep -q 'Proceed with'; then _fail "prompt shown; output: $OUT"; else _pass; fi
+done
 
 summarize
 printf "PASS heal-mcp-cache\n"

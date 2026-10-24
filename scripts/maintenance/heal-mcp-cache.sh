@@ -18,7 +18,8 @@
 # Each mutating step has its own y/N prompt. Step A is the lighter, more common
 # fix and defaults to y; Step C prunes conservatively; Step B is the most
 # aggressive and defaults to N.
-# Pass --dry-run to preview Step C's prune without deleting anything.
+# Pass --dry-run to preview every step: each prints what it would do, no
+# prompt is shown and nothing is written.
 # Idempotent: re-runs see nothing to do and exit 0.
 # Run from a terminal: inside Claude Code (CLAUDE_PROJECT_DIR or
 # CLAUDE_PLUGIN_ROOT set) it refuses and changes nothing.
@@ -45,7 +46,7 @@ if [ -f "$INSTALLED_JSON" ]; then
   done < <(jq -r '.plugins | keys[]' "$INSTALLED_JSON" 2>/dev/null | grep -E '^tmb@' || true)
 fi
 
-# Allow --channel override (stable, rc or dev) and --dry-run (Step C preview).
+# Allow --channel override (stable, rc or dev) and --dry-run (preview every step).
 CHANNEL_ARG=""
 DRY_RUN=0
 ARGS=("$@")
@@ -141,9 +142,20 @@ else
       done
       printf '\n  Would: for each above, remove "%s" from .projects."<path>".disabledMcpServers\n' "$MCP_SERVER_KEY"
       printf '         (preserves every other disabled server + other keys).\n\n'
-      printf '  Proceed with Step A? (Y/n) '
-      read -r answer_a
+      if [ "$DRY_RUN" -eq 1 ]; then
+        answer_a="dry-run"
+        printf '  [dry-run] Step A would: back up %s to %s.bak.<timestamp>, then remove "%s" from .projects."<path>".disabledMcpServers for:\n' "$CC_CONFIG" "$CC_CONFIG" "$MCP_SERVER_KEY"
+        for p in "${disabled_projects[@]}"; do
+          printf '    %s\n' "$p"
+        done
+        printf '\n'
+      else
+        printf '  Proceed with Step A? (Y/n) '
+        read -r answer_a
+      fi
       case "$answer_a" in
+        dry-run)
+          ;;
         n|N|no|NO)
           printf '  Skipped Step A.\n\n'
           ;;
@@ -247,7 +259,11 @@ else
       done
 
       if [ "$DRY_RUN" -eq 1 ]; then
-        printf '\n  --dry-run: not deleting anything.\n\n'
+        printf '\n  [dry-run] Step C would: rm -rf'
+        for v in "${PRUNE[@]}"; do
+          printf ' %s/%s' "$VERSIONS_DIR" "$v"
+        done
+        printf '\n\n'
       else
         printf '\n  Proceed with Step C prune? (Y/n) '
         read -r answer_c
@@ -353,6 +369,14 @@ fi
 if [ "$matching_count" -gt 0 ]; then
   printf '  jq "del(.plugins[\"%s\"])" %s   (%s entries)\n' \
     "$PLUGIN_ENTRY" "$INSTALLED_JSON" "$matching_count"
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  printf '\n[dry-run] Step B would:'
+  [ "$cache_exists" = "yes" ] && printf ' rm -rf %s;' "$CACHE_DIR"
+  [ "$matching_count" -gt 0 ] && printf ' jq "del(.plugins[\"%s\"])" %s' "$PLUGIN_ENTRY" "$INSTALLED_JSON"
+  printf '\n\n--dry-run: nothing was changed. Re-run without --dry-run to apply.\n'
+  exit 0
 fi
 
 printf '\nProceed with Step B (cache nuke)? (y/N) '
