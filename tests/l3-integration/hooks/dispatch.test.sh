@@ -751,8 +751,7 @@ last_denied() { sqlite3 -cmd ".timeout 3000" "$ADB" "SELECT $1 FROM audit WHERE 
 # writer lands after the hook exits) or after 5 s, then 0.3 s more for a
 # surplus row to show.
 rows_after() {
-  local i
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     [ "$(denied_rows)" -ge "$1" ] && break
     sleep 0.1
   done
@@ -838,8 +837,7 @@ assert_eq "$before" "$(rows_after "$before")" "no row"
 lock_adb() {
   ( printf 'BEGIN IMMEDIATE;\n'; sleep "$1"; printf 'COMMIT;\n' ) | sqlite3 "$ADB" >/dev/null 2>&1 &
   LOCKER=$!
-  local i
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     sqlite3 -cmd '.timeout 0' "$ADB" 'BEGIN IMMEDIATE; ROLLBACK;' >/dev/null 2>&1 || return 0
     sleep 0.1
   done
