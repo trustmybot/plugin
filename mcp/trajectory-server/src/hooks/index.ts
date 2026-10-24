@@ -3,8 +3,11 @@
  * payload read from stdin, writes its stdout and exits with its code. An
  * unknown gate or an uncaught error prints one stderr line and exits 1, so
  * dispatch.sh fails a fail-closed gate closed; it never allows on error.
+ * `node dist/hooks.js ensure-mcp-deps-installed --install` is that gate's
+ * detached install worker, which reads no payload.
  */
 import { readFileSync } from 'node:fs';
+import { GATE_NAME as DEPS_GATE, INSTALL_FLAG, runInstallWorker } from './ensure-mcp-deps-installed.js';
 import { findGate } from './registry.js';
 
 function oneLine(text: string): string {
@@ -12,6 +15,7 @@ function oneLine(text: string): string {
 }
 
 function main(name: string): number {
+  if (name === DEPS_GATE && process.argv[3] === INSTALL_FLAG) return runInstallWorker(process.env);
   const gate = findGate(name);
   if (!gate) {
     process.stderr.write(`TMB hooks: unknown gate '${oneLine(name)}' — not run\n`);
