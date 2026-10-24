@@ -551,12 +551,10 @@ assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "swe-verification-g
 test_case "chain: a gate past its chain-table timeout is killed and denies; later gates never run"
 reset_runs
 rm -f "$TMP/slow-done"
-started=$SECONDS
 out=$(FX_SLOW=swe-brief-gate FX_SLOW_S=9 chain task_update_status tu-c13 2>/dev/null)
-elapsed=$((SECONDS - started))
+[ ! -e "$TMP/slow-done" ] && _pass || _fail "the chain waited for the slow gate to finish"
 is_deny "$out" && _pass || _fail "no deny: $out"
 assert_contains "$out" "swe-brief-gate ran past its 6 s budget" "reason names the gate and its budget"
-[ "$elapsed" -lt 9 ] && _pass || _fail "the chain waited ${elapsed}s for the slow gate"
 assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "swe-verification-gate never ran"
 sleep 4
 [ ! -e "$TMP/slow-done" ] && _pass || _fail "the slow gate kept running after the deny"
@@ -591,17 +589,6 @@ assert_eq "0" "$(survivors "$lw")" "a watchdog under its parent kills the group 
 kill "$reused" 2>/dev/null || true
 wait "$reused" 2>/dev/null || true
 assert_eq "0" "$(survivors "$rw")" "the throwaway sleep is cleaned up"
-
-test_case "chain latency: two trivial gates stay within twice one gate + 100 ms"
-ms() { perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'; }
-median() { sort -n | awk '{ a[NR] = $1 } END { print a[int((NR + 1) / 2)] }'; }
-single=$(for i in 1 2 3 4 5 6 7; do
-  a=$(ms); tpayload issue_get "tu-lat-s$i" | CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" agent-arg-matches-caller --chain trajectory-gates >/dev/null 2>&1; b=$(ms)
-  echo $((b - a)); done | median)
-chained=$(for i in 1 2 3 4 5 6 7; do
-  a=$(ms); tpayload issue_get "tu-lat-c$i" | CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates >/dev/null 2>&1; b=$(ms)
-  echo $((b - a)); done | median)
-[ "$chained" -le $((single * 2 + 100)) ] && _pass || _fail "chain ${chained} ms > 2 x ${single} ms + 100 ms"
 
 test_case "chain: a duplicate chain whose waiter gives up ends without running later gates"
 reset_runs
@@ -870,20 +857,16 @@ is_deny "$out" && _pass || _fail "no deny: $out"
 assert_contains "$out" "denied by swe-brief-gate" "the member's own deny"
 assert_eq "" "$(cat "$TMP/err")" "nothing on stderr"
 
-test_case "deny audit: the hook's wall time does not include the audit write"
-dur() {
-  local a b
-  a=$(ms)
-  FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" "$1" "$(apayload "ls $2" "$2")" >/dev/null 2>&1
-  b=$(ms)
-  echo $((b - a))
-}
-allow_ms=$(for i in 1 2 3; do dur fx-allow "tu-w-a$i"; done | median)
-deny_ms=$(for i in 1 2 3; do dur fx-deny "tu-w-d$i"; done | median)
-[ "$deny_ms" -lt $((allow_ms + 300)) ] && _pass \
-  || _fail "a deny took ${deny_ms} ms against ${allow_ms} ms for an allow on a write-locked DB"
+test_case "deny audit: the hook returns before its audit write lands"
 kill "$LOCKER" 2>/dev/null || true
 wait "$LOCKER" 2>/dev/null || true
+before=$(denied_rows)
+lock_adb 30
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$(apayload "ls a10" tu-a10)" 2>/dev/null)
+kill "$LOCKER" 2>/dev/null || true
+wait "$LOCKER" 2>/dev/null || true
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "$((before + 1))" "$(rows_after $((before + 1)))" "the row lands after the hook returned and the lock was released"
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"

@@ -35,6 +35,22 @@ wait_for_lock() {
   return 1
 }
 
+# hold_lock <db> <name> — holds <db>'s write lock until release_lock; returns once held.
+hold_lock() {
+  mkfifo "$TMPDIR_FIXTURE/$2.fifo"
+  sqlite3 "$1" < "$TMPDIR_FIXTURE/$2.fifo" >/dev/null 2>&1 &
+  HOLD_PID=$!
+  exec 9>"$TMPDIR_FIXTURE/$2.fifo"
+  printf '.timeout 2000\nBEGIN IMMEDIATE;\n' >&9
+  wait_for_lock "$1"
+}
+release_lock() {
+  printf 'ROLLBACK;\n' >&9
+  exec 9>&-
+  wait "$HOLD_PID" 2>/dev/null || true
+}
+still_locked() { ! sqlite3 "$1" ".timeout 0" "BEGIN IMMEDIATE; ROLLBACK;" >/dev/null 2>&1; }
+
 test_case "tmb_now_iso prints a 24-char UTC ms-ISO timestamp"
 NOW=$(tmb_now_iso)
 assert_eq "24" "${#NOW}" "tmb_now_iso length"
@@ -83,17 +99,15 @@ assert_eq "1" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_busy';
 assert_eq "1" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_holder';")" "lock holder's row present"
 
 test_case "tmb_db_write gives up within its bounded budget when the lock outlasts every attempt"
-( printf 'BEGIN IMMEDIATE;\n'; sleep 6; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
-HOLDER=$!
-sleep 0.2
-START=$(date +%s)
-ERR=$(TMB_DB_WRITE_TIMEOUT_MS=500 tmb_db_write "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('dbw_gaveup', '1');" 2>&1 >/dev/null) && RC=0 || RC=$?
-ELAPSED=$(( $(date +%s) - START ))
-kill "$HOLDER" 2>/dev/null || true
-wait "$HOLDER" 2>/dev/null || true
-[ "$RC" -ne 0 ] && _pass || _fail "write under a permanent lock should fail"
-[ "$ELAPSED" -le 3 ] && _pass || _fail "TMB_DB_WRITE_TIMEOUT_MS=500 should bound the wait (took ${ELAPSED}s)"
-assert_contains "$ERR" "locked" "stderr names the lock"
+if hold_lock "$DB" gaveup; then
+  ERR=$(TMB_DB_WRITE_TIMEOUT_MS=500 tmb_db_write "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('dbw_gaveup', '1');" 2>&1 >/dev/null) && RC=0 || RC=$?
+  still_locked "$DB" && _pass || _fail "TMB_DB_WRITE_TIMEOUT_MS=500 should give up while the lock is still held"
+  [ "$RC" -ne 0 ] && _pass || _fail "write under a permanent lock should fail"
+  assert_contains "$ERR" "locked" "stderr names the lock"
+else
+  _fail "fixture: lock holder never acquired the lock ($DB)"
+fi
+release_lock
 assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_gaveup';")" "no row written"
 
 test_case "tmb_audit_append rejects an agent-impersonating from_node"
@@ -216,30 +230,22 @@ exec 8>&-
 wait "$LOCK_PID" 2>/dev/null
 
 test_case "run budget: three writes under a held lock stop waiting once the budget is spent"
-( printf '.timeout 2000\nBEGIN IMMEDIATE;\n'; sleep 6; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
-HOLDER=$!
-if wait_for_lock "$DB"; then
+if hold_lock "$DB" budget; then
   BUDGET_OUT=$(bash -c '
     . "$1"
-    now() { perl -MTime::HiRes=time -e "printf(\"%d\", time() * 1000)"; }
-    start=$(now)
     for i in 1 2 3; do
       tmb_db_write "$2" "INSERT INTO plugin_config (key, value_json) VALUES (\"dbw_budget_$i\", \"1\");" 2>>"$3" || printf "fail%s " "$i"
     done
-    printf "%s" "$(( $(now) - start ))"
   ' _ "$LIB" "$DB" "$TMPDIR_FIXTURE/budget.err")
-  assert_contains "$BUDGET_OUT" "fail1 fail2 fail3 " "all three writes fail under the held lock"
-  BUDGET_MS="${BUDGET_OUT##* }"
-  HOOK_FLOOR_MS=4500
-  [ "$BUDGET_MS" -lt "$HOOK_FLOOR_MS" ] && _pass || _fail "three writes took ${BUDGET_MS} ms, want < ${HOOK_FLOOR_MS} ms (run budget 3500 + 1 s)"
-  [ "$BUDGET_MS" -ge 3000 ] && _pass || _fail "the first write should still use most of the budget (took ${BUDGET_MS} ms)"
-  assert_contains "$(cat "$TMPDIR_FIXTURE/budget.err")" "run budget spent" "later writes fail fast naming the spent budget"
+  still_locked "$DB" && _pass || _fail "the three writes should stop waiting while the lock is still held"
+  assert_eq "fail1 fail2 fail3 " "$BUDGET_OUT" "all three writes fail under the held lock"
+  assert_contains "$(sed -n 1p "$TMPDIR_FIXTURE/budget.err")" "database is locked" "the first write waits out its attempts on the lock"
+  assert_eq "2" "$(grep -c "run budget spent" "$TMPDIR_FIXTURE/budget.err")" "later writes fail fast naming the spent budget"
   assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key LIKE 'dbw_budget_%';")" "no row written"
 else
   _fail "fixture: lock holder never acquired the lock ($DB)"
 fi
-kill "$HOLDER" 2>/dev/null || true
-wait "$HOLDER" 2>/dev/null || true
+release_lock
 
 test_case "sqlite3 fallback audits against the system issue (issue_id = -1)"
 ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '

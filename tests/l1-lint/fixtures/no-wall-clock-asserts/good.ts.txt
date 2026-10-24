@@ -1,0 +1,9 @@
+// assert.ok(Date.now() - start < 3000) in a comment
+const earlier = new Date(Date.now() - 60_000).toISOString();
+const staleAt = new Date(Date.now() - (TTL_S + 60) * 1000).toISOString();
+const elapsed = Date.now() - start;
+console.log(`took ${elapsed} ms`);
+assert.ok(elapsedBudget < 5000);
+assert.equal(result.exitCode, 124);
+expect(count).toBeLessThan(3);
+for (let i = 0; i < 10; i++) {}

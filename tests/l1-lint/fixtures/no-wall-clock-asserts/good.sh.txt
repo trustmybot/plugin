@@ -1,0 +1,9 @@
+# [ "$elapsed" -lt 9 ] after elapsed=$((SECONDS - started)) in a comment
+started=$(date +%s)
+printf "duration %s: %ss\n" "$name" "$(( $(date +%s) - started ))"
+_old_epoch=$(($(date +%s) - 120))
+[ "$count" -lt 9 ] && _pass
+[ "$_old_epoch" -lt 9 ] || true
+RUN_BASE="$(date +%s)-$$"
+[ ! -e "$TMP/slow-done" ] && _pass || _fail "the chain waited for the slow gate"
+kill -0 "$HOLDER" && _pass
