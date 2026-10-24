@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # L3: deterministic health-check (#144).
 # scripts/health.sh — a standalone bash diagnostic (deliberately NOT an MCP
-# tool, so it can diagnose a DOWN server). It runs 7 checks against the
+# tool, so it can diagnose a DOWN server). It runs 8 checks against the
 # trajectory DB, the server log, and the plugin cache filesystem, printing
 # exactly one PASS/FAIL line per check and the ONE correct remediation under
 # every FAIL.
@@ -9,7 +9,7 @@
 # This test drives health.sh against self-contained fixtures (a temp DB seeded
 # with plugin_meta/tasks/repos/plugin_config, a fake mcp-server.log, a fake
 # cache tree) and asserts the right PASS/FAIL + remediation per scenario across
-# all 7 checks, plus the duplicate-plugin and legacy-user-hooks warnings.
+# all 8 checks, plus the duplicate-plugin and legacy-user-hooks warnings.
 # The world-model check covers:
 #   - tables with rows   → PASS
 #   - tables empty       → WARN naming /scan (not a FAIL)
@@ -553,6 +553,92 @@ assert_eq "$BEFORE" "$(legacy_sums)" "clean settings: files unchanged"
 rm -f "$ROOT/home/.claude/settings.json"
 out=$(legacy_health || true)
 assert_not_contains "$out" "WARN  legacy-user-hooks" "missing settings: no warning"
+
+# ============================================================================
+# Check 8 — embeddings: the doctor's embeddings_not_degraded predicate
+# ============================================================================
+# add_audit <db> <event_type> <created_at-sql-expr>
+add_audit() {
+  sqlite3 "$1" <<EOF
+CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER, event_type TEXT, from_node TEXT, content_json TEXT, created_at TEXT);
+INSERT INTO audit (issue_id, event_type, from_node, content_json, created_at)
+  VALUES (-1, '$2', 'trajectory-server', '{"reason":"model_load_failed"}', $3);
+EOF
+}
+
+test_case "check8 embeddings: unrecovered embeddings_degraded row → WARN, footer not all-passed, exit 0"
+reset_scenario emb-degraded
+add_audit "$F_DB" embeddings_degraded "strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')"
+set +e
+out=$(run_health_rc)
+rc=$?
+set -e
+assert_contains "$out" "WARN  embeddings: degraded since" "embeddings WARN line"
+assert_contains "$out" "model_load_failed" "WARN names the degraded reason"
+assert_not_contains "$out" "all checks passed" "degraded embeddings are not all-passed"
+assert_contains "$out" "== no check FAILED, 1 degraded" "degraded footer"
+assert_not_contains "$out" "FAIL  " "a warn contract is not a FAIL"
+assert_exit_code 0 "$rc" "exit code unchanged"
+
+test_case "check8 embeddings: a later embeddings_recovered row → PASS"
+add_audit "$F_DB" embeddings_recovered "strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+out=$(run_health)
+assert_contains "$out" "PASS  embeddings: no unrecovered embeddings_degraded event" "recovered → PASS"
+assert_contains "$out" "== all checks passed ==" "recovered → all passed"
+
+test_case "check8 embeddings: a degraded row older than 24 h → PASS"
+reset_scenario emb-old
+add_audit "$F_DB" embeddings_degraded "strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 days')"
+out=$(run_health)
+assert_contains "$out" "PASS  embeddings" "stale degraded row ignored"
+
+test_case "check8 embeddings: no audit table → PASS skipping, never FAIL"
+reset_scenario emb-noaudit
+out=$(run_health)
+assert_contains "$out" "PASS  embeddings: audit table unreadable" "missing audit table skipped"
+
+# ============================================================================
+# cache: without project env → the plugin root running the script
+# ============================================================================
+test_case "cache: script under a dev cache, no CLAUDE_PROJECT_DIR → cache is that dev root, not stable"
+reset_scenario self-cache
+FAKE_DEV="$SANDBOX/home/.claude/plugins/cache/trustmybot-dev/tmb/9.9.9-dev.1"
+STABLE="$SANDBOX/home/.claude/plugins/cache/trustmybot/tmb/1.1.0"
+mkdir -p "$FAKE_DEV/scripts/hooks" "$STABLE"
+cp "$HEALTH" "$FAKE_DEV/scripts/health.sh"
+cp -R "$PLUGIN_ROOT/scripts/hooks/lib" "$FAKE_DEV/scripts/hooks/lib"
+printf '{"plugins":{"tmb@trustmybot":[{"scope":"project","projectPath":"/elsewhere","installPath":"%s","version":"1.1.0"}]}}' "$STABLE" > "$ROOT/installed.json"
+out=$(env -i PATH="$PATH" HOME="$SANDBOX/home" \
+  TRAJECTORY_DB_PATH="$F_DB" TMB_HEALTH_SERVER_LOG="$F_LOG" \
+  TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+  bash "$FAKE_DEV/scripts/health.sh" 2>&1 || true)
+assert_contains "$out" "cache:     $FAKE_DEV" "cache is the dev root holding the script"
+assert_not_contains "$out" "trustmybot/tmb" "stable cache never resolved"
+assert_not_contains "$out" "FAIL  cache-version" "no false cache-version FAIL from the stable entry"
+
+# ============================================================================
+# server-reachable: pgrep cannot list the process table → UNVERIFIED
+# ============================================================================
+test_case "check1 server-reachable: pgrep exit 3 → UNVERIFIED, not FAIL"
+reset_scenario pgrep-sandboxed
+F_PGREP=""
+PGREP3_DIR="$SANDBOX/bin-pgrep3"
+mkdir -p "$PGREP3_DIR"
+printf '#!/usr/bin/env bash\nexit 3\n' > "$PGREP3_DIR/pgrep"
+chmod +x "$PGREP3_DIR/pgrep"
+set +e
+out=$(PATH="$PGREP3_DIR:$PATH" run_health_rc)
+rc=$?
+set -e
+assert_contains "$out" "UNVERIFIED  server-reachable: pgrep exited 3" "UNVERIFIED line"
+assert_not_contains "$out" "FAIL  server-reachable" "no server-reachable FAIL"
+assert_contains "$out" "== all checks passed ==" "unverified does not fail the run"
+assert_exit_code 0 "$rc" "exit code unchanged"
+
+test_case "check1 server-reachable: pgrep exit 1 (no match) → still FAIL"
+F_PGREP=""
+out=$(run_health)
+assert_contains "$out" "FAIL  server-reachable: NO trajectory-server process found" "exit 1 keeps its meaning"
 
 # ============================================================================
 # Exit-code contract

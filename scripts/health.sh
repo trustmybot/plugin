@@ -7,7 +7,8 @@
 # filesystem. No LLM, no MCP round-trip, no guessing. Every DB read goes
 # through _tmb_db_read_ro: the DB is never opened writable.
 #
-# Runs 7 checks; each prints exactly one `PASS`/`FAIL` line, and every FAIL
+# Runs 8 checks; each prints exactly one `PASS`/`FAIL` line (or `WARN` for
+# embeddings, `UNVERIFIED` for an unlistable process table), and every FAIL
 # prints the ONE correct remediation directly under it.
 #
 #   1. server-reachable   — is the trajectory-server process alive?
@@ -17,6 +18,9 @@
 #   5. label-config       — issue_classification_labels configured, not the bare default?
 #   6. stale-state        — orphaned worktrees / pending|running tasks?
 #   7. hook-cache-drift   — running hooks load from the cache, not the dev checkout?
+#   8. embeddings         — no unrecovered embeddings_degraded row in the last
+#      24 h (the doctor's embeddings_not_degraded contract)? A WARN, not a
+#      FAIL: the exit code stays 0, but the footer no longer says all passed.
 #
 # Plus warnings and info lines, printed only when they apply and never counted
 # as a FAIL:
@@ -41,6 +45,8 @@
 #   TRAJECTORY_DB_PATH         — pin the trajectory DB.
 #   TMB_HEALTH_INSTALLED_JSON  — path to CC's installed_plugins.json.
 #   TMB_HEALTH_CACHE_DIR       — the installed plugin cache dir (installPath).
+#                                Without CLAUDE_PROJECT_DIR it defaults to the
+#                                plugin root running this script.
 #   TMB_HEALTH_SERVER_LOG      — path to mcp-server.log.
 #   TMB_HEALTH_PGREP_COUNT     — stub the server-reachable probe (>=0 process count).
 #   TMB_HEALTH_INTENDED_VERSION— stub the intended plugin version.
@@ -55,12 +61,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/resolve-install.sh
 . "$SCRIPT_DIR/hooks/lib/resolve-install.sh"
 
+SELF_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
 PLUGIN_NAME="tmb"
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-  PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
+if [ -f "${SELF_ROOT}/.claude-plugin/plugin.json" ]; then
+  PLUGIN_NAME=$(jq -r '.name // "tmb"' "${SELF_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
 fi
 
 FAILED=0
+DEGRADED=0
 
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() {
@@ -102,24 +111,31 @@ CACHE_DIR="${TMB_HEALTH_CACHE_DIR:-}"
 INSTALL_KEY=""
 INSTALL_SCOPE=""
 if [ -f "$INSTALLED_JSON" ] && command -v jq >/dev/null 2>&1; then
-  # Prefer the dev-channel entry when CLAUDE_PLUGIN_ROOT points into one of
-  # the channels; otherwise take the first tmb entry. Deterministic: newest
-  # lastUpdated wins among the tmb entries.
-  _entry=$(jq -r --arg root "${CLAUDE_PLUGIN_ROOT:-}" '
+  # Prefer the entry installed at the plugin root running this script;
+  # otherwise take the first tmb entry. Without a project env, a first entry
+  # that is not this root (e.g. the stable cache while a dev copy runs) names
+  # the update command only — its version and cache describe another install.
+  _entry=$(jq -r --arg root "$SELF_ROOT" '
     .plugins
     | to_entries
     | map(select(.key | test("^'"$PLUGIN_NAME"'@")))
     | map(.value[0] + {key: .key})
-    | (map(select($root != "" and (.installPath == $root))) + .)
+    | (map(select(.installPath == $root)) + .)
     | .[0] // empty
     | "\(.version)\t\(.installPath)\t\(.key)\t\(.scope // "")"
   ' "$INSTALLED_JSON" 2>/dev/null || true)
   if [ -n "$_entry" ]; then
-    [ -z "$INTENDED_VERSION" ] && INTENDED_VERSION=$(printf '%s' "$_entry" | cut -f1)
-    [ -z "$CACHE_DIR" ] && CACHE_DIR=$(printf '%s' "$_entry" | cut -f2)
+    _entry_path=$(printf '%s' "$_entry" | cut -f2)
+    if [ -n "${CLAUDE_PROJECT_DIR:-}" ] || [ "$_entry_path" = "$SELF_ROOT" ]; then
+      [ -z "$INTENDED_VERSION" ] && INTENDED_VERSION=$(printf '%s' "$_entry" | cut -f1)
+      [ -z "$CACHE_DIR" ] && CACHE_DIR="$_entry_path"
+    fi
     INSTALL_KEY=$(printf '%s' "$_entry" | cut -f3)
     INSTALL_SCOPE=$(printf '%s' "$_entry" | cut -f4)
   fi
+fi
+if [ -z "$CACHE_DIR" ] && [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+  CACHE_DIR="$SELF_ROOT"
 fi
 
 # CC updates a plugin only at the scope it is installed at: use the entry's own
@@ -160,16 +176,21 @@ printf '\n'
 # 1. server-reachable
 # ===========================================================================
 PGREP_COUNT="${TMB_HEALTH_PGREP_COUNT:-}"
+PGREP_RC=0
 if [ -z "$PGREP_COUNT" ]; then
   if command -v pgrep >/dev/null 2>&1; then
     _pat="trajectory-server/dist/index.js"
     [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && _pat="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
-    PGREP_COUNT=$({ pgrep -f "$_pat" 2>/dev/null || true; } | wc -l | tr -d ' ')
+    _pids=$(pgrep -f "$_pat" 2>/dev/null) || PGREP_RC=$?
+    PGREP_COUNT=$(printf '%s' "$_pids" | grep -c . || true)
   else
     PGREP_COUNT="-1"
   fi
 fi
-if [ "$PGREP_COUNT" = "-1" ]; then
+if [ "$PGREP_RC" -ge 2 ]; then
+  printf 'UNVERIFIED  server-reachable: pgrep exited %s — the process table cannot be listed here (e.g. the Claude Code sandbox)\n' "$PGREP_RC"
+  remediate "Re-run outside the sandbox to probe the server, or check that trajectory-server MCP tools respond."
+elif [ "$PGREP_COUNT" = "-1" ]; then
   pass "server-reachable: pgrep unavailable — cannot probe (assuming reachable)"
 elif [ "$PGREP_COUNT" -gt 0 ] 2>/dev/null; then
   pass "server-reachable: trajectory-server process alive ($PGREP_COUNT)"
@@ -385,6 +406,35 @@ else
 fi
 
 # ===========================================================================
+# 8. embeddings — the doctor's embeddings_not_degraded contract
+#    (mcp/trajectory-server/src/data-contracts.ts): an embeddings_degraded row
+#    from the last 24 h with no later embeddings_recovered row.
+# ===========================================================================
+EMB_DEGRADED=""
+if [ -n "$DB" ] && [ "$DB" != ":memory:" ] && tmb_have_sqlite; then
+  EMB_DEGRADED=$(TMB_DB_WRITE_TIMEOUT_MS=500 _tmb_db_read_ro "$DB" "
+    SELECT d.created_at || ' ' || COALESCE(json_extract(d.content_json, '\$.reason'), '')
+      FROM audit d
+     WHERE d.event_type = 'embeddings_degraded'
+       AND strftime('%Y-%m-%dT%H:%M:%fZ', d.created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 days')
+       AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
+     ORDER BY d.id DESC LIMIT 1;")
+fi
+if [ -z "$DB" ] || [ "$DB" = ":memory:" ] || ! tmb_have_sqlite; then
+  pass "embeddings: no on-disk trajectory DB to read — skipping"
+elif [ "$EMB_DEGRADED" = "__ERR__" ]; then
+  pass "embeddings: audit table unreadable — skipping"
+elif [ -n "$EMB_DEGRADED" ]; then
+  DEGRADED=$((DEGRADED + 1))
+  printf 'WARN  embeddings: degraded since %s — semantic search is falling back to FTS\n' "$EMB_DEGRADED"
+  remediate \
+    "The embedding model failed to load or kept failing; the server re-attempts on its own (1 min, 5 min, then every 10 min)." \
+    "Check the embeddings_state lines in ${SERVER_LOG:-mcp-server.log}; trajectory_doctor reports the live state."
+else
+  pass "embeddings: no unrecovered embeddings_degraded event in the last 24 h"
+fi
+
+# ===========================================================================
 # duplicate-plugin (warning) — more than one enabled copy for this project
 # ===========================================================================
 DUP_PROJECT=""
@@ -421,7 +471,10 @@ if [ -n "$LEGACY_HOOKS" ]; then
 fi
 
 printf '\n'
-if [ "$FAILED" -eq 0 ]; then
+if [ "$FAILED" -eq 0 ] && [ "$DEGRADED" -gt 0 ]; then
+  printf '== no check FAILED, %d degraded (see WARN above) ==\n' "$DEGRADED"
+  exit 0
+elif [ "$FAILED" -eq 0 ]; then
   printf '== all checks passed ==\n'
   exit 0
 else
