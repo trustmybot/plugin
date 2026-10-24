@@ -2,9 +2,9 @@
 # Tests for scripts/hooks/clean-merged-branch.sh.
 # Hook contract: PostToolUse on Bash. After a successful `gh pr merge` /
 # `glab mr merge`, derive the merged branch and — if it is NOT protected
-# (main/dev), is actually merged into its base (ancestor check), and its
-# worktree is clean — remove the worktree, `git branch -d` the local branch,
-# and prune. Skip + warn on a dirty worktree; never force; silent (exit 0)
+# (main/dev), its work is in its base (ancestor, squash or rebase merge), and its
+# worktree is clean — remove the worktree, `git branch -D` the local branch,
+# and prune. Skip + warn on a dirty worktree; silent (exit 0)
 # on everything else; bypass via TMB_DISABLE_CLEAN_MERGED_BRANCH=1.
 #
 # All git state lives under a mktemp sandbox driven by `git -C` (per #810 —
@@ -151,6 +151,76 @@ branch_exists feat/unmerged || { echo "FAIL: unmerged branch deleted"; exit 1; }
 _pass
 git -C "$REPO" worktree remove --force "$TMPDIR/wt-unmerged" >/dev/null 2>&1 || true
 git -C "$REPO" branch -D feat/unmerged >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
+# Squash-merge a branch into dev from a scratch worktree on dev, then advance
+# dev past it — the branch tip is never an ancestor of dev (GH 1674).
+# squash_into_dev <branch>
+squash_into_dev() {
+  local branch="$1"
+  git -C "$REPO" worktree add -q "$TMPDIR/wt-squash-base" dev
+  git -C "$TMPDIR/wt-squash-base" merge -q --squash "$branch" >/dev/null
+  git -C "$TMPDIR/wt-squash-base" commit -qm "$branch (#1)"
+  echo "later" > "$TMPDIR/wt-squash-base/later-$RANDOM.txt"
+  git -C "$TMPDIR/wt-squash-base" add .
+  git -C "$TMPDIR/wt-squash-base" commit -qm "later dev work"
+  git -C "$REPO" worktree remove "$TMPDIR/wt-squash-base"
+}
+
+test_case "(e') squash-merged multi-commit branch + worktree → both removed (GH 1674)"
+git -C "$REPO" branch feat/squashed dev
+git -C "$REPO" worktree add -q "$TMPDIR/wt-squashed" feat/squashed
+echo one > "$TMPDIR/wt-squashed/sq.txt"
+git -C "$TMPDIR/wt-squashed" add .
+git -C "$TMPDIR/wt-squashed" commit -qm "squash part 1"
+echo two > "$TMPDIR/wt-squashed/sq.txt"
+echo extra > "$TMPDIR/wt-squashed/sq2.txt"
+git -C "$TMPDIR/wt-squashed" add .
+git -C "$TMPDIR/wt-squashed" commit -qm "squash part 2"
+squash_into_dev feat/squashed
+git -C "$REPO" merge-base --is-ancestor feat/squashed dev && { echo "FAIL: setup — squashed tip is an ancestor"; exit 1; }
+out=$(run_hook "$(input 'gh pr merge feat/squashed --squash')")
+assert_contains "$out" 'cleaned up merged branch feat/squashed' "squash cleanup report"
+branch_exists feat/squashed && { echo "FAIL: squash-merged branch still present"; exit 1; }
+_pass
+[ -d "$TMPDIR/wt-squashed" ] && { echo "FAIL: squash-merged worktree still present"; exit 1; }
+_pass
+
+# ---------------------------------------------------------------------------
+test_case "(e'') squash-merged branch with an unmerged follow-up commit → kept (GH 1674)"
+git -C "$REPO" branch feat/partial dev
+git -C "$REPO" worktree add -q "$TMPDIR/wt-partial" feat/partial
+echo first > "$TMPDIR/wt-partial/p.txt"
+git -C "$TMPDIR/wt-partial" add .
+git -C "$TMPDIR/wt-partial" commit -qm "partial part 1"
+squash_into_dev feat/partial
+echo followup > "$TMPDIR/wt-partial/p2.txt"
+git -C "$TMPDIR/wt-partial" add .
+git -C "$TMPDIR/wt-partial" commit -qm "follow-up not in dev"
+out=$(run_hook "$(input 'gh pr merge feat/partial --squash')")
+assert_not_contains "$out" 'cleaned up merged branch' "no cleanup report"
+branch_exists feat/partial || { echo "FAIL: branch with unmerged work deleted"; exit 1; }
+_pass
+git -C "$REPO" worktree remove --force "$TMPDIR/wt-partial" >/dev/null 2>&1 || true
+git -C "$REPO" branch -D feat/partial >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
+test_case "(e''') 2000 unmerged commits — git cherry output past the pipe buffer → kept (GH 1674)"
+# A cherry list this long once let `printf | grep -q` die of SIGPIPE under
+# pipefail, which `!` read as "no + lines" and the branch was force-deleted.
+{
+  for i in $(seq 1 2000); do
+    printf 'commit refs/heads/feat/huge\ncommitter t <t@t.io> %d +0000\ndata 4\nbig\n' "$((1700000000 + i))"
+    [ "$i" -eq 1 ] && printf 'from refs/heads/dev\n'
+    printf 'M 100644 inline huge.txt\ndata %d\n%s\n' "$(( ${#i} + 1 ))" "$i"
+  done
+} | git -C "$REPO" fast-import --quiet
+[ "$(git -C "$REPO" rev-list --count dev..feat/huge)" -eq 2000 ] || { echo "FAIL: setup — expected 2000 unmerged commits"; exit 1; }
+out=$(run_hook "$(input 'gh pr merge feat/huge --squash')")
+assert_not_contains "$out" 'cleaned up merged branch' "no cleanup report"
+branch_exists feat/huge || { echo "FAIL: branch with 2000 unmerged commits deleted"; exit 1; }
+_pass
+git -C "$REPO" branch -D feat/huge >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 test_case "(f) TMB_DISABLE_CLEAN_MERGED_BRANCH=1 bypass → untouched"

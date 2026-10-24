@@ -25044,7 +25044,7 @@ function gitTimeoutOption(value) {
   return timeoutMs;
 }
 async function validateGitProjectRoot(canonical, runner, timeoutMs) {
-  const git = async (args) => {
+  const git2 = async (args) => {
     const result2 = await runner(canonical, args, timeoutMs);
     if (result2.timedOut === true) {
       throw new CodexRuntimeError(
@@ -25054,7 +25054,7 @@ async function validateGitProjectRoot(canonical, runner, timeoutMs) {
     }
     return result2;
   };
-  const topLevel = await git(["rev-parse", "--show-toplevel"]);
+  const topLevel = await git2(["rev-parse", "--show-toplevel"]);
   if (!topLevel.ok) {
     throw new CodexRuntimeError(
       "project_root_not_git_toplevel",
@@ -25076,7 +25076,7 @@ async function validateGitProjectRoot(canonical, runner, timeoutMs) {
       "project_root must be the Git worktree top level, not a nested directory."
     );
   }
-  const ignored = await git([
+  const ignored = await git2([
     "check-ignore",
     "--no-index",
     "--quiet",
@@ -25085,7 +25085,7 @@ async function validateGitProjectRoot(canonical, runner, timeoutMs) {
   if (!ignored.ok) {
     throw stateNotIgnoredError();
   }
-  const tracked = await git(["ls-files", "-z", "--", ".tmb"]);
+  const tracked = await git2(["ls-files", "-z", "--", ".tmb"]);
   if (!tracked.ok || tracked.stdout.length > 0) {
     throw stateNotIgnoredError();
   }
@@ -30002,6 +30002,24 @@ var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
+function git(repoPath, args) {
+  return spawnSync6("git", ["-C", repoPath, ...args], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+}
+function tipIntegratedInto(repoPath, tip, target) {
+  const ancestor = git(repoPath, ["merge-base", "--is-ancestor", tip, target]);
+  if (ancestor.error) return "spawn-error";
+  if (ancestor.status === 0) return "integrated";
+  if (ancestor.status !== 1) return "unresolvable";
+  const merged = git(repoPath, ["merge-tree", "--write-tree", target, tip]);
+  if (merged.status === 0) {
+    const targetTree = git(repoPath, ["rev-parse", `${target}^{tree}`]);
+    const mergedTree = merged.stdout.split("\n")[0]?.trim();
+    if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return "integrated";
+  }
+  const cherry = git(repoPath, ["cherry", target, tip]);
+  if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return "integrated";
+  return "unmerged";
+}
 function computeUnmergedWork(db, repo) {
   if (!repo) return { unmerged_work: [] };
   const repoRow = db.get(
@@ -30042,16 +30060,11 @@ function computeUnmergedWork(db, repo) {
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync6(
-      "git",
-      ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
-      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
-    );
-    if (mergeBase.error) {
+    const integration = tipIntegratedInto(repoPath, entry.tip, target);
+    if (integration === "spawn-error") {
       return { unmerged_work: [], warning: "unmerged-work-unavailable" };
     }
-    if (mergeBase.status === 0) continue;
-    if (mergeBase.status !== 1) continue;
+    if (integration !== "unmerged") continue;
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,

@@ -34199,15 +34199,15 @@ function scanRepoEvidence(repoPath, opts = {}) {
     evidence.note = "path is not a directory";
     return done();
   }
-  const git2 = gitRunner(repoPath);
-  const top = git2(["rev-parse", "--show-toplevel"]);
+  const git3 = gitRunner(repoPath);
+  const top = git3(["rev-parse", "--show-toplevel"]);
   if (!top.ok) {
     evidence.note = top.note;
     return done();
   }
   evidence.in_git = true;
   const originBranches = /* @__PURE__ */ new Set();
-  const refs = git2(["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes/origin"]);
+  const refs = git3(["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes/origin"]);
   if (refs.ok) {
     const branches = /* @__PURE__ */ new Set();
     for (const line of refs.stdout.split("\n")) {
@@ -34227,7 +34227,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
   }
   evidence.long_lived = LONG_LIVED.filter((b) => evidence.branches.includes(b));
   if (evidence.remotes.length === 0) {
-    const remotes = git2(["remote", "-v"]);
+    const remotes = git3(["remote", "-v"]);
     if (remotes.ok) evidence.remotes = parseRemotes(remotes.stdout);
   }
   const dev = pick2(DEV_TYPE, evidence.long_lived, evidence.origin_head);
@@ -34235,7 +34235,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
   const candidates = [...new Set([dev, main, ...evidence.long_lived].filter((b) => b !== null))];
   for (const branch of candidates) {
     const ref = originBranches.has(branch) ? `refs/remotes/origin/${branch}` : `refs/heads/${branch}`;
-    const log = git2(["log", "--first-parent", "--merges", "-n", String(MERGE_WINDOW), "--format=%H", ref]);
+    const log = git3(["log", "--first-parent", "--merges", "-n", String(MERGE_WINDOW), "--format=%H", ref]);
     if (!log.ok) continue;
     evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
   }
@@ -35000,7 +35000,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       "onboard_state_get",
       ["bro"],
       wrapHandler13(async () => {
-        const git2 = probeGit(probeDir());
+        const git3 = probeGit(probeDir());
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
@@ -35021,9 +35021,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
           },
           probe: {
-            in_git: git2.in_git,
-            origin_kind: git2.origin_kind,
-            detected_remotes: git2.detected_remotes,
+            in_git: git3.in_git,
+            origin_kind: git3.origin_kind,
+            detected_remotes: git3.detected_remotes,
             gh_installed: gh.installed,
             gh_authed: gh.authed,
             glab_installed: glab.installed,
@@ -35041,13 +35041,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const shape = args["shape"];
         const round = args["round"];
         const repo = args["repo"];
-        const git2 = probeGit(probeDir());
+        const git3 = probeGit(probeDir());
         if (round === "shape") {
-          return ok16({ questions: [shapeQuestion(git2.origin_kind, shapeAdvice(scanWorkspace(db2), git2.origin_kind))] });
+          return ok16({ questions: [shapeQuestion(git3.origin_kind, shapeAdvice(scanWorkspace(db2), git3.origin_kind))] });
         }
         if (round === "sandbox") {
           const current = readConfig(db2, "sandbox_enforcement");
-          const detected = git2.detected_remotes.map((r) => r.url);
+          const detected = git3.detected_remotes.map((r) => r.url);
           return ok16({
             questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)]
           });
@@ -35083,13 +35083,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           }
           if (shape === "remote") {
             questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard, advice.prTarget));
-            questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git2.origin_kind, scan)));
+            questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git3.origin_kind, scan)));
           }
         } else if (round === "remote") {
           if (shape !== "remote") {
             throw new Error(`round='remote' only valid for shape='remote' (got '${String(shape)}')`);
           }
-          questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git2.origin_kind, scanWorkspace(db2))));
+          questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git3.origin_kind, scanWorkspace(db2))));
         } else if (round === "sync") {
           if (shape !== "remote") {
             throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
@@ -38017,6 +38017,24 @@ var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
+function git2(repoPath, args) {
+  return spawnSync11("git", ["-C", repoPath, ...args], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+}
+function tipIntegratedInto(repoPath, tip, target) {
+  const ancestor = git2(repoPath, ["merge-base", "--is-ancestor", tip, target]);
+  if (ancestor.error) return "spawn-error";
+  if (ancestor.status === 0) return "integrated";
+  if (ancestor.status !== 1) return "unresolvable";
+  const merged = git2(repoPath, ["merge-tree", "--write-tree", target, tip]);
+  if (merged.status === 0) {
+    const targetTree = git2(repoPath, ["rev-parse", `${target}^{tree}`]);
+    const mergedTree = merged.stdout.split("\n")[0]?.trim();
+    if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return "integrated";
+  }
+  const cherry = git2(repoPath, ["cherry", target, tip]);
+  if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return "integrated";
+  return "unmerged";
+}
 function computeUnmergedWork(db2, repo) {
   if (!repo) return { unmerged_work: [] };
   const repoRow = db2.get(
@@ -38057,16 +38075,11 @@ function computeUnmergedWork(db2, repo) {
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync11(
-      "git",
-      ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
-      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
-    );
-    if (mergeBase.error) {
+    const integration = tipIntegratedInto(repoPath, entry.tip, target);
+    if (integration === "spawn-error") {
       return { unmerged_work: [], warning: "unmerged-work-unavailable" };
     }
-    if (mergeBase.status === 0) continue;
-    if (mergeBase.status !== 1) continue;
+    if (integration !== "unmerged") continue;
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,

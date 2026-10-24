@@ -318,6 +318,63 @@ describe('world_model_get — unmerged_work (#1059)', () => {
     }
   });
 
+  it('omits a squash-merged multi-commit branch whose local ref remains, keeps an unmerged one (GH 1674)', async () => {
+    const repo = gitRepo();
+    const db = tempDB();
+    try {
+      const git = (...a: string[]) => execFileSync('git', ['-C', repo.repoRoot, ...a], { encoding: 'utf8' });
+      git('checkout', '-q', '-b', 'fix/squashed', 'dev');
+      writeFileSync(join(repo.repoRoot, 'c.txt'), 'c1\n');
+      git('add', '.');
+      git('commit', '-qm', 'squash part 1');
+      writeFileSync(join(repo.repoRoot, 'c.txt'), 'c2\n');
+      writeFileSync(join(repo.repoRoot, 'd.txt'), 'd\n');
+      git('add', '.');
+      git('commit', '-qm', 'squash part 2');
+      const squashedTip = git('rev-parse', 'HEAD').trim();
+      git('checkout', '-q', 'dev');
+      git('merge', '-q', '--squash', 'fix/squashed');
+      git('commit', '-qm', 'fix/squashed (#1)');
+      writeFileSync(join(repo.repoRoot, 'e.txt'), 'later dev work\n');
+      git('add', '.');
+      git('commit', '-qm', 'later dev work');
+
+      seed(db, repo.repoRoot);
+      addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+      addTask(db, 'fix/squashed', 'dev', squashedTip, 'closed');
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
+      const out = wmParse((await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult);
+      const work = out['unmerged_work'] as Array<Record<string, unknown>>;
+      assert.deepEqual(work.map((w) => w['branch_id']), ['fix/unmerged'], 'squash-merged branch omitted, unmerged kept');
+      assert.equal(out['warning'], undefined);
+    } finally {
+      db.close();
+      repo.cleanup();
+    }
+  });
+
+  it('omits a squashed single commit that target has since edited further (GH 1674)', async () => {
+    const repo = gitRepo();
+    const db = tempDB();
+    try {
+      const git = (...a: string[]) => execFileSync('git', ['-C', repo.repoRoot, ...a], { encoding: 'utf8' });
+      git('merge', '-q', '--squash', 'fix/unmerged');
+      git('commit', '-qm', 'fix/unmerged (#2)');
+      writeFileSync(join(repo.repoRoot, 'b.txt'), 'b edited on dev\n');
+      git('add', '.');
+      git('commit', '-qm', 'edit b on dev');
+
+      seed(db, repo.repoRoot);
+      addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
+      const out = wmParse((await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult);
+      assert.deepEqual(out['unmerged_work'], [], 'patch-id match via git cherry → integrated');
+    } finally {
+      db.close();
+      repo.cleanup();
+    }
+  });
+
   it('omits merged branches and returns [] when nothing qualifies', async () => {
     const repo = gitRepo();
     const db = tempDB();
