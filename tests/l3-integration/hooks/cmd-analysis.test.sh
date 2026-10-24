@@ -759,8 +759,8 @@ for prog in 'import runpy|runpy.run_path(sys.argv[1])' 'import code|code.interac
   'import codeop, types|c = codeop.compile_command(s)|types.FunctionType(c, {})()' 'import pickle|pickle.loads(b)' 'import marshal|marshal.loads(b)' \
   "import shelve|shelve.open('x')" 'breakpoint()' 'import pdb|pdb.main()' 'import timeit|timeit.main()' 'import cProfile|cProfile.main()' \
   "import sys|sys.modules['built' + 'ins'].exec(s)" 'import sys|sys.modules.get(n).run(s)' "globals()['__buil' + 'tins__']['exec'](s)" \
-  'import pydoc|pydoc.locate(n)(s)' 'import importlib|importlib.import_module(n).run(s)' "o = open|o(p, 'w')" "i = __import__|i('os').system(c)" \
-  "import pdb|pdb.runeval('open')(p, 'w')" '().__class__.__bases__[0].__subclasses__()' "f.__globals__['open'](p, 'w')" "getattr(obj, n)(p, 'w')" \
+  'import pydoc|pydoc.locate(n)(s)' 'import importlib|importlib.import_module(n).run(s)' "i = __import__|i('os').system(c)" \
+  '().__class__.__bases__[0].__subclasses__()' "f.__globals__['open'](p, 'w')" "getattr(obj, n)(p, 'w')" \
   'vars(obj)[n](s)' "open('\\x2fetc\\x2fevil', 'w')" 'import inspect|inspect.getattr_static(o, n)' \
   'if 1: import runpy; runpy.run_path(p)' '__import__(n).run(s)' 'from sys import *|modules[n].run(s)' 'from pdb import main as m|m()' \
   'import pdb|pdb.set_trace()' "getattr(o, '__globals__')" "open('\\057etc', 'w')"; do
@@ -777,6 +777,19 @@ done
 for cmd in 'python3 -m json.tool x.json' 'python3 -m pytest -q' 'python3 -m pytest -m pdb' 'python3 x.py -m pdb'; do
   assert_eq "" "$(wpaths "$cmd" /w/wt)" "python -m other: $cmd"
 done
+
+test_case "GH 1676: a held or aliased write builtin is \$(alias-write), not \$(proc)"
+AW='UNRESOLVED:$(alias-write):$(alias-write)'
+for prog in "o = open|o(p, 'w')" "import pdb|pdb.runeval('open')(p, 'w')" "from builtins import open as o|o('/etc/x', 'w')" \
+  "import builtins|o = builtins.open|o('/etc/x', 'w')" "x = [open]|x[0]('/etc/x', 'w')" "f = open.__call__|f('/etc/x', 'w')"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$AW" "$(pyw "${lines[@]}")" "alias-write: $prog"
+done
+for prog in 'e = eval|e(s)' "g = getattr|g(o, 'x')" 'import subprocess|f = subprocess.run|f(c)'; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$U" "$(pyw "${lines[@]}")" "still a process-call class: $prog"
+done
+assert_eq "/w/wt/a.txt" "$(pyw "open('a.txt', 'w')")" "a direct open() with a literal path resolves"
 
 test_case "tmb_agent_role reads identity only"
 assert_eq "swe" "$(tmb_agent_role '{"agent_type":"tmb:swe","cwd":"/r"}')" "prefixed agent_type"

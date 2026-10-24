@@ -245,7 +245,8 @@ WRITES=""
 # does not set: allowed only when the literal directory before the variable
 # is inside the root. The deny names what hides the path: <var>, a dir from a
 # cd / pushd / popd the guard cannot follow (PWD), a command substitution
-# ($()), or an inline program's process call ($(proc)).
+# ($()), an inline program's process call ($(proc)), or its write builtin
+# held or aliased ($(alias-write)).
 unresolved() {
   local raw="$1" var="${2:-}" lit dir why
   lit="${raw%%[\$\`]*}"
@@ -256,6 +257,7 @@ unresolved() {
   if [ -n "$dir" ] && dir=$(expand "$dir") && allowed "$dir"; then return 0; fi
   case "$var" in
     '$(proc)') why="comes from a process call in an inline program (subprocess, os.system, exec, spawn, …) whose command, arguments or cwd are not all plain literals, so the guard cannot tell what it writes; pass literal arguments, or run the command from the shell" ;;
+    '$(alias-write)') why="is written through an aliased or stored write builtin the guard can't resolve; call open() (or the write method) directly with a literal path" ;;
     '$()') why="is built by a command substitution or backticks the guard cannot evaluate; inline the path" ;;
     PWD) why="is relative to a directory from a cd, pushd or popd the guard cannot resolve (cd -, popd, or a cd through a variable); cd to a literal path" ;;
     '') why="depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command" ;;
