@@ -44,7 +44,7 @@ PROMPT_RAW=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 # words in the command or its captured output are not Human intent (GH 1598).
 PROMPT_RAW=$(printf '%s' "$PROMPT_RAW" \
   | perl -0777 -pe 's{<bash-(input|stdout|stderr)>.*?</bash-\1>}{}gs' 2>/dev/null) || exit 0
-[ -n "${PROMPT_RAW//[[:space:]]/}" ] || exit 0
+case "$PROMPT_RAW" in *[![:space:]]*) ;; *) exit 0 ;; esac
 
 # Harness-turn early-exit — task/system notifications, subagent hand-backs,
 # agent and cross-session messages (tmb_is_harness_turn) carry embedded
