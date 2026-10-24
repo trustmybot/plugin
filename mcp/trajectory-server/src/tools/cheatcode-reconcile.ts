@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { serverLog } from '../logger.js';
@@ -110,16 +111,113 @@ function parsePluginListing(text: string): Map<string, PluginEvidence> | null {
   return plugins;
 }
 
-export async function probeRuntime(timeoutSec: number, projectRoot: string | null = null): Promise<RuntimeEvidence> {
+async function probeListings(
+  timeoutSec: number,
+  projectRoot: string | null,
+): Promise<{ evidence: RuntimeEvidence; listed: boolean }> {
   const [mcpText, pluginText] = await Promise.all([
     runClaude(['mcp', 'list'], timeoutSec, projectRoot),
     runClaude(['plugin', 'list', '--json'], timeoutSec, projectRoot),
   ]);
   const mcpNames = new Set([...(mcpText === null ? [] : parseMcpListing(mcpText)), ...claudeJsonMcpKeys()]);
+  const plugins = pluginText === null ? null : parsePluginListing(pluginText);
   return {
-    mcpServers: mcpNames.size > 0 ? mcpNames : null,
-    plugins: pluginText === null ? null : parsePluginListing(pluginText),
+    evidence: { mcpServers: mcpNames.size > 0 ? mcpNames : null, plugins },
+    listed: mcpText !== null || plugins !== null,
   };
+}
+
+export async function probeRuntime(timeoutSec: number, projectRoot: string | null = null): Promise<RuntimeEvidence> {
+  return (await probeListings(timeoutSec, projectRoot)).evidence;
+}
+
+const PROBE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export type ProbeReason = 'no_tracked_rows' | 'fingerprint_unchanged' | 'fingerprint_changed' | 'ttl_expired' | 'no_cache';
+
+interface ProbeCache {
+  fingerprint: string;
+  probed_at: string;
+}
+
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function field(value: unknown, key: string): unknown {
+  return value && typeof value === 'object' && !Array.isArray(value) ? ((value as Record<string, unknown>)[key] ?? null) : null;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.keys(value)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+export function cliConfigFingerprint(projectRoot: string | null): string {
+  const home = homedir();
+  const claudeJson = readJson(join(home, '.claude.json'));
+  const inProject = (...parts: string[]): unknown => (projectRoot === null ? null : readJson(join(projectRoot, ...parts)));
+  const inputs = {
+    claudeJsonMcpServers: field(claudeJson, 'mcpServers'),
+    claudeJsonProjectMcpServers: projectRoot === null ? null : field(field(field(claudeJson, 'projects'), projectRoot), 'mcpServers'),
+    projectMcpJson: inProject('.mcp.json'),
+    enabledPlugins: {
+      user: field(readJson(join(home, '.claude', 'settings.json')), 'enabledPlugins'),
+      project: field(inProject('.claude', 'settings.json'), 'enabledPlugins'),
+      local: field(inProject('.claude', 'settings.local.json'), 'enabledPlugins'),
+    },
+    installedPlugins: readJson(join(home, '.claude', 'plugins', 'installed_plugins.json')),
+  };
+  return createHash('sha256').update(stableJson(inputs)).digest('hex');
+}
+
+export function probeCachePath(projectRoot: string): string {
+  return join(projectRoot, '.claude', 'tmb', 'cheatcode-probe.json');
+}
+
+function readProbeCache(projectRoot: string | null): ProbeCache | null {
+  if (projectRoot === null) return null;
+  const parsed = readJson(probeCachePath(projectRoot));
+  const fingerprint = field(parsed, 'fingerprint');
+  const probedAt = field(parsed, 'probed_at');
+  if (typeof fingerprint !== 'string' || typeof probedAt !== 'string' || Number.isNaN(Date.parse(probedAt))) return null;
+  return { fingerprint, probed_at: probedAt };
+}
+
+function writeProbeCache(projectRoot: string | null, cache: ProbeCache): void {
+  if (projectRoot === null) return;
+  const path = probeCachePath(projectRoot);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(cache) + '\n');
+  } catch (e) {
+    serverLog({ kind: 'cheatcode_probe_cache_write_failed', error_message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function startupProbeReason(cache: ProbeCache | null, fingerprint: string, nowMs: number): ProbeReason {
+  if (cache === null) return 'no_cache';
+  if (cache.fingerprint !== fingerprint) return 'fingerprint_changed';
+  if (nowMs - Date.parse(cache.probed_at) > PROBE_TTL_MS) return 'ttl_expired';
+  return 'fingerprint_unchanged';
+}
+
+function hasTrackedRuntimeRows(db: TrajectoryDB): boolean {
+  return (
+    db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM cheatcodes WHERE status IN ('active', 'broken') AND kind IN ('mcp', 'plugin')`,
+    )!.n > 0
+  );
 }
 
 function pluginName(id: string): string {
@@ -195,20 +293,45 @@ export function reconcileCheatcodes(db: TrajectoryDB, evidence: RuntimeEvidence,
   return transitions;
 }
 
+const NO_EVIDENCE: RuntimeEvidence = { mcpServers: null, plugins: null };
+
+async function probeAndReconcile(
+  db: TrajectoryDB,
+  identity: { fromNode: string; writer: Writer },
+  projectRoot: string | null,
+  fingerprint: string,
+): Promise<{ transitions: Transition[]; probed: { mcp: boolean; plugin: boolean } }> {
+  const { evidence, listed } = await probeListings(healthcheckTimeoutSec(), projectRoot);
+  const now = nowISO();
+  if (listed) writeProbeCache(projectRoot, { fingerprint, probed_at: now });
+  const transitions = reconcileCheatcodes(db, evidence, { ...identity, now });
+  return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
+}
+
 export async function reconcileNow(
   db: TrajectoryDB,
   identity: { fromNode: string; writer: Writer },
 ): Promise<{ transitions: Transition[]; probed: { mcp: boolean; plugin: boolean } }> {
-  const evidence = await probeRuntime(healthcheckTimeoutSec(), projectRootFromDbPath(db.dbPath));
-  const transitions = reconcileCheatcodes(db, evidence, { ...identity, now: nowISO() });
-  return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
+  const projectRoot = projectRootFromDbPath(db.dbPath);
+  return probeAndReconcile(db, identity, projectRoot, cliConfigFingerprint(projectRoot));
 }
 
 export async function reconcileAtStartup(db: TrajectoryDB): Promise<void> {
   if (process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'] === '1') return;
+  const identity = { fromNode: 'server', writer: 'server' } as const;
   try {
-    const { transitions } = await reconcileNow(db, { fromNode: 'server', writer: 'server' });
-    serverLog({ kind: 'cheatcode_reconcile', transitions: transitions.length });
+    const projectRoot = projectRootFromDbPath(db.dbPath);
+    let reason: ProbeReason = 'no_tracked_rows';
+    let fingerprint = '';
+    if (hasTrackedRuntimeRows(db)) {
+      fingerprint = cliConfigFingerprint(projectRoot);
+      reason = startupProbeReason(readProbeCache(projectRoot), fingerprint, Date.now());
+    }
+    const probed = reason !== 'no_tracked_rows' && reason !== 'fingerprint_unchanged';
+    const { transitions } = probed
+      ? await probeAndReconcile(db, identity, projectRoot, fingerprint)
+      : { transitions: reconcileCheatcodes(db, NO_EVIDENCE, { ...identity, now: nowISO() }) };
+    serverLog({ kind: 'cheatcode_reconcile', transitions: transitions.length, probed, reason });
   } catch (e) {
     serverLog({ kind: 'cheatcode_reconcile', error_message: e instanceof Error ? e.message : String(e) });
   }
