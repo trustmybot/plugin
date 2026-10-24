@@ -10,6 +10,7 @@ import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
 import { compositeTools } from '../tools/composites.js';
 import { configTools, readHighEffortPaths, resolveEffortDefaults } from '../tools/config.js';
+import { openSweRun } from '../tools/agent-runs.js';
 
 // Each git fixture is its OWN sandbox under the OS temp dir — never inside the
 // plugin tree / ambient cwd — so no git op can ever drift onto the caller's
@@ -2405,5 +2406,116 @@ describe('effort (GH 1349)', () => {
     } finally {
       cleanup();
     }
+  });
+});
+
+describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673)', () => {
+  type RunRow = { exit_reason: string | null; usage_source: string | null; completed: number; tokens_in: number | null };
+
+  function seed(status: string, updatedAt = new Date().toISOString()) {
+    const db = tempDB();
+    const now = new Date().toISOString();
+    db.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('o', 'open', ?, ?)`, [now, now]);
+    const issueId = db.get<{ id: number }>('SELECT MAX(id) AS id FROM issues')!.id;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, ?, 'd', ?, ?, ?)`,
+      [issueId, `fix/t-${Math.random().toString(36).slice(2)}`, status, now, updatedAt],
+    );
+    const taskId = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+    return { db, taskId };
+  }
+
+  function openRun(
+    db: ReturnType<typeof tempDB>,
+    taskId: number,
+    o: { agentType?: string; spawnId?: string | null; tokens?: number | null; usageSource?: string | null; startedAt?: string } = {},
+  ): number {
+    db.run(
+      `INSERT INTO agent_runs (task_id, agent_type, spawn_id, tokens_in, tokens_out, usage_source, started_at, host)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'claude')`,
+      [
+        taskId,
+        o.agentType ?? 'swe',
+        o.spawnId === undefined ? 'agent-1' : o.spawnId,
+        o.tokens ?? null,
+        o.tokens ?? null,
+        o.usageSource ?? null,
+        o.startedAt ?? new Date(Date.now() - 3_600_000).toISOString(),
+      ],
+    );
+    return db.get<{ id: number }>('SELECT MAX(id) AS id FROM agent_runs')!.id;
+  }
+
+  function runRow(db: ReturnType<typeof tempDB>, id: number): RunRow {
+    return db.get<RunRow>(
+      'SELECT exit_reason, usage_source, completed_at IS NOT NULL AS completed, tokens_in FROM agent_runs WHERE id = ?',
+      [id],
+    )!;
+  }
+
+  it('task_update_status failed closes a bound swe run with no usage as unmeasured', async () => {
+    const { db, taskId } = seed('running');
+    const run = openRun(db, taskId);
+    const r = await call(taskTools(db).handlers, 'task_update_status', { agent: 'bro', task_id: String(taskId), status: 'failed' });
+    assert.ok(!r.isError, r.content[0].text);
+    assert.deepEqual({ ...runRow(db, run) }, { exit_reason: 'failed', usage_source: 'unmeasured', completed: 1, tokens_in: null });
+    db.close();
+  });
+
+  it('task_update_status failed keeps the source of a run that carries usage', async () => {
+    const { db, taskId } = seed('running');
+    const run = openRun(db, taskId, { tokens: 50, usageSource: 'subagent_stop' });
+    await call(taskTools(db).handlers, 'task_update_status', { agent: 'swe', task_id: String(taskId), status: 'failed' });
+    assert.deepEqual({ ...runRow(db, run) }, { exit_reason: 'failed', usage_source: 'subagent_stop', completed: 1, tokens_in: 50 });
+    db.close();
+  });
+
+  it('the close path (task_recover with a commit, as bro_atomic_close) keeps measured runs and marks the rest unmeasured', async () => {
+    const { db, taskId } = seed('completed');
+    const metered = openRun(db, taskId, { tokens: 70, usageSource: 'subagent_stop' });
+    const unmetered = openRun(db, taskId, { agentType: 'pr-reviewer', spawnId: 'rev-1' });
+    const r = await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_recover', {
+      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'verified',
+    });
+    assert.ok(!r.isError, r.content[0].text);
+    assert.deepEqual({ ...runRow(db, metered) }, { exit_reason: 'completed', usage_source: 'subagent_stop', completed: 1, tokens_in: 70 });
+    assert.deepEqual({ ...runRow(db, unmetered) }, { exit_reason: 'completed', usage_source: 'unmeasured', completed: 1, tokens_in: null });
+    db.close();
+  });
+
+  it('task_recover reaps open runs of terminal and stale tasks: unmeasured without usage, source kept with it', async () => {
+    const failed = seed('failed');
+    const db = failed.db;
+    const orphan = openRun(db, failed.taskId);
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (1, 'fix/esc', 'd', 'escalated', ?, ?)`,
+      [now, now],
+    );
+    const escalated = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+    const stale = openRun(db, escalated, { tokens: 9, usageSource: 'transcript' });
+    const old = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (1, 'fix/stale', 'd', 'running', ?, ?)`,
+      [old, old],
+    );
+    const running = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+    const reviewer = openRun(db, running, { agentType: 'pr-reviewer', spawnId: 'rev-2' });
+
+    const r = await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_recover', { agent: 'bro' });
+    assert.ok(!r.isError, r.content[0].text);
+    assert.deepEqual({ ...runRow(db, orphan) }, { exit_reason: 'swept_orphan', usage_source: 'unmeasured', completed: 1, tokens_in: null });
+    assert.deepEqual({ ...runRow(db, stale) }, { exit_reason: 'swept_stale', usage_source: 'transcript', completed: 1, tokens_in: 9 });
+    assert.deepEqual({ ...runRow(db, reviewer) }, { exit_reason: 'swept_stale', usage_source: 'unmeasured', completed: 1, tokens_in: null });
+    db.close();
+  });
+
+  it("openSweRun's orphan sweep closes an unbound swe run as unmeasured", () => {
+    const { db, taskId } = seed('running');
+    const run = openRun(db, taskId, { spawnId: 'tool_use:tu-1' });
+    const task = db.get<{ id: number; issue_id: number; repo: string | null }>('SELECT id, issue_id, repo FROM tasks WHERE id = ?', [taskId])!;
+    assert.equal(openSweRun(db, task, new Date().toISOString(), { host: 'claude', projectRoot: null }, null), true);
+    assert.deepEqual({ ...runRow(db, run) }, { exit_reason: 'swept_orphan', usage_source: 'unmeasured', completed: 1, tokens_in: null });
+    db.close();
   });
 });

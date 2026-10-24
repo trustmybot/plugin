@@ -196,6 +196,27 @@ SAFE_SESSION_SQL="NULL"
 SAFE_MODEL_SQL="NULL"
 [ -n "${MODEL:-}" ] && SAFE_MODEL_SQL="'$(tmb_sql_quote "$MODEL")'"
 
+# A spawn whose transcript holds no token usage overwrites
+# no tokens a row already carries and closes it by the shared usage rule
+# (TMB_RUN_UNMEASURED_SQL): unmeasured unless the row is already metered.
+TOKENS_SET_SQL="tokens_in = ${SAFE_TOKENS_IN},
+       tokens_out = ${SAFE_TOKENS_OUT},
+       cache_read_tokens = ${SAFE_CACHE_READ_TOKENS},
+       cache_creation_tokens = ${SAFE_CACHE_CREATION_TOKENS}"
+USAGE_SET_SQL="usage_source = 'subagent_stop'"
+USAGE_INSERT_SQL="'subagent_stop'"
+case "${SAFE_TOKENS_IN}${SAFE_TOKENS_OUT}${SAFE_CACHE_READ_TOKENS}${SAFE_CACHE_CREATION_TOKENS}" in
+  *[!0]*) ;;
+  *)
+    TOKENS_SET_SQL="tokens_in = COALESCE(tokens_in, 0),
+       tokens_out = COALESCE(tokens_out, 0),
+       cache_read_tokens = COALESCE(cache_read_tokens, 0),
+       cache_creation_tokens = COALESCE(cache_creation_tokens, 0)"
+    USAGE_SET_SQL="$TMB_RUN_UNMEASURED_SQL"
+    USAGE_INSERT_SQL="'unmeasured'"
+    ;;
+esac
+
 # pr-reviewer: one metering row per spawn, effort = reviewer_effort; no task
 # status side effects.
 if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
@@ -207,15 +228,12 @@ if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
   SAFE_PROJECT_ROOT=$(tmb_sql_quote "$(cd "$(dirname "$DB")/../.." 2>/dev/null && pwd -P)")
   if ! tmb_db_write "$DB" "
 UPDATE agent_runs
-   SET tokens_in = ${SAFE_TOKENS_IN},
-       tokens_out = ${SAFE_TOKENS_OUT},
-       cache_read_tokens = ${SAFE_CACHE_READ_TOKENS},
-       cache_creation_tokens = ${SAFE_CACHE_CREATION_TOKENS},
+   SET ${TOKENS_SET_SQL},
        tool_uses = ${SAFE_TOOL_USES},
        duration_ms = ${SAFE_DURATION_MS},
        completed_at = '${SAFE_NOW}',
        session_id = COALESCE(${SAFE_SESSION_SQL}, session_id),
-       usage_source = 'subagent_stop',
+       ${USAGE_SET_SQL},
        model = COALESCE(${SAFE_MODEL_SQL}, model),
        effort = COALESCE(effort, ${REVIEWER_EFFORT_SQL})
  WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'pr-reviewer' AND spawn_id = '${SAFE_SPAWN_ID}';
@@ -224,7 +242,7 @@ INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, ca
                         repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort)
 SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'pr-reviewer', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
-       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop',
+       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, ${USAGE_INSERT_SQL},
        ${SAFE_MODEL_SQL}, 'claude', '${SAFE_PROJECT_ROOT}', 'completed', ${REVIEWER_EFFORT_SQL}
  WHERE (SELECT changes()) = 0;"; then
     jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
@@ -401,17 +419,14 @@ esac
 # is never matched.
 if ! tmb_db_write "$DB" "
 UPDATE agent_runs
-   SET tokens_in = ${SAFE_TOKENS_IN},
-       tokens_out = ${SAFE_TOKENS_OUT},
-       cache_read_tokens = ${SAFE_CACHE_READ_TOKENS},
-       cache_creation_tokens = ${SAFE_CACHE_CREATION_TOKENS},
+   SET ${TOKENS_SET_SQL},
        tool_uses = ${SAFE_TOOL_USES},
        duration_ms = ${SAFE_DURATION_MS},
        started_at = COALESCE(started_at, '${SAFE_FIRST_TS}'),
        completed_at = '${SAFE_NOW}',
        spawn_id = '${SAFE_SPAWN_ID}',
        session_id = COALESCE(${SAFE_SESSION_SQL}, session_id),
-       usage_source = 'subagent_stop',
+       ${USAGE_SET_SQL},
        model = COALESCE(${SAFE_MODEL_SQL}, model),
        host = COALESCE(host, 'claude'),
        root_dir = COALESCE(root_dir, '${SAFE_ROOT_DIR}'),
@@ -431,7 +446,7 @@ INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, ca
                         repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort)
 SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'swe', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
-       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop',
+       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, ${USAGE_INSERT_SQL},
        ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}', (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID})
  WHERE (SELECT changes()) = 0;
 UPDATE agent_runs

@@ -54,7 +54,7 @@ UPDATE tasks SET status = 'pending', updated_at = '${NOW}'
 UPDATE agent_runs
    SET completed_at = '${NOW}',
        exit_reason = 'swept_orphan',
-       usage_source = COALESCE(usage_source, 'unmeasured'),
+       ${TMB_RUN_UNMEASURED_SQL},
        duration_ms = CASE WHEN duration_ms = 0
                           THEN COALESCE(CAST(ROUND((julianday('${NOW}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
                           ELSE duration_ms END

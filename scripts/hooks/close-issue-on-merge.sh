@@ -3,7 +3,7 @@
 # (anywhere in a compound command; heredoc bodies and quoted text never match),
 # record what the merge finished:
 #   - tasks on the merged head branch that are still live → closed, their open
-#     agent_runs closed exit_reason='completed';
+#     agent_runs closed exit_reason='completed' (unmeasured when they carry no usage);
 #   - every task on that branch with no passing pr-reviewer verdict for its
 #     current commit (and no bro-authored waiver or recorded bypass) → one review_gate_bypassed
 #     audit row: the merge happened, the trajectory says the gate was skipped;
@@ -198,13 +198,14 @@ EOF
            duration_ms = CASE WHEN duration_ms = 0
              THEN COALESCE(CAST(ROUND((julianday('%s') - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)
              ELSE duration_ms END,
-           exit_reason = 'completed'
+           exit_reason = 'completed',
+           %s
      WHERE completed_at IS NULL
        AND task_id IN (SELECT id FROM tasks WHERE branch_id = '%s' AND status IN (%s, 'closed'));
     UPDATE tasks
        SET status = 'closed', completed_at = COALESCE(completed_at, '%s'), updated_at = '%s'
      WHERE branch_id = '%s' AND status IN (%s);\n" \
-    "$SAFE_NOW" "$SAFE_NOW" "$SAFE_BRANCH" "$_CIM_LIVE" "$SAFE_NOW" "$SAFE_NOW" "$SAFE_BRANCH" "$_CIM_LIVE"
+    "$SAFE_NOW" "$SAFE_NOW" "$TMB_RUN_UNMEASURED_SQL" "$SAFE_BRANCH" "$_CIM_LIVE" "$SAFE_NOW" "$SAFE_NOW" "$SAFE_BRANCH" "$_CIM_LIVE"
 }
 
 # _cim_issue_sql <db> <local_id> <branch> <sync_on> — SQL for one resolved

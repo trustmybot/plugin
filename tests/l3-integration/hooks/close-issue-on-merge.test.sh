@@ -305,11 +305,16 @@ seed_db
 add_issue 5 122
 add_task 1 5 feat/x completed
 add_run 1
+q "INSERT INTO agent_runs (task_id, agent_type, started_at, tokens_in, tokens_out, usage_source)
+   VALUES (1, 'pr-reviewer', '$NOW_MINUS_2H', 30, 3, 'subagent_stop');"
 add_pass 1
 EXTRA_ENV=(CLOSING_REFS=122 PR_BODY="Closes GH #122" HEAD_REF=feat/x)
 run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
 assert_eq "closed" "$(task_status 1)" "merged task closed"
-assert_eq "completed" "$(q "SELECT exit_reason FROM agent_runs WHERE task_id=1;")" "run closed completed"
+assert_eq "completed|unmeasured" "$(q "SELECT exit_reason, usage_source FROM agent_runs WHERE task_id=1 AND agent_type='swe';")" \
+  "the run without usage closes completed and unmeasured (GH 1673)"
+assert_eq "completed|subagent_stop|30" "$(q "SELECT exit_reason, usage_source, tokens_in FROM agent_runs WHERE task_id=1 AND agent_type='pr-reviewer';")" \
+  "a metered run keeps its source and tokens"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs WHERE completed_at IS NULL;")" "no open run left"
 assert_eq "closed" "$(issue_status 5)" "issue closed once its last task merged"
 assert_eq "0" "$(audit_count review_gate_bypassed)" "a passing review writes no bypass row"

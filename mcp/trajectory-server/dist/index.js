@@ -26286,29 +26286,32 @@ function exitReasonForStatus(status) {
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
 var UNBOUND_SWE_RUN_SQL = "(spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')";
 var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-function closeOpenRunsForTask(db2, taskId, now2, exitReason) {
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function finalizeOpenRuns(db2, now2, exitReasonSql, where, params) {
   return db2.run(
     `UPDATE agent_runs
         SET completed_at = ?,
             duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ?
-      WHERE task_id = ?
-        AND completed_at IS NULL`,
-    [now2, now2, exitReason, taskId]
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now2, now2, ...params]
   ).changes;
+}
+function closeOpenRunsForTask(db2, taskId, now2, exitReason) {
+  return finalizeOpenRuns(db2, now2, "?", "task_id = ?", [exitReason, taskId]);
 }
 function sweepRunsOfTerminalTasks(db2, now2) {
   const placeholders2 = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
-  return db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured'
-                               THEN 'swept_orphan' ELSE 'swept_stale' END
-      WHERE completed_at IS NULL
-        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders2}))`,
-    [now2, now2, ...TERMINAL_TASK_STATUSES]
-  ).changes;
+  return finalizeOpenRuns(
+    db2,
+    now2,
+    "CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured' THEN 'swept_orphan' ELSE 'swept_stale' END",
+    `task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders2}))`,
+    [...TERMINAL_TASK_STATUSES]
+  );
 }
 var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 var RUN_SESSION_ID_SCHEMA = {
@@ -26325,15 +26328,12 @@ function parseRunSessionId(value) {
 }
 function openSweRun(db2, task, now2, ctx, rootDir) {
   const orphanBefore = new Date(Date.parse(now2) - SWE_ORPHAN_AFTER_MS).toISOString();
-  db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = 'swept_orphan'
-      WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
-        AND ${UNBOUND_SWE_RUN_SQL}
-        AND started_at IS NOT NULL AND started_at < ?`,
-    [now2, now2, task.id, orphanBefore]
+  finalizeOpenRuns(
+    db2,
+    now2,
+    "'swept_orphan'",
+    `task_id = ? AND agent_type = 'swe' AND ${UNBOUND_SWE_RUN_SQL} AND started_at IS NOT NULL AND started_at < ?`,
+    [task.id, orphanBefore]
   );
   const open = db2.get(
     `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,

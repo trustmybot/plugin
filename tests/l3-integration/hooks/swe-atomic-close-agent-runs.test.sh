@@ -13,6 +13,8 @@
 #   4. Measures — every token column is a per-message sum (the bro-row units).
 #   5. Effort — a swe row carries its task's effort; a pr-reviewer spawn gets
 #      one metering row carrying plugin_config.reviewer_effort (high when unset).
+#   6. No usage — a stop whose transcript yields no tokens closes its row
+#      unmeasured and keeps any tokens an earlier stop metered.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -180,6 +182,33 @@ transcript 145 "$T145"
 OUT=$(run_hook "$(stop_input "$T145" agent-145)")
 assert_contains "$OUT" "stopped without committing" "warn-no-commits context"
 assert_eq "running" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=145;")" "still running"
+
+test_case "a stop with no usage in its transcript closes the row unmeasured (GH 1673)"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (146, 1, 'fix/task-146', 'dev', 'd', 'failed', '$NOW', '$NOW');
+  INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id) VALUES (146, 1, 'swe', '2026-06-16T19:30:01.000Z', 'agent-146');"
+T146_EMPTY="$TMPDIR/t146-empty.jsonl"
+printf '%s\n' '{"type":"user","timestamp":"2026-06-16T19:30:00.000Z","message":{"role":"user","content":"task_id=146 You are swe."}}' > "$T146_EMPTY"
+run_hook "$(stop_input "$T146_EMPTY" agent-146)" >/dev/null
+assert_eq "1|unmeasured|failed|0|0" \
+  "$(sqlite3 "$DB" "SELECT completed_at IS NOT NULL, usage_source, exit_reason, tokens_in, tokens_out FROM agent_runs WHERE task_id=146;")" \
+  "closed, failed, unmeasured, zero tokens"
+
+test_case "a later stop with no usage keeps the tokens and source an earlier stop metered"
+T146="$TMPDIR/t146.jsonl"
+transcript 146 "$T146"
+run_hook "$(stop_input "$T146" agent-146)" >/dev/null
+assert_eq "subagent_stop|40|4" "$(sqlite3 "$DB" "SELECT usage_source, tokens_in, tokens_out FROM agent_runs WHERE task_id=146;")" "metered"
+run_hook "$(stop_input "$T146_EMPTY" agent-146)" >/dev/null
+assert_eq "1|subagent_stop|40|4" \
+  "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(usage_source), MAX(tokens_in), MAX(tokens_out) FROM agent_runs WHERE task_id=146;")" \
+  "one row, metering kept"
+
+test_case "a stop with no usage and no open row inserts an unmeasured row"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (147, 1, 'fix/task-147', 'dev', 'd', 'failed', '$NOW', '$NOW');"
+T147="$TMPDIR/t147.jsonl"
+printf '%s\n' '{"type":"user","timestamp":"2026-06-16T19:30:00.000Z","message":{"role":"user","content":"task_id=147 You are swe."}}' > "$T147"
+run_hook "$(stop_input "$T147" agent-147)" >/dev/null
+assert_eq "1|unmeasured" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(usage_source) FROM agent_runs WHERE task_id=147;")" "one unmeasured row"
 
 # ---- no task id → capture-skipped audit row, no agent_runs write --------
 TRANSCRIPT_NO_ID="$TMPDIR/transcript-no-id.jsonl"

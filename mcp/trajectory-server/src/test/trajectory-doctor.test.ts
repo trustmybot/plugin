@@ -14,6 +14,7 @@ import { AUDIT_EVENT_TYPES } from '../audit-events.js';
 import { embed, resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { recordEmbeddingTransitions } from '../embeddings/health.js';
 import { checkTrajectoryDbFile, runDataContracts, trajectoryDbReader, trajectoryDoctorTools, type ContractReader } from '../tools/trajectory-doctor.js';
+import { taskTools } from '../tools/tasks.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -609,6 +610,18 @@ describe('data contracts', () => {
       db.close();
     });
   }
+
+  it('swe_runs_metered: a swe run failed with no usage through task_update_status raises no violation (GH 1673)', async () => {
+    const db = tempDB();
+    const task = seedTask(db, seedIssue(db), 'running');
+    seedRun(db, { taskId: task, tokens: null, usageSource: null, completedAt: null, startedAt: iso(-16 * HOUR) });
+    const r = (await taskTools(db).handlers['task_update_status']!({ agent: 'bro', task_id: String(task), status: 'failed' })) as RawResult;
+    assert.ok(!r.isError, r.content[0]!.text);
+    const row = db.get<{ exit_reason: string; usage_source: string | null }>('SELECT exit_reason, usage_source FROM agent_runs WHERE task_id = ?', [task])!;
+    assert.deepEqual({ ...row }, { exit_reason: 'failed', usage_source: 'unmeasured' });
+    assert.equal(violated(db, 'swe_runs_metered'), false);
+    db.close();
+  });
 
   it('legacy per-task bro rows with 0 tokens and a NULL model raise no violation', () => {
     const db = tempDB();
