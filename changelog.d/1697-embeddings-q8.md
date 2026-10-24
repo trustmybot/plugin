@@ -1,0 +1,2 @@
+### Changed
+- **Smaller embedding model download** (GH 1697): semantic search now loads the q8 (quantized) bge-small model, a 33 MB download instead of 127 MB, with near-identical search results. Vectors are now stored under the id `Xenova/bge-small-en-v1.5@q8`. After you upgrade, vectors embedded with the old model are re-embedded once in the background; until that finishes, semantic search covers only the rows already re-embedded.

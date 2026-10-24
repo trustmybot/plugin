@@ -25853,13 +25853,15 @@ function redactIssue(issue2, agent, opts) {
 import { homedir as homedir2 } from "node:os";
 import { join as join6 } from "node:path";
 var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join6(homedir2(), ".cache", "huggingface");
-var MODEL_ID = "Xenova/bge-small-en-v1.5";
+var MODEL_REPO = "Xenova/bge-small-en-v1.5";
+var MODEL_DTYPE = "q8";
+var MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
 var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
 var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
 async function defaultLoader() {
   const { pipeline, env } = await import("@huggingface/transformers");
   env.cacheDir = TMB_MODEL_CACHE_DIR;
-  return await pipeline("feature-extraction", MODEL_ID);
+  return await pipeline("feature-extraction", MODEL_REPO, { dtype: MODEL_DTYPE });
 }
 var now = Date.now;
 var loader = defaultLoader;
@@ -26024,10 +26026,10 @@ async function topKByCosine(db, table, query, k, filterParams = []) {
 
 // src/embeddings/backfill.ts
 var MISSING_WHERE = {
-  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings)",
-  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings)",
-  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings)",
-  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings)"
+  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
+  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)",
+  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings WHERE model_id = ?)",
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings WHERE model_id = ?)"
 };
 var MISSING_SQL = {
   discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
@@ -26042,7 +26044,7 @@ function embedText(table, r) {
   return r.text;
 }
 async function backfillMissing(db, table, limit = 50, onRow) {
-  const rows = db.all(MISSING_SQL[table], [limit]);
+  const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
   for (const r of rows) {
     await embedAndStore(db, table, r.id, embedText(table, r)).catch(
       (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)

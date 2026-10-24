@@ -115,31 +115,35 @@ jobs:
       - name: Build dist
         run: bun run build
 
-      - name: Fetch bge-small model from CI-assets release (GitHub CDN — avoids HF 429)
+      - name: Fetch bge-small q8 model (CI-assets release, huggingface.co fallback)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           MODEL_DIR="$HOME/.cache/huggingface/Xenova/bge-small-en-v1.5"
-          MODEL_FILE="$MODEL_DIR/onnx/model.onnx"
-          EXPECTED_SIZE=133093490   # bytes, verified locally 2026-05-22
+          MODEL_FILE="$MODEL_DIR/onnx/model_quantized.onnx"
+          EXPECTED_SHA256=6c9c6101a956d62dfb5e7190c538226c0c5bb9cb27b651234b6df063ee7dbfe4   # 34014426 bytes
+          HF_BASE=https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main
+          sha_ok() { [ -f "$MODEL_FILE" ] && [ "$(shasum -a 256 "$MODEL_FILE" | cut -d' ' -f1)" = "$EXPECTED_SHA256" ]; }
           mkdir -p "$MODEL_DIR/onnx"
-          if [ -f "$MODEL_FILE" ] && [ "$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")" = "$EXPECTED_SIZE" ]; then
-            echo "Model already cached with correct size; skipping download."
+          if sha_ok && [ -f "$MODEL_DIR/config.json" ] && [ -f "$MODEL_DIR/tokenizer.json" ] && [ -f "$MODEL_DIR/tokenizer_config.json" ]; then
+            echo "Model already cached with the pinned sha256; skipping download."
           else
-            # Mirror in the ci-assets-bge-small-en-v1.5 release (Xenova/bge-small-en-v1.5,
-            # MIT). GitHub's asset CDN is token-authed and not rate-limited, unlike
-            # huggingface.co which 429s GH-Actions runners.
-            echo "Downloading model assets from the ci-assets release..."
-            gh release download ci-assets-bge-small-en-v1.5 --repo "$GITHUB_REPOSITORY" \
-              --pattern model.onnx --dir "$MODEL_DIR/onnx" --clobber
-            gh release download ci-assets-bge-small-en-v1.5 --repo "$GITHUB_REPOSITORY" \
-              --pattern 'config.json' --pattern 'tokenizer.json' --pattern 'tokenizer_config.json' \
-              --dir "$MODEL_DIR" --clobber
-            ACTUAL_SIZE=$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")
-            echo "Downloaded $ACTUAL_SIZE bytes (expected $EXPECTED_SIZE)"
-            if [ "$ACTUAL_SIZE" != "$EXPECTED_SIZE" ]; then
-              echo "FAIL: model.onnx size mismatch — asset truncated or wrong" >&2
+            # Prefer the ci-assets-bge-small-en-v1.5 release (Xenova/bge-small-en-v1.5, MIT):
+            # GitHub's asset CDN is token-authed and not rate-limited, unlike huggingface.co.
+            # Fall back to huggingface.co when the release or an asset is absent.
+            for f in onnx/model_quantized.onnx config.json tokenizer.json tokenizer_config.json; do
+              dest="$MODEL_DIR/$f"
+              if gh release download ci-assets-bge-small-en-v1.5 --repo "$GITHUB_REPOSITORY" \
+                  --pattern "$(basename "$f")" --dir "$(dirname "$dest")" --clobber; then
+                echo "Fetched $f from the ci-assets release"
+              else
+                echo "ci-assets release has no $f; fetching from huggingface.co"
+                curl -fL --retry 5 --retry-all-errors -o "$dest" "$HF_BASE/$f"
+              fi
+            done
+            if ! sha_ok; then
+              echo "FAIL: model_quantized.onnx sha256 mismatch: asset truncated or wrong" >&2
               exit 1
             fi
           fi

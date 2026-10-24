@@ -6,7 +6,9 @@ import { join } from 'node:path';
 export const TMB_MODEL_CACHE_DIR =
   process.env['TMB_MODEL_CACHE_DIR'] ?? process.env['HF_HOME'] ?? join(homedir(), '.cache', 'huggingface');
 
-export const MODEL_ID = 'Xenova/bge-small-en-v1.5';
+export const MODEL_REPO = 'Xenova/bge-small-en-v1.5';
+export const MODEL_DTYPE = 'q8';
+export const MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
 
 /** Re-attempt delays after entering the degraded state: 1 min, 5 min, then every 10 min. */
 export const EMBED_RETRY_SCHEDULE_MS: readonly number[] = [60_000, 300_000, 600_000];
@@ -38,7 +40,7 @@ export type EmbeddingTransition =
 async function defaultLoader(): Promise<EmbedPipe> {
   const { pipeline, env } = await import('@huggingface/transformers');
   env.cacheDir = TMB_MODEL_CACHE_DIR;
-  return (await pipeline('feature-extraction', MODEL_ID)) as unknown as EmbedPipe;
+  return (await pipeline('feature-extraction', MODEL_REPO, { dtype: MODEL_DTYPE })) as unknown as EmbedPipe;
 }
 
 interface Degraded {

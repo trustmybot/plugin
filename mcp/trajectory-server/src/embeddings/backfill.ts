@@ -6,13 +6,14 @@ import {
   type EmbeddableTable,
   type WorldModelEmbeddableTable,
 } from './store.js';
+import { MODEL_ID } from './model.js';
 import { serverLog } from '../logger.js';
 
 const MISSING_WHERE: Record<EmbeddableTable, string> = {
-  discussions: 'id NOT IN (SELECT discussion_id FROM discussions_embeddings)',
-  audit: 'id NOT IN (SELECT audit_id FROM audit_embeddings)',
-  wm_directories: 'id NOT IN (SELECT dir_id FROM wm_directories_embeddings)',
-  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings)",
+  discussions: 'id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)',
+  audit: 'id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)',
+  wm_directories: 'id NOT IN (SELECT dir_id FROM wm_directories_embeddings WHERE model_id = ?)',
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings WHERE model_id = ?)",
 };
 
 const MISSING_SQL: Record<EmbeddableTable, string> = {
@@ -40,13 +41,15 @@ function embedText(table: EmbeddableTable, r: MissingRow): string {
 }
 
 export function countMissing(db: TrajectoryDB, table: EmbeddableTable): number {
-  return db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE ${MISSING_WHERE[table]}`)?.n ?? 0;
+  return db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE ${MISSING_WHERE[table]}`, [MODEL_ID])?.n ?? 0;
 }
 
 /**
- * Embeds up to `limit` rows of `table` that have no embeddings row (newest
- * first; a negative limit means no cap). Shared by boot-time `startBackfill`
- * and the lazy tick in audit_search / discussion_search / world_model_search.
+ * Embeds up to `limit` rows of `table` that have no embeddings row under the
+ * current MODEL_ID (newest first; a negative limit means no cap). A row
+ * embedded under an older model id counts as missing and is overwritten.
+ * Shared by boot-time `startBackfill` and the lazy tick in audit_search /
+ * discussion_search / world_model_search.
  * A failed embed is logged and skipped, never thrown. Returns the number of
  * rows attempted.
  */
@@ -56,7 +59,7 @@ export async function backfillMissing(
   limit = 50,
   onRow?: () => void,
 ): Promise<number> {
-  const rows = db.all<MissingRow>(MISSING_SQL[table], [limit]);
+  const rows = db.all<MissingRow>(MISSING_SQL[table], [MODEL_ID, limit]);
   for (const r of rows) {
     await embedAndStore(db, table, r.id, embedText(table, r)).catch((e) =>
       console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e),
