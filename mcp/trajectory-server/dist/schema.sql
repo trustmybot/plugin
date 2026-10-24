@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 43, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 44, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -558,6 +558,22 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.
+--     symbols_md5 (GH 1680) is the content_md5 the file's wm_symbols rows were
+--     parsed from; NULL until first parsed. A scan re-parses a file only when
+--     the two differ.
+--   wm_symbols (GH 1680, ADR 0001 L1): one row per definition tree-sitter
+--     finds in a TS/JS, shell or SQL file. The stable anchor key is
+--     (repo, path, kind, qualified_name): 'Class.method' for methods, the
+--     file-local name for shell functions, the repo-relative path for the
+--     per-file 'module' row. A re-parse upserts by that key, so an unchanged
+--     symbol keeps its id. body_hash is the md5 of the body with comments and
+--     whitespace runs stripped. terms is the split-name text the FTS indexes
+--     (camelCase and snake_case split, plus kind and file basename).
+--   wm_edges: one row per reference found in a symbol's body (or at module
+--     level, on the 'module' row). dst_name is the referenced name, kept when
+--     unresolved. resolution: 'exact' (same file, a resolved relative import or
+--     a sourced file), 'name' (the only candidate by name), 'unresolved'
+--     (dst_id NULL). A re-parse rebuilds the file's outgoing edges.
 CREATE TABLE IF NOT EXISTS wm_directories (
     id                 INTEGER PRIMARY KEY,
     repo               TEXT    NOT NULL,
@@ -586,10 +602,39 @@ CREATE TABLE IF NOT EXISTS wm_files (
     size_bytes      INTEGER NOT NULL DEFAULT 0,
     last_commit_sha TEXT    NOT NULL DEFAULT '',
     updated_at      TEXT    NOT NULL,
+    symbols_md5     TEXT,
     UNIQUE (repo, path)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wm_files_dir ON wm_files(repo, dir);
+
+CREATE TABLE IF NOT EXISTS wm_symbols (
+    id              INTEGER PRIMARY KEY,
+    repo            TEXT    NOT NULL,
+    path            TEXT    NOT NULL,
+    kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module')),
+    qualified_name  TEXT    NOT NULL,
+    signature       TEXT    NOT NULL DEFAULT '',
+    doc             TEXT    NOT NULL DEFAULT '',
+    start_line      INTEGER,
+    end_line        INTEGER,
+    body_hash       TEXT    NOT NULL,
+    exported        INTEGER NOT NULL DEFAULT 0,
+    terms           TEXT    NOT NULL DEFAULT '',
+    UNIQUE (repo, path, kind, qualified_name)
+);
+
+CREATE TABLE IF NOT EXISTS wm_edges (
+    src_id      INTEGER NOT NULL REFERENCES wm_symbols(id) ON DELETE CASCADE,
+    dst_id      INTEGER REFERENCES wm_symbols(id) ON DELETE SET NULL,
+    dst_name    TEXT    NOT NULL,
+    kind        TEXT    NOT NULL CHECK (kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on')),
+    resolution  TEXT    NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('exact','name','unresolved')),
+    line        INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_edges_src ON wm_edges(src_id);
+CREATE INDEX IF NOT EXISTS idx_wm_edges_dst ON wm_edges(dst_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS wm_directories_fts USING fts5(
   path,
@@ -627,6 +672,26 @@ END;
 CREATE TRIGGER IF NOT EXISTS wm_files_au AFTER UPDATE ON wm_files BEGIN
   INSERT INTO wm_files_fts(wm_files_fts, rowid, path, purpose) VALUES ('delete', old.id, old.path, old.purpose);
   INSERT INTO wm_files_fts(rowid, path, purpose) VALUES (new.id, new.path, new.purpose);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS wm_symbols_fts USING fts5(
+  terms,
+  signature,
+  doc,
+  content='wm_symbols',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS wm_symbols_ai AFTER INSERT ON wm_symbols BEGIN
+  INSERT INTO wm_symbols_fts(rowid, terms, signature, doc) VALUES (new.id, new.terms, new.signature, new.doc);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_symbols_ad AFTER DELETE ON wm_symbols BEGIN
+  INSERT INTO wm_symbols_fts(wm_symbols_fts, rowid, terms, signature, doc) VALUES ('delete', old.id, old.terms, old.signature, old.doc);
+END;
+CREATE TRIGGER IF NOT EXISTS wm_symbols_au AFTER UPDATE OF terms, signature, doc ON wm_symbols BEGIN
+  INSERT INTO wm_symbols_fts(wm_symbols_fts, rowid, terms, signature, doc) VALUES ('delete', old.id, old.terms, old.signature, old.doc);
+  INSERT INTO wm_symbols_fts(rowid, terms, signature, doc) VALUES (new.id, new.terms, new.signature, new.doc);
 END;
 
 -- World-model embeddings for semantic world_model_search: one vector per

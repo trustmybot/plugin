@@ -4,6 +4,14 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res, err21) => function __init() {
+  if (err21) throw err21[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err21 = [e], e;
+  }
+};
 var __commonJS = (cb, mod) => function __require() {
   try {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
@@ -12,8 +20,8 @@ var __commonJS = (cb, mod) => function __require() {
   }
 };
 var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+  for (var name2 in all)
+    __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -89,24 +97,24 @@ var require_code = __commonJS({
     };
     exports._Code = _Code;
     exports.nil = new _Code("");
-    function _(strs, ...args) {
+    function _(strs, ...args2) {
       const code = [strs[0]];
-      let i = 0;
-      while (i < args.length) {
-        addCodeArg(code, args[i]);
-        code.push(strs[++i]);
+      let i2 = 0;
+      while (i2 < args2.length) {
+        addCodeArg(code, args2[i2]);
+        code.push(strs[++i2]);
       }
       return new _Code(code);
     }
     exports._ = _;
     var plus = new _Code("+");
-    function str2(strs, ...args) {
+    function str2(strs, ...args2) {
       const expr = [safeStringify(strs[0])];
-      let i = 0;
-      while (i < args.length) {
+      let i2 = 0;
+      while (i2 < args2.length) {
         expr.push(plus);
-        addCodeArg(expr, args[i]);
-        expr.push(plus, safeStringify(strs[++i]));
+        addCodeArg(expr, args2[i2]);
+        expr.push(plus, safeStringify(strs[++i2]));
       }
       optimize(expr);
       return new _Code(expr);
@@ -122,17 +130,17 @@ var require_code = __commonJS({
     }
     exports.addCodeArg = addCodeArg;
     function optimize(expr) {
-      let i = 1;
-      while (i < expr.length - 1) {
-        if (expr[i] === plus) {
-          const res = mergeExprItems(expr[i - 1], expr[i + 1]);
+      let i2 = 1;
+      while (i2 < expr.length - 1) {
+        if (expr[i2] === plus) {
+          const res = mergeExprItems(expr[i2 - 1], expr[i2 + 1]);
           if (res !== void 0) {
-            expr.splice(i - 1, 3, res);
+            expr.splice(i2 - 1, 3, res);
             continue;
           }
-          expr[i++] = "+";
+          expr[i2++] = "+";
         }
-        i++;
+        i2++;
       }
     }
     function mergeExprItems(a, b) {
@@ -194,9 +202,9 @@ var require_scope = __commonJS({
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
     var code_1 = require_code();
     var ValueError = class extends Error {
-      constructor(name) {
-        super(`CodeGen: "code" for ${name} not defined`);
-        this.value = name.value;
+      constructor(name2) {
+        super(`CodeGen: "code" for ${name2} not defined`);
+        this.value = name2.value;
       }
     };
     var UsedValueState;
@@ -263,8 +271,8 @@ var require_scope = __commonJS({
         var _a2;
         if (value.ref === void 0)
           throw new Error("CodeGen: ref must be passed in value");
-        const name = this.toName(nameOrPrefix);
-        const { prefix } = name;
+        const name2 = this.toName(nameOrPrefix);
+        const { prefix } = name2;
         const valueKey = (_a2 = value.key) !== null && _a2 !== void 0 ? _a2 : value.ref;
         let vs = this._values[prefix];
         if (vs) {
@@ -274,12 +282,12 @@ var require_scope = __commonJS({
         } else {
           vs = this._values[prefix] = /* @__PURE__ */ new Map();
         }
-        vs.set(valueKey, name);
+        vs.set(valueKey, name2);
         const s = this._scope[prefix] || (this._scope[prefix] = []);
         const itemIndex = s.length;
         s[itemIndex] = value.ref;
-        name.setValue(value, { property: prefix, itemIndex });
-        return name;
+        name2.setValue(value, { property: prefix, itemIndex });
+        return name2;
       }
       getValue(prefix, keyOrRef) {
         const vs = this._values[prefix];
@@ -288,17 +296,17 @@ var require_scope = __commonJS({
         return vs.get(keyOrRef);
       }
       scopeRefs(scopeName, values = this._values) {
-        return this._reduceValues(values, (name) => {
-          if (name.scopePath === void 0)
-            throw new Error(`CodeGen: name "${name}" has no value`);
-          return (0, code_1._)`${scopeName}${name.scopePath}`;
+        return this._reduceValues(values, (name2) => {
+          if (name2.scopePath === void 0)
+            throw new Error(`CodeGen: name "${name2}" has no value`);
+          return (0, code_1._)`${scopeName}${name2.scopePath}`;
         });
       }
       scopeCode(values = this._values, usedValues, getCode) {
-        return this._reduceValues(values, (name) => {
-          if (name.value === void 0)
-            throw new Error(`CodeGen: name "${name}" has no value`);
-          return name.value.code;
+        return this._reduceValues(values, (name2) => {
+          if (name2.value === void 0)
+            throw new Error(`CodeGen: name "${name2}" has no value`);
+          return name2.value.code;
         }, usedValues, getCode);
       }
       _reduceValues(values, valueCode, usedValues = {}, getCode) {
@@ -308,20 +316,20 @@ var require_scope = __commonJS({
           if (!vs)
             continue;
           const nameSet = usedValues[prefix] = usedValues[prefix] || /* @__PURE__ */ new Map();
-          vs.forEach((name) => {
-            if (nameSet.has(name))
+          vs.forEach((name2) => {
+            if (nameSet.has(name2))
               return;
-            nameSet.set(name, UsedValueState.Started);
-            let c = valueCode(name);
+            nameSet.set(name2, UsedValueState.Started);
+            let c = valueCode(name2);
             if (c) {
               const def = this.opts.es5 ? exports.varKinds.var : exports.varKinds.const;
-              code = (0, code_1._)`${code}${def} ${name} = ${c};${this.opts._n}`;
-            } else if (c = getCode === null || getCode === void 0 ? void 0 : getCode(name)) {
+              code = (0, code_1._)`${code}${def} ${name2} = ${c};${this.opts._n}`;
+            } else if (c = getCode === null || getCode === void 0 ? void 0 : getCode(name2)) {
               code = (0, code_1._)`${code}${c}${this.opts._n}`;
             } else {
-              throw new ValueError(name);
+              throw new ValueError(name2);
             }
-            nameSet.set(name, UsedValueState.Completed);
+            nameSet.set(name2, UsedValueState.Completed);
           });
         }
         return code;
@@ -389,7 +397,7 @@ var require_codegen = __commonJS({
       AND: new code_1._Code("&&"),
       ADD: new code_1._Code("+")
     };
-    var Node = class {
+    var Node2 = class {
       optimizeNodes() {
         return this;
       }
@@ -397,11 +405,11 @@ var require_codegen = __commonJS({
         return this;
       }
     };
-    var Def = class extends Node {
-      constructor(varKind, name, rhs) {
+    var Def = class extends Node2 {
+      constructor(varKind, name2, rhs) {
         super();
         this.varKind = varKind;
-        this.name = name;
+        this.name = name2;
         this.rhs = rhs;
       }
       render({ es5, _n }) {
@@ -420,7 +428,7 @@ var require_codegen = __commonJS({
         return this.rhs instanceof code_1._CodeOrName ? this.rhs.names : {};
       }
     };
-    var Assign = class extends Node {
+    var Assign = class extends Node2 {
       constructor(lhs, rhs, sideEffects) {
         super();
         this.lhs = lhs;
@@ -450,7 +458,7 @@ var require_codegen = __commonJS({
         return `${this.lhs} ${this.op}= ${this.rhs};` + _n;
       }
     };
-    var Label = class extends Node {
+    var Label = class extends Node2 {
       constructor(label) {
         super();
         this.label = label;
@@ -460,7 +468,7 @@ var require_codegen = __commonJS({
         return `${this.label}:` + _n;
       }
     };
-    var Break = class extends Node {
+    var Break = class extends Node2 {
       constructor(label) {
         super();
         this.label = label;
@@ -471,7 +479,7 @@ var require_codegen = __commonJS({
         return `break${label};` + _n;
       }
     };
-    var Throw = class extends Node {
+    var Throw = class extends Node2 {
       constructor(error2) {
         super();
         this.error = error2;
@@ -483,7 +491,7 @@ var require_codegen = __commonJS({
         return this.error.names;
       }
     };
-    var AnyCode = class extends Node {
+    var AnyCode = class extends Node2 {
       constructor(code) {
         super();
         this.code = code;
@@ -502,7 +510,7 @@ var require_codegen = __commonJS({
         return this.code instanceof code_1._CodeOrName ? this.code.names : {};
       }
     };
-    var ParentNode = class extends Node {
+    var ParentNode = class extends Node2 {
       constructor(nodes = []) {
         super();
         this.nodes = nodes;
@@ -512,27 +520,27 @@ var require_codegen = __commonJS({
       }
       optimizeNodes() {
         const { nodes } = this;
-        let i = nodes.length;
-        while (i--) {
-          const n = nodes[i].optimizeNodes();
+        let i2 = nodes.length;
+        while (i2--) {
+          const n = nodes[i2].optimizeNodes();
           if (Array.isArray(n))
-            nodes.splice(i, 1, ...n);
+            nodes.splice(i2, 1, ...n);
           else if (n)
-            nodes[i] = n;
+            nodes[i2] = n;
           else
-            nodes.splice(i, 1);
+            nodes.splice(i2, 1);
         }
         return nodes.length > 0 ? this : void 0;
       }
       optimizeNames(names, constants2) {
         const { nodes } = this;
-        let i = nodes.length;
-        while (i--) {
-          const n = nodes[i];
+        let i2 = nodes.length;
+        while (i2--) {
+          const n = nodes[i2];
           if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
-          nodes.splice(i, 1);
+          nodes.splice(i2, 1);
         }
         return nodes.length > 0 ? this : void 0;
       }
@@ -621,17 +629,17 @@ var require_codegen = __commonJS({
       }
     };
     var ForRange = class extends For {
-      constructor(varKind, name, from, to) {
+      constructor(varKind, name2, from, to) {
         super();
         this.varKind = varKind;
-        this.name = name;
+        this.name = name2;
         this.from = from;
         this.to = to;
       }
       render(opts) {
         const varKind = opts.es5 ? scope_1.varKinds.var : this.varKind;
-        const { name, from, to } = this;
-        return `for(${varKind} ${name}=${from}; ${name}<${to}; ${name}++)` + super.render(opts);
+        const { name: name2, from, to } = this;
+        return `for(${varKind} ${name2}=${from}; ${name2}<${to}; ${name2}++)` + super.render(opts);
       }
       get names() {
         const names = addExprNames(super.names, this.from);
@@ -639,11 +647,11 @@ var require_codegen = __commonJS({
       }
     };
     var ForIter = class extends For {
-      constructor(loop, varKind, name, iterable) {
+      constructor(loop, varKind, name2, iterable) {
         super();
         this.loop = loop;
         this.varKind = varKind;
-        this.name = name;
+        this.name = name2;
         this.iterable = iterable;
       }
       render(opts) {
@@ -660,10 +668,10 @@ var require_codegen = __commonJS({
       }
     };
     var Func = class extends BlockNode {
-      constructor(name, args, async) {
+      constructor(name2, args2, async) {
         super();
-        this.name = name;
-        this.args = args;
+        this.name = name2;
+        this.args = args2;
         this.async = async;
       }
       render(opts) {
@@ -749,10 +757,10 @@ var require_codegen = __commonJS({
       }
       // reserves unique name in the external scope and assigns value to it
       scopeValue(prefixOrName, value) {
-        const name = this._extScope.value(prefixOrName, value);
-        const vs = this._values[name.prefix] || (this._values[name.prefix] = /* @__PURE__ */ new Set());
-        vs.add(name);
-        return name;
+        const name2 = this._extScope.value(prefixOrName, value);
+        const vs = this._values[name2.prefix] || (this._values[name2.prefix] = /* @__PURE__ */ new Set());
+        vs.add(name2);
+        return name2;
       }
       getScopeValue(prefix, keyOrRef) {
         return this._extScope.getValue(prefix, keyOrRef);
@@ -766,11 +774,11 @@ var require_codegen = __commonJS({
         return this._extScope.scopeCode(this._values);
       }
       _def(varKind, nameOrPrefix, rhs, constant) {
-        const name = this._scope.toName(nameOrPrefix);
+        const name2 = this._scope.toName(nameOrPrefix);
         if (rhs !== void 0 && constant)
-          this._constants[name.str] = rhs;
-        this._leafNode(new Def(varKind, name, rhs));
-        return name;
+          this._constants[name2.str] = rhs;
+        this._leafNode(new Def(varKind, name2, rhs));
+        return name2;
       }
       // `const` declaration (`var` in es5 mode)
       const(nameOrPrefix, rhs, _constant) {
@@ -851,20 +859,20 @@ var require_codegen = __commonJS({
       }
       // `for` statement for a range of values
       forRange(nameOrPrefix, from, to, forBody, varKind = this.opts.es5 ? scope_1.varKinds.var : scope_1.varKinds.let) {
-        const name = this._scope.toName(nameOrPrefix);
-        return this._for(new ForRange(varKind, name, from, to), () => forBody(name));
+        const name2 = this._scope.toName(nameOrPrefix);
+        return this._for(new ForRange(varKind, name2, from, to), () => forBody(name2));
       }
       // `for-of` statement (in es5 mode replace with a normal for loop)
       forOf(nameOrPrefix, iterable, forBody, varKind = scope_1.varKinds.const) {
-        const name = this._scope.toName(nameOrPrefix);
+        const name2 = this._scope.toName(nameOrPrefix);
         if (this.opts.es5) {
           const arr = iterable instanceof code_1.Name ? iterable : this.var("_arr", iterable);
-          return this.forRange("_i", 0, (0, code_1._)`${arr}.length`, (i) => {
-            this.var(name, (0, code_1._)`${arr}[${i}]`);
-            forBody(name);
+          return this.forRange("_i", 0, (0, code_1._)`${arr}.length`, (i2) => {
+            this.var(name2, (0, code_1._)`${arr}[${i2}]`);
+            forBody(name2);
           });
         }
-        return this._for(new ForIter("of", varKind, name, iterable), () => forBody(name));
+        return this._for(new ForIter("of", varKind, name2, iterable), () => forBody(name2));
       }
       // `for-in` statement.
       // With option `ownProperties` replaced with a `for-of` loop for object keys
@@ -872,8 +880,8 @@ var require_codegen = __commonJS({
         if (this.opts.ownProperties) {
           return this.forOf(nameOrPrefix, (0, code_1._)`Object.keys(${obj})`, forBody);
         }
-        const name = this._scope.toName(nameOrPrefix);
-        return this._for(new ForIter("in", varKind, name, obj), () => forBody(name));
+        const name2 = this._scope.toName(nameOrPrefix);
+        return this._for(new ForIter("in", varKind, name2, obj), () => forBody(name2));
       }
       // end `for` loop
       endFor() {
@@ -919,10 +927,10 @@ var require_codegen = __commonJS({
         return this._leafNode(new Throw(error2));
       }
       // start self-balancing block
-      block(body, nodeCount) {
+      block(body2, nodeCount) {
         this._blockStarts.push(this._nodes.length);
-        if (body)
-          this.code(body).endBlock(nodeCount);
+        if (body2)
+          this.code(body2).endBlock(nodeCount);
         return this;
       }
       // end the current self-balancing block
@@ -938,8 +946,8 @@ var require_codegen = __commonJS({
         return this;
       }
       // `function` heading (or definition if funcBody is passed)
-      func(name, args = code_1.nil, async, funcBody) {
-        this._blockNode(new Func(name, args, async));
+      func(name2, args2 = code_1.nil, async, funcBody) {
+        this._blockNode(new Func(name2, args2, async));
         if (funcBody)
           this.code(funcBody).endFunc();
         return this;
@@ -1033,13 +1041,13 @@ var require_codegen = __commonJS({
     }
     exports.not = not;
     var andCode = mappend(exports.operators.AND);
-    function and(...args) {
-      return args.reduce(andCode);
+    function and(...args2) {
+      return args2.reduce(andCode);
     }
     exports.and = and;
     var orCode = mappend(exports.operators.OR);
-    function or(...args) {
-      return args.reduce(orCode);
+    function or(...args2) {
+      return args2.reduce(orCode);
     }
     exports.or = or;
     function mappend(op) {
@@ -1076,12 +1084,12 @@ var require_util = __commonJS({
     }
     exports.alwaysValidSchema = alwaysValidSchema;
     function checkUnknownRules(it, schema = it.schema) {
-      const { opts, self } = it;
+      const { opts, self: self2 } = it;
       if (!opts.strictSchema)
         return;
       if (typeof schema === "boolean")
         return;
-      const rules = self.RULES.keywords;
+      const rules = self2.RULES.keywords;
       for (const key in schema) {
         if (!rules[key])
           checkStrictMode(it, `unknown keyword: "${key}"`);
@@ -1301,21 +1309,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err20 = gen.name("err");
-      gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err20, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err20}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err20}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err20}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+      const err21 = gen.name("err");
+      gen.forRange("i", errsCount, names_1.default.errors, (i2) => {
+        gen.const(err21, (0, codegen_1._)`${names_1.default.vErrors}[${i2}]`);
+        gen.if((0, codegen_1._)`${err21}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err21}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err21}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err20}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err20}.data`, data);
+          gen.assign((0, codegen_1._)`${err21}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err21}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err20 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err20}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err20})`);
+      const err21 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err21}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err21})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -1467,8 +1475,8 @@ var require_applicability = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
-    function schemaHasRulesForType({ schema, self }, type) {
-      const group = self.RULES.types[type];
+    function schemaHasRulesForType({ schema, self: self2 }, type) {
+      const group = self2.RULES.types[type];
       return group && group !== true && shouldUseGroup(schema, group);
     }
     exports.schemaHasRulesForType = schemaHasRulesForType;
@@ -1683,7 +1691,7 @@ var require_defaults = __commonJS({
           assignDefault(it, key, properties[key].default);
         }
       } else if (ty === "array" && Array.isArray(items)) {
-        items.forEach((sch, i) => assignDefault(it, i, sch.default));
+        items.forEach((sch, i2) => assignDefault(it, i2, sch.default));
       }
     }
     exports.assignDefaults = assignDefaults;
@@ -1762,7 +1770,7 @@ var require_code2 = __commonJS({
       return allSchemaProperties(schemaMap).filter((p) => !(0, util_1.alwaysValidSchema)(it, schemaMap[p]));
     }
     exports.schemaProperties = schemaProperties;
-    function callValidateCode({ schemaCode, data, it: { gen, topSchemaRef, schemaPath, errorPath }, it }, func, context, passSchema) {
+    function callValidateCode({ schemaCode, data, it: { gen, topSchemaRef, schemaPath, errorPath }, it }, func2, context, passSchema) {
       const dataAndSchema = passSchema ? (0, codegen_1._)`${schemaCode}, ${data}, ${topSchemaRef}${schemaPath}` : data;
       const valCxt = [
         [names_1.default.instancePath, (0, codegen_1.strConcat)(names_1.default.instancePath, errorPath)],
@@ -1772,8 +1780,8 @@ var require_code2 = __commonJS({
       ];
       if (it.opts.dynamicRef)
         valCxt.push([names_1.default.dynamicAnchors, names_1.default.dynamicAnchors]);
-      const args = (0, codegen_1._)`${dataAndSchema}, ${gen.object(...valCxt)}`;
-      return context !== codegen_1.nil ? (0, codegen_1._)`${func}.call(${context}, ${args})` : (0, codegen_1._)`${func}(${args})`;
+      const args2 = (0, codegen_1._)`${dataAndSchema}, ${gen.object(...valCxt)}`;
+      return context !== codegen_1.nil ? (0, codegen_1._)`${func2}.call(${context}, ${args2})` : (0, codegen_1._)`${func2}(${args2})`;
     }
     exports.callValidateCode = callValidateCode;
     var newRegExp = (0, codegen_1._)`new RegExp`;
@@ -1801,10 +1809,10 @@ var require_code2 = __commonJS({
       return valid;
       function validateItems(notValid) {
         const len = gen.const("len", (0, codegen_1._)`${data}.length`);
-        gen.forRange("i", 0, len, (i) => {
+        gen.forRange("i", 0, len, (i2) => {
           cxt.subschema({
             keyword,
-            dataProp: i,
+            dataProp: i2,
             dataPropType: util_1.Type.Num
           }, valid);
           gen.if((0, codegen_1.not)(valid), notValid);
@@ -1821,10 +1829,10 @@ var require_code2 = __commonJS({
         return;
       const valid = gen.let("valid", false);
       const schValid = gen.name("_valid");
-      gen.block(() => schema.forEach((_sch, i) => {
+      gen.block(() => schema.forEach((_sch, i2) => {
         const schCxt = cxt.subschema({
           keyword,
-          schemaProp: i,
+          schemaProp: i2,
           compositeRule: true
         }, schValid);
         gen.assign(valid, (0, codegen_1._)`${valid} || ${schValid}`);
@@ -1933,7 +1941,7 @@ var require_keyword = __commonJS({
       return !schemaType.length || schemaType.some((st) => st === "array" ? Array.isArray(schema) : st === "object" ? schema && typeof schema == "object" && !Array.isArray(schema) : typeof schema == st || allowUndefined && typeof schema == "undefined");
     }
     exports.validSchemaType = validSchemaType;
-    function validateKeywordUsage({ schema, opts, self, errSchemaPath }, def, keyword) {
+    function validateKeywordUsage({ schema, opts, self: self2, errSchemaPath }, def, keyword) {
       if (Array.isArray(def.keyword) ? !def.keyword.includes(keyword) : def.keyword !== keyword) {
         throw new Error("ajv implementation error");
       }
@@ -1944,9 +1952,9 @@ var require_keyword = __commonJS({
       if (def.validateSchema) {
         const valid = def.validateSchema(schema[keyword]);
         if (!valid) {
-          const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self.errorsText(def.validateSchema.errors);
+          const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self2.errorsText(def.validateSchema.errors);
           if (opts.validateSchema === "log")
-            self.logger.error(msg);
+            self2.logger.error(msg);
           else
             throw new Error(msg);
         }
@@ -2041,18 +2049,18 @@ var require_subschema = __commonJS({
 
 // node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module) {
+  "node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module2) {
     "use strict";
-    module.exports = function equal(a, b) {
+    module2.exports = function equal(a, b) {
       if (a === b) return true;
       if (a && b && typeof a == "object" && typeof b == "object") {
         if (a.constructor !== b.constructor) return false;
-        var length, i, keys;
+        var length, i2, keys;
         if (Array.isArray(a)) {
           length = a.length;
           if (length != b.length) return false;
-          for (i = length; i-- !== 0; )
-            if (!equal(a[i], b[i])) return false;
+          for (i2 = length; i2-- !== 0; )
+            if (!equal(a[i2], b[i2])) return false;
           return true;
         }
         if (a.constructor === RegExp) return a.source === b.source && a.flags === b.flags;
@@ -2061,10 +2069,10 @@ var require_fast_deep_equal = __commonJS({
         keys = Object.keys(a);
         length = keys.length;
         if (length !== Object.keys(b).length) return false;
-        for (i = length; i-- !== 0; )
-          if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
-        for (i = length; i-- !== 0; ) {
-          var key = keys[i];
+        for (i2 = length; i2-- !== 0; )
+          if (!Object.prototype.hasOwnProperty.call(b, keys[i2])) return false;
+        for (i2 = length; i2-- !== 0; ) {
+          var key = keys[i2];
           if (!equal(a[key], b[key])) return false;
         }
         return true;
@@ -2076,9 +2084,9 @@ var require_fast_deep_equal = __commonJS({
 
 // node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module) {
+  "node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module2) {
     "use strict";
-    var traverse = module.exports = function(schema, opts, cb) {
+    var traverse = module2.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
         cb = opts;
         opts = {};
@@ -2141,8 +2149,8 @@ var require_json_schema_traverse = __commonJS({
           var sch = schema[key];
           if (Array.isArray(sch)) {
             if (key in traverse.arrayKeywords) {
-              for (var i = 0; i < sch.length; i++)
-                _traverse(opts, pre, post, sch[i], jsonPtr + "/" + key + "/" + i, rootSchema, jsonPtr, key, schema, i);
+              for (var i2 = 0; i2 < sch.length; i2++)
+                _traverse(opts, pre, post, sch[i2], jsonPtr + "/" + key + "/" + i2, rootSchema, jsonPtr, key, schema, i2);
             }
           } else if (key in traverse.propsKeywords) {
             if (sch && typeof sch == "object") {
@@ -2347,15 +2355,15 @@ var require_validate = __commonJS({
       validateFunction(it, () => (0, boolSchema_1.topBoolOrEmptySchema)(it));
     }
     exports.validateFunctionCode = validateFunctionCode;
-    function validateFunction({ gen, validateName, schema, schemaEnv, opts }, body) {
+    function validateFunction({ gen, validateName, schema, schemaEnv, opts }, body2) {
       if (opts.code.es5) {
         gen.func(validateName, (0, codegen_1._)`${names_1.default.data}, ${names_1.default.valCxt}`, schemaEnv.$async, () => {
           gen.code((0, codegen_1._)`"use strict"; ${funcSourceUrl(schema, opts)}`);
           destructureValCxtES5(gen, opts);
-          gen.code(body);
+          gen.code(body2);
         });
       } else {
-        gen.func(validateName, (0, codegen_1._)`${names_1.default.data}, ${destructureValCxt(opts)}`, schemaEnv.$async, () => gen.code(funcSourceUrl(schema, opts)).code(body));
+        gen.func(validateName, (0, codegen_1._)`${names_1.default.data}, ${destructureValCxt(opts)}`, schemaEnv.$async, () => gen.code(funcSourceUrl(schema, opts)).code(body2));
       }
     }
     function destructureValCxt(opts) {
@@ -2413,11 +2421,11 @@ var require_validate = __commonJS({
       }
       (0, boolSchema_1.boolOrEmptySchema)(it, valid);
     }
-    function schemaCxtHasRules({ schema, self }) {
+    function schemaCxtHasRules({ schema, self: self2 }) {
       if (typeof schema == "boolean")
         return !schema;
       for (const key in schema)
-        if (self.RULES.all[key])
+        if (self2.RULES.all[key])
           return true;
       return false;
     }
@@ -2446,9 +2454,9 @@ var require_validate = __commonJS({
       schemaKeywords(it, types, !checkedTypes, errsCount);
     }
     function checkRefsAndKeywords(it) {
-      const { schema, errSchemaPath, opts, self } = it;
-      if (schema.$ref && opts.ignoreKeywordsWithRef && (0, util_1.schemaHasRulesButRef)(schema, self.RULES)) {
-        self.logger.warn(`$ref: keywords ignored in schema at path "${errSchemaPath}"`);
+      const { schema, errSchemaPath, opts, self: self2 } = it;
+      if (schema.$ref && opts.ignoreKeywordsWithRef && (0, util_1.schemaHasRulesButRef)(schema, self2.RULES)) {
+        self2.logger.warn(`$ref: keywords ignored in schema at path "${errSchemaPath}"`);
       }
     }
     function checkNoDefault(it) {
@@ -2494,8 +2502,8 @@ var require_validate = __commonJS({
         gen.assign((0, codegen_1._)`${evaluated}.items`, items);
     }
     function schemaKeywords(it, types, typeErrors, errsCount) {
-      const { gen, schema, data, allErrors, opts, self } = it;
-      const { RULES } = self;
+      const { gen, schema, data, allErrors, opts, self: self2 } = it;
+      const { RULES } = self2;
       if (schema.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema, RULES))) {
         gen.block(() => keywordCode(it, "$ref", RULES.all.$ref.definition));
         return;
@@ -3085,8 +3093,8 @@ var require_compile = __commonJS({
 
 // node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module) {
-    module.exports = {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module2) {
+    module2.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
       type: "object",
@@ -3104,31 +3112,31 @@ var require_data = __commonJS({
 
 // node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module) {
+  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module2) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
     function stringArrayToHexStripped(input) {
       let acc = "";
       let code = 0;
-      let i = 0;
-      for (i = 0; i < input.length; i++) {
-        code = input[i].charCodeAt(0);
+      let i2 = 0;
+      for (i2 = 0; i2 < input.length; i2++) {
+        code = input[i2].charCodeAt(0);
         if (code === 48) {
           continue;
         }
         if (!(code >= 48 && code <= 57 || code >= 65 && code <= 70 || code >= 97 && code <= 102)) {
           return "";
         }
-        acc += input[i];
+        acc += input[i2];
         break;
       }
-      for (i += 1; i < input.length; i++) {
-        code = input[i].charCodeAt(0);
+      for (i2 += 1; i2 < input.length; i2++) {
+        code = input[i2].charCodeAt(0);
         if (!(code >= 48 && code <= 57 || code >= 65 && code <= 70 || code >= 97 && code <= 102)) {
           return "";
         }
-        acc += input[i];
+        acc += input[i2];
       }
       return acc;
     }
@@ -3158,8 +3166,8 @@ var require_utils = __commonJS({
       let endipv6Encountered = false;
       let endIpv6 = false;
       let consume = consumeHextets;
-      for (let i = 0; i < input.length; i++) {
-        const cursor = input[i];
+      for (let i2 = 0; i2 < input.length; i2++) {
+        const cursor = input[i2];
         if (cursor === "[" || cursor === "]") {
           continue;
         }
@@ -3174,7 +3182,7 @@ var require_utils = __commonJS({
             output.error = true;
             break;
           }
-          if (i > 0 && input[i - 1] === ":") {
+          if (i2 > 0 && input[i2 - 1] === ":") {
             endipv6Encountered = true;
           }
           address.push(":");
@@ -3220,8 +3228,8 @@ var require_utils = __commonJS({
     }
     function findToken(str2, token) {
       let ind = 0;
-      for (let i = 0; i < str2.length; i++) {
-        if (str2[i] === token) ind++;
+      for (let i2 = 0; i2 < str2.length; i2++) {
+        if (str2[i2] === token) ind++;
       }
       return ind;
     }
@@ -3301,24 +3309,24 @@ var require_utils = __commonJS({
       return output.join("");
     }
     function normalizeComponentEncoding(component, esc2) {
-      const func = esc2 !== true ? escape : unescape;
+      const func2 = esc2 !== true ? escape : unescape;
       if (component.scheme !== void 0) {
-        component.scheme = func(component.scheme);
+        component.scheme = func2(component.scheme);
       }
       if (component.userinfo !== void 0) {
-        component.userinfo = func(component.userinfo);
+        component.userinfo = func2(component.userinfo);
       }
       if (component.host !== void 0) {
-        component.host = func(component.host);
+        component.host = func2(component.host);
       }
       if (component.path !== void 0) {
-        component.path = func(component.path);
+        component.path = func2(component.path);
       }
       if (component.query !== void 0) {
-        component.query = func(component.query);
+        component.query = func2(component.query);
       }
       if (component.fragment !== void 0) {
-        component.fragment = func(component.fragment);
+        component.fragment = func2(component.fragment);
       }
       return component;
     }
@@ -3346,7 +3354,7 @@ var require_utils = __commonJS({
       }
       return uriTokens.length ? uriTokens.join("") : void 0;
     }
-    module.exports = {
+    module2.exports = {
       nonSimpleDomain,
       recomposeAuthority,
       normalizeComponentEncoding,
@@ -3361,7 +3369,7 @@ var require_utils = __commonJS({
 
 // node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module) {
+  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module2) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
@@ -3376,10 +3384,10 @@ var require_schemes = __commonJS({
         "urn:uuid"
       ]
     );
-    function isValidSchemeName(name) {
+    function isValidSchemeName(name2) {
       return supportedSchemeNames.indexOf(
         /** @type {*} */
-        name
+        name2
       ) !== -1;
     }
     function wsIsSecure(wsComponent) {
@@ -3560,7 +3568,7 @@ var require_schemes = __commonJS({
         scheme.toLowerCase()
       ]) || void 0;
     }
-    module.exports = {
+    module2.exports = {
       wsIsSecure,
       SCHEMES,
       isValidSchemeName,
@@ -3571,7 +3579,7 @@ var require_schemes = __commonJS({
 
 // node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module) {
+  "node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module2) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -3818,9 +3826,9 @@ var require_fast_uri = __commonJS({
       serialize,
       parse: parse4
     };
-    module.exports = fastUri;
-    module.exports.default = fastUri;
-    module.exports.fastUri = fastUri;
+    module2.exports = fastUri;
+    module2.exports.default = fastUri;
+    module2.exports.fastUri = fastUri;
   }
 });
 
@@ -3874,7 +3882,7 @@ var require_core = __commonJS({
     var util_1 = require_util();
     var $dataRefSchema = require_data();
     var uri_1 = require_uri();
-    var defaultRegExp = (str2, flags) => new RegExp(str2, flags);
+    var defaultRegExp = (str2, flags2) => new RegExp(str2, flags2);
     defaultRegExp.code = "new RegExp";
     var META_IGNORE_OPTIONS = ["removeAdditional", "useDefaults", "coerceTypes"];
     var EXT_SCOPE_NAMES = /* @__PURE__ */ new Set([
@@ -4211,17 +4219,17 @@ var require_core = __commonJS({
         delete RULES.keywords[keyword];
         delete RULES.all[keyword];
         for (const group of RULES.rules) {
-          const i = group.rules.findIndex((rule) => rule.keyword === keyword);
-          if (i >= 0)
-            group.rules.splice(i, 1);
+          const i2 = group.rules.findIndex((rule) => rule.keyword === keyword);
+          if (i2 >= 0)
+            group.rules.splice(i2, 1);
         }
         return this;
       }
       // Add format
-      addFormat(name, format) {
+      addFormat(name2, format) {
         if (typeof format == "string")
           format = new RegExp(format);
-        this.formats[name] = format;
+        this.formats[name2] = format;
         return this;
       }
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
@@ -4338,10 +4346,10 @@ var require_core = __commonJS({
           this.addSchema(optsSchemas[key], key);
     }
     function addInitialFormats() {
-      for (const name in this.opts.formats) {
-        const format = this.opts.formats[name];
+      for (const name2 in this.opts.formats) {
+        const format = this.opts.formats[name2];
         if (format)
-          this.addFormat(name, format);
+          this.addFormat(name2, format);
       }
     }
     function addInitialKeywords(defs) {
@@ -4421,9 +4429,9 @@ var require_core = __commonJS({
       (_a2 = definition.implements) === null || _a2 === void 0 ? void 0 : _a2.forEach((kwd) => this.addKeyword(kwd));
     }
     function addBeforeRule(ruleGroup, rule, before) {
-      const i = ruleGroup.rules.findIndex((_rule) => _rule.keyword === before);
-      if (i >= 0) {
-        ruleGroup.rules.splice(i, 0, rule);
+      const i2 = ruleGroup.rules.findIndex((_rule) => _rule.keyword === before);
+      if (i2 >= 0) {
+        ruleGroup.rules.splice(i2, 0, rule);
       } else {
         ruleGroup.rules.push(rule);
         this.logger.warn(`rule ${before} is not defined`);
@@ -4478,11 +4486,11 @@ var require_ref = __commonJS({
       schemaType: "string",
       code(cxt) {
         const { gen, schema: $ref, it } = cxt;
-        const { baseId, schemaEnv: env, validateName, opts, self } = it;
+        const { baseId, schemaEnv: env, validateName, opts, self: self2 } = it;
         const { root } = env;
         if (($ref === "#" || $ref === "#/") && baseId === root.baseId)
           return callRootRef();
-        const schOrEnv = compile_1.resolveRef.call(self, root, baseId, $ref);
+        const schOrEnv = compile_1.resolveRef.call(self2, root, baseId, $ref);
         if (schOrEnv === void 0)
           throw new ref_error_1.default(it.opts.uriResolver, baseId, $ref);
         if (schOrEnv instanceof compile_1.SchemaEnv)
@@ -4920,8 +4928,8 @@ var require_uniqueItems = __commonJS({
     var util_1 = require_util();
     var equal_1 = require_equal();
     var error2 = {
-      message: ({ params: { i, j } }) => (0, codegen_1.str)`must NOT have duplicate items (items ## ${j} and ${i} are identical)`,
-      params: ({ params: { i, j } }) => (0, codegen_1._)`{i: ${i}, j: ${j}}`
+      message: ({ params: { i: i2, j } }) => (0, codegen_1.str)`must NOT have duplicate items (items ## ${j} and ${i2} are identical)`,
+      params: ({ params: { i: i2, j } }) => (0, codegen_1._)`{i: ${i2}, j: ${j}}`
     };
     var def = {
       keyword: "uniqueItems",
@@ -4938,21 +4946,21 @@ var require_uniqueItems = __commonJS({
         cxt.block$data(valid, validateUniqueItems, (0, codegen_1._)`${schemaCode} === false`);
         cxt.ok(valid);
         function validateUniqueItems() {
-          const i = gen.let("i", (0, codegen_1._)`${data}.length`);
+          const i2 = gen.let("i", (0, codegen_1._)`${data}.length`);
           const j = gen.let("j");
-          cxt.setParams({ i, j });
+          cxt.setParams({ i: i2, j });
           gen.assign(valid, true);
-          gen.if((0, codegen_1._)`${i} > 1`, () => (canOptimize() ? loopN : loopN2)(i, j));
+          gen.if((0, codegen_1._)`${i2} > 1`, () => (canOptimize() ? loopN : loopN2)(i2, j));
         }
         function canOptimize() {
           return itemTypes.length > 0 && !itemTypes.some((t) => t === "object" || t === "array");
         }
-        function loopN(i, j) {
+        function loopN(i2, j) {
           const item = gen.name("item");
           const wrongType = (0, dataType_1.checkDataTypes)(itemTypes, item, it.opts.strictNumbers, dataType_1.DataType.Wrong);
           const indices = gen.const("indices", (0, codegen_1._)`{}`);
-          gen.for((0, codegen_1._)`;${i}--;`, () => {
-            gen.let(item, (0, codegen_1._)`${data}[${i}]`);
+          gen.for((0, codegen_1._)`;${i2}--;`, () => {
+            gen.let(item, (0, codegen_1._)`${data}[${i2}]`);
             gen.if(wrongType, (0, codegen_1._)`continue`);
             if (itemTypes.length > 1)
               gen.if((0, codegen_1._)`typeof ${item} == "string"`, (0, codegen_1._)`${item} += "_"`);
@@ -4960,13 +4968,13 @@ var require_uniqueItems = __commonJS({
               gen.assign(j, (0, codegen_1._)`${indices}[${item}]`);
               cxt.error();
               gen.assign(valid, false).break();
-            }).code((0, codegen_1._)`${indices}[${item}] = ${i}`);
+            }).code((0, codegen_1._)`${indices}[${item}] = ${i2}`);
           });
         }
-        function loopN2(i, j) {
+        function loopN2(i2, j) {
           const eql = (0, util_1.useFunc)(gen, equal_1.default);
           const outer = gen.name("outer");
-          gen.label(outer).for((0, codegen_1._)`;${i}--;`, () => gen.for((0, codegen_1._)`${j} = ${i}; ${j}--;`, () => gen.if((0, codegen_1._)`${eql}(${data}[${i}], ${data}[${j}])`, () => {
+          gen.label(outer).for((0, codegen_1._)`;${i2}--;`, () => gen.for((0, codegen_1._)`${j} = ${i2}; ${j}--;`, () => gen.if((0, codegen_1._)`${eql}(${data}[${i2}], ${data}[${j}])`, () => {
             cxt.error();
             gen.assign(valid, false).break(outer);
           })));
@@ -5038,16 +5046,16 @@ var require_enum = __commonJS({
           if (!Array.isArray(schema))
             throw new Error("ajv implementation error");
           const vSchema = gen.const("vSchema", schemaCode);
-          valid = (0, codegen_1.or)(...schema.map((_x, i) => equalCode(vSchema, i)));
+          valid = (0, codegen_1.or)(...schema.map((_x, i2) => equalCode(vSchema, i2)));
         }
         cxt.pass(valid);
         function loopEnum() {
           gen.assign(valid, false);
           gen.forOf("v", schemaCode, (v) => gen.if((0, codegen_1._)`${getEql()}(${data}, ${v})`, () => gen.assign(valid, true).break()));
         }
-        function equalCode(vSchema, i) {
-          const sch = schema[i];
-          return typeof sch === "object" && sch !== null ? (0, codegen_1._)`${getEql()}(${data}, ${vSchema}[${i}])` : (0, codegen_1._)`${data} === ${sch}`;
+        function equalCode(vSchema, i2) {
+          const sch = schema[i2];
+          return typeof sch === "object" && sch !== null ? (0, codegen_1._)`${getEql()}(${data}, ${vSchema}[${i2}])` : (0, codegen_1._)`${data} === ${sch}`;
         }
       }
     };
@@ -5134,8 +5142,8 @@ var require_additionalItems = __commonJS({
         cxt.ok(valid);
       }
       function validateItems(valid) {
-        gen.forRange("i", items.length, len, (i) => {
-          cxt.subschema({ keyword, dataProp: i, dataPropType: util_1.Type.Num }, valid);
+        gen.forRange("i", items.length, len, (i2) => {
+          cxt.subschema({ keyword, dataProp: i2, dataPropType: util_1.Type.Num }, valid);
           if (!it.allErrors)
             gen.if((0, codegen_1.not)(valid), () => gen.break());
         });
@@ -5178,13 +5186,13 @@ var require_items = __commonJS({
       }
       const valid = gen.name("valid");
       const len = gen.const("len", (0, codegen_1._)`${data}.length`);
-      schArr.forEach((sch, i) => {
+      schArr.forEach((sch, i2) => {
         if ((0, util_1.alwaysValidSchema)(it, sch))
           return;
-        gen.if((0, codegen_1._)`${len} > ${i}`, () => cxt.subschema({
+        gen.if((0, codegen_1._)`${len} > ${i2}`, () => cxt.subschema({
           keyword,
-          schemaProp: i,
-          dataProp: i
+          schemaProp: i2,
+          dataProp: i2
         }, valid));
         cxt.ok(valid);
       });
@@ -5321,10 +5329,10 @@ var require_contains = __commonJS({
           validateItems(schValid, () => gen.if(schValid, () => checkLimits(count)));
         }
         function validateItems(_valid, block) {
-          gen.forRange("i", 0, len, (i) => {
+          gen.forRange("i", 0, len, (i2) => {
             cxt.subschema({
               keyword: "contains",
-              dataProp: i,
+              dataProp: i2,
               dataPropType: util_1.Type.Num,
               compositeRule: true
             }, _valid);
@@ -5802,23 +5810,23 @@ var require_oneOf = __commonJS({
         gen.block(validateOneOf);
         cxt.result(valid, () => cxt.reset(), () => cxt.error(true));
         function validateOneOf() {
-          schArr.forEach((sch, i) => {
+          schArr.forEach((sch, i2) => {
             let schCxt;
             if ((0, util_1.alwaysValidSchema)(it, sch)) {
               gen.var(schValid, true);
             } else {
               schCxt = cxt.subschema({
                 keyword: "oneOf",
-                schemaProp: i,
+                schemaProp: i2,
                 compositeRule: true
               }, schValid);
             }
-            if (i > 0) {
-              gen.if((0, codegen_1._)`${schValid} && ${valid}`).assign(valid, false).assign(passing, (0, codegen_1._)`[${passing}, ${i}]`).else();
+            if (i2 > 0) {
+              gen.if((0, codegen_1._)`${schValid} && ${valid}`).assign(valid, false).assign(passing, (0, codegen_1._)`[${passing}, ${i2}]`).else();
             }
             gen.if(schValid, () => {
               gen.assign(valid, true);
-              gen.assign(passing, i);
+              gen.assign(passing, i2);
               if (schCxt)
                 cxt.mergeEvaluated(schCxt, codegen_1.Name);
             });
@@ -5844,10 +5852,10 @@ var require_allOf = __commonJS({
         if (!Array.isArray(schema))
           throw new Error("ajv implementation error");
         const valid = gen.name("valid");
-        schema.forEach((sch, i) => {
+        schema.forEach((sch, i2) => {
           if ((0, util_1.alwaysValidSchema)(it, sch))
             return;
-          const schCxt = cxt.subschema({ keyword: "allOf", schemaProp: i }, valid);
+          const schCxt = cxt.subschema({ keyword: "allOf", schemaProp: i2 }, valid);
           cxt.ok(valid);
           cxt.mergeEvaluated(schCxt);
         });
@@ -6010,7 +6018,7 @@ var require_format = __commonJS({
       error: error2,
       code(cxt, ruleType) {
         const { gen, data, $data, schema, schemaCode, it } = cxt;
-        const { opts, errSchemaPath, schemaEnv, self } = it;
+        const { opts, errSchemaPath, schemaEnv, self: self2 } = it;
         if (!opts.validateFormats)
           return;
         if ($data)
@@ -6019,7 +6027,7 @@ var require_format = __commonJS({
           validateFormat();
         function validate$DataFormat() {
           const fmts = gen.scopeValue("formats", {
-            ref: self.formats,
+            ref: self2.formats,
             code: opts.code.formats
           });
           const fDef = gen.const("fDef", (0, codegen_1._)`${fmts}[${schemaCode}]`);
@@ -6039,7 +6047,7 @@ var require_format = __commonJS({
           }
         }
         function validateFormat() {
-          const formatDef = self.formats[schema];
+          const formatDef = self2.formats[schema];
           if (!formatDef) {
             unknownFormat();
             return;
@@ -6051,7 +6059,7 @@ var require_format = __commonJS({
             cxt.pass(validCondition());
           function unknownFormat() {
             if (opts.strictSchema === false) {
-              self.logger.warn(unknownMsg());
+              self2.logger.warn(unknownMsg());
               return;
             }
             throw new Error(unknownMsg());
@@ -6210,8 +6218,8 @@ var require_discriminator = __commonJS({
           const oneOfMapping = {};
           const topRequired = hasRequired(parentSchema);
           let tagRequired = true;
-          for (let i = 0; i < oneOf.length; i++) {
-            let sch = oneOf[i];
+          for (let i2 = 0; i2 < oneOf.length; i2++) {
+            let sch = oneOf[i2];
             if ((sch === null || sch === void 0 ? void 0 : sch.$ref) && !(0, util_1.schemaHasRulesButRef)(sch, it.self.RULES)) {
               const ref = sch.$ref;
               sch = compile_1.resolveRef.call(it.self, it.schemaEnv.root, it.baseId, ref);
@@ -6225,7 +6233,7 @@ var require_discriminator = __commonJS({
               throw new Error(`discriminator: oneOf subschemas (or referenced schemas) must have "properties/${tagName}"`);
             }
             tagRequired = tagRequired && (topRequired || hasRequired(sch));
-            addMappings(propSch, i);
+            addMappings(propSch, i2);
           }
           if (!tagRequired)
             throw new Error(`discriminator: "${tagName}" must be required`);
@@ -6233,22 +6241,22 @@ var require_discriminator = __commonJS({
           function hasRequired({ required: required2 }) {
             return Array.isArray(required2) && required2.includes(tagName);
           }
-          function addMappings(sch, i) {
+          function addMappings(sch, i2) {
             if (sch.const) {
-              addMapping(sch.const, i);
+              addMapping(sch.const, i2);
             } else if (sch.enum) {
               for (const tagValue of sch.enum) {
-                addMapping(tagValue, i);
+                addMapping(tagValue, i2);
               }
             } else {
               throw new Error(`discriminator: "properties/${tagName}" must have "const" or "enum"`);
             }
           }
-          function addMapping(tagValue, i) {
+          function addMapping(tagValue, i2) {
             if (typeof tagValue != "string" || tagValue in oneOfMapping) {
               throw new Error(`discriminator: "${tagName}" values must be unique strings`);
             }
-            oneOfMapping[tagValue] = i;
+            oneOfMapping[tagValue] = i2;
           }
         }
       }
@@ -6259,8 +6267,8 @@ var require_discriminator = __commonJS({
 
 // node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
-    module.exports = {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module2) {
+    module2.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
       title: "Core schema meta-schema",
@@ -6416,7 +6424,7 @@ var require_json_schema_draft_07 = __commonJS({
 
 // node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module) {
+  "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -6446,8 +6454,8 @@ var require_ajv = __commonJS({
       }
     };
     exports.Ajv = Ajv2;
-    module.exports = exports = Ajv2;
-    module.exports.Ajv = Ajv2;
+    module2.exports = exports = Ajv2;
+    module2.exports.Ajv = Ajv2;
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.default = Ajv2;
     var validate_1 = require_validate();
@@ -6714,17 +6722,17 @@ var require_limit = __commonJS({
       error: error2,
       code(cxt) {
         const { gen, data, schemaCode, keyword, it } = cxt;
-        const { opts, self } = it;
+        const { opts, self: self2 } = it;
         if (!opts.validateFormats)
           return;
-        const fCxt = new ajv_1.KeywordCxt(it, self.RULES.all.format.definition, "format");
+        const fCxt = new ajv_1.KeywordCxt(it, self2.RULES.all.format.definition, "format");
         if (fCxt.$data)
           validate$DataFormat();
         else
           validateFormat();
         function validate$DataFormat() {
           const fmts = gen.scopeValue("formats", {
-            ref: self.formats,
+            ref: self2.formats,
             code: opts.code.formats
           });
           const fmt = gen.const("fmt", (0, codegen_1._)`${fmts}[${fCxt.schemaCode}]`);
@@ -6732,7 +6740,7 @@ var require_limit = __commonJS({
         }
         function validateFormat() {
           const format = fCxt.schema;
-          const fmtDef = self.formats[format];
+          const fmtDef = self2.formats[format];
           if (!fmtDef || fmtDef === true)
             return;
           if (typeof fmtDef != "object" || fmtDef instanceof RegExp || typeof fmtDef.compare != "function") {
@@ -6761,7 +6769,7 @@ var require_limit = __commonJS({
 
 // node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module) {
+  "node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module2) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -6781,29 +6789,3990 @@ var require_dist = __commonJS({
         (0, limit_1.default)(ajv);
       return ajv;
     };
-    formatsPlugin.get = (name, mode = "full") => {
+    formatsPlugin.get = (name2, mode = "full") => {
       const formats = mode === "fast" ? formats_1.fastFormats : formats_1.fullFormats;
-      const f = formats[name];
+      const f = formats[name2];
       if (!f)
-        throw new Error(`Unknown format "${name}"`);
+        throw new Error(`Unknown format "${name2}"`);
       return f;
     };
-    function addFormats(ajv, list, fs, exportName) {
+    function addFormats(ajv, list, fs2, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs[f]);
+        ajv.addFormat(f, fs2[f]);
     }
-    module.exports = exports = formatsPlugin;
+    module2.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.default = formatsPlugin;
   }
 });
 
+// node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js
+var tree_sitter_exports = {};
+__export(tree_sitter_exports, {
+  CaptureQuantifier: () => CaptureQuantifier,
+  LANGUAGE_VERSION: () => LANGUAGE_VERSION,
+  Language: () => Language,
+  LookaheadIterator: () => LookaheadIterator,
+  MIN_COMPATIBLE_VERSION: () => MIN_COMPATIBLE_VERSION,
+  Node: () => Node,
+  Parser: () => Parser,
+  Query: () => Query,
+  Tree: () => Tree,
+  TreeCursor: () => TreeCursor
+});
+function assertInternal(x) {
+  if (x !== INTERNAL) throw new Error("Illegal constructor");
+}
+function isPoint(point) {
+  return !!point && typeof point.row === "number" && typeof point.column === "number";
+}
+function setModule(module2) {
+  C = module2;
+}
+function getText(tree, startIndex, endIndex, startPosition) {
+  const length = endIndex - startIndex;
+  let result2 = tree.textCallback(startIndex, startPosition);
+  if (result2) {
+    startIndex += result2.length;
+    while (startIndex < endIndex) {
+      const string3 = tree.textCallback(startIndex, startPosition);
+      if (string3 && string3.length > 0) {
+        startIndex += string3.length;
+        result2 += string3;
+      } else {
+        break;
+      }
+    }
+    if (startIndex > endIndex) {
+      result2 = result2.slice(0, length);
+    }
+  }
+  return result2 ?? "";
+}
+function unmarshalCaptures(query, tree, address, patternIndex, result2) {
+  for (let i2 = 0, n = result2.length; i2 < n; i2++) {
+    const captureIndex = C.getValue(address, "i32");
+    address += SIZE_OF_INT;
+    const node = unmarshalNode(tree, address);
+    address += SIZE_OF_NODE;
+    result2[i2] = { patternIndex, name: query.captureNames[captureIndex], node };
+  }
+  return address;
+}
+function marshalNode(node, index = 0) {
+  let address = TRANSFER_BUFFER + index * SIZE_OF_NODE;
+  C.setValue(address, node.id, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node.startIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node.startPosition.row, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node.startPosition.column, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, node[0], "i32");
+}
+function unmarshalNode(tree, address = TRANSFER_BUFFER) {
+  const id = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  if (id === 0) return null;
+  const index = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  const row = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  const column = C.getValue(address, "i32");
+  address += SIZE_OF_INT;
+  const other = C.getValue(address, "i32");
+  const result2 = new Node(INTERNAL, {
+    id,
+    tree,
+    startIndex: index,
+    startPosition: { row, column },
+    other
+  });
+  return result2;
+}
+function marshalTreeCursor(cursor, address = TRANSFER_BUFFER) {
+  C.setValue(address + 0 * SIZE_OF_INT, cursor[0], "i32");
+  C.setValue(address + 1 * SIZE_OF_INT, cursor[1], "i32");
+  C.setValue(address + 2 * SIZE_OF_INT, cursor[2], "i32");
+  C.setValue(address + 3 * SIZE_OF_INT, cursor[3], "i32");
+}
+function unmarshalTreeCursor(cursor) {
+  cursor[0] = C.getValue(TRANSFER_BUFFER + 0 * SIZE_OF_INT, "i32");
+  cursor[1] = C.getValue(TRANSFER_BUFFER + 1 * SIZE_OF_INT, "i32");
+  cursor[2] = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
+  cursor[3] = C.getValue(TRANSFER_BUFFER + 3 * SIZE_OF_INT, "i32");
+}
+function marshalPoint(address, point) {
+  C.setValue(address, point.row, "i32");
+  C.setValue(address + SIZE_OF_INT, point.column, "i32");
+}
+function unmarshalPoint(address) {
+  const result2 = {
+    row: C.getValue(address, "i32") >>> 0,
+    column: C.getValue(address + SIZE_OF_INT, "i32") >>> 0
+  };
+  return result2;
+}
+function marshalRange(address, range) {
+  marshalPoint(address, range.startPosition);
+  address += SIZE_OF_POINT;
+  marshalPoint(address, range.endPosition);
+  address += SIZE_OF_POINT;
+  C.setValue(address, range.startIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, range.endIndex, "i32");
+  address += SIZE_OF_INT;
+}
+function unmarshalRange(address) {
+  const result2 = {};
+  result2.startPosition = unmarshalPoint(address);
+  address += SIZE_OF_POINT;
+  result2.endPosition = unmarshalPoint(address);
+  address += SIZE_OF_POINT;
+  result2.startIndex = C.getValue(address, "i32") >>> 0;
+  address += SIZE_OF_INT;
+  result2.endIndex = C.getValue(address, "i32") >>> 0;
+  return result2;
+}
+function marshalEdit(edit, address = TRANSFER_BUFFER) {
+  marshalPoint(address, edit.startPosition);
+  address += SIZE_OF_POINT;
+  marshalPoint(address, edit.oldEndPosition);
+  address += SIZE_OF_POINT;
+  marshalPoint(address, edit.newEndPosition);
+  address += SIZE_OF_POINT;
+  C.setValue(address, edit.startIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, edit.oldEndIndex, "i32");
+  address += SIZE_OF_INT;
+  C.setValue(address, edit.newEndIndex, "i32");
+  address += SIZE_OF_INT;
+}
+function unmarshalLanguageMetadata(address) {
+  const major_version = C.getValue(address, "i32");
+  const minor_version = C.getValue(address += SIZE_OF_INT, "i32");
+  const patch_version = C.getValue(address += SIZE_OF_INT, "i32");
+  return { major_version, minor_version, patch_version };
+}
+function parseAnyPredicate(steps, index, operator, textPredicates) {
+  if (steps.length !== 3) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}`
+    );
+  }
+  if (!isCaptureStep(steps[1])) {
+    throw new Error(
+      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}"`
+    );
+  }
+  const isPositive = operator === "eq?" || operator === "any-eq?";
+  const matchAll = !operator.startsWith("any-");
+  if (isCaptureStep(steps[2])) {
+    const captureName1 = steps[1].name;
+    const captureName2 = steps[2].name;
+    textPredicates[index].push((captures) => {
+      const nodes1 = [];
+      const nodes2 = [];
+      for (const c of captures) {
+        if (c.name === captureName1) nodes1.push(c.node);
+        if (c.name === captureName2) nodes2.push(c.node);
+      }
+      const compare = /* @__PURE__ */ __name((n1, n2, positive) => {
+        return positive ? n1.text === n2.text : n1.text !== n2.text;
+      }, "compare");
+      return matchAll ? nodes1.every((n1) => nodes2.some((n2) => compare(n1, n2, isPositive))) : nodes1.some((n1) => nodes2.some((n2) => compare(n1, n2, isPositive)));
+    });
+  } else {
+    const captureName = steps[1].name;
+    const stringValue = steps[2].value;
+    const matches = /* @__PURE__ */ __name((n) => n.text === stringValue, "matches");
+    const doesNotMatch = /* @__PURE__ */ __name((n) => n.text !== stringValue, "doesNotMatch");
+    textPredicates[index].push((captures) => {
+      const nodes = [];
+      for (const c of captures) {
+        if (c.name === captureName) nodes.push(c.node);
+      }
+      const test = isPositive ? matches : doesNotMatch;
+      return matchAll ? nodes.every(test) : nodes.some(test);
+    });
+  }
+}
+function parseMatchPredicate(steps, index, operator, textPredicates) {
+  if (steps.length !== 3) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}.`
+    );
+  }
+  if (steps[1].type !== "capture") {
+    throw new Error(
+      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
+    );
+  }
+  if (steps[2].type !== "string") {
+    throw new Error(
+      `Second argument of \`#${operator}\` predicate must be a string. Got @${steps[2].name}.`
+    );
+  }
+  const isPositive = operator === "match?" || operator === "any-match?";
+  const matchAll = !operator.startsWith("any-");
+  const captureName = steps[1].name;
+  const regex = new RegExp(steps[2].value);
+  textPredicates[index].push((captures) => {
+    const nodes = [];
+    for (const c of captures) {
+      if (c.name === captureName) nodes.push(c.node.text);
+    }
+    const test = /* @__PURE__ */ __name((text, positive) => {
+      return positive ? regex.test(text) : !regex.test(text);
+    }, "test");
+    if (nodes.length === 0) return !isPositive;
+    return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
+  });
+}
+function parseAnyOfPredicate(steps, index, operator, textPredicates) {
+  if (steps.length < 2) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected at least 1. Got ${steps.length - 1}.`
+    );
+  }
+  if (steps[1].type !== "capture") {
+    throw new Error(
+      `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
+    );
+  }
+  const isPositive = operator === "any-of?";
+  const captureName = steps[1].name;
+  const stringSteps = steps.slice(2);
+  if (!stringSteps.every(isStringStep)) {
+    throw new Error(
+      `Arguments to \`#${operator}\` predicate must be strings.".`
+    );
+  }
+  const values = stringSteps.map((s) => s.value);
+  textPredicates[index].push((captures) => {
+    const nodes = [];
+    for (const c of captures) {
+      if (c.name === captureName) nodes.push(c.node.text);
+    }
+    if (nodes.length === 0) return !isPositive;
+    return nodes.every((text) => values.includes(text)) === isPositive;
+  });
+}
+function parseIsPredicate(steps, index, operator, assertedProperties, refutedProperties) {
+  if (steps.length < 2 || steps.length > 3) {
+    throw new Error(
+      `Wrong number of arguments to \`#${operator}\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`
+    );
+  }
+  if (!steps.every(isStringStep)) {
+    throw new Error(
+      `Arguments to \`#${operator}\` predicate must be strings.".`
+    );
+  }
+  const properties = operator === "is?" ? assertedProperties : refutedProperties;
+  if (!properties[index]) properties[index] = {};
+  properties[index][steps[1].value] = steps[2]?.value ?? null;
+}
+function parseSetDirective(steps, index, setProperties) {
+  if (steps.length < 2 || steps.length > 3) {
+    throw new Error(`Wrong number of arguments to \`#set!\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`);
+  }
+  if (!steps.every(isStringStep)) {
+    throw new Error(`Arguments to \`#set!\` predicate must be strings.".`);
+  }
+  if (!setProperties[index]) setProperties[index] = {};
+  setProperties[index][steps[1].value] = steps[2]?.value ?? null;
+}
+function parsePattern(index, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
+  if (stepType === PREDICATE_STEP_TYPE_CAPTURE) {
+    const name2 = captureNames[stepValueId];
+    steps.push({ type: "capture", name: name2 });
+  } else if (stepType === PREDICATE_STEP_TYPE_STRING) {
+    steps.push({ type: "string", value: stringValues[stepValueId] });
+  } else if (steps.length > 0) {
+    if (steps[0].type !== "string") {
+      throw new Error("Predicates must begin with a literal value");
+    }
+    const operator = steps[0].value;
+    switch (operator) {
+      case "any-not-eq?":
+      case "not-eq?":
+      case "any-eq?":
+      case "eq?":
+        parseAnyPredicate(steps, index, operator, textPredicates);
+        break;
+      case "any-not-match?":
+      case "not-match?":
+      case "any-match?":
+      case "match?":
+        parseMatchPredicate(steps, index, operator, textPredicates);
+        break;
+      case "not-any-of?":
+      case "any-of?":
+        parseAnyOfPredicate(steps, index, operator, textPredicates);
+        break;
+      case "is?":
+      case "is-not?":
+        parseIsPredicate(steps, index, operator, assertedProperties, refutedProperties);
+        break;
+      case "set!":
+        parseSetDirective(steps, index, setProperties);
+        break;
+      default:
+        predicates[index].push({ operator, operands: steps.slice(1) });
+    }
+    steps.length = 0;
+  }
+}
+async function initializeBinding(moduleOptions) {
+  if (!Module3) {
+    Module3 = await tree_sitter_default(moduleOptions);
+  }
+  return Module3;
+}
+function checkModule() {
+  return !!Module3;
+}
+var __defProp2, __name, SIZE_OF_SHORT, SIZE_OF_INT, SIZE_OF_CURSOR, SIZE_OF_NODE, SIZE_OF_POINT, SIZE_OF_RANGE, ZERO_POINT, INTERNAL, C, LookaheadIterator, Tree, TreeCursor, Node, PREDICATE_STEP_TYPE_CAPTURE, PREDICATE_STEP_TYPE_STRING, QUERY_WORD_REGEX, CaptureQuantifier, isCaptureStep, isStringStep, QueryErrorKind, QueryError, Query, LANGUAGE_FUNCTION_REGEX, Language, Module2, tree_sitter_default, Module3, TRANSFER_BUFFER, LANGUAGE_VERSION, MIN_COMPATIBLE_VERSION, Parser;
+var init_tree_sitter = __esm({
+  "node_modules/.bun/web-tree-sitter@0.25.10/node_modules/web-tree-sitter/tree-sitter.js"() {
+    __defProp2 = Object.defineProperty;
+    __name = (target, value) => __defProp2(target, "name", { value, configurable: true });
+    SIZE_OF_SHORT = 2;
+    SIZE_OF_INT = 4;
+    SIZE_OF_CURSOR = 4 * SIZE_OF_INT;
+    SIZE_OF_NODE = 5 * SIZE_OF_INT;
+    SIZE_OF_POINT = 2 * SIZE_OF_INT;
+    SIZE_OF_RANGE = 2 * SIZE_OF_INT + 2 * SIZE_OF_POINT;
+    ZERO_POINT = { row: 0, column: 0 };
+    INTERNAL = /* @__PURE__ */ Symbol("INTERNAL");
+    __name(assertInternal, "assertInternal");
+    __name(isPoint, "isPoint");
+    __name(setModule, "setModule");
+    LookaheadIterator = class {
+      static {
+        __name(this, "LookaheadIterator");
+      }
+      /** @internal */
+      [0] = 0;
+      // Internal handle for WASM
+      /** @internal */
+      language;
+      /** @internal */
+      constructor(internal, address, language) {
+        assertInternal(internal);
+        this[0] = address;
+        this.language = language;
+      }
+      /** Get the current symbol of the lookahead iterator. */
+      get currentTypeId() {
+        return C._ts_lookahead_iterator_current_symbol(this[0]);
+      }
+      /** Get the current symbol name of the lookahead iterator. */
+      get currentType() {
+        return this.language.types[this.currentTypeId] || "ERROR";
+      }
+      /** Delete the lookahead iterator, freeing its resources. */
+      delete() {
+        C._ts_lookahead_iterator_delete(this[0]);
+        this[0] = 0;
+      }
+      /**
+       * Reset the lookahead iterator.
+       *
+       * This returns `true` if the language was set successfully and `false`
+       * otherwise.
+       */
+      reset(language, stateId) {
+        if (C._ts_lookahead_iterator_reset(this[0], language[0], stateId)) {
+          this.language = language;
+          return true;
+        }
+        return false;
+      }
+      /**
+       * Reset the lookahead iterator to another state.
+       *
+       * This returns `true` if the iterator was reset to the given state and
+       * `false` otherwise.
+       */
+      resetState(stateId) {
+        return Boolean(C._ts_lookahead_iterator_reset_state(this[0], stateId));
+      }
+      /**
+       * Returns an iterator that iterates over the symbols of the lookahead iterator.
+       *
+       * The iterator will yield the current symbol name as a string for each step
+       * until there are no more symbols to iterate over.
+       */
+      [Symbol.iterator]() {
+        return {
+          next: /* @__PURE__ */ __name(() => {
+            if (C._ts_lookahead_iterator_next(this[0])) {
+              return { done: false, value: this.currentType };
+            }
+            return { done: true, value: "" };
+          }, "next")
+        };
+      }
+    };
+    __name(getText, "getText");
+    Tree = class _Tree {
+      static {
+        __name(this, "Tree");
+      }
+      /** @internal */
+      [0] = 0;
+      // Internal handle for WASM
+      /** @internal */
+      textCallback;
+      /** The language that was used to parse the syntax tree. */
+      language;
+      /** @internal */
+      constructor(internal, address, language, textCallback) {
+        assertInternal(internal);
+        this[0] = address;
+        this.language = language;
+        this.textCallback = textCallback;
+      }
+      /** Create a shallow copy of the syntax tree. This is very fast. */
+      copy() {
+        const address = C._ts_tree_copy(this[0]);
+        return new _Tree(INTERNAL, address, this.language, this.textCallback);
+      }
+      /** Delete the syntax tree, freeing its resources. */
+      delete() {
+        C._ts_tree_delete(this[0]);
+        this[0] = 0;
+      }
+      /** Get the root node of the syntax tree. */
+      get rootNode() {
+        C._ts_tree_root_node_wasm(this[0]);
+        return unmarshalNode(this);
+      }
+      /**
+       * Get the root node of the syntax tree, but with its position shifted
+       * forward by the given offset.
+       */
+      rootNodeWithOffset(offsetBytes, offsetExtent) {
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        C.setValue(address, offsetBytes, "i32");
+        marshalPoint(address + SIZE_OF_INT, offsetExtent);
+        C._ts_tree_root_node_with_offset_wasm(this[0]);
+        return unmarshalNode(this);
+      }
+      /**
+       * Edit the syntax tree to keep it in sync with source code that has been
+       * edited.
+       *
+       * You must describe the edit both in terms of byte offsets and in terms of
+       * row/column coordinates.
+       */
+      edit(edit) {
+        marshalEdit(edit);
+        C._ts_tree_edit_wasm(this[0]);
+      }
+      /** Create a new {@link TreeCursor} starting from the root of the tree. */
+      walk() {
+        return this.rootNode.walk();
+      }
+      /**
+       * Compare this old edited syntax tree to a new syntax tree representing
+       * the same document, returning a sequence of ranges whose syntactic
+       * structure has changed.
+       *
+       * For this to work correctly, this syntax tree must have been edited such
+       * that its ranges match up to the new tree. Generally, you'll want to
+       * call this method right after calling one of the [`Parser::parse`]
+       * functions. Call it on the old tree that was passed to parse, and
+       * pass the new tree that was returned from `parse`.
+       */
+      getChangedRanges(other) {
+        if (!(other instanceof _Tree)) {
+          throw new TypeError("Argument must be a Tree");
+        }
+        C._ts_tree_get_changed_ranges_wasm(this[0], other[0]);
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(count);
+        if (count > 0) {
+          let address = buffer;
+          for (let i2 = 0; i2 < count; i2++) {
+            result2[i2] = unmarshalRange(address);
+            address += SIZE_OF_RANGE;
+          }
+          C._free(buffer);
+        }
+        return result2;
+      }
+      /** Get the included ranges that were used to parse the syntax tree. */
+      getIncludedRanges() {
+        C._ts_tree_included_ranges_wasm(this[0]);
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(count);
+        if (count > 0) {
+          let address = buffer;
+          for (let i2 = 0; i2 < count; i2++) {
+            result2[i2] = unmarshalRange(address);
+            address += SIZE_OF_RANGE;
+          }
+          C._free(buffer);
+        }
+        return result2;
+      }
+    };
+    TreeCursor = class _TreeCursor {
+      static {
+        __name(this, "TreeCursor");
+      }
+      /** @internal */
+      // @ts-expect-error: never read
+      [0] = 0;
+      // Internal handle for Wasm
+      /** @internal */
+      // @ts-expect-error: never read
+      [1] = 0;
+      // Internal handle for Wasm
+      /** @internal */
+      // @ts-expect-error: never read
+      [2] = 0;
+      // Internal handle for Wasm
+      /** @internal */
+      // @ts-expect-error: never read
+      [3] = 0;
+      // Internal handle for Wasm
+      /** @internal */
+      tree;
+      /** @internal */
+      constructor(internal, tree) {
+        assertInternal(internal);
+        this.tree = tree;
+        unmarshalTreeCursor(this);
+      }
+      /** Creates a deep copy of the tree cursor. This allocates new memory. */
+      copy() {
+        const copy = new _TreeCursor(INTERNAL, this.tree);
+        C._ts_tree_cursor_copy_wasm(this.tree[0]);
+        unmarshalTreeCursor(copy);
+        return copy;
+      }
+      /** Delete the tree cursor, freeing its resources. */
+      delete() {
+        marshalTreeCursor(this);
+        C._ts_tree_cursor_delete_wasm(this.tree[0]);
+        this[0] = this[1] = this[2] = 0;
+      }
+      /** Get the tree cursor's current {@link Node}. */
+      get currentNode() {
+        marshalTreeCursor(this);
+        C._ts_tree_cursor_current_node_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get the numerical field id of this tree cursor's current node.
+       *
+       * See also {@link TreeCursor#currentFieldName}.
+       */
+      get currentFieldId() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_field_id_wasm(this.tree[0]);
+      }
+      /** Get the field name of this tree cursor's current node. */
+      get currentFieldName() {
+        return this.tree.language.fields[this.currentFieldId];
+      }
+      /**
+       * Get the depth of the cursor's current node relative to the original
+       * node that the cursor was constructed with.
+       */
+      get currentDepth() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_depth_wasm(this.tree[0]);
+      }
+      /**
+       * Get the index of the cursor's current node out of all of the
+       * descendants of the original node that the cursor was constructed with.
+       */
+      get currentDescendantIndex() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_descendant_index_wasm(this.tree[0]);
+      }
+      /** Get the type of the cursor's current node. */
+      get nodeType() {
+        return this.tree.language.types[this.nodeTypeId] || "ERROR";
+      }
+      /** Get the type id of the cursor's current node. */
+      get nodeTypeId() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_node_type_id_wasm(this.tree[0]);
+      }
+      /** Get the state id of the cursor's current node. */
+      get nodeStateId() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_node_state_id_wasm(this.tree[0]);
+      }
+      /** Get the id of the cursor's current node. */
+      get nodeId() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_node_id_wasm(this.tree[0]);
+      }
+      /**
+       * Check if the cursor's current node is *named*.
+       *
+       * Named nodes correspond to named rules in the grammar, whereas
+       * *anonymous* nodes correspond to string literals in the grammar.
+       */
+      get nodeIsNamed() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_node_is_named_wasm(this.tree[0]) === 1;
+      }
+      /**
+       * Check if the cursor's current node is *missing*.
+       *
+       * Missing nodes are inserted by the parser in order to recover from
+       * certain kinds of syntax errors.
+       */
+      get nodeIsMissing() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_current_node_is_missing_wasm(this.tree[0]) === 1;
+      }
+      /** Get the string content of the cursor's current node. */
+      get nodeText() {
+        marshalTreeCursor(this);
+        const startIndex = C._ts_tree_cursor_start_index_wasm(this.tree[0]);
+        const endIndex = C._ts_tree_cursor_end_index_wasm(this.tree[0]);
+        C._ts_tree_cursor_start_position_wasm(this.tree[0]);
+        const startPosition = unmarshalPoint(TRANSFER_BUFFER);
+        return getText(this.tree, startIndex, endIndex, startPosition);
+      }
+      /** Get the start position of the cursor's current node. */
+      get startPosition() {
+        marshalTreeCursor(this);
+        C._ts_tree_cursor_start_position_wasm(this.tree[0]);
+        return unmarshalPoint(TRANSFER_BUFFER);
+      }
+      /** Get the end position of the cursor's current node. */
+      get endPosition() {
+        marshalTreeCursor(this);
+        C._ts_tree_cursor_end_position_wasm(this.tree[0]);
+        return unmarshalPoint(TRANSFER_BUFFER);
+      }
+      /** Get the start index of the cursor's current node. */
+      get startIndex() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_start_index_wasm(this.tree[0]);
+      }
+      /** Get the end index of the cursor's current node. */
+      get endIndex() {
+        marshalTreeCursor(this);
+        return C._ts_tree_cursor_end_index_wasm(this.tree[0]);
+      }
+      /**
+       * Move this cursor to the first child of its current node.
+       *
+       * This returns `true` if the cursor successfully moved, and returns
+       * `false` if there were no children.
+       */
+      gotoFirstChild() {
+        marshalTreeCursor(this);
+        const result2 = C._ts_tree_cursor_goto_first_child_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Move this cursor to the last child of its current node.
+       *
+       * This returns `true` if the cursor successfully moved, and returns
+       * `false` if there were no children.
+       *
+       * Note that this function may be slower than
+       * {@link TreeCursor#gotoFirstChild} because it needs to
+       * iterate through all the children to compute the child's position.
+       */
+      gotoLastChild() {
+        marshalTreeCursor(this);
+        const result2 = C._ts_tree_cursor_goto_last_child_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Move this cursor to the parent of its current node.
+       *
+       * This returns `true` if the cursor successfully moved, and returns
+       * `false` if there was no parent node (the cursor was already on the
+       * root node).
+       *
+       * Note that the node the cursor was constructed with is considered the root
+       * of the cursor, and the cursor cannot walk outside this node.
+       */
+      gotoParent() {
+        marshalTreeCursor(this);
+        const result2 = C._ts_tree_cursor_goto_parent_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Move this cursor to the next sibling of its current node.
+       *
+       * This returns `true` if the cursor successfully moved, and returns
+       * `false` if there was no next sibling node.
+       *
+       * Note that the node the cursor was constructed with is considered the root
+       * of the cursor, and the cursor cannot walk outside this node.
+       */
+      gotoNextSibling() {
+        marshalTreeCursor(this);
+        const result2 = C._ts_tree_cursor_goto_next_sibling_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Move this cursor to the previous sibling of its current node.
+       *
+       * This returns `true` if the cursor successfully moved, and returns
+       * `false` if there was no previous sibling node.
+       *
+       * Note that this function may be slower than
+       * {@link TreeCursor#gotoNextSibling} due to how node
+       * positions are stored. In the worst case, this will need to iterate
+       * through all the children up to the previous sibling node to recalculate
+       * its position. Also note that the node the cursor was constructed with is
+       * considered the root of the cursor, and the cursor cannot walk outside this node.
+       */
+      gotoPreviousSibling() {
+        marshalTreeCursor(this);
+        const result2 = C._ts_tree_cursor_goto_previous_sibling_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Move the cursor to the node that is the nth descendant of
+       * the original node that the cursor was constructed with, where
+       * zero represents the original node itself.
+       */
+      gotoDescendant(goalDescendantIndex) {
+        marshalTreeCursor(this);
+        C._ts_tree_cursor_goto_descendant_wasm(this.tree[0], goalDescendantIndex);
+        unmarshalTreeCursor(this);
+      }
+      /**
+       * Move this cursor to the first child of its current node that contains or
+       * starts after the given byte offset.
+       *
+       * This returns `true` if the cursor successfully moved to a child node, and returns
+       * `false` if no such child was found.
+       */
+      gotoFirstChildForIndex(goalIndex) {
+        marshalTreeCursor(this);
+        C.setValue(TRANSFER_BUFFER + SIZE_OF_CURSOR, goalIndex, "i32");
+        const result2 = C._ts_tree_cursor_goto_first_child_for_index_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Move this cursor to the first child of its current node that contains or
+       * starts after the given byte offset.
+       *
+       * This returns the index of the child node if one was found, and returns
+       * `null` if no such child was found.
+       */
+      gotoFirstChildForPosition(goalPosition) {
+        marshalTreeCursor(this);
+        marshalPoint(TRANSFER_BUFFER + SIZE_OF_CURSOR, goalPosition);
+        const result2 = C._ts_tree_cursor_goto_first_child_for_position_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+        return result2 === 1;
+      }
+      /**
+       * Re-initialize this tree cursor to start at the original node that the
+       * cursor was constructed with.
+       */
+      reset(node) {
+        marshalNode(node);
+        marshalTreeCursor(this, TRANSFER_BUFFER + SIZE_OF_NODE);
+        C._ts_tree_cursor_reset_wasm(this.tree[0]);
+        unmarshalTreeCursor(this);
+      }
+      /**
+       * Re-initialize a tree cursor to the same position as another cursor.
+       *
+       * Unlike {@link TreeCursor#reset}, this will not lose parent
+       * information and allows reusing already created cursors.
+       */
+      resetTo(cursor) {
+        marshalTreeCursor(this, TRANSFER_BUFFER);
+        marshalTreeCursor(cursor, TRANSFER_BUFFER + SIZE_OF_CURSOR);
+        C._ts_tree_cursor_reset_to_wasm(this.tree[0], cursor.tree[0]);
+        unmarshalTreeCursor(this);
+      }
+    };
+    Node = class {
+      static {
+        __name(this, "Node");
+      }
+      /** @internal */
+      // @ts-expect-error: never read
+      [0] = 0;
+      // Internal handle for Wasm
+      /** @internal */
+      _children;
+      /** @internal */
+      _namedChildren;
+      /** @internal */
+      constructor(internal, {
+        id,
+        tree,
+        startIndex,
+        startPosition,
+        other
+      }) {
+        assertInternal(internal);
+        this[0] = other;
+        this.id = id;
+        this.tree = tree;
+        this.startIndex = startIndex;
+        this.startPosition = startPosition;
+      }
+      /**
+       * The numeric id for this node that is unique.
+       *
+       * Within a given syntax tree, no two nodes have the same id. However:
+       *
+       * * If a new tree is created based on an older tree, and a node from the old tree is reused in
+       *   the process, then that node will have the same id in both trees.
+       *
+       * * A node not marked as having changes does not guarantee it was reused.
+       *
+       * * If a node is marked as having changed in the old tree, it will not be reused.
+       */
+      id;
+      /** The byte index where this node starts. */
+      startIndex;
+      /** The position where this node starts. */
+      startPosition;
+      /** The tree that this node belongs to. */
+      tree;
+      /** Get this node's type as a numerical id. */
+      get typeId() {
+        marshalNode(this);
+        return C._ts_node_symbol_wasm(this.tree[0]);
+      }
+      /**
+       * Get the node's type as a numerical id as it appears in the grammar,
+       * ignoring aliases.
+       */
+      get grammarId() {
+        marshalNode(this);
+        return C._ts_node_grammar_symbol_wasm(this.tree[0]);
+      }
+      /** Get this node's type as a string. */
+      get type() {
+        return this.tree.language.types[this.typeId] || "ERROR";
+      }
+      /**
+       * Get this node's symbol name as it appears in the grammar, ignoring
+       * aliases as a string.
+       */
+      get grammarType() {
+        return this.tree.language.types[this.grammarId] || "ERROR";
+      }
+      /**
+       * Check if this node is *named*.
+       *
+       * Named nodes correspond to named rules in the grammar, whereas
+       * *anonymous* nodes correspond to string literals in the grammar.
+       */
+      get isNamed() {
+        marshalNode(this);
+        return C._ts_node_is_named_wasm(this.tree[0]) === 1;
+      }
+      /**
+       * Check if this node is *extra*.
+       *
+       * Extra nodes represent things like comments, which are not required
+       * by the grammar, but can appear anywhere.
+       */
+      get isExtra() {
+        marshalNode(this);
+        return C._ts_node_is_extra_wasm(this.tree[0]) === 1;
+      }
+      /**
+       * Check if this node represents a syntax error.
+       *
+       * Syntax errors represent parts of the code that could not be incorporated
+       * into a valid syntax tree.
+       */
+      get isError() {
+        marshalNode(this);
+        return C._ts_node_is_error_wasm(this.tree[0]) === 1;
+      }
+      /**
+       * Check if this node is *missing*.
+       *
+       * Missing nodes are inserted by the parser in order to recover from
+       * certain kinds of syntax errors.
+       */
+      get isMissing() {
+        marshalNode(this);
+        return C._ts_node_is_missing_wasm(this.tree[0]) === 1;
+      }
+      /** Check if this node has been edited. */
+      get hasChanges() {
+        marshalNode(this);
+        return C._ts_node_has_changes_wasm(this.tree[0]) === 1;
+      }
+      /**
+       * Check if this node represents a syntax error or contains any syntax
+       * errors anywhere within it.
+       */
+      get hasError() {
+        marshalNode(this);
+        return C._ts_node_has_error_wasm(this.tree[0]) === 1;
+      }
+      /** Get the byte index where this node ends. */
+      get endIndex() {
+        marshalNode(this);
+        return C._ts_node_end_index_wasm(this.tree[0]);
+      }
+      /** Get the position where this node ends. */
+      get endPosition() {
+        marshalNode(this);
+        C._ts_node_end_point_wasm(this.tree[0]);
+        return unmarshalPoint(TRANSFER_BUFFER);
+      }
+      /** Get the string content of this node. */
+      get text() {
+        return getText(this.tree, this.startIndex, this.endIndex, this.startPosition);
+      }
+      /** Get this node's parse state. */
+      get parseState() {
+        marshalNode(this);
+        return C._ts_node_parse_state_wasm(this.tree[0]);
+      }
+      /** Get the parse state after this node. */
+      get nextParseState() {
+        marshalNode(this);
+        return C._ts_node_next_parse_state_wasm(this.tree[0]);
+      }
+      /** Check if this node is equal to another node. */
+      equals(other) {
+        return this.tree === other.tree && this.id === other.id;
+      }
+      /**
+       * Get the node's child at the given index, where zero represents the first child.
+       *
+       * This method is fairly fast, but its cost is technically log(n), so if
+       * you might be iterating over a long list of children, you should use
+       * {@link Node#children} instead.
+       */
+      child(index) {
+        marshalNode(this);
+        C._ts_node_child_wasm(this.tree[0], index);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get this node's *named* child at the given index.
+       *
+       * See also {@link Node#isNamed}.
+       * This method is fairly fast, but its cost is technically log(n), so if
+       * you might be iterating over a long list of children, you should use
+       * {@link Node#namedChildren} instead.
+       */
+      namedChild(index) {
+        marshalNode(this);
+        C._ts_node_named_child_wasm(this.tree[0], index);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get this node's child with the given numerical field id.
+       *
+       * See also {@link Node#childForFieldName}. You can
+       * convert a field name to an id using {@link Language#fieldIdForName}.
+       */
+      childForFieldId(fieldId) {
+        marshalNode(this);
+        C._ts_node_child_by_field_id_wasm(this.tree[0], fieldId);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get the first child with the given field name.
+       *
+       * If multiple children may have the same field name, access them using
+       * {@link Node#childrenForFieldName}.
+       */
+      childForFieldName(fieldName) {
+        const fieldId = this.tree.language.fields.indexOf(fieldName);
+        if (fieldId !== -1) return this.childForFieldId(fieldId);
+        return null;
+      }
+      /** Get the field name of this node's child at the given index. */
+      fieldNameForChild(index) {
+        marshalNode(this);
+        const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index);
+        if (!address) return null;
+        return C.AsciiToString(address);
+      }
+      /** Get the field name of this node's named child at the given index. */
+      fieldNameForNamedChild(index) {
+        marshalNode(this);
+        const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index);
+        if (!address) return null;
+        return C.AsciiToString(address);
+      }
+      /**
+       * Get an array of this node's children with a given field name.
+       *
+       * See also {@link Node#children}.
+       */
+      childrenForFieldName(fieldName) {
+        const fieldId = this.tree.language.fields.indexOf(fieldName);
+        if (fieldId !== -1 && fieldId !== 0) return this.childrenForFieldId(fieldId);
+        return [];
+      }
+      /**
+        * Get an array of this node's children with a given field id.
+        *
+        * See also {@link Node#childrenForFieldName}.
+        */
+      childrenForFieldId(fieldId) {
+        marshalNode(this);
+        C._ts_node_children_by_field_id_wasm(this.tree[0], fieldId);
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(count);
+        if (count > 0) {
+          let address = buffer;
+          for (let i2 = 0; i2 < count; i2++) {
+            result2[i2] = unmarshalNode(this.tree, address);
+            address += SIZE_OF_NODE;
+          }
+          C._free(buffer);
+        }
+        return result2;
+      }
+      /** Get the node's first child that contains or starts after the given byte offset. */
+      firstChildForIndex(index) {
+        marshalNode(this);
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        C.setValue(address, index, "i32");
+        C._ts_node_first_child_for_byte_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get the node's first named child that contains or starts after the given byte offset. */
+      firstNamedChildForIndex(index) {
+        marshalNode(this);
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        C.setValue(address, index, "i32");
+        C._ts_node_first_named_child_for_byte_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get this node's number of children. */
+      get childCount() {
+        marshalNode(this);
+        return C._ts_node_child_count_wasm(this.tree[0]);
+      }
+      /**
+       * Get this node's number of *named* children.
+       *
+       * See also {@link Node#isNamed}.
+       */
+      get namedChildCount() {
+        marshalNode(this);
+        return C._ts_node_named_child_count_wasm(this.tree[0]);
+      }
+      /** Get this node's first child. */
+      get firstChild() {
+        return this.child(0);
+      }
+      /**
+       * Get this node's first named child.
+       *
+       * See also {@link Node#isNamed}.
+       */
+      get firstNamedChild() {
+        return this.namedChild(0);
+      }
+      /** Get this node's last child. */
+      get lastChild() {
+        return this.child(this.childCount - 1);
+      }
+      /**
+       * Get this node's last named child.
+       *
+       * See also {@link Node#isNamed}.
+       */
+      get lastNamedChild() {
+        return this.namedChild(this.namedChildCount - 1);
+      }
+      /**
+       * Iterate over this node's children.
+       *
+       * If you're walking the tree recursively, you may want to use the
+       * {@link TreeCursor} APIs directly instead.
+       */
+      get children() {
+        if (!this._children) {
+          marshalNode(this);
+          C._ts_node_children_wasm(this.tree[0]);
+          const count = C.getValue(TRANSFER_BUFFER, "i32");
+          const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+          this._children = new Array(count);
+          if (count > 0) {
+            let address = buffer;
+            for (let i2 = 0; i2 < count; i2++) {
+              this._children[i2] = unmarshalNode(this.tree, address);
+              address += SIZE_OF_NODE;
+            }
+            C._free(buffer);
+          }
+        }
+        return this._children;
+      }
+      /**
+       * Iterate over this node's named children.
+       *
+       * See also {@link Node#children}.
+       */
+      get namedChildren() {
+        if (!this._namedChildren) {
+          marshalNode(this);
+          C._ts_node_named_children_wasm(this.tree[0]);
+          const count = C.getValue(TRANSFER_BUFFER, "i32");
+          const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+          this._namedChildren = new Array(count);
+          if (count > 0) {
+            let address = buffer;
+            for (let i2 = 0; i2 < count; i2++) {
+              this._namedChildren[i2] = unmarshalNode(this.tree, address);
+              address += SIZE_OF_NODE;
+            }
+            C._free(buffer);
+          }
+        }
+        return this._namedChildren;
+      }
+      /**
+       * Get the descendants of this node that are the given type, or in the given types array.
+       *
+       * The types array should contain node type strings, which can be retrieved from {@link Language#types}.
+       *
+       * Additionally, a `startPosition` and `endPosition` can be passed in to restrict the search to a byte range.
+       */
+      descendantsOfType(types, startPosition = ZERO_POINT, endPosition = ZERO_POINT) {
+        if (!Array.isArray(types)) types = [types];
+        const symbols = [];
+        const typesBySymbol = this.tree.language.types;
+        for (const node_type of types) {
+          if (node_type == "ERROR") {
+            symbols.push(65535);
+          }
+        }
+        for (let i2 = 0, n = typesBySymbol.length; i2 < n; i2++) {
+          if (types.includes(typesBySymbol[i2])) {
+            symbols.push(i2);
+          }
+        }
+        const symbolsAddress = C._malloc(SIZE_OF_INT * symbols.length);
+        for (let i2 = 0, n = symbols.length; i2 < n; i2++) {
+          C.setValue(symbolsAddress + i2 * SIZE_OF_INT, symbols[i2], "i32");
+        }
+        marshalNode(this);
+        C._ts_node_descendants_of_type_wasm(
+          this.tree[0],
+          symbolsAddress,
+          symbols.length,
+          startPosition.row,
+          startPosition.column,
+          endPosition.row,
+          endPosition.column
+        );
+        const descendantCount = C.getValue(TRANSFER_BUFFER, "i32");
+        const descendantAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(descendantCount);
+        if (descendantCount > 0) {
+          let address = descendantAddress;
+          for (let i2 = 0; i2 < descendantCount; i2++) {
+            result2[i2] = unmarshalNode(this.tree, address);
+            address += SIZE_OF_NODE;
+          }
+        }
+        C._free(descendantAddress);
+        C._free(symbolsAddress);
+        return result2;
+      }
+      /** Get this node's next sibling. */
+      get nextSibling() {
+        marshalNode(this);
+        C._ts_node_next_sibling_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get this node's previous sibling. */
+      get previousSibling() {
+        marshalNode(this);
+        C._ts_node_prev_sibling_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get this node's next *named* sibling.
+       *
+       * See also {@link Node#isNamed}.
+       */
+      get nextNamedSibling() {
+        marshalNode(this);
+        C._ts_node_next_named_sibling_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get this node's previous *named* sibling.
+       *
+       * See also {@link Node#isNamed}.
+       */
+      get previousNamedSibling() {
+        marshalNode(this);
+        C._ts_node_prev_named_sibling_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get the node's number of descendants, including one for the node itself. */
+      get descendantCount() {
+        marshalNode(this);
+        return C._ts_node_descendant_count_wasm(this.tree[0]);
+      }
+      /**
+       * Get this node's immediate parent.
+       * Prefer {@link Node#childWithDescendant} for iterating over this node's ancestors.
+       */
+      get parent() {
+        marshalNode(this);
+        C._ts_node_parent_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Get the node that contains `descendant`.
+       *
+       * Note that this can return `descendant` itself.
+       */
+      childWithDescendant(descendant) {
+        marshalNode(this);
+        marshalNode(descendant, 1);
+        C._ts_node_child_with_descendant_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get the smallest node within this node that spans the given byte range. */
+      descendantForIndex(start2, end = start2) {
+        if (typeof start2 !== "number" || typeof end !== "number") {
+          throw new Error("Arguments must be numbers");
+        }
+        marshalNode(this);
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        C.setValue(address, start2, "i32");
+        C.setValue(address + SIZE_OF_INT, end, "i32");
+        C._ts_node_descendant_for_index_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get the smallest named node within this node that spans the given byte range. */
+      namedDescendantForIndex(start2, end = start2) {
+        if (typeof start2 !== "number" || typeof end !== "number") {
+          throw new Error("Arguments must be numbers");
+        }
+        marshalNode(this);
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        C.setValue(address, start2, "i32");
+        C.setValue(address + SIZE_OF_INT, end, "i32");
+        C._ts_node_named_descendant_for_index_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get the smallest node within this node that spans the given point range. */
+      descendantForPosition(start2, end = start2) {
+        if (!isPoint(start2) || !isPoint(end)) {
+          throw new Error("Arguments must be {row, column} objects");
+        }
+        marshalNode(this);
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        marshalPoint(address, start2);
+        marshalPoint(address + SIZE_OF_POINT, end);
+        C._ts_node_descendant_for_position_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /** Get the smallest named node within this node that spans the given point range. */
+      namedDescendantForPosition(start2, end = start2) {
+        if (!isPoint(start2) || !isPoint(end)) {
+          throw new Error("Arguments must be {row, column} objects");
+        }
+        marshalNode(this);
+        const address = TRANSFER_BUFFER + SIZE_OF_NODE;
+        marshalPoint(address, start2);
+        marshalPoint(address + SIZE_OF_POINT, end);
+        C._ts_node_named_descendant_for_position_wasm(this.tree[0]);
+        return unmarshalNode(this.tree);
+      }
+      /**
+       * Create a new {@link TreeCursor} starting from this node.
+       *
+       * Note that the given node is considered the root of the cursor,
+       * and the cursor cannot walk outside this node.
+       */
+      walk() {
+        marshalNode(this);
+        C._ts_tree_cursor_new_wasm(this.tree[0]);
+        return new TreeCursor(INTERNAL, this.tree);
+      }
+      /**
+       * Edit this node to keep it in-sync with source code that has been edited.
+       *
+       * This function is only rarely needed. When you edit a syntax tree with
+       * the {@link Tree#edit} method, all of the nodes that you retrieve from
+       * the tree afterward will already reflect the edit. You only need to
+       * use {@link Node#edit} when you have a specific {@link Node} instance that
+       * you want to keep and continue to use after an edit.
+       */
+      edit(edit) {
+        if (this.startIndex >= edit.oldEndIndex) {
+          this.startIndex = edit.newEndIndex + (this.startIndex - edit.oldEndIndex);
+          let subbedPointRow;
+          let subbedPointColumn;
+          if (this.startPosition.row > edit.oldEndPosition.row) {
+            subbedPointRow = this.startPosition.row - edit.oldEndPosition.row;
+            subbedPointColumn = this.startPosition.column;
+          } else {
+            subbedPointRow = 0;
+            subbedPointColumn = this.startPosition.column;
+            if (this.startPosition.column >= edit.oldEndPosition.column) {
+              subbedPointColumn = this.startPosition.column - edit.oldEndPosition.column;
+            }
+          }
+          if (subbedPointRow > 0) {
+            this.startPosition.row += subbedPointRow;
+            this.startPosition.column = subbedPointColumn;
+          } else {
+            this.startPosition.column += subbedPointColumn;
+          }
+        } else if (this.startIndex > edit.startIndex) {
+          this.startIndex = edit.newEndIndex;
+          this.startPosition.row = edit.newEndPosition.row;
+          this.startPosition.column = edit.newEndPosition.column;
+        }
+      }
+      /** Get the S-expression representation of this node. */
+      toString() {
+        marshalNode(this);
+        const address = C._ts_node_to_string_wasm(this.tree[0]);
+        const result2 = C.AsciiToString(address);
+        C._free(address);
+        return result2;
+      }
+    };
+    __name(unmarshalCaptures, "unmarshalCaptures");
+    __name(marshalNode, "marshalNode");
+    __name(unmarshalNode, "unmarshalNode");
+    __name(marshalTreeCursor, "marshalTreeCursor");
+    __name(unmarshalTreeCursor, "unmarshalTreeCursor");
+    __name(marshalPoint, "marshalPoint");
+    __name(unmarshalPoint, "unmarshalPoint");
+    __name(marshalRange, "marshalRange");
+    __name(unmarshalRange, "unmarshalRange");
+    __name(marshalEdit, "marshalEdit");
+    __name(unmarshalLanguageMetadata, "unmarshalLanguageMetadata");
+    PREDICATE_STEP_TYPE_CAPTURE = 1;
+    PREDICATE_STEP_TYPE_STRING = 2;
+    QUERY_WORD_REGEX = /[\w-]+/g;
+    CaptureQuantifier = {
+      Zero: 0,
+      ZeroOrOne: 1,
+      ZeroOrMore: 2,
+      One: 3,
+      OneOrMore: 4
+    };
+    isCaptureStep = /* @__PURE__ */ __name((step) => step.type === "capture", "isCaptureStep");
+    isStringStep = /* @__PURE__ */ __name((step) => step.type === "string", "isStringStep");
+    QueryErrorKind = {
+      Syntax: 1,
+      NodeName: 2,
+      FieldName: 3,
+      CaptureName: 4,
+      PatternStructure: 5
+    };
+    QueryError = class _QueryError extends Error {
+      constructor(kind, info2, index, length) {
+        super(_QueryError.formatMessage(kind, info2));
+        this.kind = kind;
+        this.info = info2;
+        this.index = index;
+        this.length = length;
+        this.name = "QueryError";
+      }
+      static {
+        __name(this, "QueryError");
+      }
+      /** Formats an error message based on the error kind and info */
+      static formatMessage(kind, info2) {
+        switch (kind) {
+          case QueryErrorKind.NodeName:
+            return `Bad node name '${info2.word}'`;
+          case QueryErrorKind.FieldName:
+            return `Bad field name '${info2.word}'`;
+          case QueryErrorKind.CaptureName:
+            return `Bad capture name @${info2.word}`;
+          case QueryErrorKind.PatternStructure:
+            return `Bad pattern structure at offset ${info2.suffix}`;
+          case QueryErrorKind.Syntax:
+            return `Bad syntax at offset ${info2.suffix}`;
+        }
+      }
+    };
+    __name(parseAnyPredicate, "parseAnyPredicate");
+    __name(parseMatchPredicate, "parseMatchPredicate");
+    __name(parseAnyOfPredicate, "parseAnyOfPredicate");
+    __name(parseIsPredicate, "parseIsPredicate");
+    __name(parseSetDirective, "parseSetDirective");
+    __name(parsePattern, "parsePattern");
+    Query = class {
+      static {
+        __name(this, "Query");
+      }
+      /** @internal */
+      [0] = 0;
+      // Internal handle for WASM
+      /** @internal */
+      exceededMatchLimit;
+      /** @internal */
+      textPredicates;
+      /** The names of the captures used in the query. */
+      captureNames;
+      /** The quantifiers of the captures used in the query. */
+      captureQuantifiers;
+      /**
+       * The other user-defined predicates associated with the given index.
+       *
+       * This includes predicates with operators other than:
+       * - `match?`
+       * - `eq?` and `not-eq?`
+       * - `any-of?` and `not-any-of?`
+       * - `is?` and `is-not?`
+       * - `set!`
+       */
+      predicates;
+      /** The properties for predicates with the operator `set!`. */
+      setProperties;
+      /** The properties for predicates with the operator `is?`. */
+      assertedProperties;
+      /** The properties for predicates with the operator `is-not?`. */
+      refutedProperties;
+      /** The maximum number of in-progress matches for this cursor. */
+      matchLimit;
+      /**
+       * Create a new query from a string containing one or more S-expression
+       * patterns.
+       *
+       * The query is associated with a particular language, and can only be run
+       * on syntax nodes parsed with that language. References to Queries can be
+       * shared between multiple threads.
+       *
+       * @link {@see https://tree-sitter.github.io/tree-sitter/using-parsers/queries}
+       */
+      constructor(language, source) {
+        const sourceLength = C.lengthBytesUTF8(source);
+        const sourceAddress = C._malloc(sourceLength + 1);
+        C.stringToUTF8(source, sourceAddress, sourceLength + 1);
+        const address = C._ts_query_new(
+          language[0],
+          sourceAddress,
+          sourceLength,
+          TRANSFER_BUFFER,
+          TRANSFER_BUFFER + SIZE_OF_INT
+        );
+        if (!address) {
+          const errorId = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+          const errorByte = C.getValue(TRANSFER_BUFFER, "i32");
+          const errorIndex = C.UTF8ToString(sourceAddress, errorByte).length;
+          const suffix = source.slice(errorIndex, errorIndex + 100).split("\n")[0];
+          const word = suffix.match(QUERY_WORD_REGEX)?.[0] ?? "";
+          C._free(sourceAddress);
+          switch (errorId) {
+            case QueryErrorKind.Syntax:
+              throw new QueryError(QueryErrorKind.Syntax, { suffix: `${errorIndex}: '${suffix}'...` }, errorIndex, 0);
+            case QueryErrorKind.NodeName:
+              throw new QueryError(errorId, { word }, errorIndex, word.length);
+            case QueryErrorKind.FieldName:
+              throw new QueryError(errorId, { word }, errorIndex, word.length);
+            case QueryErrorKind.CaptureName:
+              throw new QueryError(errorId, { word }, errorIndex, word.length);
+            case QueryErrorKind.PatternStructure:
+              throw new QueryError(errorId, { suffix: `${errorIndex}: '${suffix}'...` }, errorIndex, 0);
+          }
+        }
+        const stringCount = C._ts_query_string_count(address);
+        const captureCount = C._ts_query_capture_count(address);
+        const patternCount = C._ts_query_pattern_count(address);
+        const captureNames = new Array(captureCount);
+        const captureQuantifiers = new Array(patternCount);
+        const stringValues = new Array(stringCount);
+        for (let i2 = 0; i2 < captureCount; i2++) {
+          const nameAddress = C._ts_query_capture_name_for_id(
+            address,
+            i2,
+            TRANSFER_BUFFER
+          );
+          const nameLength = C.getValue(TRANSFER_BUFFER, "i32");
+          captureNames[i2] = C.UTF8ToString(nameAddress, nameLength);
+        }
+        for (let i2 = 0; i2 < patternCount; i2++) {
+          const captureQuantifiersArray = new Array(captureCount);
+          for (let j = 0; j < captureCount; j++) {
+            const quantifier = C._ts_query_capture_quantifier_for_id(address, i2, j);
+            captureQuantifiersArray[j] = quantifier;
+          }
+          captureQuantifiers[i2] = captureQuantifiersArray;
+        }
+        for (let i2 = 0; i2 < stringCount; i2++) {
+          const valueAddress = C._ts_query_string_value_for_id(
+            address,
+            i2,
+            TRANSFER_BUFFER
+          );
+          const nameLength = C.getValue(TRANSFER_BUFFER, "i32");
+          stringValues[i2] = C.UTF8ToString(valueAddress, nameLength);
+        }
+        const setProperties = new Array(patternCount);
+        const assertedProperties = new Array(patternCount);
+        const refutedProperties = new Array(patternCount);
+        const predicates = new Array(patternCount);
+        const textPredicates = new Array(patternCount);
+        for (let i2 = 0; i2 < patternCount; i2++) {
+          const predicatesAddress = C._ts_query_predicates_for_pattern(address, i2, TRANSFER_BUFFER);
+          const stepCount = C.getValue(TRANSFER_BUFFER, "i32");
+          predicates[i2] = [];
+          textPredicates[i2] = [];
+          const steps = new Array();
+          let stepAddress = predicatesAddress;
+          for (let j = 0; j < stepCount; j++) {
+            const stepType = C.getValue(stepAddress, "i32");
+            stepAddress += SIZE_OF_INT;
+            const stepValueId = C.getValue(stepAddress, "i32");
+            stepAddress += SIZE_OF_INT;
+            parsePattern(
+              i2,
+              stepType,
+              stepValueId,
+              captureNames,
+              stringValues,
+              steps,
+              textPredicates,
+              predicates,
+              setProperties,
+              assertedProperties,
+              refutedProperties
+            );
+          }
+          Object.freeze(textPredicates[i2]);
+          Object.freeze(predicates[i2]);
+          Object.freeze(setProperties[i2]);
+          Object.freeze(assertedProperties[i2]);
+          Object.freeze(refutedProperties[i2]);
+        }
+        C._free(sourceAddress);
+        this[0] = address;
+        this.captureNames = captureNames;
+        this.captureQuantifiers = captureQuantifiers;
+        this.textPredicates = textPredicates;
+        this.predicates = predicates;
+        this.setProperties = setProperties;
+        this.assertedProperties = assertedProperties;
+        this.refutedProperties = refutedProperties;
+        this.exceededMatchLimit = false;
+      }
+      /** Delete the query, freeing its resources. */
+      delete() {
+        C._ts_query_delete(this[0]);
+        this[0] = 0;
+      }
+      /**
+       * Iterate over all of the matches in the order that they were found.
+       *
+       * Each match contains the index of the pattern that matched, and a list of
+       * captures. Because multiple patterns can match the same set of nodes,
+       * one match may contain captures that appear *before* some of the
+       * captures from a previous match.
+       *
+       * @param {Node} node - The node to execute the query on.
+       *
+       * @param {QueryOptions} options - Options for query execution.
+       */
+      matches(node, options = {}) {
+        const startPosition = options.startPosition ?? ZERO_POINT;
+        const endPosition = options.endPosition ?? ZERO_POINT;
+        const startIndex = options.startIndex ?? 0;
+        const endIndex = options.endIndex ?? 0;
+        const matchLimit = options.matchLimit ?? 4294967295;
+        const maxStartDepth = options.maxStartDepth ?? 4294967295;
+        const timeoutMicros = options.timeoutMicros ?? 0;
+        const progressCallback = options.progressCallback;
+        if (typeof matchLimit !== "number") {
+          throw new Error("Arguments must be numbers");
+        }
+        this.matchLimit = matchLimit;
+        if (endIndex !== 0 && startIndex > endIndex) {
+          throw new Error("`startIndex` cannot be greater than `endIndex`");
+        }
+        if (endPosition !== ZERO_POINT && (startPosition.row > endPosition.row || startPosition.row === endPosition.row && startPosition.column > endPosition.column)) {
+          throw new Error("`startPosition` cannot be greater than `endPosition`");
+        }
+        if (progressCallback) {
+          C.currentQueryProgressCallback = progressCallback;
+        }
+        marshalNode(node);
+        C._ts_query_matches_wasm(
+          this[0],
+          node.tree[0],
+          startPosition.row,
+          startPosition.column,
+          endPosition.row,
+          endPosition.column,
+          startIndex,
+          endIndex,
+          matchLimit,
+          maxStartDepth,
+          timeoutMicros
+        );
+        const rawCount = C.getValue(TRANSFER_BUFFER, "i32");
+        const startAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const didExceedMatchLimit = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
+        const result2 = new Array(rawCount);
+        this.exceededMatchLimit = Boolean(didExceedMatchLimit);
+        let filteredCount = 0;
+        let address = startAddress;
+        for (let i2 = 0; i2 < rawCount; i2++) {
+          const patternIndex = C.getValue(address, "i32");
+          address += SIZE_OF_INT;
+          const captureCount = C.getValue(address, "i32");
+          address += SIZE_OF_INT;
+          const captures = new Array(captureCount);
+          address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
+          if (this.textPredicates[patternIndex].every((p) => p(captures))) {
+            result2[filteredCount] = { pattern: patternIndex, patternIndex, captures };
+            const setProperties = this.setProperties[patternIndex];
+            result2[filteredCount].setProperties = setProperties;
+            const assertedProperties = this.assertedProperties[patternIndex];
+            result2[filteredCount].assertedProperties = assertedProperties;
+            const refutedProperties = this.refutedProperties[patternIndex];
+            result2[filteredCount].refutedProperties = refutedProperties;
+            filteredCount++;
+          }
+        }
+        result2.length = filteredCount;
+        C._free(startAddress);
+        C.currentQueryProgressCallback = null;
+        return result2;
+      }
+      /**
+       * Iterate over all of the individual captures in the order that they
+       * appear.
+       *
+       * This is useful if you don't care about which pattern matched, and just
+       * want a single, ordered sequence of captures.
+       *
+       * @param {Node} node - The node to execute the query on.
+       *
+       * @param {QueryOptions} options - Options for query execution.
+       */
+      captures(node, options = {}) {
+        const startPosition = options.startPosition ?? ZERO_POINT;
+        const endPosition = options.endPosition ?? ZERO_POINT;
+        const startIndex = options.startIndex ?? 0;
+        const endIndex = options.endIndex ?? 0;
+        const matchLimit = options.matchLimit ?? 4294967295;
+        const maxStartDepth = options.maxStartDepth ?? 4294967295;
+        const timeoutMicros = options.timeoutMicros ?? 0;
+        const progressCallback = options.progressCallback;
+        if (typeof matchLimit !== "number") {
+          throw new Error("Arguments must be numbers");
+        }
+        this.matchLimit = matchLimit;
+        if (endIndex !== 0 && startIndex > endIndex) {
+          throw new Error("`startIndex` cannot be greater than `endIndex`");
+        }
+        if (endPosition !== ZERO_POINT && (startPosition.row > endPosition.row || startPosition.row === endPosition.row && startPosition.column > endPosition.column)) {
+          throw new Error("`startPosition` cannot be greater than `endPosition`");
+        }
+        if (progressCallback) {
+          C.currentQueryProgressCallback = progressCallback;
+        }
+        marshalNode(node);
+        C._ts_query_captures_wasm(
+          this[0],
+          node.tree[0],
+          startPosition.row,
+          startPosition.column,
+          endPosition.row,
+          endPosition.column,
+          startIndex,
+          endIndex,
+          matchLimit,
+          maxStartDepth,
+          timeoutMicros
+        );
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const startAddress = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const didExceedMatchLimit = C.getValue(TRANSFER_BUFFER + 2 * SIZE_OF_INT, "i32");
+        const result2 = new Array();
+        this.exceededMatchLimit = Boolean(didExceedMatchLimit);
+        const captures = new Array();
+        let address = startAddress;
+        for (let i2 = 0; i2 < count; i2++) {
+          const patternIndex = C.getValue(address, "i32");
+          address += SIZE_OF_INT;
+          const captureCount = C.getValue(address, "i32");
+          address += SIZE_OF_INT;
+          const captureIndex = C.getValue(address, "i32");
+          address += SIZE_OF_INT;
+          captures.length = captureCount;
+          address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
+          if (this.textPredicates[patternIndex].every((p) => p(captures))) {
+            const capture = captures[captureIndex];
+            const setProperties = this.setProperties[patternIndex];
+            capture.setProperties = setProperties;
+            const assertedProperties = this.assertedProperties[patternIndex];
+            capture.assertedProperties = assertedProperties;
+            const refutedProperties = this.refutedProperties[patternIndex];
+            capture.refutedProperties = refutedProperties;
+            result2.push(capture);
+          }
+        }
+        C._free(startAddress);
+        C.currentQueryProgressCallback = null;
+        return result2;
+      }
+      /** Get the predicates for a given pattern. */
+      predicatesForPattern(patternIndex) {
+        return this.predicates[patternIndex];
+      }
+      /**
+       * Disable a certain capture within a query.
+       *
+       * This prevents the capture from being returned in matches, and also
+       * avoids any resource usage associated with recording the capture.
+       */
+      disableCapture(captureName) {
+        const captureNameLength = C.lengthBytesUTF8(captureName);
+        const captureNameAddress = C._malloc(captureNameLength + 1);
+        C.stringToUTF8(captureName, captureNameAddress, captureNameLength + 1);
+        C._ts_query_disable_capture(this[0], captureNameAddress, captureNameLength);
+        C._free(captureNameAddress);
+      }
+      /**
+       * Disable a certain pattern within a query.
+       *
+       * This prevents the pattern from matching, and also avoids any resource
+       * usage associated with the pattern. This throws an error if the pattern
+       * index is out of bounds.
+       */
+      disablePattern(patternIndex) {
+        if (patternIndex >= this.predicates.length) {
+          throw new Error(
+            `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
+          );
+        }
+        C._ts_query_disable_pattern(this[0], patternIndex);
+      }
+      /**
+       * Check if, on its last execution, this cursor exceeded its maximum number
+       * of in-progress matches.
+       */
+      didExceedMatchLimit() {
+        return this.exceededMatchLimit;
+      }
+      /** Get the byte offset where the given pattern starts in the query's source. */
+      startIndexForPattern(patternIndex) {
+        if (patternIndex >= this.predicates.length) {
+          throw new Error(
+            `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
+          );
+        }
+        return C._ts_query_start_byte_for_pattern(this[0], patternIndex);
+      }
+      /** Get the byte offset where the given pattern ends in the query's source. */
+      endIndexForPattern(patternIndex) {
+        if (patternIndex >= this.predicates.length) {
+          throw new Error(
+            `Pattern index is ${patternIndex} but the pattern count is ${this.predicates.length}`
+          );
+        }
+        return C._ts_query_end_byte_for_pattern(this[0], patternIndex);
+      }
+      /** Get the number of patterns in the query. */
+      patternCount() {
+        return C._ts_query_pattern_count(this[0]);
+      }
+      /** Get the index for a given capture name. */
+      captureIndexForName(captureName) {
+        return this.captureNames.indexOf(captureName);
+      }
+      /** Check if a given pattern within a query has a single root node. */
+      isPatternRooted(patternIndex) {
+        return C._ts_query_is_pattern_rooted(this[0], patternIndex) === 1;
+      }
+      /** Check if a given pattern within a query has a single root node. */
+      isPatternNonLocal(patternIndex) {
+        return C._ts_query_is_pattern_non_local(this[0], patternIndex) === 1;
+      }
+      /**
+       * Check if a given step in a query is 'definite'.
+       *
+       * A query step is 'definite' if its parent pattern will be guaranteed to
+       * match successfully once it reaches the step.
+       */
+      isPatternGuaranteedAtStep(byteIndex) {
+        return C._ts_query_is_pattern_guaranteed_at_step(this[0], byteIndex) === 1;
+      }
+    };
+    LANGUAGE_FUNCTION_REGEX = /^tree_sitter_\w+$/;
+    Language = class _Language {
+      static {
+        __name(this, "Language");
+      }
+      /** @internal */
+      [0] = 0;
+      // Internal handle for WASM
+      /**
+       * A list of all node types in the language. The index of each type in this
+       * array is its node type id.
+       */
+      types;
+      /**
+       * A list of all field names in the language. The index of each field name in
+       * this array is its field id.
+       */
+      fields;
+      /** @internal */
+      constructor(internal, address) {
+        assertInternal(internal);
+        this[0] = address;
+        this.types = new Array(C._ts_language_symbol_count(this[0]));
+        for (let i2 = 0, n = this.types.length; i2 < n; i2++) {
+          if (C._ts_language_symbol_type(this[0], i2) < 2) {
+            this.types[i2] = C.UTF8ToString(C._ts_language_symbol_name(this[0], i2));
+          }
+        }
+        this.fields = new Array(C._ts_language_field_count(this[0]) + 1);
+        for (let i2 = 0, n = this.fields.length; i2 < n; i2++) {
+          const fieldName = C._ts_language_field_name_for_id(this[0], i2);
+          if (fieldName !== 0) {
+            this.fields[i2] = C.UTF8ToString(fieldName);
+          } else {
+            this.fields[i2] = null;
+          }
+        }
+      }
+      /**
+       * Gets the name of the language.
+       */
+      get name() {
+        const ptr = C._ts_language_name(this[0]);
+        if (ptr === 0) return null;
+        return C.UTF8ToString(ptr);
+      }
+      /**
+       * @deprecated since version 0.25.0, use {@link Language#abiVersion} instead
+       * Gets the version of the language.
+       */
+      get version() {
+        return C._ts_language_version(this[0]);
+      }
+      /**
+       * Gets the ABI version of the language.
+       */
+      get abiVersion() {
+        return C._ts_language_abi_version(this[0]);
+      }
+      /**
+      * Get the metadata for this language. This information is generated by the
+      * CLI, and relies on the language author providing the correct metadata in
+      * the language's `tree-sitter.json` file.
+      */
+      get metadata() {
+        C._ts_language_metadata(this[0]);
+        const length = C.getValue(TRANSFER_BUFFER, "i32");
+        const address = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        if (length === 0) return null;
+        return unmarshalLanguageMetadata(address);
+      }
+      /**
+       * Gets the number of fields in the language.
+       */
+      get fieldCount() {
+        return this.fields.length - 1;
+      }
+      /**
+       * Gets the number of states in the language.
+       */
+      get stateCount() {
+        return C._ts_language_state_count(this[0]);
+      }
+      /**
+       * Get the field id for a field name.
+       */
+      fieldIdForName(fieldName) {
+        const result2 = this.fields.indexOf(fieldName);
+        return result2 !== -1 ? result2 : null;
+      }
+      /**
+       * Get the field name for a field id.
+       */
+      fieldNameForId(fieldId) {
+        return this.fields[fieldId] ?? null;
+      }
+      /**
+       * Get the node type id for a node type name.
+       */
+      idForNodeType(type, named2) {
+        const typeLength = C.lengthBytesUTF8(type);
+        const typeAddress = C._malloc(typeLength + 1);
+        C.stringToUTF8(type, typeAddress, typeLength + 1);
+        const result2 = C._ts_language_symbol_for_name(this[0], typeAddress, typeLength, named2 ? 1 : 0);
+        C._free(typeAddress);
+        return result2 || null;
+      }
+      /**
+       * Gets the number of node types in the language.
+       */
+      get nodeTypeCount() {
+        return C._ts_language_symbol_count(this[0]);
+      }
+      /**
+       * Get the node type name for a node type id.
+       */
+      nodeTypeForId(typeId) {
+        const name2 = C._ts_language_symbol_name(this[0], typeId);
+        return name2 ? C.UTF8ToString(name2) : null;
+      }
+      /**
+       * Check if a node type is named.
+       *
+       * @see {@link https://tree-sitter.github.io/tree-sitter/using-parsers/2-basic-parsing.html#named-vs-anonymous-nodes}
+       */
+      nodeTypeIsNamed(typeId) {
+        return C._ts_language_type_is_named_wasm(this[0], typeId) ? true : false;
+      }
+      /**
+       * Check if a node type is visible.
+       */
+      nodeTypeIsVisible(typeId) {
+        return C._ts_language_type_is_visible_wasm(this[0], typeId) ? true : false;
+      }
+      /**
+       * Get the supertypes ids of this language.
+       *
+       * @see {@link https://tree-sitter.github.io/tree-sitter/using-parsers/6-static-node-types.html?highlight=supertype#supertype-nodes}
+       */
+      get supertypes() {
+        C._ts_language_supertypes_wasm(this[0]);
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(count);
+        if (count > 0) {
+          let address = buffer;
+          for (let i2 = 0; i2 < count; i2++) {
+            result2[i2] = C.getValue(address, "i16");
+            address += SIZE_OF_SHORT;
+          }
+        }
+        return result2;
+      }
+      /**
+       * Get the subtype ids for a given supertype node id.
+       */
+      subtypes(supertype) {
+        C._ts_language_subtypes_wasm(this[0], supertype);
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(count);
+        if (count > 0) {
+          let address = buffer;
+          for (let i2 = 0; i2 < count; i2++) {
+            result2[i2] = C.getValue(address, "i16");
+            address += SIZE_OF_SHORT;
+          }
+        }
+        return result2;
+      }
+      /**
+       * Get the next state id for a given state id and node type id.
+       */
+      nextState(stateId, typeId) {
+        return C._ts_language_next_state(this[0], stateId, typeId);
+      }
+      /**
+       * Create a new lookahead iterator for this language and parse state.
+       *
+       * This returns `null` if state is invalid for this language.
+       *
+       * Iterating {@link LookaheadIterator} will yield valid symbols in the given
+       * parse state. Newly created lookahead iterators will return the `ERROR`
+       * symbol from {@link LookaheadIterator#currentType}.
+       *
+       * Lookahead iterators can be useful for generating suggestions and improving
+       * syntax error diagnostics. To get symbols valid in an `ERROR` node, use the
+       * lookahead iterator on its first leaf node state. For `MISSING` nodes, a
+       * lookahead iterator created on the previous non-extra leaf node may be
+       * appropriate.
+       */
+      lookaheadIterator(stateId) {
+        const address = C._ts_lookahead_iterator_new(this[0], stateId);
+        if (address) return new LookaheadIterator(INTERNAL, address, this);
+        return null;
+      }
+      /**
+       * @deprecated since version 0.25.0, call `new` on a {@link Query} instead
+       *
+       * Create a new query from a string containing one or more S-expression
+       * patterns.
+       *
+       * The query is associated with a particular language, and can only be run
+       * on syntax nodes parsed with that language. References to Queries can be
+       * shared between multiple threads.
+       *
+       * @link {@see https://tree-sitter.github.io/tree-sitter/using-parsers/queries}
+       */
+      query(source) {
+        console.warn("Language.query is deprecated. Use new Query(language, source) instead.");
+        return new Query(this, source);
+      }
+      /**
+       * Load a language from a WebAssembly module.
+       * The module can be provided as a path to a file or as a buffer.
+       */
+      static async load(input) {
+        let bytes;
+        if (input instanceof Uint8Array) {
+          bytes = Promise.resolve(input);
+        } else {
+          if (globalThis.process?.versions.node) {
+            const fs2 = await import("fs/promises");
+            bytes = fs2.readFile(input);
+          } else {
+            bytes = fetch(input).then((response) => response.arrayBuffer().then((buffer) => {
+              if (response.ok) {
+                return new Uint8Array(buffer);
+              } else {
+                const body2 = new TextDecoder("utf-8").decode(buffer);
+                throw new Error(`Language.load failed with status ${response.status}.
+
+${body2}`);
+              }
+            }));
+          }
+        }
+        const mod = await C.loadWebAssemblyModule(await bytes, { loadAsync: true });
+        const symbolNames = Object.keys(mod);
+        const functionName = symbolNames.find((key) => LANGUAGE_FUNCTION_REGEX.test(key) && !key.includes("external_scanner_"));
+        if (!functionName) {
+          console.log(`Couldn't find language function in WASM file. Symbols:
+${JSON.stringify(symbolNames, null, 2)}`);
+          throw new Error("Language.load failed: no language function found in WASM file");
+        }
+        const languageAddress = mod[functionName]();
+        return new _Language(INTERNAL, languageAddress);
+      }
+    };
+    Module2 = (() => {
+      var _scriptName = import.meta.url;
+      return async function(moduleArg = {}) {
+        var moduleRtn;
+        var Module = moduleArg;
+        var readyPromiseResolve, readyPromiseReject;
+        var readyPromise = new Promise((resolve3, reject) => {
+          readyPromiseResolve = resolve3;
+          readyPromiseReject = reject;
+        });
+        var ENVIRONMENT_IS_WEB = typeof window == "object";
+        var ENVIRONMENT_IS_WORKER = typeof WorkerGlobalScope != "undefined";
+        var ENVIRONMENT_IS_NODE = typeof process == "object" && typeof process.versions == "object" && typeof process.versions.node == "string" && process.type != "renderer";
+        var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIRONMENT_IS_WORKER;
+        if (ENVIRONMENT_IS_NODE) {
+          const { createRequire } = await import("module");
+          var require = createRequire(import.meta.url);
+        }
+        Module.currentQueryProgressCallback = null;
+        Module.currentProgressCallback = null;
+        Module.currentLogCallback = null;
+        Module.currentParseCallback = null;
+        var moduleOverrides = Object.assign({}, Module);
+        var arguments_ = [];
+        var thisProgram = "./this.program";
+        var quit_ = /* @__PURE__ */ __name((status, toThrow) => {
+          throw toThrow;
+        }, "quit_");
+        var scriptDirectory = "";
+        function locateFile(path2) {
+          if (Module["locateFile"]) {
+            return Module["locateFile"](path2, scriptDirectory);
+          }
+          return scriptDirectory + path2;
+        }
+        __name(locateFile, "locateFile");
+        var readAsync, readBinary;
+        if (ENVIRONMENT_IS_NODE) {
+          var fs = require("fs");
+          var nodePath = require("path");
+          if (!import.meta.url.startsWith("data:")) {
+            scriptDirectory = nodePath.dirname(require("url").fileURLToPath(import.meta.url)) + "/";
+          }
+          readBinary = /* @__PURE__ */ __name((filename) => {
+            filename = isFileURI(filename) ? new URL(filename) : filename;
+            var ret = fs.readFileSync(filename);
+            return ret;
+          }, "readBinary");
+          readAsync = /* @__PURE__ */ __name(async (filename, binary2 = true) => {
+            filename = isFileURI(filename) ? new URL(filename) : filename;
+            var ret = fs.readFileSync(filename, binary2 ? void 0 : "utf8");
+            return ret;
+          }, "readAsync");
+          if (!Module["thisProgram"] && process.argv.length > 1) {
+            thisProgram = process.argv[1].replace(/\\/g, "/");
+          }
+          arguments_ = process.argv.slice(2);
+          quit_ = /* @__PURE__ */ __name((status, toThrow) => {
+            process.exitCode = status;
+            throw toThrow;
+          }, "quit_");
+        } else if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
+          if (ENVIRONMENT_IS_WORKER) {
+            scriptDirectory = self.location.href;
+          } else if (typeof document != "undefined" && document.currentScript) {
+            scriptDirectory = document.currentScript.src;
+          }
+          if (_scriptName) {
+            scriptDirectory = _scriptName;
+          }
+          if (scriptDirectory.startsWith("blob:")) {
+            scriptDirectory = "";
+          } else {
+            scriptDirectory = scriptDirectory.slice(0, scriptDirectory.replace(/[?#].*/, "").lastIndexOf("/") + 1);
+          }
+          {
+            if (ENVIRONMENT_IS_WORKER) {
+              readBinary = /* @__PURE__ */ __name((url2) => {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", url2, false);
+                xhr.responseType = "arraybuffer";
+                xhr.send(null);
+                return new Uint8Array(
+                  /** @type{!ArrayBuffer} */
+                  xhr.response
+                );
+              }, "readBinary");
+            }
+            readAsync = /* @__PURE__ */ __name(async (url2) => {
+              if (isFileURI(url2)) {
+                return new Promise((resolve3, reject) => {
+                  var xhr = new XMLHttpRequest();
+                  xhr.open("GET", url2, true);
+                  xhr.responseType = "arraybuffer";
+                  xhr.onload = () => {
+                    if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
+                      resolve3(xhr.response);
+                      return;
+                    }
+                    reject(xhr.status);
+                  };
+                  xhr.onerror = reject;
+                  xhr.send(null);
+                });
+              }
+              var response = await fetch(url2, {
+                credentials: "same-origin"
+              });
+              if (response.ok) {
+                return response.arrayBuffer();
+              }
+              throw new Error(response.status + " : " + response.url);
+            }, "readAsync");
+          }
+        } else {
+        }
+        var out = Module["print"] || console.log.bind(console);
+        var err = Module["printErr"] || console.error.bind(console);
+        Object.assign(Module, moduleOverrides);
+        moduleOverrides = null;
+        if (Module["arguments"]) arguments_ = Module["arguments"];
+        if (Module["thisProgram"]) thisProgram = Module["thisProgram"];
+        var dynamicLibraries = Module["dynamicLibraries"] || [];
+        var wasmBinary = Module["wasmBinary"];
+        var wasmMemory;
+        var ABORT = false;
+        var EXITSTATUS;
+        function assert(condition, text) {
+          if (!condition) {
+            abort(text);
+          }
+        }
+        __name(assert, "assert");
+        var HEAP, HEAP8, HEAPU8, HEAP16, HEAPU16, HEAP32, HEAPU32, HEAPF32, HEAP64, HEAPU64, HEAPF64;
+        var HEAP_DATA_VIEW;
+        var runtimeInitialized = false;
+        var isFileURI = /* @__PURE__ */ __name((filename) => filename.startsWith("file://"), "isFileURI");
+        function updateMemoryViews() {
+          var b = wasmMemory.buffer;
+          Module["HEAP_DATA_VIEW"] = HEAP_DATA_VIEW = new DataView(b);
+          Module["HEAP8"] = HEAP8 = new Int8Array(b);
+          Module["HEAP16"] = HEAP16 = new Int16Array(b);
+          Module["HEAPU8"] = HEAPU8 = new Uint8Array(b);
+          Module["HEAPU16"] = HEAPU16 = new Uint16Array(b);
+          Module["HEAP32"] = HEAP32 = new Int32Array(b);
+          Module["HEAPU32"] = HEAPU32 = new Uint32Array(b);
+          Module["HEAPF32"] = HEAPF32 = new Float32Array(b);
+          Module["HEAPF64"] = HEAPF64 = new Float64Array(b);
+          Module["HEAP64"] = HEAP64 = new BigInt64Array(b);
+          Module["HEAPU64"] = HEAPU64 = new BigUint64Array(b);
+        }
+        __name(updateMemoryViews, "updateMemoryViews");
+        if (Module["wasmMemory"]) {
+          wasmMemory = Module["wasmMemory"];
+        } else {
+          var INITIAL_MEMORY = Module["INITIAL_MEMORY"] || 33554432;
+          wasmMemory = new WebAssembly.Memory({
+            "initial": INITIAL_MEMORY / 65536,
+            // In theory we should not need to emit the maximum if we want "unlimited"
+            // or 4GB of memory, but VMs error on that atm, see
+            // https://github.com/emscripten-core/emscripten/issues/14130
+            // And in the pthreads case we definitely need to emit a maximum. So
+            // always emit one.
+            "maximum": 32768
+          });
+        }
+        updateMemoryViews();
+        var __RELOC_FUNCS__ = [];
+        function preRun() {
+          if (Module["preRun"]) {
+            if (typeof Module["preRun"] == "function") Module["preRun"] = [Module["preRun"]];
+            while (Module["preRun"].length) {
+              addOnPreRun(Module["preRun"].shift());
+            }
+          }
+          callRuntimeCallbacks(onPreRuns);
+        }
+        __name(preRun, "preRun");
+        function initRuntime() {
+          runtimeInitialized = true;
+          callRuntimeCallbacks(__RELOC_FUNCS__);
+          wasmExports["__wasm_call_ctors"]();
+          callRuntimeCallbacks(onPostCtors);
+        }
+        __name(initRuntime, "initRuntime");
+        function preMain() {
+        }
+        __name(preMain, "preMain");
+        function postRun() {
+          if (Module["postRun"]) {
+            if (typeof Module["postRun"] == "function") Module["postRun"] = [Module["postRun"]];
+            while (Module["postRun"].length) {
+              addOnPostRun(Module["postRun"].shift());
+            }
+          }
+          callRuntimeCallbacks(onPostRuns);
+        }
+        __name(postRun, "postRun");
+        var runDependencies = 0;
+        var dependenciesFulfilled = null;
+        function getUniqueRunDependency(id) {
+          return id;
+        }
+        __name(getUniqueRunDependency, "getUniqueRunDependency");
+        function addRunDependency(id) {
+          runDependencies++;
+          Module["monitorRunDependencies"]?.(runDependencies);
+        }
+        __name(addRunDependency, "addRunDependency");
+        function removeRunDependency(id) {
+          runDependencies--;
+          Module["monitorRunDependencies"]?.(runDependencies);
+          if (runDependencies == 0) {
+            if (dependenciesFulfilled) {
+              var callback = dependenciesFulfilled;
+              dependenciesFulfilled = null;
+              callback();
+            }
+          }
+        }
+        __name(removeRunDependency, "removeRunDependency");
+        function abort(what) {
+          Module["onAbort"]?.(what);
+          what = "Aborted(" + what + ")";
+          err(what);
+          ABORT = true;
+          what += ". Build with -sASSERTIONS for more info.";
+          var e = new WebAssembly.RuntimeError(what);
+          readyPromiseReject(e);
+          throw e;
+        }
+        __name(abort, "abort");
+        var wasmBinaryFile;
+        function findWasmBinary() {
+          if (Module["locateFile"]) {
+            return locateFile("tree-sitter.wasm");
+          }
+          return new URL("tree-sitter.wasm", import.meta.url).href;
+        }
+        __name(findWasmBinary, "findWasmBinary");
+        function getBinarySync(file2) {
+          if (file2 == wasmBinaryFile && wasmBinary) {
+            return new Uint8Array(wasmBinary);
+          }
+          if (readBinary) {
+            return readBinary(file2);
+          }
+          throw "both async and sync fetching of the wasm failed";
+        }
+        __name(getBinarySync, "getBinarySync");
+        async function getWasmBinary(binaryFile) {
+          if (!wasmBinary) {
+            try {
+              var response = await readAsync(binaryFile);
+              return new Uint8Array(response);
+            } catch {
+            }
+          }
+          return getBinarySync(binaryFile);
+        }
+        __name(getWasmBinary, "getWasmBinary");
+        async function instantiateArrayBuffer(binaryFile, imports) {
+          try {
+            var binary2 = await getWasmBinary(binaryFile);
+            var instance2 = await WebAssembly.instantiate(binary2, imports);
+            return instance2;
+          } catch (reason) {
+            err(`failed to asynchronously prepare wasm: ${reason}`);
+            abort(reason);
+          }
+        }
+        __name(instantiateArrayBuffer, "instantiateArrayBuffer");
+        async function instantiateAsync(binary2, binaryFile, imports) {
+          if (!binary2 && typeof WebAssembly.instantiateStreaming == "function" && !isFileURI(binaryFile) && !ENVIRONMENT_IS_NODE) {
+            try {
+              var response = fetch(binaryFile, {
+                credentials: "same-origin"
+              });
+              var instantiationResult = await WebAssembly.instantiateStreaming(response, imports);
+              return instantiationResult;
+            } catch (reason) {
+              err(`wasm streaming compile failed: ${reason}`);
+              err("falling back to ArrayBuffer instantiation");
+            }
+          }
+          return instantiateArrayBuffer(binaryFile, imports);
+        }
+        __name(instantiateAsync, "instantiateAsync");
+        function getWasmImports() {
+          return {
+            "env": wasmImports,
+            "wasi_snapshot_preview1": wasmImports,
+            "GOT.mem": new Proxy(wasmImports, GOTHandler),
+            "GOT.func": new Proxy(wasmImports, GOTHandler)
+          };
+        }
+        __name(getWasmImports, "getWasmImports");
+        async function createWasm() {
+          function receiveInstance(instance2, module2) {
+            wasmExports = instance2.exports;
+            wasmExports = relocateExports(wasmExports, 1024);
+            var metadata2 = getDylinkMetadata(module2);
+            if (metadata2.neededDynlibs) {
+              dynamicLibraries = metadata2.neededDynlibs.concat(dynamicLibraries);
+            }
+            mergeLibSymbols(wasmExports, "main");
+            LDSO.init();
+            loadDylibs();
+            __RELOC_FUNCS__.push(wasmExports["__wasm_apply_data_relocs"]);
+            removeRunDependency("wasm-instantiate");
+            return wasmExports;
+          }
+          __name(receiveInstance, "receiveInstance");
+          addRunDependency("wasm-instantiate");
+          function receiveInstantiationResult(result22) {
+            return receiveInstance(result22["instance"], result22["module"]);
+          }
+          __name(receiveInstantiationResult, "receiveInstantiationResult");
+          var info2 = getWasmImports();
+          if (Module["instantiateWasm"]) {
+            return new Promise((resolve3, reject) => {
+              Module["instantiateWasm"](info2, (mod, inst) => {
+                receiveInstance(mod, inst);
+                resolve3(mod.exports);
+              });
+            });
+          }
+          wasmBinaryFile ??= findWasmBinary();
+          try {
+            var result2 = await instantiateAsync(wasmBinary, wasmBinaryFile, info2);
+            var exports = receiveInstantiationResult(result2);
+            return exports;
+          } catch (e) {
+            readyPromiseReject(e);
+            return Promise.reject(e);
+          }
+        }
+        __name(createWasm, "createWasm");
+        var ASM_CONSTS = {};
+        class ExitStatus {
+          static {
+            __name(this, "ExitStatus");
+          }
+          name = "ExitStatus";
+          constructor(status) {
+            this.message = `Program terminated with exit(${status})`;
+            this.status = status;
+          }
+        }
+        var GOT = {};
+        var currentModuleWeakSymbols = /* @__PURE__ */ new Set([]);
+        var GOTHandler = {
+          get(obj, symName) {
+            var rtn = GOT[symName];
+            if (!rtn) {
+              rtn = GOT[symName] = new WebAssembly.Global({
+                "value": "i32",
+                "mutable": true
+              });
+            }
+            if (!currentModuleWeakSymbols.has(symName)) {
+              rtn.required = true;
+            }
+            return rtn;
+          }
+        };
+        var LE_HEAP_LOAD_F32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getFloat32(byteOffset, true), "LE_HEAP_LOAD_F32");
+        var LE_HEAP_LOAD_F64 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getFloat64(byteOffset, true), "LE_HEAP_LOAD_F64");
+        var LE_HEAP_LOAD_I16 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getInt16(byteOffset, true), "LE_HEAP_LOAD_I16");
+        var LE_HEAP_LOAD_I32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getInt32(byteOffset, true), "LE_HEAP_LOAD_I32");
+        var LE_HEAP_LOAD_U16 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getUint16(byteOffset, true), "LE_HEAP_LOAD_U16");
+        var LE_HEAP_LOAD_U32 = /* @__PURE__ */ __name((byteOffset) => HEAP_DATA_VIEW.getUint32(byteOffset, true), "LE_HEAP_LOAD_U32");
+        var LE_HEAP_STORE_F32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setFloat32(byteOffset, value, true), "LE_HEAP_STORE_F32");
+        var LE_HEAP_STORE_F64 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setFloat64(byteOffset, value, true), "LE_HEAP_STORE_F64");
+        var LE_HEAP_STORE_I16 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setInt16(byteOffset, value, true), "LE_HEAP_STORE_I16");
+        var LE_HEAP_STORE_I32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setInt32(byteOffset, value, true), "LE_HEAP_STORE_I32");
+        var LE_HEAP_STORE_U16 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setUint16(byteOffset, value, true), "LE_HEAP_STORE_U16");
+        var LE_HEAP_STORE_U32 = /* @__PURE__ */ __name((byteOffset, value) => HEAP_DATA_VIEW.setUint32(byteOffset, value, true), "LE_HEAP_STORE_U32");
+        var callRuntimeCallbacks = /* @__PURE__ */ __name((callbacks) => {
+          while (callbacks.length > 0) {
+            callbacks.shift()(Module);
+          }
+        }, "callRuntimeCallbacks");
+        var onPostRuns = [];
+        var addOnPostRun = /* @__PURE__ */ __name((cb) => onPostRuns.unshift(cb), "addOnPostRun");
+        var onPreRuns = [];
+        var addOnPreRun = /* @__PURE__ */ __name((cb) => onPreRuns.unshift(cb), "addOnPreRun");
+        var UTF8Decoder = typeof TextDecoder != "undefined" ? new TextDecoder() : void 0;
+        var UTF8ArrayToString = /* @__PURE__ */ __name((heapOrArray, idx = 0, maxBytesToRead = NaN) => {
+          var endIdx = idx + maxBytesToRead;
+          var endPtr = idx;
+          while (heapOrArray[endPtr] && !(endPtr >= endIdx)) ++endPtr;
+          if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
+            return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
+          }
+          var str2 = "";
+          while (idx < endPtr) {
+            var u0 = heapOrArray[idx++];
+            if (!(u0 & 128)) {
+              str2 += String.fromCharCode(u0);
+              continue;
+            }
+            var u1 = heapOrArray[idx++] & 63;
+            if ((u0 & 224) == 192) {
+              str2 += String.fromCharCode((u0 & 31) << 6 | u1);
+              continue;
+            }
+            var u2 = heapOrArray[idx++] & 63;
+            if ((u0 & 240) == 224) {
+              u0 = (u0 & 15) << 12 | u1 << 6 | u2;
+            } else {
+              u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
+            }
+            if (u0 < 65536) {
+              str2 += String.fromCharCode(u0);
+            } else {
+              var ch = u0 - 65536;
+              str2 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
+            }
+          }
+          return str2;
+        }, "UTF8ArrayToString");
+        var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
+          var offset = 0;
+          var end = 0;
+          function getU8() {
+            return binary2[offset++];
+          }
+          __name(getU8, "getU8");
+          function getLEB() {
+            var ret = 0;
+            var mul = 1;
+            while (1) {
+              var byte = binary2[offset++];
+              ret += (byte & 127) * mul;
+              mul *= 128;
+              if (!(byte & 128)) break;
+            }
+            return ret;
+          }
+          __name(getLEB, "getLEB");
+          function getString() {
+            var len = getLEB();
+            offset += len;
+            return UTF8ArrayToString(binary2, offset - len, len);
+          }
+          __name(getString, "getString");
+          function failIf(condition, message2) {
+            if (condition) throw new Error(message2);
+          }
+          __name(failIf, "failIf");
+          var name2 = "dylink.0";
+          if (binary2 instanceof WebAssembly.Module) {
+            var dylinkSection = WebAssembly.Module.customSections(binary2, name2);
+            if (dylinkSection.length === 0) {
+              name2 = "dylink";
+              dylinkSection = WebAssembly.Module.customSections(binary2, name2);
+            }
+            failIf(dylinkSection.length === 0, "need dylink section");
+            binary2 = new Uint8Array(dylinkSection[0]);
+            end = binary2.length;
+          } else {
+            var int32View = new Uint32Array(new Uint8Array(binary2.subarray(0, 24)).buffer);
+            var magicNumberFound = int32View[0] == 1836278016 || int32View[0] == 6386541;
+            failIf(!magicNumberFound, "need to see wasm magic number");
+            failIf(binary2[8] !== 0, "need the dylink section to be first");
+            offset = 9;
+            var section_size = getLEB();
+            end = offset + section_size;
+            name2 = getString();
+          }
+          var customSection = {
+            neededDynlibs: [],
+            tlsExports: /* @__PURE__ */ new Set(),
+            weakImports: /* @__PURE__ */ new Set()
+          };
+          if (name2 == "dylink") {
+            customSection.memorySize = getLEB();
+            customSection.memoryAlign = getLEB();
+            customSection.tableSize = getLEB();
+            customSection.tableAlign = getLEB();
+            var neededDynlibsCount = getLEB();
+            for (var i2 = 0; i2 < neededDynlibsCount; ++i2) {
+              var libname = getString();
+              customSection.neededDynlibs.push(libname);
+            }
+          } else {
+            failIf(name2 !== "dylink.0");
+            var WASM_DYLINK_MEM_INFO = 1;
+            var WASM_DYLINK_NEEDED = 2;
+            var WASM_DYLINK_EXPORT_INFO = 3;
+            var WASM_DYLINK_IMPORT_INFO = 4;
+            var WASM_SYMBOL_TLS = 256;
+            var WASM_SYMBOL_BINDING_MASK = 3;
+            var WASM_SYMBOL_BINDING_WEAK = 1;
+            while (offset < end) {
+              var subsectionType = getU8();
+              var subsectionSize = getLEB();
+              if (subsectionType === WASM_DYLINK_MEM_INFO) {
+                customSection.memorySize = getLEB();
+                customSection.memoryAlign = getLEB();
+                customSection.tableSize = getLEB();
+                customSection.tableAlign = getLEB();
+              } else if (subsectionType === WASM_DYLINK_NEEDED) {
+                var neededDynlibsCount = getLEB();
+                for (var i2 = 0; i2 < neededDynlibsCount; ++i2) {
+                  libname = getString();
+                  customSection.neededDynlibs.push(libname);
+                }
+              } else if (subsectionType === WASM_DYLINK_EXPORT_INFO) {
+                var count = getLEB();
+                while (count--) {
+                  var symname = getString();
+                  var flags2 = getLEB();
+                  if (flags2 & WASM_SYMBOL_TLS) {
+                    customSection.tlsExports.add(symname);
+                  }
+                }
+              } else if (subsectionType === WASM_DYLINK_IMPORT_INFO) {
+                var count = getLEB();
+                while (count--) {
+                  var modname = getString();
+                  var symname = getString();
+                  var flags2 = getLEB();
+                  if ((flags2 & WASM_SYMBOL_BINDING_MASK) == WASM_SYMBOL_BINDING_WEAK) {
+                    customSection.weakImports.add(symname);
+                  }
+                }
+              } else {
+                offset += subsectionSize;
+              }
+            }
+          }
+          return customSection;
+        }, "getDylinkMetadata");
+        function getValue(ptr, type = "i8") {
+          if (type.endsWith("*")) type = "*";
+          switch (type) {
+            case "i1":
+              return HEAP8[ptr];
+            case "i8":
+              return HEAP8[ptr];
+            case "i16":
+              return LE_HEAP_LOAD_I16((ptr >> 1) * 2);
+            case "i32":
+              return LE_HEAP_LOAD_I32((ptr >> 2) * 4);
+            case "i64":
+              return HEAP64[ptr >> 3];
+            case "float":
+              return LE_HEAP_LOAD_F32((ptr >> 2) * 4);
+            case "double":
+              return LE_HEAP_LOAD_F64((ptr >> 3) * 8);
+            case "*":
+              return LE_HEAP_LOAD_U32((ptr >> 2) * 4);
+            default:
+              abort(`invalid type for getValue: ${type}`);
+          }
+        }
+        __name(getValue, "getValue");
+        var newDSO = /* @__PURE__ */ __name((name2, handle2, syms) => {
+          var dso = {
+            refcount: Infinity,
+            name: name2,
+            exports: syms,
+            global: true
+          };
+          LDSO.loadedLibsByName[name2] = dso;
+          if (handle2 != void 0) {
+            LDSO.loadedLibsByHandle[handle2] = dso;
+          }
+          return dso;
+        }, "newDSO");
+        var LDSO = {
+          loadedLibsByName: {},
+          loadedLibsByHandle: {},
+          init() {
+            newDSO("__main__", 0, wasmImports);
+          }
+        };
+        var ___heap_base = 78224;
+        var alignMemory = /* @__PURE__ */ __name((size, alignment) => Math.ceil(size / alignment) * alignment, "alignMemory");
+        var getMemory = /* @__PURE__ */ __name((size) => {
+          if (runtimeInitialized) {
+            return _calloc(size, 1);
+          }
+          var ret = ___heap_base;
+          var end = ret + alignMemory(size, 16);
+          ___heap_base = end;
+          GOT["__heap_base"].value = end;
+          return ret;
+        }, "getMemory");
+        var isInternalSym = /* @__PURE__ */ __name((symName) => ["__cpp_exception", "__c_longjmp", "__wasm_apply_data_relocs", "__dso_handle", "__tls_size", "__tls_align", "__set_stack_limits", "_emscripten_tls_init", "__wasm_init_tls", "__wasm_call_ctors", "__start_em_asm", "__stop_em_asm", "__start_em_js", "__stop_em_js"].includes(symName) || symName.startsWith("__em_js__"), "isInternalSym");
+        var uleb128Encode = /* @__PURE__ */ __name((n, target) => {
+          if (n < 128) {
+            target.push(n);
+          } else {
+            target.push(n % 128 | 128, n >> 7);
+          }
+        }, "uleb128Encode");
+        var sigToWasmTypes = /* @__PURE__ */ __name((sig) => {
+          var typeNames = {
+            "i": "i32",
+            "j": "i64",
+            "f": "f32",
+            "d": "f64",
+            "e": "externref",
+            "p": "i32"
+          };
+          var type = {
+            parameters: [],
+            results: sig[0] == "v" ? [] : [typeNames[sig[0]]]
+          };
+          for (var i2 = 1; i2 < sig.length; ++i2) {
+            type.parameters.push(typeNames[sig[i2]]);
+          }
+          return type;
+        }, "sigToWasmTypes");
+        var generateFuncType = /* @__PURE__ */ __name((sig, target) => {
+          var sigRet = sig.slice(0, 1);
+          var sigParam = sig.slice(1);
+          var typeCodes = {
+            "i": 127,
+            // i32
+            "p": 127,
+            // i32
+            "j": 126,
+            // i64
+            "f": 125,
+            // f32
+            "d": 124,
+            // f64
+            "e": 111
+          };
+          target.push(96);
+          uleb128Encode(sigParam.length, target);
+          for (var i2 = 0; i2 < sigParam.length; ++i2) {
+            target.push(typeCodes[sigParam[i2]]);
+          }
+          if (sigRet == "v") {
+            target.push(0);
+          } else {
+            target.push(1, typeCodes[sigRet]);
+          }
+        }, "generateFuncType");
+        var convertJsFunctionToWasm = /* @__PURE__ */ __name((func2, sig) => {
+          if (typeof WebAssembly.Function == "function") {
+            return new WebAssembly.Function(sigToWasmTypes(sig), func2);
+          }
+          var typeSectionBody = [1];
+          generateFuncType(sig, typeSectionBody);
+          var bytes = [
+            0,
+            97,
+            115,
+            109,
+            // magic ("\0asm")
+            1,
+            0,
+            0,
+            0,
+            // version: 1
+            1
+          ];
+          uleb128Encode(typeSectionBody.length, bytes);
+          bytes.push(...typeSectionBody);
+          bytes.push(
+            2,
+            7,
+            // import section
+            // (import "e" "f" (func 0 (type 0)))
+            1,
+            1,
+            101,
+            1,
+            102,
+            0,
+            0,
+            7,
+            5,
+            // export section
+            // (export "f" (func 0 (type 0)))
+            1,
+            1,
+            102,
+            0,
+            0
+          );
+          var module2 = new WebAssembly.Module(new Uint8Array(bytes));
+          var instance2 = new WebAssembly.Instance(module2, {
+            "e": {
+              "f": func2
+            }
+          });
+          var wrappedFunc = instance2.exports["f"];
+          return wrappedFunc;
+        }, "convertJsFunctionToWasm");
+        var wasmTableMirror = [];
+        var wasmTable = new WebAssembly.Table({
+          "initial": 31,
+          "element": "anyfunc"
+        });
+        var getWasmTableEntry = /* @__PURE__ */ __name((funcPtr) => {
+          var func2 = wasmTableMirror[funcPtr];
+          if (!func2) {
+            if (funcPtr >= wasmTableMirror.length) wasmTableMirror.length = funcPtr + 1;
+            wasmTableMirror[funcPtr] = func2 = wasmTable.get(funcPtr);
+          }
+          return func2;
+        }, "getWasmTableEntry");
+        var updateTableMap = /* @__PURE__ */ __name((offset, count) => {
+          if (functionsInTableMap) {
+            for (var i2 = offset; i2 < offset + count; i2++) {
+              var item = getWasmTableEntry(i2);
+              if (item) {
+                functionsInTableMap.set(item, i2);
+              }
+            }
+          }
+        }, "updateTableMap");
+        var functionsInTableMap;
+        var getFunctionAddress = /* @__PURE__ */ __name((func2) => {
+          if (!functionsInTableMap) {
+            functionsInTableMap = /* @__PURE__ */ new WeakMap();
+            updateTableMap(0, wasmTable.length);
+          }
+          return functionsInTableMap.get(func2) || 0;
+        }, "getFunctionAddress");
+        var freeTableIndexes = [];
+        var getEmptyTableSlot = /* @__PURE__ */ __name(() => {
+          if (freeTableIndexes.length) {
+            return freeTableIndexes.pop();
+          }
+          try {
+            wasmTable.grow(1);
+          } catch (err22) {
+            if (!(err22 instanceof RangeError)) {
+              throw err22;
+            }
+            throw "Unable to grow wasm table. Set ALLOW_TABLE_GROWTH.";
+          }
+          return wasmTable.length - 1;
+        }, "getEmptyTableSlot");
+        var setWasmTableEntry = /* @__PURE__ */ __name((idx, func2) => {
+          wasmTable.set(idx, func2);
+          wasmTableMirror[idx] = wasmTable.get(idx);
+        }, "setWasmTableEntry");
+        var addFunction = /* @__PURE__ */ __name((func2, sig) => {
+          var rtn = getFunctionAddress(func2);
+          if (rtn) {
+            return rtn;
+          }
+          var ret = getEmptyTableSlot();
+          try {
+            setWasmTableEntry(ret, func2);
+          } catch (err22) {
+            if (!(err22 instanceof TypeError)) {
+              throw err22;
+            }
+            var wrapped = convertJsFunctionToWasm(func2, sig);
+            setWasmTableEntry(ret, wrapped);
+          }
+          functionsInTableMap.set(func2, ret);
+          return ret;
+        }, "addFunction");
+        var updateGOT = /* @__PURE__ */ __name((exports, replace) => {
+          for (var symName in exports) {
+            if (isInternalSym(symName)) {
+              continue;
+            }
+            var value = exports[symName];
+            GOT[symName] ||= new WebAssembly.Global({
+              "value": "i32",
+              "mutable": true
+            });
+            if (replace || GOT[symName].value == 0) {
+              if (typeof value == "function") {
+                GOT[symName].value = addFunction(value);
+              } else if (typeof value == "number") {
+                GOT[symName].value = value;
+              } else {
+                err(`unhandled export type for '${symName}': ${typeof value}`);
+              }
+            }
+          }
+        }, "updateGOT");
+        var relocateExports = /* @__PURE__ */ __name((exports, memoryBase2, replace) => {
+          var relocated = {};
+          for (var e in exports) {
+            var value = exports[e];
+            if (typeof value == "object") {
+              value = value.value;
+            }
+            if (typeof value == "number") {
+              value += memoryBase2;
+            }
+            relocated[e] = value;
+          }
+          updateGOT(relocated, replace);
+          return relocated;
+        }, "relocateExports");
+        var isSymbolDefined = /* @__PURE__ */ __name((symName) => {
+          var existing = wasmImports[symName];
+          if (!existing || existing.stub) {
+            return false;
+          }
+          return true;
+        }, "isSymbolDefined");
+        var dynCall = /* @__PURE__ */ __name((sig, ptr, args2 = []) => {
+          var rtn = getWasmTableEntry(ptr)(...args2);
+          return rtn;
+        }, "dynCall");
+        var stackSave = /* @__PURE__ */ __name(() => _emscripten_stack_get_current(), "stackSave");
+        var stackRestore = /* @__PURE__ */ __name((val) => __emscripten_stack_restore(val), "stackRestore");
+        var createInvokeFunction = /* @__PURE__ */ __name((sig) => (ptr, ...args2) => {
+          var sp = stackSave();
+          try {
+            return dynCall(sig, ptr, args2);
+          } catch (e) {
+            stackRestore(sp);
+            if (e !== e + 0) throw e;
+            _setThrew(1, 0);
+            if (sig[0] == "j") return 0n;
+          }
+        }, "createInvokeFunction");
+        var resolveGlobalSymbol = /* @__PURE__ */ __name((symName, direct = false) => {
+          var sym;
+          if (isSymbolDefined(symName)) {
+            sym = wasmImports[symName];
+          } else if (symName.startsWith("invoke_")) {
+            sym = wasmImports[symName] = createInvokeFunction(symName.split("_")[1]);
+          }
+          return {
+            sym,
+            name: symName
+          };
+        }, "resolveGlobalSymbol");
+        var onPostCtors = [];
+        var addOnPostCtor = /* @__PURE__ */ __name((cb) => onPostCtors.unshift(cb), "addOnPostCtor");
+        var UTF8ToString = /* @__PURE__ */ __name((ptr, maxBytesToRead) => ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead) : "", "UTF8ToString");
+        var loadWebAssemblyModule = /* @__PURE__ */ __name((binary, flags, libName, localScope, handle) => {
+          var metadata = getDylinkMetadata(binary);
+          currentModuleWeakSymbols = metadata.weakImports;
+          function loadModule() {
+            var memAlign = Math.pow(2, metadata.memoryAlign);
+            var memoryBase = metadata.memorySize ? alignMemory(getMemory(metadata.memorySize + memAlign), memAlign) : 0;
+            var tableBase = metadata.tableSize ? wasmTable.length : 0;
+            if (handle) {
+              HEAP8[handle + 8] = 1;
+              LE_HEAP_STORE_U32((handle + 12 >> 2) * 4, memoryBase);
+              LE_HEAP_STORE_I32((handle + 16 >> 2) * 4, metadata.memorySize);
+              LE_HEAP_STORE_U32((handle + 20 >> 2) * 4, tableBase);
+              LE_HEAP_STORE_I32((handle + 24 >> 2) * 4, metadata.tableSize);
+            }
+            if (metadata.tableSize) {
+              wasmTable.grow(metadata.tableSize);
+            }
+            var moduleExports;
+            function resolveSymbol(sym) {
+              var resolved = resolveGlobalSymbol(sym).sym;
+              if (!resolved && localScope) {
+                resolved = localScope[sym];
+              }
+              if (!resolved) {
+                resolved = moduleExports[sym];
+              }
+              return resolved;
+            }
+            __name(resolveSymbol, "resolveSymbol");
+            var proxyHandler = {
+              get(stubs, prop) {
+                switch (prop) {
+                  case "__memory_base":
+                    return memoryBase;
+                  case "__table_base":
+                    return tableBase;
+                }
+                if (prop in wasmImports && !wasmImports[prop].stub) {
+                  var res = wasmImports[prop];
+                  return res;
+                }
+                if (!(prop in stubs)) {
+                  var resolved;
+                  stubs[prop] = (...args2) => {
+                    resolved ||= resolveSymbol(prop);
+                    return resolved(...args2);
+                  };
+                }
+                return stubs[prop];
+              }
+            };
+            var proxy = new Proxy({}, proxyHandler);
+            var info = {
+              "GOT.mem": new Proxy({}, GOTHandler),
+              "GOT.func": new Proxy({}, GOTHandler),
+              "env": proxy,
+              "wasi_snapshot_preview1": proxy
+            };
+            function postInstantiation(module, instance) {
+              updateTableMap(tableBase, metadata.tableSize);
+              moduleExports = relocateExports(instance.exports, memoryBase);
+              if (!flags.allowUndefined) {
+                reportUndefinedSymbols();
+              }
+              function addEmAsm(addr, body) {
+                var args = [];
+                var arity = 0;
+                for (; arity < 16; arity++) {
+                  if (body.indexOf("$" + arity) != -1) {
+                    args.push("$" + arity);
+                  } else {
+                    break;
+                  }
+                }
+                args = args.join(",");
+                var func = `(${args}) => { ${body} };`;
+                ASM_CONSTS[start] = eval(func);
+              }
+              __name(addEmAsm, "addEmAsm");
+              if ("__start_em_asm" in moduleExports) {
+                var start = moduleExports["__start_em_asm"];
+                var stop = moduleExports["__stop_em_asm"];
+                while (start < stop) {
+                  var jsString = UTF8ToString(start);
+                  addEmAsm(start, jsString);
+                  start = HEAPU8.indexOf(0, start) + 1;
+                }
+              }
+              function addEmJs(name, cSig, body) {
+                var jsArgs = [];
+                cSig = cSig.slice(1, -1);
+                if (cSig != "void") {
+                  cSig = cSig.split(",");
+                  for (var i in cSig) {
+                    var jsArg = cSig[i].split(" ").pop();
+                    jsArgs.push(jsArg.replace("*", ""));
+                  }
+                }
+                var func = `(${jsArgs}) => ${body};`;
+                moduleExports[name] = eval(func);
+              }
+              __name(addEmJs, "addEmJs");
+              for (var name in moduleExports) {
+                if (name.startsWith("__em_js__")) {
+                  var start = moduleExports[name];
+                  var jsString = UTF8ToString(start);
+                  var parts = jsString.split("<::>");
+                  addEmJs(name.replace("__em_js__", ""), parts[0], parts[1]);
+                  delete moduleExports[name];
+                }
+              }
+              var applyRelocs = moduleExports["__wasm_apply_data_relocs"];
+              if (applyRelocs) {
+                if (runtimeInitialized) {
+                  applyRelocs();
+                } else {
+                  __RELOC_FUNCS__.push(applyRelocs);
+                }
+              }
+              var init = moduleExports["__wasm_call_ctors"];
+              if (init) {
+                if (runtimeInitialized) {
+                  init();
+                } else {
+                  addOnPostCtor(init);
+                }
+              }
+              return moduleExports;
+            }
+            __name(postInstantiation, "postInstantiation");
+            if (flags.loadAsync) {
+              if (binary instanceof WebAssembly.Module) {
+                var instance = new WebAssembly.Instance(binary, info);
+                return Promise.resolve(postInstantiation(binary, instance));
+              }
+              return WebAssembly.instantiate(binary, info).then((result2) => postInstantiation(result2.module, result2.instance));
+            }
+            var module = binary instanceof WebAssembly.Module ? binary : new WebAssembly.Module(binary);
+            var instance = new WebAssembly.Instance(module, info);
+            return postInstantiation(module, instance);
+          }
+          __name(loadModule, "loadModule");
+          if (flags.loadAsync) {
+            return metadata.neededDynlibs.reduce((chain, dynNeeded) => chain.then(() => loadDynamicLibrary(dynNeeded, flags, localScope)), Promise.resolve()).then(loadModule);
+          }
+          metadata.neededDynlibs.forEach((needed) => loadDynamicLibrary(needed, flags, localScope));
+          return loadModule();
+        }, "loadWebAssemblyModule");
+        var mergeLibSymbols = /* @__PURE__ */ __name((exports, libName2) => {
+          for (var [sym, exp] of Object.entries(exports)) {
+            const setImport = /* @__PURE__ */ __name((target) => {
+              if (!isSymbolDefined(target)) {
+                wasmImports[target] = exp;
+              }
+            }, "setImport");
+            setImport(sym);
+            const main_alias = "__main_argc_argv";
+            if (sym == "main") {
+              setImport(main_alias);
+            }
+            if (sym == main_alias) {
+              setImport("main");
+            }
+          }
+        }, "mergeLibSymbols");
+        var asyncLoad = /* @__PURE__ */ __name(async (url2) => {
+          var arrayBuffer = await readAsync(url2);
+          return new Uint8Array(arrayBuffer);
+        }, "asyncLoad");
+        function loadDynamicLibrary(libName2, flags2 = {
+          global: true,
+          nodelete: true
+        }, localScope2, handle2) {
+          var dso = LDSO.loadedLibsByName[libName2];
+          if (dso) {
+            if (!flags2.global) {
+              if (localScope2) {
+                Object.assign(localScope2, dso.exports);
+              }
+            } else if (!dso.global) {
+              dso.global = true;
+              mergeLibSymbols(dso.exports, libName2);
+            }
+            if (flags2.nodelete && dso.refcount !== Infinity) {
+              dso.refcount = Infinity;
+            }
+            dso.refcount++;
+            if (handle2) {
+              LDSO.loadedLibsByHandle[handle2] = dso;
+            }
+            return flags2.loadAsync ? Promise.resolve(true) : true;
+          }
+          dso = newDSO(libName2, handle2, "loading");
+          dso.refcount = flags2.nodelete ? Infinity : 1;
+          dso.global = flags2.global;
+          function loadLibData() {
+            if (handle2) {
+              var data = LE_HEAP_LOAD_U32((handle2 + 28 >> 2) * 4);
+              var dataSize = LE_HEAP_LOAD_U32((handle2 + 32 >> 2) * 4);
+              if (data && dataSize) {
+                var libData = HEAP8.slice(data, data + dataSize);
+                return flags2.loadAsync ? Promise.resolve(libData) : libData;
+              }
+            }
+            var libFile = locateFile(libName2);
+            if (flags2.loadAsync) {
+              return asyncLoad(libFile);
+            }
+            if (!readBinary) {
+              throw new Error(`${libFile}: file not found, and synchronous loading of external files is not available`);
+            }
+            return readBinary(libFile);
+          }
+          __name(loadLibData, "loadLibData");
+          function getExports() {
+            if (flags2.loadAsync) {
+              return loadLibData().then((libData) => loadWebAssemblyModule(libData, flags2, libName2, localScope2, handle2));
+            }
+            return loadWebAssemblyModule(loadLibData(), flags2, libName2, localScope2, handle2);
+          }
+          __name(getExports, "getExports");
+          function moduleLoaded(exports) {
+            if (dso.global) {
+              mergeLibSymbols(exports, libName2);
+            } else if (localScope2) {
+              Object.assign(localScope2, exports);
+            }
+            dso.exports = exports;
+          }
+          __name(moduleLoaded, "moduleLoaded");
+          if (flags2.loadAsync) {
+            return getExports().then((exports) => {
+              moduleLoaded(exports);
+              return true;
+            });
+          }
+          moduleLoaded(getExports());
+          return true;
+        }
+        __name(loadDynamicLibrary, "loadDynamicLibrary");
+        var reportUndefinedSymbols = /* @__PURE__ */ __name(() => {
+          for (var [symName, entry] of Object.entries(GOT)) {
+            if (entry.value == 0) {
+              var value = resolveGlobalSymbol(symName, true).sym;
+              if (!value && !entry.required) {
+                continue;
+              }
+              if (typeof value == "function") {
+                entry.value = addFunction(value, value.sig);
+              } else if (typeof value == "number") {
+                entry.value = value;
+              } else {
+                throw new Error(`bad export type for '${symName}': ${typeof value}`);
+              }
+            }
+          }
+        }, "reportUndefinedSymbols");
+        var loadDylibs = /* @__PURE__ */ __name(() => {
+          if (!dynamicLibraries.length) {
+            reportUndefinedSymbols();
+            return;
+          }
+          addRunDependency("loadDylibs");
+          dynamicLibraries.reduce((chain, lib) => chain.then(() => loadDynamicLibrary(lib, {
+            loadAsync: true,
+            global: true,
+            nodelete: true,
+            allowUndefined: true
+          })), Promise.resolve()).then(() => {
+            reportUndefinedSymbols();
+            removeRunDependency("loadDylibs");
+          });
+        }, "loadDylibs");
+        var noExitRuntime = Module["noExitRuntime"] || true;
+        function setValue(ptr, value, type = "i8") {
+          if (type.endsWith("*")) type = "*";
+          switch (type) {
+            case "i1":
+              HEAP8[ptr] = value;
+              break;
+            case "i8":
+              HEAP8[ptr] = value;
+              break;
+            case "i16":
+              LE_HEAP_STORE_I16((ptr >> 1) * 2, value);
+              break;
+            case "i32":
+              LE_HEAP_STORE_I32((ptr >> 2) * 4, value);
+              break;
+            case "i64":
+              HEAP64[ptr >> 3] = BigInt(value);
+              break;
+            case "float":
+              LE_HEAP_STORE_F32((ptr >> 2) * 4, value);
+              break;
+            case "double":
+              LE_HEAP_STORE_F64((ptr >> 3) * 8, value);
+              break;
+            case "*":
+              LE_HEAP_STORE_U32((ptr >> 2) * 4, value);
+              break;
+            default:
+              abort(`invalid type for setValue: ${type}`);
+          }
+        }
+        __name(setValue, "setValue");
+        var ___memory_base = new WebAssembly.Global({
+          "value": "i32",
+          "mutable": false
+        }, 1024);
+        var ___stack_pointer = new WebAssembly.Global({
+          "value": "i32",
+          "mutable": true
+        }, 78224);
+        var ___table_base = new WebAssembly.Global({
+          "value": "i32",
+          "mutable": false
+        }, 1);
+        var __abort_js = /* @__PURE__ */ __name(() => abort(""), "__abort_js");
+        __abort_js.sig = "v";
+        var _emscripten_get_now = /* @__PURE__ */ __name(() => performance.now(), "_emscripten_get_now");
+        _emscripten_get_now.sig = "d";
+        var _emscripten_date_now = /* @__PURE__ */ __name(() => Date.now(), "_emscripten_date_now");
+        _emscripten_date_now.sig = "d";
+        var nowIsMonotonic = 1;
+        var checkWasiClock = /* @__PURE__ */ __name((clock_id) => clock_id >= 0 && clock_id <= 3, "checkWasiClock");
+        var INT53_MAX = 9007199254740992;
+        var INT53_MIN = -9007199254740992;
+        var bigintToI53Checked = /* @__PURE__ */ __name((num) => num < INT53_MIN || num > INT53_MAX ? NaN : Number(num), "bigintToI53Checked");
+        function _clock_time_get(clk_id, ignored_precision, ptime) {
+          ignored_precision = bigintToI53Checked(ignored_precision);
+          if (!checkWasiClock(clk_id)) {
+            return 28;
+          }
+          var now2;
+          if (clk_id === 0) {
+            now2 = _emscripten_date_now();
+          } else if (nowIsMonotonic) {
+            now2 = _emscripten_get_now();
+          } else {
+            return 52;
+          }
+          var nsec = Math.round(now2 * 1e3 * 1e3);
+          HEAP64[ptime >> 3] = BigInt(nsec);
+          return 0;
+        }
+        __name(_clock_time_get, "_clock_time_get");
+        _clock_time_get.sig = "iijp";
+        var getHeapMax = /* @__PURE__ */ __name(() => (
+          // Stay one Wasm page short of 4GB: while e.g. Chrome is able to allocate
+          // full 4GB Wasm memories, the size will wrap back to 0 bytes in Wasm side
+          // for any code that deals with heap sizes, which would require special
+          // casing all heap size related code to treat 0 specially.
+          2147483648
+        ), "getHeapMax");
+        var growMemory = /* @__PURE__ */ __name((size) => {
+          var b = wasmMemory.buffer;
+          var pages = (size - b.byteLength + 65535) / 65536 | 0;
+          try {
+            wasmMemory.grow(pages);
+            updateMemoryViews();
+            return 1;
+          } catch (e) {
+          }
+        }, "growMemory");
+        var _emscripten_resize_heap = /* @__PURE__ */ __name((requestedSize) => {
+          var oldSize = HEAPU8.length;
+          requestedSize >>>= 0;
+          var maxHeapSize = getHeapMax();
+          if (requestedSize > maxHeapSize) {
+            return false;
+          }
+          for (var cutDown = 1; cutDown <= 4; cutDown *= 2) {
+            var overGrownHeapSize = oldSize * (1 + 0.2 / cutDown);
+            overGrownHeapSize = Math.min(overGrownHeapSize, requestedSize + 100663296);
+            var newSize = Math.min(maxHeapSize, alignMemory(Math.max(requestedSize, overGrownHeapSize), 65536));
+            var replacement = growMemory(newSize);
+            if (replacement) {
+              return true;
+            }
+          }
+          return false;
+        }, "_emscripten_resize_heap");
+        _emscripten_resize_heap.sig = "ip";
+        var _fd_close = /* @__PURE__ */ __name((fd) => 52, "_fd_close");
+        _fd_close.sig = "ii";
+        function _fd_seek(fd, offset, whence, newOffset) {
+          offset = bigintToI53Checked(offset);
+          return 70;
+        }
+        __name(_fd_seek, "_fd_seek");
+        _fd_seek.sig = "iijip";
+        var printCharBuffers = [null, [], []];
+        var printChar = /* @__PURE__ */ __name((stream, curr) => {
+          var buffer = printCharBuffers[stream];
+          if (curr === 0 || curr === 10) {
+            (stream === 1 ? out : err)(UTF8ArrayToString(buffer));
+            buffer.length = 0;
+          } else {
+            buffer.push(curr);
+          }
+        }, "printChar");
+        var flush_NO_FILESYSTEM = /* @__PURE__ */ __name(() => {
+          if (printCharBuffers[1].length) printChar(1, 10);
+          if (printCharBuffers[2].length) printChar(2, 10);
+        }, "flush_NO_FILESYSTEM");
+        var SYSCALLS = {
+          varargs: void 0,
+          getStr(ptr) {
+            var ret = UTF8ToString(ptr);
+            return ret;
+          }
+        };
+        var _fd_write = /* @__PURE__ */ __name((fd, iov, iovcnt, pnum) => {
+          var num = 0;
+          for (var i2 = 0; i2 < iovcnt; i2++) {
+            var ptr = LE_HEAP_LOAD_U32((iov >> 2) * 4);
+            var len = LE_HEAP_LOAD_U32((iov + 4 >> 2) * 4);
+            iov += 8;
+            for (var j = 0; j < len; j++) {
+              printChar(fd, HEAPU8[ptr + j]);
+            }
+            num += len;
+          }
+          LE_HEAP_STORE_U32((pnum >> 2) * 4, num);
+          return 0;
+        }, "_fd_write");
+        _fd_write.sig = "iippp";
+        function _tree_sitter_log_callback(isLexMessage, messageAddress) {
+          if (Module.currentLogCallback) {
+            const message2 = UTF8ToString(messageAddress);
+            Module.currentLogCallback(message2, isLexMessage !== 0);
+          }
+        }
+        __name(_tree_sitter_log_callback, "_tree_sitter_log_callback");
+        function _tree_sitter_parse_callback(inputBufferAddress, index, row, column, lengthAddress) {
+          const INPUT_BUFFER_SIZE = 10 * 1024;
+          const string3 = Module.currentParseCallback(index, {
+            row,
+            column
+          });
+          if (typeof string3 === "string") {
+            setValue(lengthAddress, string3.length, "i32");
+            stringToUTF16(string3, inputBufferAddress, INPUT_BUFFER_SIZE);
+          } else {
+            setValue(lengthAddress, 0, "i32");
+          }
+        }
+        __name(_tree_sitter_parse_callback, "_tree_sitter_parse_callback");
+        function _tree_sitter_progress_callback(currentOffset, hasError) {
+          if (Module.currentProgressCallback) {
+            return Module.currentProgressCallback({
+              currentOffset,
+              hasError
+            });
+          }
+          return false;
+        }
+        __name(_tree_sitter_progress_callback, "_tree_sitter_progress_callback");
+        function _tree_sitter_query_progress_callback(currentOffset) {
+          if (Module.currentQueryProgressCallback) {
+            return Module.currentQueryProgressCallback({
+              currentOffset
+            });
+          }
+          return false;
+        }
+        __name(_tree_sitter_query_progress_callback, "_tree_sitter_query_progress_callback");
+        var runtimeKeepaliveCounter = 0;
+        var keepRuntimeAlive = /* @__PURE__ */ __name(() => noExitRuntime || runtimeKeepaliveCounter > 0, "keepRuntimeAlive");
+        var _proc_exit = /* @__PURE__ */ __name((code) => {
+          EXITSTATUS = code;
+          if (!keepRuntimeAlive()) {
+            Module["onExit"]?.(code);
+            ABORT = true;
+          }
+          quit_(code, new ExitStatus(code));
+        }, "_proc_exit");
+        _proc_exit.sig = "vi";
+        var exitJS = /* @__PURE__ */ __name((status, implicit) => {
+          EXITSTATUS = status;
+          _proc_exit(status);
+        }, "exitJS");
+        var handleException = /* @__PURE__ */ __name((e) => {
+          if (e instanceof ExitStatus || e == "unwind") {
+            return EXITSTATUS;
+          }
+          quit_(1, e);
+        }, "handleException");
+        var lengthBytesUTF8 = /* @__PURE__ */ __name((str2) => {
+          var len = 0;
+          for (var i2 = 0; i2 < str2.length; ++i2) {
+            var c = str2.charCodeAt(i2);
+            if (c <= 127) {
+              len++;
+            } else if (c <= 2047) {
+              len += 2;
+            } else if (c >= 55296 && c <= 57343) {
+              len += 4;
+              ++i2;
+            } else {
+              len += 3;
+            }
+          }
+          return len;
+        }, "lengthBytesUTF8");
+        var stringToUTF8Array = /* @__PURE__ */ __name((str2, heap, outIdx, maxBytesToWrite) => {
+          if (!(maxBytesToWrite > 0)) return 0;
+          var startIdx = outIdx;
+          var endIdx = outIdx + maxBytesToWrite - 1;
+          for (var i2 = 0; i2 < str2.length; ++i2) {
+            var u = str2.charCodeAt(i2);
+            if (u >= 55296 && u <= 57343) {
+              var u1 = str2.charCodeAt(++i2);
+              u = 65536 + ((u & 1023) << 10) | u1 & 1023;
+            }
+            if (u <= 127) {
+              if (outIdx >= endIdx) break;
+              heap[outIdx++] = u;
+            } else if (u <= 2047) {
+              if (outIdx + 1 >= endIdx) break;
+              heap[outIdx++] = 192 | u >> 6;
+              heap[outIdx++] = 128 | u & 63;
+            } else if (u <= 65535) {
+              if (outIdx + 2 >= endIdx) break;
+              heap[outIdx++] = 224 | u >> 12;
+              heap[outIdx++] = 128 | u >> 6 & 63;
+              heap[outIdx++] = 128 | u & 63;
+            } else {
+              if (outIdx + 3 >= endIdx) break;
+              heap[outIdx++] = 240 | u >> 18;
+              heap[outIdx++] = 128 | u >> 12 & 63;
+              heap[outIdx++] = 128 | u >> 6 & 63;
+              heap[outIdx++] = 128 | u & 63;
+            }
+          }
+          heap[outIdx] = 0;
+          return outIdx - startIdx;
+        }, "stringToUTF8Array");
+        var stringToUTF8 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => stringToUTF8Array(str2, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
+        var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
+        var stringToUTF8OnStack = /* @__PURE__ */ __name((str2) => {
+          var size = lengthBytesUTF8(str2) + 1;
+          var ret = stackAlloc(size);
+          stringToUTF8(str2, ret, size);
+          return ret;
+        }, "stringToUTF8OnStack");
+        var AsciiToString = /* @__PURE__ */ __name((ptr) => {
+          var str2 = "";
+          while (1) {
+            var ch = HEAPU8[ptr++];
+            if (!ch) return str2;
+            str2 += String.fromCharCode(ch);
+          }
+        }, "AsciiToString");
+        var stringToUTF16 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => {
+          maxBytesToWrite ??= 2147483647;
+          if (maxBytesToWrite < 2) return 0;
+          maxBytesToWrite -= 2;
+          var startPtr = outPtr;
+          var numCharsToWrite = maxBytesToWrite < str2.length * 2 ? maxBytesToWrite / 2 : str2.length;
+          for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
+            var codeUnit = str2.charCodeAt(i2);
+            LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
+            outPtr += 2;
+          }
+          LE_HEAP_STORE_I16((outPtr >> 1) * 2, 0);
+          return outPtr - startPtr;
+        }, "stringToUTF16");
+        var wasmImports = {
+          /** @export */
+          __heap_base: ___heap_base,
+          /** @export */
+          __indirect_function_table: wasmTable,
+          /** @export */
+          __memory_base: ___memory_base,
+          /** @export */
+          __stack_pointer: ___stack_pointer,
+          /** @export */
+          __table_base: ___table_base,
+          /** @export */
+          _abort_js: __abort_js,
+          /** @export */
+          clock_time_get: _clock_time_get,
+          /** @export */
+          emscripten_resize_heap: _emscripten_resize_heap,
+          /** @export */
+          fd_close: _fd_close,
+          /** @export */
+          fd_seek: _fd_seek,
+          /** @export */
+          fd_write: _fd_write,
+          /** @export */
+          memory: wasmMemory,
+          /** @export */
+          tree_sitter_log_callback: _tree_sitter_log_callback,
+          /** @export */
+          tree_sitter_parse_callback: _tree_sitter_parse_callback,
+          /** @export */
+          tree_sitter_progress_callback: _tree_sitter_progress_callback,
+          /** @export */
+          tree_sitter_query_progress_callback: _tree_sitter_query_progress_callback
+        };
+        var wasmExports = await createWasm();
+        var ___wasm_call_ctors = wasmExports["__wasm_call_ctors"];
+        var _malloc = Module["_malloc"] = wasmExports["malloc"];
+        var _calloc = Module["_calloc"] = wasmExports["calloc"];
+        var _realloc = Module["_realloc"] = wasmExports["realloc"];
+        var _free = Module["_free"] = wasmExports["free"];
+        var _memcmp = Module["_memcmp"] = wasmExports["memcmp"];
+        var _ts_language_symbol_count = Module["_ts_language_symbol_count"] = wasmExports["ts_language_symbol_count"];
+        var _ts_language_state_count = Module["_ts_language_state_count"] = wasmExports["ts_language_state_count"];
+        var _ts_language_version = Module["_ts_language_version"] = wasmExports["ts_language_version"];
+        var _ts_language_abi_version = Module["_ts_language_abi_version"] = wasmExports["ts_language_abi_version"];
+        var _ts_language_metadata = Module["_ts_language_metadata"] = wasmExports["ts_language_metadata"];
+        var _ts_language_name = Module["_ts_language_name"] = wasmExports["ts_language_name"];
+        var _ts_language_field_count = Module["_ts_language_field_count"] = wasmExports["ts_language_field_count"];
+        var _ts_language_next_state = Module["_ts_language_next_state"] = wasmExports["ts_language_next_state"];
+        var _ts_language_symbol_name = Module["_ts_language_symbol_name"] = wasmExports["ts_language_symbol_name"];
+        var _ts_language_symbol_for_name = Module["_ts_language_symbol_for_name"] = wasmExports["ts_language_symbol_for_name"];
+        var _strncmp = Module["_strncmp"] = wasmExports["strncmp"];
+        var _ts_language_symbol_type = Module["_ts_language_symbol_type"] = wasmExports["ts_language_symbol_type"];
+        var _ts_language_field_name_for_id = Module["_ts_language_field_name_for_id"] = wasmExports["ts_language_field_name_for_id"];
+        var _ts_lookahead_iterator_new = Module["_ts_lookahead_iterator_new"] = wasmExports["ts_lookahead_iterator_new"];
+        var _ts_lookahead_iterator_delete = Module["_ts_lookahead_iterator_delete"] = wasmExports["ts_lookahead_iterator_delete"];
+        var _ts_lookahead_iterator_reset_state = Module["_ts_lookahead_iterator_reset_state"] = wasmExports["ts_lookahead_iterator_reset_state"];
+        var _ts_lookahead_iterator_reset = Module["_ts_lookahead_iterator_reset"] = wasmExports["ts_lookahead_iterator_reset"];
+        var _ts_lookahead_iterator_next = Module["_ts_lookahead_iterator_next"] = wasmExports["ts_lookahead_iterator_next"];
+        var _ts_lookahead_iterator_current_symbol = Module["_ts_lookahead_iterator_current_symbol"] = wasmExports["ts_lookahead_iterator_current_symbol"];
+        var _ts_parser_delete = Module["_ts_parser_delete"] = wasmExports["ts_parser_delete"];
+        var _ts_parser_reset = Module["_ts_parser_reset"] = wasmExports["ts_parser_reset"];
+        var _ts_parser_set_language = Module["_ts_parser_set_language"] = wasmExports["ts_parser_set_language"];
+        var _ts_parser_timeout_micros = Module["_ts_parser_timeout_micros"] = wasmExports["ts_parser_timeout_micros"];
+        var _ts_parser_set_timeout_micros = Module["_ts_parser_set_timeout_micros"] = wasmExports["ts_parser_set_timeout_micros"];
+        var _ts_parser_set_included_ranges = Module["_ts_parser_set_included_ranges"] = wasmExports["ts_parser_set_included_ranges"];
+        var _ts_query_new = Module["_ts_query_new"] = wasmExports["ts_query_new"];
+        var _ts_query_delete = Module["_ts_query_delete"] = wasmExports["ts_query_delete"];
+        var _iswspace = Module["_iswspace"] = wasmExports["iswspace"];
+        var _iswalnum = Module["_iswalnum"] = wasmExports["iswalnum"];
+        var _ts_query_pattern_count = Module["_ts_query_pattern_count"] = wasmExports["ts_query_pattern_count"];
+        var _ts_query_capture_count = Module["_ts_query_capture_count"] = wasmExports["ts_query_capture_count"];
+        var _ts_query_string_count = Module["_ts_query_string_count"] = wasmExports["ts_query_string_count"];
+        var _ts_query_capture_name_for_id = Module["_ts_query_capture_name_for_id"] = wasmExports["ts_query_capture_name_for_id"];
+        var _ts_query_capture_quantifier_for_id = Module["_ts_query_capture_quantifier_for_id"] = wasmExports["ts_query_capture_quantifier_for_id"];
+        var _ts_query_string_value_for_id = Module["_ts_query_string_value_for_id"] = wasmExports["ts_query_string_value_for_id"];
+        var _ts_query_predicates_for_pattern = Module["_ts_query_predicates_for_pattern"] = wasmExports["ts_query_predicates_for_pattern"];
+        var _ts_query_start_byte_for_pattern = Module["_ts_query_start_byte_for_pattern"] = wasmExports["ts_query_start_byte_for_pattern"];
+        var _ts_query_end_byte_for_pattern = Module["_ts_query_end_byte_for_pattern"] = wasmExports["ts_query_end_byte_for_pattern"];
+        var _ts_query_is_pattern_rooted = Module["_ts_query_is_pattern_rooted"] = wasmExports["ts_query_is_pattern_rooted"];
+        var _ts_query_is_pattern_non_local = Module["_ts_query_is_pattern_non_local"] = wasmExports["ts_query_is_pattern_non_local"];
+        var _ts_query_is_pattern_guaranteed_at_step = Module["_ts_query_is_pattern_guaranteed_at_step"] = wasmExports["ts_query_is_pattern_guaranteed_at_step"];
+        var _ts_query_disable_capture = Module["_ts_query_disable_capture"] = wasmExports["ts_query_disable_capture"];
+        var _ts_query_disable_pattern = Module["_ts_query_disable_pattern"] = wasmExports["ts_query_disable_pattern"];
+        var _ts_tree_copy = Module["_ts_tree_copy"] = wasmExports["ts_tree_copy"];
+        var _ts_tree_delete = Module["_ts_tree_delete"] = wasmExports["ts_tree_delete"];
+        var _ts_init = Module["_ts_init"] = wasmExports["ts_init"];
+        var _ts_parser_new_wasm = Module["_ts_parser_new_wasm"] = wasmExports["ts_parser_new_wasm"];
+        var _ts_parser_enable_logger_wasm = Module["_ts_parser_enable_logger_wasm"] = wasmExports["ts_parser_enable_logger_wasm"];
+        var _ts_parser_parse_wasm = Module["_ts_parser_parse_wasm"] = wasmExports["ts_parser_parse_wasm"];
+        var _ts_parser_included_ranges_wasm = Module["_ts_parser_included_ranges_wasm"] = wasmExports["ts_parser_included_ranges_wasm"];
+        var _ts_language_type_is_named_wasm = Module["_ts_language_type_is_named_wasm"] = wasmExports["ts_language_type_is_named_wasm"];
+        var _ts_language_type_is_visible_wasm = Module["_ts_language_type_is_visible_wasm"] = wasmExports["ts_language_type_is_visible_wasm"];
+        var _ts_language_supertypes_wasm = Module["_ts_language_supertypes_wasm"] = wasmExports["ts_language_supertypes_wasm"];
+        var _ts_language_subtypes_wasm = Module["_ts_language_subtypes_wasm"] = wasmExports["ts_language_subtypes_wasm"];
+        var _ts_tree_root_node_wasm = Module["_ts_tree_root_node_wasm"] = wasmExports["ts_tree_root_node_wasm"];
+        var _ts_tree_root_node_with_offset_wasm = Module["_ts_tree_root_node_with_offset_wasm"] = wasmExports["ts_tree_root_node_with_offset_wasm"];
+        var _ts_tree_edit_wasm = Module["_ts_tree_edit_wasm"] = wasmExports["ts_tree_edit_wasm"];
+        var _ts_tree_included_ranges_wasm = Module["_ts_tree_included_ranges_wasm"] = wasmExports["ts_tree_included_ranges_wasm"];
+        var _ts_tree_get_changed_ranges_wasm = Module["_ts_tree_get_changed_ranges_wasm"] = wasmExports["ts_tree_get_changed_ranges_wasm"];
+        var _ts_tree_cursor_new_wasm = Module["_ts_tree_cursor_new_wasm"] = wasmExports["ts_tree_cursor_new_wasm"];
+        var _ts_tree_cursor_copy_wasm = Module["_ts_tree_cursor_copy_wasm"] = wasmExports["ts_tree_cursor_copy_wasm"];
+        var _ts_tree_cursor_delete_wasm = Module["_ts_tree_cursor_delete_wasm"] = wasmExports["ts_tree_cursor_delete_wasm"];
+        var _ts_tree_cursor_reset_wasm = Module["_ts_tree_cursor_reset_wasm"] = wasmExports["ts_tree_cursor_reset_wasm"];
+        var _ts_tree_cursor_reset_to_wasm = Module["_ts_tree_cursor_reset_to_wasm"] = wasmExports["ts_tree_cursor_reset_to_wasm"];
+        var _ts_tree_cursor_goto_first_child_wasm = Module["_ts_tree_cursor_goto_first_child_wasm"] = wasmExports["ts_tree_cursor_goto_first_child_wasm"];
+        var _ts_tree_cursor_goto_last_child_wasm = Module["_ts_tree_cursor_goto_last_child_wasm"] = wasmExports["ts_tree_cursor_goto_last_child_wasm"];
+        var _ts_tree_cursor_goto_first_child_for_index_wasm = Module["_ts_tree_cursor_goto_first_child_for_index_wasm"] = wasmExports["ts_tree_cursor_goto_first_child_for_index_wasm"];
+        var _ts_tree_cursor_goto_first_child_for_position_wasm = Module["_ts_tree_cursor_goto_first_child_for_position_wasm"] = wasmExports["ts_tree_cursor_goto_first_child_for_position_wasm"];
+        var _ts_tree_cursor_goto_next_sibling_wasm = Module["_ts_tree_cursor_goto_next_sibling_wasm"] = wasmExports["ts_tree_cursor_goto_next_sibling_wasm"];
+        var _ts_tree_cursor_goto_previous_sibling_wasm = Module["_ts_tree_cursor_goto_previous_sibling_wasm"] = wasmExports["ts_tree_cursor_goto_previous_sibling_wasm"];
+        var _ts_tree_cursor_goto_descendant_wasm = Module["_ts_tree_cursor_goto_descendant_wasm"] = wasmExports["ts_tree_cursor_goto_descendant_wasm"];
+        var _ts_tree_cursor_goto_parent_wasm = Module["_ts_tree_cursor_goto_parent_wasm"] = wasmExports["ts_tree_cursor_goto_parent_wasm"];
+        var _ts_tree_cursor_current_node_type_id_wasm = Module["_ts_tree_cursor_current_node_type_id_wasm"] = wasmExports["ts_tree_cursor_current_node_type_id_wasm"];
+        var _ts_tree_cursor_current_node_state_id_wasm = Module["_ts_tree_cursor_current_node_state_id_wasm"] = wasmExports["ts_tree_cursor_current_node_state_id_wasm"];
+        var _ts_tree_cursor_current_node_is_named_wasm = Module["_ts_tree_cursor_current_node_is_named_wasm"] = wasmExports["ts_tree_cursor_current_node_is_named_wasm"];
+        var _ts_tree_cursor_current_node_is_missing_wasm = Module["_ts_tree_cursor_current_node_is_missing_wasm"] = wasmExports["ts_tree_cursor_current_node_is_missing_wasm"];
+        var _ts_tree_cursor_current_node_id_wasm = Module["_ts_tree_cursor_current_node_id_wasm"] = wasmExports["ts_tree_cursor_current_node_id_wasm"];
+        var _ts_tree_cursor_start_position_wasm = Module["_ts_tree_cursor_start_position_wasm"] = wasmExports["ts_tree_cursor_start_position_wasm"];
+        var _ts_tree_cursor_end_position_wasm = Module["_ts_tree_cursor_end_position_wasm"] = wasmExports["ts_tree_cursor_end_position_wasm"];
+        var _ts_tree_cursor_start_index_wasm = Module["_ts_tree_cursor_start_index_wasm"] = wasmExports["ts_tree_cursor_start_index_wasm"];
+        var _ts_tree_cursor_end_index_wasm = Module["_ts_tree_cursor_end_index_wasm"] = wasmExports["ts_tree_cursor_end_index_wasm"];
+        var _ts_tree_cursor_current_field_id_wasm = Module["_ts_tree_cursor_current_field_id_wasm"] = wasmExports["ts_tree_cursor_current_field_id_wasm"];
+        var _ts_tree_cursor_current_depth_wasm = Module["_ts_tree_cursor_current_depth_wasm"] = wasmExports["ts_tree_cursor_current_depth_wasm"];
+        var _ts_tree_cursor_current_descendant_index_wasm = Module["_ts_tree_cursor_current_descendant_index_wasm"] = wasmExports["ts_tree_cursor_current_descendant_index_wasm"];
+        var _ts_tree_cursor_current_node_wasm = Module["_ts_tree_cursor_current_node_wasm"] = wasmExports["ts_tree_cursor_current_node_wasm"];
+        var _ts_node_symbol_wasm = Module["_ts_node_symbol_wasm"] = wasmExports["ts_node_symbol_wasm"];
+        var _ts_node_field_name_for_child_wasm = Module["_ts_node_field_name_for_child_wasm"] = wasmExports["ts_node_field_name_for_child_wasm"];
+        var _ts_node_field_name_for_named_child_wasm = Module["_ts_node_field_name_for_named_child_wasm"] = wasmExports["ts_node_field_name_for_named_child_wasm"];
+        var _ts_node_children_by_field_id_wasm = Module["_ts_node_children_by_field_id_wasm"] = wasmExports["ts_node_children_by_field_id_wasm"];
+        var _ts_node_first_child_for_byte_wasm = Module["_ts_node_first_child_for_byte_wasm"] = wasmExports["ts_node_first_child_for_byte_wasm"];
+        var _ts_node_first_named_child_for_byte_wasm = Module["_ts_node_first_named_child_for_byte_wasm"] = wasmExports["ts_node_first_named_child_for_byte_wasm"];
+        var _ts_node_grammar_symbol_wasm = Module["_ts_node_grammar_symbol_wasm"] = wasmExports["ts_node_grammar_symbol_wasm"];
+        var _ts_node_child_count_wasm = Module["_ts_node_child_count_wasm"] = wasmExports["ts_node_child_count_wasm"];
+        var _ts_node_named_child_count_wasm = Module["_ts_node_named_child_count_wasm"] = wasmExports["ts_node_named_child_count_wasm"];
+        var _ts_node_child_wasm = Module["_ts_node_child_wasm"] = wasmExports["ts_node_child_wasm"];
+        var _ts_node_named_child_wasm = Module["_ts_node_named_child_wasm"] = wasmExports["ts_node_named_child_wasm"];
+        var _ts_node_child_by_field_id_wasm = Module["_ts_node_child_by_field_id_wasm"] = wasmExports["ts_node_child_by_field_id_wasm"];
+        var _ts_node_next_sibling_wasm = Module["_ts_node_next_sibling_wasm"] = wasmExports["ts_node_next_sibling_wasm"];
+        var _ts_node_prev_sibling_wasm = Module["_ts_node_prev_sibling_wasm"] = wasmExports["ts_node_prev_sibling_wasm"];
+        var _ts_node_next_named_sibling_wasm = Module["_ts_node_next_named_sibling_wasm"] = wasmExports["ts_node_next_named_sibling_wasm"];
+        var _ts_node_prev_named_sibling_wasm = Module["_ts_node_prev_named_sibling_wasm"] = wasmExports["ts_node_prev_named_sibling_wasm"];
+        var _ts_node_descendant_count_wasm = Module["_ts_node_descendant_count_wasm"] = wasmExports["ts_node_descendant_count_wasm"];
+        var _ts_node_parent_wasm = Module["_ts_node_parent_wasm"] = wasmExports["ts_node_parent_wasm"];
+        var _ts_node_child_with_descendant_wasm = Module["_ts_node_child_with_descendant_wasm"] = wasmExports["ts_node_child_with_descendant_wasm"];
+        var _ts_node_descendant_for_index_wasm = Module["_ts_node_descendant_for_index_wasm"] = wasmExports["ts_node_descendant_for_index_wasm"];
+        var _ts_node_named_descendant_for_index_wasm = Module["_ts_node_named_descendant_for_index_wasm"] = wasmExports["ts_node_named_descendant_for_index_wasm"];
+        var _ts_node_descendant_for_position_wasm = Module["_ts_node_descendant_for_position_wasm"] = wasmExports["ts_node_descendant_for_position_wasm"];
+        var _ts_node_named_descendant_for_position_wasm = Module["_ts_node_named_descendant_for_position_wasm"] = wasmExports["ts_node_named_descendant_for_position_wasm"];
+        var _ts_node_start_point_wasm = Module["_ts_node_start_point_wasm"] = wasmExports["ts_node_start_point_wasm"];
+        var _ts_node_end_point_wasm = Module["_ts_node_end_point_wasm"] = wasmExports["ts_node_end_point_wasm"];
+        var _ts_node_start_index_wasm = Module["_ts_node_start_index_wasm"] = wasmExports["ts_node_start_index_wasm"];
+        var _ts_node_end_index_wasm = Module["_ts_node_end_index_wasm"] = wasmExports["ts_node_end_index_wasm"];
+        var _ts_node_to_string_wasm = Module["_ts_node_to_string_wasm"] = wasmExports["ts_node_to_string_wasm"];
+        var _ts_node_children_wasm = Module["_ts_node_children_wasm"] = wasmExports["ts_node_children_wasm"];
+        var _ts_node_named_children_wasm = Module["_ts_node_named_children_wasm"] = wasmExports["ts_node_named_children_wasm"];
+        var _ts_node_descendants_of_type_wasm = Module["_ts_node_descendants_of_type_wasm"] = wasmExports["ts_node_descendants_of_type_wasm"];
+        var _ts_node_is_named_wasm = Module["_ts_node_is_named_wasm"] = wasmExports["ts_node_is_named_wasm"];
+        var _ts_node_has_changes_wasm = Module["_ts_node_has_changes_wasm"] = wasmExports["ts_node_has_changes_wasm"];
+        var _ts_node_has_error_wasm = Module["_ts_node_has_error_wasm"] = wasmExports["ts_node_has_error_wasm"];
+        var _ts_node_is_error_wasm = Module["_ts_node_is_error_wasm"] = wasmExports["ts_node_is_error_wasm"];
+        var _ts_node_is_missing_wasm = Module["_ts_node_is_missing_wasm"] = wasmExports["ts_node_is_missing_wasm"];
+        var _ts_node_is_extra_wasm = Module["_ts_node_is_extra_wasm"] = wasmExports["ts_node_is_extra_wasm"];
+        var _ts_node_parse_state_wasm = Module["_ts_node_parse_state_wasm"] = wasmExports["ts_node_parse_state_wasm"];
+        var _ts_node_next_parse_state_wasm = Module["_ts_node_next_parse_state_wasm"] = wasmExports["ts_node_next_parse_state_wasm"];
+        var _ts_query_matches_wasm = Module["_ts_query_matches_wasm"] = wasmExports["ts_query_matches_wasm"];
+        var _ts_query_captures_wasm = Module["_ts_query_captures_wasm"] = wasmExports["ts_query_captures_wasm"];
+        var _memset = Module["_memset"] = wasmExports["memset"];
+        var _memcpy = Module["_memcpy"] = wasmExports["memcpy"];
+        var _memmove = Module["_memmove"] = wasmExports["memmove"];
+        var _iswalpha = Module["_iswalpha"] = wasmExports["iswalpha"];
+        var _iswblank = Module["_iswblank"] = wasmExports["iswblank"];
+        var _iswdigit = Module["_iswdigit"] = wasmExports["iswdigit"];
+        var _iswlower = Module["_iswlower"] = wasmExports["iswlower"];
+        var _iswupper = Module["_iswupper"] = wasmExports["iswupper"];
+        var _iswxdigit = Module["_iswxdigit"] = wasmExports["iswxdigit"];
+        var _memchr = Module["_memchr"] = wasmExports["memchr"];
+        var _strlen = Module["_strlen"] = wasmExports["strlen"];
+        var _strcmp = Module["_strcmp"] = wasmExports["strcmp"];
+        var _strncat = Module["_strncat"] = wasmExports["strncat"];
+        var _strncpy = Module["_strncpy"] = wasmExports["strncpy"];
+        var _towlower = Module["_towlower"] = wasmExports["towlower"];
+        var _towupper = Module["_towupper"] = wasmExports["towupper"];
+        var _setThrew = wasmExports["setThrew"];
+        var __emscripten_stack_restore = wasmExports["_emscripten_stack_restore"];
+        var __emscripten_stack_alloc = wasmExports["_emscripten_stack_alloc"];
+        var _emscripten_stack_get_current = wasmExports["emscripten_stack_get_current"];
+        var ___wasm_apply_data_relocs = wasmExports["__wasm_apply_data_relocs"];
+        Module["setValue"] = setValue;
+        Module["getValue"] = getValue;
+        Module["UTF8ToString"] = UTF8ToString;
+        Module["stringToUTF8"] = stringToUTF8;
+        Module["lengthBytesUTF8"] = lengthBytesUTF8;
+        Module["AsciiToString"] = AsciiToString;
+        Module["stringToUTF16"] = stringToUTF16;
+        Module["loadWebAssemblyModule"] = loadWebAssemblyModule;
+        function callMain(args2 = []) {
+          var entryFunction = resolveGlobalSymbol("main").sym;
+          if (!entryFunction) return;
+          args2.unshift(thisProgram);
+          var argc = args2.length;
+          var argv = stackAlloc((argc + 1) * 4);
+          var argv_ptr = argv;
+          args2.forEach((arg) => {
+            LE_HEAP_STORE_U32((argv_ptr >> 2) * 4, stringToUTF8OnStack(arg));
+            argv_ptr += 4;
+          });
+          LE_HEAP_STORE_U32((argv_ptr >> 2) * 4, 0);
+          try {
+            var ret = entryFunction(argc, argv);
+            exitJS(
+              ret,
+              /* implicit = */
+              true
+            );
+            return ret;
+          } catch (e) {
+            return handleException(e);
+          }
+        }
+        __name(callMain, "callMain");
+        function run(args2 = arguments_) {
+          if (runDependencies > 0) {
+            dependenciesFulfilled = run;
+            return;
+          }
+          preRun();
+          if (runDependencies > 0) {
+            dependenciesFulfilled = run;
+            return;
+          }
+          function doRun() {
+            Module["calledRun"] = true;
+            if (ABORT) return;
+            initRuntime();
+            preMain();
+            readyPromiseResolve(Module);
+            Module["onRuntimeInitialized"]?.();
+            var noInitialRun = Module["noInitialRun"];
+            if (!noInitialRun) callMain(args2);
+            postRun();
+          }
+          __name(doRun, "doRun");
+          if (Module["setStatus"]) {
+            Module["setStatus"]("Running...");
+            setTimeout(() => {
+              setTimeout(() => Module["setStatus"](""), 1);
+              doRun();
+            }, 1);
+          } else {
+            doRun();
+          }
+        }
+        __name(run, "run");
+        if (Module["preInit"]) {
+          if (typeof Module["preInit"] == "function") Module["preInit"] = [Module["preInit"]];
+          while (Module["preInit"].length > 0) {
+            Module["preInit"].pop()();
+          }
+        }
+        run();
+        moduleRtn = readyPromise;
+        return moduleRtn;
+      };
+    })();
+    tree_sitter_default = Module2;
+    Module3 = null;
+    __name(initializeBinding, "initializeBinding");
+    __name(checkModule, "checkModule");
+    Parser = class {
+      static {
+        __name(this, "Parser");
+      }
+      /** @internal */
+      [0] = 0;
+      // Internal handle for WASM
+      /** @internal */
+      [1] = 0;
+      // Internal handle for WASM
+      /** @internal */
+      logCallback = null;
+      /** The parser's current language. */
+      language = null;
+      /**
+       * This must always be called before creating a Parser.
+       *
+       * You can optionally pass in options to configure the WASM module, the most common
+       * one being `locateFile` to help the module find the `.wasm` file.
+       */
+      static async init(moduleOptions) {
+        setModule(await initializeBinding(moduleOptions));
+        TRANSFER_BUFFER = C._ts_init();
+        LANGUAGE_VERSION = C.getValue(TRANSFER_BUFFER, "i32");
+        MIN_COMPATIBLE_VERSION = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+      }
+      /**
+       * Create a new parser.
+       */
+      constructor() {
+        this.initialize();
+      }
+      /** @internal */
+      initialize() {
+        if (!checkModule()) {
+          throw new Error("cannot construct a Parser before calling `init()`");
+        }
+        C._ts_parser_new_wasm();
+        this[0] = C.getValue(TRANSFER_BUFFER, "i32");
+        this[1] = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+      }
+      /** Delete the parser, freeing its resources. */
+      delete() {
+        C._ts_parser_delete(this[0]);
+        C._free(this[1]);
+        this[0] = 0;
+        this[1] = 0;
+      }
+      /**
+       * Set the language that the parser should use for parsing.
+       *
+       * If the language was not successfully assigned, an error will be thrown.
+       * This happens if the language was generated with an incompatible
+       * version of the Tree-sitter CLI. Check the language's version using
+       * {@link Language#version} and compare it to this library's
+       * {@link LANGUAGE_VERSION} and {@link MIN_COMPATIBLE_VERSION} constants.
+       */
+      setLanguage(language) {
+        let address;
+        if (!language) {
+          address = 0;
+          this.language = null;
+        } else if (language.constructor === Language) {
+          address = language[0];
+          const version2 = C._ts_language_version(address);
+          if (version2 < MIN_COMPATIBLE_VERSION || LANGUAGE_VERSION < version2) {
+            throw new Error(
+              `Incompatible language version ${version2}. Compatibility range ${MIN_COMPATIBLE_VERSION} through ${LANGUAGE_VERSION}.`
+            );
+          }
+          this.language = language;
+        } else {
+          throw new Error("Argument must be a Language");
+        }
+        C._ts_parser_set_language(this[0], address);
+        return this;
+      }
+      /**
+       * Parse a slice of UTF8 text.
+       *
+       * @param {string | ParseCallback} callback - The UTF8-encoded text to parse or a callback function.
+       *
+       * @param {Tree | null} [oldTree] - A previous syntax tree parsed from the same document. If the text of the
+       *   document has changed since `oldTree` was created, then you must edit `oldTree` to match
+       *   the new text using {@link Tree#edit}.
+       *
+       * @param {ParseOptions} [options] - Options for parsing the text.
+       *  This can be used to set the included ranges, or a progress callback.
+       *
+       * @returns {Tree | null} A {@link Tree} if parsing succeeded, or `null` if:
+       *  - The parser has not yet had a language assigned with {@link Parser#setLanguage}.
+       *  - The progress callback returned true.
+       */
+      parse(callback, oldTree, options) {
+        if (typeof callback === "string") {
+          C.currentParseCallback = (index) => callback.slice(index);
+        } else if (typeof callback === "function") {
+          C.currentParseCallback = callback;
+        } else {
+          throw new Error("Argument must be a string or a function");
+        }
+        if (options?.progressCallback) {
+          C.currentProgressCallback = options.progressCallback;
+        } else {
+          C.currentProgressCallback = null;
+        }
+        if (this.logCallback) {
+          C.currentLogCallback = this.logCallback;
+          C._ts_parser_enable_logger_wasm(this[0], 1);
+        } else {
+          C.currentLogCallback = null;
+          C._ts_parser_enable_logger_wasm(this[0], 0);
+        }
+        let rangeCount = 0;
+        let rangeAddress = 0;
+        if (options?.includedRanges) {
+          rangeCount = options.includedRanges.length;
+          rangeAddress = C._calloc(rangeCount, SIZE_OF_RANGE);
+          let address = rangeAddress;
+          for (let i2 = 0; i2 < rangeCount; i2++) {
+            marshalRange(address, options.includedRanges[i2]);
+            address += SIZE_OF_RANGE;
+          }
+        }
+        const treeAddress = C._ts_parser_parse_wasm(
+          this[0],
+          this[1],
+          oldTree ? oldTree[0] : 0,
+          rangeAddress,
+          rangeCount
+        );
+        if (!treeAddress) {
+          C.currentParseCallback = null;
+          C.currentLogCallback = null;
+          C.currentProgressCallback = null;
+          return null;
+        }
+        if (!this.language) {
+          throw new Error("Parser must have a language to parse");
+        }
+        const result2 = new Tree(INTERNAL, treeAddress, this.language, C.currentParseCallback);
+        C.currentParseCallback = null;
+        C.currentLogCallback = null;
+        C.currentProgressCallback = null;
+        return result2;
+      }
+      /**
+       * Instruct the parser to start the next parse from the beginning.
+       *
+       * If the parser previously failed because of a timeout, cancellation,
+       * or callback, then by default, it will resume where it left off on the
+       * next call to {@link Parser#parse} or other parsing functions.
+       * If you don't want to resume, and instead intend to use this parser to
+       * parse some other document, you must call `reset` first.
+       */
+      reset() {
+        C._ts_parser_reset(this[0]);
+      }
+      /** Get the ranges of text that the parser will include when parsing. */
+      getIncludedRanges() {
+        C._ts_parser_included_ranges_wasm(this[0]);
+        const count = C.getValue(TRANSFER_BUFFER, "i32");
+        const buffer = C.getValue(TRANSFER_BUFFER + SIZE_OF_INT, "i32");
+        const result2 = new Array(count);
+        if (count > 0) {
+          let address = buffer;
+          for (let i2 = 0; i2 < count; i2++) {
+            result2[i2] = unmarshalRange(address);
+            address += SIZE_OF_RANGE;
+          }
+          C._free(buffer);
+        }
+        return result2;
+      }
+      /**
+       * @deprecated since version 0.25.0, prefer passing a progress callback to {@link Parser#parse}
+       *
+       * Get the duration in microseconds that parsing is allowed to take.
+       *
+       * This is set via {@link Parser#setTimeoutMicros}.
+       */
+      getTimeoutMicros() {
+        return C._ts_parser_timeout_micros(this[0]);
+      }
+      /**
+       * @deprecated since version 0.25.0, prefer passing a progress callback to {@link Parser#parse}
+       *
+       * Set the maximum duration in microseconds that parsing should be allowed
+       * to take before halting.
+       *
+       * If parsing takes longer than this, it will halt early, returning `null`.
+       * See {@link Parser#parse} for more information.
+       */
+      setTimeoutMicros(timeout) {
+        C._ts_parser_set_timeout_micros(this[0], 0, timeout);
+      }
+      /** Set the logging callback that a parser should use during parsing. */
+      setLogger(callback) {
+        if (!callback) {
+          this.logCallback = null;
+        } else if (typeof callback !== "function") {
+          throw new Error("Logger callback must be a function");
+        } else {
+          this.logCallback = callback;
+        }
+        return this;
+      }
+      /** Get the parser's current logger. */
+      getLogger() {
+        return this.logCallback;
+      }
+    };
+  }
+});
+
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync9, readFileSync as readFileSync11 } from "node:fs";
+import { mkdirSync as mkdirSync9, readFileSync as readFileSync12 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -6998,10 +10967,10 @@ var ZodError = class _ZodError extends Error {
           fieldErrors._errors.push(mapper(issue2));
         } else {
           let curr = fieldErrors;
-          let i = 0;
-          while (i < issue2.path.length) {
-            const el = issue2.path[i];
-            const terminal = i === issue2.path.length - 1;
+          let i2 = 0;
+          while (i2 < issue2.path.length) {
+            const el = issue2.path[i2];
+            const terminal = i2 === issue2.path.length - 1;
             if (!terminal) {
               curr[el] = curr[el] || { _errors: [] };
             } else {
@@ -7009,7 +10978,7 @@ var ZodError = class _ZodError extends Error {
               curr[el]._errors.push(mapper(issue2));
             }
             curr = curr[el];
-            i++;
+            i2++;
           }
         }
       }
@@ -7424,8 +11393,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err20) {
-        if (err20?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err21) {
+        if (err21?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -7642,24 +11611,24 @@ var base64Regex = /^([0-9a-zA-Z+/]{4})*(([0-9a-zA-Z+/]{2}==)|([0-9a-zA-Z+/]{3}=)
 var base64urlRegex = /^([0-9a-zA-Z-_]{4})*(([0-9a-zA-Z-_]{2}(==)?)|([0-9a-zA-Z-_]{3}(=)?))?$/;
 var dateRegexSource = `((\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\\d|3[01])|(0[469]|11)-(0[1-9]|[12]\\d|30)|(02)-(0[1-9]|1\\d|2[0-8])))`;
 var dateRegex = new RegExp(`^${dateRegexSource}$`);
-function timeRegexSource(args) {
+function timeRegexSource(args2) {
   let secondsRegexSource = `[0-5]\\d`;
-  if (args.precision) {
-    secondsRegexSource = `${secondsRegexSource}\\.\\d{${args.precision}}`;
-  } else if (args.precision == null) {
+  if (args2.precision) {
+    secondsRegexSource = `${secondsRegexSource}\\.\\d{${args2.precision}}`;
+  } else if (args2.precision == null) {
     secondsRegexSource = `${secondsRegexSource}(\\.\\d+)?`;
   }
-  const secondsQuantifier = args.precision ? "+" : "?";
+  const secondsQuantifier = args2.precision ? "+" : "?";
   return `([01]\\d|2[0-3]):[0-5]\\d(:${secondsRegexSource})${secondsQuantifier}`;
 }
-function timeRegex(args) {
-  return new RegExp(`^${timeRegexSource(args)}$`);
+function timeRegex(args2) {
+  return new RegExp(`^${timeRegexSource(args2)}$`);
 }
-function datetimeRegex(args) {
-  let regex = `${dateRegexSource}T${timeRegexSource(args)}`;
+function datetimeRegex(args2) {
+  let regex = `${dateRegexSource}T${timeRegexSource(args2)}`;
   const opts = [];
-  opts.push(args.local ? `Z?` : `Z`);
-  if (args.offset)
+  opts.push(args2.local ? `Z?` : `Z`);
+  if (args2.offset)
     opts.push(`([+-]\\d{2}:?\\d{2})`);
   regex = `${regex}(${opts.join("|")})`;
   return new RegExp(`^${regex}$`);
@@ -8982,14 +12951,14 @@ var ZodArray = class _ZodArray extends ZodType {
       }
     }
     if (ctx.common.async) {
-      return Promise.all([...ctx.data].map((item, i) => {
-        return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+      return Promise.all([...ctx.data].map((item, i2) => {
+        return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i2));
       })).then((result3) => {
         return ParseStatus.mergeArray(status, result3);
       });
     }
-    const result2 = [...ctx.data].map((item, i) => {
-      return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+    const result2 = [...ctx.data].map((item, i2) => {
+      return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i2));
     });
     return ParseStatus.mergeArray(status, result2);
   }
@@ -9917,7 +13886,7 @@ var ZodSet = class _ZodSet extends ZodType {
       }
       return { status: status.value, value: parsedSet };
     }
-    const elements = [...ctx.data.values()].map((item, i) => valueType._parse(new ParseInputLazyPath(ctx, item, ctx.path, i)));
+    const elements = [...ctx.data.values()].map((item, i2) => valueType._parse(new ParseInputLazyPath(ctx, item, ctx.path, i2)));
     if (ctx.common.async) {
       return Promise.all(elements).then((elements2) => finalizeSet(elements2));
     } else {
@@ -9967,9 +13936,9 @@ var ZodFunction = class _ZodFunction extends ZodType {
       });
       return INVALID;
     }
-    function makeArgsIssue(args, error2) {
+    function makeArgsIssue(args2, error2) {
       return makeIssue({
-        data: args,
+        data: args2,
         path: ctx.path,
         errorMaps: [ctx.common.contextualErrorMap, ctx.schemaErrorMap, getErrorMap(), en_default].filter((x) => !!x),
         issueData: {
@@ -9993,10 +13962,10 @@ var ZodFunction = class _ZodFunction extends ZodType {
     const fn = ctx.data;
     if (this._def.returns instanceof ZodPromise) {
       const me = this;
-      return OK(async function(...args) {
+      return OK(async function(...args2) {
         const error2 = new ZodError([]);
-        const parsedArgs = await me._def.args.parseAsync(args, params).catch((e) => {
-          error2.addIssue(makeArgsIssue(args, e));
+        const parsedArgs = await me._def.args.parseAsync(args2, params).catch((e) => {
+          error2.addIssue(makeArgsIssue(args2, e));
           throw error2;
         });
         const result2 = await Reflect.apply(fn, this, parsedArgs);
@@ -10008,10 +13977,10 @@ var ZodFunction = class _ZodFunction extends ZodType {
       });
     } else {
       const me = this;
-      return OK(function(...args) {
-        const parsedArgs = me._def.args.safeParse(args, params);
+      return OK(function(...args2) {
+        const parsedArgs = me._def.args.safeParse(args2, params);
         if (!parsedArgs.success) {
-          throw new ZodError([makeArgsIssue(args, parsedArgs.error)]);
+          throw new ZodError([makeArgsIssue(args2, parsedArgs.error)]);
         }
         const result2 = Reflect.apply(fn, this, parsedArgs.data);
         const parsedReturns = me._def.returns.safeParse(result2, params);
@@ -10040,17 +14009,17 @@ var ZodFunction = class _ZodFunction extends ZodType {
       returns: returnType
     });
   }
-  implement(func) {
-    const validatedFunc = this.parse(func);
+  implement(func2) {
+    const validatedFunc = this.parse(func2);
     return validatedFunc;
   }
-  strictImplement(func) {
-    const validatedFunc = this.parse(func);
+  strictImplement(func2) {
+    const validatedFunc = this.parse(func2);
     return validatedFunc;
   }
-  static create(args, returns, params) {
+  static create(args2, returns, params) {
     return new _ZodFunction({
-      args: args ? args : ZodTuple.create([]).rest(ZodUnknown.create()),
+      args: args2 ? args2 : ZodTuple.create([]).rest(ZodUnknown.create()),
       returns: returns || ZodUnknown.create(),
       typeName: ZodFirstPartyTypeKind.ZodFunction,
       ...processCreateParams(params)
@@ -10687,8 +14656,8 @@ var NEVER = Object.freeze({
   status: "aborted"
 });
 // @__NO_SIDE_EFFECTS__
-function $constructor(name, initializer3, params) {
-  function init(inst, def) {
+function $constructor(name2, initializer3, params) {
+  function init2(inst, def) {
     if (!inst._zod) {
       Object.defineProperty(inst, "_zod", {
         value: {
@@ -10699,15 +14668,15 @@ function $constructor(name, initializer3, params) {
         enumerable: false
       });
     }
-    if (inst._zod.traits.has(name)) {
+    if (inst._zod.traits.has(name2)) {
       return;
     }
-    inst._zod.traits.add(name);
+    inst._zod.traits.add(name2);
     initializer3(inst, def);
     const proto = _.prototype;
     const keys = Object.keys(proto);
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
+    for (let i2 = 0; i2 < keys.length; i2++) {
+      const k = keys[i2];
       if (!(k in inst)) {
         inst[k] = proto[k].bind(inst);
       }
@@ -10716,26 +14685,26 @@ function $constructor(name, initializer3, params) {
   const Parent = params?.Parent ?? Object;
   class Definition extends Parent {
   }
-  Object.defineProperty(Definition, "name", { value: name });
+  Object.defineProperty(Definition, "name", { value: name2 });
   function _(def) {
     var _a2;
     const inst = params?.Parent ? new Definition() : this;
-    init(inst, def);
+    init2(inst, def);
     (_a2 = inst._zod).deferred ?? (_a2.deferred = []);
     for (const fn of inst._zod.deferred) {
       fn();
     }
     return inst;
   }
-  Object.defineProperty(_, "init", { value: init });
+  Object.defineProperty(_, "init", { value: init2 });
   Object.defineProperty(_, Symbol.hasInstance, {
     value: (inst) => {
       if (params?.Parent && inst instanceof params.Parent)
         return true;
-      return inst?._zod?.traits?.has(name);
+      return inst?._zod?.traits?.has(name2);
     }
   });
-  Object.defineProperty(_, "name", { value: name });
+  Object.defineProperty(_, "name", { value: name2 });
   return _;
 }
 var $ZodAsyncError = class extends Error {
@@ -10744,8 +14713,8 @@ var $ZodAsyncError = class extends Error {
   }
 };
 var $ZodEncodeError = class extends Error {
-  constructor(name) {
-    super(`Encountered unidirectional transform during encode: ${name}`);
+  constructor(name2) {
+    super(`Encountered unidirectional transform during encode: ${name2}`);
     this.name = "ZodEncodeError";
   }
 };
@@ -10764,7 +14733,7 @@ __export(util_exports, {
   NUMBER_FORMAT_RANGES: () => NUMBER_FORMAT_RANGES,
   aborted: () => aborted,
   allowsEval: () => allowsEval,
-  assert: () => assert,
+  assert: () => assert2,
   assertEqual: () => assertEqual,
   assertIs: () => assertIs,
   assertNever: () => assertNever,
@@ -10833,7 +14802,7 @@ function assertIs(_arg) {
 function assertNever(_x) {
   throw new Error("Unexpected value in exhaustive check");
 }
-function assert(_) {
+function assert2(_) {
 }
 function getEnumValues(entries) {
   const numericValues = Object.values(entries).filter((v) => typeof v === "number");
@@ -10865,9 +14834,9 @@ function nullish(input) {
   return input === null || input === void 0;
 }
 function cleanRegex(source) {
-  const start = source.startsWith("^") ? 1 : 0;
+  const start2 = source.startsWith("^") ? 1 : 0;
   const end = source.endsWith("$") ? source.length - 1 : source.length;
-  return source.slice(start, end);
+  return source.slice(start2, end);
 }
 function floatSafeRemainder2(val, step) {
   const valDecCount = (val.toString().split(".")[1] || "").length;
@@ -10939,8 +14908,8 @@ function promiseAllObject(promisesObj) {
   const promises = keys.map((key) => promisesObj[key]);
   return Promise.all(promises).then((results) => {
     const resolvedObj = {};
-    for (let i = 0; i < keys.length; i++) {
-      resolvedObj[keys[i]] = results[i];
+    for (let i2 = 0; i2 < keys.length; i2++) {
+      resolvedObj[keys[i2]] = results[i2];
     }
     return resolvedObj;
   });
@@ -10948,7 +14917,7 @@ function promiseAllObject(promisesObj) {
 function randomString(length = 10) {
   const chars = "abcdefghijklmnopqrstuvwxyz";
   let str2 = "";
-  for (let i = 0; i < length; i++) {
+  for (let i2 = 0; i2 < length; i2++) {
     str2 += chars[Math.floor(Math.random() * chars.length)];
   }
   return str2;
@@ -11308,8 +15277,8 @@ function required(Class2, schema, mask) {
 function aborted(x, startIndex = 0) {
   if (x.aborted === true)
     return true;
-  for (let i = startIndex; i < x.issues.length; i++) {
-    if (x.issues[i]?.continue !== true) {
+  for (let i2 = startIndex; i2 < x.issues.length; i2++) {
+    if (x.issues[i2]?.continue !== true) {
       return true;
     }
   }
@@ -11376,8 +15345,8 @@ function parsedType(data) {
   }
   return t;
 }
-function issue(...args) {
-  const [iss, input, inst] = args;
+function issue(...args2) {
+  const [iss, input, inst] = args2;
   if (typeof iss === "string") {
     return {
       message: iss,
@@ -11396,15 +15365,15 @@ function cleanEnum(obj) {
 function base64ToUint8Array(base643) {
   const binaryString = atob(base643);
   const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+  for (let i2 = 0; i2 < binaryString.length; i2++) {
+    bytes[i2] = binaryString.charCodeAt(i2);
   }
   return bytes;
 }
 function uint8ArrayToBase64(bytes) {
   let binaryString = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binaryString += String.fromCharCode(bytes[i]);
+  for (let i2 = 0; i2 < bytes.length; i2++) {
+    binaryString += String.fromCharCode(bytes[i2]);
   }
   return btoa(binaryString);
 }
@@ -11422,8 +15391,8 @@ function hexToUint8Array(hex3) {
     throw new Error("Invalid hex string length");
   }
   const bytes = new Uint8Array(cleanHex.length / 2);
-  for (let i = 0; i < cleanHex.length; i += 2) {
-    bytes[i / 2] = Number.parseInt(cleanHex.slice(i, i + 2), 16);
+  for (let i2 = 0; i2 < cleanHex.length; i2 += 2) {
+    bytes[i2 / 2] = Number.parseInt(cleanHex.slice(i2, i2 + 2), 16);
   }
   return bytes;
 }
@@ -11481,10 +15450,10 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
         fieldErrors._errors.push(mapper(issue2));
       } else {
         let curr = fieldErrors;
-        let i = 0;
-        while (i < issue2.path.length) {
-          const el = issue2.path[i];
-          const terminal = i === issue2.path.length - 1;
+        let i2 = 0;
+        while (i2 < issue2.path.length) {
+          const el = issue2.path[i2];
+          const terminal = i2 === issue2.path.length - 1;
           if (!terminal) {
             curr[el] = curr[el] || { _errors: [] };
           } else {
@@ -11492,7 +15461,7 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
             curr[el]._errors.push(mapper(issue2));
           }
           curr = curr[el];
-          i++;
+          i2++;
         }
       }
     }
@@ -11685,20 +15654,20 @@ var domain = /^([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
 var e164 = /^\+[1-9]\d{6,14}$/;
 var dateSource = `(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))`;
 var date = /* @__PURE__ */ new RegExp(`^${dateSource}$`);
-function timeSource(args) {
+function timeSource(args2) {
   const hhmm = `(?:[01]\\d|2[0-3]):[0-5]\\d`;
-  const regex = typeof args.precision === "number" ? args.precision === -1 ? `${hhmm}` : args.precision === 0 ? `${hhmm}:[0-5]\\d` : `${hhmm}:[0-5]\\d\\.\\d{${args.precision}}` : `${hhmm}(?::[0-5]\\d(?:\\.\\d+)?)?`;
+  const regex = typeof args2.precision === "number" ? args2.precision === -1 ? `${hhmm}` : args2.precision === 0 ? `${hhmm}:[0-5]\\d` : `${hhmm}:[0-5]\\d\\.\\d{${args2.precision}}` : `${hhmm}(?::[0-5]\\d(?:\\.\\d+)?)?`;
   return regex;
 }
-function time(args) {
-  return new RegExp(`^${timeSource(args)}$`);
+function time(args2) {
+  return new RegExp(`^${timeSource(args2)}$`);
 }
-function datetime(args) {
-  const time3 = timeSource({ precision: args.precision });
+function datetime(args2) {
+  const time3 = timeSource({ precision: args2.precision });
   const opts = ["Z"];
-  if (args.local)
+  if (args2.local)
     opts.push("");
-  if (args.offset)
+  if (args2.offset)
     opts.push(`([+-](?:[01]\\d|2[0-3]):[0-5]\\d)`);
   const timeRegex2 = `${time3}(?:${opts.join("|")})`;
   return new RegExp(`^${dateSource}T(?:${timeRegex2})$`);
@@ -12288,11 +16257,11 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
 var Doc = class {
-  constructor(args = []) {
+  constructor(args2 = []) {
     this.content = [];
     this.indent = 0;
     if (this)
-      this.args = args;
+      this.args = args2;
   }
   indented(fn) {
     this.indent += 1;
@@ -12315,10 +16284,10 @@ var Doc = class {
   }
   compile() {
     const F = Function;
-    const args = this?.args;
+    const args2 = this?.args;
     const content = this?.content ?? [``];
     const lines2 = [...content.map((x) => `  ${x}`)];
-    return new F(...args, lines2.join("\n"));
+    return new F(...args2, lines2.join("\n"));
   }
 };
 
@@ -12622,11 +16591,11 @@ var $ZodCIDRv6 = /* @__PURE__ */ $constructor("$ZodCIDRv6", (inst, def) => {
   def.pattern ?? (def.pattern = cidrv6);
   $ZodStringFormat.init(inst, def);
   inst._zod.check = (payload) => {
-    const parts = payload.value.split("/");
+    const parts2 = payload.value.split("/");
     try {
-      if (parts.length !== 2)
+      if (parts2.length !== 2)
         throw new Error();
-      const [address, prefix] = parts;
+      const [address, prefix] = parts2;
       if (!prefix)
         throw new Error();
       const prefixNum = Number(prefix);
@@ -12953,16 +16922,16 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
     }
     payload.value = Array(input.length);
     const proms = [];
-    for (let i = 0; i < input.length; i++) {
-      const item = input[i];
+    for (let i2 = 0; i2 < input.length; i2++) {
+      const item = input[i2];
       const result2 = def.element._zod.run({
         value: item,
         issues: []
       }, ctx);
       if (result2 instanceof Promise) {
-        proms.push(result2.then((result3) => handleArrayResult(result3, payload, i)));
+        proms.push(result2.then((result3) => handleArrayResult(result3, payload, i2)));
       } else {
-        handleArrayResult(result2, payload, i);
+        handleArrayResult(result2, payload, i2);
       }
     }
     if (proms.length) {
@@ -13513,35 +17482,35 @@ var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
         return payload;
       }
     }
-    let i = -1;
+    let i2 = -1;
     for (const item of items) {
-      i++;
-      if (i >= input.length) {
-        if (i >= optStart)
+      i2++;
+      if (i2 >= input.length) {
+        if (i2 >= optStart)
           continue;
       }
       const result2 = item._zod.run({
-        value: input[i],
+        value: input[i2],
         issues: []
       }, ctx);
       if (result2 instanceof Promise) {
-        proms.push(result2.then((result3) => handleTupleResult(result3, payload, i)));
+        proms.push(result2.then((result3) => handleTupleResult(result3, payload, i2)));
       } else {
-        handleTupleResult(result2, payload, i);
+        handleTupleResult(result2, payload, i2);
       }
     }
     if (def.rest) {
       const rest = input.slice(items.length);
       for (const el of rest) {
-        i++;
+        i2++;
         const result2 = def.rest._zod.run({
           value: el,
           issues: []
         }, ctx);
         if (result2 instanceof Promise) {
-          proms.push(result2.then((result3) => handleTupleResult(result3, payload, i)));
+          proms.push(result2.then((result3) => handleTupleResult(result3, payload, i2)));
         } else {
-          handleTupleResult(result2, payload, i);
+          handleTupleResult(result2, payload, i2);
         }
       }
     }
@@ -14137,9 +18106,9 @@ var $ZodTemplateLiteral = /* @__PURE__ */ $constructor("$ZodTemplateLiteral", (i
       const source = part._zod.pattern instanceof RegExp ? part._zod.pattern.source : part._zod.pattern;
       if (!source)
         throw new Error(`Invalid template literal part: ${part._zod.traits}`);
-      const start = source.startsWith("^") ? 1 : 0;
+      const start2 = source.startsWith("^") ? 1 : 0;
       const end = source.endsWith("$") ? source.length - 1 : source.length;
-      regexParts.push(source.slice(start, end));
+      regexParts.push(source.slice(start2, end));
     } else if (part === null || primitiveTypes.has(typeof part)) {
       regexParts.push(escapeRegex(`${part}`));
     } else {
@@ -14175,26 +18144,26 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
   $ZodType.init(inst, def);
   inst._def = def;
   inst._zod.def = def;
-  inst.implement = (func) => {
-    if (typeof func !== "function") {
+  inst.implement = (func2) => {
+    if (typeof func2 !== "function") {
       throw new Error("implement() must be called with a function");
     }
-    return function(...args) {
-      const parsedArgs = inst._def.input ? parse(inst._def.input, args) : args;
-      const result2 = Reflect.apply(func, this, parsedArgs);
+    return function(...args2) {
+      const parsedArgs = inst._def.input ? parse(inst._def.input, args2) : args2;
+      const result2 = Reflect.apply(func2, this, parsedArgs);
       if (inst._def.output) {
         return parse(inst._def.output, result2);
       }
       return result2;
     };
   };
-  inst.implementAsync = (func) => {
-    if (typeof func !== "function") {
+  inst.implementAsync = (func2) => {
+    if (typeof func2 !== "function") {
       throw new Error("implementAsync() must be called with a function");
     }
-    return async function(...args) {
-      const parsedArgs = inst._def.input ? await parseAsync(inst._def.input, args) : args;
-      const result2 = await Reflect.apply(func, this, parsedArgs);
+    return async function(...args2) {
+      const parsedArgs = inst._def.input ? await parseAsync(inst._def.input, args2) : args2;
+      const result2 = await Reflect.apply(func2, this, parsedArgs);
       if (inst._def.output) {
         return await parseAsync(inst._def.output, result2);
       }
@@ -14219,22 +18188,22 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
     }
     return payload;
   };
-  inst.input = (...args) => {
+  inst.input = (...args2) => {
     const F = inst.constructor;
-    if (Array.isArray(args[0])) {
+    if (Array.isArray(args2[0])) {
       return new F({
         type: "function",
         input: new $ZodTuple({
           type: "tuple",
-          items: args[0],
-          rest: args[1]
+          items: args2[0],
+          rest: args2[1]
         }),
         output: inst._def.output
       });
     }
     return new F({
       type: "function",
-      input: args[0],
+      input: args2[0],
       output: inst._def.output
     });
   };
@@ -15180,12 +19149,12 @@ function describe(description) {
   return ch;
 }
 // @__NO_SIDE_EFFECTS__
-function meta(metadata) {
+function meta(metadata2) {
   const ch = new $ZodCheck({ check: "meta" });
   ch._zod.onattach = [
     (inst) => {
       const existing = globalRegistry.get(inst) ?? {};
-      globalRegistry.add(inst, { ...existing, ...metadata });
+      globalRegistry.add(inst, { ...existing, ...metadata2 });
     }
   ];
   ch._zod.check = () => {
@@ -15906,9 +19875,9 @@ var objectProcessor = (schema, ctx, _json, params) => {
 var unionProcessor = (schema, ctx, json2, params) => {
   const def = schema._zod.def;
   const isExclusive = def.inclusive === false;
-  const options = def.options.map((x, i) => process2(x, ctx, {
+  const options = def.options.map((x, i2) => process2(x, ctx, {
     ...params,
-    path: [...params.path, isExclusive ? "oneOf" : "anyOf", i]
+    path: [...params.path, isExclusive ? "oneOf" : "anyOf", i2]
   }));
   if (isExclusive) {
     json2.oneOf = options;
@@ -15939,9 +19908,9 @@ var tupleProcessor = (schema, ctx, _json, params) => {
   json2.type = "array";
   const prefixPath = ctx.target === "draft-2020-12" ? "prefixItems" : "items";
   const restPath = ctx.target === "draft-2020-12" ? "items" : ctx.target === "openapi-3.0" ? "items" : "additionalItems";
-  const prefixItems = def.items.map((x, i) => process2(x, ctx, {
+  const prefixItems = def.items.map((x, i2) => process2(x, ctx, {
     ...params,
-    path: [...params.path, prefixPath, i]
+    path: [...params.path, prefixPath, i2]
   }));
   const rest = def.rest ? process2(def.rest, ctx, {
     ...params,
@@ -16521,12 +20490,12 @@ var ZodType2 = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
     },
     configurable: true
   });
-  inst.meta = (...args) => {
-    if (args.length === 0) {
+  inst.meta = (...args2) => {
+    if (args2.length === 0) {
       return globalRegistry.get(inst);
     }
     const cl = inst.clone();
-    globalRegistry.add(cl, args[0]);
+    globalRegistry.add(cl, args2[0]);
     return cl;
   };
   inst.isOptional = () => inst.safeParse(void 0).success;
@@ -16542,18 +20511,18 @@ var _ZodString = /* @__PURE__ */ $constructor("_ZodString", (inst, def) => {
   inst.format = bag.format ?? null;
   inst.minLength = bag.minimum ?? null;
   inst.maxLength = bag.maximum ?? null;
-  inst.regex = (...args) => inst.check(_regex(...args));
-  inst.includes = (...args) => inst.check(_includes(...args));
-  inst.startsWith = (...args) => inst.check(_startsWith(...args));
-  inst.endsWith = (...args) => inst.check(_endsWith(...args));
-  inst.min = (...args) => inst.check(_minLength(...args));
-  inst.max = (...args) => inst.check(_maxLength(...args));
-  inst.length = (...args) => inst.check(_length(...args));
-  inst.nonempty = (...args) => inst.check(_minLength(1, ...args));
+  inst.regex = (...args2) => inst.check(_regex(...args2));
+  inst.includes = (...args2) => inst.check(_includes(...args2));
+  inst.startsWith = (...args2) => inst.check(_startsWith(...args2));
+  inst.endsWith = (...args2) => inst.check(_endsWith(...args2));
+  inst.min = (...args2) => inst.check(_minLength(...args2));
+  inst.max = (...args2) => inst.check(_maxLength(...args2));
+  inst.length = (...args2) => inst.check(_length(...args2));
+  inst.nonempty = (...args2) => inst.check(_minLength(1, ...args2));
   inst.lowercase = (params) => inst.check(_lowercase(params));
   inst.uppercase = (params) => inst.check(_uppercase(params));
   inst.trim = () => inst.check(_trim());
-  inst.normalize = (...args) => inst.check(_normalize(...args));
+  inst.normalize = (...args2) => inst.check(_normalize(...args2));
   inst.toLowerCase = () => inst.check(_toLowerCase());
   inst.toUpperCase = () => inst.check(_toUpperCase());
   inst.slugify = () => inst.check(_slugify());
@@ -16973,8 +20942,8 @@ var ZodObject2 = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
   inst.merge = (other) => util_exports.merge(inst, other);
   inst.pick = (mask) => util_exports.pick(inst, mask);
   inst.omit = (mask) => util_exports.omit(inst, mask);
-  inst.partial = (...args) => util_exports.partial(ZodOptional2, inst, args[0]);
-  inst.required = (...args) => util_exports.required(ZodNonOptional, inst, args[0]);
+  inst.partial = (...args2) => util_exports.partial(ZodOptional2, inst, args2[0]);
+  inst.required = (...args2) => util_exports.required(ZodNonOptional, inst, args2[0]);
 });
 function object2(shape, params) {
   const def = {
@@ -17111,10 +21080,10 @@ var ZodMap2 = /* @__PURE__ */ $constructor("ZodMap", (inst, def) => {
   inst._zod.processJSONSchema = (ctx, json2, params) => mapProcessor(inst, ctx, json2, params);
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
-  inst.min = (...args) => inst.check(_minSize(...args));
+  inst.min = (...args2) => inst.check(_minSize(...args2));
   inst.nonempty = (params) => inst.check(_minSize(1, params));
-  inst.max = (...args) => inst.check(_maxSize(...args));
-  inst.size = (...args) => inst.check(_size(...args));
+  inst.max = (...args2) => inst.check(_maxSize(...args2));
+  inst.size = (...args2) => inst.check(_size(...args2));
 });
 function map(keyType, valueType, params) {
   return new ZodMap2({
@@ -17128,10 +21097,10 @@ var ZodSet2 = /* @__PURE__ */ $constructor("ZodSet", (inst, def) => {
   $ZodSet.init(inst, def);
   ZodType2.init(inst, def);
   inst._zod.processJSONSchema = (ctx, json2, params) => setProcessor(inst, ctx, json2, params);
-  inst.min = (...args) => inst.check(_minSize(...args));
+  inst.min = (...args2) => inst.check(_minSize(...args2));
   inst.nonempty = (params) => inst.check(_minSize(1, params));
-  inst.max = (...args) => inst.check(_maxSize(...args));
-  inst.size = (...args) => inst.check(_size(...args));
+  inst.max = (...args2) => inst.check(_maxSize(...args2));
+  inst.size = (...args2) => inst.check(_size(...args2));
 });
 function set(valueType, params) {
   return new ZodSet2({
@@ -17387,11 +21356,11 @@ var ZodPipe = /* @__PURE__ */ $constructor("ZodPipe", (inst, def) => {
   inst.in = def.in;
   inst.out = def.out;
 });
-function pipe(in_, out) {
+function pipe(in_, out2) {
   return new ZodPipe({
     type: "pipe",
     in: in_,
-    out
+    out: out2
     // ...util.normalizeParams(params),
   });
 }
@@ -17399,11 +21368,11 @@ var ZodCodec = /* @__PURE__ */ $constructor("ZodCodec", (inst, def) => {
   ZodPipe.init(inst, def);
   $ZodCodec.init(inst, def);
 });
-function codec(in_, out, params) {
+function codec(in_, out2, params) {
   return new ZodCodec({
     type: "pipe",
     in: in_,
-    out,
+    out: out2,
     transform: params.decode,
     reverseTransform: params.encode
   });
@@ -17425,10 +21394,10 @@ var ZodTemplateLiteral = /* @__PURE__ */ $constructor("ZodTemplateLiteral", (ins
   ZodType2.init(inst, def);
   inst._zod.processJSONSchema = (ctx, json2, params) => templateLiteralProcessor(inst, ctx, json2, params);
 });
-function templateLiteral(parts, params) {
+function templateLiteral(parts2, params) {
   return new ZodTemplateLiteral({
     type: "template_literal",
-    parts,
+    parts: parts2,
     ...util_exports.normalizeParams(params)
   });
 }
@@ -17514,11 +21483,11 @@ function _instanceof(cls, params = {}) {
   };
   return inst;
 }
-var stringbool = (...args) => _stringbool({
+var stringbool = (...args2) => _stringbool({
   Codec: ZodCodec,
   Boolean: ZodBoolean2,
   String: ZodString2
-}, ...args);
+}, ...args2);
 function json(params) {
   const jsonSchema = lazy(() => {
     return union([string2(params), number2(), boolean2(), _null3(), array(jsonSchema), record(string2(), jsonSchema)]);
@@ -19241,25 +23210,25 @@ var Protocol = class {
     });
   }
   _resetTimeout(messageId) {
-    const info = this._timeoutInfo.get(messageId);
-    if (!info)
+    const info2 = this._timeoutInfo.get(messageId);
+    if (!info2)
       return false;
-    const totalElapsed = Date.now() - info.startTime;
-    if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
+    const totalElapsed = Date.now() - info2.startTime;
+    if (info2.maxTotalTimeout && totalElapsed >= info2.maxTotalTimeout) {
       this._timeoutInfo.delete(messageId);
       throw McpError.fromError(ErrorCode.RequestTimeout, "Maximum total timeout exceeded", {
-        maxTotalTimeout: info.maxTotalTimeout,
+        maxTotalTimeout: info2.maxTotalTimeout,
         totalElapsed
       });
     }
-    clearTimeout(info.timeoutId);
-    info.timeoutId = setTimeout(info.onTimeout, info.timeout);
+    clearTimeout(info2.timeoutId);
+    info2.timeoutId = setTimeout(info2.onTimeout, info2.timeout);
     return true;
   }
   _cleanupTimeout(messageId) {
-    const info = this._timeoutInfo.get(messageId);
-    if (info) {
-      clearTimeout(info.timeoutId);
+    const info2 = this._timeoutInfo.get(messageId);
+    if (info2) {
+      clearTimeout(info2.timeoutId);
       this._timeoutInfo.delete(messageId);
     }
   }
@@ -19304,8 +23273,8 @@ var Protocol = class {
     this._progressHandlers.clear();
     this._taskProgressTokens.clear();
     this._pendingDebouncedNotifications.clear();
-    for (const info of this._timeoutInfo.values()) {
-      clearTimeout(info.timeoutId);
+    for (const info2 of this._timeoutInfo.values()) {
+      clearTimeout(info2.timeoutId);
     }
     this._timeoutInfo.clear();
     for (const controller of this._requestHandlerAbortControllers.values()) {
@@ -20886,9 +24855,9 @@ function readClaudePluginMetadata(env = process.env) {
     const manifest = JSON.parse(
       readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")
     );
-    const name = typeof manifest.name === "string" && manifest.name.length > 0 ? manifest.name : "tmb";
+    const name2 = typeof manifest.name === "string" && manifest.name.length > 0 ? manifest.name : "tmb";
     const version2 = typeof manifest.version === "string" && manifest.version.length > 0 ? manifest.version : null;
-    return freezePlugin({ root, name, version: version2 });
+    return freezePlugin({ root, name: name2, version: version2 });
   } catch {
     return freezePlugin({ root, name: "tmb", version: null });
   }
@@ -20995,12 +24964,12 @@ function claudeStateDir(root, pluginName2) {
 function isStandaloneClaudeDb(dbPath2) {
   return existsSync(join(dirname(dbPath2), CLAUDE_STANDALONE_MARKER));
 }
-function walkClaudeDbs(start, pluginName2, opts) {
+function walkClaudeDbs(start2, pluginName2, opts) {
   const home = opts?.home ?? homedir();
   const probe = opts?.probe ?? probeClaudeDb;
   const found = [];
-  for (let dir = start; dirname(dir) !== dir; dir = dirname(dir)) {
-    if (dir === home && start !== home) break;
+  for (let dir = start2; dirname(dir) !== dir; dir = dirname(dir)) {
+    if (dir === home && start2 !== home) break;
     const candidate = claudeDbLocation(dir, pluginName2);
     if (!existsSync(candidate) || probe(candidate) === "stale") continue;
     found.push(candidate);
@@ -21114,10 +25083,10 @@ function assertPathContained(root, path2, label) {
 }
 function assertExistingAncestorContained(root, path2, label, expectedKind) {
   const rel = relative(root, path2);
-  const parts = rel === "" ? [] : rel.split(sep);
+  const parts2 = rel === "" ? [] : rel.split(sep);
   let current = root;
-  for (let index = 0; index < parts.length; index += 1) {
-    current = join(current, parts[index]);
+  for (let index = 0; index < parts2.length; index += 1) {
+    current = join(current, parts2[index]);
     let currentStat;
     try {
       currentStat = lstatSync(current);
@@ -21132,7 +25101,7 @@ function assertExistingAncestorContained(root, path2, label, expectedKind) {
         `${label} contains a symbolic link in writable state`
       );
     }
-    if (index === parts.length - 1) {
+    if (index === parts2.length - 1) {
       if (expectedKind === "file" && !currentStat.isFile()) {
         throw new UnsafeProjectWritePathError(
           `${label} must be a regular file`
@@ -21149,13 +25118,13 @@ function assertExistingAncestorContained(root, path2, label, expectedKind) {
         );
       }
     }
-    if (index < parts.length - 1 && !currentStat.isDirectory()) {
+    if (index < parts2.length - 1 && !currentStat.isDirectory()) {
       throw new UnsafeProjectWritePathError(
         `${label} has a non-directory ancestor`
       );
     }
   }
-  if (parts.length > 0) {
+  if (parts2.length > 0) {
     assertPathContained(root, realpathSync(path2), label);
   }
 }
@@ -21375,25 +25344,25 @@ function parseLegacyRemotes(raw) {
       } : { name: void 0, url: void 0, provider: void 0 }
     );
   } else if (parsed !== null && typeof parsed === "object") {
-    entries = Object.entries(parsed).map(([name, url2]) => ({ name, url: url2, provider: void 0 }));
+    entries = Object.entries(parsed).map(([name2, url2]) => ({ name: name2, url: url2, provider: void 0 }));
   } else {
     return { ok: false, reason: `expected an array or an object, got ${parsed === null ? "null" : typeof parsed}` };
   }
   const remotes = [];
   const seen = /* @__PURE__ */ new Set();
   let dropped = 0;
-  entries.forEach((e, i) => {
+  entries.forEach((e, i2) => {
     if (typeof e.url !== "string") {
       dropped++;
       return;
     }
-    const name = typeof e.name === "string" && e.name.trim() !== "" ? e.name.trim() : i === 0 ? "origin" : `remote-${i}`;
-    if (seen.has(name)) {
+    const name2 = typeof e.name === "string" && e.name.trim() !== "" ? e.name.trim() : i2 === 0 ? "origin" : `remote-${i2}`;
+    if (seen.has(name2)) {
       dropped++;
       return;
     }
-    seen.add(name);
-    remotes.push({ name, url: e.url.trim(), provider: typeof e.provider === "string" ? e.provider : null });
+    seen.add(name2);
+    remotes.push({ name: name2, url: e.url.trim(), provider: typeof e.provider === "string" ? e.provider : null });
   });
   return { ok: true, entries: remotes, dropped };
 }
@@ -21428,7 +25397,7 @@ function setRemoteSync(db2, repo, providers) {
   return missing;
 }
 function remotesView(remotes) {
-  return remotes.map(({ name, provider, url: url2, sync }) => ({ name, provider, url: url2, sync }));
+  return remotes.map(({ name: name2, provider, url: url2, sync }) => ({ name: name2, provider, url: url2, sync }));
 }
 function upsertRepoRemotes(db2, repo, remotes) {
   const unique = [];
@@ -21448,8 +25417,8 @@ function upsertRepoRemotes(db2, repo, remotes) {
     [repo, names]
   );
   db2.run(`DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`, [repo, names]);
-  unique.forEach((r, i) => {
-    const isPrimary = i === primary ? 1 : 0;
+  unique.forEach((r, i2) => {
+    const isPrimary = i2 === primary ? 1 : 0;
     let sync = isPrimary;
     if (!existing.has(r.name)) {
       const renamedFrom = dropped.findIndex((d) => d.url === r.url);
@@ -21467,7 +25436,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 43;
+var TARGET_SCHEMA_VERSION = 44;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -21651,47 +25620,47 @@ var TrajectoryDB = class {
   runVersionSync(target, sql) {
     try {
       this.db.prepare(sql).run(this.pluginVersion);
-    } catch (err20) {
+    } catch (err21) {
       this.serverLog({
         kind: "plugin_version_sync_failed",
         level: "error",
         db_path: this.dbPath,
         target,
         plugin_version: this.pluginVersion,
-        message: err20 instanceof Error ? err20.message : String(err20)
+        message: err21 instanceof Error ? err21.message : String(err21)
       });
-      throw err20;
+      throw err21;
     }
   }
   run(sql, params) {
-    const start = performance2.now();
+    const start2 = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const result2 = stmt.run(...params ?? []);
-      const out = { changes: Number(result2.changes), lastInsertRowid: result2.lastInsertRowid };
+      const out2 = { changes: Number(result2.changes), lastInsertRowid: result2.lastInsertRowid };
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance2.now() - start),
-        rows_affected: out.changes,
+        duration_ms: Math.round(performance2.now() - start2),
+        rows_affected: out2.changes,
         ok: true
       });
-      return out;
-    } catch (err20) {
+      return out2;
+    } catch (err21) {
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance2.now() - start),
+        duration_ms: Math.round(performance2.now() - start2),
         ok: false,
-        error_message: err20 instanceof Error ? err20.message : String(err20)
+        error_message: err21 instanceof Error ? err21.message : String(err21)
       });
-      throw err20;
+      throw err21;
     }
   }
   get(sql, params) {
-    const start = performance2.now();
+    const start2 = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const row = stmt.get(...params ?? []);
@@ -21699,25 +25668,25 @@ var TrajectoryDB = class {
         kind: "get",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance2.now() - start),
+        duration_ms: Math.round(performance2.now() - start2),
         row_count: row === void 0 ? 0 : 1,
         ok: true
       });
       return row;
-    } catch (err20) {
+    } catch (err21) {
       this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance2.now() - start),
+        duration_ms: Math.round(performance2.now() - start2),
         ok: false,
-        error_message: err20 instanceof Error ? err20.message : String(err20)
+        error_message: err21 instanceof Error ? err21.message : String(err21)
       });
-      throw err20;
+      throw err21;
     }
   }
   all(sql, params) {
-    const start = performance2.now();
+    const start2 = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const rows = stmt.all(...params ?? []);
@@ -21725,21 +25694,21 @@ var TrajectoryDB = class {
         kind: "all",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance2.now() - start),
+        duration_ms: Math.round(performance2.now() - start2),
         row_count: rows.length,
         ok: true
       });
       return rows;
-    } catch (err20) {
+    } catch (err21) {
       this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance2.now() - start),
+        duration_ms: Math.round(performance2.now() - start2),
         ok: false,
-        error_message: err20 instanceof Error ? err20.message : String(err20)
+        error_message: err21 instanceof Error ? err21.message : String(err21)
       });
-      throw err20;
+      throw err21;
     }
   }
   /**
@@ -21797,10 +25766,10 @@ function nowISO() {
 var transactionDepth = /* @__PURE__ */ new WeakMap();
 var SQLITE_BUSY = 5;
 var backoffCell = new Int32Array(new SharedArrayBuffer(4));
-function isBusyError(err20) {
-  if (!(err20 instanceof Error)) return false;
-  const errcode = err20.errcode;
-  return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err20.message.includes("database is locked");
+function isBusyError(err21) {
+  if (!(err21 instanceof Error)) return false;
+  const errcode = err21.errcode;
+  return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err21.message.includes("database is locked");
 }
 function assertOpenableVersion(storedVersion, migrate) {
   if (storedVersion > TARGET_SCHEMA_VERSION) {
@@ -21820,8 +25789,8 @@ function execRetryingLockUpgrade(db2, sql) {
     try {
       db2.exec(sql);
       return;
-    } catch (err20) {
-      if (!isBusyError(err20) || performance2.now() >= deadline) throw err20;
+    } catch (err21) {
+      if (!isBusyError(err21) || performance2.now() >= deadline) throw err21;
       Atomics.wait(backoffCell, 0, 0, 5 + Math.random() * 45);
     }
   }
@@ -21847,12 +25816,12 @@ function withImmediateTransaction(db2, fn) {
     const result2 = fn();
     commitTransaction(db2);
     return result2;
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function backupDbBeforeMigration(dbPath2, targetVersion) {
@@ -22004,14 +25973,17 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 43 && toVersion >= 43) {
     migrateV42toV43(db2);
   }
+  if (fromVersion < 44 && toVersion >= 44) {
+    migrateV43toV44(db2);
+  }
 }
-function deleteBuiltinCheatcodeAttachments(db2, name) {
+function deleteBuiltinCheatcodeAttachments(db2, name2) {
   if (!tableExists(db2, "cheatcode_attachments")) return;
   db2.prepare(
     // LINT-ALLOW: mirrors the ON DELETE CASCADE that foreign_keys OFF suppresses during migration (GH 1624).
     `DELETE FROM cheatcode_attachments
       WHERE cheatcode_id IN (SELECT id FROM cheatcodes WHERE name = ? AND origin = 'builtin')`
-  ).run(name);
+  ).run(name2);
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -22027,12 +25999,12 @@ function readTableSql(db2, table) {
 }
 function rebuildTable(db2, table, createBody, columns) {
   const scratch = `${table}_new`;
-  const select = columns.map(([name, fallback]) => hasColumn(db2, table, name) ? name : `${fallback} AS ${name}`).join(", ");
+  const select = columns.map(([name2, fallback]) => hasColumn(db2, table, name2) ? name2 : `${fallback} AS ${name2}`).join(", ");
   const seqRow = tableExists(db2, "sqlite_sequence") ? db2.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table) : void 0;
   db2.exec(`DROP TABLE IF EXISTS ${scratch}`);
   db2.exec(`CREATE TABLE ${scratch} (${createBody})`);
   db2.exec(
-    `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(", ")}) SELECT ${select} FROM ${table}`
+    `INSERT INTO ${scratch} (${columns.map(([name2]) => name2).join(", ")}) SELECT ${select} FROM ${table}`
   );
   db2.exec(`DROP TABLE ${table}`);
   db2.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
@@ -22073,12 +26045,12 @@ function migrateV8toV9(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV9toV10(db2) {
@@ -22090,12 +26062,12 @@ function migrateV9toV10(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV10toV11(db2) {
@@ -22113,12 +26085,12 @@ function migrateV10toV11(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV11toV12(db2) {
@@ -22130,12 +26102,12 @@ function migrateV11toV12(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV12toV13(db2) {
@@ -22150,12 +26122,12 @@ function migrateV12toV13(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV13toV14(db2) {
@@ -22187,12 +26159,12 @@ function migrateV13toV14(db2) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV14toV15(db2) {
@@ -22202,12 +26174,12 @@ function migrateV14toV15(db2) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV15toV16(db2) {
@@ -22216,12 +26188,12 @@ function migrateV15toV16(db2) {
     db2.exec("DROP TABLE IF EXISTS rule_invocations");
     db2.exec("DROP TABLE IF EXISTS rules");
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV16toV17(db2) {
@@ -22229,12 +26201,12 @@ function migrateV16toV17(db2) {
   try {
     db2.exec("DROP TABLE IF EXISTS commands");
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV17toV18(db2) {
@@ -22272,12 +26244,12 @@ function migrateV17toV18(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22372,12 +26344,12 @@ function migrateV18toV19(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22406,12 +26378,12 @@ function migrateV19toV20(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV20toV21(db2) {
@@ -22681,12 +26653,12 @@ function migrateV28toV29(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22941,12 +26913,12 @@ function migrateV29toV30(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23011,12 +26983,12 @@ function migrateV30toV31(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23126,12 +27098,12 @@ function migrateV31toV32(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23255,12 +27227,12 @@ function migrateV32toV33(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23304,12 +27276,12 @@ function migrateV33toV34(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23355,8 +27327,8 @@ function migrateV34toV35(db2) {
           continue;
         }
         const primary = primaryIndex(parsed.entries);
-        parsed.entries.forEach((r, i) => {
-          insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0);
+        parsed.entries.forEach((r, i2) => {
+          insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i2 === primary ? 1 : 0);
         });
         if (parsed.dropped > 0) {
           skipped2(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? "y" : "ies"} without a url or with a duplicate name`);
@@ -23398,12 +27370,12 @@ function migrateV34toV35(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23446,12 +27418,12 @@ function migrateV36toV37(db2) {
       db2.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV37toV38(db2) {
@@ -23469,12 +27441,12 @@ function migrateV37toV38(db2) {
         WHERE event_type NOT IN (${placeholders2})`
     ).run(...documented);
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV38toV39(db2) {
@@ -23497,12 +27469,12 @@ function migrateV38toV39(db2) {
                          AND k.id < audit.id)`
     );
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV39toV40(db2) {
@@ -23516,12 +27488,12 @@ function migrateV40toV41(db2) {
     db2.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
     db2.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV41toV42(db2) {
@@ -23556,12 +27528,12 @@ function migrateV41toV42(db2) {
       )
     `);
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV42toV43(db2) {
@@ -23578,12 +27550,28 @@ function migrateV42toV43(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
+  }
+}
+function migrateV43toV44(db2) {
+  if (!tableExists(db2, "wm_files")) return;
+  beginImmediate(db2);
+  try {
+    if (!hasColumn(db2, "wm_files", "symbols_md5")) {
+      db2.exec("ALTER TABLE wm_files ADD COLUMN symbols_md5 TEXT");
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
   }
 }
 function migrateV22toV23(db2) {
@@ -23642,7 +27630,7 @@ function migrateV22toV23(db2) {
             FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
         )
       `);
-      const issueCol = (name, expr = name) => hasColumn(db2, "issues", name) ? expr : `NULL AS ${name}`;
+      const issueCol = (name2, expr = name2) => hasColumn(db2, "issues", name2) ? expr : `NULL AS ${name2}`;
       db2.exec(`
         INSERT INTO issues_new
           (id, objective, description, status, created_at, updated_at, closed_at,
@@ -23681,7 +27669,7 @@ function migrateV22toV23(db2) {
             completed_at      TEXT
         )
       `);
-      const taskCol = (name, fallback) => hasColumn(db2, "tasks", name) ? name : `${fallback} AS ${name}`;
+      const taskCol = (name2, fallback) => hasColumn(db2, "tasks", name2) ? name2 : `${fallback} AS ${name2}`;
       db2.exec(`
         INSERT INTO tasks_new
           (id, issue_id, branch_id, parent_branch_id, title, description, status,
@@ -23762,12 +27750,12 @@ function migrateV22toV23(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23834,12 +27822,12 @@ function migrateV23toV24(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23872,12 +27860,12 @@ function migrateV24toV25(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV25toV26(db2) {
@@ -23920,12 +27908,12 @@ function migrateV25toV26(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23975,12 +27963,12 @@ function migrateV26toV27(db2) {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV7toV8(db2) {
@@ -23996,12 +27984,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV6toV7(db2) {
@@ -24016,12 +28004,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV5toV6(db2) {
@@ -24055,12 +28043,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV4toV5(db2) {
@@ -24081,12 +28069,12 @@ function migrateV4toV5(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV3toV4(db2) {
@@ -24135,12 +28123,12 @@ function migrateV3toV4(db2) {
       `);
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV2toV3(db2) {
@@ -24237,12 +28225,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 function migrateV1toV2(db2) {
@@ -24422,21 +28410,21 @@ function migrateV1toV2(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err20) {
+  } catch (err21) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err20;
+    throw err21;
   }
 }
 
 // src/middleware/agent-scope.ts
 var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
 var ALL_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
-function normalizeAgent(name) {
-  if (typeof name !== "string") return "unknown";
-  const lower = name.toLowerCase().replace(/^tmb:/, "");
+function normalizeAgent(name2) {
+  if (typeof name2 !== "string") return "unknown";
+  const lower = name2.toLowerCase().replace(/^tmb:/, "");
   if (!lower) return "unknown";
   if (FIRST_CLASS_ROLES.has(lower)) return lower;
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
@@ -24472,21 +28460,21 @@ function forbidden(toolName, agent, allowedRoles, received) {
 var gatedRoles = /* @__PURE__ */ new WeakMap();
 function requireRoles(toolName, allowedRoles, handler) {
   const allowed = new Set(allowedRoles);
-  const gated = async (args) => {
-    const agent = normalizeAgent(args["agent"]);
-    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args["agent"]);
-    return handler(args);
+  const gated = async (args2) => {
+    const agent = normalizeAgent(args2["agent"]);
+    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args2["agent"]);
+    return handler(args2);
   };
   gatedRoles.set(gated, [...allowedRoles]);
   return gated;
 }
 function requireAgent(toolName, handler) {
   const allowedRoles = gatedRoles.get(handler) ?? ALL_ROLES;
-  return async (args) => {
-    if (normalizeAgent(args["agent"]) === "unknown") {
-      return forbidden(toolName, "unknown", allowedRoles, args["agent"]);
+  return async (args2) => {
+    if (normalizeAgent(args2["agent"]) === "unknown") {
+      return forbidden(toolName, "unknown", allowedRoles, args2["agent"]);
     }
-    return handler(args);
+    return handler(args2);
   };
 }
 function redactIssue(issue2, agent, opts) {
@@ -24656,14 +28644,14 @@ function packEmbedding(v) {
   return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
 }
 function unpackEmbedding(b) {
-  const out = new Float32Array(b.byteLength / 4);
+  const out2 = new Float32Array(b.byteLength / 4);
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  for (let i = 0; i < out.length; i++) out[i] = dv.getFloat32(i * 4, true);
-  return out;
+  for (let i2 = 0; i2 < out2.length; i2++) out2[i2] = dv.getFloat32(i2 * 4, true);
+  return out2;
 }
 function cosine(a, b) {
   let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  for (let i2 = 0; i2 < a.length; i2++) s += a[i2] * b[i2];
   return s;
 }
 var INSERT_SQL = {
@@ -24678,8 +28666,8 @@ var SELECT_SQL = {
   wm_directories: "SELECT e.dir_id AS rowid, e.embedding FROM wm_directories_embeddings e JOIN wm_directories d ON d.id = e.dir_id WHERE e.model_id = ? AND d.repo = ?",
   wm_files: "SELECT e.file_id AS rowid, e.embedding FROM wm_files_embeddings e JOIN wm_files f ON f.id = e.file_id WHERE e.model_id = ? AND f.repo = ?"
 };
-function worldModelEmbedText(path2, body) {
-  const text = (body ?? "").replace(/<\/?untrusted-content[^>]*>/g, "").trim();
+function worldModelEmbedText(path2, body2) {
+  const text = (body2 ?? "").replace(/<\/?untrusted-content[^>]*>/g, "").trim();
   return text ? `${path2}: ${text}` : path2;
 }
 function auditEmbedText(summary, contentJson) {
@@ -24837,9 +28825,9 @@ function toFtsOrQuery(raw) {
   });
   return tokens.length > 0 ? tokens.map(quoted).join(" OR ") : null;
 }
-function withFtsGuard(run) {
+function withFtsGuard(run2) {
   try {
-    return run();
+    return run2();
   } catch (e) {
     const message2 = e instanceof Error ? e.message : String(e);
     if (/fts5|no such column/i.test(message2)) {
@@ -24854,7 +28842,7 @@ var MAX_CONTENT_BYTES = 1e6;
 function ok(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err(message2) {
+function err2(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -24876,18 +28864,18 @@ function writerRefused(eventType, role) {
     ]
   };
 }
-function requireArg(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err(e.message);
+      return err2(e.message);
     }
   };
 }
@@ -25016,14 +29004,14 @@ function auditTools(db2) {
     }
   ];
   const handlers = {
-    audit_search: wrapHandler(async (args) => {
-      requireArg(args, "agent");
-      const query = requireArg(args, "query");
-      const mode = args["mode"] ?? "hybrid";
-      const issueId = args["issue_id"] ?? null;
-      const eventTypes = args["event_types"] ?? null;
-      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+    audit_search: wrapHandler(async (args2) => {
+      requireArg(args2, "agent");
+      const query = requireArg(args2, "query");
+      const mode = args2["mode"] ?? "hybrid";
+      const issueId = args2["issue_id"] ?? null;
+      const eventTypes = args2["event_types"] ?? null;
+      const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
+      const alpha = Math.min(1, Math.max(0, args2["recency_alpha"] ?? 0.3));
       await backfillMissing(db2, "audit");
       let eventTypeFilter = "";
       let eventTypeParams = [];
@@ -25131,31 +29119,31 @@ function auditTools(db2) {
       if (!semanticAvailable) response["warning"] = "semantic_unavailable";
       return ok(response);
     }),
-    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args) => {
-      const agentName = String(requireArg(args, "agent")).toLowerCase();
+    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args2) => {
+      const agentName = String(requireArg(args2, "agent")).toLowerCase();
       const role = normalizeAgent(agentName);
       const fromNode = role === "consultant" ? agentName : role;
-      const issueId = requireArg(args, "issue_id");
-      const branchId = args["branch_id"] ?? null;
+      const issueId = requireArg(args2, "issue_id");
+      const branchId = args2["branch_id"] ?? null;
       const now2 = nowISO();
-      requireArg(args, "event_type");
-      requireArg(args, "summary");
-      const eventType = args["event_type"];
+      requireArg(args2, "event_type");
+      requireArg(args2, "summary");
+      const eventType = args2["event_type"];
       if (!isAuditEventType(eventType)) {
-        return err(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(", ")}`);
+        return err2(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(", ")}`);
       }
       if (!isAuditEventWritableBy(eventType, role)) {
         return writerRefused(eventType, role);
       }
-      const claimedFrom = args["from_node"];
+      const claimedFrom = args2["from_node"];
       if (claimedFrom !== void 0 && claimedFrom !== null && claimedFrom !== fromNode) {
-        return err(`from_node '${String(claimedFrom)}' does not match the calling agent; audit_append records from_node '${fromNode}' itself (omit from_node)`);
+        return err2(`from_node '${String(claimedFrom)}' does not match the calling agent; audit_append records from_node '${fromNode}' itself (omit from_node)`);
       }
-      const summary = args["summary"];
-      const contentJson = args["content_json"] ?? "{}";
+      const summary = args2["summary"];
+      const contentJson = args2["content_json"] ?? "{}";
       const byteLength = Buffer.byteLength(contentJson, "utf8");
       if (byteLength > MAX_CONTENT_BYTES) {
-        return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
+        return err2(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
       }
       const id = insertAudit(db2, {
         issue_id: issueId,
@@ -25169,26 +29157,26 @@ function auditTools(db2) {
       });
       return ok(db2.get("SELECT * FROM audit WHERE id = ?", [id]));
     })),
-    audit_list: wrapHandler(async (args) => {
-      requireArg(args, "agent");
-      const issueId = requireArg(args, "issue_id");
-      const branchId = args["branch_id"] ?? null;
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const offset = Math.max(0, args["offset"] ?? 0);
-      const fieldsArg = args["fields"];
+    audit_list: wrapHandler(async (args2) => {
+      requireArg(args2, "agent");
+      const issueId = requireArg(args2, "issue_id");
+      const branchId = args2["branch_id"] ?? null;
+      const limitArg = args2["limit"];
+      const cursorArg = args2["cursor"];
+      const offset = Math.max(0, args2["offset"] ?? 0);
+      const fieldsArg = args2["fields"];
       const ALLOWED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "branch_id", "from_node", "event_type", "summary", "content_json", "created_at"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
+          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
         if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
+        const out2 = {};
+        for (const f of fieldsArg) out2[f] = row[f];
+        return out2;
       }
       const conditions = ["issue_id = ?"];
       const baseParams = [issueId];
@@ -25236,24 +29224,24 @@ var MAX_BODY_BYTES = 65536;
 function ok2(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err2(message2) {
+function err3(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg2(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg2(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler2(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err2(e.message);
+      return err3(e.message);
     }
   };
 }
@@ -25391,14 +29379,14 @@ function discussionTools(db2) {
     );
   }
   const handlers = {
-    discussion_search: wrapHandler2(async (args) => {
-      normalizeAgent(args["agent"]);
-      const query = requireArg2(args, "query");
-      const mode = args["mode"] ?? "hybrid";
-      const issueId = args["issue_id"] ?? null;
-      const kind = args["kind"] ?? null;
-      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+    discussion_search: wrapHandler2(async (args2) => {
+      normalizeAgent(args2["agent"]);
+      const query = requireArg2(args2, "query");
+      const mode = args2["mode"] ?? "hybrid";
+      const issueId = args2["issue_id"] ?? null;
+      const kind = args2["kind"] ?? null;
+      const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
+      const alpha = Math.min(1, Math.max(0, args2["recency_alpha"] ?? 0.3));
       await backfillMissing(db2, "discussions");
       const ftsQuery = toFtsQuery(query);
       const fetchFtsRows = (limitK) => withFtsGuard(() => db2.all(
@@ -25535,26 +29523,26 @@ function discussionTools(db2) {
     discussion_append: requireRoles(
       "discussion_append",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler2(async (args) => {
-        normalizeAgent(args["agent"]);
-        const rawIssueId = args["issue_id"];
+      wrapHandler2(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const rawIssueId = args2["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db2));
-        const author = requireArg2(args, "author");
-        const body = requireArg2(args, "body");
-        const kind = args["kind"] ?? "note";
-        const bodyBytes = Buffer.byteLength(body, "utf8");
+        const author = requireArg2(args2, "author");
+        const body2 = requireArg2(args2, "body");
+        const kind = args2["kind"] ?? "note";
+        const bodyBytes = Buffer.byteLength(body2, "utf8");
         if (bodyBytes > MAX_BODY_BYTES) {
-          return err2(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
+          return err3(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
         }
         if (!ALLOWED_KINDS.has(kind)) {
-          return err2(
+          return err3(
             `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(", ")}`
           );
         }
         if (!author.trim()) {
           throw new Error("author must be a non-empty string");
         }
-        const verifiedHuman = Boolean(args["verified_human"]);
+        const verifiedHuman = Boolean(args2["verified_human"]);
         if (author === "human" && !verifiedHuman) {
           throw new Error(
             'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
@@ -25565,30 +29553,30 @@ function discussionTools(db2) {
           throw new Error(`Not found: issue ${issueId}`);
         }
         const now2 = nowISO();
-        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now2 });
+        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body: body2, created_at: now2 });
         const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
         return ok2(row);
       })
     ),
-    discussion_list: wrapHandler2(async (args) => {
-      normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const rawOffset = args["offset"] ?? 0;
-      const fieldsArg = args["fields"];
+    discussion_list: wrapHandler2(async (args2) => {
+      normalizeAgent(args2["agent"]);
+      const issueId = requireArg2(args2, "issue_id");
+      const limitArg = args2["limit"];
+      const cursorArg = args2["cursor"];
+      const rawOffset = args2["offset"] ?? 0;
+      const fieldsArg = args2["fields"];
       const ALLOWED_DISCUSSION_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "author", "kind", "body", "created_at"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
+          return err3(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
         if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
+        const out2 = {};
+        for (const f of fieldsArg) out2[f] = row[f];
+        return out2;
       }
       const issue2 = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
       if (!issue2) {
@@ -25620,13 +29608,13 @@ function discussionTools(db2) {
       const next_cursor = hasMore && last ? encodeCursor2(last) : void 0;
       return ok2({ rows: rows.map(projectRow), next_cursor });
     }),
-    issue_get_with_discussions: wrapHandler2(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
-      const includeFull = args["include_full"] ?? false;
-      const lastNArg = args["last_n"];
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
+    issue_get_with_discussions: wrapHandler2(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const issueId = requireArg2(args2, "issue_id");
+      const includeFull = args2["include_full"] ?? false;
+      const lastNArg = args2["last_n"];
+      const limitArg = args2["limit"];
+      const cursorArg = args2["cursor"];
       const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!issue2) {
         throw new Error(`Not found: issue ${issueId}`);
@@ -25702,12 +29690,12 @@ function canonicalPath(path2, projectRoot) {
   }
   const absolute = isAbsolute2(path2) ? path2 : join5(projectRoot, path2);
   const root = parse3(absolute).root;
-  const pending = absolute.slice(root.length).split(sep2);
+  const pending2 = absolute.slice(root.length).split(sep2);
   const real = [];
   const tail = [];
   let hops = 0;
-  while (pending.length > 0) {
-    const part = pending.shift();
+  while (pending2.length > 0) {
+    const part = pending2.shift();
     if (part === "" || part === ".") continue;
     if (tail.length > 0) {
       if (part === "..") tail.pop();
@@ -25730,7 +29718,7 @@ function canonicalPath(path2, projectRoot) {
       hops += 1;
       const target = readlinkSync(candidate);
       if (isAbsolute2(target)) real.length = 0;
-      pending.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
+      pending2.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
       continue;
     }
     real.push(part);
@@ -25775,13 +29763,13 @@ function resolveRepoForSync(db2, repoName) {
   if (rows.length !== 1) return null;
   return { name: rows[0].name, path: repoRowPath(db2, rows[0].path) };
 }
-function resolveSoleRepo(db2, name) {
-  if (name) {
+function resolveSoleRepo(db2, name2) {
+  if (name2) {
     const repoRow = db2.get(
       `SELECT path FROM repos WHERE name = ?`,
-      [name]
+      [name2]
     );
-    return repoRow?.path ? { name, path: repoRowPath(db2, repoRow.path) } : void 0;
+    return repoRow?.path ? { name: name2, path: repoRowPath(db2, repoRow.path) } : void 0;
   }
   const repos = db2.all(
     `SELECT name, path FROM repos`
@@ -25802,8 +29790,8 @@ function liveCliBlockReason(env = process.env) {
   if (env.NODE_TEST_CONTEXT) return `NODE_TEST_CONTEXT=${env.NODE_TEST_CONTEXT}`;
   return null;
 }
-function liveCliBlockedMessage(reason, cmd, args) {
-  return `live CLI blocked in test context (${reason}) \u2014 refused to spawn "${cmd} ${args.join(" ")}"; inject _spawnFn`;
+function liveCliBlockedMessage(reason, cmd, args2) {
+  return `live CLI blocked in test context (${reason}) \u2014 refused to spawn "${cmd} ${args2.join(" ")}"; inject _spawnFn`;
 }
 
 // src/sync/backend.ts
@@ -25812,14 +29800,14 @@ function detectAvailable(_spawnFn) {
   if (_spawnFn === void 0 && _availabilityCache !== null) {
     return _availabilityCache;
   }
-  const check2 = (cmd, args) => {
+  const check2 = (cmd, args2) => {
     try {
       if (_spawnFn) {
-        const result4 = _spawnFn(cmd, args);
+        const result4 = _spawnFn(cmd, args2);
         return result4.status === 0;
       }
       if (liveCliBlockReason()) return false;
-      const result3 = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      const result3 = spawnSync(cmd, args2, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
       return result3.status === 0;
     } catch {
       return false;
@@ -25916,14 +29904,14 @@ function syncLog(entry) {
   } catch {
   }
 }
-function defaultSpawnFn(cmd, args, opts) {
+function defaultSpawnFn(cmd, args2, opts) {
   const blockReason = liveCliBlockReason();
   if (blockReason) {
-    const message2 = liveCliBlockedMessage(blockReason, cmd, args);
-    syncLog({ event: "live_cli_blocked", cmd, args, reason: blockReason });
+    const message2 = liveCliBlockedMessage(blockReason, cmd, args2);
+    syncLog({ event: "live_cli_blocked", cmd, args: args2, reason: blockReason });
     return { status: null, stdout: "", stderr: message2 };
   }
-  const result2 = spawnSync2(cmd, args, opts);
+  const result2 = spawnSync2(cmd, args2, opts);
   return {
     status: result2.status,
     stdout: result2.stdout ? String(result2.stdout) : "",
@@ -25964,13 +29952,13 @@ async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
   try {
     let result2;
     if (backend === "gh") {
-      const args = ["issue", "view", String(iid), "--json", "number,url"];
-      if (repoSlug) args.push("--repo", repoSlug);
-      result2 = spawnFn("gh", args, spawnOpts);
+      const args2 = ["issue", "view", String(iid), "--json", "number,url"];
+      if (repoSlug) args2.push("--repo", repoSlug);
+      result2 = spawnFn("gh", args2, spawnOpts);
     } else {
-      const args = ["issue", "view", String(iid)];
-      if (repoSlug) args.push("-R", repoSlug);
-      result2 = spawnFn("glab", args, spawnOpts);
+      const args2 = ["issue", "view", String(iid)];
+      if (repoSlug) args2.push("-R", repoSlug);
+      result2 = spawnFn("glab", args2, spawnOpts);
     }
     if (result2.status !== 0) {
       return { ok: false, reason: "read_back_non_zero_exit" };
@@ -26001,13 +29989,13 @@ async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
   try {
     let result2;
     if (backend === "gh") {
-      const args = ["label", "list", "--json", "name"];
-      if (repoSlug) args.push("--repo", repoSlug);
-      result2 = spawnFn("gh", args, spawnOpts);
+      const args2 = ["label", "list", "--json", "name"];
+      if (repoSlug) args2.push("--repo", repoSlug);
+      result2 = spawnFn("gh", args2, spawnOpts);
     } else {
-      const args = ["label", "list", "-F", "json"];
-      if (repoSlug) args.push("-R", repoSlug);
-      result2 = spawnFn("glab", args, spawnOpts);
+      const args2 = ["label", "list", "-F", "json"];
+      if (repoSlug) args2.push("-R", repoSlug);
+      result2 = spawnFn("glab", args2, spawnOpts);
     }
     if (result2.status !== 0) return null;
     let parsed;
@@ -26060,13 +30048,13 @@ async function verifyRemoteIssue(backend, iid, opts = {}) {
   try {
     let result2;
     if (backend === "gh") {
-      const args = ["issue", "view", String(iid), "--json", "number,title,state,milestone,labels"];
-      if (opts.repoSlug) args.push("--repo", opts.repoSlug);
-      result2 = spawnFn("gh", args, spawnOpts);
+      const args2 = ["issue", "view", String(iid), "--json", "number,title,state,milestone,labels"];
+      if (opts.repoSlug) args2.push("--repo", opts.repoSlug);
+      result2 = spawnFn("gh", args2, spawnOpts);
     } else {
-      const args = ["issue", "view", String(iid), "--output", "json"];
-      if (opts.repoSlug) args.push("-R", opts.repoSlug);
-      result2 = spawnFn("glab", args, spawnOpts);
+      const args2 = ["issue", "view", String(iid), "--output", "json"];
+      if (opts.repoSlug) args2.push("-R", opts.repoSlug);
+      result2 = spawnFn("glab", args2, spawnOpts);
     }
     if (result2.status !== 0) return { ok: false, reason: "not_found_or_error" };
     if (backend === "gh") {
@@ -26078,8 +30066,8 @@ async function verifyRemoteIssue(backend, iid, opts = {}) {
       }
       if (typeof parsed.number !== "number") return { ok: false, reason: "parse_failed" };
     }
-    const metadata = parseRemoteMetadata(result2.stdout);
-    return metadata ? { ok: true, ...metadata } : { ok: true };
+    const metadata2 = parseRemoteMetadata(result2.stdout);
+    return metadata2 ? { ok: true, ...metadata2 } : { ok: true };
   } catch {
     return { ok: false, reason: "spawn_error" };
   }
@@ -26088,7 +30076,7 @@ function isFailure(r) {
   return r.ok === false;
 }
 async function createOnBackend(backend, opts, spawnFn) {
-  const { title, body, labels = [], milestone } = opts;
+  const { title, body: body2, labels = [], milestone } = opts;
   const kind = backend === "gh" ? "github" : "gitlab";
   const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
   if (opts._cwd) {
@@ -26113,34 +30101,34 @@ async function createOnBackend(backend, opts, spawnFn) {
     }
   }
   let cmd;
-  let args;
+  let args2;
   if (backend === "gh") {
     cmd = "gh";
-    args = ["issue", "create", "--title", title, "--body", body];
+    args2 = ["issue", "create", "--title", title, "--body", body2];
     if (opts._repoSlug) {
-      args.push("--repo", opts._repoSlug);
+      args2.push("--repo", opts._repoSlug);
     }
     for (const label of effectiveLabels) {
-      args.push("--label", label);
+      args2.push("--label", label);
     }
     if (milestone) {
-      args.push("--milestone", milestone);
+      args2.push("--milestone", milestone);
     }
   } else {
     cmd = "glab";
-    args = ["issue", "create", "--title", title, "--description", body];
+    args2 = ["issue", "create", "--title", title, "--description", body2];
     if (opts._repoSlug) {
-      args.push("-R", opts._repoSlug);
+      args2.push("-R", opts._repoSlug);
     }
     for (const label of effectiveLabels) {
-      args.push("--label", label);
+      args2.push("--label", label);
     }
     if (milestone) {
-      args.push("--milestone", milestone);
+      args2.push("--milestone", milestone);
     }
   }
   try {
-    const result2 = spawnFn(cmd, args, spawnOpts);
+    const result2 = spawnFn(cmd, args2, spawnOpts);
     if (result2.status !== 0) {
       syncLog({
         event: "issue_create_failed",
@@ -26171,7 +30159,7 @@ async function createOnBackend(backend, opts, spawnFn) {
         reason: "parse_failed",
         backend,
         stdout: result2.stdout,
-        message: `could not parse remote issue id from "${cmd} ${args.join(" ")}" output`
+        message: `could not parse remote issue id from "${cmd} ${args2.join(" ")}" output`
       };
     }
     if (opts._remoteUrl && parsed.host) {
@@ -26285,22 +30273,22 @@ async function syncIssueClose(opts) {
     spawnOpts.cwd = opts._cwd;
   }
   let cmd;
-  let args;
+  let args2;
   if (remote_kind === "github") {
     cmd = "gh";
-    args = ["issue", "close", String(remote_iid)];
+    args2 = ["issue", "close", String(remote_iid)];
     if (opts._repoSlug) {
-      args.push("--repo", opts._repoSlug);
+      args2.push("--repo", opts._repoSlug);
     }
   } else {
     cmd = "glab";
-    args = ["issue", "close", String(remote_iid)];
+    args2 = ["issue", "close", String(remote_iid)];
     if (opts._repoSlug) {
-      args.push("-R", opts._repoSlug);
+      args2.push("-R", opts._repoSlug);
     }
   }
   try {
-    const result2 = spawnFn(cmd, args, spawnOpts);
+    const result2 = spawnFn(cmd, args2, spawnOpts);
     if (result2.status !== 0) {
       syncLog({
         event: "issue_close_failed",
@@ -26333,18 +30321,18 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
   const spawnFn = opts.spawnFn ?? defaultSpawnFn;
   const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
   if (opts.cwd) spawnOpts.cwd = opts.cwd;
-  const args = backend === "gh" ? ["issue", "edit", String(iid)] : ["issue", "update", String(iid)];
-  if (opts.repoSlug) args.push(backend === "gh" ? "--repo" : "-R", opts.repoSlug);
-  if (fields.milestone !== void 0) args.push(backend === "gh" ? "--milestone" : "-m", fields.milestone);
+  const args2 = backend === "gh" ? ["issue", "edit", String(iid)] : ["issue", "update", String(iid)];
+  if (opts.repoSlug) args2.push(backend === "gh" ? "--repo" : "-R", opts.repoSlug);
+  if (fields.milestone !== void 0) args2.push(backend === "gh" ? "--milestone" : "-m", fields.milestone);
   if (fields.labels) {
     const addFlag = backend === "gh" ? "--add-label" : "--label";
     const removeFlag = backend === "gh" ? "--remove-label" : "--unlabel";
-    for (const l of fields.labels.add) args.push(addFlag, l);
-    for (const l of fields.labels.remove) args.push(removeFlag, l);
+    for (const l of fields.labels.add) args2.push(addFlag, l);
+    for (const l of fields.labels.remove) args2.push(removeFlag, l);
   }
-  if (fields.title !== void 0) args.push(backend === "gh" ? "--title" : "-t", fields.title);
+  if (fields.title !== void 0) args2.push(backend === "gh" ? "--title" : "-t", fields.title);
   try {
-    const result2 = spawnFn(backend, args, spawnOpts);
+    const result2 = spawnFn(backend, args2, spawnOpts);
     if (result2.status !== 0) {
       syncLog({ event: "issue_update_failed", backend, remote_iid: iid, stderr: result2.stderr, exit_code: result2.status });
       return {
@@ -26682,7 +30670,7 @@ function decodeIssue(row) {
 function ok3(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err3(message2) {
+function err4(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -26694,18 +30682,18 @@ function refusal(code, detail) {
     isError: true
   };
 }
-function requireArg3(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg3(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler3(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err3(e.message);
+      return err4(e.message);
     }
   };
 }
@@ -26724,7 +30712,7 @@ function resolveIssueSyncContext(db2, repoName) {
   };
 }
 function probeSpawn(spawnFn) {
-  return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0;
+  return spawnFn ? (cmd, args2) => spawnFn(cmd, args2, { encoding: "utf8" }) : void 0;
 }
 function syncedBackends(backend, ctx) {
   const wanted = backend === "both" ? ["gh", "glab"] : [backend];
@@ -27026,20 +31014,20 @@ function issueTools(db2, dbPath2 = "", options = {}) {
     }
   ];
   const handlers = {
-    issue_create: requireRoles("issue_create", ["bro"], wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      requireArg3(args, "objective");
-      const objective = args["objective"];
-      const description = args["description"] ?? "";
-      const includeDescription = args["include_description"] ?? false;
-      const labels = args["labels"] ?? [];
+    issue_create: requireRoles("issue_create", ["bro"], wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      requireArg3(args2, "objective");
+      const objective = args2["objective"];
+      const description = args2["description"] ?? "";
+      const includeDescription = args2["include_description"] ?? false;
+      const labels = args2["labels"] ?? [];
       const labelError = validateIssueLabels(db2, labels, options.labelTaxonomy);
       if (labelError !== null) {
-        return err3(labelError);
+        return err4(labelError);
       }
-      const explicitRepo = args["repo"] ?? null;
+      const explicitRepo = args2["repo"] ?? null;
       const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
-      const allowDuplicate = args["allow_duplicate"] ?? false;
+      const allowDuplicate = args2["allow_duplicate"] ?? false;
       if (!allowDuplicate) {
         const openIssues = db2.all(
           `SELECT id, objective FROM issues WHERE status = 'open' AND (repo IS NULL OR repo = ?)`,
@@ -27061,18 +31049,18 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           });
         }
       }
-      const explicitMilestone = args["milestone"] ?? null;
+      const explicitMilestone = args2["milestone"] ?? null;
       const milestoneResolution = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
       const milestone = milestoneResolution.milestone;
-      const spawnFn = args["_spawnFn"] ?? void 0;
+      const spawnFn = args2["_spawnFn"] ?? void 0;
       const now2 = nowISO();
-      const remoteIidRaw = args["remote_iid"];
+      const remoteIidRaw = args2["remote_iid"];
       if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
         const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
-        const remoteBackendArg = args["remote_backend"];
+        const remoteBackendArg = args2["remote_backend"];
         const adoption = await verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn);
         if (!adoption.ok) {
-          return err3(adoption.error);
+          return err4(adoption.error);
         }
         db2.run(
           `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
@@ -27361,10 +31349,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (syncDiagnostic) payload._sync = syncDiagnostic;
       return ok3(payload);
     })),
-    issue_get: wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg3(args, "issue_id");
-      const includeDescription = args["include_description"] ?? false;
+    issue_get: wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const issueId = requireArg3(args2, "issue_id");
+      const includeDescription = args2["include_description"] ?? false;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
         throw new Error(`Not found: ${issueId}`);
@@ -27372,9 +31360,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const issue2 = decodeIssue(row);
       return ok3(redactIssue(issue2, agent, { include_description: includeDescription }));
     }),
-    issue_resume: wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg3(args, "issue_id");
+    issue_resume: wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const issueId = requireArg3(args2, "issue_id");
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
         throw new Error(`Not found: ${issueId}`);
@@ -27389,21 +31377,21 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       );
       return ok3({ issue: redactIssue(issue2, agent), next_task: task ?? null });
     }),
-    issue_close: requireRoles("issue_close", ["bro"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg3(args, "issue_id");
+    issue_close: requireRoles("issue_close", ["bro"], wrapHandler3(async (args2) => {
+      requireArg3(args2, "agent");
+      const agent = normalizeAgent(args2["agent"]);
+      const issueId = requireArg3(args2, "issue_id");
       const now2 = nowISO();
       const existing = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
         throw new Error(`Not found: ${issueId}`);
       }
-      const cascade = args["cascade"] === true;
-      const waiveReview = args["waive_review"] === true;
-      const waiveReason = args["waive_review_reason"];
-      const cascadeReason = typeof args["reason"] === "string" && args["reason"].trim() !== "" ? args["reason"] : "issue closed with cascade";
+      const cascade = args2["cascade"] === true;
+      const waiveReview = args2["waive_review"] === true;
+      const waiveReason = args2["waive_review_reason"];
+      const cascadeReason = typeof args2["reason"] === "string" && args2["reason"].trim() !== "" ? args2["reason"] : "issue closed with cascade";
       if (waiveReview && (typeof waiveReason !== "string" || waiveReason.trim().length < WAIVE_REVIEW_REASON_MIN)) {
-        return err3(`waive_review_reason must be a string \u2265${WAIVE_REVIEW_REASON_MIN} chars.`);
+        return err4(`waive_review_reason must be a string \u2265${WAIVE_REVIEW_REASON_MIN} chars.`);
       }
       const live = liveTasksOfIssue(db2, issueId);
       if (live.length > 0 && !cascade) {
@@ -27441,7 +31429,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         escalateLiveTasksForIssueClose(db2, live, cascadeReason, now2);
         markIssueClosed(db2, issueId, now2);
       });
-      const remote = await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
+      const remote = await syncIssueCloseRemotes(db2, dbPath2, issueId, args2["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({
         ...redactIssue(decodeIssue(updated), agent, { include_description: false }),
@@ -27450,9 +31438,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         remote
       });
     })),
-    issue_get_phase: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
+    issue_get_phase: wrapHandler3(async (args2) => {
+      requireArg3(args2, "agent");
+      const issueId = requireArg3(args2, "issue_id");
       const issueRow = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!issueRow) {
         throw new Error(`Not found: ${issueId}`);
@@ -27485,17 +31473,17 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       }
       return ok3({ phase, counts });
     }),
-    issue_list: wrapHandler3(async (args) => {
-      normalizeAgent(args["agent"]);
-      const rawStatus = args["status"];
-      const rawLimit = args["limit"] ?? 50;
-      const rawOffset = args["offset"] ?? 0;
-      const fieldsArg = args["fields"];
+    issue_list: wrapHandler3(async (args2) => {
+      normalizeAgent(args2["agent"]);
+      const rawStatus = args2["status"];
+      const rawLimit = args2["limit"] ?? 50;
+      const rawOffset = args2["offset"] ?? 0;
+      const fieldsArg = args2["fields"];
       const limit = Math.min(Math.max(1, rawLimit), 200);
       const offset = Math.max(0, rawOffset);
       const VALID_ISSUE_STATUSES = /* @__PURE__ */ new Set(["open", "closed"]);
       if (rawStatus !== void 0 && !VALID_ISSUE_STATUSES.has(rawStatus)) {
-        return err3(
+        return err4(
           `Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(", ")}`
         );
       }
@@ -27503,16 +31491,16 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_ISSUE_LIST_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err3(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
+          return err4(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
         if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
+        const out2 = {};
+        for (const f of fieldsArg) out2[f] = row[f];
+        return out2;
       }
-      const rawMilestone = args["milestone"];
+      const rawMilestone = args2["milestone"];
       const conditions = [];
       const params = [];
       if (rawStatus !== void 0) {
@@ -27534,18 +31522,18 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       );
       return ok3(rows.map(projectRow));
     }),
-    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg3(args, "issue_id");
-      const description = requireArg3(args, "description");
-      const includeDescription = args["include_description"] ?? false;
+    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const issueId = requireArg3(args2, "issue_id");
+      const description = requireArg3(args2, "description");
+      const includeDescription = args2["include_description"] ?? false;
       const MAX_DESCRIPTION_BYTES = 1024 * 1024;
       if (Buffer.byteLength(description, "utf8") > MAX_DESCRIPTION_BYTES) {
-        return err3("description exceeds 1MB limit");
+        return err4("description exceeds 1MB limit");
       }
       const existing = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
-        return err3(`not_found: issue ${issueId}`);
+        return err4(`not_found: issue ${issueId}`);
       }
       const now2 = nowISO();
       db2.run(
@@ -27555,31 +31543,31 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3(redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }));
     })),
-    issue_update: requireRoles("issue_update", ["bro"], wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg3(args, "issue_id");
-      const includeDescription = args["include_description"] ?? false;
-      const milestoneArg = args["milestone"];
-      const labelsArg = args["labels"];
-      const objectiveArg = args["objective"];
-      const spawnFn = args["_spawnFn"] ?? void 0;
-      const cwdOverride = args["_cwd"];
+    issue_update: requireRoles("issue_update", ["bro"], wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const issueId = requireArg3(args2, "issue_id");
+      const includeDescription = args2["include_description"] ?? false;
+      const milestoneArg = args2["milestone"];
+      const labelsArg = args2["labels"];
+      const objectiveArg = args2["objective"];
+      const spawnFn = args2["_spawnFn"] ?? void 0;
+      const cwdOverride = args2["_cwd"];
       if (milestoneArg === void 0 && labelsArg === void 0 && objectiveArg === void 0) {
-        return err3("no_fields: pass at least one of milestone, labels, objective");
+        return err4("no_fields: pass at least one of milestone, labels, objective");
       }
       if (milestoneArg !== void 0 && milestoneArg === "") {
-        return err3("invalid_milestone: milestone must be a non-empty string");
+        return err4("invalid_milestone: milestone must be a non-empty string");
       }
       if (objectiveArg !== void 0 && objectiveArg.trim() === "") {
-        return err3("invalid_objective: objective must be a non-empty string");
+        return err4("invalid_objective: objective must be a non-empty string");
       }
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err3(`not_found: issue ${issueId}`);
+        return err4(`not_found: issue ${issueId}`);
       }
       if (labelsArg !== void 0) {
         const labelError = validateIssueLabels(db2, labelsArg, options.labelTaxonomy, "issue_update");
-        if (labelError) return err3(labelError);
+        if (labelError) return err4(labelError);
       }
       let previousLabels = [];
       if (row.labels != null) {
@@ -27712,12 +31700,12 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         _sync: syncDiagnostic
       });
     })),
-    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler3(async (args) => {
-      const issueId = requireArg3(args, "issue_id");
-      const spawnFn = args["_spawnFn"] ?? void 0;
+    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler3(async (args2) => {
+      const issueId = requireArg3(args2, "issue_id");
+      const spawnFn = args2["_spawnFn"] ?? void 0;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err3(`not_found: issue ${issueId}`);
+        return err4(`not_found: issue ${issueId}`);
       }
       const syncConfigRow = db2.get(
         `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
@@ -27857,24 +31845,24 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         errors: createErrors
       });
     })),
-    issue_link: requireRoles("issue_link", ["bro"], wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const includeDescription = args["include_description"] ?? false;
-      const issueId = requireArg3(args, "issue_id");
-      const backend = requireArg3(args, "backend");
-      const iid = requireArg3(args, "iid");
-      const force = args["force"] ?? false;
+    issue_link: requireRoles("issue_link", ["bro"], wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const includeDescription = args2["include_description"] ?? false;
+      const issueId = requireArg3(args2, "issue_id");
+      const backend = requireArg3(args2, "backend");
+      const iid = requireArg3(args2, "iid");
+      const force = args2["force"] ?? false;
       if (!Number.isInteger(iid) || iid <= 0) {
-        return err3(`invalid iid: must be a positive integer`);
+        return err4(`invalid iid: must be a positive integer`);
       }
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err3(`not_found: issue ${issueId}`);
+        return err4(`not_found: issue ${issueId}`);
       }
       const iidColumn = backend === "github" ? "gh_iid" : "gl_iid";
       const existingIid = backend === "github" ? row.gh_iid : row.gl_iid;
       if (existingIid != null && !force) {
-        return err3(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
+        return err4(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
       }
       const now2 = nowISO();
       if (backend === "github") {
@@ -27899,36 +31887,36 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({ linked: true, backend, iid, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
     })),
-    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler3(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const includeDescription = args["include_description"] ?? false;
-      const repoArg = args["repo"] ?? null;
-      const issueId = requireArg3(args, "issue_id");
-      const remoteIidRaw = requireArg3(args, "remote_iid");
+    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler3(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const includeDescription = args2["include_description"] ?? false;
+      const repoArg = args2["repo"] ?? null;
+      const issueId = requireArg3(args2, "issue_id");
+      const remoteIidRaw = requireArg3(args2, "remote_iid");
       const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
-      const remoteBackendArg = args["remote_backend"];
-      const spawnFn = args["_spawnFn"] ?? void 0;
+      const remoteBackendArg = args2["remote_backend"];
+      const spawnFn = args2["_spawnFn"] ?? void 0;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err3(`not_found: issue ${issueId}`);
+        return err4(`not_found: issue ${issueId}`);
       }
       if (repoArg !== null && !db2.get("SELECT name FROM repos WHERE name = ?", [repoArg])) {
-        return err3(`repo_not_found: no repos row named "${repoArg}"`);
+        return err4(`repo_not_found: no repos row named "${repoArg}"`);
       }
       const adoptRepo = repoArg ?? row.repo ?? null;
       if (adoptRepo === null) {
         const repoCount = db2.get("SELECT COUNT(*) AS n FROM repos")?.n ?? 0;
         if (repoCount > 1) {
-          return err3(`repo_unresolved: issue ${issueId} has no repo and the workspace has ${repoCount} repos \u2014 pass repo`);
+          return err4(`repo_unresolved: issue ${issueId} has no repo and the workspace has ${repoCount} repos \u2014 pass repo`);
         }
       }
       const adoption = await verifyAdoptionRemote(db2, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
       if (!adoption.ok) {
-        return err3(adoption.error);
+        return err4(adoption.error);
       }
       const existingIid = adoption.backend === "github" ? row.gh_iid : row.gl_iid;
       if (existingIid != null && existingIid !== remoteIid) {
-        return err3(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+        return err4(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
       const now2 = nowISO();
@@ -27978,15 +31966,15 @@ import { join as join7 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
-  const i = slug.indexOf("/");
-  if (i <= 0 || i === slug.length - 1) return null;
-  return { host: slug.slice(0, i), path: slug.slice(i + 1) };
+  const i2 = slug.indexOf("/");
+  if (i2 <= 0 || i2 === slug.length - 1) return null;
+  return { host: slug.slice(0, i2), path: slug.slice(i2 + 1) };
 }
 function collectionPath(target) {
-  const parts = splitSlug(target.slug);
-  if (!parts) return null;
-  const path2 = target.backend === "gh" ? `repos/${parts.path}/milestones` : `projects/${encodeURIComponent(parts.path)}/milestones`;
-  return { host: parts.host, path: path2 };
+  const parts2 = splitSlug(target.slug);
+  if (!parts2) return null;
+  const path2 = target.backend === "gh" ? `repos/${parts2.path}/milestones` : `projects/${encodeURIComponent(parts2.path)}/milestones`;
+  return { host: parts2.host, path: path2 };
 }
 function runApi(target, apiArgs, spawnFn) {
   const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
@@ -28068,18 +32056,18 @@ function closeRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
 function ok4(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err4(message2) {
+function err5(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrap(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err4(e.message);
+      return err5(e.message);
     }
   };
 }
@@ -28114,7 +32102,7 @@ function resolveMilestoneTargets(db2, repoName, spawnFn) {
   const backend = resolveBackendFor(
     syncConfig,
     { github: ghSlug !== null, gitlab: glSlug !== null },
-    spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+    spawnFn ? (cmd, args2) => spawnFn(cmd, args2, { encoding: "utf8" }) : void 0
   );
   if (backend === null || backend === "off") return { gated: false, targets: [] };
   const targets = [];
@@ -28164,14 +32152,14 @@ function reconcileRepoMilestones(db2, repo, targets, spawnFn) {
   let imported = 0;
   let closed = 0;
   db2.transaction(() => {
-    for (const [name, state] of merged) {
-      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+    for (const [name2, state] of merged) {
+      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name2, repo]);
       if (!existing) {
-        db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, ?)`, [name, repo, state]);
+        db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, ?)`, [name2, repo, state]);
         imported++;
         if (state === "closed") closed++;
       } else if (existing.state !== state) {
-        db2.run(`UPDATE milestones SET state = ? WHERE name = ? AND repo = ?`, [state, name, repo]);
+        db2.run(`UPDATE milestones SET state = ? WHERE name = ? AND repo = ?`, [state, name2, repo]);
         if (state === "closed") closed++;
       }
     }
@@ -28190,9 +32178,9 @@ function parseSemver(raw) {
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 function nextPatchMilestone(version2) {
-  const parts = parseSemver(version2);
-  if (!parts) return null;
-  return `v${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+  const parts2 = parseSemver(version2);
+  if (!parts2) return null;
+  return `v${parts2[0]}.${parts2[1]}.${parts2[2] + 1}`;
 }
 function readJsonVersion(path2) {
   if (!existsSync2(path2)) return null;
@@ -28230,10 +32218,10 @@ function highestVersionTag(repoPath) {
     if (r.status !== 0) return null;
     let best = null;
     for (const tag of (r.stdout ?? "").split("\n").map((t) => t.trim())) {
-      const parts = parseSemver(tag);
-      if (!parts) continue;
-      if (best === null || parts[0] > best.parts[0] || parts[0] === best.parts[0] && parts[1] > best.parts[1] || parts[0] === best.parts[0] && parts[1] === best.parts[1] && parts[2] > best.parts[2]) {
-        best = { tag, parts };
+      const parts2 = parseSemver(tag);
+      if (!parts2) continue;
+      if (best === null || parts2[0] > best.parts[0] || parts2[0] === best.parts[0] && parts2[1] > best.parts[1] || parts2[0] === best.parts[0] && parts2[1] === best.parts[1] && parts2[2] > best.parts[2]) {
+        best = { tag, parts: parts2 };
       }
     }
     return best?.tag ?? null;
@@ -28259,26 +32247,26 @@ function seedRepoMilestone(db2, repo, repoPath, gate, spawnFn) {
   const count = db2.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
   if ((count?.n ?? 0) > 0) return;
   const found = readRepoVersion(repoPath);
-  const name = found ? nextPatchMilestone(found.version) : null;
-  if (!found || !name) {
+  const name2 = found ? nextPatchMilestone(found.version) : null;
+  if (!found || !name2) {
     auditMilestone(db2, "milestone_seed_skipped", `milestone seed skipped for ${repo}: no version source`, {
       repo,
       reason: "no_version_source"
     });
     return;
   }
-  db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, 'open')`, [name, repo]);
+  db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, 'open')`, [name2, repo]);
   const failures = [];
   if (gate.gated) {
     for (const target of gate.targets) {
-      const created = createRemoteMilestone(target, name, spawnFn);
+      const created = createRemoteMilestone(target, name2, spawnFn);
       if (!created.ok) failures.push(failureContent(created));
     }
   }
   const remoteCreated = gate.gated && gate.targets.length > 0 && failures.length === 0;
-  const content = { name, repo, source: found.source, remote_created: remoteCreated };
+  const content = { name: name2, repo, source: found.source, remote_created: remoteCreated };
   if (failures.length > 0) content["remote_failures"] = failures;
-  auditMilestone(db2, "milestone_seeded", `milestone ${name} seeded for ${repo} from ${found.source}`, content);
+  auditMilestone(db2, "milestone_seeded", `milestone ${name2} seeded for ${repo} from ${found.source}`, content);
 }
 function syncRepoMilestones(db2, repo, repoPath, spawnFn) {
   const gate = resolveMilestoneTargets(db2, repo, spawnFn);
@@ -28315,38 +32303,38 @@ function milestoneTools(db2) {
     }
   ];
   const handlers = {
-    milestone_close: requireRoles("milestone_close", ["bro"], wrap(async (args) => {
-      const name = args["name"];
-      if (typeof name !== "string" || name.trim() === "") {
-        return err4("name must be a non-empty string");
+    milestone_close: requireRoles("milestone_close", ["bro"], wrap(async (args2) => {
+      const name2 = args2["name"];
+      if (typeof name2 !== "string" || name2.trim() === "") {
+        return err5("name must be a non-empty string");
       }
-      const explicitRepo = typeof args["repo"] === "string" && args["repo"] !== "" ? args["repo"] : null;
+      const explicitRepo = typeof args2["repo"] === "string" && args2["repo"] !== "" ? args2["repo"] : null;
       const repo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
       if (repo === null) {
-        return err4("repo_unresolved: multiple or no repos registered \u2014 pass repo");
+        return err5("repo_unresolved: multiple or no repos registered \u2014 pass repo");
       }
-      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name2, repo]);
       if (!existing) {
-        return err4(`milestone_not_found: no milestone "${name}" for repo "${repo}"`);
+        return err5(`milestone_not_found: no milestone "${name2}" for repo "${repo}"`);
       }
       if (existing.state === "closed") {
-        return ok4({ name, repo, state: "closed", already_closed: true });
+        return ok4({ name: name2, repo, state: "closed", already_closed: true });
       }
-      const force = args["force"] === true;
+      const force = args2["force"] === true;
       const openIssues = db2.get(
         `SELECT COUNT(*) AS n FROM issues WHERE milestone = ? AND repo = ? AND status = 'open'`,
-        [name, repo]
+        [name2, repo]
       )?.n ?? 0;
       if (openIssues > 0 && !force) {
-        return err4(`milestone_has_open_issues: "${name}" still has ${openIssues} open issue(s) \u2014 move or close them, or pass force: true`);
+        return err5(`milestone_has_open_issues: "${name2}" still has ${openIssues} open issue(s) \u2014 move or close them, or pass force: true`);
       }
-      db2.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name, repo]);
-      const spawnFn = args["_spawnFn"];
+      db2.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name2, repo]);
+      const spawnFn = args2["_spawnFn"];
       const gate = resolveMilestoneTargets(db2, repo, spawnFn);
       const remoteResults = [];
       const failures = [];
       for (const target of gate.gated ? gate.targets : []) {
-        const closed = closeRemoteMilestone(target, name, spawnFn);
+        const closed = closeRemoteMilestone(target, name2, spawnFn);
         const result2 = remoteCloseResult(target, closed);
         remoteResults.push(result2);
         if (result2.status === "failed" && !closed.ok) failures.push(closed);
@@ -28354,16 +32342,16 @@ function milestoneTools(db2) {
       const failed = remoteResults.filter((r) => r.status === "failed");
       const remoteClosed = gate.gated && remoteResults.length > 0 && failed.length === 0;
       const content = {
-        name,
+        name: name2,
         repo,
         forced: force && openIssues > 0,
         open_issues: openIssues,
         remote_closed: remoteClosed,
         remote_results: remoteResults
       };
-      auditMilestone(db2, "milestone_closed", `milestone ${name} closed for ${repo}`, content);
+      auditMilestone(db2, "milestone_closed", `milestone ${name2} closed for ${repo}`, content);
       const payload = {
-        name,
+        name: name2,
         repo,
         state: "closed",
         open_issues: openIssues,
@@ -28408,14 +32396,14 @@ function resolveBaseRef(repoPath, base) {
 function branchRefExists(repoPath, branch) {
   return refResolves(repoPath, `refs/heads/${branch}`) || refResolves(repoPath, `refs/remotes/origin/${branch}`);
 }
-function gitOut(repoPath, args) {
-  const res = spawnSync4("git", ["-C", repoPath, ...args], {
+function gitOut(repoPath, args2) {
+  const res = spawnSync4("git", ["-C", repoPath, ...args2], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
   if (res.error || res.status !== 0) return null;
-  const out = res.stdout.trim();
-  return out.length > 0 ? out : null;
+  const out2 = res.stdout.trim();
+  return out2.length > 0 ? out2 : null;
 }
 function resolveRepoDefaultBranch(repoPath) {
   const originHead = gitOut(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
@@ -28430,18 +32418,18 @@ function resolveRepoDefaultBranch(repoPath) {
 function ok5(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err5(message2) {
+function err6(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrapHandler4(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err5(e.message);
+      return err6(e.message);
     }
   };
 }
@@ -28636,13 +32624,13 @@ function configTools(db2) {
     }
   ];
   const handlers = {
-    config_set: requireRoles("config_set", ["bro"], wrapHandler4(async (args) => {
-      const key = args["key"];
-      setConfigValues(db2, [{ key, value: args["value"] }]);
+    config_set: requireRoles("config_set", ["bro"], wrapHandler4(async (args2) => {
+      const key = args2["key"];
+      setConfigValues(db2, [{ key, value: args2["value"] }]);
       return ok5({ key });
     })),
-    config_get: wrapHandler4(async (args) => {
-      const key = args["key"];
+    config_get: wrapHandler4(async (args2) => {
+      const key = args2["key"];
       return ok5(getConfigValues(db2, [key])[key] ?? null);
     }),
     config_list: wrapHandler4(async () => {
@@ -28654,7 +32642,7 @@ function configTools(db2) {
         try {
           result2[row.key] = JSON.parse(row.value_json);
         } catch {
-          return err5(
+          return err6(
             `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
           );
         }
@@ -28697,16 +32685,16 @@ function validateBranchId(branchId) {
     );
   }
 }
-function isGitValidBranchName(name) {
-  return !/[\s~^:?*[\\]/.test(name) && !name.includes("..") && !name.startsWith("-") && !name.endsWith("/") && !name.endsWith(".lock");
+function isGitValidBranchName(name2) {
+  return !/[\s~^:?*[\\]/.test(name2) && !name2.includes("..") && !name2.startsWith("-") && !name2.endsWith("/") && !name2.endsWith(".lock");
 }
 function repoPolicyBranches(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
+  const name2 = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
   const names = /* @__PURE__ */ new Set();
-  if (!name) return { names, target: null, repoPath: null };
+  if (!name2) return { names, target: null, repoPath: null };
   const row = db2.get(
     `SELECT path, target_branch, protected_branches FROM repos WHERE name = ?`,
-    [name]
+    [name2]
   );
   if (!row) return { names, target: null, repoPath: null };
   if (row.target_branch) names.add(row.target_branch);
@@ -28817,24 +32805,24 @@ var BRO_TRANSITIONS = {
 function ok6(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err6(message2) {
+function err7(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg4(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg4(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler5(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err6(e.message);
+      return err7(e.message);
     }
   };
 }
@@ -29010,45 +32998,45 @@ function taskTools(db2) {
     }
   ];
   const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler5(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      requireArg4(args, "tasks");
+    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler5(async (args2) => {
+      requireArg4(args2, "agent");
+      const issueId = requireArg4(args2, "issue_id");
+      requireArg4(args2, "tasks");
       if (Number(issueId) === -1) {
-        return err6("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
+        return err7("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
       }
-      const taskInputs = args["tasks"];
-      parseRunSessionId(args["session_id"]);
+      const taskInputs = args2["tasks"];
+      parseRunSessionId(args2["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
         return ok6([]);
       }
-      const waived = args["waive_scope_gate"] === true;
-      const waiverReason = args["waive_scope_gate_reason"] ?? "";
-      const specShapeWaived = args["waive_spec_shape"] === true;
-      const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
+      const waived = args2["waive_scope_gate"] === true;
+      const waiverReason = args2["waive_scope_gate_reason"] ?? "";
+      const specShapeWaived = args2["waive_spec_shape"] === true;
+      const specShapeWaiverReason = args2["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err6("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err7("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
-        for (const t of args["tasks"]) {
+        for (const t of args2["tasks"]) {
           if (!t.spec_body) continue;
           const missing = REQUIRED_H2.filter(
             (h) => !t.spec_body.split("\n").some((l) => l.trimEnd().toLowerCase() === h.toLowerCase())
           );
           const lineCount = t.spec_body.split("\n").length;
           if (missing.length > 0 || lineCount > 200) {
-            const parts = [];
-            if (missing.length > 0) parts.push(`missing sections: ${missing.join(", ")}`);
-            if (lineCount > 200) parts.push(`spec_body is ${lineCount} lines (max 200)`);
+            const parts2 = [];
+            if (missing.length > 0) parts2.push(`missing sections: ${missing.join(", ")}`);
+            if (lineCount > 200) parts2.push(`spec_body is ${lineCount} lines (max 200)`);
             return {
               isError: true,
               content: [{
                 type: "text",
                 text: JSON.stringify({
                   error: "spec_shape_violation",
-                  message: `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${parts.join("; ")}. Each spec_body must contain a ## Success Criteria (H2 heading) and be \u2264200 lines. Add the missing section or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`,
+                  message: `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${parts2.join("; ")}. Each spec_body must contain a ## Success Criteria (H2 heading) and be \u2264200 lines. Add the missing section or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`,
                   branch_id: t.branch_id,
                   missing_sections: missing,
                   line_count: lineCount
@@ -29095,11 +33083,11 @@ function taskTools(db2) {
           };
         }
       }
-      const branchGateWaived = args["waive_branch_gate"] === true;
-      const branchGateWaiverReason = args["waive_branch_gate_reason"] ?? "";
+      const branchGateWaived = args2["waive_branch_gate"] === true;
+      const branchGateWaiverReason = args2["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err6("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err7("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -29122,11 +33110,11 @@ function taskTools(db2) {
           };
         }
       }
-      const registryGateWaived = args["waive_registry_gate"] === true;
-      const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
+      const registryGateWaived = args2["waive_registry_gate"] === true;
+      const registryGateWaiverReason = args2["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err6("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err7("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -29147,11 +33135,11 @@ function taskTools(db2) {
           };
         }
       }
-      const intentGateWaived = args["waive_intent_gate"] === true;
-      const intentGateWaiverReason = args["waive_intent_gate_reason"] ?? "";
+      const intentGateWaived = args2["waive_intent_gate"] === true;
+      const intentGateWaiverReason = args2["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err6("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err7("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -29174,11 +33162,11 @@ function taskTools(db2) {
           };
         }
       }
-      const decisionGateWaived = args["waive_decision_gate"] === true;
-      const decisionGateWaiverReason = args["waive_decision_gate_reason"] ?? "";
+      const decisionGateWaived = args2["waive_decision_gate"] === true;
+      const decisionGateWaiverReason = args2["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err6("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err7("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -29339,18 +33327,18 @@ function taskTools(db2) {
             created_at: now2
           });
         }
-        const emitPlanningComplete = args["emit_planning_complete"] === true;
+        const emitPlanningComplete = args2["emit_planning_complete"] === true;
         if (emitPlanningComplete && results.length > 0) {
           const firstTask = results[0];
           const branchForAudit = firstTask.branch_id;
-          const summary = args["planning_complete_summary"] ?? `Planning complete for issue ${issueId}: ${results.length} task(s) created on ${branchForAudit}.`;
+          const summary = args2["planning_complete_summary"] ?? `Planning complete for issue ${issueId}: ${results.length} task(s) created on ${branchForAudit}.`;
           const contentJson = JSON.stringify({
             issue_id: issueId,
             task_count: results.length,
             task_branch_ids: results.map((r) => r.branch_id),
             parent_branch_ids: results.map((r) => r.parent_branch_id)
           });
-          const fromNode = args["agent"] ?? "bro";
+          const fromNode = args2["agent"] ?? "bro";
           insertAudit(db2, {
             issue_id: issueId,
             branch_id: branchForAudit,
@@ -29362,7 +33350,7 @@ function taskTools(db2) {
           });
         }
         const firstBranch = results[0]?.branch_id ?? "";
-        const agentFromNode = args["agent"];
+        const agentFromNode = args2["agent"];
         if (waived) {
           insertAudit(db2, {
             issue_id: issueId,
@@ -29437,9 +33425,9 @@ function taskTools(db2) {
         }));
         const adjMatrix = /* @__PURE__ */ new Map();
         for (const t of taskFilePaths) adjMatrix.set(t.id, /* @__PURE__ */ new Set());
-        for (let i = 0; i < taskFilePaths.length; i++) {
-          for (let j = i + 1; j < taskFilePaths.length; j++) {
-            const a = taskFilePaths[i];
+        for (let i2 = 0; i2 < taskFilePaths.length; i2++) {
+          for (let j = i2 + 1; j < taskFilePaths.length; j++) {
+            const a = taskFilePaths[i2];
             const b = taskFilePaths[j];
             const shared = [...a.paths].filter((p) => b.paths.has(p));
             if (shared.length > 0) {
@@ -29484,26 +33472,26 @@ function taskTools(db2) {
         overlapping_pairs: overlappingPairs
       });
     })),
-    task_get: wrapHandler5(async (args) => {
-      requireArg4(args, "agent");
-      const taskId = requireArg4(args, "task_id");
+    task_get: wrapHandler5(async (args2) => {
+      requireArg4(args2, "agent");
+      const taskId = requireArg4(args2, "task_id");
       const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
       if (!task) {
         throw new Error(`Not found: ${taskId}`);
       }
-      const includeSpec = args["include_spec_body"] === true;
+      const includeSpec = args2["include_spec_body"] === true;
       if (includeSpec) {
         return ok6(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
       return ok6(thin);
     }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler5(async (args) => {
-      requireArg4(args, "agent");
-      const agent = normalizeAgent(args["agent"]);
-      const taskId = requireArg4(args, "task_id");
-      const status = requireArg4(args, "status");
-      const rawCommitSha = args["commit_sha"] !== void 0 ? args["commit_sha"].toLowerCase() : void 0;
+    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler5(async (args2) => {
+      requireArg4(args2, "agent");
+      const agent = normalizeAgent(args2["agent"]);
+      const taskId = requireArg4(args2, "task_id");
+      const status = requireArg4(args2, "status");
+      const rawCommitSha = args2["commit_sha"] !== void 0 ? args2["commit_sha"].toLowerCase() : void 0;
       if (!VALID_STATUSES.has(status)) {
         throw new Error(
           `Invalid status: ${status}. Valid values: ${[...VALID_STATUSES].join(", ")}`
@@ -29571,9 +33559,9 @@ function taskTools(db2) {
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
       return ok6(updated);
     })),
-    task_first_actionable: wrapHandler5(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
+    task_first_actionable: wrapHandler5(async (args2) => {
+      requireArg4(args2, "agent");
+      const issueId = requireArg4(args2, "issue_id");
       const task = db2.get(
         `SELECT * FROM tasks
          WHERE issue_id = ? AND status IN ('pending', 'failed')
@@ -29622,27 +33610,27 @@ function verificationWaivedForCommit(db2, taskId, commitSha) {
   return (row?.c ?? 0) > 0;
 }
 function latestVerificationRun(db2, taskId, startedBy) {
-  const run = db2.get(
+  const run2 = db2.get(
     `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
        FROM verification_runs
       WHERE task_id = ?${startedBy ? " AND started_at <= ?" : ""}
       ORDER BY started_at DESC, id DESC LIMIT 1`,
     startedBy ? [taskId, startedBy] : [taskId]
   );
-  if (!run) return null;
+  if (!run2) return null;
   const commands = db2.all(
     `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
-    [run.id]
+    [run2.id]
   ).map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
   return {
-    run_id: run.id,
-    commit_sha: run.commit_sha,
-    source: run.source,
-    started_at: run.started_at,
-    finished_at: run.finished_at,
-    exit_code: run.exit_code,
-    timed_out: run.timed_out === 1,
-    budget_s: run.budget_s,
+    run_id: run2.id,
+    commit_sha: run2.commit_sha,
+    source: run2.source,
+    started_at: run2.started_at,
+    finished_at: run2.finished_at,
+    exit_code: run2.exit_code,
+    timed_out: run2.timed_out === 1,
+    budget_s: run2.budget_s,
     commands
   };
 }
@@ -29652,24 +33640,24 @@ var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
 function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err7(message2) {
+function err8(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg5(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg5(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler6(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err7(e.message);
+      return err8(e.message);
     }
   };
 }
@@ -29764,14 +33752,14 @@ function validationTools(db2) {
     }
   ];
   const handlers = {
-    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler6(async (args) => {
-      const agent = requireArg5(args, "agent");
-      const taskId = coerceTaskId(requireArg5(args, "task_id"));
-      requireArg5(args, "attempt_n");
-      const verdict = requireArg5(args, "verdict");
-      requireArg5(args, "feedback");
+    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler6(async (args2) => {
+      const agent = requireArg5(args2, "agent");
+      const taskId = coerceTaskId(requireArg5(args2, "task_id"));
+      requireArg5(args2, "attempt_n");
+      const verdict = requireArg5(args2, "verdict");
+      requireArg5(args2, "feedback");
       const role = normalizeAgent(agent);
-      const mcpAvailableArg = args["mcp_available"];
+      const mcpAvailableArg = args2["mcp_available"];
       if (role === "pr-reviewer" && typeof mcpAvailableArg !== "boolean") {
         throw new Error(
           'precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
@@ -29792,10 +33780,10 @@ function validationTools(db2) {
       if (!taskExists) {
         throw new Error(`task_id=${taskId} not found in tasks table`);
       }
-      const attemptN = args["attempt_n"];
-      const feedback = args["feedback"];
+      const attemptN = args2["attempt_n"];
+      const feedback = args2["feedback"];
       const now2 = nowISO();
-      const callerSessionId = typeof args["subagent_session_id"] === "string" ? args["subagent_session_id"] : null;
+      const callerSessionId = typeof args2["subagent_session_id"] === "string" ? args2["subagent_session_id"] : null;
       db2.transaction(() => {
         if (mcpAvailable === 0) {
           const verified = db2.get(
@@ -29886,27 +33874,27 @@ function validationTools(db2) {
       );
       return ok7(row);
     })),
-    validation_history: wrapHandler6(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const taskId = coerceTaskId(requireArg5(args, "task_id"));
-      const ownTaskIdRaw = args["own_task_id"];
+    validation_history: wrapHandler6(async (args2) => {
+      const agent = normalizeAgent(args2["agent"]);
+      const taskId = coerceTaskId(requireArg5(args2, "task_id"));
+      const ownTaskIdRaw = args2["own_task_id"];
       const ownTaskId = ownTaskIdRaw !== void 0 && ownTaskIdRaw !== null ? coerceTaskId(ownTaskIdRaw) : void 0;
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const fieldsArg = args["fields"];
+      const limitArg = args2["limit"];
+      const cursorArg = args2["cursor"];
+      const fieldsArg = args2["fields"];
       const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at", "verification_run"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err7(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
+          return err8(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(redacted) {
         const row = { ...redacted, verification_run: latestVerificationRun(db2, taskId, String(redacted["created_at"])) };
         if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
+        const out2 = {};
+        for (const f of fieldsArg) out2[f] = row[f];
+        return out2;
       }
       if (limitArg === void 0 || limitArg === null) {
         const rows2 = db2.all(
@@ -29957,24 +33945,24 @@ var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
 function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message2) {
+function err9(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg6(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg6(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler7(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err8(e.message);
+      return err9(e.message);
     }
   };
 }
@@ -30017,13 +34005,13 @@ function skillTools(db2) {
     }
   ];
   const handlers = {
-    skill_register: wrapHandler7(async (args) => {
-      requireArg6(args, "agent");
-      const name = requireArg6(args, "name");
-      const description = requireArg6(args, "description");
-      const filePath = requireArg6(args, "file_path");
-      const trustTier = requireArg6(args, "trust_tier");
-      const scope = args["scope"] ?? "project-local";
+    skill_register: wrapHandler7(async (args2) => {
+      requireArg6(args2, "agent");
+      const name2 = requireArg6(args2, "name");
+      const description = requireArg6(args2, "description");
+      const filePath = requireArg6(args2, "file_path");
+      const trustTier = requireArg6(args2, "trust_tier");
+      const scope = args2["scope"] ?? "project-local";
       if (!VALID_TRUST_TIERS.has(trustTier)) {
         throw new Error(
           `Invalid trust_tier: "${trustTier}". Allowed values: ${[...VALID_TRUST_TIERS].join(", ")}`
@@ -30034,9 +34022,9 @@ function skillTools(db2) {
           `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(", ")}`
         );
       }
-      if (!SKILL_NAME_RE.test(name)) {
+      if (!SKILL_NAME_RE.test(name2)) {
         throw new Error(
-          `skill_register rejected: invalid name "${name}". Skill names must match ^[a-z][a-z0-9-]{0,63}$ \u2014 lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. Examples: my-skill, data-export-v2.`
+          `skill_register rejected: invalid name "${name2}". Skill names must match ^[a-z][a-z0-9-]{0,63}$ \u2014 lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. Examples: my-skill, data-export-v2.`
         );
       }
       const now2 = nowISO();
@@ -30044,22 +34032,22 @@ function skillTools(db2) {
         `INSERT INTO cheatcodes
            (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
          VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, 'draft', ?, ?, ?)`,
-        [name, description, filePath, scope, trustTier, now2, now2, now2]
+        [name2, description, filePath, scope, trustTier, now2, now2, now2]
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
       return ok8(row);
     }),
-    skill_promote: wrapHandler7(async (args) => {
-      requireArg6(args, "agent");
-      const name = requireArg6(args, "name");
-      const fromStatus = requireArg6(args, "from_status");
-      const toStatus = requireArg6(args, "to_status");
+    skill_promote: wrapHandler7(async (args2) => {
+      requireArg6(args2, "agent");
+      const name2 = requireArg6(args2, "name");
+      const fromStatus = requireArg6(args2, "from_status");
+      const toStatus = requireArg6(args2, "to_status");
       const skill = db2.get(
         `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
-        [name]
+        [name2]
       );
       if (!skill) {
-        throw new Error(`Skill not registered: ${name}`);
+        throw new Error(`Skill not registered: ${name2}`);
       }
       const isStatusTransition = VALID_STATUS_TRANSITIONS.get(fromStatus)?.has(toStatus) ?? false;
       const isTierTransition = VALID_TIER_TRANSITIONS.get(fromStatus)?.has(toStatus) ?? false;
@@ -30068,29 +34056,29 @@ function skillTools(db2) {
       }
       if (isStatusTransition && skill.status !== fromStatus) {
         throw new Error(
-          `skill_promote rejected: skill '${name}' is in status '${skill.status}', not '${fromStatus}'. from_status must match the skill's current status.`
+          `skill_promote rejected: skill '${name2}' is in status '${skill.status}', not '${fromStatus}'. from_status must match the skill's current status.`
         );
       }
       if (isTierTransition && skill.trust_tier !== fromStatus) {
         throw new Error(
-          `skill_promote rejected: skill '${name}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. from_status must match the skill's current trust_tier for tier transitions.`
+          `skill_promote rejected: skill '${name2}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. from_status must match the skill's current trust_tier for tier transitions.`
         );
       }
       const now2 = nowISO();
       if (isStatusTransition) {
         db2.run(
           `UPDATE cheatcodes SET status = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now2, name]
+          [toStatus, now2, name2]
         );
       } else {
         db2.run(
           `UPDATE cheatcodes SET trust_tier = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now2, name]
+          [toStatus, now2, name2]
         );
       }
       const updated = db2.get(
         `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
-        [name]
+        [name2]
       );
       return ok8(updated);
     })
@@ -30105,24 +34093,24 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err9(message2) {
+function err10(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg7(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg7(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler8(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err9(e.message);
+      return err10(e.message);
     }
   };
 }
@@ -30161,23 +34149,23 @@ function resolveMarkedPath(filePath, workspaceRoot) {
   if (root === "plugin") return join8(PLUGIN_ROOT, rel);
   return workspaceRoot ? join8(workspaceRoot, rel) : null;
 }
-function backboneShadowError(tool, name) {
+function backboneShadowError(tool, name2) {
   return new Error(
-    `${tool} rejected: '${name}' is a backbone agent whose file_path must be plugin:. A project: '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
+    `${tool} rejected: '${name2}' is a backbone agent whose file_path must be plugin:. A project: '${name2}' would shadow the backbone and disable it. To extend ${name2}, create a differently-named consultant agent instead.`
   );
 }
-function validateAgentName(name) {
-  if (name === RESERVED_NAME) {
+function validateAgentName(name2) {
+  if (name2 === RESERVED_NAME) {
     throw new Error(
-      `agent_resolve rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
+      `agent_resolve rejected: '${name2}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
     );
   }
-  if (BACKBONE_PLUGIN_ONLY.has(name)) {
-    throw backboneShadowError("agent_resolve", name);
+  if (BACKBONE_PLUGIN_ONLY.has(name2)) {
+    throw backboneShadowError("agent_resolve", name2);
   }
-  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+  if (!/^[a-z][a-z0-9-]*$/.test(name2)) {
     throw new Error(
-      `agent_resolve rejected: '${name}' is not a valid agent name. Names must be kebab-case (lowercase letters, digits, hyphens; must start with a letter).`
+      `agent_resolve rejected: '${name2}' is not a valid agent name. Names must be kebab-case (lowercase letters, digits, hyphens; must start with a letter).`
     );
   }
 }
@@ -30229,9 +34217,9 @@ function agentTools(db2, dbPath2 = "") {
     resolved_path: resolveMarkedPath(row.file_path, workspaceRoot)
   });
   const handlers = {
-    agent_list: wrapHandler8(async (args) => {
-      requireArg7(args, "agent");
-      const root = args["root"];
+    agent_list: wrapHandler8(async (args2) => {
+      requireArg7(args2, "agent");
+      const root = args2["root"];
       if (root !== void 0 && !VALID_ROOTS.has(root)) {
         throw new Error(
           `Invalid root: "${root}". Allowed values: ${[...VALID_ROOTS].join(", ")}`
@@ -30240,33 +34228,33 @@ function agentTools(db2, dbPath2 = "") {
       const rows = root ? db2.all("SELECT * FROM agents WHERE file_path LIKE ? ORDER BY name", [`${root}:%`]) : db2.all("SELECT * FROM agents ORDER BY name");
       return ok9({ agents: rows.map(withResolvedPath) });
     }),
-    agent_register: wrapHandler8(async (args) => {
-      requireArg7(args, "agent");
-      const name = requireArg7(args, "name");
-      const kind = requireArg7(args, "kind");
-      const filePath = requireArg7(args, "file_path");
+    agent_register: wrapHandler8(async (args2) => {
+      requireArg7(args2, "agent");
+      const name2 = requireArg7(args2, "name");
+      const kind = requireArg7(args2, "kind");
+      const filePath = requireArg7(args2, "file_path");
       if (!VALID_KINDS.has(kind)) {
         throw new Error(
           `Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(", ")}`
         );
       }
       const { root } = parseMarkedPath(filePath);
-      if (name === RESERVED_NAME) {
+      if (name2 === RESERVED_NAME) {
         throw new Error(
-          `agent_register rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
+          `agent_register rejected: '${name2}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
         );
       }
-      if (BACKBONE_PLUGIN_ONLY.has(name) && root !== "plugin") {
-        throw backboneShadowError("agent_register", name);
+      if (BACKBONE_PLUGIN_ONLY.has(name2) && root !== "plugin") {
+        throw backboneShadowError("agent_register", name2);
       }
-      const existing = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
+      const existing = db2.get("SELECT * FROM agents WHERE name = ?", [name2]);
       let promoted = false;
       if (existing) {
         if (root === "project" && existing.kind === "consultant" && existing.file_path.startsWith("plugin:")) {
           db2.run(
             `UPDATE agents SET kind = ?, file_path = ?, updated_at = ?
              WHERE name = ?`,
-            [kind, filePath, nowISO(), name]
+            [kind, filePath, nowISO(), name2]
           );
           promoted = true;
         }
@@ -30274,18 +34262,18 @@ function agentTools(db2, dbPath2 = "") {
         db2.run(
           `INSERT INTO agents (name, kind, file_path)
            VALUES (?, ?, ?)`,
-          [name, kind, filePath]
+          [name2, kind, filePath]
         );
       }
-      const row = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
+      const row = db2.get("SELECT * FROM agents WHERE name = ?", [name2]);
       const inserted = !existing && (db2.get("SELECT changes() AS n", [])?.n ?? 0) > 0;
       if (root === "project" && kind === "consultant" && (inserted || promoted) && row) {
-        const contentJson = JSON.stringify({ name, mode: "agent_register", agent_id: row.id });
+        const contentJson = JSON.stringify({ name: name2, mode: "agent_register", agent_id: row.id });
         insertAudit(db2, {
           issue_id: -1,
-          from_node: String(args["agent"]),
+          from_node: String(args2["agent"]),
           event_type: "tmb_agent_created",
-          summary: `Agent registered: ${name}`,
+          summary: `Agent registered: ${name2}`,
           content_json: contentJson
         });
       }
@@ -30294,17 +34282,17 @@ function agentTools(db2, dbPath2 = "") {
     agent_resolve: requireRoles(
       "agent_resolve",
       ["bro"],
-      wrapHandler8(async (args) => {
-        requireArg7(args, "agent");
-        const name = requireArg7(args, "name");
-        validateAgentName(name);
-        const filePath = args["file_path"] ?? `project:.claude/agents/${name}.md`;
+      wrapHandler8(async (args2) => {
+        requireArg7(args2, "agent");
+        const name2 = requireArg7(args2, "name");
+        validateAgentName(name2);
+        const filePath = args2["file_path"] ?? `project:.claude/agents/${name2}.md`;
         const resolvedPath = resolveMarkedPath(filePath, workspaceRoot);
         const target = { file_path: filePath, resolved_path: resolvedPath };
         if (resolvedPath && existsSync3(resolvedPath)) {
           return ok9({ mode: "collision", ...target });
         }
-        const templatePath = join8(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
+        const templatePath = join8(PLUGIN_ROOT, "templates", "agents", `${name2}.md`);
         if (existsSync3(templatePath)) {
           return ok9({ mode: "template-copy", source_path: templatePath, ...target });
         }
@@ -30322,24 +34310,24 @@ import { dirname as dirname5, resolve as resolve2, sep as sep3 } from "node:path
 function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err10(message2) {
+function err11(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg8(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg8(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler9(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err10(e.message);
+      return err11(e.message);
     }
   };
 }
@@ -30380,10 +34368,10 @@ function reportTools(db2) {
     }
   ];
   const handlers = {
-    issue_report_md: wrapHandler9(async (args) => {
-      requireArg8(args, "agent");
-      const issueId = requireArg8(args, "issue_id");
-      const mode = args["mode"] ?? "summary";
+    issue_report_md: wrapHandler9(async (args2) => {
+      requireArg8(args2, "agent");
+      const issueId = requireArg8(args2, "issue_id");
+      const mode = args2["mode"] ?? "summary";
       if (mode !== "summary" && mode !== "detail") {
         throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
       }
@@ -30492,10 +34480,10 @@ function reportTools(db2) {
       lines2.push("");
       return ok10({ markdown: lines2.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer", "consultant"], wrapHandler9(async (args) => {
-      requireArg8(args, "agent");
-      const issueId = requireArg8(args, "issue_id");
-      const rawOutputPath = args["output_path"];
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer", "consultant"], wrapHandler9(async (args2) => {
+      requireArg8(args2, "agent");
+      const issueId = requireArg8(args2, "issue_id");
+      const rawOutputPath = args2["output_path"];
       const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!issue2) {
         throw new Error(`Not found: ${issueId}`);
@@ -30594,24 +34582,24 @@ function reportTools(db2) {
 function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err11(message2) {
+function err12(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg9(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg9(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler10(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err11(e.message);
+      return err12(e.message);
     }
   };
 }
@@ -30643,11 +34631,11 @@ function branchReportMdTools(db2) {
     branch_report_md: requireRoles(
       "branch_report_md",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler10(async (args) => {
-        requireArg9(args, "agent");
-        const issueId = requireArg9(args, "issue_id");
-        const branchId = requireArg9(args, "branch_id");
-        const mode = args["mode"] ?? "summary";
+      wrapHandler10(async (args2) => {
+        requireArg9(args2, "agent");
+        const issueId = requireArg9(args2, "issue_id");
+        const branchId = requireArg9(args2, "branch_id");
+        const mode = args2["mode"] ?? "summary";
         if (mode !== "summary" && mode !== "detail") {
           throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
         }
@@ -30766,18 +34754,18 @@ var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
 function ok12(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err12(message2) {
+function err13(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrapHandler11(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err12(e.message);
+      return err13(e.message);
     }
   };
 }
@@ -30873,9 +34861,9 @@ function statsTools(db2) {
     task_stats: requireRoles(
       "task_stats",
       [...ALLOWED_ROLES],
-      wrapHandler11(async (args) => {
-        normalizeAgent(args["agent"]);
-        const rawTaskId = args["task_id"];
+      wrapHandler11(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const rawTaskId = args2["task_id"];
         const taskId = Number(rawTaskId);
         if (!Number.isInteger(taskId) || taskId <= 0) {
           throw new Error("task_id must be a positive integer");
@@ -30922,24 +34910,24 @@ function statsTools(db2) {
 function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err13(message2) {
+function err14(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function requireArg10(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
+function requireArg10(args2, name2) {
+  if (args2[name2] === void 0 || args2[name2] === null) {
+    throw new Error(`Missing required arg: ${name2}`);
   }
-  return args[name];
+  return args2[name2];
 }
 function wrapHandler12(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err13(e.message);
+      return err14(e.message);
     }
   };
 }
@@ -31098,19 +35086,19 @@ function roundtableTools(db2) {
     roundtable_create: requireRoles(
       "roundtable_create",
       ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const issueId = requireArg10(args, "issue_id");
-        const topic = requireArg10(args, "topic");
-        const expectedParticipants = requireArg10(args, "expected_participants");
+      wrapHandler12(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const issueId = requireArg10(args2, "issue_id");
+        const topic = requireArg10(args2, "topic");
+        const expectedParticipants = requireArg10(args2, "expected_participants");
         if (!topic.trim()) {
           throw new Error("topic must be a non-empty string");
         }
         if (!Number.isInteger(expectedParticipants) || expectedParticipants < 2 || expectedParticipants > 5) {
           throw new Error("invalid_argument: expected_participants must be an integer between 2 and 5");
         }
-        const slashGateWaived = args["waive_slash_gate"] === true;
-        const slashGateWaiverReason = args["waive_slash_gate_reason"] ?? "";
+        const slashGateWaived = args2["waive_slash_gate"] === true;
+        const slashGateWaiverReason = args2["waive_slash_gate_reason"] ?? "";
         if (slashGateWaived) {
           if (typeof slashGateWaiverReason !== "string" || slashGateWaiverReason.trim().length < 10) {
             return {
@@ -31181,12 +35169,12 @@ function roundtableTools(db2) {
     roundtable_vote: requireRoles(
       "roundtable_vote",
       ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const participant = requireArg10(args, "participant");
-        const vote = requireArg10(args, "vote");
-        const rationale = args["rationale"] ?? "";
+      wrapHandler12(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const roundtableId = requireArg10(args2, "roundtable_id");
+        const participant = requireArg10(args2, "participant");
+        const vote = requireArg10(args2, "vote");
+        const rationale = args2["rationale"] ?? "";
         if (!participant.trim()) {
           throw new Error("participant must be a non-empty string");
         }
@@ -31194,10 +35182,10 @@ function roundtableTools(db2) {
           throw new Error("vote must be a non-empty string");
         }
         if (vote.length > 60) {
-          return err13(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
+          return err14(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
         }
         if (rationale.length > 120) {
-          return err13(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
+          return err14(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
         }
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
@@ -31246,11 +35234,11 @@ function roundtableTools(db2) {
     roundtable_close: requireRoles(
       "roundtable_close",
       ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const outcome = requireArg10(args, "outcome");
-        const skip2 = args["skip"] ?? false;
+      wrapHandler12(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const roundtableId = requireArg10(args2, "roundtable_id");
+        const outcome = requireArg10(args2, "outcome");
+        const skip2 = args2["skip"] ?? false;
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -31304,12 +35292,12 @@ function roundtableTools(db2) {
     roundtable_finalize_decisions: requireRoles(
       "roundtable_finalize_decisions",
       ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const ratified = requireArg10(args, "ratified");
-        const unratified = requireArg10(args, "unratified");
-        const resolutions = requireArg10(args, "resolutions");
+      wrapHandler12(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const roundtableId = requireArg10(args2, "roundtable_id");
+        const ratified = requireArg10(args2, "ratified");
+        const unratified = requireArg10(args2, "unratified");
+        const resolutions = requireArg10(args2, "resolutions");
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -31373,9 +35361,9 @@ function roundtableTools(db2) {
     roundtable_summarize: requireRoles(
       "roundtable_summarize",
       ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
+      wrapHandler12(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const roundtableId = requireArg10(args2, "roundtable_id");
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -31421,11 +35409,11 @@ function roundtableTools(db2) {
     roundtable_close_with_decisions: requireRoles(
       "roundtable_close_with_decisions",
       ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const outcome = requireArg10(args, "outcome");
-        const decisions = requireArg10(args, "decisions");
+      wrapHandler12(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const roundtableId = requireArg10(args2, "roundtable_id");
+        const outcome = requireArg10(args2, "outcome");
+        const decisions = requireArg10(args2, "decisions");
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -31570,27 +35558,27 @@ ${UNTRUSTED_CLOSE}`;
 function ok14(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err14(message2) {
+function err15(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrap2(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err14(e.message);
+      return err15(e.message);
     }
   };
 }
-function defaultSpawnFn2(cmd, args, opts) {
+function defaultSpawnFn2(cmd, args2, opts) {
   const blockReason = liveCliBlockReason();
   if (blockReason) {
-    return { status: null, stdout: "", stderr: liveCliBlockedMessage(blockReason, cmd, args) };
+    return { status: null, stdout: "", stderr: liveCliBlockedMessage(blockReason, cmd, args2) };
   }
-  const result2 = spawnSync6(cmd, args, opts);
+  const result2 = spawnSync6(cmd, args2, opts);
   return {
     status: result2.status,
     stdout: result2.stdout ? String(result2.stdout) : "",
@@ -31811,32 +35799,32 @@ function prMonitorTools(db2, _spawnFn) {
     }
   ];
   const handlers = {
-    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap2(async (args) => {
-      const prNumber = Number(args["pr_number"]);
+    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap2(async (args2) => {
+      const prNumber = Number(args2["pr_number"]);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
-        return err14("pr_number must be a positive integer");
+        return err15("pr_number must be a positive integer");
       }
-      const explicitRepo = typeof args["repo"] === "string" && args["repo"].length > 0 ? args["repo"] : null;
+      const explicitRepo = typeof args2["repo"] === "string" && args2["repo"].length > 0 ? args2["repo"] : null;
       let repo;
       if (explicitRepo !== null) {
         repo = explicitRepo;
       } else {
         const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
         if (repoCount > 1) {
-          return err14(
+          return err15(
             'pr_monitor_comments_get: multiple repos registered and no repo slug given \u2014 pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.'
           );
         }
         const resolved = resolveRepoForSync(db2, null);
         const slug = resolved ? repoRemotes(db2, resolved.name).map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
         if (slug === null) {
-          return err14(
+          return err15(
             resolved ? `pr_monitor_comments_get: repo "${resolved.name}" has no GitHub/GitLab remote slug \u2014 pass repo="owner/repo" or run /scan.` : 'pr_monitor_comments_get: no repo is registered \u2014 pass repo="owner/repo" or run /scan.'
           );
         }
         repo = slug;
       }
-      let since = typeof args["since"] === "string" ? args["since"] : void 0;
+      let since = typeof args2["since"] === "string" ? args2["since"] : void 0;
       if (since === void 0) {
         const cursor = db2.get(
           `SELECT last_fetched_at FROM pr_review_runs WHERE pr_number = ? AND repo = ?`,
@@ -31856,7 +35844,7 @@ function prMonitorTools(db2, _spawnFn) {
         } else {
           const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
           if (!glabAvail) {
-            return err14("Neither gh nor glab is installed/available; cannot fetch PR comments");
+            return err15("Neither gh nor glab is installed/available; cannot fetch PR comments");
           }
           backend = "glab";
         }
@@ -31877,7 +35865,7 @@ function prMonitorTools(db2, _spawnFn) {
       const botPatterns = buildBotPatterns(botsOverride);
       const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
       if (!fetchResult) {
-        return err14("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
+        return err15("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
       const now2 = nowISO();
       const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
@@ -31901,14 +35889,14 @@ function prMonitorTools(db2, _spawnFn) {
       const { persisted, duplicates } = persistComments(db2, prNumber, repo, fetchResult);
       return ok14({ ...fetchResult, persisted, duplicates });
     })),
-    pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args) => {
-      const prFilter = args["pr_number"];
+    pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args2) => {
+      const prFilter = args2["pr_number"];
       const filterPrNumber = prFilter === void 0 || prFilter === null ? null : Number(prFilter);
       if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
-        return err14("pr_number must be a positive integer when provided");
+        return err15("pr_number must be a positive integer when provided");
       }
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
+      const limitArg = args2["limit"];
+      const cursorArg = args2["cursor"];
       if (limitArg === void 0 || limitArg === null) {
         const rows2 = filterPrNumber === null ? db2.all(
           "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs ORDER BY pr_number, repo"
@@ -32008,8 +35996,8 @@ function groupBySurface(paths) {
   }
   return groups;
 }
-function gitOut2(repoPath, args) {
-  return execFileSync2("git", ["-C", repoPath, ...args], {
+function gitOut2(repoPath, args2) {
+  return execFileSync2("git", ["-C", repoPath, ...args2], {
     stdio: ["ignore", "pipe", "pipe"],
     timeout: SUBPROCESS_TIMEOUT_MS
   }).toString().trim();
@@ -32039,18 +36027,18 @@ function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef
   return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 function resolveRepoPath(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
-  if (!name) return null;
-  const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name]);
-  if (!reposRow) return name;
+  const name2 = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
+  if (!name2) return null;
+  const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name2]);
+  if (!reposRow) return name2;
   return repoRowPath(db2, reposRow.path);
 }
 function readRepoTargetBranch(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
-  if (!name) return null;
+  const name2 = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
+  if (!name2) return null;
   const row = db2.get(
     `SELECT target_branch FROM repos WHERE name = ?`,
-    [name]
+    [name2]
   );
   const v = row?.target_branch;
   return typeof v === "string" && v.length > 0 ? v : null;
@@ -32058,18 +36046,18 @@ function readRepoTargetBranch(db2, repoValue) {
 function ok15(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err15(message2) {
+function err16(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrap3(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err15(e.message);
+      return err16(e.message);
     }
   };
 }
@@ -32175,8 +36163,8 @@ function outsideProjectResult(refusal2) {
 function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
 }
-function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {
-  return execFileSync2("git", ["-C", repoPath, ...args], {
+function git(repoPath, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
+  return execFileSync2("git", ["-C", repoPath, ...args2], {
     stdio: ["ignore", "pipe", "pipe"],
     timeout
   }).toString().trim();
@@ -32242,9 +36230,9 @@ function openChangeRequestsForBranch(db2, repoName, repoPath, branchId, spawnFn)
   const spawn3 = spawnFn ?? defaultSpawnFn;
   const found = [];
   for (const target of targets) {
-    const args = target.backend === "gh" ? ["pr", "list", "--head", branchId, "--state", "open", "--json", "number,url", "--repo", target.slug] : ["mr", "list", "--source-branch", branchId, "--output", "json", "-R", target.slug];
+    const args2 = target.backend === "gh" ? ["pr", "list", "--head", branchId, "--state", "open", "--json", "number,url", "--repo", target.slug] : ["mr", "list", "--source-branch", branchId, "--output", "json", "-R", target.slug];
     try {
-      const res = spawn3(target.backend, args, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      const res = spawn3(target.backend, args2, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
       if (res.status !== 0) continue;
       const rows = JSON.parse(res.stdout || "[]");
       if (!Array.isArray(rows)) continue;
@@ -32270,9 +36258,9 @@ function validateFenceAdditions(value, field2) {
   return value;
 }
 function appendUnique(existing, additions) {
-  const out = [...existing];
-  for (const a of additions) if (!out.includes(a)) out.push(a);
-  return out;
+  const out2 = [...existing];
+  for (const a of additions) if (!out2.includes(a)) out2.push(a);
+  return out2;
 }
 var REOPENABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "closed", "failed", "escalated", "running"]);
 var SPEC_AMENDABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "needs_validation", "completed"]);
@@ -32609,39 +36597,39 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_provision: requireRoles(
       "task_provision",
       ["bro"],
-      wrap3(async (args) => {
-        const agent = args["agent"] ?? "bro";
-        const issueId = args["issue_id"];
-        const branchId = args["branch_id"];
-        const decisionBody = args["decision_body"];
-        const task = args["task"];
-        parseRunSessionId(args["session_id"]);
+      wrap3(async (args2) => {
+        const agent = args2["agent"] ?? "bro";
+        const issueId = args2["issue_id"];
+        const branchId = args2["branch_id"];
+        const decisionBody = args2["decision_body"];
+        const task = args2["task"];
+        parseRunSessionId(args2["session_id"]);
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
-          return err15("issue_id must be a number");
+          return err16("issue_id must be a number");
         }
         if (issueId === -1) {
-          return err15("system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.");
+          return err16("system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.");
         }
         if (!branchId || typeof branchId !== "string") {
-          return err15("branch_id must be a non-empty string");
+          return err16("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err15(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
+          return err16(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
         }
         if (!decisionBody || decisionBody.trim().length === 0) {
-          return err15("decision_body must be a non-empty string");
+          return err16("decision_body must be a non-empty string");
         }
         if (!task || typeof task !== "object") {
-          return err15("task must be an object");
+          return err16("task must be an object");
         }
         if (!task.description || task.description.trim().length === 0) {
-          return err15("task.description must be a non-empty string");
+          return err16("task.description must be a non-empty string");
         }
         if (!task.spec_body || typeof task.spec_body !== "string") {
-          return err15("task.spec_body must be a non-empty string");
+          return err16("task.spec_body must be a non-empty string");
         }
         if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
-          return err15(
+          return err16(
             `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
           );
         }
@@ -32660,16 +36648,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const verification = validateStrArray(task.verification, "verification");
         let repoValue = null;
         if (task.repo !== void 0 && task.repo !== null && task.repo !== "") {
-          if (typeof task.repo !== "string") return err15("task.repo must be a string");
-          if (task.repo.includes("..")) return err15(`Invalid repo "${task.repo}": must not contain "..".`);
-          if (task.repo.startsWith("/")) return err15(`Invalid repo "${task.repo}": must not start with "/".`);
+          if (typeof task.repo !== "string") return err16("task.repo must be a string");
+          if (task.repo.includes("..")) return err16(`Invalid repo "${task.repo}": must not contain "..".`);
+          if (task.repo.startsWith("/")) return err16(`Invalid repo "${task.repo}": must not start with "/".`);
           repoValue = task.repo;
         } else {
           repoValue = resolveSoleRepo(db2)?.name ?? null;
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
         if (task.effort !== void 0 && task.effort !== null && !isEffort(task.effort)) {
-          return err15(
+          return err16(
             `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(task.effort)}.`
           );
         }
@@ -32679,16 +36667,16 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           files
         });
         const slug = branchId.replace(/^[^/]+\//, "");
-        const specShapeWaived = args["waive_spec_shape"] === true;
-        const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
+        const specShapeWaived = args2["waive_spec_shape"] === true;
+        const specShapeWaiverReason = args2["waive_spec_shape_reason"] ?? "";
         if (specShapeWaived && (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10)) {
-          return err15("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err16("waive_spec_shape_reason must be a string \u226510 chars.");
         }
-        const registryGateWaived = args["waive_registry_gate"] === true;
-        const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
+        const registryGateWaived = args2["waive_registry_gate"] === true;
+        const registryGateWaiverReason = args2["waive_registry_gate_reason"] ?? "";
         if (registryGateWaived) {
           if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-            return err15("waive_registry_gate_reason must be a string \u226510 chars.");
+            return err16("waive_registry_gate_reason must be a string \u226510 chars.");
           }
         } else {
           const scanRow = db2.get(
@@ -32718,13 +36706,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (reposRow) {
             repoPath = repoRowPath(db2, reposRow.path);
           } else {
-            return err15(
+            return err16(
               `task_provision: repo '${repoValue}' is not registered (no repos row). Run /scan or pass a registered task.repo \u2014 tasks.repo is a foreign key to repos(name). No task row or branch was created.`
             );
           }
         }
         if (!repoPath) {
-          return err15(
+          return err16(
             `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
           );
         }
@@ -32732,8 +36720,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
           if (refusal2) return outsideProjectResult(refusal2);
         }
-        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? resolveRepoDefaultBranch(repoPath));
-        const reuseExisting = args["reuse_existing"] === true;
+        const base = args2["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? resolveRepoDefaultBranch(repoPath));
+        const reuseExisting = args2["reuse_existing"] === true;
         const localRef = `refs/heads/${branchId}`;
         const originRef = `refs/remotes/origin/${branchId}`;
         const localSha = refSha(repoPath, localRef);
@@ -32741,11 +36729,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const branchExists2 = localSha !== null || originSha !== null;
         const resolvedBaseRef = resolveBaseRef(repoPath, base);
         if (!resolvedBaseRef && !(branchExists2 && reuseExisting)) {
-          return err15(
+          return err16(
             `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
           );
         }
-        const gitFailure = (what, e) => err15(
+        const gitFailure = (what, e) => err16(
           `task_provision: ${what} in repo '${repoValue}' (${e.message.split("\n")[0] || "git failed"}). No task row was created \u2014 retry with the same branch_id.`
         );
         if (!branchExists2) {
@@ -32763,7 +36751,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               repoValue,
               repoPath,
               branchId,
-              args["_spawnFn"]
+              args2["_spawnFn"]
             );
             const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(", ")}.` : "";
             return {
@@ -32879,34 +36867,34 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_reopen: requireRoles(
       "task_reopen",
       ["bro"],
-      wrap3(async (args) => {
-        const agent = args["agent"] ?? "bro";
-        const taskId = Number(args["task_id"]);
-        const reason = args["reason"];
-        if (!Number.isInteger(taskId)) return err15("task_id must be a number");
+      wrap3(async (args2) => {
+        const agent = args2["agent"] ?? "bro";
+        const taskId = Number(args2["task_id"]);
+        const reason = args2["reason"];
+        if (!Number.isInteger(taskId)) return err16("task_id must be a number");
         if (typeof reason !== "string" || reason.trim().length === 0) {
-          return err15("reason must be a non-empty string");
+          return err16("reason must be a non-empty string");
         }
-        parseRunSessionId(args["session_id"]);
-        const filesAdd = validateFenceAdditions(args["files_add"], "files_add");
-        const verificationAdd = validateFenceAdditions(args["verification_add"], "verification_add");
-        const effortArg = args["effort"];
+        parseRunSessionId(args2["session_id"]);
+        const filesAdd = validateFenceAdditions(args2["files_add"], "files_add");
+        const verificationAdd = validateFenceAdditions(args2["verification_add"], "verification_add");
+        const effortArg = args2["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
-          return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+          return err16(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId]
         );
-        if (!task) return err15(`task_reopen: task ${taskId} not found`);
+        if (!task) return err16(`task_reopen: task ${taskId} not found`);
         if (!REOPENABLE_STATUSES.has(task.status)) {
-          return err15(
+          return err16(
             `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. Amend a live task's spec with task_update_spec.`
           );
         }
         if (task.issue_status === "closed") {
-          return err15(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+          return err16(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
         }
         const repoPath = resolveRepoPath(db2, task.repo);
         if (repoPath) {
@@ -32995,41 +36983,41 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_update_spec: requireRoles(
       "task_update_spec",
       ["bro"],
-      wrap3(async (args) => {
-        const agent = args["agent"] ?? "bro";
-        const taskId = Number(args["task_id"]);
-        const reason = args["reason"];
-        if (!Number.isInteger(taskId)) return err15("task_id must be a number");
+      wrap3(async (args2) => {
+        const agent = args2["agent"] ?? "bro";
+        const taskId = Number(args2["task_id"]);
+        const reason = args2["reason"];
+        if (!Number.isInteger(taskId)) return err16("task_id must be a number");
         if (typeof reason !== "string" || reason.trim().length === 0) {
-          return err15("reason must be a non-empty string");
+          return err16("reason must be a non-empty string");
         }
         const replacement = (field2) => {
-          if (args[field2] === void 0) return void 0;
-          const value = validateFenceAdditions(args[field2], field2);
+          if (args2[field2] === void 0) return void 0;
+          const value = validateFenceAdditions(args2[field2], field2);
           if (value.length === 0) throw new Error(`${field2} must be a non-empty array of strings.`);
           return value;
         };
         const newFiles = replacement("files");
         const newVerification = replacement("verification");
-        const newSpec = args["spec_body"];
+        const newSpec = args2["spec_body"];
         if (newSpec !== void 0) {
           if (typeof newSpec !== "string" || newSpec.trim().length === 0) {
-            return err15("spec_body must be a non-empty string");
+            return err16("spec_body must be a non-empty string");
           }
           if (newSpec.length > SPEC_BODY_MAX_BYTES) {
-            return err15(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
+            return err16(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
           }
           if (!/^## Success Criteria\s*$/m.test(newSpec)) {
-            return err15("spec_body must contain a ## Success Criteria H2 section.");
+            return err16("spec_body must contain a ## Success Criteria H2 section.");
           }
         }
         if (newFiles === void 0 && newVerification === void 0 && newSpec === void 0) {
-          return err15("task_update_spec: pass at least one of files, verification, spec_body");
+          return err16("task_update_spec: pass at least one of files, verification, spec_body");
         }
         const task = db2.get(`SELECT id, issue_id, branch_id, status, files, verification, spec_body FROM tasks WHERE id = ?`, [taskId]);
-        if (!task) return err15(`task_update_spec: task ${taskId} not found`);
+        if (!task) return err16(`task_update_spec: task ${taskId} not found`);
         if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
-          return err15(
+          return err16(
             `task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`
           );
         }
@@ -33081,9 +37069,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_brief: requireRoles(
       "task_brief",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrap3(async (args) => {
-        const taskId = args["task_id"];
-        if (taskId === void 0 || taskId === null) return err15("task_id is required");
+      wrap3(async (args2) => {
+        const taskId = args2["task_id"];
+        if (taskId === void 0 || taskId === null) return err16("task_id is required");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
                   t.effort, i.objective
@@ -33091,8 +37079,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             WHERE t.id = ? LIMIT 1`,
           [taskId]
         );
-        if (!task) return err15(`No task with id=${taskId}`);
-        if (normalizeAgent(args["agent"]) === "swe") {
+        if (!task) return err16(`No task with id=${taskId}`);
+        if (normalizeAgent(args2["agent"]) === "swe") {
           const repoPath = resolveRepoPath(db2, task.repo);
           openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null);
           const sentinel = db2.get(
@@ -33201,17 +37189,17 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     branch_id_propose: requireRoles(
       "branch_id_propose",
       ["bro"],
-      wrap3(async (args) => {
-        const intent = args["intent"];
+      wrap3(async (args2) => {
+        const intent = args2["intent"];
         if (typeof intent !== "string" || intent.trim().length === 0) {
-          return err15("intent must be a non-empty string");
+          return err16("intent must be a non-empty string");
         }
-        const objective = args["objective"] ?? intent;
+        const objective = args2["objective"] ?? intent;
         const { prefix, confidence } = intentToType(intent);
         const slug = slugify2(objective) || slugify2(intent) || "task";
         const branchId = `${prefix}/${slug}`;
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err15(
+          return err16(
             `Derived branch_id "${branchId}" does not match the conventional regex. Pick a clearer objective and re-call.`
           );
         }
@@ -33221,35 +37209,35 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_retry: requireRoles(
       "task_retry",
       ["bro"],
-      wrap3(async (args) => {
-        const agent = args["agent"] ?? "bro";
-        const failedTaskId = args["failed_task_id"];
-        const newBranchId = args["new_branch_id"];
-        const spec = args["corrected_spec_body"];
-        const rationale = args["retry_rationale"];
-        const description = args["description"];
-        const title = args["title"] ?? "";
-        const repoOverride = args["repo"] ?? null;
-        parseRunSessionId(args["session_id"]);
-        const effortArg = args["effort"];
+      wrap3(async (args2) => {
+        const agent = args2["agent"] ?? "bro";
+        const failedTaskId = args2["failed_task_id"];
+        const newBranchId = args2["new_branch_id"];
+        const spec = args2["corrected_spec_body"];
+        const rationale = args2["retry_rationale"];
+        const description = args2["description"];
+        const title = args2["title"] ?? "";
+        const repoOverride = args2["repo"] ?? null;
+        parseRunSessionId(args2["session_id"]);
+        const effortArg = args2["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
-          return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+          return err16(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
         if (!BRANCH_ID_RE.test(newBranchId)) {
-          return err15(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
+          return err16(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
         if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
-          return err15(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
+          return err16(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
         }
         if (!rationale || rationale.length > 200) {
-          return err15("retry_rationale must be 1..200 chars.");
+          return err16("retry_rationale must be 1..200 chars.");
         }
         if (repoOverride !== null) {
           if (repoOverride.includes("..")) {
-            return err15(`Invalid repo "${repoOverride}": must not contain "..".`);
+            return err16(`Invalid repo "${repoOverride}": must not contain "..".`);
           }
           if (repoOverride.startsWith("/")) {
-            return err15(`Invalid repo "${repoOverride}": must not start with "/".`);
+            return err16(`Invalid repo "${repoOverride}": must not start with "/".`);
           }
         }
         const failed = db2.get(
@@ -33258,14 +37246,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
-        if (!failed) return err15(`No task with id=${failedTaskId}`);
+        if (!failed) return err16(`No task with id=${failedTaskId}`);
         if (failed.status !== "failed" && failed.status !== "escalated") {
-          return err15(
+          return err16(
             `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry only operates on terminally-failed tasks.`
           );
         }
         if (failed.branch_id === newBranchId) {
-          return err15("new_branch_id must differ from the failed task's branch_id.");
+          return err16("new_branch_id must differ from the failed task's branch_id.");
         }
         {
           const RETRY_CAP = 3;
@@ -33285,7 +37273,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             depth++;
           }
           if (depth >= RETRY_CAP) {
-            return err15(
+            return err16(
               `retry limit reached (3) \u2014 escalate to Human. Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. Use discussion_append(kind='question') to involve the Human before retrying further.`
             );
           }
@@ -33355,34 +37343,34 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     intent_start: requireRoles(
       "intent_start",
       ["bro"],
-      wrap3(async (args) => {
-        const objective = args["objective"];
-        const intentVerbatim = args["intent_verbatim"];
-        const branchId = args["branch_id"];
+      wrap3(async (args2) => {
+        const objective = args2["objective"];
+        const intentVerbatim = args2["intent_verbatim"];
+        const branchId = args2["branch_id"];
         if (!objective || objective.trim().length === 0) {
-          return err15("objective must be a non-empty string");
+          return err16("objective must be a non-empty string");
         }
         if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err15("intent_verbatim must be a non-empty string");
+          return err16("intent_verbatim must be a non-empty string");
         }
         if (!branchId || branchId.trim().length === 0) {
-          return err15("branch_id must be a non-empty string");
+          return err16("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err15(`branch_id "${branchId}" does not match the conventional format.`);
+          return err16(`branch_id "${branchId}" does not match the conventional format.`);
         }
-        const explicitRepoRaw = args["repo"];
+        const explicitRepoRaw = args2["repo"];
         const explicitRepo = typeof explicitRepoRaw === "string" && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
         if (explicitRepo !== null) {
           const repoRow = db2.get(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
           if (!repoRow) {
-            return err15(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
+            return err16(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
           }
         }
-        const suppliedLabels = args["labels"];
+        const suppliedLabels = args2["labels"];
         if (suppliedLabels !== void 0) {
           const labelError = validateIssueLabels(db2, suppliedLabels);
-          if (labelError !== null) return err15(labelError);
+          if (labelError !== null) return err16(labelError);
         }
         const labels = suppliedLabels ?? defaultSyncLabels(db2);
         const now2 = nowISO();
@@ -33428,25 +37416,25 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     bro_verification_fail_record: requireRoles(
       "bro_verification_fail_record",
       ["bro"],
-      wrap3(async (args) => {
-        const taskId = args["task_id"];
-        const whichCheck = args["which_check"];
-        const details = args["details"];
-        if (!taskId) return err15("task_id is required");
+      wrap3(async (args2) => {
+        const taskId = args2["task_id"];
+        const whichCheck = args2["which_check"];
+        const details = args2["details"];
+        if (!taskId) return err16("task_id is required");
         if (!whichCheck || whichCheck.trim().length === 0) {
-          return err15("which_check must be a non-empty string");
+          return err16("which_check must be a non-empty string");
         }
         if (!details || details.trim().length === 0) {
-          return err15("details must be a non-empty string");
+          return err16("details must be a non-empty string");
         }
         if (details.length > 500) {
-          return err15("details must be \u2264500 chars");
+          return err16("details must be \u2264500 chars");
         }
         const task = db2.get(
           "SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err15(`No task with id=${taskId}`);
+        if (!task) return err16(`No task with id=${taskId}`);
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
         const now2 = nowISO();
         db2.transaction(() => {
@@ -33473,18 +37461,18 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     pr_monitor_worktree: requireRoles(
       "pr_monitor_worktree",
       ["pr-reviewer"],
-      wrap3(async (args) => {
-        const commitSha = (args["commit_sha"] ?? "").toLowerCase();
-        const repoPath = args["repo_path"];
-        const command = args["command"];
+      wrap3(async (args2) => {
+        const commitSha = (args2["commit_sha"] ?? "").toLowerCase();
+        const repoPath = args2["repo_path"];
+        const command = args2["command"];
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err15("commit_sha must be a 7..40-char hex SHA");
+          return err16("commit_sha must be a 7..40-char hex SHA");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err15("repo_path must be an absolute path");
+          return err16("repo_path must be an absolute path");
         }
         if (!command || command.trim().length === 0) {
-          return err15("command must be a non-empty string");
+          return err16("command must be a non-empty string");
         }
         const repoRefusal = outsideProject("pr_monitor_worktree", runContext.projectRoot, repoPath);
         if (repoRefusal) return outsideProjectResult(repoRefusal);
@@ -33498,7 +37486,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             timeout: WORKTREE_TIMEOUT_MS
           });
         } catch (e) {
-          return err15(`worktree add failed: ${e.message}`);
+          return err16(`worktree add failed: ${e.message}`);
         }
         try {
           const result2 = execFileSync2("bash", ["-c", command], {
@@ -33542,14 +37530,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     worktree_commits_fetch: requireRoles(
       "worktree_commits_fetch",
       ["bro"],
-      wrap3(async (args) => {
-        const taskIds = args["task_ids"];
-        const repoPath = args["repo_path"];
+      wrap3(async (args2) => {
+        const taskIds = args2["task_ids"];
+        const repoPath = args2["repo_path"];
         if (!Array.isArray(taskIds) || taskIds.length === 0) {
-          return err15("task_ids must be a non-empty array");
+          return err16("task_ids must be a non-empty array");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err15("repo_path must be an absolute path");
+          return err16("repo_path must be an absolute path");
         }
         const results = [];
         for (const tid of taskIds) {
@@ -33607,42 +37595,42 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     bro_atomic_close: requireRoles(
       "bro_atomic_close",
       ["bro"],
-      wrap3(async (args) => {
-        const taskId = args["task_id"];
-        if (!taskId) return err15("Missing required arg: task_id");
-        const commitSha = (args["commit_sha"] ?? "").toLowerCase();
+      wrap3(async (args2) => {
+        const taskId = args2["task_id"];
+        if (!taskId) return err16("Missing required arg: task_id");
+        const commitSha = (args2["commit_sha"] ?? "").toLowerCase();
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err15("commit_sha must be a 7..40-char hex SHA.");
+          return err16("commit_sha must be a 7..40-char hex SHA.");
         }
-        const verificationSummary = args["verification_summary"];
+        const verificationSummary = args2["verification_summary"];
         if (verificationSummary === void 0 || verificationSummary === null) {
-          return err15("Missing required arg: verification_summary");
+          return err16("Missing required arg: verification_summary");
         }
         if (typeof verificationSummary !== "string") {
-          return err15("verification_summary must be a string");
+          return err16("verification_summary must be a string");
         }
-        const closeIssueIfLast = args["close_issue_if_last_task"] === true;
-        const waiveScopeGate = args["waive_scope_gate"] === true;
+        const closeIssueIfLast = args2["close_issue_if_last_task"] === true;
+        const waiveScopeGate = args2["waive_scope_gate"] === true;
         const task = db2.get(
           "SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err15(`No task with id=${taskId}`);
+        if (!task) return err16(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
-          return err15(
+          return err16(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
         const verificationCommands = gateCommands(parseTaskFiles(task.verification));
         if (verificationCommands.length > 0 && passingRunForCommit(db2, task.id, commitSha, verificationCommands) === null && !verificationWaivedForCommit(db2, task.id, commitSha)) {
-          return err15(
+          return err16(
             `verification_run_missing: task ${task.id} has ${verificationCommands.length} verification[] command(s) and no passing verification run of its current verification[] recorded for commit ${commitSha} (a run made before verification[] was amended does not count), and no verification_gate_waived row for that commit. Get a run: resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') \u2014 swe-verification-gate runs verification[] in the task worktree and records the run \u2014 then retry bro_atomic_close. Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
           );
         }
         const now2 = nowISO();
-        const scopeWaiverReason = typeof args["scope_waiver_reason"] === "string" ? args["scope_waiver_reason"].trim() : "";
+        const scopeWaiverReason = typeof args2["scope_waiver_reason"] === "string" ? args2["scope_waiver_reason"].trim() : "";
         if (waiveScopeGate && scopeWaiverReason.length < 10) {
-          return err15("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
+          return err16("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
         }
         const repoPath = resolveRepoPath(db2, task.repo);
         const targetCandidates = [readRepoTargetBranch(db2, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
@@ -33670,7 +37658,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         };
         if (!waiveScopeGate) {
           if (!scope.checked) {
-            return err15(
+            return err16(
               `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true with scope_waiver_reason if this close is intentional outside a git checkout.`
             );
           }
@@ -33727,30 +37715,30 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             ...closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}
           };
         });
-        const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
+        const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args2["_spawnFn"]) : void 0;
         return ok15(remote ? { ...result2, remote } : result2);
       })
     ),
     task_recover: requireRoles(
       "task_recover",
       ["bro"],
-      wrap3(async (args) => {
-        const taskArg = args["task_id"];
+      wrap3(async (args2) => {
+        const taskArg = args2["task_id"];
         const taskId = taskArg === void 0 || taskArg === null || taskArg === "" ? null : String(taskArg);
-        const commitArg = args["commit_sha"];
+        const commitArg = args2["commit_sha"];
         let commitSha = null;
         if (commitArg !== void 0 && commitArg !== null && commitArg !== "") {
-          if (typeof commitArg !== "string") return err15("commit_sha must be a string");
+          if (typeof commitArg !== "string") return err16("commit_sha must be a string");
           const lowered = commitArg.toLowerCase();
           if (!/^[0-9a-f]{7,40}$/.test(lowered)) {
-            return err15("commit_sha must be a 7..40-char hex SHA.");
+            return err16("commit_sha must be a 7..40-char hex SHA.");
           }
           commitSha = lowered;
         }
-        const verificationSummary = typeof args["verification_summary"] === "string" ? args["verification_summary"] : `task_recover: stuck-pending recovery for task ${taskId}`;
-        const closeIssueIfLast = args["close_issue_if_last_task"] === true;
+        const verificationSummary = typeof args2["verification_summary"] === "string" ? args2["verification_summary"] : `task_recover: stuck-pending recovery for task ${taskId}`;
+        const closeIssueIfLast = args2["close_issue_if_last_task"] === true;
         const task = taskId === null ? null : db2.get("SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1", [taskId]);
-        if (taskId !== null && !task) return err15(`No task with id=${taskId}`);
+        if (taskId !== null && !task) return err16(`No task with id=${taskId}`);
         const sweep = sweepStaleTasks(db2, nowISO());
         const sweepResult = {
           tasks_swept: sweep.tasks_swept,
@@ -33791,7 +37779,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           });
           return closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, "task_recover");
         });
-        const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
+        const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args2["_spawnFn"]) : void 0;
         return ok15({
           recovered: true,
           action: "closed",
@@ -33956,14 +37944,14 @@ function writeProjectSandbox(opts) {
   const env = isObject2(settings["env"]) ? settings["env"] : {};
   const wantedEnv = sandboxToolEnv(opts.toolCacheDir ?? sandboxToolCacheDir(opts.projectRoot));
   const ownedEnvBefore = opts.previous?.env ?? {};
-  for (const [name, value] of Object.entries(ownedEnvBefore)) {
-    if (!(name in wantedEnv) && env[name] === value) delete env[name];
+  for (const [name2, value] of Object.entries(ownedEnvBefore)) {
+    if (!(name2 in wantedEnv) && env[name2] === value) delete env[name2];
   }
   const addedEnv = {};
-  for (const [name, value] of Object.entries(wantedEnv)) {
-    if (env[name] === void 0 || env[name] === ownedEnvBefore[name]) {
-      env[name] = value;
-      addedEnv[name] = value;
+  for (const [name2, value] of Object.entries(wantedEnv)) {
+    if (env[name2] === void 0 || env[name2] === ownedEnvBefore[name2]) {
+      env[name2] = value;
+      addedEnv[name2] = value;
     }
   }
   const weaker = (opts.platform ?? process.platform) === "darwin";
@@ -34036,8 +38024,8 @@ function removeProjectSandbox(opts) {
   if (Object.keys(sandbox).length === 0) delete settings["sandbox"];
   if (isObject2(settings["env"])) {
     const env = settings["env"];
-    for (const [name, value] of Object.entries(opts.record.env ?? {})) {
-      if (env[name] === value) delete env[name];
+    for (const [name2, value] of Object.entries(opts.record.env ?? {})) {
+      if (env[name2] === value) delete env[name2];
     }
     if (Object.keys(env).length === 0) delete settings["env"];
   }
@@ -34063,8 +38051,8 @@ var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
 function gateName(command) {
   const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
   if (dispatched?.[1]) return dispatched[1];
-  const parts = command.trim().split("/");
-  return (parts[parts.length - 1] ?? command).replace(/\.sh$/, "");
+  const parts2 = command.trim().split("/");
+  return (parts2[parts2.length - 1] ?? command).replace(/\.sh$/, "");
 }
 function shellWord(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
@@ -34261,10 +38249,10 @@ var LONG_LIVED = ["main", "master", "dev", "develop", "trunk"];
 var CONTRIBUTING_PATHS = ["CONTRIBUTING.md", ".github/CONTRIBUTING.md", "docs/CONTRIBUTING.md"];
 function gitRunner(cwd) {
   let calls = 0;
-  return (args) => {
+  return (args2) => {
     if (calls >= MAX_GIT_CALLS) return { ok: false, note: "git call budget spent" };
     calls++;
-    const r = spawnSync8("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+    const r = spawnSync8("git", args2, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
     if (r.error) {
       const code = r.error.code;
       return { ok: false, note: code === "ETIMEDOUT" ? "git timed out" : `git unavailable (${code ?? r.error.message})` };
@@ -34484,9 +38472,9 @@ function ok16(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function wrapHandler13(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
       return {
         content: [{ type: "text", text: JSON.stringify({ error: e.message }) }],
@@ -34508,10 +38496,10 @@ function probeGit(cwd) {
     for (const line of lines2) {
       const m = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)/);
       if (!m) continue;
-      const [, name, url2] = m;
-      if (seen.has(name)) continue;
-      seen.add(name);
-      detected_remotes.push({ name, url: url2, provider: classifyUrl(url2) });
+      const [, name2, url2] = m;
+      if (seen.has(name2)) continue;
+      seen.add(name2);
+      detected_remotes.push({ name: name2, url: url2, provider: classifyUrl(url2) });
     }
   }
   const origin = detected_remotes.find((r) => r.name === "origin");
@@ -34655,7 +38643,7 @@ function keepOption(current, show) {
 }
 function assemble(keep, choices, advice, fallbackWire) {
   const at = advice.wire === null ? -1 : choices.findIndex((o) => o.wire === advice.wire && !o.disabled);
-  const ordered = at < 0 ? choices : [{ ...choices[at], recommended: true }, ...choices.filter((_, i) => i !== at)];
+  const ordered = at < 0 ? choices : [{ ...choices[at], recommended: true }, ...choices.filter((_, i2) => i2 !== at)];
   const options = keep ? [keep, ...ordered] : ordered;
   let default_index = 0;
   if (!keep && at < 0 && fallbackWire !== null) {
@@ -34665,14 +38653,14 @@ function assemble(keep, choices, advice, fallbackWire) {
 }
 function scanSummaryLine(scan) {
   const n = scan.summary.repo_count;
-  const parts = [];
+  const parts2 = [];
   for (const host of ["github", "gitlab", "other"]) {
     const count = scan.repos.filter((r) => r.remotes.some((x) => x.host === host)).length;
-    if (count > 0) parts.push(`${count} ${count === 1 ? "pushes" : "push"} to ${HOST_NAMES[host]}`);
+    if (count > 0) parts2.push(`${count} ${count === 1 ? "pushes" : "push"} to ${HOST_NAMES[host]}`);
   }
   const none = scan.repos.filter((r) => r.remotes.length === 0).length;
-  if (none > 0) parts.push(`${none} ${none === 1 ? "has" : "have"} no remote`);
-  return `Found ${n} git ${n === 1 ? "repository" : "repositories"} under this folder; ${parts.join(", ")}.`;
+  if (none > 0) parts2.push(`${none} ${none === 1 ? "has" : "have"} no remote`);
+  return `Found ${n} git ${n === 1 ? "repository" : "repositories"} under this folder; ${parts2.join(", ")}.`;
 }
 function shapeAdvice(scan, origin_kind) {
   if (scan.summary.repo_count === 0) return NO_ADVICE;
@@ -34694,7 +38682,7 @@ function workspaceRecommendation(scan) {
   return {
     ...first.rec,
     reason: `all ${recs.length} repositories send their changes to ${first.rec.pr_target}`,
-    evidence: recs.map(({ name, rec }) => `${name}: ${rec.evidence[0] ?? rec.reason}`)
+    evidence: recs.map(({ name: name2, rec }) => `${name2}: ${rec.evidence[0] ?? rec.reason}`)
   };
 }
 function branchingAdvice(rec) {
@@ -35074,7 +39062,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     const root = claudeProjectRootOfDb(dbPath2);
     if (root === null) throw new Error("remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)");
     const project = canonicalExisting(root);
-    const self = canonicalExisting(dbPath2);
+    const self2 = canonicalExisting(dbPath2);
     const pluginName2 = basename4(dirname8(dbPath2));
     const removed = [];
     const refused = [];
@@ -35092,7 +39080,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       if (claudeProjectRootOfDb(path2) === null || basename4(path2) !== "trajectory.db" || basename4(dirname8(path2)) !== pluginName2) {
         return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
       }
-      if (canonicalExisting(path2) === self) return { reason: "the current trajectory DB" };
+      if (canonicalExisting(path2) === self2) return { reason: "the current trajectory DB" };
       const link = linkOrOutside(path2);
       if (link !== null) return { reason: link };
       const stateDir = realpathSync4(dirname8(path2));
@@ -35166,10 +39154,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     onboard_get_questions: requireRoles(
       "onboard_get_questions",
       ["bro"],
-      wrapHandler13(async (args) => {
-        const shape = args["shape"];
-        const round = args["round"];
-        const repo = args["repo"];
+      wrapHandler13(async (args2) => {
+        const shape = args2["shape"];
+        const round = args2["round"];
+        const repo = args2["repo"];
         const git4 = probeGit(probeDir());
         if (round === "shape") {
           return ok16({ questions: [shapeQuestion(git4.origin_kind, shapeAdvice(scanWorkspace(db2), git4.origin_kind))] });
@@ -35233,30 +39221,30 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     onboard_apply: requireRoles(
       "onboard_apply",
       ["bro"],
-      wrapHandler13(async (args) => {
-        if ("persona" in args) {
+      wrapHandler13(async (args2) => {
+        if ("persona" in args2) {
           throw new Error(
             "persona_input_removed: onboard_apply takes no 'persona' input \u2014 bro's persona loads from the plugin through its SessionStart and UserPromptSubmit hooks, and TMB never writes the project's CLAUDE.md"
           );
         }
-        if (args["standalone"] === true) {
-          const others = Object.keys(args).filter((k) => k !== "standalone" && k !== "agent" && args[k] !== void 0);
+        if (args2["standalone"] === true) {
+          const others = Object.keys(args2).filter((k) => k !== "standalone" && k !== "agent" && args2[k] !== void 0);
           if (others.length > 0) {
             throw new Error(`standalone=true is applied alone \u2014 drop ${others.join(", ")}; the new project onboards after the session restart`);
           }
           return ok16(makeStandalone());
         }
-        const rawStray = args["remove_stray_dbs"];
+        const rawStray = args2["remove_stray_dbs"];
         if (rawStray !== void 0 && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== "string"))) {
           throw new Error("remove_stray_dbs must be an array of DB paths from nesting.other_dbs");
         }
         const strayPaths = rawStray;
-        if (strayPaths !== void 0 && args["shape"] === void 0) {
+        if (strayPaths !== void 0 && args2["shape"] === void 0) {
           return ok16({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
         }
-        if (args["shape"] === void 0 && args["headless_enforcement"] !== void 0) {
-          const others = Object.keys(args).filter(
-            (k) => k !== "headless_enforcement" && k !== "agent" && args[k] !== void 0
+        if (args2["shape"] === void 0 && args2["headless_enforcement"] !== void 0) {
+          const others = Object.keys(args2).filter(
+            (k) => k !== "headless_enforcement" && k !== "agent" && args2[k] !== void 0
           );
           if (others.length > 0) {
             throw new Error(`headless_enforcement without shape is applied alone \u2014 drop ${others.join(", ")}, or pass shape for the full apply`);
@@ -35264,24 +39252,24 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           if (!readOnboardedFlag(db2)) {
             throw new Error("headless_enforcement alone needs an onboarded project \u2014 run /onboard first");
           }
-          const headless2 = resolveHeadless(args["headless_enforcement"]);
+          const headless2 = resolveHeadless(args2["headless_enforcement"]);
           writeConfig(db2, "headless_enforcement", headless2.value);
           return ok16({
             ok: true,
             applied: { headless_enforcement: headless2.value, headless_shim: applyHeadlessShim(headless2) }
           });
         }
-        const shape = args["shape"];
+        const shape = args2["shape"];
         if (shape !== "local" && shape !== "remote") {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
         }
-        const repo = args["repo"];
+        const repo = args2["repo"];
         if (repo !== void 0) {
           const repoRow = readRepoRow(db2, repo);
           if (!repoRow) {
             throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
           }
-          const rawBranchingRepo = args["branching_model"];
+          const rawBranchingRepo = args2["branching_model"];
           let branchingRepo;
           if (rawBranchingRepo !== void 0) {
             const resolved = resolveOption(rawBranchingRepo, BRANCHING_OPTIONS);
@@ -35299,7 +39287,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           if (branchingRepo !== "github-flow" && branchingRepo !== "gitflow") {
             throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branchingRepo}')`);
           }
-          const rawPrTargetRepo = args["pr_target"];
+          const rawPrTargetRepo = args2["pr_target"];
           let prTargetRepo;
           if (rawPrTargetRepo !== void 0) {
             const resolved = resolveOption(rawPrTargetRepo, PR_TARGET_OPTIONS);
@@ -35312,7 +39300,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
           }
           const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
-          const remoteRepo = shape === "remote" ? parseRemoteAnswer(args["remote"]) : [];
+          const remoteRepo = shape === "remote" ? parseRemoteAnswer(args2["remote"]) : [];
           let repoWarnings = [];
           db2.transaction(() => {
             db2.run(
@@ -35334,7 +39322,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             }
           });
         }
-        const rawBranching = args["branching_model"];
+        const rawBranching = args2["branching_model"];
         let branching_model;
         if (rawBranching !== void 0) {
           const resolved = resolveOption(rawBranching, BRANCHING_OPTIONS);
@@ -35349,7 +39337,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
           }
         }
-        const rawPrTarget = args["pr_target"];
+        const rawPrTarget = args2["pr_target"];
         let pr_target;
         if (rawPrTarget !== void 0) {
           const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
@@ -35362,8 +39350,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         let issue_sync = "off";
         let remoteList = [];
         if (shape === "remote") {
-          remoteList = parseRemoteAnswer(args["remote"]);
-          const rawSync = args["issue_sync"];
+          remoteList = parseRemoteAnswer(args2["remote"]);
+          const rawSync = args2["issue_sync"];
           if (rawSync !== void 0) {
             const resolved = resolveOption(rawSync, ISSUE_SYNC_OPTIONS);
             if (resolved === KEEP_SENTINEL) {
@@ -35379,9 +39367,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           }
         }
         const managedRemotes = shape === "remote" ? probeGit(probeDir()).detected_remotes : [];
-        const headless = resolveHeadless(args["headless_enforcement"]);
+        const headless = resolveHeadless(args2["headless_enforcement"]);
         const headless_enforcement = headless.value;
-        const rawSandbox = args["sandbox_enforcement"];
+        const rawSandbox = args2["sandbox_enforcement"];
         let sandbox_enforcement = readConfig(db2, "sandbox_enforcement") ?? "no";
         if (rawSandbox !== void 0) {
           const resolved = resolveOption(rawSandbox, SANDBOX_OPTIONS);
@@ -35511,9 +39499,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync11 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync10, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
-import { dirname as dirname9, join as join14 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { closeSync as closeSync2, existsSync as existsSync11, openSync as openSync2, readFileSync as readFileSync7, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname10, join as join16 } from "node:path";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/graph.ts
 var SUBTREE_MAX_DEPTH = 256;
@@ -35645,7 +39633,13 @@ var WorldModelGraph = class _WorldModelGraph {
   }
   pruneFiles(repo, keepPaths) {
     const stale = this.db.all(`SELECT id, path FROM wm_files WHERE repo = ?`, [repo]).filter((f) => !keepPaths.has(_WorldModelGraph.fileKey(repo, f.path)));
-    for (const f of stale) this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
+    for (const f of stale) {
+      this.db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, f.path]);
+      this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
+    }
+    if (stale.length > 0) {
+      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+    }
     return stale.length;
   }
   fileCoverage(repo) {
@@ -35665,13 +39659,14 @@ var WorldModelGraph = class _WorldModelGraph {
   }
   // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
   // better; any-term fallback per rankWithFallback), then case-insensitive
-  // path/purpose substring hits at score 0.
+  // path/purpose substring hits at score 0. CROSS JOIN keeps the FTS match as
+  // the outer loop; a plain JOIN lets the planner walk every repo row instead.
   keywordSearchFiles(repo, query, k) {
     const { rows: ranked, match } = rankWithFallback(
       query,
       (fts) => this.db.all(
         `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
-           FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
+           FROM wm_files_fts CROSS JOIN wm_files f ON f.id = wm_files_fts.rowid
           WHERE wm_files_fts MATCH ? AND f.repo = ?
           ORDER BY rank, f.path
           LIMIT ?`,
@@ -35740,18 +39735,21 @@ var WorldModelGraph = class _WorldModelGraph {
     for (const d of stale) this.db.run(`DELETE FROM wm_directories WHERE id = ?`, [d.id]);
     return stale.length;
   }
-  // Move every directory and file row of oldRepo under newRepo in one
+  // Move every directory, file and symbol row of oldRepo under newRepo in one
   // transaction, replacing any leftover rows already filed under newRepo.
-  // Row ids survive, so FTS and embedding rows stay attached. Returns the
-  // number of directories moved.
+  // Row ids survive, so FTS, embedding and edge rows stay attached. Returns
+  // the number of directories moved.
   renameRepo(oldRepo, newRepo) {
     return this.db.transaction(() => {
       const moved = this.directoryCount(oldRepo);
       if (moved === 0) return 0;
       this.db.run(`DELETE FROM wm_directories WHERE repo = ?`, [newRepo]);
       this.db.run(`DELETE FROM wm_files WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_symbols WHERE repo = ?`, [newRepo]);
       this.db.run(`UPDATE wm_directories SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_files SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
       return moved;
     });
   }
@@ -35799,7 +39797,7 @@ var WorldModelGraph = class _WorldModelGraph {
       query,
       (fts) => this.db.all(
         `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
-           FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+           FROM wm_directories_fts CROSS JOIN wm_directories d ON d.id = wm_directories_fts.rowid
           WHERE wm_directories_fts MATCH ? AND d.repo = ?
           ORDER BY rank, d.path
           LIMIT ?`,
@@ -35866,13 +39864,13 @@ var COMMENT_STYLES = {
 var JSDOC_EXTS = /* @__PURE__ */ new Set(["ts", "js", "mjs"]);
 var DIRECTIVE_LINE = /^(spdx-license-identifier|copyright|\(c\)|©|licensed under|all rights reserved|shellcheck |eslint|prettier-ignore|@ts-|-\*-|vim:|jshint|global )/i;
 function baseName(path2) {
-  const i = path2.lastIndexOf("/");
-  return i >= 0 ? path2.slice(i + 1) : path2;
+  const i2 = path2.lastIndexOf("/");
+  return i2 >= 0 ? path2.slice(i2 + 1) : path2;
 }
 function extension(path2) {
-  const name = baseName(path2);
-  const i = name.lastIndexOf(".");
-  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
+  const name2 = baseName(path2);
+  const i2 = name2.lastIndexOf(".");
+  return i2 > 0 ? name2.slice(i2 + 1).toLowerCase() : "";
 }
 function isPurposeCandidate(path2) {
   const ext = extension(path2);
@@ -35893,18 +39891,18 @@ function result(raw, source) {
   return purpose ? { purpose, source } : null;
 }
 function firstParagraph(lines2) {
-  const out = [];
+  const out2 = [];
   for (const l of lines2) {
     if (l.trim() === "") {
-      if (out.length > 0) break;
+      if (out2.length > 0) break;
       continue;
     }
-    out.push(l.trim());
+    out2.push(l.trim());
   }
-  return out.join(" ");
+  return out2.join(" ");
 }
-function stripBlockComment(body) {
-  return body.split("\n").map((l) => l.replace(/^\s*\*+\s?/, "").replace(/\s*\*+$/, ""));
+function stripBlockComment(body2) {
+  return body2.split("\n").map((l) => l.replace(/^\s*\*+\s?/, "").replace(/\s*\*+$/, ""));
 }
 function fromJsdoc(head) {
   const blocks = head.matchAll(/\/\*\*([\s\S]*?)\*\//g);
@@ -35935,23 +39933,23 @@ function fromCommentBlock(head, style) {
     offsets.push(acc);
     acc += l.length + 1;
   }
-  let i = 0;
-  if (lines2[0]?.startsWith("#!")) i = 1;
-  while (i < lines2.length) {
-    const line = lines2[i].trim();
+  let i2 = 0;
+  if (lines2[0]?.startsWith("#!")) i2 = 1;
+  while (i2 < lines2.length) {
+    const line = lines2[i2].trim();
     if (line === "") {
-      i++;
+      i2++;
       continue;
     }
     const marker = style.line.find((m) => line.startsWith(m));
     if (marker) {
       const block = [];
-      while (i < lines2.length) {
-        const l = lines2[i].trim();
+      while (i2 < lines2.length) {
+        const l = lines2[i2].trim();
         const m = style.line.find((mk) => l.startsWith(mk));
         if (!m) break;
         block.push(proseLine(l.slice(m.length).replace(/^[#/-]+/, "").trim()));
-        i++;
+        i2++;
       }
       const content = block.filter((l) => !isDirective(l));
       const r = result(firstParagraph(content), "comment");
@@ -35959,14 +39957,14 @@ function fromCommentBlock(head, style) {
       continue;
     }
     if (style.block && line.startsWith("/*")) {
-      const start = offsets[i] + lines2[i].indexOf("/*");
-      const close = head.indexOf("*/", start + 2);
-      const body = head.slice(start + 2, close < 0 ? head.length : close).replace(/^\*+/, "");
-      const content = stripBlockComment(body).map(proseLine).filter((l) => !isDirective(l));
+      const start2 = offsets[i2] + lines2[i2].indexOf("/*");
+      const close = head.indexOf("*/", start2 + 2);
+      const body2 = head.slice(start2 + 2, close < 0 ? head.length : close).replace(/^\*+/, "");
+      const content = stripBlockComment(body2).map(proseLine).filter((l) => !isDirective(l));
       const r = result(firstParagraph(content), "comment");
       if (r) return r;
       if (close < 0) return null;
-      i = head.slice(0, close + 2).split("\n").length;
+      i2 = head.slice(0, close + 2).split("\n").length;
       continue;
     }
     return null;
@@ -35975,9 +39973,9 @@ function fromCommentBlock(head, style) {
 }
 function fromPythonDocstring(head) {
   const lines2 = head.split("\n");
-  let i = 0;
-  while (i < lines2.length && (lines2[i].trim() === "" || lines2[i].trim().startsWith("#"))) i++;
-  const rest = lines2.slice(i).join("\n");
+  let i2 = 0;
+  while (i2 < lines2.length && (lines2[i2].trim() === "" || lines2[i2].trim().startsWith("#"))) i2++;
+  const rest = lines2.slice(i2).join("\n");
   const m = /^[rRuU]?("""|''')([\s\S]*?)(?:\1|$)/.exec(rest) ?? /^[rRuU]?(["'])((?:\\.|(?!\1).)*)\1/.exec(rest);
   if (!m) return null;
   return result(firstParagraph((m[2] ?? "").split("\n")), "docstring");
@@ -36009,12 +40007,12 @@ function fromFrontmatter(fm) {
 function stripInlineMarkdown(s) {
   return s.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/(\*\*|__)(.*?)\1/g, "$2").trim();
 }
-function fromHeading(body) {
-  const h1 = body.findIndex((l) => /^#\s+\S/.test(l));
+function fromHeading(body2) {
+  const h1 = body2.findIndex((l) => /^#\s+\S/.test(l));
   if (h1 < 0) return null;
-  const title = stripInlineMarkdown(body[h1].replace(/^#\s+/, "").replace(/\s+#+\s*$/, ""));
+  const title = stripInlineMarkdown(body2[h1].replace(/^#\s+/, "").replace(/\s+#+\s*$/, ""));
   const para = [];
-  for (const raw of body.slice(h1 + 1)) {
+  for (const raw of body2.slice(h1 + 1)) {
     const l = raw.trim();
     if (l === "") {
       if (para.length > 0) break;
@@ -36028,8 +40026,8 @@ function fromHeading(body) {
   return result(sentence ? `${title} \u2014 ${sentence}` : title, "heading");
 }
 function fromMarkdown(head) {
-  const { frontmatter, body } = splitFrontmatter(head);
-  return frontmatter && fromFrontmatter(frontmatter) || fromHeading(body);
+  const { frontmatter, body: body2 } = splitFrontmatter(head);
+  return frontmatter && fromFrontmatter(frontmatter) || fromHeading(body2);
 }
 function fromManifest(head) {
   try {
@@ -36065,34 +40063,34 @@ import { existsSync as existsSync9 } from "node:fs";
 import { join as join13, posix } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
-function git2(root, args, timeout = SUBPROCESS_TIMEOUT_MS) {
+function git2(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
   try {
-    const r = spawnSync10("git", ["-C", root, ...args], { encoding: "utf8", timeout, maxBuffer: HISTORY_MAX_BUFFER });
+    const r = spawnSync10("git", ["-C", root, ...args2], { encoding: "utf8", timeout, maxBuffer: HISTORY_MAX_BUFFER });
     return r.status === 0 && !r.error ? r.stdout : null;
   } catch {
     return null;
   }
 }
 function basename5(p) {
-  const i = p.lastIndexOf("/");
-  return i >= 0 ? p.slice(i + 1) : p;
+  const i2 = p.lastIndexOf("/");
+  return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
-function lines(out) {
-  return out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+function lines(out2) {
+  return out2.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
 }
 function readRepoHistory(root, trackedDirs) {
-  const out = git2(root, ["log", "--diff-filter=D", "--name-only", "--format="], HISTORY_TIMEOUT_MS);
-  if (out === null) return null;
+  const out2 = git2(root, ["log", "--diff-filter=D", "--name-only", "--format="], HISTORY_TIMEOUT_MS);
+  if (out2 === null) return null;
   const tracked = git2(root, ["-c", "core.quotePath=false", "ls-files"], HISTORY_TIMEOUT_MS);
   if (tracked === null) return null;
-  const deleted = new Set(lines(out));
+  const deleted = new Set(lines(out2));
   const trackedBasenames = new Set(lines(tracked).map(basename5));
   const deletedByBasename = /* @__PURE__ */ new Map();
   for (const p of [...deleted].sort()) {
-    const name = basename5(p);
-    const list = deletedByBasename.get(name);
+    const name2 = basename5(p);
+    const list = deletedByBasename.get(name2);
     if (list) list.push(p);
-    else deletedByBasename.set(name, [p]);
+    else deletedByBasename.set(name2, [p]);
   }
   return { root, deleted, deletedByBasename, trackedBasenames, trackedDirs };
 }
@@ -36170,36 +40168,774 @@ function readmeDrift(history, dir, readmeName, readme) {
   return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
 }
 
+// src/symbol-index.ts
+import { readFileSync as readFileSync6 } from "node:fs";
+import { basename as basename7, join as join15, posix as posix2 } from "node:path";
+
+// src/parsing/loader.ts
+import { existsSync as existsSync10 } from "node:fs";
+import { dirname as dirname9, join as join14 } from "node:path";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+var RUNTIME_WASM = "tree-sitter.wasm";
+var GRAMMAR_WASM = {
+  typescript: "tree-sitter-typescript.wasm",
+  tsx: "tree-sitter-tsx.wasm",
+  javascript: "tree-sitter-javascript.wasm",
+  bash: "tree-sitter-bash.wasm"
+};
+var pending = null;
+var loads = 0;
+function wasmDir() {
+  const here = dirname9(fileURLToPath4(import.meta.url));
+  for (const dir of [join14(here, "parsing"), here]) {
+    if (existsSync10(join14(dir, RUNTIME_WASM))) return dir;
+  }
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join14(here, "parsing")} or ${here}`);
+}
+async function load() {
+  const dir = wasmDir();
+  const { Parser: Parser2, Language: Language2 } = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
+  await Parser2.init({ locateFile: (file2) => join14(dir, file2) });
+  const parsers = {};
+  for (const [name2, file2] of Object.entries(GRAMMAR_WASM)) {
+    const parser = new Parser2();
+    parser.setLanguage(await Language2.load(join14(dir, file2)));
+    parsers[name2] = parser;
+  }
+  loads++;
+  return parsers;
+}
+function loadParsers() {
+  if (!pending) {
+    pending = load();
+    pending.catch(() => {
+      pending = null;
+    });
+  }
+  return pending;
+}
+
+// src/parsing/extract.ts
+import { createHash } from "node:crypto";
+import { basename as basename6 } from "node:path";
+var EXCLUDED_PATH = [
+  /(^|\/)dist\//,
+  /\.map$/,
+  /(^|\/)node_modules\//,
+  /(^|\/)vendor\//,
+  /\.min\.js$/,
+  /(^|\/)package-lock\.json$/,
+  /\.lock(b)?$/
+];
+var EXTENSION_LANGUAGE = {
+  ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  tsx: "tsx",
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  jsx: "javascript",
+  sh: "bash",
+  bash: "bash",
+  sql: "sql"
+};
+var SH_BUILTINS = new Set(
+  "echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh".split(
+    " "
+  )
+);
+var STOPWORDS2 = new Set(
+  "a an the and or of to in on for with by is are was were be been when where what which who how why does do did it its this that these those from as at into per not no than then there their them our we you i set get".split(
+    " "
+  )
+);
+var md5 = (s) => createHash("md5").update(s).digest("hex");
+function splitWords(s) {
+  return s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").toLowerCase().trim();
+}
+var clip = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
+var oneLine = (s) => s.replace(/\s+/g, " ").trim();
+function inSymbolScope(relPath) {
+  return !EXCLUDED_PATH.some((re) => re.test(relPath));
+}
+function languageOf(relPath, head) {
+  const name2 = basename6(relPath);
+  const dot = name2.lastIndexOf(".");
+  if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
+  return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
+}
+function symbolTerms(kind, qualifiedName, relPath) {
+  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename6(relPath))}`;
+}
+function normalizedHash(node) {
+  const base = node.startIndex;
+  let text = node.text;
+  const comments = node.descendantsOfType("comment").filter((c) => c !== null).sort((a, b) => b.startIndex - a.startIndex);
+  for (const c of comments) text = text.slice(0, c.startIndex - base) + text.slice(c.endIndex - base);
+  return md5(oneLine(text));
+}
+function docOf(node) {
+  const anchor = node.parent?.type === "export_statement" ? node.parent : node;
+  const lines2 = [];
+  let edge = anchor.startPosition.row;
+  let prev = anchor.previousNamedSibling;
+  while (prev && prev.type === "comment" && prev.endPosition.row >= edge - (lines2.length === 0 ? 2 : 1) && lines2.length < 7) {
+    lines2.unshift(prev.text);
+    edge = prev.startPosition.row;
+    prev = prev.previousNamedSibling;
+  }
+  const raw = lines2.map(
+    (l) => l.replace(/\*\//g, " ").replace(/^\s*(\/\*\*?|\*|\/\/+|#+)/gm, " ")
+  ).join(" ");
+  return clip(oneLine(raw), 220);
+}
+function signatureOf(node, src) {
+  const body2 = node.childForFieldName("body");
+  const end = body2 ? body2.startIndex : Math.min(node.endIndex, node.startIndex + 160);
+  return clip(oneLine(src.slice(node.startIndex, end)), 200);
+}
+var SQL_HINT = /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|REPLACE)\b/;
+function sqlRefs(text) {
+  if (!SQL_HINT.test(text)) return [];
+  const out2 = [];
+  for (const m of text.matchAll(
+    /\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?([A-Za-z_]\w*)/g
+  )) {
+    out2.push(["writes_table", m[1]]);
+  }
+  for (const m of text.matchAll(/\b(?:FROM|JOIN)\s+["`]?([A-Za-z_]\w*)/g)) out2.push(["reads_table", m[1]]);
+  for (const m of text.matchAll(/\bALTER\s+TABLE\s+["`]?([A-Za-z_]\w*)/g)) out2.push(["writes_table", m[1]]);
+  return out2;
+}
+var Collector = class {
+  symbols = [];
+  edges = [];
+  byKey = /* @__PURE__ */ new Map();
+  symbol(s) {
+    const key = `${s.kind}\0${s.qualified_name}`;
+    const known = this.byKey.get(key);
+    if (known !== void 0) return known;
+    this.symbols.push(s);
+    this.byKey.set(key, this.symbols.length - 1);
+    return this.symbols.length - 1;
+  }
+  edge(src, kind, dstName, line, hint = null) {
+    this.edges.push({ src, kind, dst_name: dstName, line, hint });
+  }
+};
+function lineCounter(text, lineBase) {
+  const starts = [0];
+  for (let i2 = text.indexOf("\n"); i2 >= 0; i2 = text.indexOf("\n", i2 + 1)) starts.push(i2 + 1);
+  return (index) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = lo + hi + 1 >> 1;
+      if (starts[mid] <= index) lo = mid;
+      else hi = mid - 1;
+    }
+    return lineBase + lo + 1;
+  };
+}
+function statementEnd(text, start2, virtual) {
+  if (virtual) return text.indexOf(";", start2);
+  let depth = 0;
+  let i2 = text.indexOf("(", start2);
+  for (; i2 >= 0 && i2 < text.length; i2++) {
+    if (text[i2] === "(") depth++;
+    else if (text[i2] === ")" && --depth === 0) break;
+  }
+  return i2;
+}
+function columnNames(stmt) {
+  const inner = stmt.slice(stmt.indexOf("(") + 1, stmt.lastIndexOf(")"));
+  const cols = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of inner) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      cols.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  cols.push(cur);
+  return cols.map((c) => c.trim().split(/\s+/)[0] ?? "").filter((c) => c && !/^(PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT|content|content_rowid|tokenize|--)/i.test(c));
+}
+function extractSqlDdl(text, out2, moduleSymbol, lineBase = 0) {
+  const lineAt = lineCounter(text, lineBase);
+  for (const m of text.matchAll(/CREATE\s+(VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?/gi)) {
+    const start2 = m.index;
+    let end = statementEnd(text, start2, Boolean(m[1]));
+    if (end < 0) end = Math.min(text.length, start2 + 400);
+    const stmt = text.slice(start2, end + 1);
+    const name2 = m[2];
+    out2.symbol({
+      kind: "sql_table",
+      qualified_name: name2,
+      signature: clip(`${name2}(${columnNames(stmt).join(", ")})`, 240),
+      doc: "",
+      start_line: lineAt(start2),
+      end_line: lineAt(end),
+      body_hash: md5(oneLine(stmt)),
+      exported: 0
+    });
+  }
+  for (const m of text.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/gi)) {
+    const line = lineAt(m.index);
+    const id = out2.symbol({
+      kind: "sql_index",
+      qualified_name: m[1],
+      signature: oneLine(m[0]),
+      doc: "",
+      start_line: line,
+      end_line: line,
+      body_hash: md5(m[0]),
+      exported: 0
+    });
+    out2.edge(id, "indexes", m[2], line);
+  }
+  for (const m of text.matchAll(/CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+([\s\S]*?)\bON\s+(\w+)([\s\S]*?)\bEND\b/gi)) {
+    const line = lineAt(m.index);
+    const id = out2.symbol({
+      kind: "sql_trigger",
+      qualified_name: m[1],
+      signature: clip(oneLine(`${m[1]} ${m[2]} ON ${m[3]}`), 200),
+      doc: "",
+      start_line: line,
+      end_line: lineAt(m.index + m[0].length),
+      body_hash: md5(oneLine(m[0])),
+      exported: 0
+    });
+    out2.edge(id, "triggers_on", m[3], line);
+    for (const [kind, table] of sqlRefs(m[4])) out2.edge(id, kind, table, line);
+  }
+  if (moduleSymbol !== null) {
+    for (const m of text.matchAll(/\bALTER\s+TABLE\s+(\w+)/gi)) out2.edge(moduleSymbol, "writes_table", m[1], lineAt(m.index));
+  }
+}
+function named(node) {
+  return node.namedChildren.filter((c) => c !== null);
+}
+var FUNCTION_VALUES = /* @__PURE__ */ new Set(["arrow_function", "function_expression", "function"]);
+function extractTs(root, src, out2, moduleSymbol) {
+  const definition = (node, kind, qualifiedName) => out2.symbol({
+    kind,
+    qualified_name: qualifiedName,
+    signature: signatureOf(node, src),
+    doc: docOf(node),
+    start_line: node.startPosition.row + 1,
+    end_line: node.endPosition.row + 1,
+    body_hash: normalizedHash(node),
+    exported: node.parent?.type === "export_statement" ? 1 : 0
+  });
+  const visit = (node, scope, cls) => {
+    let inner = scope;
+    let innerCls = cls;
+    const t = node.type;
+    const name2 = () => node.childForFieldName("name")?.text;
+    if (t === "function_declaration" || t === "generator_function_declaration") {
+      const n = name2();
+      if (n) inner = definition(node, "function", n);
+    } else if (t === "class_declaration" || t === "abstract_class_declaration") {
+      const n = name2();
+      if (n) {
+        inner = definition(node, "class", n);
+        innerCls = n;
+      }
+    } else if (t === "method_definition" && cls) {
+      const n = name2();
+      if (n) inner = definition(node, "method", `${cls}.${n}`);
+    } else if (t === "interface_declaration") {
+      const n = name2();
+      if (n) definition(node, "interface", n);
+    } else if (t === "type_alias_declaration" || t === "enum_declaration") {
+      const n = name2();
+      if (n) definition(node, "type", n);
+    } else if (t === "variable_declarator" && scope === moduleSymbol) {
+      const decl = node.parent;
+      const holder = decl?.parent?.type;
+      const n = node.childForFieldName("name");
+      if (decl && (holder === "program" || holder === "export_statement") && n?.type === "identifier") {
+        const value = node.childForFieldName("value");
+        const isFn = value !== null && FUNCTION_VALUES.has(value.type);
+        const bodyStart = value?.type === "arrow_function" ? value.childForFieldName("body")?.startIndex : void 0;
+        inner = out2.symbol({
+          kind: isFn ? "function" : "const",
+          qualified_name: n.text,
+          signature: clip(oneLine(src.slice(decl.startIndex, bodyStart ?? Math.min(decl.endIndex, decl.startIndex + 140))), 200),
+          doc: docOf(decl),
+          start_line: decl.startPosition.row + 1,
+          end_line: decl.endPosition.row + 1,
+          body_hash: normalizedHash(node),
+          exported: holder === "export_statement" ? 1 : 0
+        });
+      }
+    } else if (t === "call_expression" || t === "new_expression") {
+      const fn = node.childForFieldName(t === "call_expression" ? "function" : "constructor");
+      let callee;
+      let receiver;
+      if (fn?.type === "identifier") callee = fn.text;
+      else if (fn?.type === "member_expression") {
+        callee = fn.childForFieldName("property")?.text;
+        receiver = fn.childForFieldName("object")?.text;
+      }
+      if (callee) {
+        out2.edge(
+          scope,
+          t === "call_expression" ? "calls" : "instantiates",
+          callee,
+          node.startPosition.row + 1,
+          receiver && receiver.length < 40 ? receiver : null
+        );
+      }
+    } else if (t === "import_statement") {
+      const spec = node.childForFieldName("source")?.text.slice(1, -1) ?? null;
+      for (const s of node.descendantsOfType("import_specifier")) {
+        const n = s?.childForFieldName("name")?.text;
+        if (n) out2.edge(moduleSymbol, "imports", n, node.startPosition.row + 1, spec);
+      }
+      return;
+    } else if (t === "string" || t === "template_string") {
+      const text = node.text;
+      for (const [kind, table] of sqlRefs(text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
+      if (/CREATE\s+(VIRTUAL\s+)?TABLE/i.test(text)) extractSqlDdl(text, out2, null, node.startPosition.row);
+    }
+    for (const c of named(node)) visit(c, inner, innerCls);
+  };
+  visit(root, moduleSymbol, null);
+}
+function stripQuotes(s) {
+  return s.replace(/^["']|["']$/g, "");
+}
+function extractBash(root, out2, moduleSymbol) {
+  const visit = (node, scope) => {
+    let inner = scope;
+    const t = node.type;
+    if (t === "function_definition") {
+      const n = node.childForFieldName("name")?.text;
+      if (n) {
+        inner = out2.symbol({
+          kind: "sh_function",
+          qualified_name: n,
+          signature: `${n}()`,
+          doc: docOf(node),
+          start_line: node.startPosition.row + 1,
+          end_line: node.endPosition.row + 1,
+          body_hash: normalizedHash(node),
+          exported: 1
+        });
+      }
+    } else if (t === "command") {
+      const name2 = node.childForFieldName("name")?.text;
+      const args2 = named(node).filter((c) => c.type !== "command_name").map((c) => stripQuotes(c.text));
+      const line = node.startPosition.row + 1;
+      if (name2 === "source" || name2 === ".") {
+        if (args2[0]) out2.edge(scope, "sources", basename6(args2[0]), line);
+      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename6(name2), line);
+      else if ((name2 === "bash" || name2 === "sh") && args2[0] && /\.sh$/.test(args2[0])) {
+        out2.edge(scope, "runs", basename6(args2[0]), line);
+      } else if (name2 && /^[A-Za-z_][\w-]*$/.test(name2) && !SH_BUILTINS.has(name2)) out2.edge(scope, "calls", name2, line);
+    } else if (t === "string" || t === "raw_string" || t === "heredoc_body") {
+      for (const [kind, table] of sqlRefs(node.text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
+    }
+    for (const c of named(node)) visit(c, inner);
+  };
+  visit(root, moduleSymbol);
+}
+function moduleDoc(lang, src) {
+  const out2 = [];
+  const comment = lang === "bash" || lang === "sql" ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
+  for (const l of src.split("\n").slice(0, 30)) {
+    if (/^#!/.test(l)) continue;
+    const m = l.match(comment);
+    if (m) {
+      if (m[1].trim()) out2.push(m[1].trim());
+    } else if (out2.length || l.trim()) break;
+  }
+  return clip(out2.join(" "), 220);
+}
+function extractFile(parsers, relPath, lang, src) {
+  const out2 = new Collector();
+  const moduleSymbol = out2.symbol({
+    kind: "module",
+    qualified_name: relPath,
+    signature: relPath,
+    doc: moduleDoc(lang, src),
+    start_line: 1,
+    end_line: src.split("\n").length,
+    body_hash: md5(src),
+    exported: 0
+  });
+  if (lang === "sql") {
+    extractSqlDdl(src, out2, moduleSymbol);
+    return out2;
+  }
+  if (!parsers) throw new Error(`no parser loaded for ${lang}`);
+  const tree = parsers[lang].parse(src);
+  if (!tree) throw new Error(`tree-sitter returned no tree for ${relPath}`);
+  try {
+    if (lang === "bash") extractBash(tree.rootNode, out2, moduleSymbol);
+    else extractTs(tree.rootNode, src, out2, moduleSymbol);
+  } finally {
+    tree.delete();
+  }
+  return out2;
+}
+
+// src/symbol-index.ts
+var MAX_PARSE_BYTES = 1e6;
+var CARD_LIST_CAP = 50;
+var OR_FALLBACK_MIN_HITS = 3;
+var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported";
+var CALLABLE = /* @__PURE__ */ new Set(["function", "method", "class", "sh_function"]);
+var TABLE_EDGES = /* @__PURE__ */ new Set(["reads_table", "writes_table", "indexes", "triggers_on"]);
+var CALL_EDGES = ["calls", "instantiates", "runs", "sources"];
+function isTestPath(path2) {
+  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path2);
+}
+function shortName(kind, qualifiedName) {
+  return kind === "method" ? qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1) : qualifiedName;
+}
+function readSource(repoPath, relPath) {
+  return readFileSync6(join15(repoPath, relPath), "utf8");
+}
+function sourceLanguage(repoPath, relPath, sizeBytes) {
+  if (sizeBytes > MAX_PARSE_BYTES) return null;
+  return languageOf(relPath, () => {
+    try {
+      return readSource(repoPath, relPath).slice(0, 120);
+    } catch {
+      return "";
+    }
+  });
+}
+function resolveImport(fromFile, spec, fileSet) {
+  if (!spec || !spec.startsWith(".")) return null;
+  const base = posix2.normalize(posix2.join(posix2.dirname(fromFile), spec));
+  const stem = base.replace(/\.(m?js|ts)$/, "");
+  for (const c of [base, `${stem}.ts`, `${stem}.tsx`, `${stem}.js`, `${stem}.mjs`, `${stem}/index.ts`, `${stem}/index.js`]) {
+    if (fileSet.has(c)) return c;
+  }
+  return null;
+}
+var SymbolWriter = class {
+  constructor(db2, repo) {
+    this.db = db2;
+    this.repo = repo;
+  }
+  db;
+  repo;
+  // Upsert one file's symbols by (kind, qualified_name) so unchanged symbols
+  // keep their ids, drop the ones that disappeared, and replace its edges.
+  writeFile(path2, extraction) {
+    const existing = new Map(
+      this.db.all(
+        `SELECT ${SYMBOL_COLUMNS}, s.terms FROM wm_symbols s WHERE s.repo = ? AND s.path = ?`,
+        [this.repo, path2]
+      ).map((r) => [`${r.kind}\0${r.qualified_name}`, r])
+    );
+    this.db.run(
+      `DELETE FROM wm_edges WHERE src_id IN (SELECT id FROM wm_symbols WHERE repo = ? AND path = ?)`,
+      [this.repo, path2]
+    );
+    const ids = extraction.symbols.map((s) => {
+      const terms = symbolTerms(s.kind, s.qualified_name, path2);
+      const key = `${s.kind}\0${s.qualified_name}`;
+      const row = existing.get(key);
+      if (!row) {
+        return Number(
+          this.db.run(
+            `INSERT INTO wm_symbols (repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [this.repo, path2, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms]
+          ).lastInsertRowid
+        );
+      }
+      existing.delete(key);
+      const changed = row.signature !== s.signature || row.doc !== s.doc || Number(row.start_line) !== s.start_line || Number(row.end_line) !== s.end_line || row.body_hash !== s.body_hash || Number(row.exported) !== s.exported || row.terms !== terms;
+      if (changed) {
+        this.db.run(
+          `UPDATE wm_symbols SET signature = ?, doc = ?, start_line = ?, end_line = ?, body_hash = ?, exported = ?, terms = ? WHERE id = ?`,
+          [s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, row.id]
+        );
+      }
+      return Number(row.id);
+    });
+    for (const gone of existing.values()) this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
+    return extraction.edges.map((edge) => ({
+      rowid: Number(
+        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line) VALUES (?, ?, ?, 'unresolved', ?)`, [
+          ids[edge.src],
+          edge.dst_name,
+          edge.kind,
+          edge.line
+        ]).lastInsertRowid
+      ),
+      from: path2,
+      edge
+    }));
+  }
+};
+var Resolver = class {
+  byName = /* @__PURE__ */ new Map();
+  modules = /* @__PURE__ */ new Map();
+  byBase = /* @__PURE__ */ new Map();
+  fileSet = /* @__PURE__ */ new Set();
+  importMap = /* @__PURE__ */ new Map();
+  sourced = /* @__PURE__ */ new Map();
+  constructor(db2, repo, pending2) {
+    for (const s of db2.all(
+      `SELECT id, path, kind, qualified_name FROM wm_symbols WHERE repo = ?`,
+      [repo]
+    )) {
+      const c = { id: Number(s.id), path: s.path, kind: s.kind };
+      if (s.kind === "module") {
+        this.modules.set(s.path, c.id);
+        this.fileSet.add(s.path);
+        push(this.byBase, basename7(s.path), c);
+      } else {
+        push(this.byName, shortName(s.kind, s.qualified_name), c);
+      }
+    }
+    for (const { from, edge } of pending2) {
+      if (edge.kind === "imports") {
+        const target = resolveImport(from, edge.hint, this.fileSet);
+        if (target) {
+          const m = this.importMap.get(from) ?? /* @__PURE__ */ new Map();
+          m.set(edge.dst_name, target);
+          this.importMap.set(from, m);
+        }
+      } else if (edge.kind === "sources") {
+        const cands = this.byBase.get(edge.dst_name) ?? [];
+        const pick3 = cands.find((c) => posix2.dirname(c.path) === posix2.dirname(from)) ?? cands[0];
+        if (pick3) push(this.sourced, from, pick3.path);
+      }
+    }
+  }
+  resolve(from, edge) {
+    if (edge.kind === "imports") {
+      const target = resolveImport(from, edge.hint, this.fileSet);
+      if (!target) return null;
+      const hit = (this.byName.get(edge.dst_name) ?? []).find((c) => c.path === target);
+      const dst = hit?.id ?? this.modules.get(target);
+      return dst === void 0 ? null : { dst, how: "exact" };
+    }
+    if (edge.kind === "runs" || edge.kind === "sources") {
+      const cands2 = this.byBase.get(edge.dst_name) ?? [];
+      const pick3 = cands2.find((c) => posix2.dirname(c.path) === posix2.dirname(from)) ?? (cands2.length === 1 ? cands2[0] : void 0);
+      return pick3 ? { dst: pick3.id, how: cands2.length === 1 ? "exact" : "name" } : null;
+    }
+    if (TABLE_EDGES.has(edge.kind)) {
+      const cands2 = (this.byName.get(edge.dst_name) ?? []).filter((c) => c.kind === "sql_table");
+      const pick3 = cands2.find((c) => c.path.endsWith(".sql") && !isTestPath(c.path)) ?? cands2.find((c) => !isTestPath(c.path)) ?? cands2[0];
+      return pick3 ? { dst: pick3.id, how: "name" } : null;
+    }
+    const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => CALLABLE.has(c.kind));
+    const member = edge.hint !== null && edge.hint !== "this";
+    const same = cands.find((c) => c.path === from);
+    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
+    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
+    if (same && !member) return { dst: same.id, how: "exact" };
+    if (viaImport) {
+      const hit = cands.find((c) => c.path === viaImport);
+      if (hit) return { dst: hit.id, how: "exact" };
+    } else if (viaSource) return { dst: viaSource.id, how: "exact" };
+    const unique = cands.filter((c) => !isTestPath(c.path) && (!member || c.kind === "method"));
+    return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0].id, how: "name" } : null;
+  }
+};
+function push(map2, key, value) {
+  const list = map2.get(key);
+  if (list) list.push(value);
+  else map2.set(key, [value]);
+}
+function markOrphanedEdges(db2) {
+  db2.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+}
+function deleteFileSymbols(db2, repo, path2) {
+  db2.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path2]);
+}
+async function indexRepoSymbols(db2, repo, repoPath) {
+  const stale = db2.all(
+    `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND symbols_md5 IS NOT content_md5 ORDER BY path`,
+    [repo]
+  ).filter((f) => inSymbolScope(f.path));
+  const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
+  const parsers = jobs.some((j) => j.lang !== null && j.lang !== "sql") ? await loadParsers() : null;
+  let failed = 0;
+  const parsed = [];
+  for (const { file: file2, lang } of jobs) {
+    if (lang === null) {
+      parsed.push({ file: file2, extraction: null });
+      continue;
+    }
+    try {
+      parsed.push({ file: file2, extraction: extractFile(parsers, file2.path, lang, readSource(repoPath, file2.path)) });
+    } catch {
+      failed++;
+    }
+  }
+  return db2.transaction(() => {
+    const writer = new SymbolWriter(db2, repo);
+    const pending2 = [];
+    let symbols = 0;
+    for (const { file: file2, extraction } of parsed) {
+      if (extraction) {
+        pending2.push(...writer.writeFile(file2.path, extraction));
+        symbols += extraction.symbols.length;
+      } else {
+        deleteFileSymbols(db2, repo, file2.path);
+      }
+      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 WHERE id = ?`, [file2.id]);
+    }
+    let resolved = 0;
+    if (pending2.length > 0) {
+      const resolver = new Resolver(db2, repo, pending2);
+      for (const p of pending2) {
+        const hit = resolver.resolve(p.from, p.edge);
+        if (!hit) continue;
+        db2.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [hit.dst, hit.how, p.rowid]);
+        resolved++;
+      }
+    }
+    markOrphanedEdges(db2);
+    return {
+      files_parsed: parsed.filter((p) => p.extraction !== null).length,
+      files_failed: failed,
+      symbols,
+      edges: pending2.length,
+      edges_resolved: resolved
+    };
+  });
+}
+function queryWords(query) {
+  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
+}
+function keywordSearchSymbols(db2, repo, query, limit) {
+  const words = queryWords(query);
+  if (words.length === 0) return { hits: [], match: "all_terms" };
+  const search = (op) => db2.all(
+    `SELECT ${SYMBOL_COLUMNS}, bm25(wm_symbols_fts, 10.0, 3.0, 4.0) AS rank
+         FROM wm_symbols_fts CROSS JOIN wm_symbols s ON s.id = wm_symbols_fts.rowid
+        WHERE wm_symbols_fts MATCH ? AND s.repo = ? AND s.kind <> 'module'
+        ORDER BY rank, s.id
+        LIMIT ?`,
+    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
+  );
+  const all = search("AND");
+  const toHit = (r) => ({ ...normalizeRow(r), score: -r.rank });
+  if (all.length >= OR_FALLBACK_MIN_HITS || words.length < 2) return { hits: all.map(toHit), match: "all_terms" };
+  const seen = new Set(all.map((r) => r.id));
+  const any2 = search("OR").filter((r) => !seen.has(r.id));
+  return { hits: [...all, ...any2].slice(0, limit).map(toHit), match: any2.length > 0 ? "any_term" : "all_terms" };
+}
+function normalizeRow(r) {
+  return {
+    id: Number(r.id),
+    repo: r.repo,
+    path: r.path,
+    kind: r.kind,
+    qualified_name: r.qualified_name,
+    signature: r.signature,
+    doc: r.doc,
+    start_line: Number(r.start_line),
+    end_line: Number(r.end_line),
+    body_hash: r.body_hash,
+    exported: Number(r.exported)
+  };
+}
+function symbolById(db2, id) {
+  const row = db2.get(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.id = ?`, [id]);
+  return row ? normalizeRow(row) : null;
+}
+function symbolsByName(db2, repo, qualifiedName, path2) {
+  return db2.all(
+    `SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s
+        WHERE s.repo = ? AND s.qualified_name = ? AND (? IS NULL OR s.path = ?)
+        ORDER BY s.kind = 'module', s.path, s.kind`,
+    [repo, qualifiedName, path2 ?? null, path2 ?? null]
+  ).map(normalizeRow);
+}
+function refList(rows) {
+  const unique = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    if (r.id === null || unique.has(Number(r.id))) continue;
+    unique.set(Number(r.id), {
+      id: Number(r.id),
+      qualified_name: r.qualified_name,
+      kind: r.kind,
+      repo: r.repo,
+      path: r.path,
+      line_start: Number(r.start_line)
+    });
+  }
+  const refs = [...unique.values()];
+  return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
+}
+function symbolCard(db2, symbol2) {
+  const inbound = db2.all(
+    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+       FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+      WHERE e.dst_id = ?
+      ORDER BY o.path, o.start_line`,
+    [symbol2.id]
+  );
+  const outbound = db2.all(
+    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+       FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
+      WHERE e.src_id = ?
+      ORDER BY e.line`,
+    [symbol2.id]
+  );
+  const isTable = symbol2.kind === "sql_table";
+  const tableSide = isTable ? inbound : outbound;
+  const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
+  const card = {
+    symbol: symbol2,
+    callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
+    callees: refList(of(outbound, CALL_EDGES)),
+    imports: refList(of(symbol2.kind === "module" ? outbound : inbound, ["imports"])),
+    reads_table: refList(of(tableSide, ["reads_table"])),
+    writes_table: refList(of(tableSide, ["writes_table"])),
+    tests: refList(inbound.filter((r) => r.path !== null && isTestPath(r.path)))
+  };
+  if ([...inbound, ...outbound].some((r) => r.resolution !== "exact")) card.note = "found by name; not all callers";
+  return card;
+}
+
 // src/tools/scan.ts
 function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err16(message2) {
+function err17(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrap4(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err16(e.message);
+      return err17(e.message);
     }
   };
 }
 function resolveScanScript() {
-  const here = dirname9(fileURLToPath4(import.meta.url));
+  const here = dirname10(fileURLToPath5(import.meta.url));
   const candidates = [
-    join14(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join14(here, "..", "..", "..", "scripts", "scan.sh")
+    join16(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join16(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync10(c)) return c;
+  for (const c of candidates) if (existsSync11(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join14(pluginRoot, "scripts", "scan.sh");
-    if (existsSync10(c)) return c;
+    const c = join16(pluginRoot, "scripts", "scan.sh");
+    if (existsSync11(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
@@ -36298,11 +41034,11 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename6(p) {
-  const i = p.lastIndexOf("/");
-  return i >= 0 ? p.slice(i + 1) : p;
+function basename8(p) {
+  const i2 = p.lastIndexOf("/");
+  return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
-function deriveDirectoryEntries(out) {
+function deriveDirectoryEntries(out2) {
   const dirMap = /* @__PURE__ */ new Map();
   function ensureDir(repo, dirPath) {
     const key = `${repo} ${dirPath}`;
@@ -36315,45 +41051,45 @@ function deriveDirectoryEntries(out) {
     dirMap.set(key, { repo, path: dirPath, parent_path, file_count: 0, file_names: [] });
     if (parent_path !== null) ensureDir(repo, parent_path);
   }
-  for (const r of out.repos) ensureDir(r.name, "");
-  for (const f of out.files) {
+  for (const r of out2.repos) ensureDir(r.name, "");
+  for (const f of out2.files) {
     const lastSlash = f.path.lastIndexOf("/");
     const dirPath = lastSlash >= 0 ? f.path.slice(0, lastSlash) : "";
     ensureDir(f.repo, dirPath);
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename6(f.path));
+      entry.file_names.push(basename8(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename6(dirPath);
-  const join19 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename8(dirPath);
+  const join21 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
-  const parts = [];
+  const parts2 = [];
   const fileCount = `${fileNames.length} file${fileNames.length === 1 ? "" : "s"}`;
   if (filePurposes.length > 0) {
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
-    parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
+    parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts.push(`${fileCount} (${join19(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join21(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join19(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join21(subdirNames.slice().sort())}`);
   }
-  return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
+  return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
-  for (const name of candidates) {
-    const readmePath = join14(absDirPath, name);
-    if (!existsSync10(readmePath)) continue;
+  for (const name2 of candidates) {
+    const readmePath = join16(absDirPath, name2);
+    if (!existsSync11(readmePath)) continue;
     try {
-      return { name, text: readFileSync6(readmePath, "utf8") };
+      return { name: name2, text: readFileSync7(readmePath, "utf8") };
     } catch {
     }
   }
@@ -36365,10 +41101,10 @@ function readReadmeSummary(absDirPath) {
   const clipped = readme.text.length > README_MAX_BYTES ? readme.text.slice(0, README_MAX_BYTES) : readme.text;
   return frameUntrusted("readme", clipped);
 }
-function planReadmeDrift(out) {
+function planReadmeDrift(out2) {
   const drift = /* @__PURE__ */ new Map();
-  const dirMap = deriveDirectoryEntries(out);
-  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+  const dirMap = deriveDirectoryEntries(out2);
+  const repoPaths = new Map(out2.repos.map((r) => [r.name, r.path]));
   const histories = /* @__PURE__ */ new Map();
   const historyFor = (repo, root) => {
     if (!histories.has(repo)) {
@@ -36380,21 +41116,21 @@ function planReadmeDrift(out) {
   };
   for (const entry of dirMap.values()) {
     const root = repoPaths.get(entry.repo);
-    const tracked = README_CANDIDATES.filter((name) => entry.file_names.includes(name));
+    const tracked = README_CANDIDATES.filter((name2) => entry.file_names.includes(name2));
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join14(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join16(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
   }
   return drift;
 }
-function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ */ new Map(), driftByDir = /* @__PURE__ */ new Map()) {
+function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__ */ new Map(), driftByDir = /* @__PURE__ */ new Map()) {
   const repoPaths = /* @__PURE__ */ new Map();
-  for (const r of out.repos) repoPaths.set(r.name, r.path);
-  const dirMap = deriveDirectoryEntries(out);
+  for (const r of out2.repos) repoPaths.set(r.name, r.path);
+  const dirMap = deriveDirectoryEntries(out2);
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
@@ -36403,13 +41139,13 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename6(entry.path));
-    else subdirsByParent.set(key, [basename6(entry.path)]);
+    if (list) list.push(basename8(entry.path));
+    else subdirsByParent.set(key, [basename8(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join14(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join16(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -36458,23 +41194,23 @@ function readFileHead(absPath) {
   }
 }
 function fileDir(relPath) {
-  const i = relPath.lastIndexOf("/");
-  return i >= 0 ? relPath.slice(0, i) : "";
+  const i2 = relPath.lastIndexOf("/");
+  return i2 >= 0 ? relPath.slice(0, i2) : "";
 }
-function planFiles(graph, out, now2) {
-  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+function planFiles(graph, out2, now2) {
+  const repoPaths = new Map(out2.repos.map((r) => [r.name, r.path]));
   const existing = /* @__PURE__ */ new Map();
-  for (const r of out.repos) {
+  for (const r of out2.repos) {
     for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
   }
   const plan = { nodes: [], writes: [], extracted: 0 };
-  for (const f of out.files) {
+  for (const f of out2.files) {
     const repoPath = repoPaths.get(f.repo);
     if (!repoPath) continue;
     const path2 = WorldModelGraph.fileKey(f.repo, f.path);
     const prev = existing.get(path2);
-    const md5 = f.content_md5 ?? "";
-    if (prev && md5 !== "" && prev.content_md5 === md5) {
+    const md52 = f.content_md5 ?? "";
+    if (prev && md52 !== "" && prev.content_md5 === md52) {
       plan.nodes.push(prev);
       continue;
     }
@@ -36482,7 +41218,7 @@ function planFiles(graph, out, now2) {
       path: path2,
       repo: f.repo,
       dir: fileDir(f.path),
-      content_md5: md5,
+      content_md5: md52,
       size_bytes: Number(f.size_bytes ?? 0),
       last_commit_sha: f.last_commit_sha ?? "",
       updated_at: now2
@@ -36491,7 +41227,7 @@ function planFiles(graph, out, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join14(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join16(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -36505,17 +41241,17 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename6(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename8(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
   }
   return byDir;
 }
-function persistFilesGraph(graph, out, plan) {
+function persistFilesGraph(graph, out2, plan) {
   let files_retired = 0;
   for (const n of plan.writes) graph.upsertFile(n);
-  for (const r of out.repos) {
+  for (const r of out2.repos) {
     const linked = graph.filePathsWithDirectory(r.name);
     for (const n of plan.nodes) {
       if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
@@ -36532,12 +41268,12 @@ function readRepoRemotes(path2) {
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
-    for (const name of names) {
-      const urlR = spawnSync11("git", ["-C", path2, "remote", "get-url", name], opts);
+    for (const name2 of names) {
+      const urlR = spawnSync11("git", ["-C", path2, "remote", "get-url", name2], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
-      remotes.push({ name, provider: classifyUrl(url2), url: url2 });
+      remotes.push({ name: name2, provider: classifyUrl(url2), url: url2 });
     }
     return remotes;
   } catch {
@@ -36610,19 +41346,20 @@ function noSyncRemoteWarnings(db2, repos) {
     hint: "Issue and milestone sync reach no remote for this repo; re-run /onboard to choose the Remote."
   }));
 }
-function persistScan(db2, graph, out, sessionDir) {
+var SYMBOL_STAT_KEYS = ["files_parsed", "files_failed", "symbols", "edges", "edges_resolved"];
+async function persistScan(db2, graph, out2, sessionDir) {
   const now2 = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
   const existing = db2.all(`SELECT name, path FROM repos`);
   const remotesByRepo = /* @__PURE__ */ new Map();
-  for (const r of out.repos) remotesByRepo.set(r.name, readRepoRemotes(r.path));
-  const rename_candidates = detectRenames(existing, out.repos, remotesByRepo, (repo) => repoRemotes(db2, repo));
+  for (const r of out2.repos) remotesByRepo.set(r.name, readRepoRemotes(r.path));
+  const rename_candidates = detectRenames(existing, out2.repos, remotesByRepo, (repo) => repoRemotes(db2, repo));
   const renamedTo = new Set(rename_candidates.map((c) => c.new));
   const renamedFrom = new Set(rename_candidates.map((c) => c.old));
   const persisted = {
-    ...out,
-    repos: out.repos.filter((r) => !renamedTo.has(r.name)),
-    files: out.files.filter((f) => !renamedTo.has(f.repo))
+    ...out2,
+    repos: out2.repos.filter((r) => !renamedTo.has(r.name)),
+    files: out2.files.filter((f) => !renamedTo.has(f.repo))
   };
   const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {
@@ -36716,8 +41453,20 @@ function persistScan(db2, graph, out, sessionDir) {
       files_retired += fileStats.files_retired;
     });
   }
+  const symbols = { files_parsed: 0, files_failed: 0, symbols: 0, edges: 0, edges_resolved: 0 };
+  if (graph) {
+    for (const r of persisted.repos) {
+      try {
+        const repoStats = await indexRepoSymbols(db2, r.name, r.path);
+        for (const key of SYMBOL_STAT_KEYS) symbols[key] += repoStats[key];
+      } catch (e) {
+        symbols.error = `${r.name}: ${e.message}`;
+        serverLog({ event: "symbol_index_error", repo: r.name, error: e.message });
+      }
+    }
+  }
   return {
-    repos_discovered: out.repos.length,
+    repos_discovered: out2.repos.length,
     repos_upserted,
     repos_retired,
     repos_stale_kept,
@@ -36728,13 +41477,14 @@ function persistScan(db2, graph, out, sessionDir) {
     files_upserted,
     files_extracted,
     files_retired,
+    symbols,
     rename_candidates
   };
 }
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync6(lockPath, "utf8"));
+    return JSON.parse(readFileSync7(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -36800,23 +41550,23 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     scan_run: requireRoles(
       "scan_run",
       ["bro"],
-      wrap4(async (args) => {
-        const sessionDir = args["session_dir"] ?? projectRootFromDbPath(dbPath2);
+      wrap4(async (args2) => {
+        const sessionDir = args2["session_dir"] ?? projectRootFromDbPath(dbPath2);
         if (!sessionDir) {
-          return err16("session_dir is required: the project root is unknown for this trajectory DB");
+          return err17("session_dir is required: the project root is unknown for this trajectory DB");
         }
-        const rawSource = args["source"] ?? "bro_auto_initial";
+        const rawSource = args2["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         const graph = graphHolder2 ? graphHolder2.ensureGraph() : new WorldModelGraph(db2);
         const graphOpenError = graphHolder2?.openError ?? null;
         if (!graph && graphOpenError) {
-          return err16(`graph_db_open_failed: ${graphOpenError}`);
+          return err17(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join14(dirname9(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join16(dirname10(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
-            return err16(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+            return err17(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
           }
           let acquired = false;
           let acquireThrew = false;
@@ -36828,23 +41578,23 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           if (!acquired) {
             const recheck = readLock(lockPath);
             if (recheck && pidAlive(recheck.pid)) {
-              return err16(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+              return err17(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
             }
             if (!acquireThrew) {
-              return err16("scan lock could not be acquired");
+              return err17("scan lock could not be acquired");
             }
           }
         }
         try {
-          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath2);
-          if (!graph && out.files.length > 0) {
-            return err16("world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged");
+          const out2 = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath2);
+          if (!graph && out2.files.length > 0) {
+            return err17("world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged");
           }
           const dirsBefore = graph?.directoryCount() ?? 0;
-          const stats = persistScan(db2, graph, out, sessionDir);
-          const spawnFn = args["_spawnFn"];
+          const stats = await persistScan(db2, graph, out2, sessionDir);
+          const spawnFn = args2["_spawnFn"];
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
-          const upsertedRepos = out.repos.filter((repo) => !renamedTo.has(repo.name));
+          const upsertedRepos = out2.repos.filter((repo) => !renamedTo.has(repo.name));
           const warnings = noSyncRemoteWarnings(db2, upsertedRepos.map((r) => r.name));
           for (const r of upsertedRepos) {
             try {
@@ -36853,36 +41603,36 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
               serverLog({ event: "milestone_sync_error", repo: r.name, error: e.message });
             }
           }
-          const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
+          const topDirs = new Set(out2.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(
             db2,
-            out.repos,
+            out2.repos,
             topDirs,
             dirsBefore === 0 && stats.dirs_upserted > 0
           );
-          const pluginInventory = out.plugin_inventory ?? null;
+          const pluginInventory = out2.plugin_inventory ?? null;
           const pluginNote = pluginInventory?.status === "unavailable" ? `; plugins unavailable: ${pluginInventory.note}` : "";
-          const mcpInventory = out.mcp_inventory ?? null;
+          const mcpInventory = out2.mcp_inventory ?? null;
           const mcpNote = mcpInventory?.status === "unavailable" ? `; mcp servers unavailable: ${mcpInventory.note}` : "";
           insertAudit(db2, {
             issue_id: -1,
             from_node: "bro",
             event_type: "deep_scan_completed",
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ""}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}${mcpNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ""}; ${out2.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired}; symbols ${stats.symbols.symbols} in ${stats.symbols.files_parsed} parsed files (${stats.symbols.files_failed} failed), edges ${stats.symbols.edges_resolved}/${stats.symbols.edges} resolved \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
-              session_dir: out.session_dir,
-              scanned_at: out.scanned_at,
+              session_dir: out2.session_dir,
+              scanned_at: out2.scanned_at,
               source,
               structural_change: structuralChange,
-              repos_seen: out.repos.map((r) => r.name),
+              repos_seen: out2.repos.map((r) => r.name),
               top_dirs: Array.from(topDirs).sort()
             })
           });
           return ok17({
-            session_dir: out.session_dir,
-            scanned_at: out.scanned_at,
-            repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
+            session_dir: out2.session_dir,
+            scanned_at: out2.scanned_at,
+            repos: out2.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
             source,
             structural_change: structuralChange,
             plugin_inventory: pluginInventory,
@@ -37067,17 +41817,17 @@ function repoTools(db2, graphHolder2 = null) {
     }
   ];
   const handlers = {
-    repo_rename: requireRoles("repo_rename", ["bro"], async (args) => {
-      const old = typeof args["old"] === "string" ? args["old"].trim() : "";
-      const next = typeof args["new"] === "string" ? args["new"].trim() : "";
-      const reason = typeof args["reason"] === "string" ? args["reason"].trim() : "";
+    repo_rename: requireRoles("repo_rename", ["bro"], async (args2) => {
+      const old = typeof args2["old"] === "string" ? args2["old"].trim() : "";
+      const next = typeof args2["new"] === "string" ? args2["new"].trim() : "";
+      const reason = typeof args2["reason"] === "string" ? args2["reason"].trim() : "";
       if (!old || !next || !reason) {
         return refuse({ error: "invalid_args", message: "old, new and reason are required non-empty strings" });
       }
       try {
         const graph = graphHolder2?.ensureGraph() ?? null;
-        const out = renameRepo(db2, graph, { old, new: next, reason, force: args["force"] === true });
-        return out.renamed ? ok18(out) : refuse(out);
+        const out2 = renameRepo(db2, graph, { old, new: next, reason, force: args2["force"] === true });
+        return out2.renamed ? ok18(out2) : refuse(out2);
       } catch (e) {
         return refuse({ error: "rename_failed", message: e.message });
       }
@@ -37088,16 +41838,16 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname11, join as join16 } from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
+import { existsSync as existsSync13, mkdirSync as mkdirSync8, readFileSync as readFileSync9, writeFileSync as writeFileSync7 } from "node:fs";
+import { dirname as dirname12, join as join18 } from "node:path";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync7, writeFileSync as writeFileSync6 } from "node:fs";
+import { createHash as createHash2 } from "node:crypto";
+import { existsSync as existsSync12, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname10, isAbsolute as isAbsolute5, join as join15 } from "node:path";
+import { dirname as dirname11, isAbsolute as isAbsolute5, join as join17 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -37108,12 +41858,12 @@ function probeChildEnv(projectRoot = null) {
   const base = projectRoot === null ? process.env : projectSpawnOptions(projectRoot).env;
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
-function runClaude(args, timeoutSec, projectRoot) {
+function runClaude(args2, timeoutSec, projectRoot) {
   return new Promise((resolve3) => {
     try {
       const child = execFile(
         "claude",
-        args,
+        args2,
         {
           ...projectRoot === null ? {} : { cwd: projectRoot },
           env: probeChildEnv(projectRoot),
@@ -37140,7 +41890,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync7(join15(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync8(join17(homedir3(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -37182,7 +41932,7 @@ async function probeListings(timeoutSec, projectRoot) {
 var PROBE_TTL_MS = 24 * 60 * 60 * 1e3;
 function readJson(path2) {
   try {
-    return JSON.parse(readFileSync7(path2, "utf8"));
+    return JSON.parse(readFileSync8(path2, "utf8"));
   } catch {
     return null;
   }
@@ -37200,23 +41950,23 @@ function stableJson(value) {
 }
 function cliConfigFingerprint(projectRoot) {
   const home = homedir3();
-  const claudeJson = readJson(join15(home, ".claude.json"));
-  const inProject = (...parts) => projectRoot === null ? null : readJson(join15(projectRoot, ...parts));
+  const claudeJson = readJson(join17(home, ".claude.json"));
+  const inProject = (...parts2) => projectRoot === null ? null : readJson(join17(projectRoot, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
     claudeJsonProjectMcpServers: projectRoot === null ? null : field(field(field(claudeJson, "projects"), projectRoot), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
-      user: field(readJson(join15(home, ".claude", "settings.json")), "enabledPlugins"),
+      user: field(readJson(join17(home, ".claude", "settings.json")), "enabledPlugins"),
       project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
       local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
     },
-    installedPlugins: readJson(join15(home, ".claude", "plugins", "installed_plugins.json"))
+    installedPlugins: readJson(join17(home, ".claude", "plugins", "installed_plugins.json"))
   };
-  return createHash("sha256").update(stableJson(inputs)).digest("hex");
+  return createHash2("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot) {
-  return join15(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
+  return join17(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
 }
 function readProbeCache(projectRoot) {
   if (projectRoot === null) return null;
@@ -37230,7 +41980,7 @@ function writeProbeCache(projectRoot, cache) {
   if (projectRoot === null) return;
   const path2 = probeCachePath(projectRoot);
   try {
-    mkdirSync7(dirname10(path2), { recursive: true });
+    mkdirSync7(dirname11(path2), { recursive: true });
     writeFileSync6(path2, JSON.stringify(cache) + "\n");
   } catch (e) {
     serverLog({ kind: "cheatcode_probe_cache_write_failed", error_message: e instanceof Error ? e.message : String(e) });
@@ -37254,8 +42004,8 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join15(pluginRoot, row.file_path);
-      return existsSync11(resolved) ? "active" : "broken";
+      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join17(pluginRoot, row.file_path);
+      return existsSync12(resolved) ? "active" : "broken";
     }
     case "mcp": {
       const bundled = /^mcp:([^/]+)\/(.+)$/.exec(row.source_url ?? "");
@@ -37338,34 +42088,34 @@ async function reconcileAtStartup(db2) {
 function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err17(message2) {
+function err18(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrap5(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err17(e.message);
+      return err18(e.message);
     }
   };
 }
-function resolveScriptsFile(name) {
-  const here = dirname11(fileURLToPath5(import.meta.url));
+function resolveScriptsFile(name2) {
+  const here = dirname12(fileURLToPath6(import.meta.url));
   const candidates = [
-    join16(here, "..", "..", "..", "..", "scripts", name),
-    join16(here, "..", "..", "..", "scripts", name)
+    join18(here, "..", "..", "..", "..", "scripts", name2),
+    join18(here, "..", "..", "..", "scripts", name2)
   ];
-  for (const c of candidates) if (existsSync12(c)) return c;
+  for (const c of candidates) if (existsSync13(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join16(pluginRoot, "scripts", name);
-    if (existsSync12(c)) return c;
+    const c = join18(pluginRoot, "scripts", name2);
+    if (existsSync13(c)) return c;
   }
-  throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
+  throw new Error(`${name2} not found \u2014 expected at <plugin>/scripts/${name2}`);
 }
 var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
 var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
@@ -37603,17 +42353,17 @@ function deriveOrigin(sourceUrl) {
 function parseInstallCandidate(raw) {
   if (!raw || typeof raw !== "object") return { error: "candidate is required" };
   const obj = raw;
-  const name = obj["name"]?.trim();
+  const name2 = obj["name"]?.trim();
   const sourceUrl = obj["source_url"]?.trim();
   const rawKind = obj["kind"]?.trim();
-  if (!name) return { error: "candidate.name is required" };
+  if (!name2) return { error: "candidate.name is required" };
   if (!sourceUrl) return { error: "candidate.source_url is required" };
   if (!rawKind || !INSTALLABLE_KINDS.has(rawKind)) {
     return { error: "candidate.kind must be one of skill|mcp|plugin" };
   }
   const tierVal = obj["tier"];
   return {
-    name,
+    name: name2,
     kind: rawKind,
     sourceUrl,
     tier: typeof tierVal === "number" ? tierVal : void 0
@@ -37622,18 +42372,18 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join16(pluginRoot, "agents", `${target}.md`);
-    if (existsSync12(c2)) return c2;
+    const c2 = join18(pluginRoot, "agents", `${target}.md`);
+    if (existsSync13(c2)) return c2;
   }
-  const here = dirname11(fileURLToPath5(import.meta.url));
-  const c = join16(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync12(c)) return c;
+  const here = dirname12(fileURLToPath6(import.meta.url));
+  const c = join18(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  if (existsSync13(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync8(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync9(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -37646,34 +42396,34 @@ function readManifestProvidedTools(manifestPath) {
   if (obj["lsp"] !== void 0 && obj["lsp"] !== null) return ["LSP"];
   return [];
 }
-function resolveInstalledPluginManifest(name) {
+function resolveInstalledPluginManifest(name2) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync12(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join16(process.env["HOME"] || "", ".claude");
-  const registry2 = join16(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync12(registry2)) return null;
+  if (override) return existsSync13(override) ? override : null;
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join18(process.env["HOME"] || "", ".claude");
+  const registry2 = join18(claudeHome, "plugins", "installed_plugins.json");
+  if (!existsSync13(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync8(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync9(registry2, "utf8"));
   } catch {
     return null;
   }
   const plugins = parsed?.plugins;
   if (!plugins || typeof plugins !== "object") return null;
   for (const [key, entries] of Object.entries(plugins)) {
-    if (key.split("@")[0] !== name) continue;
+    if (key.split("@")[0] !== name2) continue;
     const list = Array.isArray(entries) ? entries : [];
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join16(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync12(manifest)) return manifest;
+      const manifest = join18(installPath, ".claude-plugin", "plugin.json");
+      if (existsSync13(manifest)) return manifest;
     }
   }
   return null;
 }
-function detectProvidedTools(name) {
-  const manifest = resolveInstalledPluginManifest(name);
+function detectProvidedTools(name2) {
+  const manifest = resolveInstalledPluginManifest(name2);
   if (!manifest) return [];
   return readManifestProvidedTools(manifest);
 }
@@ -37752,29 +42502,29 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join16(projectRoot, ".claude");
+  const claudeDir = join18(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join16(claudeDir, "CLAUDE.md");
+    const claudeMd = join18(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync12(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
-    if (!body.includes(reference)) {
-      const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
-      body = body.length === 0 ? `${reference}
-` : `${body}${prefix}${reference}
+    let body2 = existsSync13(claudeMd) ? readFileSync9(claudeMd, "utf8") : "";
+    if (!body2.includes(reference)) {
+      const prefix = body2.length === 0 || body2.endsWith("\n") ? "" : "\n";
+      body2 = body2.length === 0 ? `${reference}
+` : `${body2}${prefix}${reference}
 `;
       mkdirSync8(claudeDir, { recursive: true });
-      writeFileSync7(claudeMd, body);
+      writeFileSync7(claudeMd, body2);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join16(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join18(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync12(localAgentMd)) {
-    content = readFileSync8(localAgentMd, "utf8");
+  if (existsSync13(localAgentMd)) {
+    content = readFileSync9(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync8(globalAgentMd, "utf8");
+    content = readFileSync9(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -37782,7 +42532,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync8(dirname11(localAgentMd), { recursive: true });
+  mkdirSync8(dirname12(localAgentMd), { recursive: true });
   writeFileSync7(localAgentMd, updated);
   return {
     target,
@@ -37795,9 +42545,9 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join16(projectRoot, rel);
-    if (!existsSync12(filePath)) return;
-    const content = readFileSync8(filePath, "utf8");
+    const filePath = join18(projectRoot, rel);
+    if (!existsSync13(filePath)) return;
+    const content = readFileSync9(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync7(filePath, updated);
@@ -37805,12 +42555,12 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join16(projectRoot, rel);
-    if (!existsSync12(filePath)) return;
+    const filePath = join18(projectRoot, rel);
+    if (!existsSync13(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body = readFileSync8(filePath, "utf8");
-    if (!body.includes(reference)) return;
-    const updated = body.split("\n").filter((line) => line !== reference).join("\n");
+    const body2 = readFileSync9(filePath, "utf8");
+    if (!body2.includes(reference)) return;
+    const updated = body2.split("\n").filter((line) => line !== reference).join("\n");
     writeFileSync7(filePath, updated);
   }
 }
@@ -37990,85 +42740,85 @@ function cheatcodeTools(db2) {
     cheatcode_search: requireRoles(
       "cheatcode_search",
       ["bro"],
-      wrap5(async (args) => {
-        const query = args["capability_query"]?.trim();
-        if (!query) return err17("capability_query is required");
-        const rawKind = args["kind"] ?? "any";
+      wrap5(async (args2) => {
+        const query = args2["capability_query"]?.trim();
+        if (!query) return err18("capability_query is required");
+        const rawKind = args2["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
-        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
+        const out2 = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
         auditCheatcode(
           "cheatcode_search",
-          `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
+          `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out2.candidates.length} ranked candidate(s)`,
           JSON.stringify({
             query,
             kind,
-            candidate_count: out.candidates.length,
-            top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
+            candidate_count: out2.candidates.length,
+            top: out2.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
           }),
           nowISO()
         );
-        return ok19({ query, kind, candidates: out.candidates });
+        return ok19({ query, kind, candidates: out2.candidates });
       })
     ),
     cheatcode_vet: requireRoles(
       "cheatcode_vet",
       ["bro"],
-      wrap5(async (args) => {
-        const raw = args["candidate"];
-        if (!raw || typeof raw !== "object") return err17("candidate is required");
-        const name = raw["name"]?.trim();
+      wrap5(async (args2) => {
+        const raw = args2["candidate"];
+        if (!raw || typeof raw !== "object") return err18("candidate is required");
+        const name2 = raw["name"]?.trim();
         const sourceUrl = raw["source_url"]?.trim();
-        if (!name) return err17("candidate.name is required");
-        if (!sourceUrl) return err17("candidate.source_url is required");
+        if (!name2) return err18("candidate.name is required");
+        if (!sourceUrl) return err18("candidate.source_url is required");
         const rawKind = raw["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const tierVal = raw["tier"];
         const candidate = {
-          name,
+          name: name2,
           kind,
           source_url: sourceUrl
         };
         if (typeof tierVal === "number") candidate.tier = tierVal;
-        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
+        const out2 = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
         auditCheatcode(
           "cheatcode_vet",
-          `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
+          `Cheatcode vet: '${name2}' (kind=${kind}) \u2192 trust_tier=${out2.trust_tier}`,
           JSON.stringify({
-            candidate: out.candidate,
-            trust_tier: out.trust_tier,
-            capabilities: out.capabilities,
-            rationale: out.rationale
+            candidate: out2.candidate,
+            trust_tier: out2.trust_tier,
+            capabilities: out2.capabilities,
+            rationale: out2.rationale
           }),
           nowISO()
         );
-        return ok19(out);
+        return ok19(out2);
       })
     ),
     cheatcode_approve: requireRoles(
       "cheatcode_approve",
       ["bro"],
-      wrap5(async (args) => {
-        const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err17(parsed.error);
-        const { name, kind, sourceUrl } = parsed;
+      wrap5(async (args2) => {
+        const parsed = parseInstallCandidate(args2["candidate"]);
+        if ("error" in parsed) return err18(parsed.error);
+        const { name: name2, kind, sourceUrl } = parsed;
         auditCheatcode(
           "cheatcode_approved",
-          `Cheatcode approved for install: '${name}' (kind=${kind})`,
-          JSON.stringify({ name, kind, source_url: sourceUrl }),
+          `Cheatcode approved for install: '${name2}' (kind=${kind})`,
+          JSON.stringify({ name: name2, kind, source_url: sourceUrl }),
           nowISO()
         );
-        return ok19({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
+        return ok19({ approved: true, candidate: { name: name2, kind, source_url: sourceUrl } });
       })
     ),
     cheatcode_install: requireRoles(
       "cheatcode_install",
       ["bro"],
-      wrap5(async (args) => {
-        const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err17(parsed.error);
-        const { name, kind, sourceUrl, tier } = parsed;
-        const trustTier = args["trust_tier"]?.trim() ?? null;
-        const rawScope = args["scope"]?.trim();
+      wrap5(async (args2) => {
+        const parsed = parseInstallCandidate(args2["candidate"]);
+        if ("error" in parsed) return err18(parsed.error);
+        const { name: name2, kind, sourceUrl, tier } = parsed;
+        const trustTier = args2["trust_tier"]?.trim() ?? null;
+        const rawScope = args2["scope"]?.trim();
         if (rawScope === "global") {
           return {
             content: [{
@@ -38083,15 +42833,15 @@ function cheatcodeTools(db2) {
           };
         }
         const scope = "local";
-        const target = args["target"]?.trim() || null;
+        const target = args2["target"]?.trim() || null;
         if (kind === "skill" && !target) {
-          return err17(
+          return err18(
             "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
-          [name, sourceUrl]
+          [name2, sourceUrl]
         );
         if (existing) {
           const attachments2 = db2.all(
@@ -38113,16 +42863,16 @@ function cheatcodeTools(db2) {
           [sourceUrl]
         );
         if (!approval) {
-          return err17(
-            `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
+          return err18(
+            `cheatcode install blocked: no approval on record for '${name2}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
         }
         const projectRoot = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot === null) return null;
-          const paths = [join16(projectRoot, ".claude", "skills", name, "SKILL.md")];
+          const paths = [join18(projectRoot, ".claude", "skills", name2, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join16(projectRoot, ".claude", "CLAUDE.md") : join16(projectRoot, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join18(projectRoot, ".claude", "CLAUDE.md") : join18(projectRoot, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
@@ -38133,30 +42883,30 @@ function cheatcodeTools(db2) {
         const refusedBeforeInstall = writesOutside(target ? [target] : []);
         if (refusedBeforeInstall) return refusedBeforeInstall;
         const candidate = {
-          name,
+          name: name2,
           kind,
           source_url: sourceUrl
         };
         if (typeof tier === "number") candidate.tier = tier;
-        const out = await runInstallWithScript(
+        const out2 = await runInstallWithScript(
           resolveInstallScript(),
           candidate,
           scope,
           INSTALL_TIMEOUT_MS,
           scriptRoot()
         );
-        if (kind !== "skill" && out.installed === false && out.error) {
-          return err17(
-            `cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`
+        if (kind !== "skill" && out2.installed === false && out2.error) {
+          return err18(
+            `cheatcode install failed for '${name2}' (${kind}): ${out2.error}. No row recorded.`
           );
         }
         const placementScope = "project-local";
-        const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
-        const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
+        const filePath = kind === "skill" ? `.claude/skills/${name2}/SKILL.md` : null;
+        const description = trustTier ? `${kind} cheatcode '${name2}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name2}' (installed)`;
         const materialized = [];
         if (kind === "skill" || kind === "plugin") {
           const targetSet = /* @__PURE__ */ new Set();
-          for (const att of out.attachments) {
+          for (const att of out2.attachments) {
             if (att.target && !(kind === "skill" && att.target === PROPOSED_PR_TARGET)) {
               targetSet.add(att.target);
             }
@@ -38165,24 +42915,24 @@ function cheatcodeTools(db2) {
           const refusedTargets = writesOutside(targetSet);
           if (refusedTargets) return refusedTargets;
           for (const t of targetSet) {
-            const providedTools = kind === "plugin" && t !== "bro" ? detectProvidedTools(name) : [];
-            const result2 = materializeConsumingAgent(db2.dbPath, t, name, providedTools);
+            const providedTools = kind === "plugin" && t !== "bro" ? detectProvidedTools(name2) : [];
+            const result2 = materializeConsumingAgent(db2.dbPath, t, name2, providedTools);
             if (result2) materialized.push(result2);
           }
         }
         const skillWritten = kind === "skill" && materialized.length > 0;
-        const installed = skillWritten ? true : out.installed;
-        const method = skillWritten ? "agent-frontmatter" : out.method;
-        const scriptAttachments = skillWritten ? [] : out.attachments;
-        const attachments = skillWritten ? materialized.map((m) => ({ target: m.target, artifact: m.artifact })) : out.attachments;
-        const proposedPr = skillWritten ? null : out.proposed_pr;
+        const installed = skillWritten ? true : out2.installed;
+        const method = skillWritten ? "agent-frontmatter" : out2.method;
+        const scriptAttachments = skillWritten ? [] : out2.attachments;
+        const attachments = skillWritten ? materialized.map((m) => ({ target: m.target, artifact: m.artifact })) : out2.attachments;
+        const proposedPr = skillWritten ? null : out2.proposed_pr;
         const origin = deriveOrigin(sourceUrl);
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(
             `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, origin, description, sourceUrl, filePath, out.version ?? null, trustTier, placementScope, installedAt]
+            [name2, kind, origin, description, sourceUrl, filePath, out2.version ?? null, trustTier, placementScope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
           for (const att of scriptAttachments) {
@@ -38201,16 +42951,16 @@ function cheatcodeTools(db2) {
           }
           auditCheatcode(
             "cheatcode_install",
-            `Cheatcode install: '${name}' (kind=${kind}, method=${method})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl, method }),
+            `Cheatcode install: '${name2}' (kind=${kind}, method=${method})`,
+            JSON.stringify({ name: name2, kind, source_url: sourceUrl, method }),
             installedAt
           );
           auditCheatcode(
             "cheatcode_installed",
-            `Cheatcode installed: '${name}' \u2192 cheatcode_id=${id}`,
+            `Cheatcode installed: '${name2}' \u2192 cheatcode_id=${id}`,
             JSON.stringify({
               cheatcode_id: id,
-              name,
+              name: name2,
               kind,
               source_url: sourceUrl,
               installed,
@@ -38223,9 +42973,9 @@ function cheatcodeTools(db2) {
         return ok19({
           installed,
           cheatcode_id: cheatcodeId,
-          candidate: out.candidate,
+          candidate: out2.candidate,
           method,
-          version: out.version,
+          version: out2.version,
           scope: placementScope,
           attachments,
           // Every materialized prompt-surface path (the .claude/agents/<target>.md
@@ -38240,17 +42990,17 @@ function cheatcodeTools(db2) {
           // A skill install with no materialized surface carries the install
           // script's proposed agent-frontmatter PR payload instead.
           proposed_pr: proposedPr,
-          error: out.error
+          error: out2.error
         });
       })
     ),
     cheatcode_uninstall: requireRoles(
       "cheatcode_uninstall",
       ["bro"],
-      wrap5(async (args) => {
-        const idVal = args["cheatcode_id"];
+      wrap5(async (args2) => {
+        const idVal = args2["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err17("cheatcode_id is required (integer)");
+          return err18("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
@@ -38319,16 +43069,16 @@ function cheatcodeTools(db2) {
     cheatcode_activate: requireRoles(
       "cheatcode_activate",
       ["bro"],
-      wrap5(async (args) => {
-        const idVal = args["cheatcode_id"];
+      wrap5(async (args2) => {
+        const idVal = args2["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err17("cheatcode_id is required (integer)");
+          return err18("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
-        if (!existing) return err17(`no cheatcode with id ${idVal}`);
+        if (!existing) return err18(`no cheatcode with id ${idVal}`);
         const restartReason = {
           plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
           mcp: "MCP server registers on the next claude -p cold start"
@@ -38376,9 +43126,9 @@ function cheatcodeTools(db2) {
     cheatcode_list: requireRoles(
       "cheatcode_list",
       ["bro"],
-      wrap5(async (args) => {
-        const rawKind = args["kind"]?.trim();
-        const rawStatus = args["status"]?.trim();
+      wrap5(async (args2) => {
+        const rawKind = args2["kind"]?.trim();
+        const rawStatus = args2["status"]?.trim();
         const where = [];
         const params = [];
         if (rawKind) {
@@ -38408,8 +43158,11 @@ var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
-function git3(repoPath, args) {
-  return spawnSync12("git", ["-C", repoPath, ...args], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+var SYMBOL_POOL = 40;
+var FILE_RANK_POOL = 20;
+var PATH_RANK_K = 10;
+function git3(repoPath, args2) {
+  return spawnSync12("git", ["-C", repoPath, ...args2], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
 }
 function tipIntegratedInto(repoPath, tip, target) {
   const ancestor = git3(repoPath, ["merge-base", "--is-ancestor", tip, target]);
@@ -38485,10 +43238,10 @@ function trustOf(node) {
   const behind = node.commits_behind ?? null;
   if (behind === null) return null;
   const dead = node.dead_refs?.length ?? 0;
-  const parts = [];
-  if (behind > 0) parts.push(`drifting(${behind})`);
-  if (dead > 0) parts.push(`dead_refs(${dead})`);
-  return parts.length > 0 ? parts.join(", ") : "current";
+  const parts2 = [];
+  if (behind > 0) parts2.push(`drifting(${behind})`);
+  if (dead > 0) parts2.push(`dead_refs(${dead})`);
+  return parts2.length > 0 ? parts2.join(", ") : "current";
 }
 function driftView(node) {
   return {
@@ -38532,14 +43285,74 @@ function fileResult(h) {
     score: h.score
   };
 }
+function framedSymbol(s) {
+  return {
+    ...s,
+    signature: s.signature ? frameUntrusted("symbol-signature", s.signature) : "",
+    doc: s.doc ? frameUntrusted("symbol-doc", s.doc) : ""
+  };
+}
+function symbolResult(symbol2, score) {
+  const s = framedSymbol(symbol2);
+  return {
+    kind: "symbol",
+    id: s.id,
+    repo: s.repo,
+    qualified_name: s.qualified_name,
+    symbol_kind: s.kind,
+    path: s.path,
+    line_start: s.start_line,
+    line_end: s.end_line,
+    signature: s.signature,
+    doc: s.doc,
+    score
+  };
+}
 function dirHit(node) {
   return { kind: "dir", key: `dir:${node.key}`, node };
 }
 function fileHit(node) {
   return { kind: "file", key: `file:${node.path}`, node };
 }
+function symbolHit(node) {
+  return { kind: "symbol", key: `symbol:${node.id}`, node };
+}
 function hitResult(hit, score) {
-  return hit.kind === "dir" ? dirResult({ ...hit.node, score }) : fileResult({ ...hit.node, score });
+  if (hit.kind === "dir") return dirResult({ ...hit.node, score });
+  if (hit.kind === "file") return fileResult({ ...hit.node, score });
+  return symbolResult(hit.node, score);
+}
+function isBuildOutput(path2) {
+  return /(^|\/)dist\//.test(path2) || path2.endsWith(".map");
+}
+function pathWeight(path2) {
+  return isTestPath(path2) || /(^|\/)changelog\.d\//.test(path2) ? 0.5 : 1;
+}
+function rankKeyword(dirs, files, symbols) {
+  const pathScore = /* @__PURE__ */ new Map();
+  const bump = (path2, rank) => pathScore.set(path2, (pathScore.get(path2) ?? 0) + pathWeight(path2) / (PATH_RANK_K + rank));
+  const symbolRank = /* @__PURE__ */ new Map();
+  for (const s of symbols) if (!symbolRank.has(s.path)) symbolRank.set(s.path, symbolRank.size);
+  for (const [path2, rank] of symbolRank) bump(path2, rank);
+  files.forEach((f, rank) => bump(WorldModelGraph.relativeFilePath(f), rank));
+  const seen = /* @__PURE__ */ new Map();
+  const share = (path2) => {
+    const n = seen.get(path2) ?? 0;
+    seen.set(path2, n + 1);
+    return (pathScore.get(path2) ?? 0) / (n + 1);
+  };
+  const ranked = [];
+  dirs.forEach((d, rank) => ranked.push({ hit: dirHit(d), score: 1 / (PATH_RANK_K + rank), order: ranked.length }));
+  const firsts = [...pathScore.keys()].sort((a, b) => pathScore.get(b) - pathScore.get(a));
+  const symbolsByPath = /* @__PURE__ */ new Map();
+  for (const s of symbols) symbolsByPath.set(s.path, [...symbolsByPath.get(s.path) ?? [], s]);
+  const fileByPath = new Map(files.map((f) => [WorldModelGraph.relativeFilePath(f), f]));
+  for (const path2 of firsts) {
+    for (const s of symbolsByPath.get(path2) ?? []) ranked.push({ hit: symbolHit(s), score: share(path2), order: ranked.length });
+    const file2 = fileByPath.get(path2);
+    if (file2) ranked.push({ hit: fileHit(file2), score: share(path2), order: ranked.length });
+  }
+  return ranked.sort((a, b) => b.score - a.score || a.order - b.order).map(({ hit, score }) => ({ hit, score }));
 }
 async function backfillWorldModel(db2) {
   let saturated = false;
@@ -38579,18 +43392,18 @@ function fuse(lists) {
 function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err18(message2) {
+function err19(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
 function wrap6(fn) {
-  return async (args) => {
+  return async (args2) => {
     try {
-      return await fn(args);
+      return await fn(args2);
     } catch (e) {
-      return err18(e.message);
+      return err19(e.message);
     }
   };
 }
@@ -38686,14 +43499,32 @@ function worldModelTools(db2, graphHolder2) {
         },
         required: ["agent", "query"]
       }
+    },
+    {
+      name: "world_model_symbol",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          id: { type: "number", description: "Symbol id from a world_model_search hit." },
+          repo: {
+            type: "string",
+            description: "Repo name. Defaults to the sole registered repo; required in multi-repo projects without id."
+          },
+          path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
+          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." }
+        },
+        required: ["agent"]
+      }
     }
   ];
   const handlers = {
     world_model_get: requireRoles(
       "world_model_get",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrap6(async (args) => {
-        let repo = args["repo"] ?? "";
+      wrap6(async (args2) => {
+        let repo = args2["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
@@ -38701,8 +43532,8 @@ function worldModelTools(db2, graphHolder2) {
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
-        const path2 = args["path"] ?? "";
-        const depthArg = args["depth"];
+        const path2 = args2["path"] ?? "";
+        const depthArg = args2["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
         const unmerged = computeUnmergedWork(db2, repo);
         const graph = graphHolder2?.ensureGraph() ?? null;
@@ -38733,12 +43564,12 @@ function worldModelTools(db2, graphHolder2) {
     world_model_search: requireRoles(
       "world_model_search",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrap6(async (args) => {
-        const query = args["query"];
-        if (!query || typeof query !== "string") return err18("query is required");
-        const mode = args["mode"] ?? "hybrid";
-        const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-        let repo = args["repo"] ?? "";
+      wrap6(async (args2) => {
+        const query = args2["query"];
+        if (!query || typeof query !== "string") return err19("query is required");
+        const mode = args2["mode"] ?? "hybrid";
+        const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
+        let repo = args2["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
@@ -38752,11 +43583,11 @@ function worldModelTools(db2, graphHolder2) {
         }
         const pool = mode === "keyword" ? k : k * 4;
         const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-        const fileSearch = graph.keywordSearchFiles(repo, query, pool);
-        const match = dirSearch.match === "any_term" || fileSearch.match === "any_term" ? "any_term" : "all_terms";
-        const keywordDirs = dirSearch.hits.map((n) => ({ hit: dirHit(n), score: n.score }));
-        const keywordFiles = fileSearch.hits.map((n) => ({ hit: fileHit(n), score: n.score }));
-        const keywordRanked = [...keywordDirs, ...keywordFiles].sort((a, b) => b.score - a.score);
+        const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
+        const symbolSearch = keywordSearchSymbols(db2, repo, query, SYMBOL_POOL);
+        const match = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === "any_term") ? "any_term" : "all_terms";
+        const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
+        const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
         const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
         const respond = (ranked, extra = {}) => {
           const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
@@ -38769,12 +43600,54 @@ function worldModelTools(db2, graphHolder2) {
         if (mode === "semantic") return respond(semantic);
         return respond(
           fuse([
-            hitsOf(keywordDirs),
-            hitsOf(keywordFiles),
+            dirSearch.hits.map(dirHit),
+            hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== "dir")),
             hitsOf(semantic.filter(({ hit }) => hit.kind === "dir")),
             hitsOf(semantic.filter(({ hit }) => hit.kind === "file"))
           ])
         );
+      })
+    ),
+    world_model_symbol: requireRoles(
+      "world_model_symbol",
+      ["bro", "swe", "pr-reviewer", "consultant"],
+      wrap6(async (args2) => {
+        const id = args2["id"];
+        let symbol2 = null;
+        if (typeof id === "number") {
+          symbol2 = symbolById(db2, id);
+          if (!symbol2) return err19(`symbol ${id} not found`);
+        } else {
+          const name2 = args2["qualified_name"];
+          if (typeof name2 !== "string" || !name2) return err19("id or qualified_name is required");
+          let repo = args2["repo"] ?? "";
+          if (!repo) {
+            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+            if (available.length >= 2) return ok20({ symbol: null, warning: "repo-unspecified", available_repos: available });
+            repo = resolveSoleRepo(db2)?.name ?? "";
+          }
+          const path2 = args2["path"];
+          const matches = symbolsByName(db2, repo, name2, typeof path2 === "string" && path2 ? path2 : void 0);
+          if (matches.length === 0) return err19(`symbol ${name2} not found in repo ${repo || "(none)"}`);
+          const definitions2 = matches.filter((m) => m.kind !== "module");
+          if (definitions2.length > 1) {
+            return ok20({
+              symbol: null,
+              warning: "ambiguous",
+              matches: definitions2.map((m) => ({
+                id: m.id,
+                qualified_name: m.qualified_name,
+                kind: m.kind,
+                repo: m.repo,
+                path: m.path,
+                line_start: m.start_line
+              }))
+            });
+          }
+          symbol2 = matches[0];
+        }
+        const card = symbolCard(db2, symbol2);
+        return ok20({ ...card, symbol: framedSymbol(card.symbol) });
       })
     )
   };
@@ -38782,29 +43655,29 @@ function worldModelTools(db2, graphHolder2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync13, readdirSync as readdirSync4, readFileSync as readFileSync9, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync14, readdirSync as readdirSync4, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename7, join as join17 } from "node:path";
+import { basename as basename9, join as join19 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function readRecords(path2) {
   let text;
   try {
-    text = readFileSync9(path2, "utf8");
+    text = readFileSync10(path2, "utf8");
   } catch {
     return [];
   }
-  const out = [];
+  const out2 = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const v = JSON.parse(line);
-      if (v && typeof v === "object" && !Array.isArray(v)) out.push(v);
+      if (v && typeof v === "object" && !Array.isArray(v)) out2.push(v);
     } catch {
       continue;
     }
   }
-  return out;
+  return out2;
 }
 function messageOf(r) {
   const m = r["message"];
@@ -38813,7 +43686,7 @@ function messageOf(r) {
 function taskIdFromTranscript(path2) {
   let text;
   try {
-    text = readFileSync9(path2, "utf8");
+    text = readFileSync10(path2, "utf8");
   } catch {
     return null;
   }
@@ -38866,9 +43739,9 @@ function usageOf(u) {
 function usageTotal(u) {
   return u.ti + u.to + u.cr + u.cc;
 }
-function messageKey(r, i) {
+function messageKey(r, i2) {
   const id = messageOf(r)?.["id"] ?? r["uuid"];
-  return id === void 0 || id === null || id === false ? `line-${i}` : String(id);
+  return id === void 0 || id === null || id === false ? `line-${i2}` : String(id);
 }
 function dominantModel(msgs) {
   const byModel = /* @__PURE__ */ new Map();
@@ -38882,10 +43755,10 @@ function dominantModel(msgs) {
 function spawnStats(records) {
   const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
   const groups = /* @__PURE__ */ new Map();
-  records.forEach((r, i) => {
+  records.forEach((r, i2) => {
     const msg = messageOf(r);
     if (!msg || msg["usage"] === void 0 || msg["usage"] === null) return;
-    groups.set(messageKey(r, i), { u: usageOf(msg["usage"]), m: modelId(msg["model"]) });
+    groups.set(messageKey(r, i2), { u: usageOf(msg["usage"]), m: modelId(msg["model"]) });
   });
   const msgs = [...groups.values()];
   const sum = (k) => msgs.reduce((a, x) => a + x.u[k], 0);
@@ -38908,7 +43781,7 @@ function normalizeRole(v) {
 }
 function sessionSpawnTypes(records) {
   const byToolUse = /* @__PURE__ */ new Map();
-  const out = /* @__PURE__ */ new Map();
+  const out2 = /* @__PURE__ */ new Map();
   for (const r of records) {
     const content = messageOf(r)?.["content"];
     if (!Array.isArray(content)) continue;
@@ -38925,37 +43798,37 @@ function sessionSpawnTypes(records) {
     if (typeof agentId !== "string" || !Array.isArray(content)) continue;
     for (const b of content) {
       const t = typeof b?.["tool_use_id"] === "string" ? byToolUse.get(b["tool_use_id"]) : void 0;
-      if (t) out.set(agentId, t);
+      if (t) out2.set(agentId, t);
     }
   }
-  return out;
+  return out2;
 }
 function defaultTranscriptsDir(projectRoot) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join17(homedir4(), ".claude");
-  return join17(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join19(homedir4(), ".claude");
+  return join19(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
-  for (const name of readdirSync4(dir).sort()) {
-    const p = join17(dir, name);
-    if (name.endsWith(".jsonl")) {
+  for (const name2 of readdirSync4(dir).sort()) {
+    const p = join19(dir, name2);
+    if (name2.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join17(p, "subagents");
-    if (!existsSync13(sub) || !statSync4(sub).isDirectory()) continue;
+    const sub = join19(p, "subagents");
+    if (!existsSync14(sub) || !statSync4(sub).isDirectory()) continue;
     for (const f of readdirSync4(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join17(sub, f), session: name });
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join19(sub, f), session: name2 });
     }
   }
   return { sessions, subagents };
 }
 function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
-  if (existsSync13(meta3)) {
+  if (existsSync14(meta3)) {
     try {
-      const t = normalizeRole(JSON.parse(readFileSync9(meta3, "utf8"))["agentType"]);
+      const t = normalizeRole(JSON.parse(readFileSync10(meta3, "utf8"))["agentType"]);
       if (t) return t;
     } catch {
     }
@@ -38963,7 +43836,7 @@ function spawnAgentType(path2, sessionTypes) {
   return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
 }
 function agentIdOf(path2) {
-  return basename7(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+  return basename9(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
 }
 var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
 var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
@@ -38997,7 +43870,7 @@ function agentRunsBackfill(db2, opts) {
     if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
   };
   const sessionRecords = /* @__PURE__ */ new Map();
-  for (const p of sessions) sessionRecords.set(basename7(p, ".jsonl"), readRecords(p));
+  for (const p of sessions) sessionRecords.set(basename9(p, ".jsonl"), readRecords(p));
   const spawnTypes = /* @__PURE__ */ new Map();
   const claimedRunIds = /* @__PURE__ */ new Set();
   for (const { path: path2, session } of subagents) {
@@ -39165,23 +44038,23 @@ function agentRunsBackfillTools(db2, dbPath2) {
     }
   ];
   const handlers = {
-    agent_runs_backfill: requireRoles("agent_runs_backfill", ["bro"], async (args) => {
+    agent_runs_backfill: requireRoles("agent_runs_backfill", ["bro"], async (args2) => {
       try {
-        const dryRun = args["dry_run"] !== false;
-        const sinceArg = args["since"];
+        const dryRun = args2["dry_run"] !== false;
+        const sinceArg = args2["since"];
         let since = null;
         if (sinceArg !== void 0 && sinceArg !== null) {
           const t = typeof sinceArg === "string" ? Date.parse(sinceArg) : NaN;
           if (Number.isNaN(t)) return errResult("since must be an ISO timestamp");
           since = new Date(t).toISOString();
         }
-        let dir = typeof args["transcripts_dir"] === "string" && args["transcripts_dir"] !== "" ? args["transcripts_dir"] : null;
+        let dir = typeof args2["transcripts_dir"] === "string" && args2["transcripts_dir"] !== "" ? args2["transcripts_dir"] : null;
         if (dir === null) {
           const root = projectRootFromDbPath(dbPath2 || db2.dbPath);
           if (!root) return errResult("no project root for this DB; pass transcripts_dir");
           dir = defaultTranscriptsDir(root);
         }
-        if (!existsSync13(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        if (!existsSync14(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
         return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
       } catch (e) {
         return errResult(e.message);
@@ -39195,13 +44068,13 @@ function agentRunsBackfillTools(db2, dbPath2) {
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
-import { join as join18 } from "node:path";
+import { readFileSync as readFileSync11, realpathSync as realpathSync6 } from "node:fs";
+import { join as join20 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join18(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join20(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join18(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join20(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
@@ -39212,7 +44085,7 @@ function canonicalDir(dir) {
 }
 function readJsonObject(path2) {
   try {
-    const parsed = JSON.parse(readFileSync10(path2, "utf8"));
+    const parsed = JSON.parse(readFileSync11(path2, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -39220,9 +44093,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join18(claudeConfigDir(env), "settings.json"),
-    join18(project, ".claude", "settings.json"),
-    join18(project, ".claude", "settings.local.json")
+    join20(claudeConfigDir(env), "settings.json"),
+    join20(project, ".claude", "settings.json"),
+    join20(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {
@@ -39301,7 +44174,7 @@ var SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias) => `${alias}.event_type = 'spec
                                    AND CAST(CAST(${auditTaskId(alias)} AS INTEGER) AS TEXT) = CAST(${auditTaskId(alias)} AS TEXT))
                     OR COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.gate') END, '') <> 'spec_shape')`;
 var REVIEW_GRACE_HOURS_DEFAULT = 24;
-var runMatchesTaskCommit = (run, task) => `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
+var runMatchesTaskCommit = (run2, task) => `${run2}.task_id = ${task}.id AND substr(${run2}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
 var V36_RECORDING_SINCE = `(SELECT MIN(${ts("started_at")}) FROM verification_runs)`;
 var VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(7)}
                AND ${ts("t.updated_at")} >= ${V36_RECORDING_SINCE}
@@ -39742,7 +44615,7 @@ function selectContracts(ids) {
 function ok21(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err19(message2, extra = {}) {
+function err20(message2, extra = {}) {
   return { content: [{ type: "text", text: JSON.stringify({ error: message2, ...extra }) }], isError: true };
 }
 function trajectoryDoctorTools(db2) {
@@ -39761,12 +44634,12 @@ function trajectoryDoctorTools(db2) {
       }
     }
   ];
-  const handler = async (args) => {
-    const record2 = args["record"] === true;
-    const selected = selectContracts(args["ids"]);
+  const handler = async (args2) => {
+    const record2 = args2["record"] === true;
+    const selected = selectContracts(args2["ids"]);
     if ("error" in selected) {
       const { error: error2, ...extra } = selected;
-      return err19(error2, extra);
+      return err20(error2, extra);
     }
     const contracts = selected.contracts;
     const timeoutMs = statementTimeoutMs();
@@ -39794,11 +44667,11 @@ function trajectoryDoctorTools(db2) {
   return {
     definitions,
     handlers: {
-      trajectory_doctor: requireRoles("trajectory_doctor", ["bro"], async (args) => {
+      trajectory_doctor: requireRoles("trajectory_doctor", ["bro"], async (args2) => {
         try {
-          return await handler(args);
+          return await handler(args2);
         } catch (e) {
-          return err19(e.message);
+          return err20(e.message);
         }
       })
     }
@@ -39902,7 +44775,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...doctor.handlers
   };
   toolHandlers = Object.fromEntries(
-    Object.entries(handlers).map(([name, handler]) => [name, requireAgent(name, handler)])
+    Object.entries(handlers).map(([name2, handler]) => [name2, requireAgent(name2, handler)])
   );
 }
 
@@ -39977,7 +44850,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync11(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync12(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -39996,11 +44869,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 var debugTrajectoryEnabled = process.env["TMB_DEBUG_TRAJECTORY"] === "1" && process.env["TMB_EVAL_MODE"] === "1";
 var debugSessionId = crypto.randomUUID();
 var debugStepCounter = 0;
-function maybeRecordTrajectory(toolName, args, result2) {
+function maybeRecordTrajectory(toolName, args2, result2) {
   if (!debugTrajectoryEnabled) return;
   try {
-    const agentName = args?.agent ?? null;
-    const argsJson = JSON.stringify(args ?? {}).slice(0, 4e3);
+    const agentName = args2?.agent ?? null;
+    const argsJson = JSON.stringify(args2 ?? {}).slice(0, 4e3);
     const firstContent = result2.content?.[0];
     const resultText = firstContent && typeof firstContent.text === "string" ? firstContent.text : "";
     const resultJson = JSON.stringify({ text: resultText.slice(0, 4e3) });
@@ -40028,10 +44901,10 @@ var shutdown = createShutdown({
   exit: (code) => process.exit(code),
   pid: process.pid
 });
-process.on("uncaughtException", (err20) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err20.message, stack: err20.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err20.message}
-${err20.stack ?? ""}
+process.on("uncaughtException", (err21) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err21.message, stack: err21.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err21.message}
+${err21.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -40044,18 +44917,18 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const handler = toolHandlers[name];
+  const { name: name2, arguments: args2 } = request.params;
+  const handler = toolHandlers[name2];
   if (!handler) {
-    throw new Error(`Unknown tool: ${name}`);
+    throw new Error(`Unknown tool: ${name2}`);
   }
-  const start = performance3.now();
-  const agent = args?.agent ?? null;
-  serverLog({ kind: "tool_entry", tool: name, agent });
-  if (name === "task_create_batch") {
-    const typedArgs = args;
+  const start2 = performance3.now();
+  const agent = args2?.agent ?? null;
+  serverLog({ kind: "tool_entry", tool: name2, agent });
+  if (name2 === "task_create_batch") {
+    const typedArgs = args2;
     const tasks = typedArgs?.["tasks"] ?? [];
-    const total_bytes = JSON.stringify(args ?? {}).length;
+    const total_bytes = JSON.stringify(args2 ?? {}).length;
     const max_spec_bytes = tasks.length > 0 ? Math.max(...tasks.map((t) => (t.spec_body ?? "").length)) : 0;
     const n_tasks = tasks.length;
     serverLog({ kind: "tool_size", tool: "task_create_batch", total_bytes, max_spec_bytes, n_tasks, agent });
@@ -40074,28 +44947,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   let result2;
   try {
-    result2 = await handler(args ?? {});
-  } catch (err20) {
-    const duration_ms2 = Math.round(performance3.now() - start);
+    result2 = await handler(args2 ?? {});
+  } catch (err21) {
+    const duration_ms2 = Math.round(performance3.now() - start2);
     serverLog({
       kind: "tool_exit",
-      tool: name,
+      tool: name2,
       agent,
       is_error: true,
-      error_message: err20 instanceof Error ? err20.message : String(err20),
+      error_message: err21 instanceof Error ? err21.message : String(err21),
       duration_ms: duration_ms2
     });
-    throw err20;
+    throw err21;
   }
-  const duration_ms = Math.round(performance3.now() - start);
+  const duration_ms = Math.round(performance3.now() - start2);
   serverLog({
     kind: "tool_exit",
-    tool: name,
+    tool: name2,
     agent,
     is_error: result2.isError ?? false,
     duration_ms
   });
-  maybeRecordTrajectory(name, args, result2);
+  maybeRecordTrajectory(name2, args2, result2);
   return result2;
 });
 installShutdownHandlers(shutdown, process, process.stdin);

@@ -750,7 +750,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 43;
+var TARGET_SCHEMA_VERSION = 44;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env2 = process.env) {
   return resolveClaudePluginName(env2);
@@ -1283,6 +1283,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 43 && toVersion >= 43) {
     migrateV42toV43(db);
+  }
+  if (fromVersion < 44 && toVersion >= 44) {
+    migrateV43toV44(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -2856,6 +2859,22 @@ function migrateV42toV43(db) {
       if (!hasColumn(db, "wm_directories", column)) {
         db.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
       }
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV43toV44(db) {
+  if (!tableExists(db, "wm_files")) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, "wm_files", "symbols_md5")) {
+      db.exec("ALTER TABLE wm_files ADD COLUMN symbols_md5 TEXT");
     }
     commitTransaction(db);
   } catch (err3) {

@@ -206,7 +206,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         assert.equal(createdRuntime.project_root, canonicalProject);
         assert.equal(createdRuntime.plugin_name, manifest.name);
         assert.equal(createdRuntime.plugin_version, manifest.version);
-        assert.equal(createdRuntime.schema_version, 43);
+        assert.equal(createdRuntime.schema_version, 44);
         assert.equal(createdRuntime.graph_available, true);
         assert.equal(createdRuntime.graph_status, 'ready');
         assert.ok(createdRuntime.trajectory_db.startsWith(join(canonicalProject, '.tmb')));
@@ -217,7 +217,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
             const row = db
                 .prepare('SELECT schema_version, plugin_version FROM plugin_meta WHERE id = 1')
                 .get();
-            assert.equal(row.schema_version, 43);
+            assert.equal(row.schema_version, 44);
             assert.equal(row.plugin_version, manifest.version);
         }
         finally {

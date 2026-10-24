@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 43`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 44`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -17,7 +17,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.sh` fails when they drift. The prose around them is hand-written.
 
-The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. Since v43 (GH 1680) a README-backed `wm_directories` row also records `summary_sha` (the last commit to touch its README), `commits_behind` (commits under the directory since then, README excluded) and `dead_refs` (a JSON array of paths the README names that no longer exist); all three are `NULL` for structural rows and non-git roots. See `docs/architecture/WORLD_MODEL.md`.
+The **world model** lives in this file as the `wm_directories` / `wm_files` tables (plus their FTS5 and embedding tables), with no foreign key into the workflow tables. Since v43 (GH 1680) a README-backed `wm_directories` row also records `summary_sha` (the last commit to touch its README), `commits_behind` (commits under the directory since then, README excluded) and `dead_refs` (a JSON array of paths the README names that no longer exist); all three are `NULL` for structural rows and non-git roots. Since v44 (GH 1680) the L1 symbol layer adds `wm_symbols` (one row per top-level definition or file module, unique by `(repo, path, kind, qualified_name)`), `wm_edges` (calls, imports, table reads and writes between symbols; `dst_id` goes `NULL` when the target symbol is deleted), the `wm_symbols_fts` index, and `wm_files.symbols_md5` (the `content_md5` the file's symbols were last parsed at, `NULL` until then). See `docs/architecture/WORLD_MODEL.md`.
 
 The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the cheatcodes acquired via the install pipeline (`origin='marketplace'` from a registered marketplace ref, `origin='external'` from a raw repo URL). Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 43`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 44`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -57,6 +57,8 @@ erDiagram
     discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
     audit ||--o| audit_embeddings : "audit_id (CASCADE)"
     cheatcodes ||--o{ cheatcode_attachments : "cheatcode_id (CASCADE)"
+    wm_symbols ||--o{ wm_edges : "src_id (CASCADE)"
+    wm_symbols |o--o{ wm_edges : "dst_id (SET NULL)"
     wm_directories ||--o| wm_directories_embeddings : "dir_id (CASCADE)"
     wm_files ||--o| wm_files_embeddings : "file_id (CASCADE)"
 
@@ -319,6 +321,31 @@ erDiagram
         INTEGER size_bytes "NOT NULL"
         TEXT last_commit_sha "NOT NULL"
         TEXT updated_at "NOT NULL"
+        TEXT symbols_md5
+    }
+
+    wm_symbols {
+        INTEGER id PK "NOT NULL"
+        TEXT repo "NOT NULL"
+        TEXT path "NOT NULL"
+        TEXT kind "NOT NULL; CHECK function|method|class|interface|type|const|sh_function|sql_table|sql_index|sql_trigger|module"
+        TEXT qualified_name "NOT NULL"
+        TEXT signature "NOT NULL"
+        TEXT doc "NOT NULL"
+        INTEGER start_line
+        INTEGER end_line
+        TEXT body_hash "NOT NULL"
+        INTEGER exported "NOT NULL"
+        TEXT terms "NOT NULL"
+    }
+
+    wm_edges {
+        INTEGER src_id FK "NOT NULL; → wm_symbols.id CASCADE"
+        INTEGER dst_id FK "→ wm_symbols.id SET NULL"
+        TEXT dst_name "NOT NULL"
+        TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on"
+        TEXT resolution "NOT NULL; CHECK exact|name|unresolved"
+        INTEGER line
     }
 
     wm_directories_embeddings {
@@ -679,10 +706,43 @@ Table constraints:
 | `size_bytes` | INTEGER | NOT NULL | `0` |  |
 | `last_commit_sha` | TEXT | NOT NULL | `''` |  |
 | `updated_at` | TEXT | NOT NULL |  |  |
+| `symbols_md5` | TEXT | nullable |  |  |
 
 Table constraints:
 
 - UNIQUE `(repo, path)`
+
+### `wm_symbols`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `repo` | TEXT | NOT NULL |  |  |
+| `path` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module')` |
+| `qualified_name` | TEXT | NOT NULL |  |  |
+| `signature` | TEXT | NOT NULL | `''` |  |
+| `doc` | TEXT | NOT NULL | `''` |  |
+| `start_line` | INTEGER | nullable |  |  |
+| `end_line` | INTEGER | nullable |  |  |
+| `body_hash` | TEXT | NOT NULL |  |  |
+| `exported` | INTEGER | NOT NULL | `0` |  |
+| `terms` | TEXT | NOT NULL | `''` |  |
+
+Table constraints:
+
+- UNIQUE `(repo, path, kind, qualified_name)`
+
+### `wm_edges`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `src_id` | INTEGER | NOT NULL |  | FK → `wm_symbols.id` ON DELETE CASCADE |
+| `dst_id` | INTEGER | nullable |  | FK → `wm_symbols.id` ON DELETE SET NULL |
+| `dst_name` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on')` |
+| `resolution` | TEXT | NOT NULL | `'unresolved'` | CHECK `resolution IN ('exact','name','unresolved')` |
+| `line` | INTEGER | nullable |  |  |
 
 ### `wm_directories_embeddings`
 
@@ -731,6 +791,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
 | `audit_embeddings` | `audit_id` | `audit(id)` | CASCADE |
 | `cheatcode_attachments` | `cheatcode_id` | `cheatcodes(id)` | CASCADE |
+| `wm_edges` | `src_id` | `wm_symbols(id)` | CASCADE |
+| `wm_edges` | `dst_id` | `wm_symbols(id)` | SET NULL |
 | `wm_directories_embeddings` | `dir_id` | `wm_directories(id)` | CASCADE |
 | `wm_files_embeddings` | `file_id` | `wm_files(id)` | CASCADE |
 
@@ -744,6 +806,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `audit_fts` | `audit.id` | `summary`, `content_json` | `porter unicode61` | `audit_fts_config`, `audit_fts_data`, `audit_fts_docsize`, `audit_fts_idx` | `audit_ai` (AFTER INSERT), `audit_ad` (AFTER DELETE), `audit_au` (AFTER UPDATE) |
 | `wm_directories_fts` | `wm_directories.id` | `path`, `summary` | `porter unicode61` | `wm_directories_fts_config`, `wm_directories_fts_data`, `wm_directories_fts_docsize`, `wm_directories_fts_idx` | `wm_directories_ai` (AFTER INSERT), `wm_directories_ad` (AFTER DELETE), `wm_directories_au` (AFTER UPDATE), `wm_directories_embedding_stale` (AFTER UPDATE) |
 | `wm_files_fts` | `wm_files.id` | `path`, `purpose` | `porter unicode61` | `wm_files_fts_config`, `wm_files_fts_data`, `wm_files_fts_docsize`, `wm_files_fts_idx` | `wm_files_ai` (AFTER INSERT), `wm_files_ad` (AFTER DELETE), `wm_files_au` (AFTER UPDATE), `wm_files_embedding_stale` (AFTER UPDATE) |
+| `wm_symbols_fts` | `wm_symbols.id` | `terms`, `signature`, `doc` | `porter unicode61` | `wm_symbols_fts_config`, `wm_symbols_fts_data`, `wm_symbols_fts_docsize`, `wm_symbols_fts_idx` | `wm_symbols_ai` (AFTER INSERT), `wm_symbols_ad` (AFTER DELETE), `wm_symbols_au` (AFTER UPDATE) |
 
 ## Indexes
 
@@ -771,6 +834,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_cheatcode_attachments_cheatcode` | `cheatcode_attachments` | `cheatcode_id` |  |  |
 | `idx_wm_directories_parent` | `wm_directories` | `repo, parent_path` |  |  |
 | `idx_wm_files_dir` | `wm_files` | `repo, dir` |  |  |
+| `idx_wm_edges_src` | `wm_edges` | `src_id` |  |  |
+| `idx_wm_edges_dst` | `wm_edges` | `dst_id` |  |  |
 | `idx_wm_directories_embeddings_model` | `wm_directories_embeddings` | `model_id` |  |  |
 | `idx_wm_files_embeddings_model` | `wm_files_embeddings` | `model_id` |  |  |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
@@ -779,6 +844,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | _UNIQUE constraint_ | `cheatcodes` | `name, kind` | yes | |
 | _UNIQUE constraint_ | `wm_directories` | `repo, path` | yes | |
 | _UNIQUE constraint_ | `wm_files` | `repo, path` | yes | |
+| _UNIQUE constraint_ | `wm_symbols` | `repo, path, kind, qualified_name` | yes | |
 
 ## Eval mode
 
