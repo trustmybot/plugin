@@ -145,7 +145,8 @@
 #   here, set by read, or built by $( ) / backticks) prints
 #   `UNRESOLVED:<var>:<path>` (<var> is `$()` for a command substitution,
 #   `$(proc)` for an inline program's process call it cannot follow,
-#   `$(alias-write)` for its write builtin held or aliased);
+#   `$(alias-write)` for its write builtin or module-qualified write
+#   callable held or aliased);
 #   every caller handles that form. A relative path is joined to its
 #   statement's own dir (a preceding cd / pushd, a subshell restoring it,
 #   git -C for git mv) and normalized: absolute when <cwd> is given, else
@@ -1270,7 +1271,18 @@ _tmb_cmd_interp_writes() {
 # globals() / locals() / vars(…); a builtin held as a value (exec, eval,
 # compile, open, __import__, getattr, setattr, delattr, globals, locals,
 # vars, type, breakpoint, input; open is `$(alias-write)`, GH 1676), which
-# also covers a runner's return value called (pdb.runeval('open')(…)); an
+# also covers a runner's return value called (pdb.runeval('open')(…)); a
+# module-qualified write callable the scan classifies (io.open, os.open,
+# os.rename / remove / mkdir, shutil.copy / copytree / move / rmtree, …)
+# held as a value, under any import alias or star import, or chained
+# (shutil.move.__call__), and a bare imported io / shutil / pathlib /
+# zipfile module (shutil . move, getattr(shutil, 'move')) or the one a
+# literal __import__ / import_module returns, held or with a writer held off
+# it (s = __import__('shutil'), m = __import__('shutil').move), which is
+# `$(alias-write)` (GH 1687) unless it is a copy function passed as
+# copy_function= to a copy / move whose destination is judged; only a
+# receiver that is an imported os / io / shutil / pathlib.Path / zipfile
+# counts, so row.open or args.rm is a plain read; an
 # __import__ of anything but a plain literal; the argv-driven runners
 # timeit / cProfile / profile / trace / pdb .main (and pdb set_trace /
 # post_mortem / pm); and a string literal, not raw, with a \x, \u, \U, \N{
@@ -1376,14 +1388,20 @@ _tmb_cmd_prog_scan() {
 # __class__ / __bases__ / __mro__ attribute or string literal, a getattr /
 # setattr / delattr name or __import__ argument that is not a plain literal,
 # a subscript or attribute of globals() / locals() / vars(), a builtin held
-# as a value (`W` and `H` for open), a runner .main, and a non-raw string
+# as a value (`W` and `H` for open), a module-qualified write callable held
+# as a value or a bare imported write module (`W` and `H`), a runner .main,
+# and a non-raw string
 # literal with a \x / \u / \U / \N{ / octal escape (whose write path is
 # `F`, never `T`). The filename of cProfile / profile run (2nd) / runctx (4th)
 # and dump_stats are write paths. `C` for a chdir. Import
 # aliases (import subprocess as sp, from subprocess / os / builtins / sys /
 # runner modules import f as g, node require / import of child_process)
-# resolve to the module's own names; an import after a `:` (if x: import y)
-# counts as one.
+# resolve to the module's own names; so does any python module or write
+# callable imported under an alias (import shutil as s, from os import
+# remove), for a write call made through it, as does a literal __import__ /
+# import_module of io / shutil / pathlib / zipfile called on at once
+# (__import__('shutil').move(a, b)); an import after a `:`
+# (if x: import y) counts as one.
 # `Q<TAB><quoted literal>` for each string literal outside the data a write
 # call writes. `A` when the program does not parse (an unterminated string,
 # unbalanced brackets).
@@ -1554,7 +1572,7 @@ _tmb_cmd_prog_calls() {
       }
       return o v
     }
-    function pyref(cn, ch, k, st,   b, m) {
+    function pyref(nm, cn, ch, k, st, rk,   b, m) {
       if (inimport(st)) return
       b = cn; sub(/^(builtins|__builtins__)[.]/, "", b)
       if (cn ~ dunre || cn ~ /^sys[.]modules([.]|$)/ || cn ~ mainre || b ~ /^breakpoint([.]|$)/) { unres(); return }
@@ -1562,6 +1580,43 @@ _tmb_cmd_prog_calls() {
       m = cn; sub(/[.].*$/, "", m)
       if (cn ~ /^(builtins|__builtins__)$/ || cn ~ /(^|[.])__self__([.]|$)/ || cn ~ clsre || cn ~ /^(builtins|__builtins__)[.]__/ || ((m in impd) && (cn == m || cn ~ /^[^.]+[.]__/)) || (cn ~ runre && ch != "(")) unres()
       else if (b ~ heldre && (ch != "(" || b ~ /[.]/)) held(b)
+      else if (wheld(nm, ch, rk) && !cbarg(nm, cn)) aw()
+    }
+    function wres(nm,   f) {
+      if (!match(nm, /^[A-Za-z_][A-Za-z0-9_]*/)) return nm
+      f = substr(nm, 1, RLENGTH)
+      return (f in wal) ? wal[f] substr(nm, RLENGTH + 1) : nm
+    }
+    function wq(nm, rk,   f, r, g) {
+      if (!match(nm, /^[A-Za-z_][A-Za-z0-9_]*/)) return ""
+      f = substr(nm, 1, RLENGTH); r = substr(nm, RLENGTH + 1)
+      if (f in wal) return wal[f] r
+      if (f in wimp || rk == "M") return nm
+      for (g in wstar) if ((g == "pathlib" && f == "Path") || wkind(f, g) != "") return g "." f r
+      return ""
+    }
+    function pywriter(nm) { splitname(nm); return sn_pre ~ wrecv && wkind(sn_last, sn_pre) != "" }
+    function wheld(nm, ch, rk,   q, a, n, i, p) {
+      if ((q = wq(nm, rk)) == "") return 0
+      if (q ~ /^(io|shutil|pathlib|zipfile)$/) return 1
+      n = split(q, a, "."); p = a[1]
+      for (i = 2; i <= n; i++) {
+        p = p "." a[i]
+        if ((i < n || ch != "(") && pywriter(p)) return 1
+      }
+      return 0
+    }
+    function cbarg(nm, cn,   t) {
+      if (d == 0 || ftype[d] != "call") return 0
+      t = fid[d]
+      return akw[t] == "copy_function" && pykind(fname[t]) ~ /^(dst|mv)$/ && (pykind(nm) == "dst" || pykind(cn) == "dst")
+    }
+    function pykind(raw,   k) {
+      splitname(raw); wlast = sn_last; wpre = sn_pre
+      if ((k = wkind(wlast, wpre)) != "" || lang != "py") return k
+      splitname(wres(raw))
+      if ((k = wkind(sn_last, sn_pre)) != "") { wlast = sn_last; wpre = sn_pre }
+      return k
     }
     function pyesc(v,   i, ch) {
       while ((i = index(v, "\\")) > 0) {
@@ -1608,7 +1663,8 @@ _tmb_cmd_prog_calls() {
     }
     function inimport(p,   j) { for (j = 1; j <= nimp; j++) if (p >= ims[j] && p < ime[j]) return 1; return 0 }
     function unres() { print "W"; print "U" }
-    function held(nm) { if (nm ~ /^open([.]|$)/) { print "W"; print "H" } else unres() }
+    function aw() { print "W"; print "H" }
+    function held(nm) { if (nm ~ /^open([.]|$)/) aw(); else unres() }
     function addrange(st, ln) { nimp++; ims[nimp] = st; ime[nimp] = st + ln }
     function trim(x) { sub(/^[ \t\n]+/, "", x); sub(/[ \t\n]+$/, "", x); return x }
     function pyimport(m,   mod, x, n, a, j, nm, al, top) {
@@ -1617,12 +1673,13 @@ _tmb_cmd_prog_calls() {
         mod = m; sub(/^from[ \t]+/, "", mod); sub(/[ \t].*$/, "", mod)
         top = mod; sub(/[.].*$/, "", top)
         if (top ~ hidre) { unres(); return }
-        if (mod !~ pymods && m !~ /[^A-Za-z0-9_]compile([^A-Za-z0-9_]|$)/) return
         x = m; sub(/^from[ \t]+[^ \t]+[ \t]+import[ \t]*/, "", x); gsub(/[()\\\n]/, " ", x)
         n = split(x, a, ",")
         for (j = 1; j <= n; j++) {
           nm = trim(a[j]); al = nm
           if (nm ~ /[ \t]as[ \t]/) { sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm) }
+          if (mod ~ wmods && nm == "*") wstar[mod] = 1
+          else if (mod ~ wmods && nm != "") wal[al] = mod "." nm
           if (mod !~ pymods) { if (al == "compile") fal[al] = mod "." nm; continue }
           if (mod == "builtins" && nm ~ heldre && al != nm) held(nm)
           if (nm == "*") star[mod] = 1; else if (nm != "") fal[al] = mod "." nm
@@ -1638,6 +1695,7 @@ _tmb_cmd_prog_calls() {
         if (top ~ hidre) unres()
         if (nm ~ pymods && nm !~ /^(subprocess|os|builtins)$/) impd[nm] = 1
         if (al != nm && nm ~ pymods) mal[al] = nm
+        if (al != nm) wal[al] = nm; else wimp[top] = 1
       }
     }
     function nodeimport(m,   x, n, a, j, nm, al) {
@@ -1710,6 +1768,9 @@ _tmb_cmd_prog_calls() {
         if (ty == "call" && fname[t] ~ /(^|\.)(Path|PurePath|PosixPath|WindowsPath)$/) {
           lastk = (np[t] == 1 && pk[t, 1] == "L") ? "P" : "PE"; lastv = pv[t, 1]
         }
+        if (ty == "call" && lang == "py" && fname[t] ~ /(^|[.])(__import__|import_module)$/ && np[t] >= 1 && pk[t, 1] == "L" && pv[t, 1] ~ wmods) {
+          if (substr(s, ip + 1, 1) == "." && substr(s, ip + 2, 1) ~ /[A-Za-z_]/) { lastk = "M"; lastv = pv[t, 1] } else aw()
+        }
         if (frun[t] != "") runjudge(t, frun[t])
         if (lang == "py" && ty == "call") pycallref(t, fcn[t])
         if (fout[t] && (np[t] >= fout[t] || (t, "filename") in kk)) arg(t, fout[t], "filename")
@@ -1763,7 +1824,7 @@ _tmb_cmd_prog_calls() {
       if (rest == "" || rest ~ /^:/) { if (np[t] >= 3) arg(t, 3, ""); else hit("E", ""); return }
       hit("L", rest)
     }
-    function classify(t,   nm, last, pre, rk, mk, m) {
+    function classify(t,   nm, last, pre, rk, mk, m, k) {
       nm = fname[t]; last = nm; pre = ""
       if (match(nm, /(\.|::)[^.:]*$/)) {
         pre = substr(nm, 1, RSTART - 1)
@@ -1781,7 +1842,8 @@ _tmb_cmd_prog_calls() {
         }
         return
       }
-      if (last == "open" || last == "openSync") {
+      k = pykind(nm); last = wlast; pre = wpre
+      if (k == "open") {
         if (lang == "perl" && pre == "") { perlopen(t); return }
         if (pre != "" && np[t] == 1 && pk[t, 1] == "L" && wmode(pv[t, 1])) { hit("E", ""); return }
         if (np[t] >= 2) { mk = pk[t, 2]; m = pv[t, 2] }
@@ -1789,23 +1851,31 @@ _tmb_cmd_prog_calls() {
         else return
         if (mk == "L" && !wmode(m)) return
         arg(t, 1, "file path")
-        return
-      }
-      if (last == "truncate" && pre ~ /(^|[.:])(os|fs|fsp|promises|File)$/) { arg(t, 1, "path"); return }
-      if (last == "ZipFile" || last == "PyZipFile") {
+      } else if (k == "trunc") arg(t, 1, "path")
+      else if (k == "zip") {
         if (np[t] >= 2) { mk = pk[t, 2]; m = pv[t, 2] }
         else if ((t, "mode") in kk) { mk = kk[t, "mode"]; m = kv[t, "mode"] }
         else return
         if (mk == "L" && !wmode(m)) return
         arg(t, 1, "file")
-        return
-      }
-      if (last ~ /^(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|rmSync|rmdirSync|unlinkSync|truncateSync|makedirs|removedirs|rmtree|mkdtemp|mkdtempSync|mkfifo|mkpath|make_path|remove_tree|mkdir_p|rm_rf|rm_r|rm_f|dump_stats)$/) { arg(t, 1, "path name file"); return }
-      if ((last == "write" || last == "binwrite") && pre ~ /(^|[.:])(File|IO)$/) { arg(t, 1, ""); return }
-      if (last == "write_text" || last == "write_bytes") { hit("E", ""); return }
-      if (last ~ /^(mkdir|rmdir|unlink|rm|touch)$/ || (last == "remove" && pre ~ /(^|\.)os$/) || (last == "delete" && pre ~ /(^|[.:])File$/)) { arg(t, 1, "path name"); return }
-      if (last ~ /^(copyFileSync|cpSync|copyFile|copyfile|copy2|copytree|symlinkSync|linkSync|symlink|link)$/ || (last ~ /^(copy|cp|cp_r)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|fs|fsp|promises|\?\(\)|FileUtils|Copy)$/))) { arg(t, 2, "dst dest"); return }
-      if (last ~ /^(renameSync|rename|renames)$/ || (last == "replace" && pre ~ /(^|\.)os$/) || (last ~ /^(move|mv)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|FileUtils|Copy)$/))) { arg(t, 1, "src"); arg(t, 2, "dst dest"); return }
+      } else if (k == "p1") arg(t, 1, "path name file")
+      else if (k == "fw") arg(t, 1, "")
+      else if (k == "wt") hit("E", "")
+      else if (k == "pn") arg(t, 1, "path name")
+      else if (k == "dst") arg(t, 2, "dst dest")
+      else if (k == "mv") { arg(t, 1, "src"); arg(t, 2, "dst dest") }
+    }
+    function wkind(last, pre) {
+      if (last == "open" || last == "openSync") return "open"
+      if (last == "truncate" && pre ~ /(^|[.:])(os|fs|fsp|promises|File)$/) return "trunc"
+      if (last == "ZipFile" || last == "PyZipFile") return "zip"
+      if (last ~ /^(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|rmSync|rmdirSync|unlinkSync|truncateSync|makedirs|removedirs|rmtree|mkdtemp|mkdtempSync|mkfifo|mkpath|make_path|remove_tree|mkdir_p|rm_rf|rm_r|rm_f|dump_stats)$/) return "p1"
+      if ((last == "write" || last == "binwrite") && pre ~ /(^|[.:])(File|IO)$/) return "fw"
+      if (last == "write_text" || last == "write_bytes") return "wt"
+      if (last ~ /^(mkdir|rmdir|unlink|rm|touch)$/ || (last == "remove" && pre ~ /(^|\.)os$/) || (last == "delete" && pre ~ /(^|[.:])File$/)) return "pn"
+      if (last ~ /^(copyFileSync|cpSync|copyFile|copyfile|copy2|copytree|symlinkSync|linkSync|symlink|link)$/ || (last ~ /^(copy|cp|cp_r)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|fs|fsp|promises|\?\(\)|FileUtils|Copy)$/))) return "dst"
+      if (last ~ /^(renameSync|rename|renames)$/ || (last == "replace" && pre ~ /(^|\.)os$/) || (last ~ /^(move|mv)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|FileUtils|Copy)$/))) return "mv"
+      return ""
     }
     function str(qc, pfx,   n, j, v, tq, ch, closed, interp) {
       n = length(s); tq = 0; closed = 0; v = ""
@@ -1850,7 +1920,7 @@ _tmb_cmd_prog_calls() {
       if (lang == "perl" && nm == "qx" && ch != "" && index("()[]{}<>/|!~^%+@:-\"" q1, ch)) { qlike(k); return }
       cn = (lang == "py") ? canon(nm) : nm
       if (lang ~ /^(py|node)$/ && !inimport(st) && procref(canon(nm)) && !(ch == "(" && isproc(canon(nm)))) unres()
-      if (lang == "py") pyref(cn, ch, k, st)
+      if (lang == "py") pyref(nm, cn, ch, k, st, rk)
       if ((lang == "py" && ch == "(" && cn ~ /^((builtins|__builtins__)[.])?(exec|eval)$/) || (lang == "node" && ((nm == "eval" && ch == "(") || nm == "Function")) || (lang == "perl" && nm == "eval" && ch != "{") || (lang == "ruby" && nm == "eval")) unres()
       if ((lang == "py" && cn ~ /^os[.]f?chdir$/) || (lang == "node" && nm == "process.chdir") || (lang == "perl" && nm == "chdir") || (lang == "ruby" && nm ~ /^(Dir[.]chdir|FileUtils[.](cd|chdir))$/)) print "C"
       if (ch == "(") {
@@ -1895,6 +1965,8 @@ _tmb_cmd_prog_calls() {
       runre = "^((cProfile|profile)[.](run|runctx)|pdb[.](run|runeval|runctx)|timeit[.](timeit|repeat))$"
       clsre = "^(trace[.]Trace|(cProfile|profile)[.]Profile|pdb[.]Pdb|bdb[.]Bdb|timeit[.]Timer)([.]|$)"
       mainre = "^((timeit|cProfile|profile|trace|pdb)[.]main|pdb[.](set_trace|post_mortem|pm))([.]|$)"
+      wmods = "^(os|io|shutil|pathlib|zipfile)$"
+      wrecv = "^(os|io|shutil|pathlib[.]Path|zipfile)$"
       heldre = "^(exec|eval|compile|open|__import__|getattr|setattr|delattr|globals|locals|vars|type|breakpoint|input)([.]|$)"
       dunre = "(^|[.])(__subclasses__|__globals__|__code__|__dict__|__class__|__bases__|__mro__)([.]|$)"
       aliasre = "from[ \t]+(" mods ")[ \t]+import|import([ \t][^\n;]*)?[ \t,](" mods ")[ \t]+as[ \t]"
@@ -1927,7 +1999,7 @@ _tmb_cmd_prog_calls() {
         if (c ~ /[A-Za-z_]/ || (lang != "py" && c ~ /[$@]/)) { name("", "", ""); continue }
         if (c == "." && substr(s, ip + 1, 1) ~ /[A-Za-z_]/) {
           rk = pc ? lastk : "U"; rv = pc ? lastv : ""
-          ip++; name(rk, rv, (rk == "P" || rk == "PE") ? "Path()." : "?().")
+          ip++; name(rk, rv, (rk == "P" || rk == "PE") ? "Path()." : (rk == "M" ? rv "." : "?()."))
           continue
         }
         if (c ~ /[0-9]/) {

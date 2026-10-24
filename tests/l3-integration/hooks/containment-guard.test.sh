@@ -449,6 +449,28 @@ assert_eq "deny" "$(decision "$OUT")" "swe: a process function held in a variabl
 assert_contains "$OUT" "process call in an inline program" "a process call keeps the process-call reason"
 assert_not_contains "$OUT" "write builtin" "a process call is not reported as a write builtin"
 
+test_case "GH 1687: a write through a held or aliased module-qualified write callable is denied as alias-write"
+for prog in "import io|f = io.open|f('/etc/tmb-cg', 'w')" "import os|o = os.open|o('/etc/tmb-cg', os.O_WRONLY)" \
+  "import shutil|m = shutil.move|m('a', '/etc/tmb-cg')" "import shutil|m = shutil.copy|m('a', '/etc/tmb-cg')" \
+  "import shutil as s|m = s.move|m('a', '/etc/tmb-cg')" "from shutil import *|m = move|m('a', '/etc/tmb-cg')" \
+  "import shutil|m = shutil . move|m('a', '/etc/tmb-cg')" "import shutil|m = getattr(shutil, 'move')|m('a', '/etc/tmb-cg')" \
+  "m = __import__('shutil').move|m('a', '/etc/tmb-cg')" "o = __import__('io').open|o('/etc/tmb-cg', 'w')" \
+  "s = __import__('shutil')|m = s.move|m('a', '/etc/tmb-cg')"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  OUT=$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${lines[@]}")")")
+  assert_eq "deny" "$(decision "$OUT")" "swe: $prog"
+  assert_contains "$OUT" "$ALIAS_WHY" "the reason names the held writer: $prog"
+done
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import shutil' "shutil.move('a.txt', 'b.txt')")")")")" "swe: a direct shutil.move inside the worktree"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import shutil' "shutil.copy('a.txt', 'b.txt')")")")")" "swe: a direct shutil.copy inside the worktree"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "__import__('shutil').move('a', '/etc/tmb-cg')")")")")" "swe: a direct __import__('shutil').move outside the worktree"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "__import__('shutil').move('a.txt', 'b.txt')")")")")" "swe: a direct __import__('shutil').move inside the worktree"
+for prog in 'import csv|for row in rows: print(row.open, row.close)' "import feedparser|for e in feedparser.parse('feed.xml').entries: print(e.link)" \
+  'import argparse|args = argparse.ArgumentParser().parse_args()|print(args.rm)' "import pandas as pd|df = pd.read_csv('prices.csv')|print(df.open.mean())"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${lines[@]}")")")")" "swe: an attribute read named like a writer: $prog"
+done
+
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
 mkdir -p "$BARE"
