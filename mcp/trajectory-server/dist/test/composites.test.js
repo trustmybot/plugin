@@ -941,6 +941,126 @@ describe('bro_atomic_close — scope gate (#157)', () => {
         }
     });
 });
+describe('bro_atomic_close — verification gate (GH 1672)', () => {
+    function seedRun(db, taskId, sha, commands, exitCode = 0) {
+        const now = new Date().toISOString();
+        db.run(`INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+       VALUES (?, ?, 'gate', ?, ?, ?, 900, 0)`, [taskId, sha, now, now, exitCode]);
+        const runId = db.get(`SELECT MAX(id) AS id FROM verification_runs`).id;
+        commands.forEach((command, i) => {
+            db.run(`INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (?, ?, ?, 0, 0.1, '')`, [runId, i + 1, command]);
+        });
+        return runId;
+    }
+    async function setup() {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-verify-'));
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const db = tempDB();
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, dbPath);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'verification gate', description: 'x',
+        }))['id']));
+        await call(discussions.handlers, 'discussion_append', {
+            agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+        });
+        await call(audit.handlers, 'audit_append', {
+            agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+            from_node: 'bro', branch_id: 'fix/verify', summary: 's',
+        });
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+            agent: 'bro', issue_id: issueId,
+            waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+            tasks: [{ branch_id: 'fix/verify', description: 'd', spec_body: 's' }],
+        }));
+        const taskId = String(created[0].id);
+        db.run(`UPDATE tasks SET verification = ? WHERE id = ?`, [JSON.stringify(['bash lint.sh']), taskId]);
+        await call(tasks.handlers, 'task_update_status', {
+            agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abcdef1234567',
+        });
+        return { db, composites, issueId, taskId, cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); } };
+    }
+    const close = (composites, taskId) => call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: 'abcdef1234567', verification_summary: 'ok',
+        waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
+    });
+    const status = (db, taskId) => db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]).status;
+    it('a verification[] amend after swe completion voids the earlier run: refused until a run of the new verification[] is recorded for the commit', async () => {
+        const { db, composites, taskId, cleanup } = await setup();
+        try {
+            const sha = 'abcdef1234567890abcdef1234567890abcdef12';
+            seedRun(db, taskId, sha, ['bash lint.sh']);
+            const amend = await call(composites.handlers, 'task_update_spec', {
+                agent: 'bro', task_id: taskId, verification: ['bash lint.sh', 'npm test'], reason: 'verification[0] path fixed',
+            });
+            assert.ok(!amend.isError, `amend failed: ${JSON.stringify(parse(amend))}`);
+            const refused = await close(composites, taskId);
+            assert.equal(refused.isError, true);
+            const error = parse(refused)['error'];
+            assert.match(error, /^verification_run_missing: /);
+            assert.match(error, /abcdef1234567/);
+            assert.match(error, /task_update_status\(status='completed'/);
+            assert.match(error, /waive_verification_gate_reason/);
+            assert.equal(status(db, taskId), 'completed', 'task stays open when the gate refuses');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'bro_verification_pass'`).c, 0, 'no bro_verification_pass without a run');
+            seedRun(db, taskId, sha, ['bash lint.sh', 'npm test'], 1);
+            assert.equal((await close(composites, taskId)).isError, true, 'a failing run of the new verification[] does not open the gate');
+            const runId = seedRun(db, taskId, sha, ['bash lint.sh', 'npm test']);
+            const r = await close(composites, taskId);
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(status(db, taskId), 'closed');
+            const run = db.get(`SELECT id FROM verification_runs WHERE task_id = ? AND commit_sha LIKE 'abcdef1234567%' AND exit_code = 0 ORDER BY id DESC LIMIT 1`, [taskId]);
+            assert.equal(run?.id, runId, 'a passing verification_runs row exists for the closing commit');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('a task with verification[] and no run for the commit is refused; a run for another commit does not count', async () => {
+        const { db, composites, taskId, cleanup } = await setup();
+        try {
+            assert.match(parse(await close(composites, taskId))['error'], /^verification_run_missing: /);
+            seedRun(db, taskId, 'ffffff1234567890', ['bash lint.sh']);
+            assert.equal((await close(composites, taskId)).isError, true);
+            assert.equal(status(db, taskId), 'completed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('closes with a verification_gate_waived row for the commit and no run', async () => {
+        const { db, composites, issueId, taskId, cleanup } = await setup();
+        try {
+            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (?, 'fix/verify', 'hook:swe-verification-gate', 'verification_gate_waived', 'waived', ?, ?)`, [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: 'abcdef1234567', waiver_reason: 'docs-only change' }), new Date().toISOString()]);
+            const r = await close(composites, taskId);
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(status(db, taskId), 'closed');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM verification_runs WHERE task_id = ?`, [taskId]).c, 0);
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('a waiver for another commit does not open the gate', async () => {
+        const { db, composites, issueId, taskId, cleanup } = await setup();
+        try {
+            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (?, 'fix/verify', 'hook:swe-verification-gate', 'verification_gate_waived', 'waived', ?, ?)`, [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: '1234567', waiver_reason: 'docs-only change' }), new Date().toISOString()]);
+            assert.equal((await close(composites, taskId)).isError, true);
+            assert.equal(status(db, taskId), 'completed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+});
 describe('task_recover', () => {
     async function seedPendingTask() {
         const db = tempDB();

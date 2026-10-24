@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
 
@@ -87,6 +87,7 @@ test('Flow 14 — repo_rename: rename_in_progress while a worktree is live, appl
 
   const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha });
   assert.equal(swe.ok, true, `swe completes: ${JSON.stringify(swe)}`);
+  seedPassingVerificationRun(dbPath, taskId, project.sha);
   const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: project.sha, verification_summary: 'V1 verified; closing.',
     waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',

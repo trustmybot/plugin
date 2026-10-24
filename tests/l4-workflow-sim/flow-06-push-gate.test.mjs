@@ -17,7 +17,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startProjectClient, call, seedReviewerObservation, sqliteRun } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun, sqliteRun } from '../l3-integration/mcp/harness.mjs';
 
 async function provisionClosedTask(client, project, dbPath, issueId, branchId, sweAgentId) {
   const provisioned = await call(client, 'task_provision', {
@@ -44,6 +44,7 @@ async function provisionClosedTask(client, project, dbPath, issueId, branchId, s
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
   assert.equal(completed.ok, true, `swe→completed ${branchId}: ${JSON.stringify(completed)}`);
+  seedPassingVerificationRun(dbPath, taskId, sha);
   const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: sha,
     verification_summary: 'V1/V2/V3 verified; closing pre-push.',

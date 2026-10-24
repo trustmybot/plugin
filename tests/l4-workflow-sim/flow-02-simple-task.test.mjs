@@ -13,10 +13,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { startProjectClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → bro closes (no per-task pr-reviewer)', async (t) => {
-  const { client, close, project } = await startProjectClient();
+  const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
   // 1. bro creates issue
@@ -77,6 +77,7 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
+  seedPassingVerificationRun(dbPath, taskId, sha);
 
   // 6. CRITICAL: bro's task gate — verifies and closes (no pr-reviewer at this point).
   // PR-reviewer is the PUSH gate, not the task gate. validation_attempts stays empty

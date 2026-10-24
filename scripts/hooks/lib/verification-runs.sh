@@ -95,22 +95,34 @@ tmb_verification_run_finish() {
   tmb_db_write "$db" "UPDATE verification_runs SET finished_at = '${SAFE_NOW}', exit_code = ${SAFE_EXIT}, timed_out = ${SAFE_TIMED_OUT} WHERE id = ${SAFE_RUN};"
 }
 
-# tmb_verification_run_reusable <db> <task_id> <commit_sha> [<max_age_s>]
+# tmb_verification_run_reusable <db> <task_id> <commit_sha> [<max_age_s>] [<commands_json>]
 # Prints `<run_id>|<finished_at>` of the newest passing run (exit_code 0, not
 # timed out) for (task_id, commit_sha) that finished within <max_age_s>
-# (default 3600); prints nothing when there is none or the read fails.
+# (default 3600, also when empty); prints nothing when there is none or the
+# read fails. With <commands_json> (a JSON array of strings) the run's command
+# rows must equal it in order, so a run of an amended verification[] is not
+# reused (GH 1672).
 tmb_verification_run_reusable() {
-  local db="${1:-}" task_id="${2:-}" sha="${3:-}" max_age="${4:-3600}"
+  local db="${1:-}" task_id="${2:-}" sha="${3:-}" max_age="${4:-3600}" commands_json="${5:-}"
   local SAFE_TASK
   SAFE_TASK=$(tmb_sql_int "$task_id")
   [ -n "$SAFE_TASK" ] && [ -n "$sha" ] || return 0
   case "$max_age" in ''|*[!0-9]*) max_age=3600 ;; esac
-  local SAFE_SHA SAFE_MAX_AGE
+  local SAFE_SHA SAFE_MAX_AGE SAFE_CMDS COMMANDS_SQL=""
   SAFE_SHA=$(tmb_sql_quote "$sha")
   SAFE_MAX_AGE="$max_age"
-  tmb_sqlite_ro "$db" "SELECT id || '|' || finished_at FROM verification_runs
-     WHERE task_id = ${SAFE_TASK} AND commit_sha = '${SAFE_SHA}'
-       AND exit_code = 0 AND timed_out = 0 AND finished_at IS NOT NULL
-       AND finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${SAFE_MAX_AGE} seconds')
-     ORDER BY finished_at DESC, id DESC LIMIT 1;"
+  if [ -n "$commands_json" ]; then
+    SAFE_CMDS=$(tmb_sql_quote "$commands_json")
+    COMMANDS_SQL="AND json_valid('${SAFE_CMDS}')
+       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${SAFE_CMDS}')
+       AND NOT EXISTS (SELECT 1 FROM json_each('${SAFE_CMDS}') e
+             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
+            WHERE c.command IS NOT e.value)"
+  fi
+  tmb_sqlite_ro "$db" "SELECT r.id || '|' || r.finished_at FROM verification_runs r
+     WHERE r.task_id = ${SAFE_TASK} AND r.commit_sha = '${SAFE_SHA}'
+       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
+       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${SAFE_MAX_AGE} seconds')
+       ${COMMANDS_SQL}
+     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;"
 }

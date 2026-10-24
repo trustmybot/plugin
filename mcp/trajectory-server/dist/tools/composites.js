@@ -14,7 +14,7 @@ import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
-import { latestVerificationRun } from './verification-runs.js';
+import { gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit } from './verification-runs.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
@@ -578,6 +578,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
                 'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
                 'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
+                'Verification gate: a task with non-empty verification[] closes only on a passing verification_runs row for the commit whose commands match the current verification[] (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
                 'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
             inputSchema: {
                 type: 'object',
@@ -1817,12 +1818,29 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const closeIssueIfLast = args['close_issue_if_last_task'] === true;
             const waiveScopeGate = args['waive_scope_gate'] === true;
-            const task = db.get('SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            const task = db.get('SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification FROM tasks WHERE id = ? LIMIT 1', [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
             if (task.status !== 'completed' && task.status !== 'needs_validation') {
                 return err(`Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
                     `bro_atomic_close runs after SWE flips status to completed.`);
+            }
+            // --- Close-time verification gate (GH 1672) ---
+            // A task with verification[] closes only on a passing recorded run of
+            // its current verification[] for this commit, or a
+            // verification_gate_waived row for it. The SubagentStop auto-complete
+            // and a later task_update_spec both reach here without the swe gate
+            // having run that verification[] on this commit.
+            const verificationCommands = gateCommands(parseTaskFiles(task.verification));
+            if (verificationCommands.length > 0 &&
+                passingRunForCommit(db, task.id, commitSha, verificationCommands) === null &&
+                !verificationWaivedForCommit(db, task.id, commitSha)) {
+                return err(`verification_run_missing: task ${task.id} has ${verificationCommands.length} verification[] command(s) and no ` +
+                    `passing verification run of its current verification[] recorded for commit ${commitSha} (a run made before ` +
+                    `verification[] was amended does not count), and no verification_gate_waived row for that commit. Get a run: ` +
+                    `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
+                    `swe-verification-gate runs verification[] in the task worktree and records the run — then retry bro_atomic_close. ` +
+                    `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`);
             }
             // --- Close-time files[] scope gate ---
             // The task's own changes (merge-base with origin/<pr_target> .. commit)
