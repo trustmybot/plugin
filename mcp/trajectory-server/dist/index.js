@@ -29498,6 +29498,39 @@ function taskTools(db2) {
 }
 
 // src/tools/verification-runs.ts
+function gateCommands(verification) {
+  return verification.flatMap((entry) => entry.split("\n")).filter((line) => line !== "");
+}
+var shaMatches = (col) => `(substr(lower(${col}), 1, length(?)) = ? OR substr(?, 1, length(${col})) = lower(${col}))`;
+function passingRunForCommit(db2, taskId, commitSha, commands) {
+  const sha = commitSha.toLowerCase();
+  const expected = JSON.stringify(commands);
+  const row = db2.get(
+    `SELECT r.id FROM verification_runs r
+      WHERE r.task_id = ? AND r.commit_sha <> '' AND ${shaMatches("r.commit_sha")}
+        AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
+        AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length(?)
+        AND NOT EXISTS (
+          SELECT 1 FROM json_each(?) e
+            LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
+           WHERE c.command IS NOT e.value)
+      ORDER BY r.finished_at DESC, r.id DESC LIMIT 1`,
+    [taskId, sha, sha, sha, expected, expected]
+  );
+  return row ? row.id : null;
+}
+function verificationWaivedForCommit(db2, taskId, commitSha) {
+  const sha = commitSha.toLowerCase();
+  const row = db2.get(
+    `SELECT COUNT(*) AS c FROM (
+       SELECT json_extract(content_json, '$.commit_sha') AS commit_sha FROM audit
+        WHERE event_type = 'verification_gate_waived' AND json_valid(content_json)
+          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?)
+      WHERE commit_sha IS NOT NULL AND commit_sha <> '' AND ${shaMatches("commit_sha")}`,
+    [taskId, sha, sha, sha]
+  );
+  return (row?.c ?? 0) > 0;
+}
 function latestVerificationRun(db2, taskId, startedBy) {
   const run = db2.get(
     `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
@@ -32292,7 +32325,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
+      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] closes only on a passing verification_runs row for the commit whose commands match the current verification[] (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
       inputSchema: {
         type: "object",
         properties: {
@@ -33501,13 +33534,19 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
         const waiveScopeGate = args["waive_scope_gate"] === true;
         const task = db2.get(
-          "SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files FROM tasks WHERE id = ? LIMIT 1",
+          "SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
         if (!task) return err15(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
           return err15(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
+          );
+        }
+        const verificationCommands = gateCommands(parseTaskFiles(task.verification));
+        if (verificationCommands.length > 0 && passingRunForCommit(db2, task.id, commitSha, verificationCommands) === null && !verificationWaivedForCommit(db2, task.id, commitSha)) {
+          return err15(
+            `verification_run_missing: task ${task.id} has ${verificationCommands.length} verification[] command(s) and no passing verification run of its current verification[] recorded for commit ${commitSha} (a run made before verification[] was amended does not count), and no verification_gate_waived row for that commit. Get a run: resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') \u2014 swe-verification-gate runs verification[] in the task worktree and records the run \u2014 then retry bro_atomic_close. Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
           );
         }
         const now2 = nowISO();

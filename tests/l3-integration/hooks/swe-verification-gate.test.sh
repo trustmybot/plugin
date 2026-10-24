@@ -590,6 +590,20 @@ out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80)")
 assert_not_contains "$out" "verification reused" "an old run is not reused"
 assert_eq "12" "$(wc -l < "$MARK" | tr -d ' ')" "the commands ran again"
 
+test_case "reuse: refused after verification[] changes on the same HEAD (GH 1672)"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80)")
+assert_contains "$out" "verification reused" "the fresh run of the unchanged verification[] is reused"
+assert_eq "12" "$(wc -l < "$MARK" | tr -d ' ')" "nothing ran"
+sqlite3 "$DB" "UPDATE tasks SET verification = '[\"echo one >> $MARK\",\"sleep 1; echo two >> $MARK\",\"echo three >> $MARK\",\"echo four >> $MARK\"]' WHERE id = 80;"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80)")
+assert_not_contains "$out" "verification reused" "a run of the earlier verification[] is not reused"
+assert_not_contains "$out" '"permissionDecision":"deny"' "the amended verification[] passes"
+assert_eq "16" "$(wc -l < "$MARK" | tr -d ' ')" "the amended commands ran"
+assert_eq "4" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM verification_run_commands WHERE run_id = (SELECT MAX(id) FROM verification_runs WHERE task_id = 80);")" "the new run records four commands"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80)")
+assert_contains "$out" "verification reused" "the run of the amended verification[] is reused"
+assert_eq "16" "$(wc -l < "$MARK" | tr -d ' ')" "nothing ran again"
+
 # ---- Failure deny: names the command and its timing --------------------------
 test_case "failure deny: names the failing command, its exit, elapsed and cumulative time; the run records it"
 sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (81, 1, 'feat/rec-fail', 'plugin', 'pending', '', '[\"echo fine\",\"echo FAIL step.test.sh; exit 4\",\"echo never\"]');"

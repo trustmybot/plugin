@@ -11,9 +11,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startProjectClient, call, seedReviewerObservation } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedReviewerObservation, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
-async function completeAndClose(client, project, taskId, worktreePath, file) {
+async function completeAndClose(client, dbPath, project, taskId, worktreePath, file) {
   const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
   assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
   const sha = project.commitIn(worktreePath, file, `${file}\n`, `work ${file}`);
@@ -21,6 +21,7 @@ async function completeAndClose(client, project, taskId, worktreePath, file) {
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
+  seedPassingVerificationRun(dbPath, taskId, sha);
   const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: sha,
     verification_summary: 'V1/V2/V3 verified; closing.',
@@ -30,7 +31,7 @@ async function completeAndClose(client, project, taskId, worktreePath, file) {
   return sha;
 }
 
-async function setupClosedTask(client, project, branch) {
+async function setupClosedTask(client, dbPath, project, branch) {
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = issue.data.id;
   const provisioned = await call(client, 'task_provision', {
@@ -48,11 +49,11 @@ async function setupClosedTask(client, project, branch) {
   assert.equal(provisioned.ok, true, `task_provision: ${JSON.stringify(provisioned)}`);
   const taskId = provisioned.data.task_id;
   const worktreePath = provisioned.data.worktree_path;
-  await completeAndClose(client, project, taskId, worktreePath, 'work-1.txt');
+  await completeAndClose(client, dbPath, project, taskId, worktreePath, 'work-1.txt');
   return { taskId, issueId, worktreePath };
 }
 
-async function reworkAndClose(client, project, { taskId, issueId, worktreePath }, attemptN, reason) {
+async function reworkAndClose(client, dbPath, project, { taskId, issueId, worktreePath }, attemptN, reason) {
   const reopened = await call(client, 'task_reopen', { agent: 'bro', task_id: taskId, reason });
   assert.equal(reopened.ok, true, `task_reopen: ${JSON.stringify(reopened)}`);
   assert.equal(reopened.data.status, 'running');
@@ -68,14 +69,14 @@ async function reworkAndClose(client, project, { taskId, issueId, worktreePath }
   assert.equal(reopenRows.length, attemptN, 'one task_reopened audit row per rework');
   assert.match(JSON.stringify(reopenRows.at(-1)), new RegExp(reason));
 
-  return completeAndClose(client, project, taskId, worktreePath, `work-${attemptN + 1}.txt`);
+  return completeAndClose(client, dbPath, project, taskId, worktreePath, `work-${attemptN + 1}.txt`);
 }
 
 test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then pass; history preserves both attempts', async (t) => {
   const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
-  const task = await setupClosedTask(client, project, 'fix/retry');
+  const task = await setupClosedTask(client, dbPath, project, 'fix/retry');
   const { taskId } = task;
 
   seedReviewerObservation(dbPath, taskId, 1);
@@ -87,7 +88,7 @@ test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then
   assert.equal(fail.ok, true, `attempt 1 fail: ${JSON.stringify(fail)}`);
 
   const firstSha = project.git('rev-parse', 'refs/heads/fix/retry');
-  const secondSha = await reworkAndClose(client, project, task, 1, 'reviewer found the bug still present');
+  const secondSha = await reworkAndClose(client, dbPath, project, task, 1, 'reviewer found the bug still present');
   assert.notEqual(secondSha, firstSha, 'rework adds a second commit on the same branch');
   assert.equal(project.git('rev-parse', 'refs/heads/fix/retry'), secondSha);
 
@@ -115,7 +116,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
-  const { taskId } = await setupClosedTask(client, project, 'fix/dup');
+  const { taskId } = await setupClosedTask(client, dbPath, project, 'fix/dup');
 
   // attempt 1: pass
   seedReviewerObservation(dbPath, taskId, 1);
@@ -144,7 +145,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
   const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
-  const task = await setupClosedTask(client, project, 'fix/esc');
+  const task = await setupClosedTask(client, dbPath, project, 'fix/esc');
   const { taskId, issueId } = task;
 
   for (let n = 1; n <= 3; n++) {
@@ -155,7 +156,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
       subagent_session_id: `flow08-escalate-session-${n}`,
     });
     assert.equal(r.ok, true);
-    if (n < 3) await reworkAndClose(client, project, task, n, `attempt ${n} still broken`);
+    if (n < 3) await reworkAndClose(client, dbPath, project, task, n, `attempt ${n} still broken`);
   }
 
   // Bro records the escalation note (uses the issueId returned from setup —

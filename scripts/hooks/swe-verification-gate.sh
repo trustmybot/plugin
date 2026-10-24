@@ -26,9 +26,12 @@
 #   - waive_verification_gate_reason (>=10 chars) → allow + one audit row per
 #     (task, commit_sha): the commit is tool_input.commit_sha, else the task's
 #     commit_sha; a repeat invocation for the same pair writes nothing
-#   - A passing recorded run for (task, worktree HEAD) finished within the last
-#     hour, and tool_input.commit_sha (when given) names that HEAD → allow
-#     without running, additionalContext "verification reused run #N"
+#   - A passing recorded run for (task, worktree HEAD) of the current
+#     verification[] (its command rows equal the commands, in order) finished
+#     within the last hour, and tool_input.commit_sha (when given) names that
+#     HEAD → allow without running, additionalContext "verification reused run
+#     #N"; a run made before task_update_spec changed verification[] is not
+#     reused (GH 1672)
 #   - Verification passes          → allow
 #   - Verification fails           → DENY naming the failing command, its
 #     elapsed and the cumulative time, the FAIL lines and the output tail (a
@@ -275,6 +278,8 @@ fi
 WT_SHA=$(git -C "$WT_PATH" rev-parse --verify -q HEAD 2>/dev/null || true)
 EXPECTED_SHA=$(echo "$INPUT" | jq -r '.tool_input.commit_sha // empty' 2>/dev/null || true)
 CMD_TOTAL=$(grep -c . <<< "$VERIFICATION_BLOCK" || true)
+GATE_CMDS_JSON=$(jq -cRn '[inputs | select(length > 0)]' <<< "$VERIFICATION_BLOCK" 2>/dev/null || true)
+[ -n "$GATE_CMDS_JSON" ] || GATE_CMDS_JSON='[]'
 
 now_s() { date +%s 2>/dev/null || echo 0; }
 ms_to_s() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
@@ -298,7 +303,7 @@ reuse_passing_run() {
     case "$WT_SHA" in "$EXPECTED_SHA"*) ;; *) return 1 ;; esac
   fi
   local row
-  row=$(tmb_verification_run_reusable "$DB" "$TASK_ID" "$WT_SHA")
+  row=$(tmb_verification_run_reusable "$DB" "$TASK_ID" "$WT_SHA" "" "$GATE_CMDS_JSON")
   [ -n "$row" ] || return 1
   jq -nc --arg id "${row%%|*}" --arg at "${row#*|}" --arg sha "$WT_SHA" \
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification reused run #" + $id + " (" + $at + ") — verification[] passed on commit " + $sha + " within the last hour, so it was not run again.")}}'

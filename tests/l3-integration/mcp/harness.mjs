@@ -85,6 +85,21 @@ export function sqliteRun(dbPath, sql) {
   return out === '' ? [] : JSON.parse(out);
 }
 
+// seedPassingVerificationRun writes the passing verification_runs row (plus one
+// command row per verification[] entry) that swe-verification-gate records when
+// swe completes, so bro_atomic_close's verification gate (GH 1672) admits the
+// close. Needs a startClient({ fileDb: true }) dbPath.
+export function seedPassingVerificationRun(dbPath, taskId, commitSha) {
+  const id = Number(taskId);
+  const sha = String(commitSha).replace(/'/g, "''");
+  execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,
+    `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+     VALUES (${id}, '${sha}', 'gate', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), 0, 900, 0);
+     INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail)
+     SELECT (SELECT max(id) FROM verification_runs WHERE task_id = ${id}), e.key + 1, e.value, 0, 0, ''
+       FROM tasks t, json_each(t.verification) e WHERE t.id = ${id};`]);
+}
+
 // createProjectRepo builds the temp project a task_provision flow runs in: a git
 // repo (main plus a dev branch) at <dir>/app. Pass env as startClient's extraEnv so the
 // server's project root is <dir>, and registerRepo(dbPath) once the client is up

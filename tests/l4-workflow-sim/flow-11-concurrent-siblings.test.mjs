@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
 const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
 
@@ -94,6 +94,7 @@ test('Flow 11 — sibling tasks: distinct branches and worktrees; closing one le
     agent: 'swe', task_id: a.data.task_id, status: 'completed', commit_sha: project.sha,
   });
   assert.equal(swe.ok, true, `swe completes a: ${JSON.stringify(swe)}`);
+  seedPassingVerificationRun(dbPath, a.data.task_id, project.sha);
   const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: a.data.task_id, commit_sha: project.sha,
     verification_summary: 'V1 verified; closing sibling a.',
