@@ -19,18 +19,19 @@ VALIDATION="$PLUGIN_ROOT/skills/tmb_review/scripts/validation-record-fallback.sh
 TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-skill-fallback-db.XXXXXX")
 trap 'tmpdir_cleanup "$TMP"' EXIT
 
+# shellcheck source=tests/l3-integration/hooks/fixtures/migrated-db.sh
+. "$HERE/fixtures/migrated-db.sh"
+
 seed_db() {
   local db="$1" sentinel="$2"
-  mkdir -p "$(dirname "$db")"
+  migrated_db "$db"
   sqlite3 "$db" "
     PRAGMA journal_mode=DELETE;
-    CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT);
-    CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT, status TEXT);
-    CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER, branch_id TEXT, status TEXT);
-    CREATE TABLE validation_attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, attempt_n INTEGER, agent TEXT,
-      verdict TEXT, feedback TEXT, mcp_available INTEGER, subagent_session_id TEXT, created_at TEXT);
-    INSERT INTO plugin_config VALUES ('sentinel', '\"$sentinel\"', '2026-01-01T00:00:00Z');" >/dev/null
+    INSERT INTO issues (id, objective, status, created_at, updated_at)
+      VALUES (1, 'fallback db', 'open', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+    INSERT INTO tasks (id, issue_id, branch_id, description, created_at, updated_at)
+      VALUES (7, 1, 'fix/fallback-db', 'validated task', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+    INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('sentinel', '\"$sentinel\"');" >/dev/null
 }
 
 PROJECT="$TMP/project"
