@@ -76,6 +76,8 @@ export class TrajectoryDB {
             // The WAL switch is the one statement before BEGIN IMMEDIATE that takes a
             // lock, and its SHARED→EXCLUSIVE upgrade bypasses the busy handler.
             this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+            if (!this.migrate)
+                this.refuseUnsupportedVersionBeforeWrite();
             execRetryingLockUpgrade(this.db, 'PRAGMA journal_mode = WAL');
             this.legacyNoPluginMeta = this.applySchema();
         }
@@ -88,6 +90,24 @@ export class TrajectoryDB {
             }
             throw error;
         }
+    }
+    /**
+     * A non-migrating opener refuses an older or newer schema before anything
+     * writes: the WAL switch rewrites the header of a rollback-journal DB, so
+     * the version is read first and the refusal leaves the file byte-identical.
+     * applySchemaLocked repeats the check under the write lock.
+     */
+    refuseUnsupportedVersionBeforeWrite() {
+        const pluginMetaExists = this.db
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_meta'")
+            .get();
+        if (pluginMetaExists === undefined)
+            return;
+        const versionRow = this.db
+            .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
+            .get();
+        if (versionRow !== undefined)
+            assertOpenableVersion(versionRow.schema_version, false);
     }
     /**
      * Applies schema.sql, migrating first when the stored version is behind, and
@@ -183,12 +203,7 @@ export class TrajectoryDB {
             return { isLegacy: false, migratedFrom: null };
         }
         const storedVersion = versionRow.schema_version;
-        if (storedVersion > TARGET_SCHEMA_VERSION) {
-            throw new Error(`TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`);
-        }
-        if (storedVersion < TARGET_SCHEMA_VERSION && !this.migrate) {
-            throw new Error(`TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`);
-        }
+        assertOpenableVersion(storedVersion, this.migrate);
         if (storedVersion < TARGET_SCHEMA_VERSION) {
             backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
             runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
@@ -398,6 +413,14 @@ function isBusyError(err) {
     const errcode = err.errcode;
     return ((typeof errcode === 'number' && (errcode & 0xff) === SQLITE_BUSY) ||
         err.message.includes('database is locked'));
+}
+function assertOpenableVersion(storedVersion, migrate) {
+    if (storedVersion > TARGET_SCHEMA_VERSION) {
+        throw new Error(`TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`);
+    }
+    if (storedVersion < TARGET_SCHEMA_VERSION && !migrate) {
+        throw new Error(`TrajectoryDB: schema v${storedVersion} is older than this code's v${TARGET_SCHEMA_VERSION}; only the trajectory-server migrates the DB. Open a Claude Code session to upgrade it, or point TRAJECTORY_DB_PATH at a copy.`);
+    }
 }
 /**
  * Runs a statement that reads under SHARED and then needs EXCLUSIVE outside a

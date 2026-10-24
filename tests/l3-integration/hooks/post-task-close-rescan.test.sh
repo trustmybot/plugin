@@ -128,6 +128,26 @@ else
   _fail "want exit 1, the refusal, v$OLD_VERSION kept and no .bak; got exit $RC: $OLD_OUT"
 fi
 
+# A rollback-journal DB must not be switched to WAL on the way to the refusal (GH 1679).
+DELETE_DB="$TMPDIR/old-delete/trajectory.db"
+mkdir -p "$(dirname "$DELETE_DB")"
+cp "$OLD_DB" "$DELETE_DB"
+sqlite3 "$DELETE_DB" "PRAGMA journal_mode = DELETE;" >/dev/null
+# macOS sqlite3 keeps the -shm it opened the WAL copy with; the fixture starts without it.
+rm -f "$DELETE_DB-shm" "$DELETE_DB-wal"
+cp "$DELETE_DB" "$TMPDIR/old-delete.pristine"
+for SCRIPT in "$INVOKER" "$PLUGIN_ROOT/scripts/maintenance/run-scan-initial.mjs" "$PLUGIN_ROOT/mcp/trajectory-server/scripts/smoke-world-model.mjs"; do
+  test_case "a delete-mode older-schema DB: $(basename "$SCRIPT") exits non-zero and leaves it byte-identical"
+  RC=0
+  SCRIPT_OUT=$( (cd "$WT" && TRAJECTORY_DB_PATH="$DELETE_DB" node --experimental-sqlite "$SCRIPT" "$WS" 2>&1) ) || RC=$?
+  SIDECARS=$(find "$(dirname "$DELETE_DB")" -type f ! -name trajectory.db)
+  if [ "$RC" -ne 0 ] && cmp -s "$TMPDIR/old-delete.pristine" "$DELETE_DB" && [ -z "$SIDECARS" ]; then
+    _pass
+  else
+    _fail "want non-zero exit, an unchanged DB and no sidecar files; got exit $RC, sidecars: [$SIDECARS], output: $SCRIPT_OUT"
+  fi
+done
+
 # ── Hook: post-task-close-rescan.sh hands the invoker an explicit DB path ────
 # A fake plugin tree whose run-scan.mjs records the TRAJECTORY_DB_PATH it got.
 FAKE="$TMPDIR/fake-plugin/scripts"
