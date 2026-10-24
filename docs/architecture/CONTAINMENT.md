@@ -7,11 +7,12 @@ TMB writes nothing outside the project it runs in, whatever scope it is installe
 - **Writes stay in the project.** Nothing is created, modified, or deleted under `$HOME` — not `~/.claude`, not a sentinel, not a log, not a lock. A project without TMB state (no trajectory DB) gets nothing written at all; gates still run and allow.
 - **Reads outside the project are read-only and named.** Hooks read Claude Code's `~/.claude/plugins/installed_plugins.json` (which install serves this project) and `~/.claude/settings.json` (its `enabledPlugins`, to warn about duplicate enabled copies, and its `hooks`, to warn about hooks left by pre-1.1.0 `/onboard` runs — objects stamped `_tmb_managed: true` or running `resolve-hook.sh`). They never write either file.
 
-Two exceptions, each declared once:
+Three exceptions, each declared once:
 
 | Exception | Why | Where it is declared |
 |---|---|---|
 | Embedding model cache, `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) | A shared, re-downloadable model cache; per-project copies would cost gigabytes | The only path outside the project the lint allows |
+| The MCP server's runtime dependencies, installed into the plugin install (`node_modules` under the plugin root) by [`scripts/hooks/ensure-mcp-deps-installed.sh`](../../scripts/hooks/ensure-mcp-deps-installed.sh) | `@huggingface/transformers` stays outside the bundle (per-platform native prebuilts) and a marketplace install runs no package install; the dependencies belong to the install, not to a project. The package-manager caches go to `<state>/cache/{bun,npm}` when the project has a TMB state dir | The hook's header; it runs only when the package does not resolve |
 | [`scripts/maintenance/heal-mcp-cache.sh`](../../scripts/maintenance/heal-mcp-cache.sh) | A Human-run repair tool whose job is fixing Claude Code's own plugin config | [`tests/l1-lint/no-home-writes.allowlist`](../../tests/l1-lint/no-home-writes.allowlist); never a hook, never the server |
 
 ## Test runs never reach the project's trajectory DB
@@ -25,7 +26,7 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 | Path | Written by | What |
 |---|---|---|
 | `<state>/trajectory.db` | MCP server, hooks via `scripts/hooks/lib/db-write.sh` | Workflow state and the world model. The DB runs in WAL mode; its `-shm` and `-wal` files always sit beside it in `<state>/`, including the ones a gate read creates when no process holds the DB open (`tmb_gate_read`) |
-| `<state>/logs/` | MCP server, hooks | `mcp-server.log`, `sql.log`, `issue-sync.log`, `mcp-health.log`, per-session logs |
+| `<state>/logs/` | MCP server, hooks | `mcp-server.log`, `sql.log`, `issue-sync.log`, `mcp-health.log`, `mcp-deps-install.log`, per-session logs |
 | `<state>/sessions/<session_id>.plugin-hooks` | `plugin-hooks-marker.sh` (SessionStart) | 0-byte marker: this session runs the plugin's own hooks; pruned after 24 h |
 | `<state>/sessions/<session_id>.install-notice` | `mcp-health-check.sh` (SessionStart) | 0-byte marker: the install-scope notice was shown this session; pruned after 24 h |
 | `<state>/sessions/<session_id>.persona` (+ `.persona-notice`) | `session-start-persona.sh` (SessionStart), `user-prompt-persona.sh` (UserPromptSubmit) | 0-byte marker: bro's persona reached this session (or the notice that it could not); pruned after 24 h |

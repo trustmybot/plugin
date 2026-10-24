@@ -116,6 +116,40 @@ RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-ser
      || (echo "❌ FAIL: MCP from real claude-plugin-install location did not return tools/list with onboard_state_get"; cat /tmp/installed-mcp.out /tmp/installed-mcp.err; exit 1)
 RUN echo "✓ A0b: genuine claude plugin install → MCP boots from installed cache location (no manual bun install), tools/list served, SDK inlined"
 
+# A0c: the SessionStart hook ensure-mcp-deps-installed.sh makes the external
+# @huggingface/transformers resolve from the INSTALLED mcp/trajectory-server
+# (GH 1669: nothing installed it, so every install ran with embeddings
+# degraded). On the stripped cache: transformers must NOT resolve first (else
+# this is vacuous), one hook run with the image's bun installs it, and then it
+# resolves to a path inside the install root. The shipped dist/ must be
+# byte-identical afterwards: the root postinstall build (whose prebuild
+# deletes dist/test) must not have run in the plugin cache.
+RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-server/dist/index.js' | head -n1); \
+    INSTALL_ROOT=$(cd "$(dirname "$ENTRY")/../../.." && pwd -P); \
+    MCP="$INSTALL_ROOT/mcp/trajectory-server"; \
+    find "$INSTALL_ROOT" -name node_modules -type d -prune -exec rm -rf {} + 2>/dev/null; \
+    if (cd "$MCP" && node --input-type=module -e 'import.meta.resolve("@huggingface/transformers")') >/dev/null 2>&1; then \
+      echo "❌ FAIL: @huggingface/transformers resolves from $MCP before the hook ran — A0c would prove nothing"; exit 1; \
+    fi; \
+    BEFORE=$(cd "$MCP/dist" && find . -type f -exec sha256sum {} + | sort); \
+    mkdir -p /tmp/a0c-project/.claude/tmb && : > /tmp/a0c-project/.claude/tmb/trajectory.db; \
+    echo '{"hook_event_name":"SessionStart","session_id":"l0-a0c"}' \
+      | CLAUDE_PLUGIN_ROOT="$INSTALL_ROOT" CLAUDE_PROJECT_DIR=/tmp/a0c-project TRAJECTORY_DB_PATH=/tmp/a0c-project/.claude/tmb/trajectory.db \
+        bash "$INSTALL_ROOT/scripts/hooks/ensure-mcp-deps-installed.sh"; \
+    i=0; while [ -d "$MCP/.deps-install.lock" ] && [ "$i" -lt 300 ]; do sleep 1; i=$((i + 1)); done; \
+    LOG=/tmp/a0c-project/.claude/tmb/logs/mcp-deps-install.log; \
+    test ! -d "$MCP/.deps-install.lock" \
+     || { echo "❌ FAIL: the hook's background install did not finish within 300 s"; cat "$LOG"; exit 1; }; \
+    RESOLVED=$(cd "$MCP" && node --input-type=module -e 'process.stdout.write(import.meta.resolve("@huggingface/transformers"))') \
+     || { echo "❌ FAIL: @huggingface/transformers does not resolve from $MCP after one hook run (GH 1669)"; cat "$LOG"; exit 1; }; \
+    echo "transformers from $MCP → $RESOLVED"; \
+    case "$RESOLVED" in "file://$INSTALL_ROOT/"*) ;; \
+      *) echo "❌ FAIL: transformers resolved outside the install root ($INSTALL_ROOT): $RESOLVED"; exit 1 ;; esac; \
+    AFTER=$(cd "$MCP/dist" && find . -type f -exec sha256sum {} + | sort); \
+    test "$BEFORE" = "$AFTER" \
+     || { echo "❌ FAIL: the installed dist/ changed during the dependency install — the root postinstall build ran in the plugin cache"; cat "$LOG"; exit 1; }
+RUN echo "✓ A0c: one ensure-mcp-deps-installed.sh run → @huggingface/transformers resolves from the installed MCP dir; dist/ untouched (no root postinstall)"
+
 # Simulate CC's plugin install path: `bun install --ignore-scripts`.
 # CC sandboxes plugin installs and DOES NOT run lifecycle scripts (postinstall,
 # preinstall, etc.) — confirmed empirically through v0.2.0 (better-sqlite3
