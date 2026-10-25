@@ -8228,14 +8228,21 @@ function useAt(lx, name3, u) {
   if (code[e] === "{" || code[e] === ":" || code.startsWith("=>", e) || code.startsWith("->", e) || code[e] === "=" && code[e + 1] !== "=") return false;
   return !(py && lambdaLine(lx, u, c));
 }
-function heldLiteral(lx, name3) {
+function heldLiterals(lx, name3) {
   if (UNBINDABLE.test(name3)) return void 0;
   const word = lx.py ? /[A-Za-z0-9_]+/g : /[A-Za-z0-9_$]+/g;
   for (const s of lx.strs) if (s.body.match(word)?.includes(name3)) return void 0;
   const occ = [...lx.code.matchAll(word)].filter((m) => m[0] === name3).map((m) => m.index);
   if (occ.length < 2) return void 0;
-  const lit = bindingAt(lx, name3, occ[0]);
-  return lit !== void 0 && occ.slice(1).every((u) => useAt(lx, name3, u)) ? lit : void 0;
+  const first = bindingAt(lx, name3, occ[0]);
+  if (first === void 0) return void 0;
+  const lits = [first];
+  for (const u of occ.slice(1)) {
+    const lit = lx.py ? bindingAt(lx, name3, u) : void 0;
+    if (lit !== void 0) lits.push(lit);
+    else if (!useAt(lx, name3, u)) return void 0;
+  }
+  return lits;
 }
 function progWrites(lang, program, operands, procWrites) {
   const scan = chomp(progScan(lang, program).join("\n"));
@@ -8248,7 +8255,7 @@ ${line}
   const run2 = has("R");
   const names = scan.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
   const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run2 ? lex(lang === "py", program) : void 0;
-  const held = new Map(names.map((name3) => [name3, lexed && heldLiteral(lexed, name3)]));
+  const held = new Map(names.map((name3) => [name3, lexed && heldLiterals(lexed, name3)]));
   const unread = has("A") || has("F") || [...held.values()].includes(void 0);
   let fail = unread || held.size > 0;
   if (!has("W")) {
@@ -8276,7 +8283,7 @@ ${line}
     const reads = grepO(grepO(program, READS).join("\n"), QUOTED);
     out2 += progLiterals(src, reads, writes, raw).join("\n");
     if (run2) out2 += "\n$(proc)";
-    for (const lit of held.values()) if (lit !== void 0) out2 += `
+    for (const lits of held.values()) for (const lit of lits ?? []) out2 += `
 ${lit}`;
   }
   let lines = out2.split("\n");

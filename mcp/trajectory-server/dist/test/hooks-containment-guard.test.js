@@ -7,7 +7,8 @@
  * The deny's phrase is pinned to dispatch.sh's UNJUDGED_PHRASE, which keeps
  * such a deny from recording boundary-deny paths (GH 1750); the deny of a
  * target behind a variable, substitution or cd the guard cannot resolve
- * carries it too (GH 1772).
+ * carries it too (GH 1772). A python target name rebound at top level is
+ * judged at every literal it is bound to (GH 1756).
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -120,6 +121,19 @@ describe('containment-guard (TS): denies that judge no path', () => {
         const r = await containmentGuard(bash(command), env);
         const raw = [...command].slice(0, 80).join('');
         assert.equal(reason(r.stdout), `BLOCKED: write target "${raw}" cannot be judged: ${PARSE_TEXT}`);
+    });
+    it('allows a python heredoc whose target name is rebound at top level to in-root literals (GH 1756)', async () => {
+        const command = "python3 - <<'EOF'\np = 'src/a.ts'\nopen(p, 'w').write('x')\np = 'src/b.ts'\nopen(p, 'w').write('y')\nEOF";
+        assert.deepEqual(await containmentGuard(bash(command), env), { stdout: '', code: 0 });
+    });
+    it('denies a python target name rebound at top level to an outside literal (GH 1756)', async () => {
+        const r = await containmentGuard(bash(`python3 -c "p='a'; p='/etc/x'; open(p,'w')"`), env);
+        assert.match(reason(r.stdout) ?? '', /\/etc\/x/);
+    });
+    it('denies as cannot be judged a python target name walrus-bound in an annotation string (GH 1756)', async () => {
+        const command = `python3 - <<'EOF'\nimport typing\np = 'src/a.txt'\ndef f(x: '(p := chr(47) + "etc/x")'): pass\ntyping.get_type_hints(f)\nopen(p, 'w').write('x')\nEOF`;
+        const r = await containmentGuard(bash(command), env);
+        assert.equal(reason(r.stdout), `BLOCKED: write target "python3" cannot be judged: ${COMPUTED_TEXT}`);
     });
     it("dispatch.sh's UNJUDGED_PHRASE is the deny's phrase, and no reason text holds the quote it stops at", () => {
         assert.deepEqual(DISPATCH.match(/^UNJUDGED_PHRASE='([^']*)'$/gm), [`UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'`]);
