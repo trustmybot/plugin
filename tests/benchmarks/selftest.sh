@@ -61,6 +61,15 @@ else
   printf 'WARNING: node not available — skipping Codex materialization benchmark selftest\n'
 fi
 
+printf '=== bro-provision-reads.mjs ===\n'
+
+if command -v node >/dev/null 2>&1; then
+  BPR_OUT="$(node "$HERE/bro-provision-reads.selftest.mjs")"
+  check "bro-provision-reads window counts" "$BPR_OUT" 'selftest passed'
+else
+  printf 'WARNING: node not available — skipping bro-provision-reads selftest\n'
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
   printf 'WARNING: python3 not available — skipping Python benchmark selftests\n'
   printf '\n========================================\n'

@@ -1,0 +1,2 @@
+### Added
+- **Measure how much code bro reads before it plans a task** (GH 1352): `tests/benchmarks/bro-provision-reads.mjs` reads Claude Code session files and reports, for each `task_provision` call, the Read/Grep/Glob and file-reading Bash calls bro made since the previous one, how many touched non-Markdown files, their result size in estimated tokens, and the world-model calls in the same window. Run it with `--json` for machine-readable totals; it gives the baseline for cutting bro's source reads to zero on ordinary tasks.
