@@ -1,7 +1,7 @@
 # TMB Plugin
 
 <p align="center">
-  <img src="docs/assets/tmb-hero.svg" width="640" alt="Animated pixel-art story. Coding agents call broken work done, forget everything, drift off task, need babysitting and delete your data. How can I trust my bot? With TMB, bro plans from a persistent memory (world model and trajectory DB) and splits work across swe agents, and pr-reviewer rejects failures and gates every push to GitHub. Trust me bro, it works.">
+  <img src="docs/assets/tmb-hero.svg" width="640" alt="Animated pixel-art story. Coding agents call broken work done, forget everything, drift off task, need babysitting and delete your data. How can I trust my bot? With TMB, bro plans from a persistent memory (world model and trajectory DB) and splits work across swe agents, and code-reviewer rejects failures and gates every push to GitHub. Trust me bro, it works.">
 </p>
 
 > **Trust me bro, it works.**
