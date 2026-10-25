@@ -24,6 +24,8 @@ import {
   type WorldModelSearch,
 } from './api.ts';
 import { DataTable, type Column } from './DataTable.tsx';
+import { Markdown } from './Markdown.tsx';
+import { Time } from './Time.tsx';
 
 const TABS = [
   ['overview', 'Overview'],
@@ -54,7 +56,7 @@ export function App() {
   useLiveRefresh();
   const [tab = 'overview', id] = useHashRoute();
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4">
+    <div className="mx-auto w-full max-w-[120rem] space-y-4 px-4 py-4 sm:px-6 2xl:px-10">
       <header className="flex flex-wrap items-center gap-4 border-b border-zinc-200 pb-3 dark:border-zinc-800">
         <h1 className="text-lg font-semibold">TMB dashboard</h1>
         <nav className="flex gap-1 text-sm">
@@ -114,6 +116,7 @@ function Badge({ value }: { value: unknown }) {
 }
 
 const badge = (key: string) => (r: Row) => <Badge value={r[key]} />;
+const time = (key: string) => (r: Row) => <Time value={r[key]} />;
 const exitBadge = (r: Row) =>
   r['exit_code'] === null || r['exit_code'] === undefined ? <Badge value="running" /> : <Badge value={r['exit_code'] === 0 ? 'pass' : 'fail'} />;
 
@@ -130,8 +133,8 @@ const RUN_COLUMNS: Column[] = [
   { key: 'id', header: 'Run' },
   { key: 'agent_type', header: 'Agent' },
   { key: 'task_id', header: 'Task' },
-  { key: 'task_title', header: 'Title' },
-  { key: 'started_at', header: 'Started' },
+  { key: 'task_title', header: 'Title', truncate: true },
+  { key: 'started_at', header: 'Started', cell: time('started_at') },
   { key: 'exit_reason', header: 'Exit', cell: (r) => <Badge value={r['completed_at'] ? r['exit_reason'] ?? 'completed' : 'running'} /> },
 ];
 
@@ -169,12 +172,12 @@ function OverviewView() {
 
 const ISSUE_COLUMNS: Column[] = [
   { key: 'id', header: '#' },
-  { key: 'objective', header: 'Objective' },
+  { key: 'objective', header: 'Objective', truncate: true },
   { key: 'status', header: 'Status', cell: badge('status') },
   { key: 'repo', header: 'Repo' },
   { key: 'gh_iid', header: 'GH' },
   { key: 'tasks_done', header: 'Tasks', cell: (r) => `${r['tasks_done']}/${r['task_count']}` },
-  { key: 'updated_at', header: 'Updated' },
+  { key: 'updated_at', header: 'Updated', cell: time('updated_at') },
 ];
 
 function IssuesView() {
@@ -185,10 +188,10 @@ function IssuesView() {
 const ISSUE_TASK_COLUMNS: Column[] = [
   { key: 'id', header: 'Task' },
   { key: 'branch_id', header: 'Branch' },
-  { key: 'title', header: 'Title' },
+  { key: 'title', header: 'Title', truncate: true },
   { key: 'status', header: 'Status', cell: badge('status') },
   { key: 'commit_sha', header: 'Commit', cell: (r) => String(r['commit_sha'] ?? '').slice(0, 8) },
-  { key: 'updated_at', header: 'Updated' },
+  { key: 'updated_at', header: 'Updated', cell: time('updated_at') },
 ];
 
 function IssueView({ id }: { id: string }) {
@@ -214,11 +217,11 @@ function IssueView({ id }: { id: string }) {
                   {parseLabels(d.issue['labels']).map((l) => (
                     <span key={l} className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">{l}</span>
                   ))}
-                  <span>updated {String(d.issue['updated_at'])}</span>
+                  <span>updated <Time value={d.issue['updated_at']} /></span>
                   <button type="button" className={BUTTON} onClick={() => setEditing(true)}>Edit</button>
                   {d.issue['status'] === 'open' && <CloseIssue id={id} updatedAt={String(d.issue['updated_at'])} />}
                 </div>
-                {d.issue['description'] ? <p className="whitespace-pre-wrap text-sm">{String(d.issue['description'])}</p> : null}
+                {d.issue['description'] ? <Markdown className="pt-2">{String(d.issue['description'])}</Markdown> : null}
               </>
             )}
           </div>
@@ -234,9 +237,9 @@ function IssueView({ id }: { id: string }) {
                 <div className="mb-1 flex gap-2 text-xs text-zinc-500">
                   <span className="font-medium text-zinc-700 dark:text-zinc-300">{String(c['author'])}</span>
                   <Badge value={c['kind']} />
-                  <span>{String(c['created_at'])}</span>
+                  <Time value={c['created_at']} />
                 </div>
-                <p className="whitespace-pre-wrap text-sm">{String(c['body'])}</p>
+                <Markdown>{String(c['body'])}</Markdown>
               </article>
             ))}
             <CommentForm id={id} />
@@ -408,12 +411,12 @@ function CloseIssue({ id, updatedAt }: { id: string; updatedAt: string }) {
 const TASK_COLUMNS: Column[] = [
   { key: 'id', header: 'Task' },
   { key: 'issue_id', header: 'Issue' },
-  { key: 'title', header: 'Title' },
+  { key: 'title', header: 'Title', truncate: true },
   { key: 'branch_id', header: 'Branch' },
   { key: 'status', header: 'Status', cell: badge('status') },
   { key: 'effort', header: 'Effort' },
   { key: 'repo', header: 'Repo' },
-  { key: 'updated_at', header: 'Updated' },
+  { key: 'updated_at', header: 'Updated', cell: time('updated_at') },
 ];
 
 function TasksView() {
@@ -431,22 +434,22 @@ const AGENT_RUN_COLUMNS: Column[] = [
 const VALIDATION_COLUMNS: Column[] = [
   { key: 'id', header: 'ID' },
   { key: 'task_id', header: 'Task' },
-  { key: 'task_title', header: 'Title' },
+  { key: 'task_title', header: 'Title', truncate: true },
   { key: 'attempt_n', header: 'Attempt' },
   { key: 'agent', header: 'Agent' },
   { key: 'verdict', header: 'Verdict', cell: badge('verdict') },
-  { key: 'created_at', header: 'At' },
+  { key: 'created_at', header: 'At', cell: time('created_at') },
 ];
 
 const VERIFICATION_COLUMNS: Column[] = [
   { key: 'id', header: 'Run' },
   { key: 'task_id', header: 'Task' },
-  { key: 'task_title', header: 'Title' },
+  { key: 'task_title', header: 'Title', truncate: true },
   { key: 'commit_sha', header: 'Commit', cell: (r) => String(r['commit_sha'] ?? '').slice(0, 8) },
   { key: 'source', header: 'Source' },
   { key: 'exit_code', header: 'Result', cell: exitBadge },
   { key: 'failed_commands', header: 'Failed', cell: (r) => `${r['failed_commands']}/${r['commands']}` },
-  { key: 'started_at', header: 'Started' },
+  { key: 'started_at', header: 'Started', cell: time('started_at') },
 ];
 
 function RunsView() {
@@ -477,12 +480,12 @@ function RunsView() {
 }
 
 const AUDIT_COLUMNS: Column[] = [
-  { key: 'created_at', header: 'At' },
+  { key: 'created_at', header: 'At', cell: time('created_at') },
   { key: 'issue_id', header: 'Issue' },
   { key: 'branch_id', header: 'Branch' },
   { key: 'from_node', header: 'From' },
   { key: 'event_type', header: 'Event' },
-  { key: 'summary', header: 'Summary' },
+  { key: 'summary', header: 'Summary', truncate: true },
 ];
 
 function AuditView() {
@@ -503,7 +506,7 @@ function ProjectMapView() {
         if (repo === undefined) return <p className="text-zinc-500">The world model is empty — run /scan in a Claude Code session.</p>;
         const root = wm.nodes[0];
         return (
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] [&>*]:min-w-0">
             <section className="space-y-2">
               <div className="flex items-center gap-2">
                 <h2 className="font-medium">Directories</h2>
@@ -567,8 +570,8 @@ function TreeChildren({ node }: { node: WmNode }) {
 const HIT_COLUMNS: Column[] = [
   { key: 'kind', header: 'Kind', cell: badge('kind') },
   { key: 'repo', header: 'Repo' },
-  { key: 'path', header: 'Path' },
-  { key: 'text', header: 'Summary' },
+  { key: 'path', header: 'Path', truncate: true },
+  { key: 'text', header: 'Summary', truncate: true },
 ];
 
 function WorldModelSearchView() {
@@ -945,7 +948,7 @@ function StepsAndGraph({
       <section aria-label="Steps" className="space-y-2">
         <div className="space-y-1">
           <h2 className="flex flex-wrap items-center gap-2 font-medium">{title} {badge}</h2>
-          {subtitle ? <p className={`text-sm ${MUTED}`}>{subtitle}</p> : null}
+          {subtitle ? <Markdown className={MUTED}>{subtitle}</Markdown> : null}
           {note ? <p className={`text-xs ${MUTED}`}>{note}</p> : null}
         </div>
         <ol className="space-y-1">
@@ -969,7 +972,7 @@ function StepsAndGraph({
                     <span className="font-medium break-all">{name}</span>
                     {s.trust && <TrustBadge trust={s.trust} />}
                   </span>
-                  <span className="block">{s.description}</span>
+                  <Markdown inline className="block">{s.description}</Markdown>
                   {location && <span className={`block font-mono text-xs break-all ${MUTED}`}>{location}</span>}
                   {s.trust_reason && <span className={`block text-xs ${MUTED}`}>{s.trust_reason}</span>}
                 </button>
