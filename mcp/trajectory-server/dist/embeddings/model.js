@@ -1,5 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { runtimeDepsRoot, transformersEsmEntry, transformersPackageDir, TRANSFORMERS_PACKAGE } from '../runtime-deps.js';
 // The embedding model cache is the one path TMB uses outside the project: a
 // shared, re-downloadable user cache, overridable via TMB_MODEL_CACHE_DIR.
 export const TMB_MODEL_CACHE_DIR = process.env['TMB_MODEL_CACHE_DIR'] ?? process.env['HF_HOME'] ?? join(homedir(), '.cache', 'huggingface');
@@ -9,8 +11,34 @@ export const MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
 /** Re-attempt delays after entering the degraded state: 1 min, 5 min, then every 10 min. */
 export const EMBED_RETRY_SCHEDULE_MS = [60_000, 300_000, 600_000];
 export const EMBED_FAIL_THRESHOLD_DEFAULT = 5;
+/**
+ * Where transformers is imported from: the copy installed under
+ * `$CLAUDE_PLUGIN_DATA/deps/<key>/` first (GH 1748), so the server does not
+ * wait for the SessionStart hook's bridge link, then the bare specifier.
+ */
+export function transformersSources(dataDir = process.env['CLAUDE_PLUGIN_DATA']) {
+    const root = runtimeDepsRoot(dataDir);
+    if (!root)
+        return { specifiers: [TRANSFORMERS_PACKAGE], misses: ['CLAUDE_PLUGIN_DATA is unset'] };
+    const entry = transformersEsmEntry(root);
+    if (!entry)
+        return { specifiers: [TRANSFORMERS_PACKAGE], misses: [`no ${TRANSFORMERS_PACKAGE} at ${transformersPackageDir(root)}`] };
+    return { specifiers: [pathToFileURL(entry).href, TRANSFORMERS_PACKAGE], misses: [] };
+}
+export async function importTransformers(sources = transformersSources(), importer = (s) => import(s)) {
+    const failures = [...sources.misses];
+    for (const specifier of sources.specifiers) {
+        try {
+            return await importer(specifier);
+        }
+        catch (e) {
+            failures.push(`${specifier}: ${message(e)}`);
+        }
+    }
+    throw new Error(`${TRANSFORMERS_PACKAGE} did not load (${failures.join('; ')})`);
+}
 async function defaultLoader() {
-    const { pipeline, env } = await import('@huggingface/transformers');
+    const { pipeline, env } = await importTransformers();
     env.cacheDir = TMB_MODEL_CACHE_DIR;
     return (await pipeline('feature-extraction', MODEL_REPO, { dtype: MODEL_DTYPE }));
 }

@@ -215,7 +215,8 @@ jobs:
 
   install-smoke:
     name: L0 docker install-smoke
-    # L0 docker smoke stays release-only; PR gate is L1–L4 (run-all.sh).
+    # L0 is the installation test layer: contributors run it locally with Docker
+    # before a PR; release-gate also runs it on rc tags and dispatch.
     needs: verdict-check
     if: ${{ needs.verdict-check.outputs.short_circuit != 'true' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ubuntu-latest
