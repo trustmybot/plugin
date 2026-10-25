@@ -118,7 +118,7 @@ run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-no
 run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
 run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1-lint/bundle-whitespace-safety.sh"
-run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/l1-lint/labels-stable.sh"
+run_step "L1 lint: labels.json triage rule + LABELS.md generated fresh"  node --test "$HERE/l1-lint/labels.test.mjs"
 run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
 run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  bash "$HERE/l1-lint/enums-doc-fresh.sh"

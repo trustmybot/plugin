@@ -124,6 +124,11 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 - PRs merge into `dev`, where GitHub's auto-close does not fire. Whoever merges closes the issue manually with a comment naming the PR and landing commit (e.g. "Fixed in #530 @ `af89a30`"). The issue is closed only after its PR is merged, never before.
 - A PR with no issue (release mechanics, typo-class fixes) says so in its description in one line.
 
+### Filing an issue
+
+- Open it from one of the issue forms (Bug, Improvement, Feature, Research); blank issues are disabled. The form sets the type and asks for the area.
+- Every issue carries exactly one type, one priority and one area. The triage workflow adds `needs-triage` until it does. The labels and the rule live in [`docs/contributing/LABELS.md`](docs/contributing/LABELS.md); this taxonomy governs TMB development only.
+
 ### Filing issues
 
 - **Validate every new defect against `dev`, not the installed plugin cache** (which lags `dev`). Replay it against the `dev` source with an isolated `HOME`/`TMPDIR`, search `git log origin/dev` for an existing fix, and check open local tasks. Classify it VALID, FIXED_ON_DEV, FALSE_ALARM or NEEDS_DECISION, with file:line or commit evidence.

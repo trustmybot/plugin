@@ -1,0 +1,34 @@
+name: Research
+description: A paper, experiment or open design question
+labels: ["Research"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do we want to learn or decide?
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Approach and sources
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: The part of TMB this touches. See docs/contributing/LABELS.md.
+      options:
+        - Hooks
+        - Trajectory Server
+        - World Model
+        - Dashboard
+        - Install
+        - Agents
+        - Cheatcode
+        - Adapters
+        - Release
+    validations:
+      required: true

@@ -1,0 +1,30 @@
+# issue-triage — turn an issue form's Area answer into its label and toggle
+# needs-triage until the issue has exactly one type, one priority and one area (GH 1770).
+name: issue triage
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Triage labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: node scripts/maintenance/labels.mjs --triage "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
