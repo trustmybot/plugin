@@ -3,7 +3,10 @@
 // path) and a 3-step concept whose third anchor is gone, start the built
 // dashboard server against it and check /api/concepts, /api/concepts/:id,
 // /graph and /api/symbols/:id/neighbourhood; then check a v44 DB answers
-// available:false and that the server left both DB files unchanged.
+// available:false and that the server left both DB files unchanged. Then
+// render the concept badges, the copy button and the search field to static
+// HTML and check they use ui/Label variants, invisible Button tokens and an
+// accessible name.
 // `node dashboard/test/concepts.test.mjs --seed <path>` only writes the seeded
 // DB, for viewing the tab against it.
 import { after, before, describe, test } from 'node:test';
@@ -14,6 +17,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { build } from 'esbuild';
 
 const DASH = new URL('..', import.meta.url).pathname;
 const SCHEMA = join(DASH, '../mcp/trajectory-server/src/schema.sql');
@@ -200,5 +204,59 @@ if (seedOnly) {
   test('the server left both DB files unchanged', () => {
     assert.equal(sha(dbPath), before45);
     assert.equal(sha(oldPath), before44);
+  });
+});
+
+if (!seedOnly) describe('concepts view markup', () => {
+  let ui;
+  before(async () => {
+    const out = await build({
+      stdin: {
+        contents: `import { renderToStaticMarkup } from 'react-dom/server';
+          import { createElement } from 'react';
+          import { TrustBadge, DerivedBadge } from './web/views/concepts/badges.tsx';
+          import { SearchField } from './web/views/concepts/ConceptsView.tsx';
+          import { CopyButton } from './web/ui/CopyButton.tsx';
+          import { LABEL_COLORS } from './web/ui/Label.tsx';
+          export const render = (el) => renderToStaticMarkup(el);
+          export const h = createElement;
+          export { TrustBadge, DerivedBadge, SearchField, CopyButton, LABEL_COLORS };`,
+        resolveDir: DASH,
+        loader: 'js',
+      },
+      bundle: true,
+      format: 'esm',
+      platform: 'node',
+      jsx: 'automatic',
+      banner: { js: `import { createRequire } from 'node:module'; const require = createRequire(${JSON.stringify(SERVER)});` },
+      write: false,
+      logLevel: 'silent',
+    });
+    ui = await import(`data:text/javascript;base64,${Buffer.from(out.outputFiles[0].text).toString('base64')}`);
+  });
+  const html = (component, props) => ui.render(ui.h(ui[component], props));
+
+  test('a concept badge renders a ui/Label variant class', () => {
+    for (const [trust, variant] of [['verified', 'success'], ['suspect', 'attention'], ['broken', 'danger']]) {
+      const out = html('TrustBadge', { trust, count: 2 });
+      assert.ok(out.includes(ui.LABEL_COLORS[variant]), `${trust} → ${variant}`);
+      assert.match(out, /rounded-full/);
+    }
+    assert.ok(html('DerivedBadge', {}).includes(ui.LABEL_COLORS.secondary));
+  });
+
+  test('the copy button uses the invisible Button tokens and a copy octicon', () => {
+    const out = html('CopyButton', { value: 'src/a.ts:1', label: 'Copy src/a.ts:1' });
+    assert.match(out, /^<button type="button"/);
+    assert.match(out, /--button-invisible-bgColor-rest/);
+    assert.doesNotMatch(out, /--button-default-|min-h-6/);
+    assert.match(out, /aria-label="Copy src\/a.ts:1"/);
+    assert.match(out, /octicon-copy/);
+  });
+
+  test('the search field has an accessible name', () => {
+    const out = html('SearchField', { value: '', onChange: () => {} });
+    assert.match(out, /^<label[^>]*>.*<span class="sr-only">Search concepts<\/span>.*<input type="search"/s);
+    assert.doesNotMatch(out, /outline-blue/);
   });
 });
