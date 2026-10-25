@@ -1,0 +1,2 @@
+### Fixed
+- **Old failed swe runs no longer keep `swe_runs_metered` failing** (GH 1746): a swe or pr-reviewer run closed with no token usage before GH 1673 still had no `usage_source`, and with no transcript left to backfill it, `trajectory_doctor` kept reporting it as an unmetered run. Every `task_recover` call now marks these closed, usage-less runs `unmeasured` and reports how many it marked as `runs_marked_unmeasured`. Runs that carry tokens or a source, runs still open, and bro runs are left alone.

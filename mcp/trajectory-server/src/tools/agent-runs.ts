@@ -105,6 +105,21 @@ export function sweepRunsOfTerminalTasks(db: TrajectoryDB, now: string): number 
   );
 }
 
+// Marks unmeasured the swe/pr-reviewer rows closed with no usage and no
+// usage_source: rows a finalize path closed before GH 1673 applied the usage
+// rule on close. Open rows, bro rows and rows with tokens or a source are
+// kept. Returns rows marked.
+export function markLegacyUnmeteredRuns(db: TrajectoryDB): number {
+  return db.run(
+    `UPDATE agent_runs
+        SET usage_source = 'unmeasured'
+      WHERE completed_at IS NOT NULL
+        AND usage_source IS NULL
+        AND agent_type IN ('swe', 'pr-reviewer')
+        AND ${NO_USAGE_SQL}`,
+  ).changes;
+}
+
 const RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 // JSON-Schema of the optional session_id arg the planning tools still accept

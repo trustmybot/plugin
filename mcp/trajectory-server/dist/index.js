@@ -30671,6 +30671,16 @@ function sweepRunsOfTerminalTasks(db2, now2) {
     [...TERMINAL_TASK_STATUSES]
   );
 }
+function markLegacyUnmeteredRuns(db2) {
+  return db2.run(
+    `UPDATE agent_runs
+        SET usage_source = 'unmeasured'
+      WHERE completed_at IS NOT NULL
+        AND usage_source IS NULL
+        AND agent_type IN ('swe', 'pr-reviewer')
+        AND ${NO_USAGE_SQL}`
+  ).changes;
+}
 var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 var RUN_SESSION_ID_SCHEMA = {
   type: "string",
@@ -37245,7 +37255,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_recover",
-      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed. Returns {tasks_swept, runs_swept, reported} (plus the recovery result when task_id is given).",
+      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed; closed swe/pr-reviewer rows with no tokens and no usage_source are marked usage_source=unmeasured. Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} (plus the recovery result when task_id is given).",
       inputSchema: {
         type: "object",
         properties: {
@@ -38642,6 +38652,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const sweepResult = {
           tasks_swept: sweep.tasks_swept,
           runs_swept: sweep.runs_swept + sweepRunsOfTerminalTasks(db2, nowISO()),
+          runs_marked_unmeasured: markLegacyUnmeteredRuns(db2),
           reported: sweep.reported
         };
         if (!task) return ok15(sweepResult);

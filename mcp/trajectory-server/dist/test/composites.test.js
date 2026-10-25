@@ -13,6 +13,8 @@ import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
 import { embed } from '../embeddings/model.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
+import { DATA_CONTRACTS, isSqlContract } from '../data-contracts.js';
+import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
 function parse(r) {
@@ -3333,6 +3335,59 @@ describe('agent_runs lifecycle — rows open with their run and close with their
         assert.equal(runs(db, live)[0].completed_at, null, 'a live task keeps its open row');
         const again = parse((await tools.handlers['task_recover']({ agent: 'bro', task_id: String(done) })));
         assert.equal(again['runs_swept'], 0, 'the sweep is idempotent');
+        db.close();
+    });
+    const seedLegacyRun = (db, taskId, r) => Number(db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at, tokens_out, usage_source, exit_reason)
+         VALUES (?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 days'), ?, ?, ?, ?)`, [taskId, r.agentType, r.completedAt, r.tokensOut ?? null, r.usageSource ?? null, r.exitReason ?? null]).lastInsertRowid);
+    const usage = (db, id) => ({ ...db.get('SELECT usage_source, tokens_out, completed_at FROM agent_runs WHERE id = ?', [id]) });
+    const closedAt = new Date(Date.now() - 86_400_000).toISOString();
+    it('task_recover marks closed swe/pr-reviewer rows with no usage unmeasured and reports the count (GH 1746)', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [id]);
+        const swe = seedLegacyRun(db, id, { agentType: 'swe', completedAt: closedAt, tokensOut: 0, exitReason: 'failed' });
+        const reviewer = seedLegacyRun(db, id, { agentType: 'pr-reviewer', completedAt: closedAt });
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+        const out = parse((await tools.handlers['task_recover']({ agent: 'bro' })));
+        assert.equal(out['runs_marked_unmeasured'], 2);
+        assert.equal(usage(db, swe).usage_source, 'unmeasured');
+        assert.equal(usage(db, reviewer).usage_source, 'unmeasured');
+        const again = parse((await tools.handlers['task_recover']({ agent: 'bro' })));
+        assert.equal(again['runs_marked_unmeasured'], 0, 'the sweep is idempotent');
+        db.close();
+    });
+    it('task_recover leaves rows with tokens, a usage_source, open rows and bro rows unchanged (GH 1746)', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [id]);
+        const kept = [
+            seedLegacyRun(db, id, { agentType: 'swe', completedAt: closedAt, tokensOut: 42 }),
+            seedLegacyRun(db, id, { agentType: 'swe', completedAt: closedAt, tokensOut: 0, usageSource: 'subagent_stop' }),
+            seedLegacyRun(db, id, { agentType: 'swe', completedAt: null }),
+            seedLegacyRun(db, id, { agentType: 'bro', completedAt: closedAt }),
+        ];
+        const before = kept.map((k) => usage(db, k));
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+        const out = parse((await tools.handlers['task_recover']({ agent: 'bro' })));
+        assert.equal(out['runs_marked_unmeasured'], 0);
+        assert.deepEqual(kept.map((k) => usage(db, k)), before);
+        db.close();
+    });
+    it('task_recover clears swe_runs_metered for a pre-GH-1673 failed swe row with no transcript (GH 1746)', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+        seedLegacyRun(db, id, { agentType: 'swe', completedAt: closedAt, exitReason: 'failed' });
+        const metered = () => {
+            const contract = DATA_CONTRACTS.filter(isSqlContract).find((c) => c.id === 'swe_runs_metered');
+            const report = runDataContracts(trajectoryDbReader(db), [contract], { env: {} });
+            assert.deepEqual(report.skipped, []);
+            return report.violations.find((v) => v.id === 'swe_runs_metered')?.actual ?? 0;
+        };
+        assert.equal(metered(), 1, 'the legacy row trips the contract');
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+        await tools.handlers['task_recover']({ agent: 'bro' });
+        assert.equal(metered(), 0);
         db.close();
     });
     const stamps = (db, taskId) => db
