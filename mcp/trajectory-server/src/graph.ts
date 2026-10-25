@@ -344,7 +344,7 @@ export class WorldModelGraph {
     return stale.length;
   }
 
-  // Move every directory, file and symbol row of oldRepo under newRepo in one
+  // Move every directory, file, symbol and concept row of oldRepo under newRepo in one
   // transaction, replacing any leftover rows already filed under newRepo.
   // Row ids survive, so FTS, embedding and edge rows stay attached. Returns
   // the number of directories moved.
@@ -355,9 +355,12 @@ export class WorldModelGraph {
       this.db.run(`DELETE FROM wm_directories WHERE repo = ?`, [newRepo]);
       this.db.run(`DELETE FROM wm_files WHERE repo = ?`, [newRepo]);
       this.db.run(`DELETE FROM wm_symbols WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_concepts WHERE repo = ?`, [newRepo]);
       this.db.run(`UPDATE wm_directories SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_files SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_concepts SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_concept_steps SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
       this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
       return moved;
     });

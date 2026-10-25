@@ -750,7 +750,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 44;
+var TARGET_SCHEMA_VERSION = 45;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env2 = process.env) {
   return resolveClaudePluginName(env2);
@@ -1286,6 +1286,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 44 && toVersion >= 44) {
     migrateV43toV44(db);
+  }
+  if (fromVersion < 45 && toVersion >= 45) {
+    migrateV44toV45(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -2883,6 +2886,71 @@ function migrateV43toV44(db) {
     } catch {
     }
     throw err3;
+  }
+}
+function migrateV44toV45(db) {
+  if (!tableExists(db, "wm_symbols")) return;
+  db.exec("PRAGMA foreign_keys = OFF");
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "wm_edges") && !hasColumn(db, "wm_edges", "hint")) {
+      db.exec("ALTER TABLE wm_edges ADD COLUMN hint TEXT");
+    }
+    if (tableExists(db, "wm_files") && hasColumn(db, "wm_files", "symbols_md5")) {
+      db.exec("UPDATE wm_files SET symbols_md5 = NULL");
+    }
+    if (!hasColumn(db, "wm_symbols", "run_order") || !readTableSql(db, "wm_symbols").includes("'hook'")) {
+      rebuildTable(
+        db,
+        "wm_symbols",
+        `
+          id              INTEGER PRIMARY KEY,
+          repo            TEXT    NOT NULL,
+          path            TEXT    NOT NULL,
+          kind            TEXT    NOT NULL CHECK (kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook')),
+          qualified_name  TEXT    NOT NULL,
+          signature       TEXT    NOT NULL DEFAULT '',
+          doc             TEXT    NOT NULL DEFAULT '',
+          start_line      INTEGER,
+          end_line        INTEGER,
+          body_hash       TEXT    NOT NULL,
+          exported        INTEGER NOT NULL DEFAULT 0,
+          terms           TEXT    NOT NULL DEFAULT '',
+          run_order       INTEGER,
+          UNIQUE (repo, path, kind, qualified_name)
+        `,
+        [
+          ["id", "NULL"],
+          ["repo", "''"],
+          ["path", "''"],
+          ["kind", "'module'"],
+          ["qualified_name", "''"],
+          ["signature", "''"],
+          ["doc", "''"],
+          ["start_line", "NULL"],
+          ["end_line", "NULL"],
+          ["body_hash", "''"],
+          ["exported", "0"],
+          ["terms", "''"],
+          ["run_order", "NULL"]
+        ]
+      );
+    }
+    const fkViolations = db.prepare("PRAGMA foreign_key_check(wm_edges)").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV44toV45: foreign_key_check found ${fkViolations.length} dangling reference(s) after the wm_symbols rebuild`
+      );
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 function migrateV22toV23(db) {

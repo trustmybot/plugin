@@ -76,7 +76,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
 | Scan (workspace + repos) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery; returns `rename_candidates`), `repos_list` |
 | Repos | `tools/repos.ts` | `repo_rename` (bro only; moves the `repos` row, its FK children, `pr_review_runs` slugs and world-model nodes in one transaction) |
-| World model | `tools/world_model.ts` | `world_model_get`, `world_model_search`, `world_model_symbol` → `wm_` tables |
+| World model | `tools/world_model.ts` | `world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert` → `wm_` tables |
 | Metering backfill | `tools/agent-runs-backfill.ts` | `agent_runs_backfill` (bro: recover swe/pr-reviewer/bro `agent_runs` from Claude Code transcripts on disk, `usage_source = 'backfill'`, dry run by default) |
 | Data contracts | `tools/trajectory-doctor.ts` | `trajectory_doctor` (bro, read-only: runs `DATA_CONTRACTS` from `src/data-contracts.ts`; `record: true` logs one `trajectory_doctor_run` audit row) |
 

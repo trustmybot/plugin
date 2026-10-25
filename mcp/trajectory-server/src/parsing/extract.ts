@@ -18,7 +18,8 @@ export type SymbolKind =
   | 'sql_table'
   | 'sql_index'
   | 'sql_trigger'
-  | 'module';
+  | 'module'
+  | 'hook';
 
 export type EdgeKind =
   | 'calls'
@@ -42,6 +43,7 @@ export interface ExtractedSymbol {
   end_line: number;
   body_hash: string;
   exported: number;
+  run_order?: number;
 }
 
 // src indexes Extraction.symbols. hint is the import specifier of an
@@ -95,7 +97,9 @@ export const STOPWORDS = new Set(
   ),
 );
 
-const md5 = (s: string): string => createHash('md5').update(s).digest('hex');
+export const md5 = (s: string): string => createHash('md5').update(s).digest('hex');
+
+export const DOC_MAX = 1000;
 
 export function splitWords(s: string): string {
   return s
@@ -105,8 +109,8 @@ export function splitWords(s: string): string {
     .trim();
 }
 
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
+export const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+export const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 // A path is in symbol scope unless it is build output, a source map, a
 // lockfile or vendored code.
@@ -146,13 +150,13 @@ function normalizedHash(node: Node): string {
   return md5(oneLine(text));
 }
 
-// The comment block directly above a definition (or above its export).
+// The whole comment block directly above a definition (or above its export).
 export function docOf(node: Node): string {
   const anchor = node.parent?.type === 'export_statement' ? node.parent : node;
   const lines: string[] = [];
   let edge = anchor.startPosition.row;
   let prev = anchor.previousNamedSibling;
-  while (prev && prev.type === 'comment' && prev.endPosition.row >= edge - (lines.length === 0 ? 2 : 1) && lines.length < 7) {
+  while (prev && prev.type === 'comment' && prev.endPosition.row >= edge - (lines.length === 0 ? 2 : 1)) {
     lines.unshift(prev.text);
     edge = prev.startPosition.row;
     prev = prev.previousNamedSibling;
@@ -164,7 +168,25 @@ export function docOf(node: Node): string {
         .replace(/^\s*(\/\*\*?|\*|\/\/+|#+)/gm, ' '),
     )
     .join(' ');
-  return clip(oneLine(raw), 220);
+  return clip(oneLine(raw), DOC_MAX);
+}
+
+const STRING_PARTS = new Set(['string_fragment', 'escape_sequence']);
+
+// The text of a `description:` value built from string literals, joined
+// across `+` concatenation and template parts; null for any other value.
+function descriptionText(pair: Node): string | null {
+  if (pair.childForFieldName('key')?.text.replace(/['"]/g, '') !== 'description') return null;
+  const value = pair.childForFieldName('value');
+  if (!value || !['string', 'template_string', 'binary_expression', 'parenthesized_expression'].includes(value.type)) {
+    return null;
+  }
+  const parts = value
+    .descendantsOfType([...STRING_PARTS])
+    .filter((n): n is Node => n !== null)
+    .map((n) => n.text);
+  const text = oneLine(parts.join(''));
+  return /[a-z]{3}/i.test(text) ? text : null;
 }
 
 // A definition's text up to its body, on one line.
@@ -392,6 +414,10 @@ function extractTs(root: Node, src: string, out: Collector, moduleSymbol: number
         if (n) out.edge(moduleSymbol, 'imports', n, node.startPosition.row + 1, spec);
       }
       return;
+    } else if (t === 'pair' && scope !== moduleSymbol) {
+      const text = descriptionText(node);
+      const owner = out.symbols[scope];
+      if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
     } else if (t === 'string' || t === 'template_string') {
       const text = node.text;
       for (const [kind, table] of sqlRefs(text)) out.edge(scope, kind, table, node.startPosition.row + 1);
@@ -447,14 +473,14 @@ function extractBash(root: Node, out: Collector, moduleSymbol: number): void {
 function moduleDoc(lang: SourceLanguage, src: string): string {
   const out: string[] = [];
   const comment = lang === 'bash' || lang === 'sql' ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
-  for (const l of src.split('\n').slice(0, 30)) {
+  for (const l of src.split('\n')) {
     if (/^#!/.test(l)) continue;
     const m = l.match(comment);
     if (m) {
       if (m[1]!.trim()) out.push(m[1]!.trim());
     } else if (out.length || l.trim()) break;
   }
-  return clip(out.join(' '), 220);
+  return clip(out.join(' '), DOC_MAX);
 }
 
 // Every symbol of one file, the per-file 'module' row first, and the

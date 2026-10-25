@@ -8,3 +8,4 @@ Architecture decision records. Each ADR captures one decision: the context that 
 | ADR | Title | Status |
 |---|---|---|
 | [`0001`](./0001-world-model-structural-layer.md) | World model structural layer — own tree-sitter index plus LSP checks | Accepted |
+| [`0002`](./0002-world-model-concept-layer.md) | World model concept layer — ordered, anchored steps and derived chains | Accepted |

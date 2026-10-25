@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 44`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 45`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 44`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 45`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -59,6 +59,8 @@ erDiagram
     cheatcodes ||--o{ cheatcode_attachments : "cheatcode_id (CASCADE)"
     wm_symbols ||--o{ wm_edges : "src_id (CASCADE)"
     wm_symbols |o--o{ wm_edges : "dst_id (SET NULL)"
+    wm_concepts ||--o{ wm_concept_steps : "concept_id (CASCADE)"
+    wm_concepts ||--o{ wm_concept_claims : "concept_id (CASCADE)"
     wm_directories ||--o| wm_directories_embeddings : "dir_id (CASCADE)"
     wm_files ||--o| wm_files_embeddings : "file_id (CASCADE)"
 
@@ -328,7 +330,7 @@ erDiagram
         INTEGER id PK "NOT NULL"
         TEXT repo "NOT NULL"
         TEXT path "NOT NULL"
-        TEXT kind "NOT NULL; CHECK function|method|class|interface|type|const|sh_function|sql_table|sql_index|sql_trigger|module"
+        TEXT kind "NOT NULL; CHECK function|method|class|interface|type|const|sh_function|sql_table|sql_index|sql_trigger|module|hook"
         TEXT qualified_name "NOT NULL"
         TEXT signature "NOT NULL"
         TEXT doc "NOT NULL"
@@ -337,6 +339,7 @@ erDiagram
         TEXT body_hash "NOT NULL"
         INTEGER exported "NOT NULL"
         TEXT terms "NOT NULL"
+        INTEGER run_order
     }
 
     wm_edges {
@@ -346,6 +349,45 @@ erDiagram
         TEXT kind "NOT NULL; CHECK calls|imports|instantiates|sources|runs|reads_table|writes_table|indexes|triggers_on"
         TEXT resolution "NOT NULL; CHECK exact|name|unresolved"
         INTEGER line
+        TEXT hint
+    }
+
+    wm_concepts {
+        INTEGER id PK "NOT NULL"
+        TEXT repo "NOT NULL"
+        TEXT kind "NOT NULL; CHECK flow|subsystem|invariant"
+        TEXT name "NOT NULL"
+        TEXT body "NOT NULL"
+        TEXT status "NOT NULL; CHECK verified|suspect|broken|retired"
+        TEXT status_reason
+        TEXT verified_sha
+        TEXT verified_by
+        TEXT verified_at
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+        TEXT steps_text "NOT NULL"
+    }
+
+    wm_concept_steps {
+        INTEGER concept_id PK,FK "NOT NULL; → wm_concepts.id CASCADE"
+        INTEGER ordinal PK "NOT NULL"
+        TEXT repo "NOT NULL"
+        TEXT path "NOT NULL"
+        TEXT kind "NOT NULL"
+        TEXT qualified_name "NOT NULL"
+        TEXT description "NOT NULL"
+        TEXT handoff "CHECK calls|sources|runs|hook_fires"
+        TEXT hash_at_verify "NOT NULL"
+        TEXT trust "NOT NULL; CHECK verified|suspect|broken"
+        TEXT trust_reason
+    }
+
+    wm_concept_claims {
+        INTEGER id PK "NOT NULL"
+        INTEGER concept_id FK "NOT NULL; → wm_concepts.id CASCADE"
+        TEXT claim "NOT NULL; CHECK exists|calls|only_writers_of|tested_by"
+        TEXT args "NOT NULL"
+        TEXT last_result
     }
 
     wm_directories_embeddings {
@@ -719,7 +761,7 @@ Table constraints:
 | `id` | INTEGER | NOT NULL |  | PK |
 | `repo` | TEXT | NOT NULL |  |  |
 | `path` | TEXT | NOT NULL |  |  |
-| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module')` |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('function','method','class','interface','type','const','sh_function','sql_table','sql_index','sql_trigger','module','hook')` |
 | `qualified_name` | TEXT | NOT NULL |  |  |
 | `signature` | TEXT | NOT NULL | `''` |  |
 | `doc` | TEXT | NOT NULL | `''` |  |
@@ -728,6 +770,7 @@ Table constraints:
 | `body_hash` | TEXT | NOT NULL |  |  |
 | `exported` | INTEGER | NOT NULL | `0` |  |
 | `terms` | TEXT | NOT NULL | `''` |  |
+| `run_order` | INTEGER | nullable |  |  |
 
 Table constraints:
 
@@ -743,6 +786,59 @@ Table constraints:
 | `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('calls','imports','instantiates','sources','runs','reads_table','writes_table','indexes','triggers_on')` |
 | `resolution` | TEXT | NOT NULL | `'unresolved'` | CHECK `resolution IN ('exact','name','unresolved')` |
 | `line` | INTEGER | nullable |  |  |
+| `hint` | TEXT | nullable |  |  |
+
+### `wm_concepts`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `repo` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('flow','subsystem','invariant')` |
+| `name` | TEXT | NOT NULL |  |  |
+| `body` | TEXT | NOT NULL | `''` |  |
+| `status` | TEXT | NOT NULL | `'verified'` | CHECK `status IN ('verified','suspect','broken','retired')` |
+| `status_reason` | TEXT | nullable |  |  |
+| `verified_sha` | TEXT | nullable |  |  |
+| `verified_by` | TEXT | nullable |  |  |
+| `verified_at` | TEXT | nullable |  |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+| `steps_text` | TEXT | NOT NULL | `''` |  |
+
+Table constraints:
+
+- UNIQUE `(repo, name)`
+
+### `wm_concept_steps`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `concept_id` | INTEGER | NOT NULL |  | FK → `wm_concepts.id` ON DELETE CASCADE |
+| `ordinal` | INTEGER | NOT NULL |  |  |
+| `repo` | TEXT | NOT NULL |  |  |
+| `path` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL | `''` |  |
+| `qualified_name` | TEXT | NOT NULL | `''` |  |
+| `description` | TEXT | NOT NULL |  |  |
+| `handoff` | TEXT | nullable |  | CHECK `handoff IN ('calls','sources','runs','hook_fires')` |
+| `hash_at_verify` | TEXT | NOT NULL |  |  |
+| `trust` | TEXT | NOT NULL | `'verified'` | CHECK `trust IN ('verified','suspect','broken')` |
+| `trust_reason` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- PRIMARY KEY `(concept_id, ordinal)`
+
+### `wm_concept_claims`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK |
+| `concept_id` | INTEGER | NOT NULL |  | FK → `wm_concepts.id` ON DELETE CASCADE |
+| `claim` | TEXT | NOT NULL |  | CHECK `claim IN ('exists','calls','only_writers_of','tested_by')` |
+| `args` | TEXT | NOT NULL | `'{}'` |  |
+| `last_result` | TEXT | nullable |  |  |
 
 ### `wm_directories_embeddings`
 
@@ -793,6 +889,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `cheatcode_attachments` | `cheatcode_id` | `cheatcodes(id)` | CASCADE |
 | `wm_edges` | `src_id` | `wm_symbols(id)` | CASCADE |
 | `wm_edges` | `dst_id` | `wm_symbols(id)` | SET NULL |
+| `wm_concept_steps` | `concept_id` | `wm_concepts(id)` | CASCADE |
+| `wm_concept_claims` | `concept_id` | `wm_concepts(id)` | CASCADE |
 | `wm_directories_embeddings` | `dir_id` | `wm_directories(id)` | CASCADE |
 | `wm_files_embeddings` | `file_id` | `wm_files(id)` | CASCADE |
 
@@ -807,6 +905,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `wm_directories_fts` | `wm_directories.id` | `path`, `summary` | `porter unicode61` | `wm_directories_fts_config`, `wm_directories_fts_data`, `wm_directories_fts_docsize`, `wm_directories_fts_idx` | `wm_directories_ai` (AFTER INSERT), `wm_directories_ad` (AFTER DELETE), `wm_directories_au` (AFTER UPDATE), `wm_directories_embedding_stale` (AFTER UPDATE) |
 | `wm_files_fts` | `wm_files.id` | `path`, `purpose` | `porter unicode61` | `wm_files_fts_config`, `wm_files_fts_data`, `wm_files_fts_docsize`, `wm_files_fts_idx` | `wm_files_ai` (AFTER INSERT), `wm_files_ad` (AFTER DELETE), `wm_files_au` (AFTER UPDATE), `wm_files_embedding_stale` (AFTER UPDATE) |
 | `wm_symbols_fts` | `wm_symbols.id` | `terms`, `signature`, `doc` | `porter unicode61` | `wm_symbols_fts_config`, `wm_symbols_fts_data`, `wm_symbols_fts_docsize`, `wm_symbols_fts_idx` | `wm_symbols_ai` (AFTER INSERT), `wm_symbols_ad` (AFTER DELETE), `wm_symbols_au` (AFTER UPDATE) |
+| `wm_concepts_fts` | `wm_concepts.id` | `name`, `body`, `steps_text` | `porter unicode61` | `wm_concepts_fts_config`, `wm_concepts_fts_data`, `wm_concepts_fts_docsize`, `wm_concepts_fts_idx` | `wm_concepts_ai` (AFTER INSERT), `wm_concepts_ad` (AFTER DELETE), `wm_concepts_au` (AFTER UPDATE) |
 
 ## Indexes
 
@@ -836,6 +935,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_wm_files_dir` | `wm_files` | `repo, dir` |  |  |
 | `idx_wm_edges_src` | `wm_edges` | `src_id` |  |  |
 | `idx_wm_edges_dst` | `wm_edges` | `dst_id` |  |  |
+| `idx_wm_concept_steps_anchor` | `wm_concept_steps` | `repo, path` |  |  |
+| `idx_wm_concept_claims_concept` | `wm_concept_claims` | `concept_id` |  |  |
 | `idx_wm_directories_embeddings_model` | `wm_directories_embeddings` | `model_id` |  |  |
 | `idx_wm_files_embeddings_model` | `wm_files_embeddings` | `model_id` |  |  |
 | _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
@@ -845,6 +946,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | _UNIQUE constraint_ | `wm_directories` | `repo, path` | yes | |
 | _UNIQUE constraint_ | `wm_files` | `repo, path` | yes | |
 | _UNIQUE constraint_ | `wm_symbols` | `repo, path, kind, qualified_name` | yes | |
+| _UNIQUE constraint_ | `wm_concepts` | `repo, name` | yes | |
 
 ## Eval mode
 

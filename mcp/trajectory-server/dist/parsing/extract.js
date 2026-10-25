@@ -28,7 +28,8 @@ const EXTENSION_LANGUAGE = {
 };
 const SH_BUILTINS = new Set('echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh'.split(' '));
 export const STOPWORDS = new Set('a an the and or of to in on for with by is are was were be been when where what which who how why does do did it its this that these those from as at into per not no than then there their them our we you i set get'.split(' '));
-const md5 = (s) => createHash('md5').update(s).digest('hex');
+export const md5 = (s) => createHash('md5').update(s).digest('hex');
+export const DOC_MAX = 1000;
 export function splitWords(s) {
     return s
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -36,8 +37,8 @@ export function splitWords(s) {
         .toLowerCase()
         .trim();
 }
-const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const oneLine = (s) => s.replace(/\s+/g, ' ').trim();
+export const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+export const oneLine = (s) => s.replace(/\s+/g, ' ').trim();
 // A path is in symbol scope unless it is build output, a source map, a
 // lockfile or vendored code.
 export function inSymbolScope(relPath) {
@@ -75,13 +76,13 @@ function normalizedHash(node) {
         text = text.slice(0, c.startIndex - base) + text.slice(c.endIndex - base);
     return md5(oneLine(text));
 }
-// The comment block directly above a definition (or above its export).
+// The whole comment block directly above a definition (or above its export).
 export function docOf(node) {
     const anchor = node.parent?.type === 'export_statement' ? node.parent : node;
     const lines = [];
     let edge = anchor.startPosition.row;
     let prev = anchor.previousNamedSibling;
-    while (prev && prev.type === 'comment' && prev.endPosition.row >= edge - (lines.length === 0 ? 2 : 1) && lines.length < 7) {
+    while (prev && prev.type === 'comment' && prev.endPosition.row >= edge - (lines.length === 0 ? 2 : 1)) {
         lines.unshift(prev.text);
         edge = prev.startPosition.row;
         prev = prev.previousNamedSibling;
@@ -91,7 +92,24 @@ export function docOf(node) {
         .replace(/\*\//g, ' ')
         .replace(/^\s*(\/\*\*?|\*|\/\/+|#+)/gm, ' '))
         .join(' ');
-    return clip(oneLine(raw), 220);
+    return clip(oneLine(raw), DOC_MAX);
+}
+const STRING_PARTS = new Set(['string_fragment', 'escape_sequence']);
+// The text of a `description:` value built from string literals, joined
+// across `+` concatenation and template parts; null for any other value.
+function descriptionText(pair) {
+    if (pair.childForFieldName('key')?.text.replace(/['"]/g, '') !== 'description')
+        return null;
+    const value = pair.childForFieldName('value');
+    if (!value || !['string', 'template_string', 'binary_expression', 'parenthesized_expression'].includes(value.type)) {
+        return null;
+    }
+    const parts = value
+        .descendantsOfType([...STRING_PARTS])
+        .filter((n) => n !== null)
+        .map((n) => n.text);
+    const text = oneLine(parts.join(''));
+    return /[a-z]{3}/i.test(text) ? text : null;
 }
 // A definition's text up to its body, on one line.
 export function signatureOf(node, src) {
@@ -327,6 +345,12 @@ function extractTs(root, src, out, moduleSymbol) {
             }
             return;
         }
+        else if (t === 'pair' && scope !== moduleSymbol) {
+            const text = descriptionText(node);
+            const owner = out.symbols[scope];
+            if (text && owner)
+                owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
+        }
         else if (t === 'string' || t === 'template_string') {
             const text = node.text;
             for (const [kind, table] of sqlRefs(text))
@@ -391,7 +415,7 @@ function extractBash(root, out, moduleSymbol) {
 function moduleDoc(lang, src) {
     const out = [];
     const comment = lang === 'bash' || lang === 'sql' ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
-    for (const l of src.split('\n').slice(0, 30)) {
+    for (const l of src.split('\n')) {
         if (/^#!/.test(l))
             continue;
         const m = l.match(comment);
@@ -402,7 +426,7 @@ function moduleDoc(lang, src) {
         else if (out.length || l.trim())
             break;
     }
-    return clip(out.join(' '), 220);
+    return clip(out.join(' '), DOC_MAX);
 }
 // Every symbol of one file, the per-file 'module' row first, and the
 // references each one makes.

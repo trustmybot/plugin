@@ -15,6 +15,7 @@ import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
 import { indexRepoSymbols, type SymbolIndexStats } from '../symbol-index.js';
+import { refreshConcepts } from '../world-model/concepts.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes, type Remote } from '../repos/remotes.js';
@@ -830,6 +831,11 @@ async function persistScan(
       } catch (e) {
         symbols.error = `${r.name}: ${(e as Error).message}`;
         serverLog({ event: 'symbol_index_error', repo: r.name, error: (e as Error).message });
+      }
+      try {
+        refreshConcepts(db, r.name);
+      } catch (e) {
+        serverLog({ event: 'concept_refresh_error', repo: r.name, error: (e as Error).message });
       }
     }
   }

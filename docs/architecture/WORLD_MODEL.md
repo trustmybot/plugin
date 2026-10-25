@@ -18,11 +18,15 @@ The world model lives in the trajectory DB (`<project>/.claude/tmb/trajectory.db
 ```
 wm_directories            { id (PK), repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs }  UNIQUE (repo, path)
 wm_files                  { id (PK), repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at, symbols_md5 }  UNIQUE (repo, path)
-wm_symbols                { id (PK), repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms }  UNIQUE (repo, path, kind, qualified_name)
-wm_edges                  { src_id → wm_symbols.id (CASCADE), dst_id → wm_symbols.id (SET NULL), dst_name, kind, resolution, line }
+wm_symbols                { id (PK), repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms, run_order }  UNIQUE (repo, path, kind, qualified_name)
+wm_edges                  { src_id → wm_symbols.id (CASCADE), dst_id → wm_symbols.id (SET NULL), dst_name, kind, resolution, line, hint }
+wm_concepts               { id (PK), repo, kind, name, body, status, status_reason, verified_sha, verified_by, verified_at, created_at, updated_at, steps_text }  UNIQUE (repo, name)
+wm_concept_steps          { concept_id → wm_concepts.id (CASCADE), ordinal, repo, path, kind, qualified_name, description, handoff, hash_at_verify, trust, trust_reason }  PK (concept_id, ordinal)
+wm_concept_claims         { id (PK), concept_id → wm_concepts.id (CASCADE), claim, args, last_result }
 wm_directories_fts        FTS5 over (path, summary)
 wm_files_fts              FTS5 over (path, purpose)
 wm_symbols_fts            FTS5 over (terms, signature, doc), external content on wm_symbols
+wm_concepts_fts           FTS5 over (name, body, steps_text), external content on wm_concepts
 wm_directories_embeddings { dir_id → wm_directories.id, embedding, model_id, embedded_at }
 wm_files_embeddings       { file_id → wm_files.id, embedding, model_id, embedded_at }
 ```
@@ -45,11 +49,18 @@ Writer priority is swe > extraction: a scan never replaces an `swe` purpose. Fre
 
 - one `module` symbol (`qualified_name` = the path, `doc` = the file's header comment) that owns its imports and top-level calls;
 - top-level definitions: `function`, `method` (as `Class.method`), `class`, `interface`, `type` (type aliases and enums), `const`, `sh_function`, and from SQL (`.sql` files and DDL in code strings) `sql_table`, `sql_index`, `sql_trigger`. Arrow functions and function expressions count only when bound at the top level, so closures are not indexed;
+- from `hooks/hooks.json`, one `hook` symbol per registered hook, named `<Event>#<pos>:<gate>`, with `run_order` = event rank × 100 + position (Claude Code lifecycle order; events it does not name rank right after `Stop`, in file order) and a `runs` edge to `scripts/hooks/<gate>.sh`, or one per chain member, `line` holding the chain position, when `scripts/hooks/lib/registrations.sh` makes the gate a dispatch chain. `run_order` is NULL for every other symbol;
 - edges from each definition: `calls`, `instantiates` (`new X`), `imports`, `sources` and `runs` (shell), `reads_table` and `writes_table` (SQL in strings and heredocs), `indexes` and `triggers_on`.
 
-`signature` is the definition up to its body, `doc` the comment block directly above it, `body_hash` an md5 of the body with comments stripped, and `terms` the split-name words FTS indexes (`persistScan` → `persist scan`), plus the kind and file name. Calls resolve, in order, to a definition in the same file, the definition an import names, a function in a sourced shell file, or the one non-test definition of that name (4+ characters); the first three set `resolution='exact'`, the last `'name'`, and a call that matches none stays `'unresolved'` with `dst_id` NULL. Table edges resolve by name to a `sql_table`, preferring a non-test `.sql` file.
+`signature` is the definition up to its body, `doc` the full comment block directly above it plus any `description:` string inside the definition, capped at 1000 characters, `body_hash` an md5 of the body with comments stripped, and `terms` the split-name words FTS indexes (`persistScan` → `persist scan`), plus the kind and file name. Calls resolve, in order, to a definition in the same file, the definition an import names, a function in a sourced shell file, or the one non-test definition of that name (4+ characters); the first three set `resolution='exact'`, the last `'name'`, and a call that matches none stays `'unresolved'` with `dst_id` NULL. `hint` keeps the edge's import specifier. After indexing, the edges whose `dst_name` names a symbol this scan inserted and that are not `'exact'` or lost their target resolve again, and so does every edge whose target this scan deleted. A caller of a function added later in another file, moved to another file or re-created under a new kind ends as a fresh full index would leave it, without being re-parsed. Table edges resolve by name to a `sql_table`, preferring a non-test `.sql` file.
 
 Freshness is keyed by `symbols_md5`: a file is re-parsed only when it differs from `content_md5`. Re-parsing upserts the file's symbols by `(kind, qualified_name)`, so an unchanged symbol keeps its id and edges into it from other files stay attached; symbols gone from the file are deleted (their inbound edges' `dst_id` goes NULL and `resolution` back to `'unresolved'`), and the file's own edges are rebuilt and resolved. A file dropped from the tree takes its symbols and their edges with it. Build output (`dist/`), source maps, lockfiles, `node_modules/` and `vendor/` are not indexed, and neither are untracked files. The grammars load on the first scan that has a file to parse, never at server start.
+
+**Concepts (L2, v45, GH 1680).** The concept layer of [ADR 0002](./adr/0002-world-model-concept-layer.md): agent-written flows, subsystems and invariants, each an ordered list of steps. A step anchors the ADR 0001 key (`repo`, `path`, `kind`, `qualified_name`; `kind` `''` anchors the whole file), keeps the anchor's hash at write time (`body_hash`, or the file's `content_md5`), and names its `handoff` to the next step (`calls`, `sources`, `runs`, `hook_fires`; NULL on the last). The symbol is resolved from the key at read time. Claims (`exists`, `calls`, `only_writers_of`, `tested_by`) are checks over the index, stored with their `last_result`.
+
+- **Write.** `world_model_concept_upsert` replaces a concept by `(repo, name)` in one transaction and keeps its id. Every step must anchor a current symbol or file and every claim must pass, or it errors and writes nothing. `verified_sha` is `git rev-parse HEAD`.
+- **Refresh.** At the end of every scan, after symbol indexing, each live concept is re-checked: a moved hash makes its step `suspect`, a missing anchor `broken`, a failing claim breaks the concept. The concept takes its worst step's trust, and `status_reason` names each step or claim that is off (`step 3 isTestPath: changed since verification`). A re-upsert restores `verified`; `retired` concepts are skipped.
+- **Lane.** Paths under `test/`, `tests/`, `fixtures/` or `__fixtures__/` (and `*.test.*` files) never anchor a step or join a derived chain.
 
 ## Population
 
@@ -93,7 +104,7 @@ All three columns stay `NULL` for structural directories and for roots that are 
 
 Re-running `scan_run` is summary-preserving via upsert — existing rows update structural fields and refresh README-derived summaries.
 
-`scan_run` also has one SQLite side effect outside the graph: a resource-discovery pass (#124/#846) reconciles locally-present capabilities — project-local skills, enabled plugins, configured MCP servers — into the trajectory DB's `cheatcodes` table (`origin='installed'`, `source_url='scan_discovered'`). That write lands in the workflow tables; the world model holds only the directory, file and symbol layers. See [`CHEATCODES.md`](./CHEATCODES.md).
+`scan_run` also has one SQLite side effect outside the graph: a resource-discovery pass (#124/#846) reconciles locally-present capabilities — project-local skills, enabled plugins, configured MCP servers — into the trajectory DB's `cheatcodes` table (`origin='installed'`, `source_url='scan_discovered'`). That write lands in the workflow tables; the world model holds only the directory, file, symbol and concept layers. See [`CHEATCODES.md`](./CHEATCODES.md).
 
 ## Concurrency
 
@@ -109,6 +120,10 @@ The world model shares the trajectory DB's handle and its WAL-mode, busy-timeout
 `world_model_search(query, mode='hybrid')` searches directories by `path` + `summary`, files by `path` + `purpose`, and symbols by split name, signature and doc. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`), `kind: 'file'` (with `dir`, a framed `purpose`, `purpose_source`) or `kind: 'symbol'` (with `id`, `qualified_name`, `symbol_kind`, `path`, `line_start`, `line_end`, and `signature` and `doc` framed as `symbol-signature` / `symbol-doc` untrusted content) and a `score`, capped at `k` results overall. Directory results also carry `summary_sha`, `commits_behind`, `dead_refs` and `trust`.
 
 `world_model_symbol(id)` (or `qualified_name` with optional `repo` and `path`) returns one symbol's card: `{symbol, callers, callees, imports, reads_table, writes_table, tests}`. Each list holds up to 50 refs `{id, qualified_name, kind, repo, path, line_start}` plus a `truncated` flag. Callers are the non-test symbols that call, instantiate, run or source it; `tests` are the test-file symbols with any edge into it; for a `sql_table`, `reads_table` and `writes_table` list the readers and writers. When any edge of the symbol resolved by name or not at all, the card adds `note: "found by name; not all callers"`. Several definitions with the same name return `warning: 'ambiguous'` and their refs instead of a card.
+
+`world_model_concepts(query, repo?)` returns `{available, concepts, derived}`. `concepts` are bm25 hits over name (10), body (4) and the step descriptions (2), every word first, then any word when that finds fewer than 3; each is `{id, name, body, step_count, trust: {verified, suspect, broken}, rank}`. When none match, `derived` is a chain read off the index, `{label: 'derived, unverified', steps}`: the top symbol hit seeds a breadth-first walk over `exact` `calls`, `sources` and `runs` edges in source-line order, to depth 4 and at most 8 steps, skipping the test lane. Each step's description is its symbol's doc, else its signature, framed as `symbol-doc` untrusted content. `available` is false until the repo has been scanned.
+
+`world_model_concept_get(id)` returns `{id, name, body, status, status_reason, updated_at, steps}`, steps in ordinal order, each `{ordinal, description, trust, trust_reason, handoff, symbol}`. `symbol` is `{id, repo, path, kind, qualified_name, signature, doc, line_start, line_end}` resolved now, or `null` with trust `broken` when the anchor is gone. A file anchor resolves to `{id: null, repo, path, kind: 'file', qualified_name: <path>, signature: null, doc: null, line_start: null, line_end: null}` and keeps its stored trust.
 
 `trust` reads the drift columns: `'current'` when `commits_behind` is 0 and there are no dead refs, `'drifting(n)'` when `commits_behind` is n > 0, with `'dead_refs(k)'` appended after `, ` when the README names k dead paths (`'dead_refs(k)'` alone on an otherwise current README), and `null` for structural directories and non-git roots.
 
@@ -132,6 +147,7 @@ Embeddings are computed on demand: each `semantic` or `hybrid` search embeds up 
 | "Where in this codebase does X live" | `world_model_search(query='X', mode='hybrid')` |
 | Zoom into one part | `world_model_get(path='src/api', depth=1)` — includes each file's purpose |
 | "Who calls X / what does X touch" | `world_model_symbol(id)` from a search hit, or `world_model_symbol(qualified_name='X')` |
+| "How does flow X work" | `world_model_concepts(query='X')`, then `world_model_concept_get(id)` |
 | File-level detail (rare) | direct Read with explicit paths |
 
 ## Consumers
@@ -145,6 +161,6 @@ The world model has had four substrates, each replacing the last:
 - **`file_registry` (v6)** — one row per file (md5 + an LLM summary). Wrong granularity (a file summary says what a file *contains*, not what part of the system it *serves*), drift-sensitive (a one-line edit cleared the summary), and token-heavy. Dropped in v7.
 - **SQLite `directories` table (v7)** — the dir-level model as a stepping stone inside the existing trajectory DB. It validated that a README-first directory map is the right cold-start surface: ~10× fewer rows than per-file, and directory summaries change monthly (a part's role) rather than per-commit (a file's contents). Dropped in v8.
 - **Embedded graph DB (v8–v41)** — the same dir-level model on a separate graph engine, chosen for the import/call relations to follow. Its single-writer lock, native-binding install and exit-time crashes cost more than the graph queries it never ran. Schema v8 dropped the SQLite `directories` tables.
-- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map. v43 added the README drift columns (`summary_sha`, `commits_behind`, `dead_refs`) to `wm_directories` in place; they stay `NULL` until the next scan. v44 added the L1 symbol layer (`wm_symbols`, `wm_edges`, `wm_symbols_fts`) and `wm_files.symbols_md5`, which stays `NULL` until the next scan parses the file.
+- **`wm_` tables (v42, current)** — the directory and file layers back in the trajectory DB, with FTS5, embeddings and recursive-CTE tree walks. The old graph files are not migrated; `/scan` rebuilds the map. v43 added the README drift columns (`summary_sha`, `commits_behind`, `dead_refs`) to `wm_directories` in place; they stay `NULL` until the next scan. v44 added the L1 symbol layer (`wm_symbols`, `wm_edges`, `wm_symbols_fts`) and `wm_files.symbols_md5`, which stays `NULL` until the next scan parses the file. v45 added the L2 concept layer (`wm_concepts`, `wm_concept_steps`, `wm_concept_claims`, `wm_concepts_fts`), `wm_symbols.run_order` with the `hook` kind, and `wm_edges.hint`; it clears `symbols_md5`, so the next scan re-parses every file.
 
 File rows bring per-file state back with the two `file_registry` faults fixed: a purpose is one deterministic line (what the file is for, not what it contains) at zero token cost, and an edit only re-extracts when the content hash changes while an swe-written purpose survives it.
