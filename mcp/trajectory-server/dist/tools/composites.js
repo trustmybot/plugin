@@ -17,6 +17,7 @@ import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { FINDING_ORDER_SQL, activeFindingProbes, gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit, } from './verification-runs.js';
 import { parseSpawnNote, parseStoredReport, reportMissingIds, specCriteriaProblem, specCriterionIds, SPAWN_NOTE_MAX_CHARS, } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
+import { enrollEffortAb } from '../effort-ab.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
 // entry is a path; its dirname is the directory ('' = repo root). task_brief
@@ -881,11 +882,12 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (task.effort !== undefined && task.effort !== null && !isEffort(task.effort)) {
                 return err(`typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(task.effort)}.`);
             }
-            const { effort, reason: effortReason } = computeEffort(db, {
+            const computedEffort = computeEffort(db, {
                 effort: task.effort,
                 prompt_bearing: promptBearing,
                 files,
             });
+            const { effort } = computedEffort;
             const slug = branchId.replace(/^[^/]+\//, '');
             const specShapeWaived = args['waive_spec_shape'] === true;
             const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '');
@@ -1074,6 +1076,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
+                const assigned = enrollEffortAb(db, computedEffort, {
+                    id: row.id, issue_id: issueId, branch_id: branchId, from_node: agent, created_at: now,
+                });
                 insertDiscussion(db, {
                     issue_id: issueId,
                     author: agent,
@@ -1105,7 +1110,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 if (specShapeWaived) {
                     insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
                 }
-                return { task_id: row.id };
+                return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason };
             });
             // --- WORKTREE SIDE-EFFECT AFTER THE COMMIT (fail-soft) ---
             // The branch ref + task row are committed; the worktree is the only
@@ -1129,8 +1134,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 branch_id: branchId,
                 repo: repoValue,
                 slug,
-                effort,
-                effort_reason: effortReason,
+                effort: result.effort,
+                effort_reason: result.effort_reason,
                 worktree_path: worktreePath,
                 git_setup: gitSetup,
                 worktree_reused: worktreeReused,

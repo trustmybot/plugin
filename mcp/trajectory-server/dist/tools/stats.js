@@ -132,7 +132,7 @@ function reworkKinds(db, taskId) {
 // Computed at read time, nothing stored. wall_clock_ms runs from the task's
 // created_at to its close (updated_at of a closed task: the close is its last
 // write) or to now while it is open; null for an unknown task.
-function reworkStats(db, taskId, now) {
+export function reworkStats(db, taskId, now) {
     const task = db.get('SELECT status, created_at, updated_at FROM tasks WHERE id = ?', [taskId]);
     const fails = db.get("SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND verdict = 'fail'", [taskId]);
     const spawns = db.get(`SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
@@ -145,6 +145,12 @@ function reworkStats(db, taskId, now) {
         rework_count: reworkCount(sweSpawnCount),
         reworks: reworkKinds(db, taskId),
     };
+}
+/** Tool calls and cache-read tokens summed over every swe spawn of the task. */
+export function sweRunTotals(db, taskId) {
+    const row = db.get(`SELECT COALESCE(SUM(tool_uses), 0) AS tool_uses, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+       FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
+    return { tool_uses: row?.tool_uses ?? 0, cache_read_tokens: row?.cache_read_tokens ?? 0 };
 }
 export function statsTools(db, clock = () => new Date()) {
     const definitions = [

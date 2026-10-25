@@ -51,6 +51,7 @@ import {
   SPAWN_NOTE_MAX_CHARS,
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
+import { enrollEffortAb } from '../effort-ab.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -1046,11 +1047,12 @@ export function compositeTools(
             `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(task.effort)}.`,
           );
         }
-        const { effort, reason: effortReason } = computeEffort(db, {
+        const computedEffort = computeEffort(db, {
           effort: task.effort,
           prompt_bearing: promptBearing,
           files,
         });
+        const { effort } = computedEffort;
 
         const slug = branchId.replace(/^[^/]+\//, '');
 
@@ -1267,6 +1269,9 @@ export function compositeTools(
             'SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (!row) throw new Error('task_provision: task insert succeeded but row lookup failed');
+          const assigned = enrollEffortAb(db, computedEffort, {
+            id: row.id, issue_id: issueId, branch_id: branchId, from_node: agent, created_at: now,
+          });
 
           insertDiscussion(db, {
             issue_id: issueId,
@@ -1303,7 +1308,7 @@ export function compositeTools(
             insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
           }
 
-          return { task_id: row.id };
+          return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason };
         });
 
         // --- WORKTREE SIDE-EFFECT AFTER THE COMMIT (fail-soft) ---
@@ -1329,8 +1334,8 @@ export function compositeTools(
           branch_id: branchId,
           repo: repoValue,
           slug,
-          effort,
-          effort_reason: effortReason,
+          effort: result.effort,
+          effort_reason: result.effort_reason,
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,

@@ -83,6 +83,28 @@ function pathsOverlap(file, prefix) {
     const b = stripTrailingSlash(prefix);
     return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
 }
+export const SWE_EFFORT_AB_KEY = 'swe_effort_ab';
+export function isEffortAbConfig(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value))
+        return false;
+    const { label, target } = value;
+    return typeof label === 'string' && label.trim().length > 0 && Number.isInteger(target) && target > 0;
+}
+/** The swe effort A/B (GH 1745); unset, unparseable or malformed reads as off (null). */
+export function readEffortAb(db) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [SWE_EFFORT_AB_KEY]);
+    if (!row)
+        return null;
+    try {
+        const value = JSON.parse(row.value_json);
+        if (isEffortAbConfig(value))
+            return { label: value.label, target: value.target };
+    }
+    catch {
+        // An unparseable stored value reads as unset.
+    }
+    return null;
+}
 /**
  * The effort a swe task runs at: an explicit valid effort wins; otherwise the
  * swe_default_effort (the task's current effort for a rework), raised to high
@@ -126,6 +148,9 @@ function validateKnownConfigValue(key, value) {
             throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be an array of non-empty strings, got ${JSON.stringify(value)}.`);
         }
         return;
+    }
+    if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
+        throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`);
     }
     if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
         throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(value)}.`);

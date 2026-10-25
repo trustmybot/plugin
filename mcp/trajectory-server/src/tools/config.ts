@@ -110,7 +110,36 @@ function pathsOverlap(file: string, prefix: string): boolean {
   return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
 }
 
-export type EffortReason = 'explicit' | 'default' | 'prompt_bearing' | 'high_effort_paths' | 'rework';
+export const SWE_EFFORT_AB_KEY = 'swe_effort_ab';
+
+export interface EffortAbConfig {
+  readonly label: string;
+  readonly target: number;
+}
+
+export function isEffortAbConfig(value: unknown): value is EffortAbConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const { label, target } = value as Record<string, unknown>;
+  return typeof label === 'string' && label.trim().length > 0 && Number.isInteger(target) && (target as number) > 0;
+}
+
+/** The swe effort A/B (GH 1745); unset, unparseable or malformed reads as off (null). */
+export function readEffortAb(db: Pick<TrajectoryDB, 'get'>): EffortAbConfig | null {
+  const row = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [SWE_EFFORT_AB_KEY],
+  );
+  if (!row) return null;
+  try {
+    const value: unknown = JSON.parse(row.value_json);
+    if (isEffortAbConfig(value)) return { label: value.label, target: value.target };
+  } catch {
+    // An unparseable stored value reads as unset.
+  }
+  return null;
+}
+
+export type EffortReason = 'explicit' | 'default' | 'prompt_bearing' | 'high_effort_paths' | 'rework' | 'ab_arm';
 
 export interface ComputeEffortInput {
   readonly effort?: unknown;
@@ -177,6 +206,11 @@ function validateKnownConfigValue(key: string, value: unknown): void {
       );
     }
     return;
+  }
+  if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`,
+    );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
     throw new Error(
