@@ -212,7 +212,7 @@ describe('Codex runtime manager', () => {
       assert.equal(created.project_root, realpathSync(project));
       assert.equal(created.plugin_name, plugin.name);
       assert.equal(created.plugin_version, plugin.version);
-      assert.equal(created.schema_version, 46);
+      assert.equal(created.schema_version, 47);
       assert.equal(created.graph_available, true);
       assert.equal(created.graph_status, 'ready');
       assert.equal(created.graph_db, created.trajectory_db);

@@ -1054,6 +1054,30 @@ describe('bro_atomic_close — verification gate (GH 1672)', () => {
             cleanup();
         }
     });
+    it('a recorded review finding voids a run of verification[] alone: the run must also carry each non-wontfix probe (GH 1737)', async () => {
+        const { db, composites, taskId, cleanup } = await setup();
+        try {
+            const sha = 'abcdef1234567890abcdef1234567890abcdef12';
+            const now = new Date().toISOString();
+            db.run(`INSERT INTO review_findings (id, task_id, attempt_n, probe_cmd, expected, observed, status, created_at)
+         VALUES (?, ?, 1, 'npm test', 'exit 0', 'exit 1', 'open', ?), (?, ?, 1, 'exit 9', 'exit 0', 'exit 9', 'wontfix', ?),
+                (?, ?, 1, 'bash l3.sh', 'exit 0', 'exit 2', 'fixed', ?)`, [`F${taskId}-1`, taskId, now, `F${taskId}-2`, taskId, now, `F${taskId}-10`, taskId, now]);
+            seedRun(db, taskId, sha, ['bash lint.sh']);
+            const refused = parse(await close(composites, taskId))['error'];
+            assert.match(refused, /^verification_run_missing: /);
+            assert.match(refused, /3 gate command\(s\)/);
+            assert.match(refused, /review finding probes/);
+            seedRun(db, taskId, sha, ['bash lint.sh', `[probe F${taskId}-10] bash l3.sh`, `[probe F${taskId}-1] npm test`]);
+            assert.equal((await close(composites, taskId)).isError, true, 'probes out of id order do not match');
+            seedRun(db, taskId, sha, ['bash lint.sh', `[probe F${taskId}-1] npm test`, `[probe F${taskId}-10] bash l3.sh`]);
+            const r = await close(composites, taskId);
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(status(db, taskId), 'closed');
+        }
+        finally {
+            cleanup();
+        }
+    });
     it('a task with verification[] and no run for the commit is refused; a run for another commit does not count', async () => {
         const { db, composites, taskId, cleanup } = await setup();
         try {

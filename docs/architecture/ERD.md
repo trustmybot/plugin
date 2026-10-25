@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 46`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 47`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -10,7 +10,7 @@ Tables fall in four groups (capability catalog unified into `cheatcodes` in #101
 
 | Group | Tables | Keyed by |
 |---|---|---|
-| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `pr_review_runs`, `verification_runs`, `verification_run_commands` | `issue_id` or `task_id` (directly or transitively) |
+| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `pr_review_runs`, `verification_runs`, `verification_run_commands`, `review_findings` | `issue_id` or `task_id` (directly or transitively) |
 | **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta` | own primary keys; not tied to any issue |
 | **Search** | `discussions_embeddings`, `audit_embeddings`, and the FTS5 tables `discussions_fts`, `audit_fts` with their shadow tables | the source row's id |
 | **Eval mode** (`schema-eval.sql`, only with `TMB_EVAL_MODE=1`) | `debug_trajectory`, `eval_results` | own primary keys |
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 46`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 47`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -46,6 +46,7 @@ erDiagram
     repos |o--o{ validation_attempts : "repo (RESTRICT)"
     tasks ||--o{ verification_runs : "task_id (CASCADE)"
     verification_runs ||--o{ verification_run_commands : "run_id (CASCADE)"
+    tasks ||--o{ review_findings : "task_id (CASCADE)"
     issues ||--o{ roundtables : "issue_id (NO ACTION)"
     roundtables ||--o{ roundtable_votes : "roundtable_id (NO ACTION)"
     issues ||--o{ discussions : "issue_id (NO ACTION)"
@@ -175,6 +176,19 @@ erDiagram
         INTEGER exit_code
         REAL elapsed_s
         TEXT output_tail
+    }
+
+    review_findings {
+        TEXT id PK
+        INTEGER task_id FK "NOT NULL; → tasks.id CASCADE"
+        INTEGER attempt_n "NOT NULL"
+        TEXT criterion_id
+        TEXT probe_cmd "NOT NULL"
+        TEXT expected "NOT NULL"
+        TEXT observed "NOT NULL"
+        TEXT status "NOT NULL; CHECK open|fixed|wontfix"
+        TEXT created_at "NOT NULL"
+        TEXT resolved_at
     }
 
     agents {
@@ -560,6 +574,21 @@ Table constraints:
 
 - PRIMARY KEY `(run_id, ordinal)`
 
+### `review_findings`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | TEXT | nullable |  | PK |
+| `task_id` | INTEGER | NOT NULL |  | FK → `tasks.id` ON DELETE CASCADE |
+| `attempt_n` | INTEGER | NOT NULL |  |  |
+| `criterion_id` | TEXT | nullable |  |  |
+| `probe_cmd` | TEXT | NOT NULL |  |  |
+| `expected` | TEXT | NOT NULL |  |  |
+| `observed` | TEXT | NOT NULL |  |  |
+| `status` | TEXT | NOT NULL | `'open'` | CHECK `status IN ('open','fixed','wontfix')` |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `resolved_at` | TEXT | nullable |  |  |
+
 ### `agents`
 
 | Column | Type | Null | Default | Constraints |
@@ -882,6 +911,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `validation_attempts` | `repo` | `repos(name)` | RESTRICT |
 | `verification_runs` | `task_id` | `tasks(id)` | CASCADE |
 | `verification_run_commands` | `run_id` | `verification_runs(id)` | CASCADE |
+| `review_findings` | `task_id` | `tasks(id)` | CASCADE |
 | `roundtables` | `issue_id` | `issues(id)` | NO ACTION |
 | `roundtable_votes` | `roundtable_id` | `roundtables(id)` | NO ACTION |
 | `discussions` | `issue_id` | `issues(id)` | NO ACTION |
@@ -926,6 +956,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_tasks_status` | `tasks` | `status` |  |  |
 | `idx_tasks_commit_sha` | `tasks` | `commit_sha` |  |  |
 | `idx_verification_runs_task_commit` | `verification_runs` | `task_id, commit_sha, finished_at` |  |  |
+| `idx_review_findings_task_status` | `review_findings` | `task_id, status` |  |  |
 | `idx_discussions_issue_created` | `discussions` | `issue_id, created_at` |  |  |
 | `idx_discussions_remote_comment` | `discussions` | `remote_comment_id` | yes | `remote_comment_id IS NOT NULL` |
 | `idx_discussions_task` | `discussions` | `task_id` |  | `task_id IS NOT NULL` |
@@ -1014,6 +1045,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 - `validation_attempts` → `tasks.id`: every pr-reviewer verdict belongs to one task.
 - `agent_runs` → `tasks.id` / `issues.id`: per-task and per-issue resource tracking.
 - `verification_runs` → `tasks.id` and `verification_run_commands` → `verification_runs.id` (`ON DELETE CASCADE`): a task's recorded verification runs, and each run's commands, go with it.
+- `review_findings` → `tasks.id` (`ON DELETE CASCADE`, v47, GH 1737): a task's review findings go with it; `attempt_n` names the `validation_attempts` row that raised the finding, with no FK.
 - `repo` on `issues`, `tasks`, `audit`, `discussions`, `validation_attempts`, `agent_runs` → `repos.name` (`ON DELETE RESTRICT`): populated at write time — `audit` and `discussions` from the parent issue's repo (an explicit `repo` wins; NULL for the system issue `-1`), `validation_attempts` from the task's repo else its issue's, `agent_runs` from the task's repo. `pr_review_runs.repo` holds the remote's host slug, not a `repos.name`, and carries no FK.
 - `milestones.repo` → `repos.name` and `issues.(milestone, repo)` → `milestones.(name, repo)` (`ON DELETE RESTRICT`): a milestone belongs to one repo, and an issue's milestone is scoped to the issue's repo; the composite FK is nullable, so an issue need not carry a milestone.
 - `repo_remotes.repo` → `repos.name` (`ON DELETE CASCADE ON UPDATE CASCADE`): a repo's git remotes go with the repo, and follow a rename.
@@ -1045,7 +1077,8 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 | `agent_runs` | One row per metered run of an agent, covering the time window `[started_at, completed_at)`. Bro has one row per CC session (`task_id` and `issue_id` NULL), written and metered by the `bro-turn-usage.sh` Stop hook; per-task bro rows opened by older versions stay as history. Swe rows open at the Agent spawn (`record-swe-spawn.sh`, `spawn_id` = `tool_use:<tool_use_id>`, with `session_id` and `effort`), are bound to the subagent's `agent_id` at its first `task_brief` (`swe-brief-gate.sh`; `task_brief` opens one itself when the spawn left none) and are metered by the `swe-atomic-close.sh` SubagentStop hook, whose latest stop sets `exit_reason`. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it (the key of a bro row). The total is computed, not stored (`tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens`). `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` closes rows left open on already-terminal tasks. Schema v33 adds four audit columns: `root_dir` (where the run may write — the project for bro rows, the task worktree for swe rows; read by the `containment-guard` hook), `model` (the dominant `message.model` of the run, written by the metering hooks), `host` (`claude`/`codex`) and `exit_reason` (stamped by whoever closes the row; see ENUMS). `task_stats` counts a task's swe and pr-reviewer rows and prices them by `plugin_config.model_prices` (`{"<model>": {input, output, cache_read, cache_creation}}` USD per 1M tokens, seeded `{}`) into `cost_estimate`, with unpriced rows' tokens reported as `unpriced_tokens`. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task, which is how `pr_monitor_comments_get` finds the issue that carries the PR's comments. |
 | `verification_runs` | One row per run of a task's typed `verification[]` (schema v36, GH 1294). The writer is `swe-verification-gate.sh` (`source = 'gate'`; `manual` is reserved, nothing writes it yet) through `scripts/hooks/lib/verification-runs.sh`: the row when the run starts (`commit_sha` = the worktree HEAD, `budget_s`), then `finished_at`, `exit_code` and `timed_out` when it ends — each its own transaction, so a run killed mid-way keeps its partial record; `finished_at` and `exit_code` are NULL only while a run is in progress. The gate allows a close without running anything when a passing run for the same task and worktree HEAD, with command rows equal to the current `verification[]`, finished within the hour (`idx_verification_runs_task_commit`). `bro_atomic_close` reads the same match, with no age limit, for the closing commit and refuses with `verification_run_missing` when neither such a run nor a `verification_gate_waived` row exists (GH 1672). `task_brief.verification_run` returns a task's latest run and `validation_history` attaches the latest run started by each attempt, so bro and pr-reviewer read the result instead of re-running it. |
-| `verification_run_commands` | One row per command of a verification run, in `verification[]` order (`ordinal` from 1), written after the command ends: `exit_code` (124 on the command the budget ran out on), `elapsed_s`, and `output_tail` (the last 20 lines, capped at 4000 characters). |
+| `verification_run_commands` | One row per command of a verification run, in `verification[]` order (`ordinal` from 1), written after the command ends: `exit_code` (124 on the command the budget ran out on), `elapsed_s`, and `output_tail` (the last 20 lines, capped at 4000 characters). Review finding probes are recorded after the `verification[]` lines as `[probe <id>] <probe_cmd>`. |
+| `review_findings` | One row per finding a pr-reviewer `fail` or `escalate` verdict raises (schema v47, GH 1737). `validation_record` writes them from its required `findings[]` with ids `F<task>-<n>` and `status = 'open'`; re-recording the same attempt replaces its still-open rows and never reuses an id. `swe-verification-gate.sh` runs every non-`wontfix` row's `probe_cmd` after `verification[]` on every close attempt: a passing probe moves an `open` row to `fixed` with `resolved_at`, and any failing probe denies the close, naming a failing `fixed` row as a regression. `bro_atomic_close` only counts a verification run whose commands cover the current probes. `task_brief.open_findings` lists the `open` rows. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
 | `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write (`insertDiscussion`); rows written outside the server are embedded by the boot-time backfill and by a lazy tick (up to 50 rows) at the start of every `discussion_search`. Used by the `discussion_search` semantic path. |
@@ -1102,6 +1135,7 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `no_unconsumed_reviewer_observations` | warn | no `reviewer_identity_observed` audit row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer `validation_record` call that never recorded a verdict; `validation_record` never consumes a row past its 600 s freshness window, and a row left by a retried call is superseded when the retry's row is consumed) |
 | `verification_recorded_for_closed_tasks` | warn | every task closed in the last 7 days, and not before the first recorded run (`MIN(verification_runs.started_at)`: the v36 migration keeps no applied-at timestamp), with a `commit_sha`, a non-empty `verification[]` and no `verification_gate_waived` row has a `verification_runs` row for that commit (a run's full sha matches a short `tasks.commit_sha` by prefix; min_schema 36); skipped as `no_verification_runs_recorded` while no run is recorded |
 | `no_unfinished_verification_runs` | warn | no `verification_runs` row started more than 2 hours ago still has `finished_at` NULL — the gate was killed, or its finish write failed after its retries (min_schema 36) |
+| `review_findings_resolved_at_matches_status` | warn | every `fixed` `review_findings` row has `resolved_at` and no `open` one does — the verification gate sets both when an open finding's probe passes (min_schema 47) |
 | `no_fixture_rows_in_inventory` | warn | no `plugin` / `mcp` `cheatcodes` row carries a scan test-fixture name (`alpha`, `beta`, `alpha-server`, `fixture-*`, `test-plugin*`, or a `<name>@tmb-test-market` ref) — such a row means a test's `scan.sh` run reached this DB; report only: agents never delete these rows, the Human decides |
 | `embeddings_not_degraded` | warn | no `embeddings_degraded` audit row from the last 24 hours lacks a later `embeddings_recovered` row (semantic search is on its FTS fallback) |
 | `populated_agent_runs_session_id` | warn | NULL rate over rows started in the last 30 days, and not before the first run carrying a `root_dir` (plugin_meta keeps no applied-at timestamp; earlier rows predate the writers; min_schema 33) ≤ 0.2 |

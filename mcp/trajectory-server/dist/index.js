@@ -25436,7 +25436,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 46;
+var TARGET_SCHEMA_VERSION = 47;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -25981,6 +25981,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 46 && toVersion >= 46) {
     migrateV45toV46(db2);
+  }
+  if (fromVersion < 47 && toVersion >= 47) {
+    migrateV46toV47(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27663,6 +27666,25 @@ function migrateV45toV46(db2) {
     }
     throw err21;
   }
+}
+function migrateV46toV47(db2) {
+  if (!tableExists(db2, "tasks")) return;
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS review_findings (
+      id           TEXT    PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      attempt_n    INTEGER NOT NULL,
+      criterion_id TEXT,
+      probe_cmd    TEXT    NOT NULL,
+      expected     TEXT    NOT NULL,
+      observed     TEXT    NOT NULL,
+      status       TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','fixed','wontfix')),
+      created_at   TEXT    NOT NULL,
+      resolved_at  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
+      ON review_findings(task_id, status);
+  `);
 }
 function migrateV22toV23(db2) {
   const soleRepo = () => {
@@ -33896,8 +33918,23 @@ function taskTools(db2) {
 }
 
 // src/tools/verification-runs.ts
-function gateCommands(verification) {
-  return verification.flatMap((entry) => entry.split("\n")).filter((line) => line !== "");
+function probeCommand(probe) {
+  return `[probe ${probe.id}] ${probe.probe_cmd}`;
+}
+var FINDING_ORDER_SQL = "CAST(substr(id, instr(id, '-') + 1) AS INTEGER)";
+function activeFindingProbes(db2, taskId) {
+  const table = db2.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_findings'");
+  if (!table) return [];
+  return db2.all(
+    `SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix' ORDER BY ${FINDING_ORDER_SQL}`,
+    [taskId]
+  ).map((f) => ({ id: f.id, probe_cmd: f.probe_cmd }));
+}
+function gateCommands(verification, probes = []) {
+  return [
+    ...verification.flatMap((entry) => entry.split("\n")).filter((line) => line !== ""),
+    ...probes.map(probeCommand)
+  ];
 }
 var shaMatches = (col) => `(substr(lower(${col}), 1, length(?)) = ? OR substr(?, 1, length(${col})) = lower(${col}))`;
 function passingRunForCommit(db2, taskId, commitSha, commands) {
@@ -34022,6 +34059,51 @@ function observationAgeS(observation, nowMs) {
   const observedMs = Date.parse(String(observation.observed_at ?? ""));
   return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1e3) : Number.POSITIVE_INFINITY;
 }
+var FINDING_KEYS = /* @__PURE__ */ new Set(["criterion_id", "probe_cmd", "expected", "observed"]);
+function parseFindings(verdict, raw) {
+  const list = raw === void 0 || raw === null ? [] : raw;
+  if (!Array.isArray(list)) {
+    throw new Error(`findings must be an array of {criterion_id?, probe_cmd, expected, observed}; got ${typeof raw}`);
+  }
+  if (verdict === "pass") {
+    if (list.length > 0) {
+      throw new Error(`findings_refused: a pass verdict records no findings; got ${list.length}. Send findings only with verdict fail or escalate.`);
+    }
+    return [];
+  }
+  if (list.length === 0) {
+    throw new Error(
+      `findings_required: a ${verdict} verdict needs a non-empty findings[] \u2014 one {criterion_id?, probe_cmd, expected, observed} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`
+    );
+  }
+  return list.map((item, i2) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error(`findings[${i2}] must be an object {criterion_id?, probe_cmd, expected, observed}`);
+    }
+    const entry = item;
+    const unknown2 = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
+    if (unknown2.length > 0) {
+      throw new Error(`findings[${i2}] has unknown field(s) ${unknown2.join(", ")}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(", ")}`);
+    }
+    const text = (field2) => {
+      const v = entry[field2];
+      if (typeof v !== "string" || v.trim() === "") {
+        throw new Error(`findings[${i2}].${field2} must be a non-empty string`);
+      }
+      return v.trim();
+    };
+    const criterion = entry["criterion_id"];
+    if (criterion !== void 0 && criterion !== null && (typeof criterion !== "string" || criterion.trim() === "")) {
+      throw new Error(`findings[${i2}].criterion_id must be a non-empty string or null`);
+    }
+    return {
+      criterion_id: typeof criterion === "string" ? criterion.trim() : null,
+      probe_cmd: text("probe_cmd"),
+      expected: text("expected"),
+      observed: text("observed")
+    };
+  });
+}
 function coerceTaskId(raw) {
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
@@ -34035,7 +34117,7 @@ function validationTools(db2) {
   const definitions = [
     {
       name: "validation_record",
-      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.",
+      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail/escalate require findings[] and pass refuses them; each becomes a review_findings row the close gate re-probes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -34045,7 +34127,25 @@ function validationTools(db2) {
           verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
           feedback: { type: "string" },
           mcp_available: { type: "boolean", description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
-          subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." }
+          subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." },
+          findings: {
+            type: "array",
+            description: "Required and non-empty when verdict is fail or escalate; refused (must be absent or []) when verdict is pass. One entry per defect. The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt's open findings. On every later task_update_status(completed) the swe verification gate runs each non-wontfix finding's probe_cmd after verification[]: a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. task_brief.open_findings shows the open ones to the swe.",
+            items: {
+              type: "object",
+              properties: {
+                criterion_id: { type: "string", description: 'The spec Success Criteria id the finding breaks (e.g. "SC2"). Omit or null when it covers no single criterion.' },
+                probe_cmd: {
+                  type: "string",
+                  description: 'Self-contained shell command, run with bash -c from the task worktree root, that exits 0 once the finding is fixed and non-zero while it stands. Inline node -e, bash -c or a heredoc is fine; it must not depend on files only the reviewer has. Example: grep -q "findings" mcp/trajectory-server/src/tools/validation.ts'
+                },
+                expected: { type: "string", description: "What correct behaviour looks like (what the probe checks for)." },
+                observed: { type: "string", description: "What the reviewer saw instead, with the file:line or output that shows it." }
+              },
+              required: ["probe_cmd", "expected", "observed"],
+              additionalProperties: false
+            }
+          }
         },
         required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
       }
@@ -34091,6 +34191,7 @@ function validationTools(db2) {
           `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(", ")}`
         );
       }
+      const findings = parseFindings(verdict, args2["findings"]);
       const taskExists = db2.get(
         `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
@@ -34104,6 +34205,7 @@ function validationTools(db2) {
       const feedback = args2["feedback"];
       const now2 = nowISO();
       const callerSessionId = typeof args2["subagent_session_id"] === "string" ? args2["subagent_session_id"] : null;
+      const findingIds = [];
       db2.transaction(() => {
         if (mcpAvailable === 0) {
           const verified = db2.get(
@@ -34187,12 +34289,30 @@ function validationTools(db2) {
              repo = excluded.repo`,
           [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now2, taskExists.repo]
         );
+        const lastN = db2.get(
+          `SELECT MAX(${FINDING_ORDER_SQL}) AS n FROM review_findings WHERE task_id = ?`,
+          [taskId]
+        )?.n ?? 0;
+        db2.run(
+          `DELETE FROM review_findings WHERE task_id = ? AND attempt_n = ? AND status = 'open'`,
+          [taskId, attemptN]
+        );
+        findings.forEach((f, i2) => {
+          const id = `F${taskId}-${lastN + i2 + 1}`;
+          db2.run(
+            `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+            [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now2]
+          );
+          findingIds.push(id);
+        });
       });
       const row = db2.get(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
         [taskId, attemptN]
       );
-      return ok7(row);
+      const recorded = findingIds.map((id) => ({ ...db2.get("SELECT * FROM review_findings WHERE id = ?", [id]) }));
+      return ok7({ ...row, findings: recorded });
     })),
     validation_history: wrapHandler6(async (args2) => {
       const agent = normalizeAgent(args2["agent"]);
@@ -36726,7 +36846,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] closes only on a passing verification_runs row for the commit whose commands match the current verification[] (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
+      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
       inputSchema: {
         type: "object",
         properties: {
@@ -36905,7 +37025,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs. A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37522,6 +37642,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
           base_moved: closeScope ? closeScope.base_moved === true : null
         };
+        const open_findings = db2.all(
+          `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
+            WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+          [task.id]
+        ).map((f) => ({ ...f }));
         return ok15({
           task_id: task.id,
           issue_id: task.issue_id,
@@ -37537,6 +37662,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           verification: parseTaskFiles(task.verification),
           scope,
           verification_run: latestVerificationRun(db2, task.id),
+          open_findings,
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
           task_discussions,
@@ -37987,10 +38113,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
-        const verificationCommands = gateCommands(parseTaskFiles(task.verification));
+        const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db2, task.id));
         if (verificationCommands.length > 0 && passingRunForCommit(db2, task.id, commitSha, verificationCommands) === null && !verificationWaivedForCommit(db2, task.id, commitSha)) {
           return err16(
-            `verification_run_missing: task ${task.id} has ${verificationCommands.length} verification[] command(s) and no passing verification run of its current verification[] recorded for commit ${commitSha} (a run made before verification[] was amended does not count), and no verification_gate_waived row for that commit. Get a run: resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') \u2014 swe-verification-gate runs verification[] in the task worktree and records the run \u2014 then retry bro_atomic_close. Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
+            `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') \u2014 swe-verification-gate runs verification[] in the task worktree and records the run \u2014 then retry bro_atomic_close. Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
           );
         }
         const now2 = nowISO();
@@ -45446,6 +45572,18 @@ function buildDataContracts(documentedEventTypes) {
       sample_sql: `SELECT id, task_id, commit_sha, source, started_at FROM verification_runs
              WHERE finished_at IS NULL AND ${ts("started_at")} < ${hoursAgo(2)}
              ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "review_findings_resolved_at_matches_status",
+      severity: "warn",
+      min_schema: 47,
+      description: "every fixed review_findings row has resolved_at and no open one does (the verification gate sets both when an open finding's probe passes)",
+      sql: `SELECT COUNT(*) FROM review_findings
+             WHERE (status = 'fixed' AND resolved_at IS NULL) OR (status = 'open' AND resolved_at IS NOT NULL)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, task_id, attempt_n, status, resolved_at FROM review_findings
+             WHERE (status = 'fixed' AND resolved_at IS NULL) OR (status = 'open' AND resolved_at IS NOT NULL)
+             ORDER BY created_at DESC LIMIT 5`
     },
     {
       id: "no_fixture_rows_in_inventory",

@@ -189,6 +189,29 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
     PRIMARY KEY (run_id, ordinal)
 );
 
+-- review_findings (v47, GH 1737): one row per defect a pr-reviewer FAIL or
+-- escalate verdict names. validation_record writes the row (id F<task_id>-<n>,
+-- n counting up per task; status 'open'); swe-verification-gate.sh runs every
+-- non-wontfix probe_cmd after verification[] on each close attempt and sets
+-- status 'fixed' + resolved_at when an open finding's probe exits 0.
+-- criterion_id is NULL when the finding covers no single criterion;
+-- resolved_at is NULL while the finding is open.
+CREATE TABLE IF NOT EXISTS review_findings (
+    id           TEXT    PRIMARY KEY,
+    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    attempt_n    INTEGER NOT NULL,
+    criterion_id TEXT,
+    probe_cmd    TEXT    NOT NULL,
+    expected     TEXT    NOT NULL,
+    observed     TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','fixed','wontfix')),
+    created_at   TEXT    NOT NULL,
+    resolved_at  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
+    ON review_findings(task_id, status);
+
 -- agents.file_path names the root the prompt file ships from: 'plugin:' is
 -- relative to the installed plugin root (backbone agents, consultant
 -- templates), 'project:' to the workspace root (.claude/agents/<name>.md).
@@ -284,7 +307,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 46, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 47, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

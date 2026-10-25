@@ -86,9 +86,15 @@ test('pr-reviewer — fail path: record fail → bro sees it in history', async 
     verdict: 'fail',
     mcp_available: true,
     feedback: 'missing test for edge case X',
+    findings: [{ criterion_id: 'SC1', probe_cmd: 'npm test -- --grep "edge case X"', expected: 'exit 0', observed: 'no test for edge case X' }],
     subagent_session_id: 'integration-test-session-fail',
   });
-  assert.equal(fail.ok, true);
+  assert.equal(fail.ok, true, JSON.stringify(fail));
+  assert.deepEqual(
+    fail.data.findings.map((f) => [f.id, f.status, f.criterion_id]),
+    [[`F${taskId}-1`, 'open', 'SC1']],
+    'the fail verdict records its finding as open',
+  );
 
   // bro reads back (validation_history is read-any).
   const history = await call(client, 'validation_history', {
@@ -116,9 +122,10 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
       verdict: 'fail',
       mcp_available: true,
       feedback: `attempt ${n} — still broken`,
+      findings: [{ probe_cmd: 'npm test', expected: 'exit 0', observed: `attempt ${n}: exit 1` }],
       subagent_session_id: `integration-test-session-retry-${n}`,
     });
-    assert.equal(fail.ok, true);
+    assert.equal(fail.ok, true, JSON.stringify(fail));
   }
   seedReviewerObservation(dbPath, taskId, 3);
   const pass = await call(client, 'validation_record', {

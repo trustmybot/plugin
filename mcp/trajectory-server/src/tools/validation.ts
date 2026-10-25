@@ -2,9 +2,9 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
-import type { ValidationAttempt } from '../types.js';
+import type { ReviewFinding, ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
-import { latestVerificationRun } from './verification-runs.js';
+import { FINDING_ORDER_SQL, latestVerificationRun } from './verification-runs.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -90,6 +90,65 @@ function observationAgeS(observation: ReviewerObservation, nowMs: number): numbe
   return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1000) : Number.POSITIVE_INFINITY;
 }
 
+interface FindingInput {
+  criterion_id: string | null;
+  probe_cmd: string;
+  expected: string;
+  observed: string;
+}
+
+const FINDING_KEYS = new Set(['criterion_id', 'probe_cmd', 'expected', 'observed']);
+
+/**
+ * The typed findings[] of a verdict: required and non-empty on fail/escalate,
+ * refused on pass. probe_cmd, expected and observed are trimmed non-empty
+ * strings; criterion_id is a non-empty string or absent/null.
+ */
+function parseFindings(verdict: string, raw: unknown): FindingInput[] {
+  const list = raw === undefined || raw === null ? [] : raw;
+  if (!Array.isArray(list)) {
+    throw new Error(`findings must be an array of {criterion_id?, probe_cmd, expected, observed}; got ${typeof raw}`);
+  }
+  if (verdict === 'pass') {
+    if (list.length > 0) {
+      throw new Error(`findings_refused: a pass verdict records no findings; got ${list.length}. Send findings only with verdict fail or escalate.`);
+    }
+    return [];
+  }
+  if (list.length === 0) {
+    throw new Error(
+      `findings_required: a ${verdict} verdict needs a non-empty findings[] — one {criterion_id?, probe_cmd, expected, observed} per defect, each probe_cmd a command that exits 0 once the defect is fixed.`,
+    );
+  }
+  return list.map((item, i) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new Error(`findings[${i}] must be an object {criterion_id?, probe_cmd, expected, observed}`);
+    }
+    const entry = item as Record<string, unknown>;
+    const unknown = Object.keys(entry).filter((k) => !FINDING_KEYS.has(k));
+    if (unknown.length > 0) {
+      throw new Error(`findings[${i}] has unknown field(s) ${unknown.join(', ')}; the server assigns id and status. Allowed: ${[...FINDING_KEYS].join(', ')}`);
+    }
+    const text = (field: 'probe_cmd' | 'expected' | 'observed'): string => {
+      const v = entry[field];
+      if (typeof v !== 'string' || v.trim() === '') {
+        throw new Error(`findings[${i}].${field} must be a non-empty string`);
+      }
+      return v.trim();
+    };
+    const criterion = entry['criterion_id'];
+    if (criterion !== undefined && criterion !== null && (typeof criterion !== 'string' || criterion.trim() === '')) {
+      throw new Error(`findings[${i}].criterion_id must be a non-empty string or null`);
+    }
+    return {
+      criterion_id: typeof criterion === 'string' ? criterion.trim() : null,
+      probe_cmd: text('probe_cmd'),
+      expected: text('expected'),
+      observed: text('observed'),
+    };
+  });
+}
+
 function coerceTaskId(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
@@ -107,7 +166,7 @@ export function validationTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'validation_record',
-      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.',
+      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored. fail/escalate require findings[] and pass refuses them; each becomes a review_findings row the close gate re-probes.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -118,6 +177,31 @@ export function validationTools(db: TrajectoryDB): {
           feedback: { type: 'string' },
           mcp_available: { type: 'boolean', description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
           subagent_session_id: { type: 'string', description: 'Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists.' },
+          findings: {
+            type: 'array',
+            description:
+              'Required and non-empty when verdict is fail or escalate; refused (must be absent or []) when verdict is pass. One entry per defect. ' +
+              'The server assigns each id F<task_id>-<n> (n counts up per task) and status open; re-recording the same attempt replaces that attempt\'s open findings. ' +
+              'On every later task_update_status(completed) the swe verification gate runs each non-wontfix finding\'s probe_cmd after verification[]: ' +
+              'a passing probe marks an open finding fixed (resolved_at set); any failing probe fails the gate, and a failing fixed finding is reported as a regression. ' +
+              'task_brief.open_findings shows the open ones to the swe.',
+            items: {
+              type: 'object',
+              properties: {
+                criterion_id: { type: 'string', description: 'The spec Success Criteria id the finding breaks (e.g. "SC2"). Omit or null when it covers no single criterion.' },
+                probe_cmd: {
+                  type: 'string',
+                  description:
+                    'Self-contained shell command, run with bash -c from the task worktree root, that exits 0 once the finding is fixed and non-zero while it stands. ' +
+                    'Inline node -e, bash -c or a heredoc is fine; it must not depend on files only the reviewer has. Example: grep -q "findings" mcp/trajectory-server/src/tools/validation.ts',
+                },
+                expected: { type: 'string', description: 'What correct behaviour looks like (what the probe checks for).' },
+                observed: { type: 'string', description: 'What the reviewer saw instead, with the file:line or output that shows it.' },
+              },
+              required: ['probe_cmd', 'expected', 'observed'],
+              additionalProperties: false,
+            },
+          },
         },
         required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
       },
@@ -167,6 +251,7 @@ export function validationTools(db: TrajectoryDB): {
           `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`,
         );
       }
+      const findings = parseFindings(verdict, args['findings']);
 
       const taskExists = db.get<{ id: number; issue_id: number; repo: string | null }>(
         `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
@@ -182,6 +267,7 @@ export function validationTools(db: TrajectoryDB): {
       const feedback = args['feedback'] as string;
       const now = nowISO();
       const callerSessionId = typeof args['subagent_session_id'] === 'string' ? (args['subagent_session_id'] as string) : null;
+      const findingIds: string[] = [];
 
       db.transaction(() => {
         if (mcpAvailable === 0) {
@@ -269,14 +355,34 @@ export function validationTools(db: TrajectoryDB): {
              repo = excluded.repo`,
           [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo],
         );
+
+        const lastN =
+          db.get<{ n: number | null }>(
+            `SELECT MAX(${FINDING_ORDER_SQL}) AS n FROM review_findings WHERE task_id = ?`,
+            [taskId],
+          )?.n ?? 0;
+        db.run(
+          `DELETE FROM review_findings WHERE task_id = ? AND attempt_n = ? AND status = 'open'`,
+          [taskId, attemptN],
+        );
+        findings.forEach((f, i) => {
+          const id = `F${taskId}-${lastN + i + 1}`;
+          db.run(
+            `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+            [id, taskId, attemptN, f.criterion_id, f.probe_cmd, f.expected, f.observed, now],
+          );
+          findingIds.push(id);
+        });
       });
 
       const row = db.get<ValidationAttempt>(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
         [taskId, attemptN],
       );
+      const recorded = findingIds.map((id) => ({ ...db.get<ReviewFinding>('SELECT * FROM review_findings WHERE id = ?', [id]) }));
 
-      return ok(row);
+      return ok({ ...row, findings: recorded });
     })),
 
     validation_history: wrapHandler(async (args) => {

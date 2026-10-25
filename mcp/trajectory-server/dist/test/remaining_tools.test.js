@@ -238,6 +238,7 @@ describe('validationTools', () => {
             attempt_n: 3,
             verdict: 'fail',
             feedback: '# Third attempt',
+            findings: [{ probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1' }],
             mcp_available: true,
             subagent_session_id: 'session-3',
         });
@@ -248,6 +249,7 @@ describe('validationTools', () => {
             attempt_n: 1,
             verdict: 'fail',
             feedback: '# First attempt',
+            findings: [{ probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1' }],
             mcp_available: true,
             subagent_session_id: 'session-1',
         });

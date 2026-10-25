@@ -2,7 +2,8 @@
 # Library: record and reuse verification runs (verification_runs +
 # verification_run_commands, schema v36). Sourced (not exec'd); writes go
 # through db-write.sh, one tmb_db_write transaction per call, so a run killed
-# mid-way still leaves its row and the command rows written so far.
+# mid-way still leaves its row and the command rows written so far. Also
+# reads the review findings the gate probes and marks them fixed (v47).
 # No set -e/-euo/-euo pipefail here — libs must not mutate caller shell options.
 #
 # The output tail stored per command is capped at TMB_VERIFICATION_TAIL_CHARS
@@ -93,6 +94,41 @@ tmb_verification_run_finish() {
   local SAFE_TIMED_OUT="$timed_out" SAFE_NOW
   SAFE_NOW=$(tmb_now_iso)
   tmb_db_write "$db" "UPDATE verification_runs SET finished_at = '${SAFE_NOW}', exit_code = ${SAFE_EXIT}, timed_out = ${SAFE_TIMED_OUT} WHERE id = ${SAFE_RUN};"
+}
+
+# tmb_review_findings_active <db> <task_id>
+# Prints the task's review findings the gate probes (schema v47, GH 1737) as
+# one JSON array line of {id, status, probe_cmd}: every status but wontfix, in
+# the <n> order of their F<task_id>-<n> ids. Prints [] when the DB has no
+# review_findings table, __ERR__ when the read fails.
+tmb_review_findings_active() {
+  local db="${1:-}" task_id="${2:-}" SAFE_TASK has out
+  SAFE_TASK=$(tmb_sql_int "$task_id")
+  [ -n "$SAFE_TASK" ] || { printf '[]\n'; return 0; }
+  has=$(tmb_gate_read "$db" "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_findings';")
+  case "$has" in
+    __ERR__) printf '__ERR__\n'; return 0 ;;
+    1) ;;
+    *) printf '[]\n'; return 0 ;;
+  esac
+  out=$(tmb_gate_read "$db" "SELECT COALESCE(json_group_array(json_object('id', id, 'status', status, 'probe_cmd', probe_cmd)), '[]')
+     FROM (SELECT id, status, probe_cmd FROM review_findings
+            WHERE task_id = ${SAFE_TASK} AND status <> 'wontfix'
+            ORDER BY CAST(substr(id, instr(id, '-') + 1) AS INTEGER));")
+  printf '%s\n' "${out:-[]}"
+}
+
+# tmb_review_finding_fixed <db> <finding_id>
+# Sets status 'fixed' and resolved_at = now on an open review finding; a
+# finding in any other status is left as it is. Exit 2 on an invalid id, else
+# tmb_db_write's exit code.
+tmb_review_finding_fixed() {
+  local db="${1:-}" id="${2:-}"
+  [[ "$id" =~ ^F[0-9]+-[0-9]+$ ]] || { _tmb_vr_fail "invalid finding id '$id'"; return 2; }
+  local SAFE_ID SAFE_NOW
+  SAFE_ID=$(tmb_sql_quote "$id")
+  SAFE_NOW=$(tmb_now_iso)
+  tmb_db_write "$db" "UPDATE review_findings SET status = 'fixed', resolved_at = '${SAFE_NOW}' WHERE id = '${SAFE_ID}' AND status = 'open';"
 }
 
 # tmb_verification_run_reusable <db> <task_id> <commit_sha> [<max_age_s>] [<commands_json>]

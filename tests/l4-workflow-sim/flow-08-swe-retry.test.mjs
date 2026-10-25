@@ -83,6 +83,7 @@ test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then
   const fail = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
     feedback: 'Attempt 1: still has the bug.',
+    findings: [{ probe_cmd: 'test -f work-2.txt', expected: 'exit 0', observed: 'exit 1' }],
     subagent_session_id: 'flow08-retry-session-1',
   });
   assert.equal(fail.ok, true, `attempt 1 fail: ${JSON.stringify(fail)}`);
@@ -131,6 +132,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   seedReviewerObservation(dbPath, taskId, 1);
   const overwrite = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true, feedback: 'second',
+    findings: [{ probe_cmd: 'test -f work-2.txt', expected: 'exit 0', observed: 'exit 1' }],
     subagent_session_id: 'flow08-upsert-session-1-revised',
   });
   assert.equal(overwrite.ok, true, 'upsert must succeed (latest write wins)');
@@ -153,6 +155,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
     const r = await call(client, 'validation_record', {
       agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
       feedback: `Attempt ${n} still broken.`,
+      findings: [{ probe_cmd: `test -f work-${n + 1}.txt`, expected: 'exit 0', observed: 'exit 1' }],
       subagent_session_id: `flow08-escalate-session-${n}`,
     });
     assert.equal(r.ok, true);

@@ -86,9 +86,10 @@ export function sqliteRun(dbPath, sql) {
 }
 
 // seedPassingVerificationRun writes the passing verification_runs row (plus one
-// command row per verification[] entry) that swe-verification-gate records when
-// swe completes, so bro_atomic_close's verification gate (GH 1672) admits the
-// close. Needs a startClient({ fileDb: true }) dbPath.
+// command row per verification[] entry, then one `[probe <id>] <probe_cmd>` row
+// per non-wontfix review finding, GH 1737) that swe-verification-gate records
+// when swe completes, so bro_atomic_close's verification gate (GH 1672) admits
+// the close. Needs a startClient({ fileDb: true }) dbPath.
 export function seedPassingVerificationRun(dbPath, taskId, commitSha) {
   const id = Number(taskId);
   const sha = String(commitSha).replace(/'/g, "''");
@@ -96,8 +97,11 @@ export function seedPassingVerificationRun(dbPath, taskId, commitSha) {
     `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
      VALUES (${id}, '${sha}', 'gate', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), 0, 900, 0);
      INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail)
-     SELECT (SELECT max(id) FROM verification_runs WHERE task_id = ${id}), e.key + 1, e.value, 0, 0, ''
-       FROM tasks t, json_each(t.verification) e WHERE t.id = ${id};`]);
+     SELECT (SELECT max(id) FROM verification_runs WHERE task_id = ${id}), ROW_NUMBER() OVER (ORDER BY grp, k), cmd, 0, 0, ''
+       FROM (SELECT 0 AS grp, e.key AS k, e.value AS cmd FROM tasks t, json_each(t.verification) e WHERE t.id = ${id}
+             UNION ALL
+             SELECT 1, CAST(substr(f.id, instr(f.id, '-') + 1) AS INTEGER), '[probe ' || f.id || '] ' || f.probe_cmd
+               FROM review_findings f WHERE f.task_id = ${id} AND f.status <> 'wontfix');`]);
 }
 
 // createProjectRepo builds the temp project a task_provision flow runs in: a git

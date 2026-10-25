@@ -39,6 +39,17 @@
 #   - Budget spent                 → DENY naming the command that was running
 #     and the cumulative time
 #
+# Review findings (schema v47, GH 1737): after verification[] passes, the gate
+# runs the probe_cmd of every review_findings row of the task whose status is
+# not wontfix, in id order, in the worktree under the same budget. A probe
+# that exits 0 on an open finding sets it fixed with resolved_at; every probe
+# runs, and any failing one DENIES naming the finding — a failing fixed
+# finding as a regression. Each probe is recorded as a verification_run_commands
+# row whose command is `[probe <id>] <probe_cmd>`, so the reusable-run match
+# and bro_atomic_close (gateCommands in verification-runs.ts) count a run only
+# when it also covered the current findings. A task with no verification[]
+# but findings still runs its probes. A DB without review_findings has none.
+#
 # Record (schema v36): every run is written to verification_runs (source
 # 'gate', commit_sha = the worktree HEAD) through lib/verification-runs.sh —
 # the row when the run starts, a verification_run_commands row after each
@@ -192,12 +203,20 @@ if [ -z "$BRANCH_ID" ]; then
   exit 0
 fi
 
+FINDINGS_JSON=$(tmb_review_findings_active "$DB" "$TASK_ID")
+if [ "$FINDINGS_JSON" = "__ERR__" ]; then
+  printf '%s\n' "$DB_UNAVAILABLE_DENY"
+  exit 0
+fi
+PROBE_TOTAL=$(jq 'length' <<< "$FINDINGS_JSON" 2>/dev/null || true)
+case "$PROBE_TOTAL" in ''|*[!0-9]*) FINDINGS_JSON='[]'; PROBE_TOTAL=0 ;; esac
+
 # Parse the JSON array into commands (one per line). Empty array or invalid JSON
 # yields no lines.
 VERIFICATION_BLOCK=$(printf '%s' "$VERIFICATION_JSON" | jq -r '.[]?' 2>/dev/null || true)
 
-# Empty typed verification[] → skip the gate.
-if [ -z "$VERIFICATION_BLOCK" ]; then
+# Empty typed verification[] and no review finding to probe → skip the gate.
+if [ -z "$VERIFICATION_BLOCK" ] && [ "$PROBE_TOTAL" -eq 0 ]; then
   jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed verification[] — verification gate skipped. Ask bro to set the task'"'"'s verification[] field (Typed Rails #673) to enforce verification commands."}}'
   exit 0
 fi
@@ -277,8 +296,9 @@ fi
 
 WT_SHA=$(git -C "$WT_PATH" rev-parse --verify -q HEAD 2>/dev/null || true)
 EXPECTED_SHA=$(echo "$INPUT" | jq -r '.tool_input.commit_sha // empty' 2>/dev/null || true)
-CMD_TOTAL=$(grep -c . <<< "$VERIFICATION_BLOCK" || true)
-GATE_CMDS_JSON=$(jq -cRn '[inputs | select(length > 0)]' <<< "$VERIFICATION_BLOCK" 2>/dev/null || true)
+CMD_TOTAL=$(( $(grep -c . <<< "$VERIFICATION_BLOCK" || true) + PROBE_TOTAL ))
+GATE_CMDS_JSON=$(jq -cRn --argjson f "$FINDINGS_JSON" \
+  '[inputs | select(length > 0)] + [$f[] | "[probe " + .id + "] " + .probe_cmd]' <<< "$VERIFICATION_BLOCK" 2>/dev/null || true)
 [ -n "$GATE_CMDS_JSON" ] || GATE_CMDS_JSON='[]'
 
 now_s() { date +%s 2>/dev/null || echo 0; }
@@ -388,7 +408,7 @@ timeout_reason() {
 # and the run is recorded. The command budget and the cumulative time count
 # command time only (RECORD_MS, the time spent in record writes, is excluded).
 run_verification() {
-  local run_start_ms ms cmd_start_ms cmd_ms remaining cmd_out cmd_rc cmd_elapsed total ordinal=0 hits tail_out fired timed_out
+  local run_start_ms ms cmd_start_ms cmd_ms remaining cmd_out cmd_rc cmd_elapsed total ordinal=0 hits tail_out fired timed_out CMD
   run_start_ms=$(_tmb_now_ms)
   if [ -n "$WT_SHA" ] && ms=$(record_allowance_ms); then
     RUN_ID=$(record_write "$ms" tmb_verification_run_start "$DB" "$TASK_ID" "$WT_SHA" gate "$TIMEOUT_S") || RUN_ID=""
@@ -396,26 +416,23 @@ run_verification() {
   fi
   active_ms() { printf '%s' "$(( $(_tmb_now_ms) - run_start_ms - RECORD_MS ))"; }
 
-  # Each entry of the typed verification[] array is a clean shell command string
-  # (Typed Rails #673); each non-empty line runs as a command in the worktree.
-  while IFS= read -r CMD; do
-    [ -z "$CMD" ] && continue
+  # run_one <run-cmd> <recorded-cmd> — runs <run-cmd> in the worktree with the
+  # resolved toolchain PATH, bounded by the remaining budget, and records it as
+  # <recorded-cmd>; sets cmd_rc/cmd_out/cmd_elapsed/total/tail_out. On a spent
+  # or exceeded budget it finishes the run, prints the timeout deny and fails.
+  run_one() {
     ordinal=$(( ordinal + 1 ))
-
     remaining=$(( TIMEOUT_S - $(active_ms) / 1000 ))
     if [ "$remaining" -le 0 ]; then
       record_finish 124 1
-      deny "$(timeout_reason "$ordinal" "$CMD" "" "$(ms_to_s "$(active_ms)")")"
-      return 0
+      deny "$(timeout_reason "$ordinal" "$2" "" "$(ms_to_s "$(active_ms)")")"
+      return 1
     fi
-
-    # Run the command in the worktree with the resolved toolchain PATH, bounded
-    # by the remaining budget.
     fired=""
     [ -z "$SCRATCH" ] || fired="$SCRATCH/fired-$ordinal"
     cmd_start_ms=$(_tmb_now_ms)
     cmd_rc=0
-    cmd_out=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$remaining" "$fired" bash -c "$CMD" </dev/null) 2>&1 ) || cmd_rc=$?
+    cmd_out=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$remaining" "$fired" bash -c "$1" </dev/null) 2>&1 ) || cmd_rc=$?
     cmd_ms=$(( $(_tmb_now_ms) - cmd_start_ms ))
     cmd_elapsed=$(ms_to_s "$cmd_ms")
     total=$(ms_to_s "$(active_ms)")
@@ -430,13 +447,20 @@ run_verification() {
     # No pipelines here: under pipefail a writer killed by SIGPIPE or a grep
     # with no match would end the hook without its deny.
     tail_out=$(tail -20 <<< "$cmd_out" || true)
-    record_command "$ordinal" "$CMD" "$cmd_rc" "$cmd_elapsed" "$tail_out"
-
+    record_command "$ordinal" "$2" "$cmd_rc" "$cmd_elapsed" "$tail_out"
     if [ "$timed_out" -eq 1 ]; then
       record_finish 124 1
-      deny "$(timeout_reason "$ordinal" "$CMD" "$cmd_elapsed" "$total")"
-      return 0
+      deny "$(timeout_reason "$ordinal" "$2" "$cmd_elapsed" "$total")"
+      return 1
     fi
+    return 0
+  }
+
+  # Each entry of the typed verification[] array is a clean shell command string
+  # (Typed Rails #673); each non-empty line runs as a command in the worktree.
+  while IFS= read -r CMD; do
+    [ -z "$CMD" ] && continue
+    run_one "$CMD" "$CMD" || return 0
     if [ "$cmd_rc" -ne 0 ]; then
       record_finish "$cmd_rc" 0
       hits=$(grep -m 15 -E 'FAIL|failed|Error|❌' <<< "$cmd_out" || true)
@@ -447,6 +471,41 @@ run_verification() {
       return 0
     fi
   done <<< "$VERIFICATION_BLOCK"
+
+  # Review finding probes: every one runs; a pass on an open finding fixes it.
+  local i=0 fid fstatus pcmd probe_fail="" probe_rc=0 regressed t0
+  while [ "$i" -lt "$PROBE_TOTAL" ]; do
+    fid=$(jq -r --argjson i "$i" '.[$i].id' <<< "$FINDINGS_JSON")
+    fstatus=$(jq -r --argjson i "$i" '.[$i].status' <<< "$FINDINGS_JSON")
+    pcmd=$(jq -r --argjson i "$i" '.[$i].probe_cmd' <<< "$FINDINGS_JSON")
+    i=$(( i + 1 ))
+    run_one "$pcmd" "[probe $fid] $pcmd" || return 0
+    if [ "$cmd_rc" -eq 0 ]; then
+      if [ "$fstatus" = "open" ]; then
+        if ms=$(record_allowance_ms); then
+          t0=$(_tmb_now_ms)
+          record_write "$ms" tmb_review_finding_fixed "$DB" "$fid" >/dev/null || \
+            printf 'swe-verification-gate: review finding %s probe passed but its fixed write failed; it stays open\n' "$fid" >&2
+          RECORD_MS=$(( RECORD_MS + $(_tmb_now_ms) - t0 ))
+        else
+          printf 'swe-verification-gate: run-record write budget (%sms) spent; review finding %s probe passed but it stays open\n' \
+            "$VERIFICATION_RECORD_POOL_MS" "$fid" >&2
+        fi
+      fi
+      continue
+    fi
+    [ "$probe_rc" -ne 0 ] || probe_rc="$cmd_rc"
+    regressed=""
+    [ "$fstatus" != "fixed" ] || regressed=" — REGRESSION: this finding was fixed and its probe fails again"
+    probe_fail+=$(printf '\n\nFinding %s (probe %s/%s)%s: %s\nExit %s after %ss.\nOutput (last 20 lines):\n%s' \
+      "$fid" "$ordinal" "$CMD_TOTAL" "$regressed" "$pcmd" "$cmd_rc" "$cmd_elapsed" "$tail_out")
+  done
+  if [ -n "$probe_fail" ]; then
+    record_finish "$probe_rc" 0
+    deny "$(printf 'BLOCKED: verification failed — review finding probe(s) failed; %ss cumulative.%s%s\n\nFix each finding so its probe exits 0 (task_brief.open_findings lists the open ones).' \
+      "$(ms_to_s "$(active_ms)")" "$(record_note)" "$probe_fail")"
+    return 0
+  fi
 
   record_finish 0 0
   if [ -z "$WT_SHA" ]; then

@@ -193,5 +193,19 @@ export interface ValidationAttempt {
   repo?: string | null;
 }
 
+/** A review_findings row (schema v47, GH 1737). */
+export interface ReviewFinding {
+  id: string;
+  task_id: number;
+  attempt_n: number;
+  criterion_id: string | null;
+  probe_cmd: string;
+  expected: string;
+  observed: string;
+  status: 'open' | 'fixed' | 'wontfix';
+  created_at: string;
+  resolved_at: string | null;
+}
+
 /** Capability scope — mirrors the cheatcodes.scope CHECK. */
 export type CapabilityScope = 'global' | 'template' | 'project-local';
