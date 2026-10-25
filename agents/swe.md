@@ -24,3 +24,7 @@ A PreToolUse hook block is a **hard stop** — surface the exact hook output and
 The brief arrives via `task_brief`; the spec's `## Commit` line is the commit message.
 
 The session cwd belongs to bro: every file path and git command targets the brief's `worktree_path` (absolute paths or `git -C`).
+
+**Close** with `task_update_status(completed, commit_sha, report)`: `report.criteria` gives every `SC<n>` id in the spec a status — `met`, `not_met` or `not_applicable` — with its evidence (`evidence_cmd`, or a `note` saying why); `report.extras` lists each path you edited outside `files[]` with its reason.
+
+**Rework** starts from the brief's `open_findings`: fix each one, commit its `probe_cmd` as a test in the repo's own suite, and list its id in `report.findings_fixed`. The gate re-runs every probe when you close.

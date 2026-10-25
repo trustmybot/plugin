@@ -112,7 +112,7 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 
 Batch in one response:
 1. Commit (using the spec's `## Commit` message)
-2. `task_update_status(agent='swe', status='completed', commit_sha)`
+2. `task_update_status(agent='swe', status='completed', commit_sha, report)` — `report.criteria` gives each `SC<n>` id `met` / `not_met` / `not_applicable` with its evidence, `report.extras` the paths outside `files[]` with reasons, `report.findings_fixed` the review findings the rework fixed (each probe committed as a test)
 
 ### Server-enforced privileges (Layer 1)
 

@@ -6,7 +6,7 @@ allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp
 
 # PR-reviewer protocol (push gate)
 
-Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, the changed dirs' world-model scope, `scope` (bro's close-time scope judgment) and `verification_run` (the gate's latest recorded run, null when none).
+Your spawn prompt carries only the anchors (`task_id`, `commit_sha`, `branch_id`, `repo`, `repo_path`, `attempt_n`, `subagent_session_id`). Load the rest via `task_brief(task_id)` — `spec_body`, `commit_sha`, the changed dirs' world-model scope, `scope` (bro's close-time scope judgment), `verification_run` (the gate's latest recorded run, null when none), `completion_report` (the swe's per-criterion report), `spawn_note` (bro's note for you, at most 300 characters) and `open_findings` (findings no passing probe has resolved yet).
 
 ## Worktree discipline
 
@@ -20,17 +20,22 @@ Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <s
 
 Trust the swe's checklist of what changed, and take the facts from the records:
 
-- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s` — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
+- **Test results** come from `task_brief.verification_run`, the gate's recorded run. Sign off only when its `commit_sha` is the commit under review, its `exit_code` is 0 and `timed_out` is false; a missing run, a failed or timed-out one, or a different sha is a FAIL. `commands[]` lists each command's `exit_code` and `elapsed_s`, with one `[probe <id>] <command>` entry per review finding — re-run a command yourself only when its record looks suspicious (an implausibly short `elapsed_s`, a command that cannot prove the criterion it is cited for).
 - **Scope** comes from `task_brief.scope`: `files`, the `extras_accepted` bro accepted at close, and `base_moved`. Read it as given.
+- **Criteria claims** come from `task_brief.completion_report`: one `met` / `not_met` / `not_applicable` entry per `SC<n>` id, with its `evidence_cmd` or `note`. Treat them as claims to check against the diff; a `not_met`, or a `not_applicable` the spec does not support, is a FAIL.
 
 ## Review the diff against its spec
 
 Diff the commit against its parent and judge the diff itself — cite line numbers for every finding:
 
 - Does the diff do what the spec's `## Description` says?
-- Is each `## Success Criteria` bullet visible in the diff (not just claimed)?
+- Is each `SC<n>` criterion visible in the diff (not just claimed)?
 - Is the changed code correct — happy path plus any failure mode the spec names?
 - Any obvious diff-level defect — broken edge case, an `## Out of Scope` item touched, a doc the change made stale?
+
+## Re-review after a FAIL
+
+When `validation_history` shows an earlier FAIL for this task, review the finding ids it raised plus the rework's new diff (the branch commits after that FAIL). For each id — still in `open_findings`, or listed in `completion_report.findings_fixed` with a passing `[probe <id>]` in `verification_run` — confirm the change fixes the defect itself rather than only satisfying its probe, and that the swe committed the probe as a test. Then judge the new diff as a fresh change.
 
 ## Probe what the gate did not
 
@@ -41,6 +46,19 @@ Spend the review budget on checks that complement the recorded run:
 - Cross-file semantics — callers and readers of whatever the diff renamed or reshaped agree with it.
 - Doc/code agreement — the docs describing the change say what the code now does.
 - For each new column or output the spec declares, run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
+
+## Recording a FAIL
+
+A `fail` or `escalate` verdict lists `findings[]`, one entry per defect; a `pass` lists none. Each entry carries:
+
+| Field | Content |
+|---|---|
+| `criterion_id` | The `SC<n>` id the defect breaks; omit it when it breaks no single criterion |
+| `probe_cmd` | A self-contained bash command, run from the worktree root, that exits 0 once the defect is fixed and non-zero while it stands — inline `node -e`, `bash -c` or a heredoc, reading only files in the worktree |
+| `expected` | What correct behaviour looks like — what the probe checks for |
+| `observed` | What you saw instead, with the file:line or output that shows it |
+
+Run each probe in a `pr_monitor_worktree` checkout of the commit under review before recording it, and confirm it exits non-zero. The gate re-runs every probe on each later close attempt, so a probe that passes on broken code waves the defect through. You record probes; the rework swe commits each one as a test.
 
 ## Writing the validation_attempts row — YOU write it yourself
 
