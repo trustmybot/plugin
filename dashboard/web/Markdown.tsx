@@ -2,33 +2,36 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const COMPONENTS: Components = {
-  h1: ({ node: _, ...p }) => <h1 className="mt-4 mb-2 text-lg font-semibold first:mt-0" {...p} />,
-  h2: ({ node: _, ...p }) => <h2 className="mt-4 mb-2 text-base font-semibold first:mt-0" {...p} />,
-  h3: ({ node: _, ...p }) => <h3 className="mt-3 mb-1 font-semibold first:mt-0" {...p} />,
-  h4: ({ node: _, ...p }) => <h4 className="mt-3 mb-1 font-medium first:mt-0" {...p} />,
-  h5: ({ node: _, ...p }) => <h5 className="mt-2 mb-1 font-medium first:mt-0" {...p} />,
-  h6: ({ node: _, ...p }) => <h6 className="mt-2 mb-1 font-medium first:mt-0" {...p} />,
-  p: ({ node: _, ...p }) => <p className="my-2 first:mt-0 last:mb-0" {...p} />,
-  ul: ({ node: _, ...p }) => <ul className="my-2 list-disc space-y-1 pl-5" {...p} />,
-  ol: ({ node: _, ...p }) => <ol className="my-2 list-decimal space-y-1 pl-5" {...p} />,
-  a: ({ node: _, ...p }) => <a className="text-blue-700 underline dark:text-blue-400" target="_blank" rel="noreferrer noopener" {...p} />,
+  h1: ({ node: _, ...p }) => <h1 className="mt-6 mb-4 border-b border-(--borderColor-muted) pb-[.3em] text-2xl font-semibold first:mt-0" {...p} />,
+  h2: ({ node: _, ...p }) => <h2 className="mt-6 mb-4 border-b border-(--borderColor-muted) pb-[.3em] text-xl font-semibold first:mt-0" {...p} />,
+  h3: ({ node: _, ...p }) => <h3 className="mt-6 mb-4 text-base font-semibold first:mt-0" {...p} />,
+  h4: ({ node: _, ...p }) => <h4 className="mt-6 mb-4 font-semibold first:mt-0" {...p} />,
+  h5: ({ node: _, ...p }) => <h5 className="mt-6 mb-4 text-sm font-semibold first:mt-0" {...p} />,
+  h6: ({ node: _, ...p }) => <h6 className="mt-6 mb-4 text-sm font-semibold text-fg-muted first:mt-0" {...p} />,
+  p: ({ node: _, ...p }) => <p className="mt-0 mb-4 last:mb-0" {...p} />,
+  ul: ({ node: _, ...p }) => <ul className="mt-0 mb-4 list-disc space-y-1 pl-8 last:mb-0 [&_ol]:mb-0 [&_ul]:mb-0" {...p} />,
+  ol: ({ node: _, ...p }) => <ol className="mt-0 mb-4 list-decimal space-y-1 pl-8 last:mb-0 [&_ol]:mb-0 [&_ul]:mb-0" {...p} />,
+  a: ({ node: _, ...p }) => <a className="text-(--fgColor-accent) hover:underline" target="_blank" rel="noreferrer noopener" {...p} />,
   blockquote: ({ node: _, ...p }) => (
-    <blockquote className="my-2 border-l-4 border-zinc-300 pl-3 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400" {...p} />
+    <blockquote className="mt-0 mb-4 border-l-4 border-(--borderColor-default) px-4 text-fg-muted last:mb-0" {...p} />
   ),
   pre: ({ node: _, ...p }) => (
-    <pre className="my-2 overflow-x-auto rounded bg-zinc-100 p-3 font-mono text-xs dark:bg-zinc-900 [&_code]:bg-transparent [&_code]:p-0" {...p} />
+    <pre
+      className="mt-0 mb-4 overflow-x-auto rounded-md bg-(--bgColor-muted) p-4 font-mono text-[85%] leading-[1.45] last:mb-0 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[100%]"
+      {...p}
+    />
   ),
   code: ({ node: _, className, ...p }) => (
-    <code className={`rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.85em] dark:bg-zinc-800 ${className ?? ''}`} {...p} />
+    <code className={`rounded-md bg-(--bgColor-muted) px-[.4em] py-[.2em] font-mono text-[85%] ${className ?? ''}`} {...p} />
   ),
   table: ({ node: _, ...p }) => (
-    <div className="my-2 overflow-x-auto">
-      <table className="text-left text-sm" {...p} />
+    <div className="mt-0 mb-4 overflow-x-auto last:mb-0">
+      <table className="border-collapse text-left" {...p} />
     </div>
   ),
-  th: ({ node: _, ...p }) => <th className="border border-zinc-200 bg-zinc-100 px-2 py-1 font-medium dark:border-zinc-800 dark:bg-zinc-900" {...p} />,
-  td: ({ node: _, ...p }) => <td className="border border-zinc-200 px-2 py-1 align-top dark:border-zinc-800" {...p} />,
-  hr: ({ node: _, ...p }) => <hr className="my-3 border-zinc-200 dark:border-zinc-800" {...p} />,
+  th: ({ node: _, ...p }) => <th className="border border-(--borderColor-default) bg-canvas-muted px-3 py-1.5 font-semibold" {...p} />,
+  td: ({ node: _, ...p }) => <td className="border border-(--borderColor-default) px-3 py-1.5 align-top" {...p} />,
+  hr: ({ node: _, ...p }) => <hr className="my-6 h-1 border-0 bg-(--borderColor-default)" {...p} />,
 };
 
 const INLINE_ELEMENTS = ['strong', 'em', 'del', 'code'];
@@ -44,7 +47,7 @@ export function Markdown({ children, className = '', inline = false }: { childre
     );
   }
   return (
-    <div className={`min-w-0 text-sm break-words ${className}`}>
+    <div className={`min-w-0 text-sm leading-normal break-words ${className}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS} skipHtml>
         {children}
       </ReactMarkdown>

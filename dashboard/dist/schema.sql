@@ -111,7 +111,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- medium when unset); task_reopen / task_retry may raise it. The
     -- require-spawn-effort hook denies a swe spawn whose Agent effort differs.
     effort            TEXT    NOT NULL DEFAULT 'medium'
-                        CHECK (effort IN ('low','medium','high'))
+                        CHECK (effort IN ('low','medium','high')),
+    -- completion_report (v48 GH 1744): swe's typed completion report as JSON
+    -- {criteria: [{id status evidence_cmd? note?}] extras? findings_fixed?}.
+    -- task_update_status writes it with a move to completed (required when the
+    -- spec's Success Criteria carry SC<n>: ids) and clears it on any move but
+    -- completed/closed; task_reopen clears it. NULL before a typed completion.
+    -- No commas in these two comments: ALTER TABLE DROP COLUMN on the last
+    -- column scans back to the nearest comma.
+    completion_report TEXT,
+    -- spawn_note (v48 GH 1744): at most 300 chars of context for the next
+    -- spawn and returned by task_brief. bro_atomic_close and task_reopen each
+    -- overwrite it (NULL when the call passes none).
+    spawn_note        TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -307,7 +319,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 47, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 48, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
