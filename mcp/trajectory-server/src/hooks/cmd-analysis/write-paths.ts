@@ -5,14 +5,24 @@
  * as commands of their own, interpreter one-liners and stdin programs judged
  * by their write calls, what find / fd / xargs run judged with its
  * placeholder bound, and loop variables bound to the paths their lister may
- * list.
+ * list. A bash -c statement's own redirects and write commands are judged
+ * before its body. Where cmd-analysis.sh misses a write, the TS fails closed
+ * with UNRESOLVED:$(computed):<argv0 or text> (GH 1692): a program piped or
+ * redirected into an interpreter (an info option counts only among the
+ * interpreter's own options, before `-`, `--`, `sh -s` or an operand; perl -c
+ * is not one, ruby -c is), a bash -c program held in a variable or in
+ * substitutions nested to any depth, a write target the scanner cannot read
+ * beside the literal ones or a stdin program's operands that do not cover it
+ * as `sys.argv[n]` / `process.argv[n]`, a shell
+ * body that find / fd / xargs run on a positional parameter, and bash -c /
+ * eval / heredoc nesting deeper than 3.
  */
 import type { Parser } from 'web-tree-sitter';
 import { type Heredoc, decode, encode } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
-import { interpWrites, progWrites } from './programs.js';
+import { COMPUTED, PARSE, heldProgram, interpWrites, operandsCover, progWrites, shown } from './programs.js';
 import { type Record as Statement, SEP, WSEP, statementsEnc } from './statements.js';
 import { type Interp, stmtWritePaths, unwrapStatement } from './targets.js';
 
@@ -21,6 +31,16 @@ const MAX_DEPTH = 3;
 const VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PROG_DIR = '/.tmb-prog-dir';
 const XARGS_VALUE = /^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/;
+const WATCH_VALUE = /^(-[A-Za-z]*[nq]|--interval|--equexit)$/;
+const BODY_UNRESOLVED = /^UNRESOLVED:(?!\$\(|PWD:)/;
+/** The options that make an interpreter print information and exit, judged only among its own options. */
+const INFO: Record<Lang | 'sh', RegExp> = {
+  py: /^(-V|-VV|--version|-h|--help|-\?)$/,
+  node: /^(-v|--version|-h|--help|--v8-options|-c|--check)$/,
+  perl: /^(-v|-V|-h)$/,
+  ruby: /^(-v|--version|-h|--help|-c|-y)$/,
+  sh: /^(--version|--help|-n)$/,
+};
 
 export interface Host {
   HOME?: string;
@@ -81,10 +101,29 @@ function normalize(p: string): string {
   return lead + (joined === '' && lead === '' ? '.' : joined);
 }
 
-/** _tmb_cmd_inner: the -c string of a shell or the rest of an eval. */
+/** One fail-closed line for a shape whose write target the analyzer cannot name. */
+function computedLine(text: string): string {
+  return `UNRESOLVED:${COMPUTED}${shown(text)}\n`;
+}
+
+/** The line for a command tree-sitter-bash cannot parse: its first 80 characters, on one line. */
+function parseLine(cmd: string): string {
+  return `UNRESOLVED:${PARSE}${[...cmd].slice(0, 80).join('').replace(/[\r\n]/g, ' ')}\n`;
+}
+
+/** _tmb_cmd_inner: the -c string of a shell or the rest of an eval; for watch (TS only), the command it runs through sh -c. */
 function inner(stmt: string): string {
   const words = shellWords(stmt);
   const argv0 = words[0] ?? '';
+  if (basename(argv0) === 'watch') {
+    let i = 1;
+    while (i < words.length && words[i].startsWith('-')) {
+      const w = words[i++];
+      if (w === '--') break;
+      if (WATCH_VALUE.test(w)) i++;
+    }
+    return words.slice(i).join(' ');
+  }
   if (/^(.*\/)?(bash|sh|zsh|dash|ksh)$/.test(argv0)) {
     for (let i = 1; i < words.length; i++) {
       const w = words[i];
@@ -97,8 +136,19 @@ function inner(stmt: string): string {
   return '';
 }
 
-/** _tmb_cmd_stdin_interp: the interpreter kind that reads its program from stdin, '' for none. */
-function stdinInterp(words: readonly string[]): Lang | 'sh' | '' {
+interface StdinProgram {
+  kind: Lang | 'sh' | '';
+  /** TS only: one of the interpreter's own options prints information and exits (`--version`, `-h`, `sh -n`), so it runs no program. */
+  info: boolean;
+}
+
+/**
+ * _tmb_cmd_stdin_interp: the interpreter kind that reads its program from
+ * stdin, '' for none, walking the interpreter's own options up to the first
+ * `-`, `--`, `sh -s` or operand. The TS also rules out `node --test` /
+ * `--run` / `--watch` and `python -m<module>` with the module attached.
+ */
+function stdinProgram(words: readonly string[]): StdinProgram {
   const argv0 = basename(words[0]);
   let kind: Lang | 'sh';
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) kind = 'py';
@@ -106,7 +156,9 @@ function stdinInterp(words: readonly string[]): Lang | 'sh' | '' {
   else if (argv0 === 'perl') kind = 'perl';
   else if (argv0 === 'ruby') kind = 'ruby';
   else if (/^(sh|bash|zsh|dash|ksh)$/.test(argv0)) kind = 'sh';
-  else return '';
+  else return { kind: '', info: false };
+  const none: StdinProgram = { kind: '', info: false };
+  let info = false;
   let skip = false;
   for (let k = 1; k < words.length; k++) {
     const w = words[k];
@@ -124,22 +176,50 @@ function stdinInterp(words: readonly string[]): Lang | 'sh' | '' {
       continue;
     }
     if (/^(<|>|&>|[0-9]<|[0-9]>)/.test(w)) continue;
-    if (w === '-' || w === '--') return kind;
+    if (w === '-' || w === '--') return { kind, info };
+    if (INFO[kind].test(w)) info = true;
     const kw = `${kind}:${w}`;
     if (w.startsWith('--')) {
-      if (/^node:--(eval|print)(=.*)?$/s.test(kw)) return '';
+      if (/^node:--(eval|print)(=.*)?$/s.test(kw)) return none;
+      if (/^node:--(test|run|watch|watch-path)(=.*)?$/s.test(kw)) return none;
       if (/^node:--(require|import|loader|input-type)$/.test(kw)) skip = true;
       continue;
     }
     if (w.startsWith('-')) {
-      if (/^(py:-.*c|py:-.*m$|node:-[ep]$|perl:-.*[eE]|ruby:-.*e|sh:-.*c)/s.test(kw)) return '';
-      if (/^sh:-.*s/s.test(kw)) return kind;
+      if (/^(py:-.*c|py:-.*m$|node:-[ep]$|perl:-.*[eE]|ruby:-.*e|sh:-.*c)/s.test(kw)) return none;
+      if (/^py:-[bBdEhiIOPqRsSuvVx]*m/.test(kw)) return none;
+      if (/^sh:-.*s/s.test(kw)) return { kind, info };
       if (/^(py:-[WX]|node:-r|ruby:-[rI]|perl:-[IM]|sh:-[oO])$/.test(kw)) skip = true;
       continue;
     }
-    return '';
+    return none;
   }
-  return kind;
+  return { kind, info };
+}
+
+const stdinInterp = (words: readonly string[]): Lang | 'sh' | '' => stdinProgram(words).kind;
+
+/** The words after a stdin program's `-` / `--`: its sys.argv[1:] / process.argv; `dropped` when an option among them was left out. */
+function stdinOperands(words: readonly string[]): { operands: string[]; dropped: boolean } {
+  const at = words.findIndex((w, k) => k > 0 && (w === '-' || w === '--'));
+  const operands: string[] = [];
+  let dropped = false;
+  if (at < 0) return { operands, dropped };
+  let skip = false;
+  for (const w of words.slice(at + 1)) {
+    if (skip) {
+      skip = false;
+      continue;
+    }
+    if (/^(<<<|<|>|>>|>\||&>|&>>|[0-9]<|[0-9]>|[0-9]>>)$/.test(w)) {
+      skip = true;
+      continue;
+    }
+    if (/^(<|>|&>|[0-9]<|[0-9]>)/.test(w)) continue;
+    if (w.startsWith('-')) dropped = true;
+    else operands.push(w);
+  }
+  return { operands, dropped };
 }
 
 class WritePaths {
@@ -287,6 +367,14 @@ class WritePaths {
 
   /** _tmb_cmd_emit */
   private emit(level: Level, dir: string, p: string, why = level.why): void {
+    if (p.startsWith(COMPUTED)) {
+      this.out += computedLine(p.slice(COMPUTED.length));
+      return;
+    }
+    if (p.startsWith(PARSE)) {
+      this.out += parseLine(p.slice(PARSE.length));
+      return;
+    }
     if (dir === '-' && why !== '' && !/^[/~$`]/.test(p)) {
       let v = dec(after(why, WSEP));
       if (p !== '.') v = `${v.replace(/\/$/, '')}/${p}`;
@@ -345,7 +433,7 @@ class WritePaths {
   }
 
   /** _tmb_cmd_exec_writes: what a find / fd / xargs statement writes through the command it runs. */
-  private execWrites(outer: Level, dir: string, mark: string, words: readonly string[]): void {
+  private execWrites(outer: Level, dir: string, mark: string, words: readonly string[], tok: string, depth: number): void {
     const level: Level = { ...outer };
     const tool = basename(words[0]);
     const acts: string[] = [];
@@ -406,11 +494,44 @@ class WritePaths {
           for (const ph of ['{/.}', '{/}']) cmd = cmd.split(ph).join('*');
         }
         for (const p of stmtWritePaths(cmd, true, this.interp).paths) if (p !== '') this.emit(level, dir, dec(p));
+        this.execShell(level, cmd, tok, depth);
       }
     }
   }
 
-  /** _tmb_cmd_proc_writes: what a program's process call writes, relative paths under `$(proc)/`. */
+  /**
+   * TS only: the body of a shell that find / fd / xargs run (`-exec sh -c
+   * '…"$0"…' {} \;`, `xargs -I % sh -c 'echo > %'`), judged as a command with
+   * the placeholder bound. A target left on a variable (a positional
+   * parameter, `for f;`, the unbound placeholder) fails closed as $(computed).
+   */
+  private execShell(level: Level, cmd: string, tok: string, depth: number): void {
+    const body = inner(unwrapStatement(cmd).words.join(' '));
+    if (body === '') return;
+    const text = dec(body);
+    if (depth >= MAX_DEPTH) {
+      this.out += computedLine(text);
+      return;
+    }
+    const outer = this.out;
+    this.out = '';
+    this.run(text, tok, depth + 1, level.vars);
+    const lines = this.out.split('\n');
+    lines.pop();
+    this.out = outer;
+    let failed = false;
+    for (const line of lines) {
+      if (BODY_UNRESOLVED.test(line)) failed = true;
+      else this.out += line + '\n';
+    }
+    if (failed) this.out += computedLine(text);
+  }
+
+  /**
+   * _tmb_cmd_proc_writes: what a program's process call writes, relative paths
+   * under `$(proc)/`. A nested `$(parse)` or `$(computed)` line keeps its
+   * reason (TS-only): the .sh strips it to its text, which is then judged as a path.
+   */
   private procWrites(cmd: string): string {
     const out: string[] = [];
     for (const record of this.listing(cmd, '@', 0)) {
@@ -428,6 +549,10 @@ class WritePaths {
     const lines = nested.out.split('\n');
     lines.pop();
     for (let p of lines) {
+      if (p.startsWith(`UNRESOLVED:${COMPUTED}`) || p.startsWith(`UNRESOLVED:${PARSE}`)) {
+        out.push(p.slice('UNRESOLVED:'.length));
+        continue;
+      }
       if (p.startsWith('UNRESOLVED:PWD:')) p = '$(proc)';
       else if (p.startsWith('UNRESOLVED:') && p.indexOf(':', 11) >= 0) p = p.slice(p.indexOf(':', 11) + 1);
       if (p === '') continue;
@@ -510,7 +635,7 @@ class WritePaths {
   run(cmd: string, base: string, depth: number, vars: string): void {
     const encoded = encode(this.parser, cmd);
     if (!encoded.ok) {
-      this.out += `UNRESOLVED:$(parse):${[...cmd].slice(0, 80).join('').replace(/[\r\n]/g, ' ')}\n`;
+      this.out += parseLine(cmd);
       return;
     }
     const level: Level = { vars, oldtok: '-', why: '' };
@@ -538,13 +663,21 @@ class WritePaths {
         continue;
       }
       const tok = dir + SEP + old + (why === '' ? '' : SEP + why);
-      if (depth < MAX_DEPTH) {
-        const body = inner(record.stmt);
-        if (body !== '') {
-          this.run(dec(body), tok, depth + 1, level.vars);
-          continue;
-        }
+      const chain = dir === '-' && why === '';
+      const body = inner(record.stmt);
+      const ownWords = body !== '' && words[0] !== 'eval' && basename(words[0]) !== 'watch';
+      if (ownWords) {
+        for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths) if (p !== '') this.emit(level, dir, dec(p));
       }
+      if (body !== '' && words[0] !== 'eval' && heldProgram(body)) {
+        this.out += computedLine(`${basename(dec(words[0]))} ${dec(body)}`);
+        continue;
+      }
+      if (body !== '' && depth < MAX_DEPTH) {
+        this.run(dec(body), tok, depth + 1, level.vars);
+        continue;
+      }
+      if (body !== '') this.out += computedLine(dec(body));
       let stmt = record.stmt;
       let mark = '';
       if (basename(words[0]) === 'xargs' && words[words.length - 1].startsWith(SEP)) {
@@ -552,22 +685,34 @@ class WritePaths {
         words = words.slice(0, -1);
         stmt = words.join(' ');
       }
-      const chain = dir === '-' && why === '';
-      for (const p of stmtWritePaths(stmt, chain, this.interp).paths) if (p !== '') this.emit(level, dir, dec(p));
-      if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) this.execWrites(level, dir, mark, words);
-      const kind = stdinInterp(words);
+      if (!ownWords) {
+        for (const p of stmtWritePaths(stmt, chain, this.interp).paths) if (p !== '') this.emit(level, dir, dec(p));
+      }
+      if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) this.execWrites(level, dir, mark, words, tok, depth);
+      const { kind, info } = stdinProgram(words);
       if (kind !== '') {
-        const progs: string[] = [];
+        const progs: { prog: string; held: boolean }[] = [];
+        const herestring = (w: string): void => {
+          progs.push({ prog: dec(w), held: heldProgram(w) });
+        };
         for (let w = 0; w < words.length; w++) {
-          if (words[w] === '<<<') progs.push(dec(words[w + 1] ?? ''));
-          else if (words[w].startsWith('<<<')) progs.push(dec(words[w].slice(3)));
+          if (words[w] === '<<<') herestring(words[w + 1] ?? '');
+          else if (words[w].startsWith('<<<')) herestring(words[w].slice(3));
         }
-        progs.push(...(bodies.get(idx) ?? []));
-        for (const prog of progs) {
-          if (kind === 'sh') {
+        for (const body of bodies.get(idx) ?? []) progs.push({ prog: body, held: heldProgram(body) });
+        if (progs.length === 0 && !info) this.out += computedLine(basename(dec(words[0])));
+        for (const { prog, held } of progs) {
+          if (held) this.out += computedLine(`${basename(dec(words[0]))} ${prog}`);
+          else if (kind === 'sh') {
             if (depth < MAX_DEPTH) this.run(prog, tok, depth + 1, level.vars);
+            else this.out += computedLine(prog);
           } else {
-            for (const p of progWrites(kind, prog, false, (c) => this.procWrites(c))) if (p !== '') this.emit(level, dir, p);
+            const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
+            for (const p of found.lines) if (p !== '') this.emit(level, dir, p);
+            if (!found.computed) continue;
+            const { operands, dropped } = stdinOperands(words);
+            for (const w of operands) this.emit(level, dir, dec(w));
+            if (!operandsCover(found, operands, dropped, kind === 'node' ? 2 : 1)) this.out += computedLine(basename(dec(words[0])));
           }
         }
       }

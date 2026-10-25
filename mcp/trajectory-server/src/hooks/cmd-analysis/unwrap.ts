@@ -1,7 +1,10 @@
 /**
  * The wrapper skipping shared by the scanners (_TMB_CMD_UNWRAP_AWK in
  * cmd-analysis.sh): VAR=value words and sudo / env / command / nohup / time /
- * exec with their own options, each wrapper by its own option table.
+ * exec with their own options, each wrapper by its own option table. The TS
+ * analyzer also skips timeout (and its duration), stdbuf and nice, and their
+ * Homebrew coreutils names gtimeout, gstdbuf and gnice, which the .sh does not
+ * (GH 1692).
  */
 
 interface WrapSpec {
@@ -23,9 +26,15 @@ const SPECS: Record<string, WrapSpec> = {
   env: { short: 'CPSu', dirShort: 'C', long: ' chdir split-string unset ', dirLong: ' chdir ' },
   time: { short: 'fo', dirShort: '', long: ' format output ', dirLong: ' ' },
   exec: { short: 'a', dirShort: '', long: ' ', dirLong: ' ' },
+  timeout: { short: 'ks', dirShort: '', long: ' kill-after signal ', dirLong: ' ' },
+  stdbuf: { short: 'eio', dirShort: '', long: ' error input output ', dirLong: ' ' },
+  nice: { short: 'n', dirShort: '', long: ' adjustment ', dirLong: ' ' },
 };
+SPECS.gtimeout = SPECS.timeout;
+SPECS.gstdbuf = SPECS.stdbuf;
+SPECS.gnice = SPECS.nice;
 
-export const WRAPPER = /^(sudo|env|command|nohup|time|exec)$/;
+export const WRAPPER = /^(sudo|env|command|nohup|time|exec|g?timeout|g?stdbuf|g?nice)$/;
 export const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** <b> under dir <a>, as written: an absolute, ~ or $ path stands alone. */
@@ -94,6 +103,7 @@ export function unwrap(w: readonly string[], k: number): { k: number; dirs: stri
         break;
       }
     }
+    if ((a === 'timeout' || a === 'gtimeout') && k < n) k++;
   }
   return { k, dirs };
 }

@@ -3,9 +3,16 @@ export const ENC = ['', ...Array.from({ length: 12 }, (_, i) => String.fromCharC
 export const QO = '\x07';
 export const QC = '\x08';
 export const JOINER = ENC[12];
-const DECODE = new Map([...NEUTRAL, '\n'].map((c, i) => [i < 10 ? ENC[i + 1] : ENC[12], c]));
+/** A quoted or escaped `(` / `)` inside a substitution that statements.ts frames as `$` ENC[8] … ENC[9]: decoded alike, told apart from the frame. */
+export const SUB_PO = '\x15';
+export const SUB_PC = '\x16';
+const DECODE = new Map([
+    ...[...NEUTRAL, '\n'].map((c, i) => [i < 10 ? ENC[i + 1] : ENC[12], c]),
+    [SUB_PO, '('],
+    [SUB_PC, ')'],
+]);
 export function decode(text) {
-    return text.replace(/[\x01-\x06\x0e-\x11\x13]/g, (c) => DECODE.get(c) ?? c);
+    return text.replace(/[\x01-\x06\x0e-\x11\x13\x15\x16]/g, (c) => DECODE.get(c) ?? c);
 }
 /** One char of quoted or escaped text; a missing char (a line's end) is \001, as awk's index(s, "") is 1. */
 function neutral(c) {
@@ -77,15 +84,24 @@ export class Encoder {
         }
         return out;
     }
+    /** Where a substitution's `$(` or backtick starts: tree-sitter-bash folds the blanks after a preceding expansion into the opener token (`"$(a) $(b)"`). */
+    opener(sub) {
+        const first = sub.firstChild;
+        if (!first)
+            return sub.startIndex;
+        const tok = this.src.slice(first.startIndex, first.endIndex);
+        return first.startIndex + tok.length - tok.trimStart().length;
+    }
     dquoted(node, from, to) {
         let out = '';
         let at = from;
         for (const sub of substitutions(node, [])) {
             if (sub.startIndex < from || sub.endIndex > to)
                 continue;
-            out += this.quoted(at, sub.startIndex, true);
-            const open = this.src.startsWith('$(', sub.startIndex) ? 2 : 1;
-            out += QO + this.range(sub, sub.startIndex + open, sub.endIndex - 1) + QC;
+            const start = this.opener(sub);
+            out += this.quoted(at, start, true);
+            const open = this.src.startsWith('$(', start) ? 2 : 1;
+            out += QO + this.range(sub, start + open, sub.endIndex - 1) + QC;
             at = sub.endIndex;
         }
         return out + this.quoted(at, to, true);
