@@ -221,9 +221,15 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
       assert.deepEqual(await run(`python3 -c "$(cat ${name}.py)"`), [`${COMPUTED}python3 $(cat ${name}`.slice(0, COMPUTED.length + 80)]);
     });
 
-    it('resolves a literal operand of a stdin program', async () => {
-      assert.deepEqual(await run("python3 - out.txt <<'EOF'\nimport sys\nopen(sys.argv[1], 'w').write('x')\nEOF"), ['/w/out.txt']);
-    });
+    for (const [group, cmd, want] of [
+      ['a stdin program', "python3 - out.txt <<'EOF'\nimport sys\nopen(sys.argv[1], 'w').write('x')\nEOF", [`${COMPUTED}python3`]],
+      ['a -c program', `python3 -c "import sys; open(sys.argv[1],'w')" out.txt`, ['/w/out.txt', `${COMPUTED}python3`]],
+      ['a mutated node argv', `node -e "process.argv[1]=process.env.T;require('fs').writeFileSync(process.argv[1],'x')" foo`, ['/w/foo', `${COMPUTED}node`]],
+    ] as const) {
+      it(`never takes an operand for the argv target of ${group}`, async () => {
+        assert.deepEqual(await run(cmd), [...want]);
+      });
+    }
 
     it('prints a computed target beside the literal ones', async () => {
       assert.deepEqual(await run(`python3 -c "import os; os.rename('a', b)"`), ['/w/a', `${COMPUTED}python3`]);
@@ -247,6 +253,11 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
       ['a concatenated name', `python3 -c "p='a'+'b'; open(p,'w')"`],
       ['an unbound name', `python3 -c "open(p,'w')"`],
       ['a node let rebound in a callback', `node -e "let p='a.txt'; [1].forEach(() => { p = '/etc/x' }); require('fs').writeFileSync(p,'x')"`],
+      ['a name beside import * across a continuation', `python3 -c 'p="a"\nfrom os import \\\n *\nopen(p,"w")'`],
+      ['a name beside exec (', `python3 -c "p='a.txt'; exec ('p=input()'); open(p,'w')"`],
+      ['a name beside __dict__', `python3 -c "import sys; p='a.txt'; sys.modules[__name__].__dict__['p']=input(); open(p,'w')"`],
+      ['a Path with an attribute store', `python3 -c "from pathlib import Path; import os; p = Path('a'); p._str = os.environ['T']; p.write_text('x')"`],
+      ['a Path read as a non-call attribute', `python3 -c "from pathlib import Path; p = Path('a.txt'); print(p.name); p.write_text('x')"`],
     ]) {
       it(`keeps ${group} computed`, async () => {
         const out = await run(cmd!);

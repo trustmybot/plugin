@@ -1,7 +1,7 @@
 import { decode, encode } from './encode.js';
 import { listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
-import { COMPUTED, PARSE, heldProgram, interpWrites, operandsCover, progWrites, shown } from './programs.js';
+import { COMPUTED, PARSE, heldProgram, interpWrites, progWrites, shown } from './programs.js';
 import { SEP, WSEP, statementsEnc } from './statements.js';
 import { stmtWritePaths, unwrapStatement } from './targets.js';
 const BAD = '\x01';
@@ -166,32 +166,6 @@ function stdinProgram(words) {
     return { kind, info };
 }
 const stdinInterp = (words) => stdinProgram(words).kind;
-/** The words after a stdin program's `-` / `--`: its sys.argv[1:] / process.argv; `dropped` when an option among them was left out. */
-function stdinOperands(words) {
-    const at = words.findIndex((w, k) => k > 0 && (w === '-' || w === '--'));
-    const operands = [];
-    let dropped = false;
-    if (at < 0)
-        return { operands, dropped };
-    let skip = false;
-    for (const w of words.slice(at + 1)) {
-        if (skip) {
-            skip = false;
-            continue;
-        }
-        if (/^(<<<|<|>|>>|>\||&>|&>>|[0-9]<|[0-9]>|[0-9]>>)$/.test(w)) {
-            skip = true;
-            continue;
-        }
-        if (/^(<|>|&>|[0-9]<|[0-9]>)/.test(w))
-            continue;
-        if (w.startsWith('-'))
-            dropped = true;
-        else
-            operands.push(w);
-    }
-    return { operands, dropped };
-}
 class WritePaths {
     parser;
     opts;
@@ -772,12 +746,7 @@ class WritePaths {
                         for (const p of found.lines)
                             if (p !== '')
                                 this.emit(level, dir, p);
-                        if (!found.computed)
-                            continue;
-                        const { operands, dropped } = stdinOperands(words);
-                        for (const w of operands)
-                            this.emit(level, dir, dec(w));
-                        if (!operandsCover(found, operands, dropped, kind === 'node' ? 2 : 1))
+                        if (found.computed)
                             this.out += computedLine(basename(dec(words[0])));
                     }
                 }

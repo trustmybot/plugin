@@ -1603,3 +1603,42 @@
 {"cmd":"python3 -c \"$(cat a) $(cat b)\"","cwd":"/w"}
 {"cmd":"bash -c \"$(cat a) $(cat b)\"","cwd":"/w"}
 {"cmd":"python3 -c \"$(cat '(') $(cat ')')\"","cwd":"/w"}
+{"cmd":"python3 - foo <<'EOF'\nimport sys,os\nsys.argv[1] = os.environ['T']\nopen(sys.argv[1],'w')\nEOF","cwd":"/w"}
+{"cmd":"python3 - foo <<'EOF'\nimport sys,os\nsys.argv = ['', os.environ['T']]\nopen(sys.argv[1],'w')\nEOF","cwd":"/w"}
+{"cmd":"python3 - foo <<'EOF'\nimport sys,os\nsys.argv.insert(1, input())\nopen(sys.argv[1],'w')\nEOF","cwd":"/w"}
+{"cmd":"python3 - foo <<'EOF'\nimport sys\nsys = type('S',(),{'argv':['', input()]})\nopen(sys.argv[1],'w')\nEOF","cwd":"/w"}
+{"cmd":"python3 - foo <<'EOF'\nimport sys\nfrom m import *\nopen(sys.argv[1],'w')\nEOF","cwd":"/w"}
+{"cmd":"node - foo <<'EOF'\nprocess.argv[2]=process.env.T;require('fs').unlinkSync(process.argv[2])\nEOF","cwd":"/w"}
+{"cmd":"node - foo <<'EOF'\nprocess.argv.splice(2,1,process.env.T);require('fs').unlinkSync(process.argv[2])\nEOF","cwd":"/w"}
+{"cmd":"node - foo <<'EOF'\nconst process={argv:['','',globalThis.T]};require('fs').unlinkSync(process.argv[2])\nEOF","cwd":"/w"}
+{"cmd":"python3 -c \"import sys,os; sys.argv[1]=os.environ['T']; open(sys.argv[1],'w')\" foo","cwd":"/w"}
+{"cmd":"python3 -c \"import sys,os; sys.argv=['', os.environ['T']]; open(sys.argv[1],'w')\" foo","cwd":"/w"}
+{"cmd":"python3 -c \"import sys; sys.argv.insert(1, input()); open(sys.argv[1],'w')\" foo","cwd":"/w"}
+{"cmd":"python3 -c \"import sys; sys = type('S',(),{'argv':['', input()]}); open(sys.argv[1],'w')\" foo","cwd":"/w"}
+{"cmd":"python3 -c \"import sys; from m import *; open(sys.argv[1],'w')\" foo","cwd":"/w"}
+{"cmd":"node -e \"process.argv[1]=process.env.T;require('fs').writeFileSync(process.argv[1],'x')\" foo","cwd":"/w"}
+{"cmd":"node -e \"process.argv.splice(1,1,process.env.T);require('fs').writeFileSync(process.argv[1],'x')\" foo","cwd":"/w"}
+{"cmd":"node -e \"const process={argv:['',globalThis.T]};require('fs').writeFileSync(process.argv[1],'x')\" foo","cwd":"/w"}
+{"cmd":"python3 - <<'EOF'\nexecutable='/w/a'\nfrom sys import \\\n *\nopen(executable,'w')\nEOF","cwd":"/w"}
+{"cmd":"python3 - <<'EOF'\np='/w/a'\nfrom os import \\\n*\nopen(p,'w')\nEOF","cwd":"/w"}
+{"cmd":"python3 -c 'executable=\"/w/a\"\nfrom sys import \\\n *\nopen(executable,\"w\")'","cwd":"/w"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\nimport os\np = Path('a')\np._str = os.environ['T']\np.write_text('x')\nEOF","cwd":"/w"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\nimport os\np = Path('a')\np._raw_paths = [os.environ['T']]\np.write_text('x')\nEOF","cwd":"/w"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\np = Path('a')\np._str += '/../../etc/x'\np.write_text('x')\nEOF","cwd":"/w"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\np = Path('a.txt')\nprint(p.name)\np.write_text('x')\nEOF","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; exec('p=input()'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; exec ('p=input()'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; eval('0'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; compile('0','f','single'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; globals()['p']=input(); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; locals(); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; vars()['p']=input(); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"import m; p='a.txt'; setattr(m,'p',input()); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"import m; p='a.txt'; delattr(m,'q'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"import sys; p='a.txt'; sys.modules[__name__].__dict__['p']=input(); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; __builtins__.p=input(); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"p='a.txt'; __import__('os'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"import importlib; p='a.txt'; importlib.import_module('m'); open(p,'w')\"","cwd":"/w"}
+{"cmd":"python3 -c \"import importlib; print(importlib.util.find_spec('json'))\"","cwd":"/w"}
+{"cmd":"python3 -c \"print(vars(object))\"","cwd":"/w"}
+{"cmd":"python3 -c \"from os.path import *; print(join('a', 'b'))\"","cwd":"/w"}

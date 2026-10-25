@@ -10,10 +10,9 @@
  * in a variable or a substitution, a quoted paren in it included. A python or
  * node target name bound once, first, to a plain string literal (python also
  * `Path` / `pathlib.Path` / `PurePath` of one) is that literal
- * (`heldLiteral`); a python `from m import *` resolves no name. Operands stand
- * in for the targets only when every unread target is a `sys.argv[n]` /
- * `process.argv[n]` they cover (`operandsCover`); otherwise the operands print
- * beside the `$(computed)` line.
+ * (`heldLiteral`); a program that reaches its namespace dynamically (`VOIDERS`)
+ * resolves no name. A `sys.argv[n]` / `process.argv[n]` target is never
+ * resolved: it prints a `$(computed)` line beside any operands the .sh prints.
  */
 import { SUB_PC, SUB_PO, decode } from './encode.js';
 import { progCalls } from './prog-calls.js';
@@ -178,6 +177,8 @@ const PY_COMPOUND = /^(if|elif|else|for|while|with|try|except|finally|def|class|
 const DEFINER = /^(function|def|class|async|get|set|static)$/;
 const UNBINDABLE = /^(True|False|None|__debug__|undefined|NaN|Infinity|null|true|false)$/;
 const PLAIN = /^[^\\$@#{}%`'"\x00-\x1f]+$/;
+const GAP = '(?:\\s|\\\\\\r?\\n)*';
+const VOIDERS = new RegExp(`\\bimport${GAP}\\*|\\b(?:exec|eval|compile|globals|locals|vars|setattr|delattr)${GAP}\\(|__dict__|__builtins__|__import__|importlib`);
 const STR = '\x01';
 const OPENER = { ')': '(', ']': '[', '}': '{' };
 const space = (c) => c !== undefined && /\s/.test(c);
@@ -185,12 +186,14 @@ const space = (c) => c !== undefined && /\s/.test(c);
  * Lexes a program for `heldLiteral`, or undefined when no name in it can be
  * trusted to hold one value: an unclosed string or bracket, a template
  * substitution, a regex or division (node), a non-ASCII or escaped
- * identifier, a python `case` pattern or `import *`, a non-literal `require`, or a word
- * that reaches the namespace dynamically (exec, globals, frames, vm, the
- * global object, ...) in the code or in any string.
+ * identifier, a python `case` pattern, a non-literal `require`, a `VOIDERS`
+ * token anywhere in the text (`import *` across continuations, `exec(`,
+ * `vars(`, `__dict__`, `importlib`, ...), or a word that reaches the
+ * namespace dynamically (exec, globals, frames, vm, the global object, ...)
+ * in the code or in any string.
  */
 function lex(py, src) {
-    if (/[\x00-\x08\x0e-\x1f]/.test(src))
+    if (/[\x00-\x08\x0e-\x1f]/.test(src) || VOIDERS.test(src))
         return undefined;
     let code = '';
     const strs = [];
@@ -241,7 +244,7 @@ function lex(py, src) {
     }
     if (/[^\x00-\x7f]/.test(code) || (py ? /\\(?!\n)/.test(code) : /[\\/]/.test(code)))
         return undefined;
-    if (py && (/(^|\n)[ \t]*case\b/.test(code) || /\bimport\s*\*/.test(code)))
+    if (py && /(^|\n)[ \t]*case\b/.test(code))
         return undefined;
     if (!py && /\brequire\b(?!\s*\(\s*\x01\s*\))/.test(code))
         return undefined;
@@ -366,7 +369,12 @@ function lambdaLine(lx, u, from) {
     const end = lx.code.indexOf('\n', from);
     return /\blambda\b/.test(lx.code.slice(lineStart(lx, u), end < 0 ? lx.code.length : end));
 }
-/** A read of `name` at `u`: a whole argument of a call that defines nothing and is not assigned to, or (python) a method or attribute receiver outside an import. */
+/**
+ * A read of `name` at `u`: a whole argument of a call that defines nothing and
+ * is not assigned to, or (python) the receiver of a method call
+ * `name.<ident>(` outside an import. An attribute store or any other
+ * attribute access is not one.
+ */
 function useAt(lx, name, u) {
     const { py, code } = lx;
     let a = u - 1;
@@ -375,7 +383,11 @@ function useAt(lx, name, u) {
     let b = u + name.length;
     while (space(code[b]))
         b++;
-    if (py && code[a] !== '.' && code[b] === '.' && /^\.\s*[A-Za-z_]/.test(code.slice(b))) {
+    if (code[a] === '.')
+        return false;
+    if (py && code[b] === '.') {
+        if (!/^\.\s*[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(code.slice(b)))
+            return false;
         return !/^\s*(from|import)\b/.test(statementAt(lx, u)) && !lambdaLine(lx, u, u);
     }
     if ((code[a] !== '(' && code[a] !== ',') || (code[b] !== ')' && code[b] !== ','))
@@ -409,10 +421,11 @@ function useAt(lx, name, u) {
  * Single-assignment constant propagation (GH 1692): the literal a name holds
  * when the program binds it exactly once, first, at top level, to one plain
  * string literal (python: or pathlib's `Path` / `PurePath` of one), and every
- * other mention is a whole call argument (python: or a method receiver). A
- * name rebound, bound in a loop, branch, block, comprehension, `with` / `for`
- * header or function, augmented, bound to anything else, never bound, or
- * written in a string has none, nor has any name of a program with `import *`.
+ * other mention is a whole call argument (python: or a method call's
+ * receiver). A name rebound, bound in a loop, branch, block, comprehension,
+ * `with` / `for` header or function, augmented, attribute-stored or read as a
+ * non-call attribute, bound to anything else, never bound, or written in a
+ * string has none, nor has any name of a program with a `VOIDERS` token.
  */
 function heldLiteral(lx, name) {
     if (UNBINDABLE.test(name))
@@ -427,13 +440,11 @@ function heldLiteral(lx, name) {
     const lit = bindingAt(lx, name, occ[0]);
     return lit !== undefined && occ.slice(1).every((u) => useAt(lx, name, u)) ? lit : undefined;
 }
-const ARGV = /^(?:sys|process)\.argv\[([0-9]+)\]$/;
 /**
  * _tmb_cmd_prog_writes: the lines it prints; `-` with `operands` for a
  * program that writes but names no literal. `computed` marks a result that a
  * write call with a non-literal target took part in, so the caller adds a
- * `$(computed)` line beside the literal paths, unless `argv` says the
- * program's operands are those targets. A write shape the scanner did
+ * `$(computed)` line beside the literal paths. A write shape the scanner did
  * not see as a call (often `open(join(d, 'x'))`, a read) adds none when a
  * literal was found. A target name `heldLiteral` resolves adds no
  * `$(computed)` line: the .sh's literal fallback still runs, and the literal
@@ -444,14 +455,10 @@ export function progWrites(lang, program, operands, procWrites) {
     const has = (line) => `\n${scan}\n`.includes(`\n${line}\n`);
     const cd = has('C');
     const run = has('R');
-    const targets = scan.split('\n').flatMap((line) => (line.startsWith('F\t') ? [line.slice(2)] : []));
-    const argvAt = targets.flatMap((t) => (ARGV.test(t) ? [Number(ARGV.exec(t)[1])] : []));
-    const names = targets.filter((t) => !ARGV.test(t));
+    const names = scan.split('\n').flatMap((line) => (line.startsWith('F\t') ? [line.slice(2)] : []));
     const lexed = names.length > 0 && (lang === 'py' || lang === 'node') && !has('A') && !run ? lex(lang === 'py', program) : undefined;
     const held = new Map(names.map((name) => [name, lexed && heldLiteral(lexed, name)]));
-    const other = has('A') || has('F') || [...held.values()].includes(undefined);
-    const unread = other || argvAt.length > 0;
-    const argv = has('W') && !other && argvAt.length > 0 ? argvAt : undefined;
+    const unread = has('A') || has('F') || [...held.values()].includes(undefined);
     let fail = unread || held.size > 0;
     if (!has('W')) {
         if (!program.split('\n').some((line) => SHAPE.test(line)))
@@ -500,12 +507,8 @@ export function progWrites(lang, program, operands, procWrites) {
     const seen = new Set();
     lines = lines.filter((l) => !blank(l) && !seen.has(l) && seen.add(l) !== undefined);
     if (lines.length > 0)
-        return { lines, computed: unread, argv };
-    return { lines: operands ? ['-'] : [], computed: fail, argv };
-}
-/** Whether a program's operands stand for every target it could not read: each is `argv[n]` with n at least `first`, and no operand was dropped as an option. */
-export function operandsCover(found, operands, dropped, first) {
-    return found.argv !== undefined && operands.length > 0 && !dropped && found.argv.every((n) => n >= first);
+        return { lines, computed: unread };
+    return { lines: operands ? ['-'] : [], computed: fail };
 }
 /** _tmb_cmd_interp_writes: the lines an interpreter one-liner's statement words add. */
 export function interpWrites(words, procWrites) {
@@ -569,16 +572,10 @@ export function interpWrites(words, procWrites) {
         return [];
     const literal = !(found.lines[0] === '-' && found.lines.length === 1);
     const out = literal ? [...found.lines] : [];
-    const operands = [];
-    let dropped = false;
-    for (; k < n; k++) {
-        if (words[k].startsWith('-'))
-            dropped = true;
-        else
-            operands.push(...decode(words[k]).split('\n'));
-    }
-    out.push(...operands);
-    if (found.computed && !operandsCover(found, operands, dropped, 1))
+    for (; k < n; k++)
+        if (!words[k].startsWith('-'))
+            out.push(...decode(words[k]).split('\n'));
+    if (found.computed)
         out.push(COMPUTED + argv0);
     return out;
 }

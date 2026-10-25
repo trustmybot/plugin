@@ -10,10 +10,9 @@
  * in a variable or a substitution, a quoted paren in it included. A python or
  * node target name bound once, first, to a plain string literal (python also
  * `Path` / `pathlib.Path` / `PurePath` of one) is that literal
- * (`heldLiteral`); a python `from m import *` resolves no name. Operands stand
- * in for the targets only when every unread target is a `sys.argv[n]` /
- * `process.argv[n]` they cover (`operandsCover`); otherwise the operands print
- * beside the `$(computed)` line.
+ * (`heldLiteral`); a program that reaches its namespace dynamically (`VOIDERS`)
+ * resolves no name. A `sys.argv[n]` / `process.argv[n]` target is never
+ * resolved: it prints a `$(computed)` line beside any operands the .sh prints.
  */
 import { SUB_PC, SUB_PO, decode } from './encode.js';
 import { type Lang, progCalls } from './prog-calls.js';
@@ -175,6 +174,10 @@ const PY_COMPOUND = /^(if|elif|else|for|while|with|try|except|finally|def|class|
 const DEFINER = /^(function|def|class|async|get|set|static)$/;
 const UNBINDABLE = /^(True|False|None|__debug__|undefined|NaN|Infinity|null|true|false)$/;
 const PLAIN = /^[^\\$@#{}%`'"\x00-\x1f]+$/;
+const GAP = '(?:\\s|\\\\\\r?\\n)*';
+const VOIDERS = new RegExp(
+  `\\bimport${GAP}\\*|\\b(?:exec|eval|compile|globals|locals|vars|setattr|delattr)${GAP}\\(|__dict__|__builtins__|__import__|importlib`,
+);
 const STR = '\x01';
 const OPENER: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
 const space = (c: string | undefined): boolean => c !== undefined && /\s/.test(c);
@@ -193,12 +196,14 @@ interface Lexed {
  * Lexes a program for `heldLiteral`, or undefined when no name in it can be
  * trusted to hold one value: an unclosed string or bracket, a template
  * substitution, a regex or division (node), a non-ASCII or escaped
- * identifier, a python `case` pattern or `import *`, a non-literal `require`, or a word
- * that reaches the namespace dynamically (exec, globals, frames, vm, the
- * global object, ...) in the code or in any string.
+ * identifier, a python `case` pattern, a non-literal `require`, a `VOIDERS`
+ * token anywhere in the text (`import *` across continuations, `exec(`,
+ * `vars(`, `__dict__`, `importlib`, ...), or a word that reaches the
+ * namespace dynamically (exec, globals, frames, vm, the global object, ...)
+ * in the code or in any string.
  */
 function lex(py: boolean, src: string): Lexed | undefined {
-  if (/[\x00-\x08\x0e-\x1f]/.test(src)) return undefined;
+  if (/[\x00-\x08\x0e-\x1f]/.test(src) || VOIDERS.test(src)) return undefined;
   let code = '';
   const strs: Lexed['strs'] = [];
   const strAt = new Map<number, number>();
@@ -244,7 +249,7 @@ function lex(py: boolean, src: string): Lexed | undefined {
     i++;
   }
   if (/[^\x00-\x7f]/.test(code) || (py ? /\\(?!\n)/.test(code) : /[\\/]/.test(code))) return undefined;
-  if (py && (/(^|\n)[ \t]*case\b/.test(code) || /\bimport\s*\*/.test(code))) return undefined;
+  if (py && /(^|\n)[ \t]*case\b/.test(code)) return undefined;
   if (!py && /\brequire\b(?!\s*\(\s*\x01\s*\))/.test(code)) return undefined;
   const word = py ? /[A-Za-z0-9_]+/g : /[A-Za-z0-9_$]+/g;
   const dynamic = py ? PY_DYNAMIC : NODE_DYNAMIC;
@@ -350,14 +355,21 @@ function lambdaLine(lx: Lexed, u: number, from: number): boolean {
   return /\blambda\b/.test(lx.code.slice(lineStart(lx, u), end < 0 ? lx.code.length : end));
 }
 
-/** A read of `name` at `u`: a whole argument of a call that defines nothing and is not assigned to, or (python) a method or attribute receiver outside an import. */
+/**
+ * A read of `name` at `u`: a whole argument of a call that defines nothing and
+ * is not assigned to, or (python) the receiver of a method call
+ * `name.<ident>(` outside an import. An attribute store or any other
+ * attribute access is not one.
+ */
 function useAt(lx: Lexed, name: string, u: number): boolean {
   const { py, code } = lx;
   let a = u - 1;
   while (space(code[a])) a--;
   let b = u + name.length;
   while (space(code[b])) b++;
-  if (py && code[a] !== '.' && code[b] === '.' && /^\.\s*[A-Za-z_]/.test(code.slice(b))) {
+  if (code[a] === '.') return false;
+  if (py && code[b] === '.') {
+    if (!/^\.\s*[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(code.slice(b))) return false;
     return !/^\s*(from|import)\b/.test(statementAt(lx, u)) && !lambdaLine(lx, u, u);
   }
   if ((code[a] !== '(' && code[a] !== ',') || (code[b] !== ')' && code[b] !== ',')) return false;
@@ -384,10 +396,11 @@ function useAt(lx: Lexed, name: string, u: number): boolean {
  * Single-assignment constant propagation (GH 1692): the literal a name holds
  * when the program binds it exactly once, first, at top level, to one plain
  * string literal (python: or pathlib's `Path` / `PurePath` of one), and every
- * other mention is a whole call argument (python: or a method receiver). A
- * name rebound, bound in a loop, branch, block, comprehension, `with` / `for`
- * header or function, augmented, bound to anything else, never bound, or
- * written in a string has none, nor has any name of a program with `import *`.
+ * other mention is a whole call argument (python: or a method call's
+ * receiver). A name rebound, bound in a loop, branch, block, comprehension,
+ * `with` / `for` header or function, augmented, attribute-stored or read as a
+ * non-call attribute, bound to anything else, never bound, or written in a
+ * string has none, nor has any name of a program with a `VOIDERS` token.
  */
 function heldLiteral(lx: Lexed, name: string): string | undefined {
   if (UNBINDABLE.test(name)) return undefined;
@@ -403,18 +416,13 @@ export interface ProgResult {
   lines: string[];
   /** A write call whose target the scanner could not read: F or A beside literal lines, or F / A / a write shape without a W when there are none. */
   computed: boolean;
-  /** When every target the scanner could not read is `sys.argv[n]` / `process.argv[n]`: each n, so the caller may name the operands instead. */
-  argv?: number[];
 }
-
-const ARGV = /^(?:sys|process)\.argv\[([0-9]+)\]$/;
 
 /**
  * _tmb_cmd_prog_writes: the lines it prints; `-` with `operands` for a
  * program that writes but names no literal. `computed` marks a result that a
  * write call with a non-literal target took part in, so the caller adds a
- * `$(computed)` line beside the literal paths, unless `argv` says the
- * program's operands are those targets. A write shape the scanner did
+ * `$(computed)` line beside the literal paths. A write shape the scanner did
  * not see as a call (often `open(join(d, 'x'))`, a read) adds none when a
  * literal was found. A target name `heldLiteral` resolves adds no
  * `$(computed)` line: the .sh's literal fallback still runs, and the literal
@@ -425,14 +433,10 @@ export function progWrites(lang: Lang, program: string, operands: boolean, procW
   const has = (line: string): boolean => `\n${scan}\n`.includes(`\n${line}\n`);
   const cd = has('C');
   const run = has('R');
-  const targets = scan.split('\n').flatMap((line) => (line.startsWith('F\t') ? [line.slice(2)] : []));
-  const argvAt = targets.flatMap((t) => (ARGV.test(t) ? [Number(ARGV.exec(t)![1])] : []));
-  const names = targets.filter((t) => !ARGV.test(t));
+  const names = scan.split('\n').flatMap((line) => (line.startsWith('F\t') ? [line.slice(2)] : []));
   const lexed = names.length > 0 && (lang === 'py' || lang === 'node') && !has('A') && !run ? lex(lang === 'py', program) : undefined;
   const held = new Map<string, string | undefined>(names.map((name) => [name, lexed && heldLiteral(lexed, name)]));
-  const other = has('A') || has('F') || [...held.values()].includes(undefined);
-  const unread = other || argvAt.length > 0;
-  const argv = has('W') && !other && argvAt.length > 0 ? argvAt : undefined;
+  const unread = has('A') || has('F') || [...held.values()].includes(undefined);
   let fail = unread || held.size > 0;
   if (!has('W')) {
     if (!program.split('\n').some((line) => SHAPE.test(line))) return { lines: [], computed: false };
@@ -469,13 +473,8 @@ export function progWrites(lang: Lang, program: string, operands: boolean, procW
   if (cd) lines = lines.filter((l) => !blank(l)).map((l) => (/^[/~$]/.test(l) ? '' : '$(proc)/') + l);
   const seen = new Set<string>();
   lines = lines.filter((l) => !blank(l) && !seen.has(l) && seen.add(l) !== undefined);
-  if (lines.length > 0) return { lines, computed: unread, argv };
-  return { lines: operands ? ['-'] : [], computed: fail, argv };
-}
-
-/** Whether a program's operands stand for every target it could not read: each is `argv[n]` with n at least `first`, and no operand was dropped as an option. */
-export function operandsCover(found: ProgResult, operands: readonly string[], dropped: boolean, first: number): boolean {
-  return found.argv !== undefined && operands.length > 0 && !dropped && found.argv.every((n) => n >= first);
+  if (lines.length > 0) return { lines, computed: unread };
+  return { lines: operands ? ['-'] : [], computed: fail };
 }
 
 /** _tmb_cmd_interp_writes: the lines an interpreter one-liner's statement words add. */
@@ -527,13 +526,7 @@ export function interpWrites(words: readonly string[], procWrites: ProcWrites): 
   if (found.lines.length === 0) return [];
   const literal = !(found.lines[0] === '-' && found.lines.length === 1);
   const out = literal ? [...found.lines] : [];
-  const operands: string[] = [];
-  let dropped = false;
-  for (; k < n; k++) {
-    if (words[k].startsWith('-')) dropped = true;
-    else operands.push(...decode(words[k]).split('\n'));
-  }
-  out.push(...operands);
-  if (found.computed && !operandsCover(found, operands, dropped, 1)) out.push(COMPUTED + argv0);
+  for (; k < n; k++) if (!words[k].startsWith('-')) out.push(...decode(words[k]).split('\n'));
+  if (found.computed) out.push(COMPUTED + argv0);
   return out;
 }

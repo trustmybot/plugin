@@ -12,8 +12,8 @@
  * interpreter's own options, before `-`, `--`, `sh -s` or an operand; perl -c
  * is not one, ruby -c is), a bash -c program held in a variable or in
  * substitutions nested to any depth, a write target the scanner cannot read
- * beside the literal ones or a stdin program's operands that do not cover it
- * as `sys.argv[n]` / `process.argv[n]`, a shell
+ * (a `sys.argv[n]` / `process.argv[n]` one included) beside the literal ones,
+ * a shell
  * body that find / fd / xargs run on a positional parameter, and bash -c /
  * eval / heredoc nesting deeper than 3.
  */
@@ -22,7 +22,7 @@ import { type Heredoc, decode, encode } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
-import { COMPUTED, PARSE, heldProgram, interpWrites, operandsCover, progWrites, shown } from './programs.js';
+import { COMPUTED, PARSE, heldProgram, interpWrites, progWrites, shown } from './programs.js';
 import { type Record as Statement, SEP, WSEP, statementsEnc } from './statements.js';
 import { type Interp, stmtWritePaths, unwrapStatement } from './targets.js';
 
@@ -198,29 +198,6 @@ function stdinProgram(words: readonly string[]): StdinProgram {
 }
 
 const stdinInterp = (words: readonly string[]): Lang | 'sh' | '' => stdinProgram(words).kind;
-
-/** The words after a stdin program's `-` / `--`: its sys.argv[1:] / process.argv; `dropped` when an option among them was left out. */
-function stdinOperands(words: readonly string[]): { operands: string[]; dropped: boolean } {
-  const at = words.findIndex((w, k) => k > 0 && (w === '-' || w === '--'));
-  const operands: string[] = [];
-  let dropped = false;
-  if (at < 0) return { operands, dropped };
-  let skip = false;
-  for (const w of words.slice(at + 1)) {
-    if (skip) {
-      skip = false;
-      continue;
-    }
-    if (/^(<<<|<|>|>>|>\||&>|&>>|[0-9]<|[0-9]>|[0-9]>>)$/.test(w)) {
-      skip = true;
-      continue;
-    }
-    if (/^(<|>|&>|[0-9]<|[0-9]>)/.test(w)) continue;
-    if (w.startsWith('-')) dropped = true;
-    else operands.push(w);
-  }
-  return { operands, dropped };
-}
 
 class WritePaths {
   out = '';
@@ -709,10 +686,7 @@ class WritePaths {
           } else {
             const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
             for (const p of found.lines) if (p !== '') this.emit(level, dir, p);
-            if (!found.computed) continue;
-            const { operands, dropped } = stdinOperands(words);
-            for (const w of operands) this.emit(level, dir, dec(w));
-            if (!operandsCover(found, operands, dropped, kind === 'node' ? 2 : 1)) this.out += computedLine(basename(dec(words[0])));
+            if (found.computed) this.out += computedLine(basename(dec(words[0])));
           }
         }
       }
