@@ -29042,19 +29042,19 @@ var CodexRuntimeManager = class {
     );
     try {
       await this.ensureRuntime(projectRoot);
-      const runtime = this.runtimes.get(projectRoot);
-      if (!runtime || runtime.closed) {
+      const runtime2 = this.runtimes.get(projectRoot);
+      if (!runtime2 || runtime2.closed) {
         throw new CodexRuntimeError(
           "runtime_initialization_failed",
           "The initialized Codex runtime is unavailable."
         );
       }
-      this.touch(runtime);
+      this.touch(runtime2);
       return await operation(
         Object.freeze({
-          context: runtime.context,
-          db: runtime.db,
-          graph: runtime.graph
+          context: runtime2.context,
+          db: runtime2.db,
+          graph: runtime2.graph
         })
       );
     } finally {
@@ -29067,9 +29067,9 @@ var CodexRuntimeManager = class {
     if (this.closing) return;
     this.closing = true;
     let firstError;
-    for (const runtime of this.runtimes.values()) {
+    for (const runtime2 of this.runtimes.values()) {
       try {
-        closeRuntime(runtime);
+        closeRuntime(runtime2);
       } catch (error2) {
         firstError ??= error2;
       }
@@ -29145,19 +29145,19 @@ var CodexRuntimeManager = class {
   }
   findEvictionCandidate() {
     let oldest;
-    for (const runtime of this.runtimes.values()) {
-      if (runtime.closed || (this.activeRoots.get(runtime.context.projectRoot) ?? 0) > 0) {
+    for (const runtime2 of this.runtimes.values()) {
+      if (runtime2.closed || (this.activeRoots.get(runtime2.context.projectRoot) ?? 0) > 0) {
         continue;
       }
-      if (!oldest || runtime.lastUsed < oldest.lastUsed || runtime.lastUsed === oldest.lastUsed && runtime.lastUsedOrder < oldest.lastUsedOrder) {
-        oldest = runtime;
+      if (!oldest || runtime2.lastUsed < oldest.lastUsed || runtime2.lastUsed === oldest.lastUsed && runtime2.lastUsedOrder < oldest.lastUsedOrder) {
+        oldest = runtime2;
       }
     }
     return oldest;
   }
-  touch(runtime) {
-    runtime.lastUsed = this.now();
-    runtime.lastUsedOrder = this.nextUsageOrder();
+  touch(runtime2) {
+    runtime2.lastUsed = this.now();
+    runtime2.lastUsedOrder = this.nextUsageOrder();
   }
   nextUsageOrder() {
     this.usageOrder += 1;
@@ -29383,8 +29383,8 @@ function openRuntime(projectRoot, plugin2, now2, lastUsedOrder, graphHolderFacto
     throw error2;
   }
 }
-function resultFor(runtime, status) {
-  const row = runtime.db.get(
+function resultFor(runtime2, status) {
+  const row = runtime2.db.get(
     "SELECT schema_version FROM plugin_meta WHERE id = 1"
   );
   if (!row) {
@@ -29395,22 +29395,22 @@ function resultFor(runtime, status) {
   }
   return Object.freeze({
     status,
-    project_root: runtime.context.projectRoot,
-    plugin_name: runtime.context.plugin.name,
-    plugin_version: runtime.context.plugin.version,
-    state_dir: runtime.context.paths.stateDir,
-    trajectory_db: runtime.context.paths.trajectoryDb,
-    graph_db: runtime.context.paths.trajectoryDb,
-    log_dir: runtime.context.paths.logDir,
+    project_root: runtime2.context.projectRoot,
+    plugin_name: runtime2.context.plugin.name,
+    plugin_version: runtime2.context.plugin.version,
+    state_dir: runtime2.context.paths.stateDir,
+    trajectory_db: runtime2.context.paths.trajectoryDb,
+    graph_db: runtime2.context.paths.trajectoryDb,
+    log_dir: runtime2.context.paths.logDir,
     schema_version: row.schema_version,
     graph_available: true,
     graph_status: "ready"
   });
 }
-function closeRuntime(runtime) {
-  if (runtime.closed) return;
-  runtime.closed = true;
-  runtime.db.close();
+function closeRuntime(runtime2) {
+  if (runtime2.closed) return;
+  runtime2.closed = true;
+  runtime2.db.close();
 }
 function normalizeRuntimeError(error2) {
   if (error2 instanceof CodexRuntimeError) return error2;
@@ -33309,16 +33309,45 @@ function wasmDir() {
   }
   throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join10(here, "parsing")} or ${here}`);
 }
-async function load() {
-  const dir = wasmDir();
-  const { Parser: Parser2, Language: Language2 } = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-  await Parser2.init({ locateFile: (file2) => join10(dir, file2) });
-  const parsers = {};
-  for (const [name2, file2] of Object.entries(GRAMMAR_WASM)) {
-    const parser = new Parser2();
-    parser.setLanguage(await Language2.load(join10(dir, file2)));
-    parsers[name2] = parser;
+var runtime = null;
+var grammars = /* @__PURE__ */ new Map();
+function memo(promise2, forget) {
+  promise2.catch(forget);
+  return promise2;
+}
+function loadRuntime() {
+  runtime ??= memo(
+    (async () => {
+      const dir = wasmDir();
+      const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
+      await mod.Parser.init({ locateFile: (file2) => join10(dir, file2) });
+      return mod;
+    })(),
+    () => {
+      runtime = null;
+    }
+  );
+  return runtime;
+}
+function loadParser(name2) {
+  let parser = grammars.get(name2);
+  if (!parser) {
+    parser = memo(
+      (async () => {
+        const { Parser: Parser2, Language: Language2 } = await loadRuntime();
+        const p = new Parser2();
+        p.setLanguage(await Language2.load(join10(wasmDir(), GRAMMAR_WASM[name2])));
+        return p;
+      })(),
+      () => grammars.delete(name2)
+    );
+    grammars.set(name2, parser);
   }
+  return parser;
+}
+async function load() {
+  const parsers = {};
+  for (const name2 of Object.keys(GRAMMAR_WASM)) parsers[name2] = await loadParser(name2);
   loads++;
   return parsers;
 }
@@ -36460,23 +36489,23 @@ function createCodexToolRegistry(manager2) {
     runtime_initialize: async (args2) => runAdapter(args2, ["project_root"], async (input) => ({
       runtime: await manager2.initialize(input["project_root"])
     })),
-    project_inventory: async (args2) => runWithRuntime(manager2, args2, ["project_root"], async (runtime) => {
+    project_inventory: async (args2) => runWithRuntime(manager2, args2, ["project_root"], async (runtime2) => {
       const shared = scanTools(
-        runtime.db,
-        runtime.graph,
-        runtime.context.paths.trajectoryDb
+        runtime2.db,
+        runtime2.graph,
+        runtime2.context.paths.trajectoryDb
       );
       return callShared(shared.handlers["repos_list"], { agent: FIXED_AGENT });
     }),
-    project_scan: async (args2) => runWithRuntime(manager2, args2, ["project_root"], async (runtime) => {
+    project_scan: async (args2) => runWithRuntime(manager2, args2, ["project_root"], async (runtime2) => {
       const shared = scanTools(
-        runtime.db,
-        runtime.graph,
-        runtime.context.paths.trajectoryDb
+        runtime2.db,
+        runtime2.graph,
+        runtime2.context.paths.trajectoryDb
       );
       return callShared(shared.handlers["scan_run"], {
         agent: FIXED_AGENT,
-        session_dir: runtime.context.projectRoot,
+        session_dir: runtime2.context.projectRoot,
         source: "bro_auto_initial"
       });
     }),
@@ -36484,11 +36513,11 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "repo", "path", "depth"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         optionalString(input, "repo");
         optionalString(input, "path");
         if (input["depth"] !== null) optionalInteger(input, "depth", 0);
-        const shared = worldModelTools(runtime.db, runtime.graph);
+        const shared = worldModelTools(runtime2.db, runtime2.graph);
         return callShared(shared.handlers["world_model_get"], compact({
           agent: FIXED_AGENT,
           repo: input["repo"],
@@ -36501,12 +36530,12 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "query", "mode", "repo", "k"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         requireString(input, "query");
         optionalEnum(input, "mode", ["keyword", "semantic", "hybrid"]);
         optionalString(input, "repo");
         optionalInteger(input, "k", 1, 20);
-        const shared = worldModelTools(runtime.db, runtime.graph);
+        const shared = worldModelTools(runtime2.db, runtime2.graph);
         return callShared(shared.handlers["world_model_search"], compact({
           agent: FIXED_AGENT,
           query: input["query"],
@@ -36520,13 +36549,13 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root"],
-      async (runtime) => resolvePlanningLabelTaxonomy(runtime)
+      async (runtime2) => resolvePlanningLabelTaxonomy(runtime2)
     ),
     planning_label_taxonomy_set: async (args2) => runWithRuntime(
       manager2,
       args2,
       ["project_root", "classification_labels", "priority_labels"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         const classificationLabels = requireTaxonomyArray(
           input,
           "classification_labels",
@@ -36537,7 +36566,7 @@ function createCodexToolRegistry(manager2) {
           "priority_labels",
           PRIORITY_TAXONOMY_KEY
         );
-        setConfigValues(runtime.db, [
+        setConfigValues(runtime2.db, [
           {
             key: CLASSIFICATION_TAXONOMY_KEY,
             value: classificationLabels
@@ -36547,7 +36576,7 @@ function createCodexToolRegistry(manager2) {
             value: priorityLabels
           }
         ]);
-        return resolvePlanningLabelTaxonomy(runtime);
+        return resolvePlanningLabelTaxonomy(runtime2);
       }
     ),
     planning_issue_create: async (args2) => runWithRuntime(
@@ -36563,7 +36592,7 @@ function createCodexToolRegistry(manager2) {
         "repo",
         "allow_duplicate"
       ],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         requireString(input, "objective");
         optionalString(input, "description");
         const hasExactLabels = input["labels"] !== void 0;
@@ -36590,11 +36619,11 @@ function createCodexToolRegistry(manager2) {
         optionalStringArray(input, "labels");
         optionalString(input, "repo");
         optionalBoolean(input, "allow_duplicate");
-        const taxonomy = await resolvePlanningLabelTaxonomy(runtime);
-        forceLocalIssueSync(runtime);
+        const taxonomy = await resolvePlanningLabelTaxonomy(runtime2);
+        forceLocalIssueSync(runtime2);
         const shared = issueTools(
-          runtime.db,
-          runtime.context.paths.trajectoryDb,
+          runtime2.db,
+          runtime2.context.paths.trajectoryDb,
           {
             labelTaxonomy: {
               classification: taxonomy.classification_labels,
@@ -36619,11 +36648,11 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "issue_id"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         requireString(input, "issue_id");
         const shared = issueTools(
-          runtime.db,
-          runtime.context.paths.trajectoryDb
+          runtime2.db,
+          runtime2.context.paths.trajectoryDb
         );
         return callShared(shared.handlers["issue_get"], {
           agent: FIXED_AGENT,
@@ -36636,13 +36665,13 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "status", "limit", "offset"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         optionalEnum(input, "status", ["open", "closed"]);
         optionalInteger(input, "limit", 1, 200);
         optionalInteger(input, "offset", 0);
         const shared = issueTools(
-          runtime.db,
-          runtime.context.paths.trajectoryDb
+          runtime2.db,
+          runtime2.context.paths.trajectoryDb
         );
         return callShared(shared.handlers["issue_list"], compact({
           agent: FIXED_AGENT,
@@ -36656,14 +36685,14 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "issue_id", "discussion_limit"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         requireString(input, "issue_id");
         optionalInteger(input, "discussion_limit", 1, 200);
         const issues = issueTools(
-          runtime.db,
-          runtime.context.paths.trajectoryDb
+          runtime2.db,
+          runtime2.context.paths.trajectoryDb
         );
-        const discussions = discussionTools(runtime.db);
+        const discussions = discussionTools(runtime2.db);
         const issue2 = await callShared(issues.handlers["issue_get"], {
           agent: FIXED_AGENT,
           issue_id: input["issue_id"],
@@ -36684,11 +36713,11 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "issue_id", "kind", "body"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         requireString(input, "issue_id");
         requireString(input, "body");
         optionalEnum(input, "kind", ["decision", "question", "note"]);
-        const shared = discussionTools(runtime.db);
+        const shared = discussionTools(runtime2.db);
         return callShared(shared.handlers["discussion_append"], {
           agent: FIXED_AGENT,
           author: FIXED_AGENT,
@@ -36702,11 +36731,11 @@ function createCodexToolRegistry(manager2) {
       manager2,
       args2,
       ["project_root", "issue_id", "limit", "cursor"],
-      async (runtime, input) => {
+      async (runtime2, input) => {
         requireString(input, "issue_id");
         optionalInteger(input, "limit", 1, 200);
         optionalString(input, "cursor");
-        const shared = discussionTools(runtime.db);
+        const shared = discussionTools(runtime2.db);
         return callShared(shared.handlers["discussion_list"], compact({
           agent: FIXED_AGENT,
           issue_id: input["issue_id"],
@@ -36773,7 +36802,7 @@ async function runWithRuntime(manager2, args2, allowedKeys, operation) {
     allowedKeys,
     async (input) => manager2.withRuntime(
       input["project_root"],
-      (runtime) => operation(runtime, input)
+      (runtime2) => operation(runtime2, input)
     )
   );
 }
@@ -36888,17 +36917,17 @@ function optionalEnum(input, key, allowed) {
     );
   }
 }
-function forceLocalIssueSync(runtime) {
-  runtime.db.run(
+function forceLocalIssueSync(runtime2) {
+  runtime2.db.run(
     `INSERT INTO plugin_config (key, value_json)
      VALUES ('issue_sync', '"off"')
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`
   );
 }
-async function resolvePlanningLabelTaxonomy(runtime) {
+async function resolvePlanningLabelTaxonomy(runtime2) {
   let values;
   try {
-    values = getConfigValues(runtime.db, [
+    values = getConfigValues(runtime2.db, [
       CLASSIFICATION_TAXONOMY_KEY,
       PRIORITY_TAXONOMY_KEY
     ]);

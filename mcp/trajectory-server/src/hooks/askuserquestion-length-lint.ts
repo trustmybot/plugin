@@ -8,7 +8,7 @@
  * like `grep -c '^'`, so both give the same output for the same payload.
  */
 import { existsSync } from 'node:fs';
-import { ALLOW, type Gate } from './gate.js';
+import { ALLOW, type SyncGate } from './gate.js';
 
 const LABEL_MAX_WORDS = 5;
 const DESC_MAX_WORDS = 15;
@@ -102,7 +102,7 @@ function parsePayload(payload: string): unknown {
   }
 }
 
-export const askuserquestionLengthLint: Gate = (payload, env) => {
+export const askuserquestionLengthLint: SyncGate = (payload, env) => {
   const input = parsePayload(payload);
   if (input === undefined || toolName(input) !== 'AskUserQuestion') return ALLOW;
 

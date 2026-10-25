@@ -674,29 +674,36 @@ function findGate(name2) {
   return GATES.get(name2);
 }
 
-// src/hooks/index.ts
+// src/hooks/run.ts
 function oneLine(text) {
   return text.replace(/\s+/g, " ").trim();
 }
-function main(name2) {
-  if (name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG) return runInstallWorker(process.env);
-  const gate = findGate(name2);
-  if (!gate) {
-    process.stderr.write(`TMB hooks: unknown gate '${oneLine(name2)}' \u2014 not run
+async function runHook(name2, findGate2, env, io) {
+  try {
+    const gate = findGate2(name2);
+    if (!gate) {
+      io.writeStderr(`TMB hooks: unknown gate '${oneLine(name2)}' \u2014 not run
+`);
+      return 1;
+    }
+    const result = await gate(io.readStdin(), env);
+    io.writeStdout(result.stdout);
+    return result.code;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    io.writeStderr(`TMB hooks: gate '${oneLine(name2)}' failed: ${oneLine(detail)}
 `);
     return 1;
   }
-  const result = gate(readFileSync3(0, "utf8"), process.env);
-  process.stdout.write(result.stdout);
-  return result.code;
 }
+
+// src/hooks/index.ts
 var name = process.argv[2] ?? "";
-try {
-  process.exitCode = main(name);
-} catch (err) {
-  const detail = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`TMB hooks: gate '${oneLine(name)}' failed: ${oneLine(detail)}
-`);
-  process.exitCode = 1;
-}
+var installWorker = name === GATE_NAME && process.argv[3] === INSTALL_FLAG;
+var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
+process.exitCode = await runHook(name, installWorker ? () => worker : findGate, process.env, {
+  readStdin: () => installWorker ? "" : readFileSync3(0, "utf8"),
+  writeStdout: (text) => process.stdout.write(text),
+  writeStderr: (text) => process.stderr.write(text)
+});
 //# sourceMappingURL=hooks.js.map

@@ -40263,16 +40263,45 @@ function wasmDir() {
   }
   throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join14(here, "parsing")} or ${here}`);
 }
-async function load() {
-  const dir = wasmDir();
-  const { Parser: Parser2, Language: Language2 } = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-  await Parser2.init({ locateFile: (file2) => join14(dir, file2) });
-  const parsers = {};
-  for (const [name2, file2] of Object.entries(GRAMMAR_WASM)) {
-    const parser = new Parser2();
-    parser.setLanguage(await Language2.load(join14(dir, file2)));
-    parsers[name2] = parser;
+var runtime = null;
+var grammars = /* @__PURE__ */ new Map();
+function memo(promise2, forget) {
+  promise2.catch(forget);
+  return promise2;
+}
+function loadRuntime() {
+  runtime ??= memo(
+    (async () => {
+      const dir = wasmDir();
+      const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
+      await mod.Parser.init({ locateFile: (file2) => join14(dir, file2) });
+      return mod;
+    })(),
+    () => {
+      runtime = null;
+    }
+  );
+  return runtime;
+}
+function loadParser(name2) {
+  let parser = grammars.get(name2);
+  if (!parser) {
+    parser = memo(
+      (async () => {
+        const { Parser: Parser2, Language: Language2 } = await loadRuntime();
+        const p = new Parser2();
+        p.setLanguage(await Language2.load(join14(wasmDir(), GRAMMAR_WASM[name2])));
+        return p;
+      })(),
+      () => grammars.delete(name2)
+    );
+    grammars.set(name2, parser);
   }
+  return parser;
+}
+async function load() {
+  const parsers = {};
+  for (const name2 of Object.keys(GRAMMAR_WASM)) parsers[name2] = await loadParser(name2);
   loads++;
   return parsers;
 }
