@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
 export type Row = Record<string, unknown>;
 
@@ -42,6 +42,78 @@ export interface WorldModelSearch {
   hits: Row[];
 }
 
+export type Trust = 'verified' | 'suspect' | 'broken';
+
+export interface ConceptHit {
+  id: number;
+  name: string;
+  body: string;
+  step_count: number;
+  trust: Record<Trust, number>;
+}
+
+export interface StepSymbol {
+  id: number | null;
+  repo: string;
+  path: string;
+  kind: string;
+  qualified_name: string;
+  line_start: number | null;
+}
+
+export interface ConceptStep {
+  ordinal: number;
+  description: string;
+  trust: Trust | null;
+  trust_reason: string | null;
+  handoff: string | null;
+  symbol: StepSymbol | null;
+}
+
+export interface ConceptSearch {
+  available: boolean;
+  repos: string[];
+  concepts: ConceptHit[];
+  derived: { label: string; steps: ConceptStep[] } | null;
+}
+
+export interface ConceptDetail {
+  available?: boolean;
+  id: number;
+  name: string;
+  body: string;
+  status: string;
+  status_reason: string | null;
+  steps: ConceptStep[];
+  steps_truncated?: boolean;
+}
+
+export type NodeId = number | string;
+
+export interface GraphNode {
+  id: NodeId;
+  label: string;
+  repo: string;
+  path: string;
+  dir: string;
+  kind: string;
+  line_start: number | null;
+  step_ordinal: number | null;
+}
+
+export interface GraphEdge {
+  src: NodeId;
+  dst: NodeId;
+  kind: string;
+}
+
+export interface ConceptGraph {
+  available?: boolean;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  truncated: boolean;
+}
+
 export const query = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
 const POLL_MS = 2000;
@@ -52,8 +124,16 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function useApi<T>(path: string) {
-  return useQuery({ queryKey: [path], queryFn: () => getJson<T>(path) });
+export function useApi<T>(path: string, opts: { keepPrevious?: boolean } = {}) {
+  return useQuery({
+    queryKey: [path],
+    queryFn: () => getJson<T>(path),
+    ...(opts.keepPrevious ? { placeholderData: keepPreviousData } : {}),
+  });
+}
+
+export function useApis<T>(paths: string[]) {
+  return useQueries({ queries: paths.map((path) => ({ queryKey: [path], queryFn: () => getJson<T>(path) })) });
 }
 
 export function useLiveRefresh(): void {

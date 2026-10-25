@@ -257,233 +257,6 @@ function freezePlugin(plugin) {
   return Object.freeze(plugin);
 }
 
-// server/queries.ts
-var RECENT_LIMIT = 200;
-function all(db, sql, ...params) {
-  return db.prepare(sql).all(...params);
-}
-function one(db, sql, ...params) {
-  return db.prepare(sql).get(...params);
-}
-function dataVersion(db) {
-  return Number(one(db, "PRAGMA data_version")?.["data_version"] ?? 0);
-}
-function summary(db) {
-  return {
-    issues: one(
-      db,
-      `SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed
-         FROM issues WHERE id > 0`
-    ),
-    tasks_by_status: all(
-      db,
-      `SELECT status, COUNT(*) AS count FROM tasks GROUP BY status ORDER BY count DESC`
-    ),
-    open_runs: Number(
-      one(db, `SELECT COUNT(*) AS n FROM agent_runs WHERE completed_at IS NULL`)?.["n"] ?? 0
-    ),
-    recent_runs: all(
-      db,
-      `SELECT r.id, r.agent_type, r.task_id, r.issue_id, t.title AS task_title,
-              r.started_at, r.completed_at, r.exit_reason, r.duration_ms
-         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        ORDER BY r.id DESC LIMIT 10`
-    )
-  };
-}
-function issues(db) {
-  return all(
-    db,
-    `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
-            i.created_at, i.updated_at, i.closed_at,
-            (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
-            (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
-               AND t.status IN ('completed','closed')) AS tasks_done
-       FROM issues i
-      WHERE i.id > 0
-      ORDER BY i.status = 'open' DESC, i.updated_at DESC`
-  );
-}
-function schemaVersion(db) {
-  const row = one(db, `SELECT schema_version FROM plugin_meta WHERE id = 1`);
-  return row ? Number(row["schema_version"]) : null;
-}
-function issueUpdatedAt(db, id) {
-  const row = one(db, `SELECT updated_at FROM issues WHERE id = ?`, id);
-  return row ? String(row["updated_at"]) : null;
-}
-function configStringList(db, key) {
-  const row = one(db, `SELECT value_json FROM plugin_config WHERE key = ?`, key);
-  if (!row) return null;
-  try {
-    const parsed = JSON.parse(String(row["value_json"]));
-    return Array.isArray(parsed) && parsed.every((v) => typeof v === "string") ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function issueDetail(db, id) {
-  const issue = one(db, `SELECT * FROM issues WHERE id = ?`, id);
-  if (!issue) return null;
-  const repo = issue["repo"] === null ? null : String(issue["repo"]);
-  return {
-    issue,
-    label_taxonomy: {
-      classification: configStringList(db, "issue_classification_labels"),
-      priority: configStringList(db, "issue_priority_labels")
-    },
-    milestones: all(
-      db,
-      `SELECT DISTINCT name FROM milestones WHERE repo IS ? OR ? IS NULL ORDER BY name`,
-      repo,
-      repo
-    ).map((r) => String(r["name"])),
-    discussions: all(
-      db,
-      `SELECT id, author, kind, body, created_at FROM discussions
-        WHERE issue_id = ? ORDER BY created_at, id`,
-      id
-    ),
-    tasks: all(
-      db,
-      `SELECT id, branch_id, title, status, repo, effort, commit_sha, created_at,
-              updated_at, completed_at
-         FROM tasks WHERE issue_id = ? ORDER BY id`,
-      id
-    )
-  };
-}
-function tasks(db) {
-  return all(
-    db,
-    `SELECT t.id, t.issue_id, i.objective AS issue_objective, t.branch_id, t.title,
-            t.status, t.repo, t.effort, t.commit_sha, t.created_at, t.updated_at,
-            t.completed_at
-       FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
-      ORDER BY t.id DESC LIMIT ?`,
-    RECENT_LIMIT * 5
-  );
-}
-function agentRuns(db) {
-  return all(
-    db,
-    `SELECT r.id, r.agent_type, r.task_id, r.issue_id, t.title AS task_title,
-            r.model, r.effort, r.tokens_in, r.tokens_out, r.cache_read_tokens,
-            r.cache_creation_tokens, r.tool_uses, r.duration_ms, r.started_at,
-            r.completed_at, r.exit_reason
-       FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-      ORDER BY r.id DESC LIMIT ?`,
-    RECENT_LIMIT
-  );
-}
-function gates(db) {
-  return {
-    validations: all(
-      db,
-      `SELECT v.id, v.task_id, t.title AS task_title, v.attempt_n, v.agent, v.verdict,
-              v.feedback, v.mcp_available, v.created_at
-         FROM validation_attempts v LEFT JOIN tasks t ON t.id = v.task_id
-        ORDER BY v.id DESC LIMIT ?`,
-      RECENT_LIMIT
-    ),
-    verifications: all(
-      db,
-      `SELECT r.id, r.task_id, t.title AS task_title, r.commit_sha, r.source,
-              r.started_at, r.finished_at, r.exit_code, r.timed_out,
-              (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) AS commands,
-              (SELECT COUNT(*) FROM verification_run_commands c
-                WHERE c.run_id = r.id AND c.exit_code <> 0) AS failed_commands
-         FROM verification_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        ORDER BY r.id DESC LIMIT ?`,
-      RECENT_LIMIT
-    )
-  };
-}
-function audit(db, limit) {
-  return all(
-    db,
-    `SELECT id, issue_id, branch_id, from_node, event_type, summary, created_at
-       FROM audit ORDER BY id DESC LIMIT ?`,
-    limit
-  );
-}
-var WM_TABLE_COUNT = 4;
-var WM_DEFAULT_DEPTH = 2;
-var WM_MAX_DEPTH = 5;
-var WM_DEFAULT_HITS = 20;
-var WM_MAX_HITS = 100;
-function worldModelAvailable(db) {
-  const found = one(
-    db,
-    `SELECT COUNT(*) AS n FROM sqlite_master
-      WHERE type = 'table'
-        AND name IN ('wm_directories', 'wm_files', 'wm_directories_fts', 'wm_files_fts')`
-  );
-  return Number(found?.["n"] ?? 0) === WM_TABLE_COUNT;
-}
-function clampDepth(raw) {
-  if (raw === null || raw.trim() === "") return WM_DEFAULT_DEPTH;
-  const n = Number(raw);
-  return Number.isInteger(n) ? Math.min(Math.max(n, 0), WM_MAX_DEPTH) : WM_DEFAULT_DEPTH;
-}
-function clampHits(raw) {
-  if (raw === null || raw.trim() === "") return WM_DEFAULT_HITS;
-  const n = Number(raw);
-  return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
-}
-function worldModel(db, repo, path, depth) {
-  if (!worldModelAvailable(db)) return { available: false, repos: [], nodes: [] };
-  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r["repo"]));
-  const target = repo ?? repos[0];
-  if (target === void 0) return { available: true, repos, nodes: [] };
-  const nodes = all(
-    db,
-    `WITH RECURSIVE sub(id, path, lvl) AS (
-       SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
-       UNION
-       SELECT c.id, c.path, s.lvl + 1
-         FROM wm_directories c JOIN sub s ON c.parent_path = s.path
-        WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
-     )
-     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count
-       FROM wm_directories d
-      WHERE d.id IN (SELECT id FROM sub)
-      ORDER BY d.path`,
-    target,
-    path,
-    target,
-    depth
-  );
-  return { available: true, repos, nodes };
-}
-function ftsPhrase(raw) {
-  return `"${raw.replace(/"/g, '""')}"`;
-}
-function worldModelSearch(db, query, limit) {
-  if (!worldModelAvailable(db)) return { available: false, hits: [] };
-  if (query.trim() === "") return { available: true, hits: [] };
-  const phrase = ftsPhrase(query.trim());
-  const hits = all(
-    db,
-    `SELECT kind, repo, path, text, rank FROM (
-       SELECT 'directory' AS kind, d.repo AS repo, d.path AS path, d.summary AS text,
-              bm25(wm_directories_fts) AS rank
-         FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
-        WHERE wm_directories_fts MATCH ?
-       UNION ALL
-       SELECT 'file', f.repo, f.path, f.purpose, bm25(wm_files_fts)
-         FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
-        WHERE wm_files_fts MATCH ?
-     )
-     ORDER BY rank, path
-     LIMIT ?`,
-    phrase,
-    phrase,
-    limit
-  );
-  return { available: true, hits };
-}
-
 // ../mcp/trajectory-server/src/db.ts
 import { readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
 import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
@@ -3798,6 +3571,616 @@ function migrateV1toV2(db) {
   }
 }
 
+// ../mcp/trajectory-server/src/parsing/extract.ts
+var SH_BUILTINS = new Set(
+  "echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh".split(
+    " "
+  )
+);
+var STOPWORDS = new Set(
+  "a an the and or of to in on for with by is are was were be been when where what which who how why does do did it its this that these those from as at into per not no than then there their them our we you i set get".split(
+    " "
+  )
+);
+function splitWords(s) {
+  return s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").toLowerCase().trim();
+}
+
+// ../mcp/trajectory-server/src/symbol-index.ts
+var OR_FALLBACK_MIN_HITS = 3;
+var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order";
+function isTestPath(path) {
+  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path);
+}
+function outsideConceptLane(path) {
+  return isTestPath(path) || /(^|\/)(__)?fixtures(__)?\//.test(path);
+}
+function queryWords(query) {
+  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS.has(w)))];
+}
+function keywordSearchSymbols(db, repo, query, limit) {
+  const words = queryWords(query);
+  if (words.length === 0) return { hits: [], match: "all_terms" };
+  const search2 = (op) => db.all(
+    `SELECT ${SYMBOL_COLUMNS}, bm25(wm_symbols_fts, 10.0, 3.0, 4.0) AS rank
+         FROM wm_symbols_fts CROSS JOIN wm_symbols s ON s.id = wm_symbols_fts.rowid
+        WHERE wm_symbols_fts MATCH ? AND s.repo = ? AND s.kind <> 'module'
+        ORDER BY rank, s.id
+        LIMIT ?`,
+    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
+  );
+  const all2 = search2("AND");
+  const toHit = (r) => ({ ...normalizeRow(r), score: -r.rank });
+  if (all2.length >= OR_FALLBACK_MIN_HITS || words.length < 2) return { hits: all2.map(toHit), match: "all_terms" };
+  const seen = new Set(all2.map((r) => r.id));
+  const any = search2("OR").filter((r) => !seen.has(r.id));
+  return { hits: [...all2, ...any].slice(0, limit).map(toHit), match: any.length > 0 ? "any_term" : "all_terms" };
+}
+function normalizeRow(r) {
+  return {
+    id: Number(r.id),
+    repo: r.repo,
+    path: r.path,
+    kind: r.kind,
+    qualified_name: r.qualified_name,
+    signature: r.signature,
+    doc: r.doc,
+    start_line: Number(r.start_line),
+    end_line: Number(r.end_line),
+    body_hash: r.body_hash,
+    exported: Number(r.exported),
+    run_order: r.run_order === null || r.run_order === void 0 ? null : Number(r.run_order)
+  };
+}
+function symbolById(db, id) {
+  const row = db.get(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.id = ?`, [id]);
+  return row ? normalizeRow(row) : null;
+}
+
+// ../mcp/trajectory-server/src/utils/timeouts.ts
+var SUBPROCESS_TIMEOUT_MS = 5e3;
+
+// ../mcp/trajectory-server/src/world-model/concepts.ts
+var DERIVED_LABEL = "derived, unverified";
+var DERIVED_MAX_DEPTH = 4;
+var DERIVED_MAX_STEPS = 8;
+var DERIVED_SEED_POOL = 20;
+var DERIVED_EDGES = ["calls", "sources", "runs"];
+var OR_FALLBACK_MIN_HITS2 = 3;
+function queryWords2(query) {
+  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS.has(w)))];
+}
+function searchConcepts(db, repo, query, limit) {
+  const words = queryWords2(query);
+  if (words.length === 0) return [];
+  const search2 = (op) => db.all(
+    `SELECT c.id, c.name, c.body
+         FROM wm_concepts_fts CROSS JOIN wm_concepts c ON c.id = wm_concepts_fts.rowid
+        WHERE wm_concepts_fts MATCH ? AND c.repo = ? AND c.status <> 'retired'
+        ORDER BY bm25(wm_concepts_fts, 10.0, 4.0, 2.0), c.id
+        LIMIT ?`,
+    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
+  );
+  let rows = search2("AND");
+  if (rows.length < OR_FALLBACK_MIN_HITS2 && words.length > 1) {
+    const seen = new Set(rows.map((r) => Number(r.id)));
+    rows = [...rows, ...search2("OR").filter((r) => !seen.has(Number(r.id)))].slice(0, limit);
+  }
+  return rows.map((r, i) => {
+    const counts = db.all(
+      `SELECT trust, COUNT(*) AS n FROM wm_concept_steps WHERE concept_id = ? GROUP BY trust`,
+      [r.id]
+    );
+    const trust = { verified: 0, suspect: 0, broken: 0 };
+    for (const c of counts) trust[c.trust] = Number(c.n);
+    return {
+      id: Number(r.id),
+      name: r.name,
+      body: r.body,
+      step_count: trust.verified + trust.suspect + trust.broken,
+      trust,
+      rank: i + 1
+    };
+  });
+}
+function stepSymbol(s) {
+  return {
+    id: s.id,
+    repo: s.repo,
+    path: s.path,
+    kind: s.kind,
+    qualified_name: s.qualified_name,
+    signature: s.signature,
+    doc: s.doc,
+    line_start: s.start_line,
+    line_end: s.end_line
+  };
+}
+function fileAnchor(db, a) {
+  if (!db.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? AND path = ?`, [a.repo, a.path])) return null;
+  return {
+    id: null,
+    repo: a.repo,
+    path: a.path,
+    kind: "file",
+    qualified_name: a.path,
+    signature: null,
+    doc: null,
+    line_start: null,
+    line_end: null
+  };
+}
+function anchorSymbol(db, a) {
+  if (!a.kind) return fileAnchor(db, a);
+  const row = db.get(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind = ? AND qualified_name = ?`,
+    [a.repo, a.path, a.kind, a.qualified_name]
+  );
+  const symbol = row ? symbolById(db, Number(row.id)) : null;
+  return symbol ? stepSymbol(symbol) : null;
+}
+function getConcept(db, id) {
+  const c = db.get(
+    `SELECT id, name, body, status, status_reason, updated_at FROM wm_concepts WHERE id = ?`,
+    [id]
+  );
+  if (!c) return null;
+  const steps = db.all(`SELECT * FROM wm_concept_steps WHERE concept_id = ? ORDER BY ordinal`, [id]).map((s) => {
+    const symbol = anchorSymbol(db, s);
+    return {
+      ordinal: Number(s.ordinal),
+      description: s.description,
+      trust: symbol === null && s.kind ? "broken" : s.trust,
+      trust_reason: symbol === null && s.kind ? "anchor gone" : s.trust_reason,
+      handoff: s.handoff,
+      symbol
+    };
+  });
+  return {
+    id: Number(c.id),
+    name: c.name,
+    body: c.body,
+    status: c.status,
+    status_reason: c.status_reason,
+    updated_at: c.updated_at,
+    steps
+  };
+}
+function derivedChain(db, repo, query) {
+  const seed = keywordSearchSymbols(db, repo, query, DERIVED_SEED_POOL).hits.find((h) => !outsideConceptLane(h.path));
+  if (!seed) return null;
+  const order = [];
+  const seen = /* @__PURE__ */ new Set([seed.id]);
+  let frontier = [seed];
+  for (let depth = 0; frontier.length > 0 && order.length < DERIVED_MAX_STEPS; depth++) {
+    const next = [];
+    for (const s of frontier) {
+      if (order.length >= DERIVED_MAX_STEPS) break;
+      const via = /* @__PURE__ */ new Map();
+      order.push({ symbol: s, via });
+      if (depth >= DERIVED_MAX_DEPTH) continue;
+      const out = db.all(
+        `SELECT e.dst_id, e.kind, d.path
+           FROM wm_edges e JOIN wm_symbols d ON d.id = e.dst_id
+          WHERE e.src_id = ? AND e.resolution = 'exact' AND e.kind IN (SELECT value FROM json_each(?))
+          ORDER BY e.line, e.rowid`,
+        [s.id, JSON.stringify(DERIVED_EDGES)]
+      );
+      for (const e of out) {
+        const dst = Number(e.dst_id);
+        if (seen.has(dst) || outsideConceptLane(e.path)) continue;
+        const row = symbolById(db, dst);
+        if (!row) continue;
+        seen.add(dst);
+        via.set(dst, e.kind);
+        next.push(row);
+      }
+    }
+    frontier = next;
+  }
+  const steps = order.map(({ symbol, via }, i) => {
+    const following = order[i + 1]?.symbol.id;
+    return {
+      ordinal: i + 1,
+      description: symbol.doc || symbol.signature,
+      trust: null,
+      trust_reason: null,
+      handoff: following !== void 0 ? via.get(following) ?? null : null,
+      symbol: stepSymbol(symbol)
+    };
+  });
+  return { label: DERIVED_LABEL, steps };
+}
+
+// server/queries.ts
+var RECENT_LIMIT = 200;
+function all(db, sql, ...params) {
+  return db.prepare(sql).all(...params);
+}
+function one(db, sql, ...params) {
+  return db.prepare(sql).get(...params);
+}
+function dataVersion(db) {
+  return Number(one(db, "PRAGMA data_version")?.["data_version"] ?? 0);
+}
+function summary(db) {
+  return {
+    issues: one(
+      db,
+      `SELECT SUM(status = 'open') AS open, SUM(status = 'closed') AS closed
+         FROM issues WHERE id > 0`
+    ),
+    tasks_by_status: all(
+      db,
+      `SELECT status, COUNT(*) AS count FROM tasks GROUP BY status ORDER BY count DESC`
+    ),
+    open_runs: Number(
+      one(db, `SELECT COUNT(*) AS n FROM agent_runs WHERE completed_at IS NULL`)?.["n"] ?? 0
+    ),
+    recent_runs: all(
+      db,
+      `SELECT r.id, r.agent_type, r.task_id, r.issue_id, t.title AS task_title,
+              r.started_at, r.completed_at, r.exit_reason, r.duration_ms
+         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
+        ORDER BY r.id DESC LIMIT 10`
+    )
+  };
+}
+function issues(db) {
+  return all(
+    db,
+    `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
+            i.created_at, i.updated_at, i.closed_at,
+            (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
+            (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
+               AND t.status IN ('completed','closed')) AS tasks_done
+       FROM issues i
+      WHERE i.id > 0
+      ORDER BY i.status = 'open' DESC, i.updated_at DESC`
+  );
+}
+function schemaVersion(db) {
+  const row = one(db, `SELECT schema_version FROM plugin_meta WHERE id = 1`);
+  return row ? Number(row["schema_version"]) : null;
+}
+function issueUpdatedAt(db, id) {
+  const row = one(db, `SELECT updated_at FROM issues WHERE id = ?`, id);
+  return row ? String(row["updated_at"]) : null;
+}
+function configStringList(db, key) {
+  const row = one(db, `SELECT value_json FROM plugin_config WHERE key = ?`, key);
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(String(row["value_json"]));
+    return Array.isArray(parsed) && parsed.every((v) => typeof v === "string") ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function issueDetail(db, id) {
+  const issue = one(db, `SELECT * FROM issues WHERE id = ?`, id);
+  if (!issue) return null;
+  const repo = issue["repo"] === null ? null : String(issue["repo"]);
+  return {
+    issue,
+    label_taxonomy: {
+      classification: configStringList(db, "issue_classification_labels"),
+      priority: configStringList(db, "issue_priority_labels")
+    },
+    milestones: all(
+      db,
+      `SELECT DISTINCT name FROM milestones WHERE repo IS ? OR ? IS NULL ORDER BY name`,
+      repo,
+      repo
+    ).map((r) => String(r["name"])),
+    discussions: all(
+      db,
+      `SELECT id, author, kind, body, created_at FROM discussions
+        WHERE issue_id = ? ORDER BY created_at, id`,
+      id
+    ),
+    tasks: all(
+      db,
+      `SELECT id, branch_id, title, status, repo, effort, commit_sha, created_at,
+              updated_at, completed_at
+         FROM tasks WHERE issue_id = ? ORDER BY id`,
+      id
+    )
+  };
+}
+function tasks(db) {
+  return all(
+    db,
+    `SELECT t.id, t.issue_id, i.objective AS issue_objective, t.branch_id, t.title,
+            t.status, t.repo, t.effort, t.commit_sha, t.created_at, t.updated_at,
+            t.completed_at
+       FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+      ORDER BY t.id DESC LIMIT ?`,
+    RECENT_LIMIT * 5
+  );
+}
+function agentRuns(db) {
+  return all(
+    db,
+    `SELECT r.id, r.agent_type, r.task_id, r.issue_id, t.title AS task_title,
+            r.model, r.effort, r.tokens_in, r.tokens_out, r.cache_read_tokens,
+            r.cache_creation_tokens, r.tool_uses, r.duration_ms, r.started_at,
+            r.completed_at, r.exit_reason
+       FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
+      ORDER BY r.id DESC LIMIT ?`,
+    RECENT_LIMIT
+  );
+}
+function gates(db) {
+  return {
+    validations: all(
+      db,
+      `SELECT v.id, v.task_id, t.title AS task_title, v.attempt_n, v.agent, v.verdict,
+              v.feedback, v.mcp_available, v.created_at
+         FROM validation_attempts v LEFT JOIN tasks t ON t.id = v.task_id
+        ORDER BY v.id DESC LIMIT ?`,
+      RECENT_LIMIT
+    ),
+    verifications: all(
+      db,
+      `SELECT r.id, r.task_id, t.title AS task_title, r.commit_sha, r.source,
+              r.started_at, r.finished_at, r.exit_code, r.timed_out,
+              (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) AS commands,
+              (SELECT COUNT(*) FROM verification_run_commands c
+                WHERE c.run_id = r.id AND c.exit_code <> 0) AS failed_commands
+         FROM verification_runs r LEFT JOIN tasks t ON t.id = r.task_id
+        ORDER BY r.id DESC LIMIT ?`,
+      RECENT_LIMIT
+    )
+  };
+}
+function audit(db, limit) {
+  return all(
+    db,
+    `SELECT id, issue_id, branch_id, from_node, event_type, summary, created_at
+       FROM audit ORDER BY id DESC LIMIT ?`,
+    limit
+  );
+}
+var WM_TABLE_COUNT = 4;
+var WM_DEFAULT_DEPTH = 2;
+var WM_MAX_DEPTH = 5;
+var WM_DEFAULT_HITS = 20;
+var WM_MAX_HITS = 100;
+function worldModelAvailable(db) {
+  const found = one(
+    db,
+    `SELECT COUNT(*) AS n FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN ('wm_directories', 'wm_files', 'wm_directories_fts', 'wm_files_fts')`
+  );
+  return Number(found?.["n"] ?? 0) === WM_TABLE_COUNT;
+}
+function clampDepth(raw) {
+  if (raw === null || raw.trim() === "") return WM_DEFAULT_DEPTH;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 0), WM_MAX_DEPTH) : WM_DEFAULT_DEPTH;
+}
+function clampHits(raw) {
+  if (raw === null || raw.trim() === "") return WM_DEFAULT_HITS;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
+}
+function worldModel(db, repo, path, depth) {
+  if (!worldModelAvailable(db)) return { available: false, repos: [], nodes: [] };
+  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r["repo"]));
+  const target = repo ?? repos[0];
+  if (target === void 0) return { available: true, repos, nodes: [] };
+  const nodes = all(
+    db,
+    `WITH RECURSIVE sub(id, path, lvl) AS (
+       SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+       UNION
+       SELECT c.id, c.path, s.lvl + 1
+         FROM wm_directories c JOIN sub s ON c.parent_path = s.path
+        WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
+     )
+     SELECT d.repo, d.path, d.parent_path, d.summary, d.file_count
+       FROM wm_directories d
+      WHERE d.id IN (SELECT id FROM sub)
+      ORDER BY d.path`,
+    target,
+    path,
+    target,
+    depth
+  );
+  return { available: true, repos, nodes };
+}
+function ftsPhrase(raw) {
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+function worldModelSearch(db, query, limit) {
+  if (!worldModelAvailable(db)) return { available: false, hits: [] };
+  if (query.trim() === "") return { available: true, hits: [] };
+  const phrase = ftsPhrase(query.trim());
+  const hits = all(
+    db,
+    `SELECT kind, repo, path, text, rank FROM (
+       SELECT 'directory' AS kind, d.repo AS repo, d.path AS path, d.summary AS text,
+              bm25(wm_directories_fts) AS rank
+         FROM wm_directories_fts JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+        WHERE wm_directories_fts MATCH ?
+       UNION ALL
+       SELECT 'file', f.repo, f.path, f.purpose, bm25(wm_files_fts)
+         FROM wm_files_fts JOIN wm_files f ON f.id = wm_files_fts.rowid
+        WHERE wm_files_fts MATCH ?
+     )
+     ORDER BY rank, path
+     LIMIT ?`,
+    phrase,
+    phrase,
+    limit
+  );
+  return { available: true, hits };
+}
+
+// server/concepts.ts
+var CONCEPTS_SCHEMA_VERSION = 45;
+var CONCEPT_TABLES = ["wm_concepts", "wm_concept_steps", "wm_concepts_fts", "wm_symbols", "wm_symbols_fts", "wm_edges"];
+var MIN_QUERY_LENGTH = 2;
+var MAX_STEPS = 50;
+var GRAPH_EDGES = ["calls", "sources", "runs", "imports"];
+var LIMITS = {
+  search: { fallback: 20, max: 50 },
+  graph: { fallback: 60, max: 120 },
+  neighbourhood: { fallback: 40, max: 100 }
+};
+function readOnly(db) {
+  const params = (p) => p ?? [];
+  const reader = {
+    get: (sql, p) => db.prepare(sql).get(...params(p)),
+    all: (sql, p) => db.prepare(sql).all(...params(p))
+  };
+  return reader;
+}
+function conceptsAvailable(db) {
+  if ((schemaVersion(db) ?? 0) < CONCEPTS_SCHEMA_VERSION) return false;
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE name IN (SELECT value FROM json_each(?))`).get(JSON.stringify(CONCEPT_TABLES));
+  return Number(row?.n ?? 0) === CONCEPT_TABLES.length;
+}
+function clamp(raw, { fallback, max }) {
+  if (raw === null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) ? Math.min(Math.max(n, 1), max) : fallback;
+}
+var dirOf = (path) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+var baseOf = (path) => path.slice(path.lastIndexOf("/") + 1);
+function symbolNode(s, stepOrdinal) {
+  return {
+    id: Number(s.id),
+    label: s.kind === "module" ? baseOf(s.path) : s.qualified_name,
+    repo: s.repo,
+    path: s.path,
+    dir: dirOf(s.path),
+    kind: s.kind,
+    line_start: s.start_line === null ? null : Number(s.start_line),
+    step_ordinal: stepOrdinal
+  };
+}
+function fileNode(a, stepOrdinal) {
+  return {
+    id: `file:${a.repo}:${a.path}`,
+    label: baseOf(a.path),
+    repo: a.repo,
+    path: a.path,
+    dir: dirOf(a.path),
+    kind: "file",
+    line_start: null,
+    step_ordinal: stepOrdinal
+  };
+}
+function symbolLite(db, id) {
+  const row = db.prepare(`SELECT id, repo, path, kind, qualified_name, start_line FROM wm_symbols WHERE id = ?`).get(id);
+  return row ?? null;
+}
+function neighbourIds(db, id) {
+  const rows = db.prepare(
+    `SELECT CASE WHEN e.src_id = ? THEN e.dst_id ELSE e.src_id END AS other
+         FROM wm_edges e
+        WHERE (e.src_id = ? OR e.dst_id = ?) AND e.dst_id IS NOT NULL AND e.resolution = 'exact'
+          AND e.kind IN (SELECT value FROM json_each(?))
+        ORDER BY e.line, e.rowid`
+  ).all(id, id, id, JSON.stringify(GRAPH_EDGES));
+  return [...new Set(rows.map((r) => Number(r.other)).filter((o) => o !== id))];
+}
+function edgesAmong(db, ids) {
+  if (ids.length === 0) return [];
+  const set = JSON.stringify(ids);
+  const rows = db.prepare(
+    `SELECT DISTINCT e.src_id AS src, e.dst_id AS dst, e.kind
+         FROM wm_edges e
+        WHERE e.resolution = 'exact' AND e.src_id <> e.dst_id
+          AND e.kind IN (SELECT value FROM json_each(?))
+          AND e.src_id IN (SELECT value FROM json_each(?))
+          AND e.dst_id IN (SELECT value FROM json_each(?))
+        ORDER BY e.src_id, e.dst_id, e.kind`
+  ).all(JSON.stringify(GRAPH_EDGES), set, set);
+  return rows.map((r) => ({ src: Number(r.src), dst: Number(r.dst), kind: r.kind }));
+}
+function buildGraph(db, centres, limit) {
+  const nodes = /* @__PURE__ */ new Map();
+  for (const c of centres) if (!nodes.has(c.id)) nodes.set(c.id, c);
+  let truncated = false;
+  for (const c of centres) {
+    if (typeof c.id !== "number") continue;
+    for (const other of neighbourIds(db, c.id)) {
+      if (nodes.has(other)) continue;
+      const s = symbolLite(db, other);
+      if (!s || outsideConceptLane(s.path)) continue;
+      if (nodes.size >= limit) {
+        truncated = true;
+        break;
+      }
+      nodes.set(other, symbolNode(s, null));
+    }
+  }
+  const ids = [...nodes.keys()].filter((k) => typeof k === "number");
+  return { nodes: [...nodes.values()], edges: edgesAmong(db, ids), truncated };
+}
+function conceptGraph(db, id, limit) {
+  const concept = getConcept(readOnly(db), id);
+  if (!concept) return { status: 404, body: { error: "concept not found" } };
+  const centres = [];
+  for (const step of concept.steps.slice(0, MAX_STEPS)) {
+    const anchor = step.symbol;
+    if (!anchor) continue;
+    if (anchor.id === null || anchor.kind === "file") {
+      centres.push(fileNode(anchor, step.ordinal));
+      continue;
+    }
+    if (centres.some((c) => c.id === anchor.id)) continue;
+    const s = symbolLite(db, anchor.id);
+    if (s) centres.push(symbolNode(s, step.ordinal));
+  }
+  return { status: 200, body: buildGraph(db, centres, limit) };
+}
+function neighbourhood(db, id, limit) {
+  const s = symbolLite(db, id);
+  if (!s) return { status: 404, body: { error: "symbol not found" } };
+  return { status: 200, body: buildGraph(db, [symbolNode(s, null)], limit) };
+}
+function conceptDetail(db, id) {
+  const concept = getConcept(readOnly(db), id);
+  if (!concept) return { status: 404, body: { error: "concept not found" } };
+  return {
+    status: 200,
+    body: { available: true, ...concept, steps: concept.steps.slice(0, MAX_STEPS), steps_truncated: concept.steps.length > MAX_STEPS }
+  };
+}
+function search(db, params) {
+  const repos = db.prepare(`SELECT repo FROM wm_concepts UNION SELECT repo FROM wm_symbols ORDER BY repo`).all().map((r) => r.repo);
+  const repo = params.get("repo") || repos[0];
+  const q = (params.get("q") ?? "").trim();
+  if (repo === void 0 || q.length < MIN_QUERY_LENGTH) {
+    return { status: 200, body: { available: true, repos, repo: repo ?? null, concepts: [], derived: null } };
+  }
+  const trajectory = readOnly(db);
+  const concepts = searchConcepts(trajectory, repo, q, clamp(params.get("limit"), LIMITS.search));
+  const derived = concepts.length === 0 ? derivedChain(trajectory, repo, q) : null;
+  return { status: 200, body: { available: true, repos, repo, concepts, derived } };
+}
+var positiveId = (raw) => raw !== void 0 && /^[1-9]\d*$/.test(raw) ? Number(raw) : null;
+function conceptsApi(db, url) {
+  const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
+  const [resource, rawId, sub] = parts;
+  if (resource !== "concepts" && resource !== "symbols") return null;
+  const notFound = { status: 404, body: { error: "unknown endpoint" } };
+  if (resource === "symbols" && (parts.length !== 3 || sub !== "neighbourhood")) return notFound;
+  if (resource === "concepts" && (parts.length > 3 || parts.length === 3 && sub !== "graph")) return notFound;
+  if (!conceptsAvailable(db)) return { status: 200, body: { available: false, repos: [], concepts: [], derived: null } };
+  if (parts.length === 1) return search(db, url.searchParams);
+  const id = positiveId(rawId);
+  if (id === null) return { status: 404, body: { error: `${resource === "symbols" ? "symbol" : "concept"} not found` } };
+  const limit = url.searchParams.get("limit");
+  if (resource === "symbols") return neighbourhood(db, id, clamp(limit, LIMITS.neighbourhood));
+  return sub === "graph" ? conceptGraph(db, id, clamp(limit, LIMITS.graph)) : conceptDetail(db, id);
+}
+
 // ../mcp/trajectory-server/src/utils/repo-paths.ts
 import { dirname as dirname3, isAbsolute as isAbsolute3, resolve } from "node:path";
 
@@ -3892,9 +4275,6 @@ function redactIssue(issue, agent, opts) {
 
 // ../mcp/trajectory-server/src/sync/backend.ts
 import { spawnSync } from "node:child_process";
-
-// ../mcp/trajectory-server/src/utils/timeouts.ts
-var SUBPROCESS_TIMEOUT_MS = 5e3;
 
 // ../mcp/trajectory-server/src/utils/live-cli-guard.ts
 function liveCliBlockReason(env2 = process.env) {
@@ -6907,6 +7287,8 @@ function clampLimit(raw) {
 function handleApi(db, url, res) {
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
   const [resource, id] = parts;
+  const concepts = conceptsApi(db, url);
+  if (concepts) return sendJson(res, concepts.status, concepts.body);
   if (parts.length === 1) {
     switch (resource) {
       case "summary":
