@@ -37,6 +37,16 @@ export interface WorldModel {
   nodes: WmNode[];
 }
 
+export type FileEdgeKind = 'calls' | 'imports' | 'runs' | 'sources' | 'instantiates';
+
+export interface FileGraph {
+  available: boolean;
+  repo: string | null;
+  repos: string[];
+  files: Array<{ path: string; purpose: string }>;
+  edges: Array<{ src: number; dst: number; kind: FileEdgeKind; weight: number }>;
+}
+
 export interface WorldModelSearch {
   available: boolean;
   hits: Row[];

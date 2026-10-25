@@ -129,6 +129,7 @@ check "api/world-model/search?q=%22%20OR%20*%20NEAR(" '"hits":[]'
 check "api/world-model/search?q=((" '"hits":[]'
 check "api/world-model/search?q=smokemap&limit=1" '"kind"'
 check "api/world-model?depth=99&path=nowhere" '"nodes":[]'
+check "api/world-model/graph" '"available":true,"repo":"plugin"'
 
 stop_server
 
@@ -142,6 +143,7 @@ echo "  without world-model tables:"
 start_server "$OLD_DB"
 check "api/world-model" '{"available":false,"repos":[],"nodes":[]}'
 check "api/world-model/search?q=smokemap" '{"available":false,"hits":[]}'
+check "api/world-model/graph" '{"available":false,"repo":null,"repos":[],"files":[],"edges":[]}'
 check "api/summary" '"open_runs"'
 stop_server
 

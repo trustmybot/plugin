@@ -3957,9 +3957,10 @@ function clampHits(raw) {
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
 }
 var SUMMARY_MAX = 160;
+var HR_LINE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
 function summaryLine(raw) {
   if (typeof raw !== "string") return null;
-  const line = raw.replace(/<\/?untrusted-content[^>]*>/g, " ").split("\n").map(
+  const line = raw.replace(/<\/?untrusted-content[^>]*>/g, " ").split("\n").filter((l) => !HR_LINE.test(l)).map(
     (l) => l.replace(/^\s{0,3}#{1,6}\s+/, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/(\*\*|__)(.+?)\1/g, "$2").replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, "$1$2").replace(/`+/g, "").replace(/\s+/g, " ").trim()
   ).find((l) => l !== "");
   if (line === void 0) return "";
@@ -3989,6 +3990,67 @@ function worldModel(db, repo, path, depth) {
     depth
   );
   return { available: true, repos, nodes: nodes.map((n) => ({ ...n, summary: summaryLine(n["summary"]) })) };
+}
+var GRAPH_KINDS = ["calls", "imports", "runs", "sources", "instantiates"];
+function symbolGraphAvailable(db) {
+  const found = one(
+    db,
+    `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('wm_symbols', 'wm_edges')`
+  );
+  return Number(found?.["n"] ?? 0) === 2;
+}
+function graph(db, repo) {
+  if (!worldModelAvailable(db) || !symbolGraphAvailable(db)) {
+    return { available: false, repo: null, repos: [], files: [], edges: [] };
+  }
+  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r["repo"]));
+  const target = repo ?? repos[0];
+  if (target === void 0) return { available: true, repo: null, repos, files: [], edges: [] };
+  const rows = all(
+    db,
+    `SELECT s.path AS src, d.path AS dst, e.kind AS kind, COUNT(*) AS weight,
+            sf.purpose AS src_purpose, df.purpose AS dst_purpose
+       FROM wm_edges e
+       JOIN wm_symbols s ON s.id = e.src_id
+       JOIN wm_symbols d ON d.id = e.dst_id
+       LEFT JOIN wm_files sf ON sf.repo = s.repo AND sf.path = s.path
+       LEFT JOIN wm_files df ON df.repo = d.repo AND df.path = d.path
+      WHERE s.repo = ? AND d.repo = s.repo AND s.path <> d.path
+        AND e.kind IN (${GRAPH_KINDS.map(() => "?").join(", ")})
+      GROUP BY s.path, d.path, e.kind
+      ORDER BY s.path, d.path, weight DESC, e.kind`,
+    target,
+    ...GRAPH_KINDS
+  );
+  const index = /* @__PURE__ */ new Map();
+  const files = [];
+  const fileOf = (path, purpose) => {
+    let i = index.get(path);
+    if (i === void 0) {
+      i = files.length;
+      index.set(path, i);
+      files.push({ path, purpose: summaryLine(purpose) ?? "" });
+    }
+    return i;
+  };
+  const pairs = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const src = fileOf(String(r["src"]), r["src_purpose"]);
+    const dst = fileOf(String(r["dst"]), r["dst_purpose"]);
+    const kind = String(r["kind"]);
+    const weight = Number(r["weight"]);
+    const pair = pairs.get(`${src}>${dst}`);
+    if (!pair) pairs.set(`${src}>${dst}`, { src, dst, kind, weight, top: weight });
+    else {
+      pair.weight += weight;
+      if (weight > pair.top) {
+        pair.kind = kind;
+        pair.top = weight;
+      }
+    }
+  }
+  const edges = [...pairs.values()].map(({ src, dst, kind, weight }) => ({ src, dst, kind, weight }));
+  return { available: true, repo: target, repos, files, edges };
 }
 function ftsPhrase(raw) {
   return `"${raw.replace(/"/g, '""')}"`;
@@ -7433,6 +7495,9 @@ function handleApi(db, url, res) {
   if (parts.length === 2 && resource === "world-model" && id === "search") {
     const p = url.searchParams;
     return sendJson(res, 200, worldModelSearch(db, p.get("q") ?? "", clampHits(p.get("limit"))));
+  }
+  if (parts.length === 2 && resource === "world-model" && id === "graph") {
+    return sendJson(res, 200, graph(db, url.searchParams.get("repo") || null));
   }
   if (parts.length === 2 && resource === "issues" && /^-?\d+$/.test(id)) {
     const detail = issueDetail(db, Number(id));
