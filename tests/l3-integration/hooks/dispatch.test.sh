@@ -1004,7 +1004,11 @@ PARITY="$TMP/parity"
 mkdir -p "$PARITY"
 PP=$(jq -nc --arg cwd "$PARITY" '{hook_event_name:"PreToolUse",session_id:"par",tool_name:"Bash",tool_input:{command:"echo hi"},tool_use_id:"tu-par",cwd:$cwd}')
 mismatch=""
+missing=""
+ts_checked=""
 checked=0
+TS_DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist"
+TS_GATES="$TS_DIST/hooks-gates.txt"
 # shellcheck disable=SC1091
 . "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
 while IFS= read -r reg; do
@@ -1012,16 +1016,27 @@ while IFS= read -r reg; do
   for gate in ${members:-$reg}; do
     via=()
     [ -n "$members" ] && via=(--chain "$reg")
+    if [ -f "$PLUGIN_ROOT/scripts/hooks/$gate.sh" ]; then
+      direct=(bash "$PLUGIN_ROOT/scripts/hooks/$gate.sh")
+    elif [ -f "$TS_GATES" ] && grep -qxF "$gate" "$TS_GATES"; then
+      direct=(node "$TS_DIST/hooks.js" "$gate")
+      ts_checked="$ts_checked $gate"
+    else
+      missing="$missing $gate"
+      continue
+    fi
     checked=$((checked + 1))
     d_rc=0; x_rc=0
-    d_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/$gate.sh" 2>/dev/null) || d_rc=$?
+    d_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" "${direct[@]}" 2>/dev/null) || d_rc=$?
     x_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$gate" ${via[@]+"${via[@]}"} 2>/dev/null) || x_rc=$?
     if [ "$d_out" != "$x_out" ] || [ "$d_rc" != "$x_rc" ]; then
       mismatch="$mismatch $gate"
     fi
   done
 done < <(jq -r '.hooks.PreToolUse[].hooks[].command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)$").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
+assert_eq "" "$missing" "every gate has a .sh or a dist/hooks-gates.txt line"
 assert_eq "" "$mismatch" "no gate differs through the dispatcher"
+assert_contains "$ts_checked" "swe-resume-gate" "the TS-only swe-resume-gate ran through dist/hooks.js"
 [ "$checked" -gt 10 ] && _pass || _fail "parity checked only $checked gates"
 [ ! -e "$PARITY/.claude" ] && _pass || _fail "parity project gained state"
 
