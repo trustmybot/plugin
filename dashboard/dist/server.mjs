@@ -491,7 +491,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 45;
+var TARGET_SCHEMA_VERSION = 46;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1030,6 +1030,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 45 && toVersion >= 45) {
     migrateV44toV45(db);
+  }
+  if (fromVersion < 46 && toVersion >= 46) {
+    migrateV45toV46(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -2692,6 +2695,25 @@ function migrateV44toV45(db) {
     throw err3;
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV45toV46(db) {
+  if (!tableExists(db, "discussions")) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, "discussions", "task_id")) {
+      db.exec("ALTER TABLE discussions ADD COLUMN task_id INTEGER REFERENCES tasks(id)");
+    }
+    if (!hasColumn(db, "discussions", "supersedes")) {
+      db.exec("ALTER TABLE discussions ADD COLUMN supersedes INTEGER REFERENCES discussions(id)");
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
   }
 }
 function migrateV22toV23(db) {
@@ -6663,6 +6685,15 @@ function requireArg2(args, name) {
   }
   return args[name];
 }
+function optionalId(args, name) {
+  const raw = args[name];
+  if (raw === void 0 || raw === null || raw === "") return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
+  }
+  return id;
+}
 function wrapHandler2(fn) {
   return async (args) => {
     try {
@@ -6682,10 +6713,20 @@ function insertDiscussion(db, entry) {
   const createdAt = entry.created_at ?? nowISO();
   const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
   const res = db.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id, task_id, supersedes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]
+    [
+      entry.issue_id,
+      entry.author,
+      entry.kind,
+      entry.body,
+      createdAt,
+      repo,
+      entry.remote_comment_id ?? null,
+      entry.task_id ?? null,
+      entry.supersedes ?? null
+    ]
   );
   if (Number(res.changes) === 0) return null;
   const id = Number(res.lastInsertRowid);
@@ -6742,6 +6783,14 @@ function discussionTools(db) {
             description: "Entry kind. Default: note"
           },
           body: { type: "string", description: "Markdown body of the discussion entry" },
+          task_id: {
+            type: "string",
+            description: "Optional \u2014 the task (on this issue) the entry belongs to. That task's task_brief carries its decision/intent rows; an entry without task_id is issue-level."
+          },
+          supersedes: {
+            type: "string",
+            description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it."
+          },
           verified_human: {
             type: "boolean",
             description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
@@ -6979,8 +7028,32 @@ function discussionTools(db) {
         if (!issue) {
           throw new Error(`Not found: issue ${issueId}`);
         }
+        const taskId = optionalId(args, "task_id");
+        if (taskId !== null) {
+          const task = db.get("SELECT issue_id FROM tasks WHERE id = ?", [taskId]);
+          if (!task) throw new Error(`Not found: task ${taskId}`);
+          if (task.issue_id !== issue.id) {
+            throw new Error(`task_id ${taskId} belongs to issue ${task.issue_id}, not issue ${issue.id}`);
+          }
+        }
+        const supersedes = optionalId(args, "supersedes");
+        if (supersedes !== null) {
+          const prior = db.get("SELECT issue_id FROM discussions WHERE id = ?", [supersedes]);
+          if (!prior) throw new Error(`Not found: discussion ${supersedes}`);
+          if (prior.issue_id !== issue.id) {
+            throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue.id}`);
+          }
+        }
         const now2 = nowISO();
-        const id = insertDiscussion(db, { issue_id: issueId, author, kind, body, created_at: now2 });
+        const id = insertDiscussion(db, {
+          issue_id: issueId,
+          author,
+          kind,
+          body,
+          created_at: now2,
+          task_id: taskId,
+          supersedes
+        });
         const row = db.get("SELECT * FROM discussions WHERE id = ?", [id]);
         return ok2(row);
       })

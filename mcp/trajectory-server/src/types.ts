@@ -89,6 +89,8 @@ export interface Discussion {
   body: string;
   created_at: string;
   repo?: string | null;
+  task_id?: number | null;
+  supersedes?: number | null;
 }
 
 export interface AuditEventEntry {

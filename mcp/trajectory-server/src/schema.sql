@@ -259,13 +259,24 @@ CREATE TABLE IF NOT EXISTS discussions (
     created_at     TEXT    NOT NULL,
     -- remote_comment_id: the PR/MR comment id a persisted remote comment came
     -- from — the dedupe key for comment ingestion. NULL for local discussions.
-    remote_comment_id TEXT
+    remote_comment_id TEXT,
+    -- task_id (v46, GH 1741): the task a decision/intent row belongs to, set
+    -- by task_provision, task_reopen, task_retry, task_update_spec and
+    -- discussion_append(task_id). NULL marks an issue-level row.
+    task_id        INTEGER REFERENCES tasks(id),
+    -- supersedes (v46, GH 1741): the row this one replaces, set by
+    -- discussion_append(supersedes); task_brief skips a superseded row.
+    supersedes     INTEGER REFERENCES discussions(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
     ON discussions(issue_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment
     ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_discussions_task
+    ON discussions(task_id) WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_discussions_supersedes
+    ON discussions(supersedes) WHERE supersedes IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS plugin_meta (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -273,7 +284,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 45, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 46, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

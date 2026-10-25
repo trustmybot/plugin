@@ -21,6 +21,16 @@ function requireArg(args, name) {
     }
     return args[name];
 }
+function optionalId(args, name) {
+    const raw = args[name];
+    if (raw === undefined || raw === null || raw === '')
+        return null;
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
+    }
+    return id;
+}
 function wrapHandler(fn) {
     return async (args) => {
         try {
@@ -38,9 +48,19 @@ export function resolveDefaultIssueId(db) {
 export function insertDiscussion(db, entry) {
     const createdAt = entry.created_at ?? nowISO();
     const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
-    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]);
+    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id, task_id, supersedes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`, [
+        entry.issue_id,
+        entry.author,
+        entry.kind,
+        entry.body,
+        createdAt,
+        repo,
+        entry.remote_comment_id ?? null,
+        entry.task_id ?? null,
+        entry.supersedes ?? null,
+    ]);
     if (Number(res.changes) === 0)
         return null;
     const id = Number(res.lastInsertRowid);
@@ -95,6 +115,14 @@ export function discussionTools(db) {
                         description: 'Entry kind. Default: note',
                     },
                     body: { type: 'string', description: 'Markdown body of the discussion entry' },
+                    task_id: {
+                        type: 'string',
+                        description: "Optional — the task (on this issue) the entry belongs to. That task's task_brief carries its decision/intent rows; an entry without task_id is issue-level.",
+                    },
+                    supersedes: {
+                        type: 'string',
+                        description: 'Optional — id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it.',
+                    },
                     verified_human: {
                         type: 'boolean',
                         description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only — not persisted.',
@@ -317,8 +345,34 @@ export function discussionTools(db) {
             if (!issue) {
                 throw new Error(`Not found: issue ${issueId}`);
             }
+            const taskId = optionalId(args, 'task_id');
+            if (taskId !== null) {
+                const task = db.get('SELECT issue_id FROM tasks WHERE id = ?', [taskId]);
+                if (!task)
+                    throw new Error(`Not found: task ${taskId}`);
+                if (task.issue_id !== issue.id) {
+                    throw new Error(`task_id ${taskId} belongs to issue ${task.issue_id}, not issue ${issue.id}`);
+                }
+            }
+            const supersedes = optionalId(args, 'supersedes');
+            if (supersedes !== null) {
+                const prior = db.get('SELECT issue_id FROM discussions WHERE id = ?', [supersedes]);
+                if (!prior)
+                    throw new Error(`Not found: discussion ${supersedes}`);
+                if (prior.issue_id !== issue.id) {
+                    throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue.id}`);
+                }
+            }
             const now = nowISO();
-            const id = insertDiscussion(db, { issue_id: issueId, author, kind, body, created_at: now });
+            const id = insertDiscussion(db, {
+                issue_id: issueId,
+                author,
+                kind,
+                body,
+                created_at: now,
+                task_id: taskId,
+                supersedes,
+            });
             const row = db.get('SELECT * FROM discussions WHERE id = ?', [id]);
             return ok(row);
         })),

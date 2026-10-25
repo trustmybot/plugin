@@ -138,6 +138,8 @@ describe('task_retry', () => {
         assert.equal(out.branch_id, 'fix/initial-v2');
         const decisions = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision'`, [issueId]);
         assert.ok(decisions.some((d) => d.body.includes('Retry rationale')));
+        const rationale = db.get(`SELECT task_id FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body LIKE 'Retry rationale%'`, [issueId]);
+        assert.equal(rationale.task_id, out.task_id, 'the retry rationale belongs to the retry task');
         const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ?`, [issueId]);
         assert.ok(auditRows.some((r) => r.event_type === 'task_retry_attempted'));
     });
@@ -2853,6 +2855,130 @@ describe('task_reopen + task_update_spec', () => {
         finally {
             rmSync(ws, { recursive: true, force: true });
         }
+    });
+    it('task_provision, task_reopen and task_update_spec stamp the task id on the decision they write (GH 1741)', async () => {
+        const { ws, db, handlers } = setup();
+        try {
+            const id = await provision(handlers, 'fix/task-scoped-decisions');
+            const decisionTaskIds = () => db.all(`SELECT task_id FROM discussions WHERE kind = 'decision' ORDER BY id`).map((r) => r.task_id);
+            assert.deepEqual(decisionTaskIds(), [id], 'the provision decision carries the new task id');
+            assert.ok(db.get(`SELECT COUNT(*) AS n FROM discussions WHERE kind = 'decision' AND task_id = ?`, [id]).n > 0);
+            const amend = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'widen', files: ['src/x.ts', 'src/z.ts'] });
+            assert.ok(!amend.isError, JSON.stringify(parse(amend)));
+            db.run(`UPDATE tasks SET status = 'closed', completed_at = datetime('now') WHERE id = ?`, [id]);
+            const reopen = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review found a gap' });
+            assert.ok(!reopen.isError, JSON.stringify(parse(reopen)));
+            assert.deepEqual(decisionTaskIds(), [id, id, id]);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('task_brief — task-scoped discussions (GH 1741)', () => {
+    const insertDecision = (db, issueId, taskId, body, at) => Number(db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, 'bro', 'decision', ?, ?, ?)`, [issueId, body, at, taskId]).lastInsertRowid);
+    const seedIssueTasks = (db, count) => {
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (55, 'many tasks', 'd', 'open', datetime('now'), datetime('now'))`);
+        const ids = [];
+        for (let t = 0; t < count; t++) {
+            db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+         VALUES (55, ?, 't', 'd', 'pending', 's', datetime('now'), datetime('now'))`, [`fix/55-task-${t}`]);
+            ids.push(db.get('SELECT last_insert_rowid() AS id').id);
+        }
+        return ids;
+    };
+    const brief = async (db, taskId) => parse((await compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null).handlers['task_brief']({ agent: 'bro', task_id: taskId })));
+    const at = (i) => new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString();
+    it('19 decisions over 7 tasks plus issue-level ones: the brief holds this task\'s decisions and the newest issue-level one, under 6000 chars', async () => {
+        const db = tempDB();
+        const taskIds = seedIssueTasks(db, 7);
+        insertDecision(db, 55, null, `older issue-level decision ${'o'.repeat(1000)}`, at(0));
+        for (let i = 0; i < 19; i++) {
+            insertDecision(db, 55, taskIds[i % 7], `decision ${i} for task ${i % 7}: ${'d'.repeat(1000)}`, at(1 + i));
+        }
+        insertDecision(db, 55, null, `newest issue-level decision ${'n'.repeat(1000)}`, at(30));
+        const target = taskIds[3];
+        const out = await brief(db, target);
+        const disc = out['task_discussions'];
+        assert.deepEqual(disc.map((d) => d.body.replace(/:? [dn]{1000}$/, '')), ['decision 3 for task 3', 'decision 10 for task 3', 'decision 17 for task 3', 'newest issue-level decision']);
+        assert.ok(disc.every((d) => d.kind === 'decision'));
+        const size = JSON.stringify(disc).length;
+        assert.ok(size < 6000, `task_discussions is ${size} chars`);
+        const omitted = out['task_discussions_omitted'];
+        assert.equal(omitted.count, 21 - disc.length);
+        assert.match(omitted.hint, /discussion_search\(issue_id=55\) returns the full history/);
+        db.close();
+    });
+    it('an old issue whose rows carry no task_id falls back to the newest issue-level decision', async () => {
+        const db = tempDB();
+        const [taskId] = seedIssueTasks(db, 1);
+        insertDecision(db, 55, null, 'first', at(1));
+        insertDecision(db, 55, null, 'second', at(2));
+        const out = await brief(db, taskId);
+        assert.deepEqual(out['task_discussions'].map((d) => d.body), ['second']);
+        db.close();
+    });
+    it('discussion_append(task_id, supersedes) writes both columns and the brief skips the superseded row', async () => {
+        const db = tempDB();
+        const [taskId, otherTask] = seedIssueTasks(db, 2);
+        const discussions = discussionTools(db);
+        const append = async (args) => (await discussions.handlers['discussion_append']({ agent: 'bro', author: 'bro', issue_id: '55', kind: 'decision', ...args }));
+        const first = parse(await append({ body: 'use approach A', task_id: String(taskId) }));
+        assert.equal(first['task_id'], taskId);
+        assert.equal(first['supersedes'], null);
+        const second = parse(await append({ body: 'use approach B instead', task_id: String(taskId), supersedes: String(first['id']) }));
+        assert.equal(second['supersedes'], first['id']);
+        const row = db.get('SELECT supersedes FROM discussions WHERE id = ?', [second['id']]);
+        assert.notEqual(row.supersedes, null);
+        const issueLevel = parse(await append({ body: 'issue-wide rule' }));
+        parse(await append({ body: 'issue-wide rule, revised', supersedes: String(issueLevel['id']) }));
+        parse(await append({ body: 'other task decision', task_id: String(otherTask) }));
+        const bodies = (await brief(db, taskId))['task_discussions'].map((d) => d.body);
+        assert.deepEqual(bodies, ['use approach B instead', 'issue-wide rule, revised']);
+        db.close();
+    });
+    it('discussion_append rejects a task_id or supersedes from another issue, or a missing one', async () => {
+        const db = tempDB();
+        const [taskId] = seedIssueTasks(db, 1);
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (56, 'other', 'd', 'open', datetime('now'), datetime('now'))`);
+        const foreign = insertDecision(db, 56, null, 'elsewhere', at(1));
+        const discussions = discussionTools(db);
+        const append = async (args) => (await discussions.handlers['discussion_append']({ agent: 'bro', author: 'bro', kind: 'decision', body: 'b', ...args }));
+        const wrongTask = await append({ issue_id: '56', task_id: String(taskId) });
+        assert.equal(wrongTask.isError, true);
+        assert.match(String(parse(wrongTask)['error']), /belongs to issue 55/);
+        const wrongPrior = await append({ issue_id: '55', supersedes: String(foreign) });
+        assert.equal(wrongPrior.isError, true);
+        assert.match(String(parse(wrongPrior)['error']), /belongs to issue 56/);
+        const missing = await append({ issue_id: '55', task_id: '99999' });
+        assert.equal(missing.isError, true);
+        assert.match(String(parse(missing)['error']), /Not found: task 99999/);
+        const notAnId = await append({ issue_id: '55', supersedes: 'abc' });
+        assert.equal(notAnId.isError, true);
+        assert.equal(db.get('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = 55').n, 0);
+        db.close();
+    });
+    it('no scope_world_model entry lists its own dir among its children, the root included', async () => {
+        const db = tempDB();
+        const id = seedTask(db, { repo: 'app', spec: 's', files: ['README.md', 'src/a.ts'] });
+        const node = (path, parent_path) => ({
+            key: `app:${path}`, repo: 'app', path, parent_path, summary: path || 'root', summary_source: 'structural', summary_updated_at: null, file_count: 1,
+        });
+        const stubGraph = {
+            allDirectoriesForRepo: () => [node('', null), node('src', ''), node('docs', ''), node('src/lib', 'src')],
+        };
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', GraphHolder.fixed(stubGraph));
+        const out = parse((await tools.handlers['task_brief']({ agent: 'bro', task_id: id })));
+        const scope = out['scope_world_model'];
+        assert.deepEqual(scope.map((s) => s.dir).sort(), ['', 'src']);
+        for (const entry of scope) {
+            assert.ok(!entry.children.some((c) => c.path === entry.dir), `${JSON.stringify(entry.dir)} lists itself as a child`);
+        }
+        assert.deepEqual(scope.find((s) => s.dir === '').children.map((c) => c.path).sort(), ['docs', 'src']);
+        db.close();
     });
 });
 describe('composite discussions route through insertDiscussion + embedAndStore (#986)', () => {

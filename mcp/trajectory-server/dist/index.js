@@ -25436,7 +25436,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 45;
+var TARGET_SCHEMA_VERSION = 46;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -25978,6 +25978,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 45 && toVersion >= 45) {
     migrateV44toV45(db2);
+  }
+  if (fromVersion < 46 && toVersion >= 46) {
+    migrateV45toV46(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27640,6 +27643,25 @@ function migrateV44toV45(db2) {
     throw err21;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV45toV46(db2) {
+  if (!tableExists(db2, "discussions")) return;
+  beginImmediate(db2);
+  try {
+    if (!hasColumn(db2, "discussions", "task_id")) {
+      db2.exec("ALTER TABLE discussions ADD COLUMN task_id INTEGER REFERENCES tasks(id)");
+    }
+    if (!hasColumn(db2, "discussions", "supersedes")) {
+      db2.exec("ALTER TABLE discussions ADD COLUMN supersedes INTEGER REFERENCES discussions(id)");
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
   }
 }
 function migrateV22toV23(db2) {
@@ -29373,6 +29395,15 @@ function requireArg2(args2, name2) {
   }
   return args2[name2];
 }
+function optionalId(args2, name2) {
+  const raw = args2[name2];
+  if (raw === void 0 || raw === null || raw === "") return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(`${name2} must be a positive integer id (got ${JSON.stringify(raw)})`);
+  }
+  return id;
+}
 function wrapHandler2(fn) {
   return async (args2) => {
     try {
@@ -29392,10 +29423,20 @@ function insertDiscussion(db2, entry) {
   const createdAt = entry.created_at ?? nowISO();
   const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
   const res = db2.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id, task_id, supersedes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]
+    [
+      entry.issue_id,
+      entry.author,
+      entry.kind,
+      entry.body,
+      createdAt,
+      repo,
+      entry.remote_comment_id ?? null,
+      entry.task_id ?? null,
+      entry.supersedes ?? null
+    ]
   );
   if (Number(res.changes) === 0) return null;
   const id = Number(res.lastInsertRowid);
@@ -29452,6 +29493,14 @@ function discussionTools(db2) {
             description: "Entry kind. Default: note"
           },
           body: { type: "string", description: "Markdown body of the discussion entry" },
+          task_id: {
+            type: "string",
+            description: "Optional \u2014 the task (on this issue) the entry belongs to. That task's task_brief carries its decision/intent rows; an entry without task_id is issue-level."
+          },
+          supersedes: {
+            type: "string",
+            description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it."
+          },
           verified_human: {
             type: "boolean",
             description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
@@ -29689,8 +29738,32 @@ function discussionTools(db2) {
         if (!issue2) {
           throw new Error(`Not found: issue ${issueId}`);
         }
+        const taskId = optionalId(args2, "task_id");
+        if (taskId !== null) {
+          const task = db2.get("SELECT issue_id FROM tasks WHERE id = ?", [taskId]);
+          if (!task) throw new Error(`Not found: task ${taskId}`);
+          if (task.issue_id !== issue2.id) {
+            throw new Error(`task_id ${taskId} belongs to issue ${task.issue_id}, not issue ${issue2.id}`);
+          }
+        }
+        const supersedes = optionalId(args2, "supersedes");
+        if (supersedes !== null) {
+          const prior = db2.get("SELECT issue_id FROM discussions WHERE id = ?", [supersedes]);
+          if (!prior) throw new Error(`Not found: discussion ${supersedes}`);
+          if (prior.issue_id !== issue2.id) {
+            throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue2.id}`);
+          }
+        }
         const now2 = nowISO();
-        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body: body2, created_at: now2 });
+        const id = insertDiscussion(db2, {
+          issue_id: issueId,
+          author,
+          kind,
+          body: body2,
+          created_at: now2,
+          task_id: taskId,
+          supersedes
+        });
         const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
         return ok2(row);
       })
@@ -36735,7 +36808,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36943,7 +37016,6 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const now2 = nowISO();
         const result2 = db2.transaction(() => {
-          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now2 });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -36969,6 +37041,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
+          insertDiscussion(db2, {
+            issue_id: issueId,
+            author: agent,
+            kind: "decision",
+            body: decisionBody,
+            created_at: now2,
+            task_id: row.id
+          });
           insertAudit(db2, {
             issue_id: issueId,
             branch_id: branchId,
@@ -37089,7 +37169,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             author: agent,
             kind: "decision",
             body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join("\n"),
-            created_at: now2
+            created_at: now2,
+            task_id: task.id
           });
           insertAudit(db2, {
             issue_id: task.issue_id,
@@ -37212,7 +37293,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             author: agent,
             kind: "decision",
             body: `Task ${taskId} spec amended (${summaryParts.join("; ")}): ${reason}`,
-            created_at: now2
+            created_at: now2,
+            task_id: task.id
           });
           insertAudit(db2, {
             issue_id: task.issue_id,
@@ -37281,6 +37363,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             const childrenByParent = /* @__PURE__ */ new Map();
             for (const n of nodes) {
               const key = n.parent_path ?? "";
+              if (key === n.path) continue;
               if (!childrenByParent.has(key)) childrenByParent.set(key, []);
               childrenByParent.get(key).push(n);
             }
@@ -37294,25 +37377,41 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             }));
           }
         }
-        const raw = db2.all(
-          `SELECT author, kind, body, created_at FROM discussions
-            WHERE issue_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`,
-          [task.issue_id]
-        ).reverse();
-        const FULL_KINDS = /* @__PURE__ */ new Set(["decision", "intent"]);
         const NOTE_CAP = 500;
         const OTHER_ROW_CAP = 8;
-        const full = raw.filter((d) => FULL_KINDS.has(d.kind));
-        const other = raw.filter((d) => !FULL_KINDS.has(d.kind)).slice(-OTHER_ROW_CAP);
-        const task_discussions = raw.filter((d) => full.includes(d) || other.includes(d)).map((d) => {
-          if (FULL_KINDS.has(d.kind) || d.body.length <= NOTE_CAP) return d;
+        const historyHint = `discussion_search(issue_id=${task.issue_id}) returns the full history`;
+        const taskRows = db2.all(
+          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+            WHERE d.issue_id = ? AND d.task_id = ? AND d.kind IN ('decision', 'intent')
+              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)`,
+          [task.issue_id, task.id]
+        );
+        const issueDecision = db2.get(
+          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+            WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
+              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+            ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
+          [task.issue_id]
+        );
+        const otherRows = db2.all(
+          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+            WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
+              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+            ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
+          [task.issue_id, OTHER_ROW_CAP]
+        );
+        const task_discussions = [...taskRows, ...issueDecision ? [issueDecision] : [], ...otherRows].sort((a, b) => a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1).map((d) => {
+          if (d.kind === "decision" || d.kind === "intent" || d.body.length <= NOTE_CAP) return d;
           return {
             ...d,
             body: d.body.slice(0, NOTE_CAP) + `
-\u2026 [truncated; discussion_search(issue_id=${task.issue_id}) for full text]`,
+\u2026 [truncated; ${historyHint}]`,
             truncated: true
           };
         });
+        const issueRowCount = db2.get("SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?", [task.issue_id])?.n ?? 0;
+        const omittedCount = issueRowCount - task_discussions.length;
+        const task_discussions_omitted = omittedCount > 0 ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` } : void 0;
         const closeRow = db2.get(
           `SELECT content_json FROM audit
             WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
@@ -37343,7 +37442,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           verification_run: latestVerificationRun(db2, task.id),
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
-          task_discussions
+          task_discussions,
+          ...task_discussions_omitted ? { task_discussions_omitted } : {}
         });
       })
     ),
@@ -37448,13 +37548,6 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         });
         const now2 = nowISO();
         const result2 = db2.transaction(() => {
-          insertDiscussion(db2, {
-            issue_id: failed.issue_id,
-            author: "bro",
-            kind: "decision",
-            body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
-            created_at: now2
-          });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -37480,6 +37573,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!newTask) throw new Error("insert succeeded but row lookup failed");
+          insertDiscussion(db2, {
+            issue_id: failed.issue_id,
+            author: "bro",
+            kind: "decision",
+            body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
+            created_at: now2,
+            task_id: newTask.id
+          });
           insertAudit(db2, {
             issue_id: failed.issue_id,
             branch_id: newBranchId,
