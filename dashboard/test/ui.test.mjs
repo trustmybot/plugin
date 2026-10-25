@@ -2,8 +2,8 @@
 // esbuild, render them to static HTML and check each Button variant uses its
 // own --button-<variant>- tokens and the right element, each StateLabel shows
 // its octicon and text, a danger Flash is an alert, Badge maps statuses to
-// Label variants and RelativeTime switches from relative to absolute at 30
-// days; then check index.html applies the stored colour mode before the CSS.
+// Label variants and RelativeTime floors each unit and switches from relative
+// to absolute at 30 days; then check index.html applies the stored colour mode before the CSS.
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -52,6 +52,11 @@ describe('Button', () => {
       assert.match(out, new RegExp(`--button-${variant}-bgColor-rest`), variant);
       for (const other of VARIANTS.filter((v) => v !== variant)) assert.doesNotMatch(out, new RegExp(`--button-${other}-`), `${variant} uses ${other}`);
     }
+  });
+
+  test('danger sets its disabled border and invisible its active border token', () => {
+    assert.match(html('Button', { variant: 'danger' }, 'Go'), /disabled:border-\[color:var\(--button-danger-borderColor-disabled,var\(--control-borderColor-disabled\)\)\]/);
+    assert.match(html('Button', { variant: 'invisible' }, 'Go'), /active:border-\[color:var\(--button-invisible-borderColor-active,var\(--control-transparent-borderColor-active\)\)\]/);
   });
 
   test('renders <button type="button"> without href and <a> with href', () => {
@@ -108,6 +113,11 @@ describe('RelativeTime', () => {
     const out = html('RelativeTime', { value: ago(45 * 86_400_000), now });
     assert.match(out, />on [^<]+<\/time>$/);
     assert.doesNotMatch(out, /ago/);
+  });
+
+  test('23.5 hours earlier floors to "23 hours ago" and 30 hours reads "yesterday"', () => {
+    assert.match(html('RelativeTime', { value: ago(23.5 * 3600_000), now }), />23 hours ago<\/time>$/);
+    assert.match(html('RelativeTime', { value: ago(30 * 3600_000), now }), />yesterday<\/time>$/);
   });
 
   test('null renders the — fallback', () => {
