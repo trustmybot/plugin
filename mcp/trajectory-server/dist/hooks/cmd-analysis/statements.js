@@ -6,7 +6,8 @@
  * assignment-only statements come out as `=<dir-token>` records, every dir
  * token carries \022<old-dir-token>[\022<why>], an unquoted $( ) or backtick
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
- * \022<dir>\022<word>… mark.
+ * \022<dir>\022<word>… mark. The TS keeps `time NAME=value` an assignment
+ * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
 import { ENC, QC, QO, SUB_PC, SUB_PO } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
@@ -356,6 +357,16 @@ export function statementsEnc(buf, base, home, assign) {
                 aw.push(w[first]);
                 first++;
                 continue;
+            }
+            if (w[first] === 'time') {
+                let k = first + 1;
+                while (k < n && w[k].startsWith('-'))
+                    k++;
+                if (k < n && ASSIGNMENT.test(w[k])) {
+                    first = k;
+                    plain = false;
+                    continue;
+                }
             }
             if (WRAPPER.test(w[first])) {
                 const u = unwrap(w, first);

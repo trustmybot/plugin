@@ -18,10 +18,13 @@
  */
 import { SUB_PC, SUB_PO, decode } from './encode.js';
 import { progCalls } from './prog-calls.js';
+import { proveProgram } from './prove.js';
 /** The path a fail-closed shape prints in place of the paths it cannot name; `emit` turns it into an UNRESOLVED:$(computed): line. */
 export const COMPUTED = '$(computed):';
 /** The path a process call's command that does not parse prints; `emit` turns it into an UNRESOLVED:$(parse): line. */
 export const PARSE = '$(parse):';
+/** The path an inline program `proveProgram` cannot prove prints (GH 1739); `emit` turns it into an UNRESOLVED:$(unproven): line. */
+export const UNPROVEN = '$(unproven):';
 /** The index past the double-quoted text that starts at `from`, or -1. */
 function dquoteEnd(s, from) {
     for (let k = from; k < s.length; k++) {
@@ -464,7 +467,13 @@ function heldLiterals(lx, name) {
  * the name may hold follows it, each judged as a write target.
  */
 export function progWrites(lang, program, operands, procWrites) {
-    const scan = chomp(progScan(lang, program).join('\n'));
+    const scanned = progScan(lang, program);
+    const unproven = !proveProgram(lang, program, scanned);
+    const found = progFound(lang, program, scanned, operands, procWrites);
+    return { ...found, unproven };
+}
+function progFound(lang, program, scanned, operands, procWrites) {
+    const scan = chomp(scanned.join('\n'));
     const has = (line) => `\n${scan}\n`.includes(`\n${line}\n`);
     const cd = has('C');
     const run = has('R');
@@ -523,36 +532,44 @@ export function progWrites(lang, program, operands, procWrites) {
         return { lines, computed: unread };
     return { lines: operands ? ['-'] : [], computed: fail };
 }
-/** _tmb_cmd_interp_writes: the lines an interpreter one-liner's statement words add. */
-export function interpWrites(words, procWrites) {
+/** The option word that takes an inline program, clustered after flags that take no argument, the program attached in group 1 or in the next word. */
+const PROGRAM_FLAG = {
+    py: /^-[bBdEhiIOPqRsSuvx]*c(.*)$/s,
+    node: /^(?:-e|-p|-pe|--eval|--print)(?:=(.*))?$/s,
+    perl: /^-[nlpaswWtTUcX]*[eE](.*)$/s,
+    ruby: /^-[nlpaswWdv]*e(.*)$/s,
+};
+/**
+ * _tmb_cmd_interp_writes: the lines an interpreter one-liner's statement
+ * words add. A program `proveProgram` cannot prove, or one part of whose text
+ * the shell fills in (`held`, a word of `Encoded.held`), adds a
+ * `$(unproven)` line (GH 1739); perl and ruby run every `-e` program, joined.
+ */
+export function interpWrites(words, procWrites, held = () => false) {
     const argv0 = basename(words[0] ?? '');
-    let flags;
     let lang;
     let pyopt = false;
     if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
-        flags = ['-c'];
         lang = 'py';
         pyopt = true;
     }
-    else if (argv0 === 'node' || argv0 === 'nodejs') {
-        flags = ['-e', '--eval', '-p', '--print'];
+    else if (argv0 === 'node' || argv0 === 'nodejs')
         lang = 'node';
-    }
-    else if (argv0 === 'perl') {
-        flags = ['-e', '-E'];
+    else if (argv0 === 'perl')
         lang = 'perl';
-    }
-    else if (argv0 === 'ruby') {
-        flags = ['-e'];
+    else if (argv0 === 'ruby')
         lang = 'ruby';
-    }
     else
         return [];
     const n = words.length;
     let k = 1;
     let optarg = false;
-    let program = '';
-    let encoded = '';
+    const encoded = [];
+    const carriers = [];
+    const take = (flagWord, attached, next) => {
+        encoded.push(attached ? attached : (next ?? ''));
+        carriers.push(attached ? flagWord : (next ?? ''));
+    };
     while (k < n) {
         const w = words[k++];
         if (pyopt) {
@@ -569,20 +586,28 @@ export function interpWrites(words, procWrites) {
             else if (!w.startsWith('-'))
                 pyopt = false;
         }
-        if (flags.includes(w)) {
-            encoded = words[k] ?? '';
-            program = chomp(decode(encoded));
-            k++;
+        const m = PROGRAM_FLAG[lang].exec(w);
+        if (m) {
+            take(w, m[1], m[1] ? undefined : words[k++]);
             break;
         }
     }
+    if (lang === 'perl' || lang === 'ruby') {
+        for (let j = k; j < n; j++) {
+            const m = PROGRAM_FLAG[lang].exec(words[j]);
+            if (m)
+                take(words[j], m[1], m[1] ? undefined : words[++j]);
+        }
+    }
+    const program = encoded.map((e) => chomp(decode(e))).join('\n');
     if (program === '')
         return [];
-    if (heldProgram(encoded))
+    if (heldProgram(encoded[0]))
         return [COMPUTED + shown(`${argv0} ${program}`)];
     const found = progWrites(lang, program, true, procWrites);
+    const unproven = found.unproven || carriers.some(held) ? [UNPROVEN + shown(program)] : [];
     if (found.lines.length === 0)
-        return [];
+        return unproven;
     const literal = !(found.lines[0] === '-' && found.lines.length === 1);
     const out = literal ? [...found.lines] : [];
     for (; k < n; k++)
@@ -590,6 +615,6 @@ export function interpWrites(words, procWrites) {
             out.push(...decode(words[k]).split('\n'));
     if (found.computed)
         out.push(COMPUTED + argv0);
-    return out;
+    return [...out, ...unproven];
 }
 //# sourceMappingURL=programs.js.map

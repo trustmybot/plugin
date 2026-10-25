@@ -1,8 +1,8 @@
 /**
  * The write-path analyzer loads tree-sitter-bash on its first non-blank
- * command and never again (GH 1692), and loadParsers() still compiles all
- * four grammars. Each check runs in a fresh node process so its counters
- * start at 0.
+ * command and never again (GH 1692), python on its first python program
+ * (GH 1739), and loadParsers() still compiles the four indexed grammars. Each
+ * check runs in a fresh node process so its counters start at 0.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,6 +47,30 @@ describe('bash parser laziness (GH 1692)', () => {
             grammars: ['bash', 'javascript', 'tsx', 'typescript'],
             loads: 1,
             shared: true,
+        });
+    });
+});
+describe('program grammar laziness (GH 1739)', () => {
+    it('loads no program grammar on import or for shell commands, python once for python programs only', () => {
+        const out = run(`
+      const { writePaths, bashParserLoads, programParserLoads } = await import(${JSON.stringify(ANALYZER)});
+      const loads = () => ({ bash: bashParserLoads(), python: programParserLoads('python'), javascript: programParserLoads('javascript') });
+      const steps = [loads()];
+      await writePaths('touch a', { cwd: '/w' });
+      steps.push(loads());
+      const py = [];
+      for (let i = 0; i < 3; i++) py.push(await writePaths('python3 -c "import os; os.chmod(\\'a\\', 0o777)"', { cwd: '/w' }));
+      steps.push(loads());
+      console.log(JSON.stringify({ steps, py }));
+    `);
+        const unproven = ["UNRESOLVED:$(unproven):import os; os.chmod('a', 0o777)"];
+        assert.deepEqual(out, {
+            steps: [
+                { bash: 0, python: 0, javascript: 0 },
+                { bash: 1, python: 0, javascript: 0 },
+                { bash: 1, python: 1, javascript: 0 },
+            ],
+            py: [unproven, unproven, unproven],
         });
     });
 });

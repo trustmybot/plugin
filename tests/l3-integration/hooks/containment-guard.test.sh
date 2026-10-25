@@ -71,6 +71,9 @@ decision() {
   if [ -z "$1" ]; then echo "allow"; return 0; fi
   printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null || echo "unparseable: $1"
 }
+# unproven — the decision on an in-root program the .sh allows but the TS gate
+# denies as `$(unproven)`: a call outside its closed safe set (GH 1739).
+unproven() { if [ "$HOOK_IMPL" = ts ]; then echo deny; else echo allow; fi; }
 denials() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='containment_denied' AND from_node='hook:containment-guard';"; }
 
 test_case "swe Write to /tmp/x → deny + audit row"
@@ -213,7 +216,7 @@ assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$DATA")")")" 
 test_case "GH 1567: /onboard quoted inside a larger string literal is not a write target"
 PROSE=$(printf '%s\n' "p = 'src/x.sh'" "s = open(p).read()" "old = '''x'''" "new = old + '''" 'assert_not_contains "$PREAMBLE" "/onboard" "preamble /onboard token"' 'If you run `/onboard`, answer No' "'''")
 PY_PROSE=$(printf '%s\n' "python3 - <<'EOF'" "$PROSE" "open(p, 'w').write(s.replace(old, new))" 'EOF')
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_PROSE")")")" "swe editing a relative file through a variable path"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_PROSE")")")" "swe editing a relative file through a variable path"
 PY_PROSE_OUT=$(printf '%s\n' "python3 - <<'EOF'" "$PROSE" "open(p, 'w').write(s.replace(old, new))" "open(\"/onboard/x\", \"w\")" 'EOF')
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_PROSE_OUT")")")" "the same edit with a literal write to /onboard/x"
 PY_PROSE_LIT=$(printf '%s\n' "python3 - <<'EOF'" "$PROSE" "q = \"/onboard\"" "open(p, 'w').write(s.replace(old, new))" 'EOF')
@@ -223,8 +226,8 @@ test_case "GH 1510: a program is judged by its write calls' own path arguments"
 py() { printf '%s\n' "python3 - <<'EOF'" "$@" 'EOF'; }
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import json' "cfg = json.load(open('/etc/tmb-cg/config.json', encoding='utf-8'))" "open('out.txt','w').write(str(cfg))")")")")" "swe reading a config outside, writing out.txt inside"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import os' "open('out.txt','w').write(str(os.listdir('/usr/share/doc')))")")")")" "swe listing a dir outside"
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import sys' "sys.path.insert(0, '/opt/tmb-cg/lib')" "open('out.txt','w').write('x')")")")")" "swe extending sys.path with a dir outside"
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "s = open('src/x.sh').read().replace('/^[\\\\/~\$]/', '/x/')" "open('src/x.sh','w').write(s)")")")")" "swe editing a file whose text holds regex slashes"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import sys' "sys.path.insert(0, '/opt/tmb-cg/lib')" "open('out.txt','w').write('x')")")")")" "swe extending sys.path with a dir outside"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "s = open('src/x.sh').read().replace('/^[\\\\/~\$]/', '/x/')" "open('src/x.sh','w').write(s)")")")")" "swe editing a file whose text holds regex slashes"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "s = open('src/x.sh').read().replace('/^[\\\\/~\$]/', '/x/')" "open('/etc/tmb-cg/x.sh','w').write(s)")")")")" "the same edit written outside"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "open('/etc/tmb-cg/x', 'w')")")")")" "swe open w outside"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "p = '/etc/tmb-cg/x'" "open(p, 'w').write('y')")")")")" "swe writing a variable assigned an outside path"
@@ -373,7 +376,7 @@ assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog 
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog perl 'my $o = qx(rm -rf ..);')")")")" "swe: perl qx()"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog ruby 'o = %x(rm -rf ..)')")")")" "swe: ruby %x()"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import subprocess' "subprocess.run(['touch', 'x'], cwd='src', check=True, capture_output=True, text=True)")")")")" "swe: plain literals with ordinary options inside its worktree"
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(node_prog "import cp from 'child_process'; cp.execSync('touch x', { stdio: 'inherit' })")")")")" "swe: a node default import inside its worktree"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(node_prog "import cp from 'child_process'; cp.execSync('touch x', { stdio: 'inherit' })")")")")" "swe: a node default import inside its worktree"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "print('%s' % 'x'.strip())")")")")" "swe: a program without process calls"
 
 test_case "GH 1531: text a program writes is content, not a target"
@@ -394,9 +397,9 @@ assert_eq "deny" "$(decision "$OUT")" "swe: a write inside a cProfile.run code s
 assert_contains "$OUT" "/etc/tmb-cg" "the reason names the code string's path"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import builtins' "getattr(builtins, 'ex' + 'ec')(\"open('/etc/tmb-cg', 'w')\")")")")")" "swe: getattr(builtins, 'ex' + 'ec')"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "python3 -c \"import builtins; getattr(builtins, 'ex' + 'ec')(s)\"")")")" "swe python -c: getattr(builtins, 'ex' + 'ec')"
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, timeit' "cProfile.run('sum(range(9))')" "print(timeit.timeit('sum(range(9))', number=10))" "open('out.txt', 'w').write('x')")")")")" "swe: benign cProfile.run and timeit writing inside its worktree"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, timeit' "cProfile.run('sum(range(9))')" "print(timeit.timeit('sum(range(9))', number=10))" "open('out.txt', 'w').write('x')")")")")" "swe: benign cProfile.run and timeit writing inside its worktree"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile' 'with cProfile.Profile() as pr:' '    sum(range(9))' "pr.dump_stats('out.prof')")")")")" "swe: with cProfile.Profile() as pr is unresolvable even dumping stats inside its worktree"
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, timeit' "cProfile.run('main()', 'out.prof')" 'print(timeit.timeit(lambda: 1, number=10))')")")")" "swe: cProfile.run with a filename and a timeit lambda writing inside its worktree"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, timeit' "cProfile.run('main()', 'out.prof')" 'print(timeit.timeit(lambda: 1, number=10))')")")")" "swe: cProfile.run with a filename and a timeit lambda writing inside its worktree"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, sys' "p = 'out.txt'" 'pr = cProfile.Profile()' "getattr(pr, 'run')(sys.argv[1])" "open(p, 'w').write('x')")")")")" "swe: getattr(pr, 'run') rebinding a variable write path"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import cProfile, inspect, sys' "p = 'out.txt'" 'pr = cProfile.Profile()' "inspect.getattr_static(pr, 'run')(pr, sys.argv[1])" "open(p, 'w').write('x')")")")")" "swe: inspect.getattr_static(pr, 'run') rebinding a variable write path"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'from cProfile import Profile as P' "p = 'out.txt'" "P.runctx(o, sys.argv[1], globals(), None)" "open(p, 'w').write('x')")")")")" "swe: a class-method runctx rebinding a variable write path"
@@ -477,11 +480,13 @@ done
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import shutil' "shutil.move('a.txt', 'b.txt')")")")")" "swe: a direct shutil.move inside the worktree"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import shutil' "shutil.copy('a.txt', 'b.txt')")")")")" "swe: a direct shutil.copy inside the worktree"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "__import__('shutil').move('a', '/etc/tmb-cg')")")")")" "swe: a direct __import__('shutil').move outside the worktree"
-assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "__import__('shutil').move('a.txt', 'b.txt')")")")")" "swe: a direct __import__('shutil').move inside the worktree"
+assert_eq "$(unproven)" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "__import__('shutil').move('a.txt', 'b.txt')")")")")" "swe: a direct __import__('shutil').move inside the worktree"
 for prog in 'import csv|for row in rows: print(row.open, row.close)' "import feedparser|for e in feedparser.parse('feed.xml').entries: print(e.link)" \
   'import argparse|args = argparse.ArgumentParser().parse_args()|print(args.rm)' "import pandas as pd|df = pd.read_csv('prices.csv')|print(df.open.mean())"; do
   IFS='|' read -r -a lines <<< "$prog"
-  assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${lines[@]}")")")")" "swe: an attribute read named like a writer: $prog"
+  expect=allow
+  [[ "$prog" == 'import csv'* ]] || expect=$(unproven)
+  assert_eq "$expect" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${lines[@]}")")")")" "swe: an attribute read named like a writer: $prog"
 done
 
 # dispatched <gate> <tool> <tool_input-json> <tool_use_id> — <gate> through the
@@ -500,16 +505,19 @@ bypasses() { sqlite3 -cmd ".timeout 5000" "$DB" "SELECT COUNT(*) FROM audit WHER
 UJ_FILE="$WT/src/uj.md"
 UJ_COMPUTED=$(printf "python3 - <<'EOF'\nimport os\nopen(os.path.join('%s'), 'w').write('x')\nEOF" "$UJ_FILE")
 UJ_PARSE=$(printf 'echo hi > %s; echo "unterminated' "$UJ_FILE")
+UJ_UNPROVEN=$(printf "python3 -c \"import os; os.chmod('%s', 0o777)\"" "$UJ_FILE")
 
 test_case "GH 1750: a cannot-be-judged Bash deny records no path, so the Edit it prescribes is no bypass"
-for kind in computed parse; do
+for kind in computed parse unproven; do
   rm -rf "$DENIES"
   cmd=$UJ_COMPUTED
   [ "$kind" = parse ] && cmd=$UJ_PARSE
+  [ "$kind" = unproven ] && cmd=$UJ_UNPROVEN
   before=$(bypasses)
   OUT=$(dispatched containment-guard Bash "$(bash_cmd "$cmd")" "tu-uj-$kind")
   assert_eq "deny" "$(decision "$OUT")" "\$($kind) through the dispatcher"
   assert_contains "$OUT" "cannot be judged: " "\$($kind): the cannot-be-judged reason"
+  [ "$kind" = unproven ] && assert_contains "$OUT" "the inline program is unproven" "GH 1739: \$(unproven) names the program as unproven"
   [ ! -e "$DENIES" ] && _pass || _fail "\$($kind): a boundary-denies record was written"
   OUT=$(dispatched swe-boundary Edit "$(jq -nc --arg p "$UJ_FILE" '{file_path:$p, old_string:"a", new_string:"b"}')" "tu-uj-edit-$kind")
   assert_not_contains "$OUT" '"permissionDecision":"deny"' "\$($kind): the literal-path Edit is allowed"

@@ -15,14 +15,20 @@
  * (a `sys.argv[n]` / `process.argv[n]` one included) beside the literal ones,
  * a shell
  * body that find / fd / xargs run on a positional parameter, and bash -c /
- * eval / heredoc nesting deeper than 3.
+ * eval / heredoc nesting deeper than 3. It prints
+ * UNRESOLVED:$(unproven):<text> (GH 1739) for an inline program it cannot
+ * prove, a program, eval argument or sh -c body part of whose text the shell
+ * fills in, and a statement whose command word is an expansion; a variable
+ * set where the tracking cannot follow (`+=`, a subscript, `declare -n`,
+ * `mapfile`, an arithmetic or `name=` text anywhere in another statement) is
+ * poisoned so its later uses fail closed.
  */
 import type { Parser } from 'web-tree-sitter';
-import { type Heredoc, decode, encode } from './encode.js';
+import { type Heredoc, decode, encode, heldKey } from './encode.js';
 import { type ListerHost, listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
-import { COMPUTED, PARSE, heldProgram, interpWrites, progWrites, shown } from './programs.js';
+import { COMPUTED, PARSE, UNPROVEN, heldProgram, interpWrites, progWrites, shown } from './programs.js';
 import { type Record as Statement, SEP, WSEP, statementsEnc } from './statements.js';
 import { type Interp, stmtWritePaths, unwrapStatement } from './targets.js';
 
@@ -106,6 +112,11 @@ function computedLine(text: string): string {
   return `UNRESOLVED:${COMPUTED}${shown(text)}\n`;
 }
 
+/** One fail-closed line for a program or command whose text the analyzer cannot prove. */
+function unprovenLine(text: string): string {
+  return `UNRESOLVED:${UNPROVEN}${shown(text)}\n`;
+}
+
 /** The line for a command tree-sitter-bash cannot parse: its first 80 characters, on one line. */
 function parseLine(cmd: string): string {
   return `UNRESOLVED:${PARSE}${[...cmd].slice(0, 80).join('').replace(/[\r\n]/g, ' ')}\n`;
@@ -133,7 +144,25 @@ function inner(stmt: string): string {
     return '';
   }
   if (argv0 === 'eval') return stmt.slice(4).replace(/^ /, '');
-  return '';
+  const builtin = /^(builtin|command)[ \t]+eval(?:[ \t]+|$)/.exec(stmt);
+  return builtin ? stmt.slice(builtin[0].length) : '';
+}
+
+/** `eval`, `builtin eval` or `command eval`: the words after `eval`, or undefined. */
+function evalArgs(words: readonly string[]): readonly string[] | undefined {
+  if (words[0] === 'eval') return words.slice(1);
+  if ((words[0] === 'builtin' || words[0] === 'command') && words[1] === 'eval') return words.slice(2);
+  return undefined;
+}
+
+const SET_IN_TEXT = /(?<![A-Za-z0-9_$-])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?[ \t]*(?:[-+*/%&^|]|<<|>>)?=(?!=)/g;
+const STEPPED = /(?:\+\+|--)[ \t]*([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\+\+|--)/g;
+
+/** The names a text may set where the tracking cannot follow: `name=` / `name op=` / `name[…]=` anywhere, `++` / `--` beside a name in arithmetic. */
+function setInText(text: string): string[] {
+  const names = [...text.matchAll(SET_IN_TEXT)].map((m) => m[1]);
+  if (/\(\(|\$\[|\[|^let\b/.test(text)) for (const m of text.matchAll(STEPPED)) names.push(m[1] ?? m[2]);
+  return names;
 }
 
 interface StdinProgram {
@@ -313,8 +342,16 @@ class WritePaths {
     return { ok: true, values: acc };
   }
 
+  private poison(level: Level, name: string): void {
+    if (VAR_NAME.test(name)) level.vars += `${name}\t${BAD}\n`;
+  }
+
   private varSet(level: Level, name: string, value: string): void {
-    if (!VAR_NAME.test(name)) return;
+    for (const set of setInText(value)) this.poison(level, set);
+    if (!VAR_NAME.test(name)) {
+      this.poison(level, /^[A-Za-z_][A-Za-z0-9_]*/.exec(name)?.[0] ?? '');
+      return;
+    }
     const e = this.expand(value, level);
     if (e.ok) for (const v of e.values) level.vars += `${name}\t${v}\n`;
     else level.vars += `${name}\t${BAD}\n`;
@@ -350,6 +387,10 @@ class WritePaths {
     }
     if (p.startsWith(PARSE)) {
       this.out += parseLine(p.slice(PARSE.length));
+      return;
+    }
+    if (p.startsWith(UNPROVEN)) {
+      this.out += unprovenLine(p.slice(UNPROVEN.length));
       return;
     }
     if (dir === '-' && why !== '' && !/^[/~$`]/.test(p)) {
@@ -526,7 +567,7 @@ class WritePaths {
     const lines = nested.out.split('\n');
     lines.pop();
     for (let p of lines) {
-      if (p.startsWith(`UNRESOLVED:${COMPUTED}`) || p.startsWith(`UNRESOLVED:${PARSE}`)) {
+      if (p.startsWith(`UNRESOLVED:${COMPUTED}`) || p.startsWith(`UNRESOLVED:${PARSE}`) || p.startsWith(`UNRESOLVED:${UNPROVEN}`)) {
         out.push(p.slice('UNRESOLVED:'.length));
         continue;
       }
@@ -555,19 +596,50 @@ class WritePaths {
     return out;
   }
 
-  private readonly interp: Interp = (words) => interpWrites(words, (cmd) => this.procWrites(cmd));
+  /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
+  private held = new Set<string>();
 
-  /** _tmb_cmd_track_vars */
+  private isHeld(word: string): boolean {
+    return this.held.has(heldKey(word));
+  }
+
+  private readonly interp: Interp = (words) =>
+    interpWrites(
+      words,
+      (cmd) => this.procWrites(cmd),
+      (w) => this.isHeld(w),
+    );
+
+  /**
+   * _tmb_cmd_track_vars. The TS poisons the names a declare-like builtin sets
+   * with an option other than -x / -r / -g / -t (`declare -n`, `-a`, `-i`,
+   * ...), and those mapfile / readarray, getopts and unset set (GH 1739).
+   */
   private trackVars(level: Level, words: readonly string[]): void {
     switch (basename(words[0])) {
       case 'export':
       case 'declare':
       case 'typeset':
       case 'local':
-      case 'readonly':
+      case 'readonly': {
+        const plain = words.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
         for (const w of words.slice(1)) {
-          if (/^[A-Za-z_].*=/s.test(w)) this.varSet(level, before(w, '='), dec(after(w, '=')));
+          if (!/^[A-Za-z_].*=/s.test(w)) continue;
+          if (plain) this.varSet(level, before(w, '='), dec(after(w, '=')));
+          else this.poison(level, before(w, '='));
         }
+        if (!plain) for (const w of words.slice(1)) this.poison(level, w);
+        return;
+      }
+      case 'mapfile':
+      case 'readarray':
+        for (const w of [...words.slice(1), 'MAPFILE']) this.poison(level, w);
+        return;
+      case 'unset':
+        for (const w of words.slice(1)) this.poison(level, w);
+        return;
+      case 'getopts':
+        this.poison(level, words[2] ?? '');
         return;
       case 'for': {
         if (words[2] !== 'in') {
@@ -615,10 +687,29 @@ class WritePaths {
       this.out += parseLine(cmd);
       return;
     }
+    const outer = this.held;
+    this.held = encoded.held;
+    try {
+      this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
+    } finally {
+      this.held = outer;
+    }
+  }
+
+  /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
+  private poisonSet(level: Level, words: readonly string[]): void {
+    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename(words[0]));
+    for (const w of words) {
+      if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
+      for (const name of setInText(dec(w))) this.poison(level, name);
+    }
+  }
+
+  private runEncoded(text: string, heredocs: readonly Heredoc[], base: string, depth: number, vars: string): void {
     const level: Level = { vars, oldtok: '-', why: '' };
     const { cwd } = this.opts;
-    const records = statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true).filter((r) => !/^\t*$/.test(r.stmt));
-    const bodies = heredocAlign(encoded.heredocs, records);
+    const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true).filter((r) => !/^\t*$/.test(r.stmt));
+    const bodies = heredocAlign(heredocs, records);
     let idx = 0;
     for (const record of records) {
       idx++;
@@ -642,11 +733,18 @@ class WritePaths {
       const tok = dir + SEP + old + (why === '' ? '' : SEP + why);
       const chain = dir === '-' && why === '';
       const body = inner(record.stmt);
-      const ownWords = body !== '' && words[0] !== 'eval' && basename(words[0]) !== 'watch';
+      const evaluated = evalArgs(words);
+      this.poisonSet(level, words);
+      for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
+      const argv0 = unwrapStatement(record.stmt).words[0] ?? '';
+      if (/[$`\x07]/.test(decode(argv0))) this.out += unprovenLine(dec(record.stmt));
+      if (evaluated?.some((w) => this.isHeld(w))) this.out += unprovenLine(dec(record.stmt));
+      else if (body !== '' && !evaluated && this.isHeld(body)) this.out += unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`);
+      const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
       if (ownWords) {
         for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths) if (p !== '') this.emit(level, dir, dec(p));
       }
-      if (body !== '' && words[0] !== 'eval' && heldProgram(body)) {
+      if (body !== '' && !evaluated && heldProgram(body)) {
         this.out += computedLine(`${basename(dec(words[0]))} ${dec(body)}`);
         continue;
       }
@@ -668,25 +766,28 @@ class WritePaths {
       if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0]))) this.execWrites(level, dir, mark, words, tok, depth);
       const { kind, info } = stdinProgram(words);
       if (kind !== '') {
-        const progs: { prog: string; held: boolean }[] = [];
+        const progs: { prog: string; held: boolean; partly: boolean }[] = [];
         const herestring = (w: string): void => {
-          progs.push({ prog: dec(w), held: heldProgram(w) });
+          progs.push({ prog: dec(w), held: heldProgram(w), partly: this.isHeld(w) });
         };
         for (let w = 0; w < words.length; w++) {
           if (words[w] === '<<<') herestring(words[w + 1] ?? '');
           else if (words[w].startsWith('<<<')) herestring(words[w].slice(3));
         }
-        for (const body of bodies.get(idx) ?? []) progs.push({ prog: body, held: heldProgram(body) });
+        for (const h of bodies.get(idx) ?? []) progs.push({ prog: h.body, held: heldProgram(h.body), partly: h.expands });
         if (progs.length === 0 && !info) this.out += computedLine(basename(dec(words[0])));
-        for (const { prog, held } of progs) {
-          if (held) this.out += computedLine(`${basename(dec(words[0]))} ${prog}`);
+        const shownArgv0 = basename(dec(words[0]));
+        for (const { prog, held, partly } of progs) {
+          if (held) this.out += computedLine(`${shownArgv0} ${prog}`);
           else if (kind === 'sh') {
+            if (partly) this.out += unprovenLine(`${shownArgv0} ${prog}`);
             if (depth < MAX_DEPTH) this.run(prog, tok, depth + 1, level.vars);
             else this.out += computedLine(prog);
           } else {
             const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
             for (const p of found.lines) if (p !== '') this.emit(level, dir, p);
-            if (found.computed) this.out += computedLine(basename(dec(words[0])));
+            if (found.computed) this.out += computedLine(shownArgv0);
+            if (partly || found.unproven) this.out += unprovenLine(`${shownArgv0} ${prog}`);
           }
         }
       }
@@ -697,8 +798,8 @@ class WritePaths {
 }
 
 /** _tmb_cmd_heredoc_align: each heredoc body under the 1-based index of the statement whose `<<WORD` names its delimiter, in order. */
-function heredocAlign(heredocs: readonly Heredoc[], records: readonly Statement[]): Map<number, string[]> {
-  const out = new Map<number, string[]>();
+function heredocAlign(heredocs: readonly Heredoc[], records: readonly Statement[]): Map<number, Heredoc[]> {
+  const out = new Map<number, Heredoc[]>();
   if (heredocs.length === 0) return out;
   const used = new Set<number>();
   let p = -1;
@@ -710,7 +811,7 @@ function heredocAlign(heredocs: readonly Heredoc[], records: readonly Statement[
       if (j >= heredocs.length) continue;
       used.add(j);
       p = j;
-      out.set(i + 1, [...(out.get(i + 1) ?? []), heredocs[j].body]);
+      out.set(i + 1, [...(out.get(i + 1) ?? []), heredocs[j]]);
     }
   });
   return out;

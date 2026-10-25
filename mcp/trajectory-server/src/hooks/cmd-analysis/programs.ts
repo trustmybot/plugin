@@ -18,6 +18,7 @@
  */
 import { SUB_PC, SUB_PO, decode } from './encode.js';
 import { type Lang, progCalls } from './prog-calls.js';
+import { proveProgram } from './prove.js';
 
 export type ProcWrites = (command: string) => string;
 
@@ -25,6 +26,8 @@ export type ProcWrites = (command: string) => string;
 export const COMPUTED = '$(computed):';
 /** The path a process call's command that does not parse prints; `emit` turns it into an UNRESOLVED:$(parse): line. */
 export const PARSE = '$(parse):';
+/** The path an inline program `proveProgram` cannot prove prints (GH 1739); `emit` turns it into an UNRESOLVED:$(unproven): line. */
+export const UNPROVEN = '$(unproven):';
 
 /** The index past the double-quoted text that starts at `from`, or -1. */
 function dquoteEnd(s: string, from: number): number {
@@ -426,6 +429,8 @@ export interface ProgResult {
   lines: string[];
   /** A write call whose target the scanner could not read: F or A beside literal lines, or F / A / a write shape without a W when there are none. */
   computed: boolean;
+  /** The program calls something neither judged nor in the safe set (`proveProgram`, GH 1739). */
+  unproven: boolean;
 }
 
 /**
@@ -439,7 +444,14 @@ export interface ProgResult {
  * the name may hold follows it, each judged as a write target.
  */
 export function progWrites(lang: Lang, program: string, operands: boolean, procWrites: ProcWrites): ProgResult {
-  const scan = chomp(progScan(lang, program).join('\n'));
+  const scanned = progScan(lang, program);
+  const unproven = !proveProgram(lang, program, scanned);
+  const found = progFound(lang, program, scanned, operands, procWrites);
+  return { ...found, unproven };
+}
+
+function progFound(lang: Lang, program: string, scanned: string[], operands: boolean, procWrites: ProcWrites): Omit<ProgResult, 'unproven'> {
+  const scan = chomp(scanned.join('\n'));
   const has = (line: string): boolean => `\n${scan}\n`.includes(`\n${line}\n`);
   const cd = has('C');
   const run = has('R');
@@ -487,31 +499,40 @@ export function progWrites(lang: Lang, program: string, operands: boolean, procW
   return { lines: operands ? ['-'] : [], computed: fail };
 }
 
-/** _tmb_cmd_interp_writes: the lines an interpreter one-liner's statement words add. */
-export function interpWrites(words: readonly string[], procWrites: ProcWrites): string[] {
+/** The option word that takes an inline program, clustered after flags that take no argument, the program attached in group 1 or in the next word. */
+const PROGRAM_FLAG: Record<Lang, RegExp> = {
+  py: /^-[bBdEhiIOPqRsSuvx]*c(.*)$/s,
+  node: /^(?:-e|-p|-pe|--eval|--print)(?:=(.*))?$/s,
+  perl: /^-[nlpaswWtTUcX]*[eE](.*)$/s,
+  ruby: /^-[nlpaswWdv]*e(.*)$/s,
+};
+
+/**
+ * _tmb_cmd_interp_writes: the lines an interpreter one-liner's statement
+ * words add. A program `proveProgram` cannot prove, or one part of whose text
+ * the shell fills in (`held`, a word of `Encoded.held`), adds a
+ * `$(unproven)` line (GH 1739); perl and ruby run every `-e` program, joined.
+ */
+export function interpWrites(words: readonly string[], procWrites: ProcWrites, held: (word: string) => boolean = () => false): string[] {
   const argv0 = basename(words[0] ?? '');
-  let flags: string[];
   let lang: Lang;
   let pyopt = false;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
-    flags = ['-c'];
     lang = 'py';
     pyopt = true;
-  } else if (argv0 === 'node' || argv0 === 'nodejs') {
-    flags = ['-e', '--eval', '-p', '--print'];
-    lang = 'node';
-  } else if (argv0 === 'perl') {
-    flags = ['-e', '-E'];
-    lang = 'perl';
-  } else if (argv0 === 'ruby') {
-    flags = ['-e'];
-    lang = 'ruby';
-  } else return [];
+  } else if (argv0 === 'node' || argv0 === 'nodejs') lang = 'node';
+  else if (argv0 === 'perl') lang = 'perl';
+  else if (argv0 === 'ruby') lang = 'ruby';
+  else return [];
   const n = words.length;
   let k = 1;
   let optarg = false;
-  let program = '';
-  let encoded = '';
+  const encoded: string[] = [];
+  const carriers: string[] = [];
+  const take = (flagWord: string, attached: string | undefined, next: string | undefined): void => {
+    encoded.push(attached ? attached : (next ?? ''));
+    carriers.push(attached ? flagWord : (next ?? ''));
+  };
   while (k < n) {
     const w = words[k++];
     if (pyopt) {
@@ -523,20 +544,27 @@ export function interpWrites(words: readonly string[], procWrites: ProcWrites): 
       else if (w === '-W' || w === '-X') optarg = true;
       else if (!w.startsWith('-')) pyopt = false;
     }
-    if (flags.includes(w)) {
-      encoded = words[k] ?? '';
-      program = chomp(decode(encoded));
-      k++;
+    const m = PROGRAM_FLAG[lang].exec(w);
+    if (m) {
+      take(w, m[1], m[1] ? undefined : words[k++]);
       break;
     }
   }
+  if (lang === 'perl' || lang === 'ruby') {
+    for (let j = k; j < n; j++) {
+      const m = PROGRAM_FLAG[lang].exec(words[j]);
+      if (m) take(words[j], m[1], m[1] ? undefined : words[++j]);
+    }
+  }
+  const program = encoded.map((e) => chomp(decode(e))).join('\n');
   if (program === '') return [];
-  if (heldProgram(encoded)) return [COMPUTED + shown(`${argv0} ${program}`)];
+  if (heldProgram(encoded[0])) return [COMPUTED + shown(`${argv0} ${program}`)];
   const found = progWrites(lang, program, true, procWrites);
-  if (found.lines.length === 0) return [];
+  const unproven = found.unproven || carriers.some(held) ? [UNPROVEN + shown(program)] : [];
+  if (found.lines.length === 0) return unproven;
   const literal = !(found.lines[0] === '-' && found.lines.length === 1);
   const out = literal ? [...found.lines] : [];
   for (; k < n; k++) if (!words[k].startsWith('-')) out.push(...decode(words[k]).split('\n'));
   if (found.computed) out.push(COMPUTED + argv0);
-  return out;
+  return [...out, ...unproven];
 }

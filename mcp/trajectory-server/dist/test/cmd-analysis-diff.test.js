@@ -22,6 +22,7 @@ const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh');
 const MIN_ROWS = 1100;
 const PARSE = 'UNRESOLVED:$(parse):';
 const COMPUTED = 'UNRESOLVED:$(computed):';
+const UNPROVEN = 'UNRESOLVED:$(unproven):';
 const LAYOUT = 'repo-worktree-symlink';
 function jsonl(file) {
     return readFileSync(join(FIXTURES, file), 'utf8')
@@ -191,7 +192,11 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
         for (const [group, cmd, want] of [
             ['a stdin program', "python3 - out.txt <<'EOF'\nimport sys\nopen(sys.argv[1], 'w').write('x')\nEOF", [`${COMPUTED}python3`]],
             ['a -c program', `python3 -c "import sys; open(sys.argv[1],'w')" out.txt`, ['/w/out.txt', `${COMPUTED}python3`]],
-            ['a mutated node argv', `node -e "process.argv[1]=process.env.T;require('fs').writeFileSync(process.argv[1],'x')" foo`, ['/w/foo', `${COMPUTED}node`]],
+            [
+                'a mutated node argv',
+                `node -e "process.argv[1]=process.env.T;require('fs').writeFileSync(process.argv[1],'x')" foo`,
+                ['/w/foo', `${COMPUTED}node`, `${UNPROVEN}process.argv[1]=process.env.T;require('fs').writeFileSync(process.argv[1],'x')`],
+            ],
         ]) {
             it(`never takes an operand for the argv target of ${group}`, async () => {
                 assert.deepEqual(await run(cmd), [...want]);
@@ -213,7 +218,7 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
             [
                 'a heredoc name rebound at top level',
                 "python3 - <<'EOF'\np = 'src/a.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('x', 'y'))\np = 'src/b.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('x', 'y'))\nEOF",
-                ['/w/src/a.ts', '/w/src/b.ts'],
+                ['/w/src/a.ts', '/w/src/b.ts', `${UNPROVEN}python3 p = 'src/a.ts' s = open(p).read() open(p, 'w').write(s.replace('x', 'y')`],
             ],
             ['a rebound name', `python3 -c "p='a'; p='/etc/x'; open(p,'w')"`, ['/etc/x', '/w/a']],
         ]) {

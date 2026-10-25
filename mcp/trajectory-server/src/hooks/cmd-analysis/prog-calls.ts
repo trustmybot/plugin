@@ -852,7 +852,7 @@ class Scanner {
     }
   }
 
-  private isproc(nm: string): boolean {
+  isproc(nm: string): boolean {
     this.splitname(nm);
     const { snPre: pre, snLast: last } = this;
     if (this.py) {
@@ -1362,4 +1362,10 @@ export function progCalls(lang: Lang, program: string): string[] {
   const out = new Scanner(lang).scan(bytes);
   if (out.length === 0) return [];
   return Buffer.from(out.join('\n'), 'latin1').toString('utf8').split('\n');
+}
+
+/** Whether the scanner judges a call of `name` (dotted, aliases resolved): a write call of a known kind or a process call (GH 1739). */
+export function judgedCall(lang: Lang, name: string): boolean {
+  const at = name.lastIndexOf('.');
+  return wkind(name.slice(at + 1), at < 0 ? '' : name.slice(0, at)) !== '' || new Scanner(lang).isproc(name);
 }

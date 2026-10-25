@@ -48,6 +48,8 @@ function unjudgedDeny(reason: string): boolean {
 const PARSE_TEXT = 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.';
 const COMPUTED_TEXT =
   'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.';
+const UNPROVEN_TEXT =
+  'the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file.';
 
 function reason(stdout: string): string | null {
   if (stdout === '') return null;
@@ -138,6 +140,17 @@ describe('containment-guard (TS): denies that judge no path', () => {
     assert.equal(reason(r.stdout), `BLOCKED: write target "${raw}" cannot be judged: ${COMPUTED_TEXT}`);
   });
 
+  it('denies $(unproven) naming the program as unproven, even with no path in its text (GH 1739)', async () => {
+    const raw = "import os; os.chmod('src/a', 0o777)";
+    const r = await containmentGuardWith(lines(`UNRESOLVED:$(unproven):${raw}`))(bash('x'), env);
+    assert.equal(reason(r.stdout), `BLOCKED: write target "${raw}" cannot be judged: ${UNPROVEN_TEXT}`);
+  });
+
+  it('denies a real analyzer $(unproven): a python call outside the safe set inside the root (GH 1739)', async () => {
+    const r = await containmentGuard(bash(`cd ${project}/src && python3 -c "import os; os.chmod('a', 0o777)"`), env);
+    assert.equal(reason(r.stdout), `BLOCKED: write target "import os; os.chmod('a', 0o777)" cannot be judged: ${UNPROVEN_TEXT}`);
+  });
+
   it('denies a real analyzer $(parse): an unclosed quote after cd into the root', async () => {
     const command = `cd ${project}/src && echo "x > a`;
     const r = await containmentGuard(bash(command), env);
@@ -163,7 +176,7 @@ describe('containment-guard (TS): denies that judge no path', () => {
 
   it("dispatch.sh's UNJUDGED_PHRASE is the deny's phrase, and no reason text holds the quote it stops at", () => {
     assert.deepEqual(DISPATCH.match(/^UNJUDGED_PHRASE='([^']*)'$/gm), [`UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'`]);
-    assert.deepEqual(Object.keys(NEVER_JUDGED).sort(), ['$(computed)', '$(parse)']);
+    assert.deepEqual(Object.keys(NEVER_JUDGED).sort(), ['$(computed)', '$(parse)', '$(unproven)']);
     for (const text of Object.values(NEVER_JUDGED)) assert.ok(!text.includes('"'), text);
   });
 
