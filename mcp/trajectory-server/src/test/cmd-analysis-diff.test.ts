@@ -245,8 +245,34 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
       });
     }
 
+    for (const [group, cmd, want] of [
+      [
+        'a heredoc name rebound at top level',
+        "python3 - <<'EOF'\np = 'src/a.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('x', 'y'))\np = 'src/b.ts'\ns = open(p).read()\nopen(p, 'w').write(s.replace('x', 'y'))\nEOF",
+        ['/w/src/a.ts', '/w/src/b.ts'],
+      ],
+      ['a rebound name', `python3 -c "p='a'; p='/etc/x'; open(p,'w')"`, ['/etc/x', '/w/a']],
+    ] as const) {
+      it(`resolves ${group} to every literal it is bound to`, async () => {
+        assert.deepEqual(await run(cmd), [...want]);
+      });
+    }
+
     for (const [group, cmd] of [
-      ['a rebound name', `python3 -c "p='a'; p='/etc/x'; open(p,'w')"`],
+      ['a name that is a word in a plain string', "python3 - <<'EOF'\np = 'App.tsx'\ns = open(p).read()\nopen(p, 'w').write(s.replace('mx-auto', 'mx-auto p-4'))\nEOF"],
+      [
+        'a name walrus-bound in an annotation string',
+        `python3 - <<'EOF'\nimport typing\np = 'src/a.txt'\ndef f(x: '(p := chr(47) + "etc/x")'): pass\ntyping.get_type_hints(f)\nopen(p, 'w').write('x')\nEOF`,
+      ],
+      [
+        'a name walrus-bound in a backslash-continued annotation string',
+        `python3 - <<'EOF'\nimport typing\np = 'src/a.txt'\ndef f(x: '(p \\\n' ':= chr(47) + "etc/x")'): pass\ntyping.get_type_hints(f)\nopen(p, 'w').write('x')\nEOF`,
+      ],
+      ['a name in an f-string', `python3 - <<'EOF'\np = 'a.txt'\nprint(f'{(p:="/etc/x")}')\nopen(p, 'w')\nEOF`],
+      ['a name rebound in a def', `python3 - <<'EOF'\np = 'a.txt'\ndef f():\n    p = '/etc/x'\nopen(p, 'w')\nEOF`],
+      ['a name rebound in a loop', `python3 - <<'EOF'\np = 'a.txt'\nfor _ in [1]:\n    p = '/etc/x'\nopen(p, 'w')\nEOF`],
+      ['a name rebound in a branch', `python3 - <<'EOF'\np = 'a.txt'\nif 1:\n    p = '/etc/x'\nopen(p, 'w')\nEOF`],
+      ['a node let rebound at top level', `node -e "let p='a'; p='b'; require('fs').writeFileSync(p,'x')"`],
       ['a for-bound name', `python3 -c "for p in ['/etc/x']: open(p,'w')"`],
       ['a branch-bound name', `python3 -c "if 1: p='/etc/x'\nopen(p,'w')"`],
       ['an augmented name', `python3 -c "p='a'; p+='/x'; open(p,'w')"`],

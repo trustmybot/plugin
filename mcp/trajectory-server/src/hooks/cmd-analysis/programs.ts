@@ -7,12 +7,14 @@
  * Where the .sh prints nothing for a program that writes, the TS prints a
  * `$(computed):<text>` line instead (GH 1692): a write call whose target is
  * not a literal (beside any literal paths the program names), a program held
- * in a variable or a substitution, a quoted paren in it included. A python or
- * node target name bound once, first, to a plain string literal (python also
- * `Path` / `pathlib.Path` / `PurePath` of one) is that literal
- * (`heldLiteral`); a program that reaches its namespace dynamically (`VOIDERS`)
- * resolves no name. A `sys.argv[n]` / `process.argv[n]` target is never
- * resolved: it prints a `$(computed)` line beside any operands the .sh prints.
+ * in a variable or a substitution, a quoted paren in it included. A node
+ * target name bound once, first, to a plain string literal is that literal; a
+ * python one bound first and only by top-level plain-literal statements (also
+ * `Path` / `pathlib.Path` / `PurePath` of one) is every literal it is bound to
+ * (`heldLiterals`); a program that reaches its namespace dynamically
+ * (`VOIDERS`) resolves no name. A `sys.argv[n]` / `process.argv[n]` target is
+ * never resolved: it prints a `$(computed)` line beside any operands the .sh
+ * prints.
  */
 import { SUB_PC, SUB_PO, decode } from './encode.js';
 import { type Lang, progCalls } from './prog-calls.js';
@@ -193,7 +195,7 @@ interface Lexed {
 }
 
 /**
- * Lexes a program for `heldLiteral`, or undefined when no name in it can be
+ * Lexes a program for `heldLiterals`, or undefined when no name in it can be
  * trusted to hold one value: an unclosed string or bracket, a template
  * substitution, a regex or division (node), a non-ASCII or escaped
  * identifier, a python `case` pattern, a non-literal `require`, a `VOIDERS`
@@ -393,23 +395,31 @@ function useAt(lx: Lexed, name: string, u: number): boolean {
 }
 
 /**
- * Single-assignment constant propagation (GH 1692): the literal a name holds
- * when the program binds it exactly once, first, at top level, to one plain
- * string literal (python: or pathlib's `Path` / `PurePath` of one), and every
+ * Flow-insensitive constant propagation (GH 1692, GH 1756): the literals a
+ * name may hold when its first mention binds it at top level to one plain
+ * string literal (python: or pathlib's `Path` / `PurePath` of one), every
  * other mention is a whole call argument (python: or a method call's
- * receiver). A name rebound, bound in a loop, branch, block, comprehension,
- * `with` / `for` header or function, augmented, attribute-stored or read as a
- * non-call attribute, bound to anything else, never bound, or written in a
- * string has none, nor has any name of a program with a `VOIDERS` token.
+ * receiver) and, in python only, may also be another such binding. A name
+ * rebound in node, bound in a loop, branch, block, comprehension, `with` /
+ * `for` header or function, augmented, attribute-stored or read as a non-call
+ * attribute, bound to anything else, never bound, or written in a string has
+ * none, nor has any name of a program with a `VOIDERS` token.
  */
-function heldLiteral(lx: Lexed, name: string): string | undefined {
+function heldLiterals(lx: Lexed, name: string): string[] | undefined {
   if (UNBINDABLE.test(name)) return undefined;
   const word = lx.py ? /[A-Za-z0-9_]+/g : /[A-Za-z0-9_$]+/g;
   for (const s of lx.strs) if (s.body.match(word)?.includes(name)) return undefined;
   const occ = [...lx.code.matchAll(word)].filter((m) => m[0] === name).map((m) => m.index);
   if (occ.length < 2) return undefined;
-  const lit = bindingAt(lx, name, occ[0]);
-  return lit !== undefined && occ.slice(1).every((u) => useAt(lx, name, u)) ? lit : undefined;
+  const first = bindingAt(lx, name, occ[0]);
+  if (first === undefined) return undefined;
+  const lits = [first];
+  for (const u of occ.slice(1)) {
+    const lit = lx.py ? bindingAt(lx, name, u) : undefined;
+    if (lit !== undefined) lits.push(lit);
+    else if (!useAt(lx, name, u)) return undefined;
+  }
+  return lits;
 }
 
 export interface ProgResult {
@@ -424,9 +434,9 @@ export interface ProgResult {
  * write call with a non-literal target took part in, so the caller adds a
  * `$(computed)` line beside the literal paths. A write shape the scanner did
  * not see as a call (often `open(join(d, 'x'))`, a read) adds none when a
- * literal was found. A target name `heldLiteral` resolves adds no
- * `$(computed)` line: the .sh's literal fallback still runs, and the literal
- * the name holds follows it.
+ * literal was found. A target name `heldLiterals` resolves adds no
+ * `$(computed)` line: the .sh's literal fallback still runs, and every literal
+ * the name may hold follows it, each judged as a write target.
  */
 export function progWrites(lang: Lang, program: string, operands: boolean, procWrites: ProcWrites): ProgResult {
   const scan = chomp(progScan(lang, program).join('\n'));
@@ -435,7 +445,7 @@ export function progWrites(lang: Lang, program: string, operands: boolean, procW
   const run = has('R');
   const names = scan.split('\n').flatMap((line) => (line.startsWith('F\t') ? [line.slice(2)] : []));
   const lexed = names.length > 0 && (lang === 'py' || lang === 'node') && !has('A') && !run ? lex(lang === 'py', program) : undefined;
-  const held = new Map<string, string | undefined>(names.map((name) => [name, lexed && heldLiteral(lexed, name)]));
+  const held = new Map<string, string[] | undefined>(names.map((name) => [name, lexed && heldLiterals(lexed, name)]));
   const unread = has('A') || has('F') || [...held.values()].includes(undefined);
   let fail = unread || held.size > 0;
   if (!has('W')) {
@@ -467,7 +477,7 @@ export function progWrites(lang: Lang, program: string, operands: boolean, procW
     const reads = grepO(grepO(program, READS).join('\n'), QUOTED);
     out += progLiterals(src, reads, writes, raw).join('\n');
     if (run) out += '\n$(proc)';
-    for (const lit of held.values()) if (lit !== undefined) out += `\n${lit}`;
+    for (const lits of held.values()) for (const lit of lits ?? []) out += `\n${lit}`;
   }
   let lines = out.split('\n');
   if (cd) lines = lines.filter((l) => !blank(l)).map((l) => (/^[/~$]/.test(l) ? '' : '$(proc)/') + l);
