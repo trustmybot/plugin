@@ -138,6 +138,8 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `cheatcode_search` | `bro` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |
 | `cheatcode_uninstalled` | `bro` | `cheatcode_uninstall` removed a cheatcode |
 | `cheatcode_vet` | `bro` | `cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals |
+| `concept_proposal_applied` | `bro` | `scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name` |
+| `concept_proposal_rejected` | `bro` | `scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error` |
 | `config_changed` | `bro` | reserved — An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append` |
 | `consultant_spawn_nudged` | `hook` | `prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1` |
 | `containment_denied` | `hook` | `containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |

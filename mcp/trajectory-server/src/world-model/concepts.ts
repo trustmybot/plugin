@@ -8,10 +8,11 @@ import { nowISO, type TrajectoryDB } from '../db.js';
 import { keywordSearchSymbols, outsideConceptLane, symbolById, type SymbolRow } from '../symbol-index.js';
 import { splitWords, STOPWORDS } from '../parsing/extract.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { CLAIMS, CONCEPT_KINDS, HANDOFFS, parseStoredReport } from '../success-criteria.js';
+import { HAS_PASS_SQL } from '../tools/lifecycle.js';
+import { insertAudit } from '../tools/audit.js';
 
-export const CONCEPT_KINDS = ['flow', 'subsystem', 'invariant'] as const;
-export const HANDOFFS = ['calls', 'sources', 'runs', 'hook_fires'] as const;
-export const CLAIMS = ['exists', 'calls', 'only_writers_of', 'tested_by'] as const;
+export { CLAIMS, CONCEPT_KINDS, HANDOFFS };
 
 export type ConceptKind = (typeof CONCEPT_KINDS)[number];
 export type Handoff = (typeof HANDOFFS)[number];
@@ -357,6 +358,94 @@ export function refreshConcepts(db: TrajectoryDB, repo: string): { checked: numb
     }
   });
   return { checked: concepts.length, changed };
+}
+
+export const PROPOSAL_REJECT_AFTER_DAYS = 14;
+const DAY_MS = 86_400_000;
+const PROPOSAL_EVENTS = ['concept_proposal_applied', 'concept_proposal_rejected'] as const;
+
+export interface ProposalStats {
+  applied: number;
+  rejected: number;
+  pending: number;
+}
+
+interface ProposingTask {
+  id: number;
+  issue_id: number;
+  branch_id: string;
+  repo: string | null;
+  updated_at: string;
+  completion_report: string;
+}
+
+// The concept proposals (report.concepts, GH 1680) of closed tasks with a
+// passing pr-reviewer verdict for their commit, applied to repo: each
+// (task, name) is upserted once, as swe, and recorded by a
+// concept_proposal_applied row. A proposal that does not upsert (its anchors
+// are not in this checkout's index yet) stays pending until the task has been
+// closed PROPOSAL_REJECT_AFTER_DAYS, then gets a concept_proposal_rejected row
+// with the error. A proposal with no repo (its task had none) belongs to the
+// sole repos row. A task's close time is its updated_at (tasks has no
+// closed_at).
+export function applyConceptProposals(
+  db: TrajectoryDB,
+  repo: string,
+  repoPath: string | null,
+  now: Date = new Date(),
+): ProposalStats {
+  const stats: ProposalStats = { applied: 0, rejected: 0, pending: 0 };
+  const repos = db.get<{ n: number; name: string | null }>(`SELECT COUNT(*) AS n, MAX(name) AS name FROM repos`);
+  const soleRepo = Number(repos?.n) === 1 ? repos?.name ?? null : null;
+  const tasks = db.all<ProposingTask>(
+    `SELECT t.id, t.issue_id, t.branch_id, t.repo, t.updated_at, t.completion_report FROM tasks t
+      WHERE t.status = 'closed'
+        AND CASE WHEN json_valid(t.completion_report) THEN json_type(t.completion_report, '$.concepts') END = 'array'
+        AND ${HAS_PASS_SQL}
+      ORDER BY t.id`,
+  );
+  if (tasks.length === 0) return stats;
+  const settled = new Set(
+    db
+      .all<{ task_id: number; name: string }>(
+        `SELECT json_extract(content_json, '$.task_id') AS task_id, json_extract(content_json, '$.name') AS name
+           FROM audit WHERE event_type IN (${PROPOSAL_EVENTS.map((e) => `'${e}'`).join(', ')}) AND json_valid(content_json)`,
+      )
+      .map((r) => `${Number(r.task_id)}\u0000${r.name}`),
+  );
+  const at = now.toISOString();
+  for (const t of tasks) {
+    const expired = (now.getTime() - Date.parse(t.updated_at)) / DAY_MS >= PROPOSAL_REJECT_AFTER_DAYS;
+    for (const c of parseStoredReport(t.completion_report)?.concepts ?? []) {
+      if ((c.repo ?? t.repo ?? soleRepo) !== repo) continue;
+      const taskId = Number(t.id);
+      if (settled.has(`${taskId}\u0000${c.name}`)) continue;
+      const audit = { issue_id: Number(t.issue_id), branch_id: t.branch_id, from_node: 'bro', repo, created_at: at };
+      try {
+        const out = upsertConcept(db, { ...c, repo }, { repoPath, agent: 'swe' });
+        insertAudit(db, {
+          ...audit,
+          event_type: 'concept_proposal_applied',
+          summary: `Concept '${c.name}' proposed by task ${taskId} applied`,
+          content_json: JSON.stringify({ task_id: taskId, concept_id: out.id, name: c.name }),
+        });
+        stats.applied++;
+      } catch (e) {
+        if (!expired) {
+          stats.pending++;
+          continue;
+        }
+        insertAudit(db, {
+          ...audit,
+          event_type: 'concept_proposal_rejected',
+          summary: `Concept '${c.name}' proposed by task ${taskId} rejected`,
+          content_json: JSON.stringify({ task_id: taskId, name: c.name, error: (e as Error).message }),
+        });
+        stats.rejected++;
+      }
+    }
+  }
+  return stats;
 }
 
 function queryWords(query: string): string[] {

@@ -18,7 +18,16 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort, type Effort } from './config.js';
-import { CRITERION_STATUSES, parseCompletionReport, specCriteriaProblem, specCriterionIds } from '../success-criteria.js';
+import {
+  CLAIMS,
+  CONCEPT_KINDS,
+  CRITERION_STATUSES,
+  HANDOFFS,
+  MAX_CONCEPT_PROPOSALS,
+  parseCompletionReport,
+  specCriteriaProblem,
+  specCriterionIds,
+} from '../success-criteria.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -439,7 +448,7 @@ export function taskTools(db: TrajectoryDB): {
     },
     {
       name: 'task_update_status',
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing pr-reviewer verdict and their anchors are in the index. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -484,6 +493,44 @@ export function taskTools(db: TrajectoryDB): {
                 type: 'array',
                 items: { type: 'string' },
                 description: 'Review finding ids (F<task_id>-<n>) this attempt fixes.',
+              },
+              concepts: {
+                type: 'array',
+                maxItems: MAX_CONCEPT_PROPOSALS,
+                description:
+                  'L2 concepts this work establishes, applied by scan_run after review once every step anchors a current symbol (kind omitted anchors the file) and every claim passes.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    repo: { type: 'string', description: "Defaults to the task's repo." },
+                    kind: { type: 'string', enum: [...CONCEPT_KINDS] },
+                    body: { type: 'string' },
+                    steps: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          path: { type: 'string' },
+                          kind: { type: 'string' },
+                          qualified_name: { type: 'string' },
+                          description: { type: 'string' },
+                          handoff: { type: 'string', enum: [...HANDOFFS] },
+                        },
+                        required: ['path', 'description'],
+                      },
+                    },
+                    claims: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: { claim: { type: 'string', enum: [...CLAIMS] }, args: { type: 'object' } },
+                        required: ['claim', 'args'],
+                      },
+                    },
+                  },
+                  required: ['name', 'steps'],
+                },
               },
             },
             required: ['criteria'],
@@ -1220,6 +1267,10 @@ export function taskTools(db: TrajectoryDB): {
         throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
       }
       const report = status === 'completed' ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
+      const taskRepo = task.repo;
+      if (report?.concepts && taskRepo) {
+        report.concepts = report.concepts.map((c) => ({ ...c, repo: c.repo ?? taskRepo }));
+      }
 
       const now = nowISO();
       // completed_at is carried only by post-completion states. Stamp it on

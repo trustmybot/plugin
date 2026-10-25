@@ -2115,4 +2115,67 @@ describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673
         db.close();
     });
 });
+describe('task_update_status report.concepts (GH 1680)', () => {
+    const SPEC = ['## Description', 'd', '', '## Success Criteria', '- SC1: works'].join('\n');
+    const CRITERIA = [{ id: 'SC1', status: 'met' }];
+    const STEP = { path: 'src/a.ts', qualified_name: 'run', kind: 'function', description: 'Starts the run.', handoff: 'calls' };
+    const CONCEPT = {
+        name: 'run flow',
+        kind: 'flow',
+        body: 'How a run starts.',
+        steps: [STEP, { path: 'src/b.ts', description: 'Finishes it.' }],
+        claims: [{ claim: 'exists', args: { path: 'src/a.ts', qualified_name: 'run' } }],
+    };
+    function seedTask() {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('plugin', '/w/plugin')`);
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, verification, commit_sha, repo, created_at, updated_at)
+       VALUES (1, 'feat/1-concepts', 't', 'd', 'running', ?, '[]', '[]', 'abc1234', 'plugin', datetime('now'), datetime('now'))`, [SPEC]);
+        const id = db.get('SELECT last_insert_rowid() AS id').id;
+        const handlers = taskTools(db).handlers;
+        const complete = (report) => call(handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'completed', commit_sha: 'abc1234', report });
+        return { db, id, complete };
+    }
+    const storedReport = (db, id) => db.get('SELECT completion_report, status FROM tasks WHERE id = ?', [id]);
+    it('stores proposed concepts with the report, the repo defaulting to the task repo', async () => {
+        const { db, id, complete } = seedTask();
+        const r = await complete({ criteria: CRITERIA, concepts: [CONCEPT, { ...CONCEPT, name: 'other repo', repo: 'site' }] });
+        assert.ok(!r.isError, r.content[0].text);
+        const row = storedReport(db, id);
+        assert.equal(row.status, 'completed');
+        assert.deepEqual(JSON.parse(row.completion_report), {
+            criteria: CRITERIA,
+            concepts: [
+                { ...CONCEPT, repo: 'plugin' },
+                { ...CONCEPT, name: 'other repo', repo: 'site' },
+            ],
+        });
+        db.close();
+    });
+    for (const [label, concepts, error] of [
+        ['missing steps', [{ name: 'no steps', kind: 'flow' }], /completion_report_invalid: report\.concepts\[0\]\.steps must be a non-empty array/],
+        ['an unknown kind', [{ ...CONCEPT, kind: 'saga' }], /completion_report_invalid: report\.concepts\[0\]\.kind must be one of flow, subsystem, invariant/],
+        ['more than 5 concepts', Array.from({ length: 6 }, (_, i) => ({ ...CONCEPT, name: `c${i}` })), /completion_report_invalid: report\.concepts holds 6 concepts \(max 5\)/],
+        ['a step without a description', [{ ...CONCEPT, steps: [{ path: 'src/a.ts' }] }], /completion_report_invalid: report\.concepts\[0\]\.steps\[0\]/],
+        ['a repeated name', [CONCEPT, CONCEPT], /completion_report_invalid: report\.concepts\[1\]\.name .*repeats an earlier concept/],
+    ]) {
+        it(`refuses ${label} with a named error and stores nothing`, async () => {
+            const { db, id, complete } = seedTask();
+            const r = await complete({ criteria: CRITERIA, concepts });
+            assert.equal(r.isError, true, r.content[0].text);
+            assert.match(String(parseResult(r).error), error);
+            assert.deepEqual({ ...storedReport(db, id) }, { completion_report: null, status: 'running' });
+            db.close();
+        });
+    }
+    it('leaves a report without concepts unchanged', async () => {
+        const { db, id, complete } = seedTask();
+        const r = await complete({ criteria: CRITERIA });
+        assert.ok(!r.isError, r.content[0].text);
+        assert.deepEqual(JSON.parse(storedReport(db, id).completion_report), { criteria: CRITERIA });
+        db.close();
+    });
+});
 //# sourceMappingURL=tasks.test.js.map

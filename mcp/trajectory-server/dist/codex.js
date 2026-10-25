@@ -25287,6 +25287,8 @@ var AUDIT_EVENT_TYPES = [
   { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
   { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
   { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
+  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
+  { type: "concept_proposal_rejected", writers: ["bro"], description: "`scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error`" },
   { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
   { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
   { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
@@ -34539,9 +34541,22 @@ function symbolCard(db, symbol2) {
 
 // src/world-model/concepts.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
+
+// src/success-criteria.ts
 var CONCEPT_KINDS = ["flow", "subsystem", "invariant"];
 var HANDOFFS = ["calls", "sources", "runs", "hook_fires"];
 var CLAIMS = ["exists", "calls", "only_writers_of", "tested_by"];
+function parseStoredReport(stored) {
+  if (!stored) return null;
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed && Array.isArray(parsed.criteria) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// src/world-model/concepts.ts
 var DERIVED_LABEL = "derived, unverified";
 var DERIVED_MAX_DEPTH = 4;
 var DERIVED_MAX_STEPS = 8;
@@ -34744,6 +34759,61 @@ function refreshConcepts(db, repo) {
     }
   });
   return { checked: concepts.length, changed };
+}
+var PROPOSAL_REJECT_AFTER_DAYS = 14;
+var DAY_MS = 864e5;
+var PROPOSAL_EVENTS = ["concept_proposal_applied", "concept_proposal_rejected"];
+function applyConceptProposals(db, repo, repoPath, now2 = /* @__PURE__ */ new Date()) {
+  const stats = { applied: 0, rejected: 0, pending: 0 };
+  const repos = db.get(`SELECT COUNT(*) AS n, MAX(name) AS name FROM repos`);
+  const soleRepo = Number(repos?.n) === 1 ? repos?.name ?? null : null;
+  const tasks = db.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.repo, t.updated_at, t.completion_report FROM tasks t
+      WHERE t.status = 'closed'
+        AND CASE WHEN json_valid(t.completion_report) THEN json_type(t.completion_report, '$.concepts') END = 'array'
+        AND ${HAS_PASS_SQL}
+      ORDER BY t.id`
+  );
+  if (tasks.length === 0) return stats;
+  const settled = new Set(
+    db.all(
+      `SELECT json_extract(content_json, '$.task_id') AS task_id, json_extract(content_json, '$.name') AS name
+           FROM audit WHERE event_type IN (${PROPOSAL_EVENTS.map((e) => `'${e}'`).join(", ")}) AND json_valid(content_json)`
+    ).map((r) => `${Number(r.task_id)}\0${r.name}`)
+  );
+  const at = now2.toISOString();
+  for (const t of tasks) {
+    const expired = (now2.getTime() - Date.parse(t.updated_at)) / DAY_MS >= PROPOSAL_REJECT_AFTER_DAYS;
+    for (const c of parseStoredReport(t.completion_report)?.concepts ?? []) {
+      if ((c.repo ?? t.repo ?? soleRepo) !== repo) continue;
+      const taskId = Number(t.id);
+      if (settled.has(`${taskId}\0${c.name}`)) continue;
+      const audit = { issue_id: Number(t.issue_id), branch_id: t.branch_id, from_node: "bro", repo, created_at: at };
+      try {
+        const out2 = upsertConcept(db, { ...c, repo }, { repoPath, agent: "swe" });
+        insertAudit(db, {
+          ...audit,
+          event_type: "concept_proposal_applied",
+          summary: `Concept '${c.name}' proposed by task ${taskId} applied`,
+          content_json: JSON.stringify({ task_id: taskId, concept_id: out2.id, name: c.name })
+        });
+        stats.applied++;
+      } catch (e) {
+        if (!expired) {
+          stats.pending++;
+          continue;
+        }
+        insertAudit(db, {
+          ...audit,
+          event_type: "concept_proposal_rejected",
+          summary: `Concept '${c.name}' proposed by task ${taskId} rejected`,
+          content_json: JSON.stringify({ task_id: taskId, name: c.name, error: e.message })
+        });
+        stats.rejected++;
+      }
+    }
+  }
+  return stats;
 }
 function queryWords2(query) {
   return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
@@ -35733,6 +35803,11 @@ async function persistScan(db, graph, out2, sessionDir) {
         refreshConcepts(db, r.name);
       } catch (e) {
         serverLog({ event: "concept_refresh_error", repo: r.name, error: e.message });
+      }
+      try {
+        applyConceptProposals(db, r.name, r.path);
+      } catch (e) {
+        serverLog({ event: "concept_proposals_error", repo: r.name, error: e.message });
       }
     }
   }

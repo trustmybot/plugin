@@ -511,6 +511,8 @@ var AUDIT_EVENT_TYPES = [
   { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
   { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
   { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
+  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
+  { type: "concept_proposal_rejected", writers: ["bro"], description: "`scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error`" },
   { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
   { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
   { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
@@ -3893,6 +3895,310 @@ function symbolById(db, id) {
 // ../mcp/trajectory-server/src/utils/timeouts.ts
 var SUBPROCESS_TIMEOUT_MS = 5e3;
 
+// ../mcp/trajectory-server/src/middleware/agent-scope.ts
+var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
+function normalizeAgent(name) {
+  if (typeof name !== "string") return "unknown";
+  const lower = name.toLowerCase().replace(/^tmb:/, "");
+  if (!lower) return "unknown";
+  if (FIRST_CLASS_ROLES.has(lower)) return lower;
+  if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
+  return "unknown";
+}
+var VALID_AGENTS = ["bro", "swe", "pr-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
+function missingAgentDiagnostics(toolName, allowedRoles, received) {
+  const agentReceived = received === void 0 ? null : received;
+  return {
+    reason: "agent_missing_or_invalid",
+    agent_received: agentReceived,
+    valid_agents: VALID_AGENTS,
+    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
+  };
+}
+function forbidden(toolName, agent, allowedRoles, received) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "forbidden",
+          tool: toolName,
+          caller_role: agent,
+          allowed_roles: [...allowedRoles],
+          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
+        })
+      }
+    ]
+  };
+}
+var gatedRoles = /* @__PURE__ */ new WeakMap();
+function requireRoles(toolName, allowedRoles, handler) {
+  const allowed = new Set(allowedRoles);
+  const gated = async (args) => {
+    const agent = normalizeAgent(args["agent"]);
+    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args["agent"]);
+    return handler(args);
+  };
+  gatedRoles.set(gated, [...allowedRoles]);
+  return gated;
+}
+function redactIssue(issue, agent, opts) {
+  if (agent === "swe" || agent === "unknown") {
+    const { description: _, ...rest } = issue;
+    void _;
+    const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + "..." : rest.objective;
+    return { ...rest, objective: truncated };
+  }
+  if (!opts?.include_description) {
+    const { description: _, ...rest } = issue;
+    void _;
+    return rest;
+  }
+  return issue;
+}
+
+// ../mcp/trajectory-server/src/embeddings/store.ts
+function packEmbedding(v) {
+  return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+}
+function unpackEmbedding(b) {
+  const out = new Float32Array(b.byteLength / 4);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  for (let i = 0; i < out.length; i++) out[i] = dv.getFloat32(i * 4, true);
+  return out;
+}
+function cosine(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
+}
+var INSERT_SQL = {
+  discussions: "INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
+  audit: "INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
+  wm_directories: "INSERT OR REPLACE INTO wm_directories_embeddings (dir_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
+  wm_files: "INSERT OR REPLACE INTO wm_files_embeddings (file_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)"
+};
+var SELECT_SQL = {
+  discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
+  audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?",
+  wm_directories: "SELECT e.dir_id AS rowid, e.embedding FROM wm_directories_embeddings e JOIN wm_directories d ON d.id = e.dir_id WHERE e.model_id = ? AND d.repo = ?",
+  wm_files: "SELECT e.file_id AS rowid, e.embedding FROM wm_files_embeddings e JOIN wm_files f ON f.id = e.file_id WHERE e.model_id = ? AND f.repo = ?"
+};
+function worldModelEmbedText(path, body) {
+  const text = (body ?? "").replace(/<\/?untrusted-content[^>]*>/g, "").trim();
+  return text ? `${path}: ${text}` : path;
+}
+function auditEmbedText(summary2, contentJson) {
+  return contentJson && contentJson !== "{}" ? `${summary2} ${contentJson}` : summary2;
+}
+async function embedAndStore(db, table, rowid, text) {
+  const v = await embed(text);
+  if (v === null || !db.isOpen) return;
+  const sql = INSERT_SQL[table];
+  db.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
+}
+async function topKByCosine(db, table, query, k, filterParams = []) {
+  const qv = await embed(query);
+  if (qv === null) return [];
+  const sql = SELECT_SQL[table];
+  const rows = db.all(sql, [MODEL_ID, ...filterParams]);
+  const scored = rows.map((r) => {
+    const v = unpackEmbedding(r.embedding);
+    if (v.length !== qv.length) return null;
+    return { rowid: r.rowid, score: cosine(qv, v) };
+  }).filter((r) => r !== null);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, k);
+}
+
+// ../mcp/trajectory-server/src/embeddings/backfill.ts
+var MISSING_WHERE = {
+  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
+  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)",
+  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings WHERE model_id = ?)",
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings WHERE model_id = ?)"
+};
+var MISSING_SQL = {
+  discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
+  audit: `SELECT id, summary AS text, content_json FROM audit WHERE ${MISSING_WHERE.audit} ORDER BY id DESC LIMIT ?`,
+  wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
+  wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
+};
+function embedText(table, r) {
+  if (table === "audit") return auditEmbedText(r.text, r.content_json ?? null);
+  if (table === "wm_directories" || table === "wm_files") return worldModelEmbedText(r.text, r.body ?? null);
+  return r.text;
+}
+async function backfillMissing(db, table, limit = 50, onRow) {
+  const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
+  for (const r of rows) {
+    await embedAndStore(db, table, r.id, embedText(table, r)).catch(
+      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+    );
+    onRow?.();
+  }
+  return rows.length;
+}
+
+// ../mcp/trajectory-server/src/fts-query.ts
+function queryTokens(raw) {
+  return Array.from(raw.matchAll(/"([^"]*)"|\S+/g), (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()).filter(
+    (token) => token.length > 0
+  );
+}
+function quoted(token) {
+  return `"${token.replace(/"/g, '""')}"`;
+}
+function toFtsQuery(raw) {
+  const tokens = queryTokens(raw).map(quoted);
+  return tokens.length > 0 ? tokens.join(" ") : '""';
+}
+function withFtsGuard(run) {
+  try {
+    return run();
+  } catch (e) {
+    const message2 = e instanceof Error ? e.message : String(e);
+    if (/fts5|no such column/i.test(message2)) {
+      throw new Error(`fts_query_invalid: ${message2}`);
+    }
+    throw e;
+  }
+}
+
+// ../mcp/trajectory-server/src/tools/audit.ts
+function resolveIssueRepo(db, issueId) {
+  return db.get("SELECT repo FROM issues WHERE id = ?", [issueId])?.repo ?? null;
+}
+var AuditWriterError = class extends Error {
+  constructor(eventType, writer) {
+    super(
+      `audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${auditEventWriters(eventType).join(", ")})`
+    );
+    this.eventType = eventType;
+    this.writer = writer;
+  }
+  eventType;
+  writer;
+};
+function insertAudit(db, entry) {
+  assertAuditEventType(entry.event_type);
+  if (entry.writer !== void 0 && !isAuditEventWritableBy(entry.event_type, entry.writer)) {
+    throw new AuditWriterError(entry.event_type, entry.writer);
+  }
+  const contentJson = entry.content_json ?? "{}";
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+  const res = db.run(
+    `INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.issue_id,
+      entry.branch_id ?? null,
+      entry.from_node,
+      entry.event_type,
+      entry.summary,
+      contentJson,
+      entry.created_at ?? nowISO(),
+      repo
+    ]
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db, "audit", id, auditEmbedText(entry.summary, contentJson)).catch(
+    (e) => console.error("[embeddings] insertAudit embed failed:", e)
+  );
+  return id;
+}
+
+// ../mcp/trajectory-server/src/tools/containment.ts
+import { isAbsolute as isAbsolute2, join as join6, parse, relative as relative2, sep as sep2 } from "node:path";
+function projectRootFromDbPath(dbPath) {
+  if (!dbPath || dbPath === ":memory:") return null;
+  const segments = dbPath.split(sep2);
+  const idx = segments.lastIndexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+
+// ../mcp/trajectory-server/src/tools/agent-runs.ts
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
+  return db.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ${exitReasonSql},
+            ${UNMEASURED_IF_NO_USAGE_SQL}
+      WHERE completed_at IS NULL
+        AND (${where})`,
+    [now2, now2, ...params]
+  ).changes;
+}
+function closeOpenRunsForTask(db, taskId, now2, exitReason) {
+  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
+}
+
+// ../mcp/trajectory-server/src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+function liveTasksOfIssue(db, issueId) {
+  return db.all(
+    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
+      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+    [issueId]
+  );
+}
+function closedTasksWithoutReview(db, issueId) {
+  return db.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
+      WHERE t.issue_id = ? AND t.status = 'closed'
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
+      ORDER BY t.id`,
+    [issueId]
+  );
+}
+function escalateLiveTasksForIssueClose(db, tasks2, reason, now2) {
+  for (const task of tasks2) {
+    db.run(
+      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
+      [now2, task.id]
+    );
+    insertAudit(db, {
+      issue_id: task.issue_id,
+      branch_id: task.branch_id,
+      from_node: "bro",
+      event_type: "task_escalated_by_issue_close",
+      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
+      created_at: now2
+    });
+    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
+  }
+}
+function markIssueClosed(db, issueId, now2) {
+  db.run(
+    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    [now2, now2, issueId]
+  );
+}
+
 // ../mcp/trajectory-server/src/world-model/concepts.ts
 var DERIVED_LABEL = "derived, unverified";
 var DERIVED_MAX_DEPTH = 4;
@@ -4511,18 +4817,6 @@ var noEmbeddings = () => Promise.reject(new Error("embeddings are not loaded in 
 
 // ../mcp/trajectory-server/src/utils/repo-paths.ts
 import { dirname as dirname3, isAbsolute as isAbsolute3, resolve as resolve2 } from "node:path";
-
-// ../mcp/trajectory-server/src/tools/containment.ts
-import { isAbsolute as isAbsolute2, join as join6, parse, relative as relative2, sep as sep2 } from "node:path";
-function projectRootFromDbPath(dbPath) {
-  if (!dbPath || dbPath === ":memory:") return null;
-  const segments = dbPath.split(sep2);
-  const idx = segments.lastIndexOf(".claude");
-  if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
-}
-
-// ../mcp/trajectory-server/src/utils/repo-paths.ts
 function repoRowPath(db, path) {
   if (isAbsolute3(path)) return path;
   const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath);
@@ -4536,69 +4830,6 @@ function resolveRepoForSync(db, repoName) {
   const rows = db.all(`SELECT name, path FROM repos`);
   if (rows.length !== 1) return null;
   return { name: rows[0].name, path: repoRowPath(db, rows[0].path) };
-}
-
-// ../mcp/trajectory-server/src/middleware/agent-scope.ts
-var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
-function normalizeAgent(name) {
-  if (typeof name !== "string") return "unknown";
-  const lower = name.toLowerCase().replace(/^tmb:/, "");
-  if (!lower) return "unknown";
-  if (FIRST_CLASS_ROLES.has(lower)) return lower;
-  if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
-  return "unknown";
-}
-var VALID_AGENTS = ["bro", "swe", "pr-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
-function missingAgentDiagnostics(toolName, allowedRoles, received) {
-  const agentReceived = received === void 0 ? null : received;
-  return {
-    reason: "agent_missing_or_invalid",
-    agent_received: agentReceived,
-    valid_agents: VALID_AGENTS,
-    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
-  };
-}
-function forbidden(toolName, agent, allowedRoles, received) {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({
-          error: "forbidden",
-          tool: toolName,
-          caller_role: agent,
-          allowed_roles: [...allowedRoles],
-          ...agent === "unknown" ? missingAgentDiagnostics(toolName, allowedRoles, received) : {}
-        })
-      }
-    ]
-  };
-}
-var gatedRoles = /* @__PURE__ */ new WeakMap();
-function requireRoles(toolName, allowedRoles, handler) {
-  const allowed = new Set(allowedRoles);
-  const gated = async (args) => {
-    const agent = normalizeAgent(args["agent"]);
-    if (!allowed.has(agent)) return forbidden(toolName, agent, allowedRoles, args["agent"]);
-    return handler(args);
-  };
-  gatedRoles.set(gated, [...allowedRoles]);
-  return gated;
-}
-function redactIssue(issue, agent, opts) {
-  if (agent === "swe" || agent === "unknown") {
-    const { description: _, ...rest } = issue;
-    void _;
-    const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + "..." : rest.objective;
-    return { ...rest, objective: truncated };
-  }
-  if (!opts?.include_description) {
-    const { description: _, ...rest } = issue;
-    void _;
-    return rest;
-  }
-  return issue;
 }
 
 // ../mcp/trajectory-server/src/sync/backend.ts
@@ -5169,237 +5400,6 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
     syncLog({ event: "issue_update_error", backend, remote_iid: iid, error: message2 });
     return { ok: false, reason: "spawn_error", message: message2 };
   }
-}
-
-// ../mcp/trajectory-server/src/embeddings/store.ts
-function packEmbedding(v) {
-  return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
-}
-function unpackEmbedding(b) {
-  const out = new Float32Array(b.byteLength / 4);
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  for (let i = 0; i < out.length; i++) out[i] = dv.getFloat32(i * 4, true);
-  return out;
-}
-function cosine(a, b) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
-  return s;
-}
-var INSERT_SQL = {
-  discussions: "INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
-  audit: "INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
-  wm_directories: "INSERT OR REPLACE INTO wm_directories_embeddings (dir_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
-  wm_files: "INSERT OR REPLACE INTO wm_files_embeddings (file_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)"
-};
-var SELECT_SQL = {
-  discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
-  audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?",
-  wm_directories: "SELECT e.dir_id AS rowid, e.embedding FROM wm_directories_embeddings e JOIN wm_directories d ON d.id = e.dir_id WHERE e.model_id = ? AND d.repo = ?",
-  wm_files: "SELECT e.file_id AS rowid, e.embedding FROM wm_files_embeddings e JOIN wm_files f ON f.id = e.file_id WHERE e.model_id = ? AND f.repo = ?"
-};
-function worldModelEmbedText(path, body) {
-  const text = (body ?? "").replace(/<\/?untrusted-content[^>]*>/g, "").trim();
-  return text ? `${path}: ${text}` : path;
-}
-function auditEmbedText(summary2, contentJson) {
-  return contentJson && contentJson !== "{}" ? `${summary2} ${contentJson}` : summary2;
-}
-async function embedAndStore(db, table, rowid, text) {
-  const v = await embed(text);
-  if (v === null || !db.isOpen) return;
-  const sql = INSERT_SQL[table];
-  db.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
-}
-async function topKByCosine(db, table, query, k, filterParams = []) {
-  const qv = await embed(query);
-  if (qv === null) return [];
-  const sql = SELECT_SQL[table];
-  const rows = db.all(sql, [MODEL_ID, ...filterParams]);
-  const scored = rows.map((r) => {
-    const v = unpackEmbedding(r.embedding);
-    if (v.length !== qv.length) return null;
-    return { rowid: r.rowid, score: cosine(qv, v) };
-  }).filter((r) => r !== null);
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, k);
-}
-
-// ../mcp/trajectory-server/src/embeddings/backfill.ts
-var MISSING_WHERE = {
-  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
-  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)",
-  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings WHERE model_id = ?)",
-  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings WHERE model_id = ?)"
-};
-var MISSING_SQL = {
-  discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
-  audit: `SELECT id, summary AS text, content_json FROM audit WHERE ${MISSING_WHERE.audit} ORDER BY id DESC LIMIT ?`,
-  wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
-  wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
-};
-function embedText(table, r) {
-  if (table === "audit") return auditEmbedText(r.text, r.content_json ?? null);
-  if (table === "wm_directories" || table === "wm_files") return worldModelEmbedText(r.text, r.body ?? null);
-  return r.text;
-}
-async function backfillMissing(db, table, limit = 50, onRow) {
-  const rows = db.all(MISSING_SQL[table], [MODEL_ID, limit]);
-  for (const r of rows) {
-    await embedAndStore(db, table, r.id, embedText(table, r)).catch(
-      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
-    );
-    onRow?.();
-  }
-  return rows.length;
-}
-
-// ../mcp/trajectory-server/src/fts-query.ts
-function queryTokens(raw) {
-  return Array.from(raw.matchAll(/"([^"]*)"|\S+/g), (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()).filter(
-    (token) => token.length > 0
-  );
-}
-function quoted(token) {
-  return `"${token.replace(/"/g, '""')}"`;
-}
-function toFtsQuery(raw) {
-  const tokens = queryTokens(raw).map(quoted);
-  return tokens.length > 0 ? tokens.join(" ") : '""';
-}
-function withFtsGuard(run) {
-  try {
-    return run();
-  } catch (e) {
-    const message2 = e instanceof Error ? e.message : String(e);
-    if (/fts5|no such column/i.test(message2)) {
-      throw new Error(`fts_query_invalid: ${message2}`);
-    }
-    throw e;
-  }
-}
-
-// ../mcp/trajectory-server/src/tools/audit.ts
-function resolveIssueRepo(db, issueId) {
-  return db.get("SELECT repo FROM issues WHERE id = ?", [issueId])?.repo ?? null;
-}
-var AuditWriterError = class extends Error {
-  constructor(eventType, writer) {
-    super(
-      `audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${auditEventWriters(eventType).join(", ")})`
-    );
-    this.eventType = eventType;
-    this.writer = writer;
-  }
-  eventType;
-  writer;
-};
-function insertAudit(db, entry) {
-  assertAuditEventType(entry.event_type);
-  if (entry.writer !== void 0 && !isAuditEventWritableBy(entry.event_type, entry.writer)) {
-    throw new AuditWriterError(entry.event_type, entry.writer);
-  }
-  const contentJson = entry.content_json ?? "{}";
-  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
-  const res = db.run(
-    `INSERT INTO audit
-       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      entry.issue_id,
-      entry.branch_id ?? null,
-      entry.from_node,
-      entry.event_type,
-      entry.summary,
-      contentJson,
-      entry.created_at ?? nowISO(),
-      repo
-    ]
-  );
-  const id = Number(res.lastInsertRowid);
-  void embedAndStore(db, "audit", id, auditEmbedText(entry.summary, contentJson)).catch(
-    (e) => console.error("[embeddings] insertAudit embed failed:", e)
-  );
-  return id;
-}
-
-// ../mcp/trajectory-server/src/tools/agent-runs.ts
-var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
-var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
-var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
-function finalizeOpenRuns(db, now2, exitReasonSql, where, params) {
-  return db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ${exitReasonSql},
-            ${UNMEASURED_IF_NO_USAGE_SQL}
-      WHERE completed_at IS NULL
-        AND (${where})`,
-    [now2, now2, ...params]
-  ).changes;
-}
-function closeOpenRunsForTask(db, taskId, now2, exitReason) {
-  return finalizeOpenRuns(db, now2, "?", "task_id = ?", [exitReason, taskId]);
-}
-
-// ../mcp/trajectory-server/src/tools/lifecycle.ts
-var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
-var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
-var WAIVE_REVIEW_REASON_MIN = 10;
-var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
-    SELECT MIN(a.created_at) FROM audit a
-      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
-        AND json_extract(a.content_json, '$.task_id') = t.id
-        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
-var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
-      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
-var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE ${reviewSkipAuthoredSql("g")}
-    AND json_valid(g.content_json)
-    AND json_extract(g.content_json, '$.task_id') = t.id
-    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
-function liveTasksOfIssue(db, issueId) {
-  return db.all(
-    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
-      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
-    [issueId]
-  );
-}
-function closedTasksWithoutReview(db, issueId) {
-  return db.all(
-    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
-      WHERE t.issue_id = ? AND t.status = 'closed'
-        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
-      ORDER BY t.id`,
-    [issueId]
-  );
-}
-function escalateLiveTasksForIssueClose(db, tasks2, reason, now2) {
-  for (const task of tasks2) {
-    db.run(
-      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
-      [now2, task.id]
-    );
-    insertAudit(db, {
-      issue_id: task.issue_id,
-      branch_id: task.branch_id,
-      from_node: "bro",
-      event_type: "task_escalated_by_issue_close",
-      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
-      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
-      created_at: now2
-    });
-    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
-  }
-}
-function markIssueClosed(db, issueId, now2) {
-  db.run(
-    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
-    [now2, now2, issueId]
-  );
 }
 
 // ../mcp/trajectory-server/src/tools/issues.ts

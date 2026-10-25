@@ -1,6 +1,6 @@
 {
   "generated_from": "mcp/trajectory-server/src/data-contracts.ts",
-  "schema_version": 47,
+  "schema_version": 48,
   "contracts": [
     {
       "id": "fk_check_empty",
@@ -18,12 +18,12 @@
       "severity": "error",
       "min_schema": 38,
       "description": "every audit.event_type is in the documented event set",
-      "sql": "SELECT COUNT(*) FROM audit WHERE event_type NOT IN ('agent_arg_mismatch','agent_runs_capture_skipped','agent_runs_backfilled','agent_runs_claimed','branch_gate_waived','branch_id_proposed','bro_verification_fail','bro_verification_pass','cheatcode_activate','cheatcode_approved','cheatcode_healthcheck','cheatcode_install','cheatcode_installed','cheatcode_search','cheatcode_uninstalled','cheatcode_vet','config_changed','consultant_spawn_nudged','containment_denied','decision_gate_waived','deep_scan_completed','embeddings_degraded','embeddings_recovered','hook_block_bypassed','hook_denied','intent_gate_waived','issue_adopted','issue_auto_close_deferred','issue_auto_close_remote_skipped','issue_auto_closed_on_merge','issue_close_remote_skipped','issue_linked','issue_updated','legacy_event','mcp_unavailable_fallback_invoked','milestone_closed','milestone_reconcile_failed','milestone_seed_skipped','milestone_seeded','milestones_reconciled','persona_block_written','planning_complete','project_made_standalone','readme_staleness_surfaced','registry_gate_waived','repo_remotes_migration_skipped','repo_rename_detected','repo_renamed','review_gate_bypassed','review_gate_waived','reviewer_identity_observed','roundtable_slash_invoked','roundtable_summary','scan_discovered','scan_discovered_repair','scan_skipped','scope_gate_waived','skill_creator_blocked','spec_shape_gate_waived','stray_db_removed','swe_atomic_close_auto_completed','swe_brief_fetched','swe_resume_observed','sync_skipped','task_effort_raised','task_escalated_by_issue_close','task_escalated_repair','task_overrun_alerted','task_recovered','task_reopened','task_retry_attempted','task_spec_amended','task_stale_swept','tmb_agent_created','tmb_branch_autocreated','tmb_skill_created','trajectory_doctor_run','validation_session_unverified','verification_gate_waived')",
+      "sql": "SELECT COUNT(*) FROM audit WHERE event_type NOT IN ('agent_arg_mismatch','agent_runs_capture_skipped','agent_runs_backfilled','agent_runs_claimed','branch_gate_waived','branch_id_proposed','bro_verification_fail','bro_verification_pass','cheatcode_activate','cheatcode_approved','cheatcode_healthcheck','cheatcode_install','cheatcode_installed','cheatcode_search','cheatcode_uninstalled','cheatcode_vet','concept_proposal_applied','concept_proposal_rejected','config_changed','consultant_spawn_nudged','containment_denied','decision_gate_waived','deep_scan_completed','embeddings_degraded','embeddings_recovered','hook_block_bypassed','hook_denied','intent_gate_waived','issue_adopted','issue_auto_close_deferred','issue_auto_close_remote_skipped','issue_auto_closed_on_merge','issue_close_remote_skipped','issue_linked','issue_updated','legacy_event','mcp_unavailable_fallback_invoked','milestone_closed','milestone_reconcile_failed','milestone_seed_skipped','milestone_seeded','milestones_reconciled','persona_block_written','planning_complete','project_made_standalone','readme_staleness_surfaced','registry_gate_waived','repo_remotes_migration_skipped','repo_rename_detected','repo_renamed','review_gate_bypassed','review_gate_waived','reviewer_identity_observed','roundtable_slash_invoked','roundtable_summary','scan_discovered','scan_discovered_repair','scan_skipped','scope_gate_waived','skill_creator_blocked','spec_shape_gate_waived','stray_db_removed','swe_atomic_close_auto_completed','swe_brief_fetched','swe_resume_observed','sync_skipped','task_effort_raised','task_escalated_by_issue_close','task_escalated_repair','task_overrun_alerted','task_recovered','task_reopened','task_retry_attempted','task_spec_amended','task_stale_swept','tmb_agent_created','tmb_branch_autocreated','tmb_skill_created','trajectory_doctor_run','validation_session_unverified','verification_gate_waived')",
       "expect": {
         "op": "=",
         "value": 0
       },
-      "sample_sql": "SELECT event_type, COUNT(*) AS n FROM audit WHERE event_type NOT IN ('agent_arg_mismatch','agent_runs_capture_skipped','agent_runs_backfilled','agent_runs_claimed','branch_gate_waived','branch_id_proposed','bro_verification_fail','bro_verification_pass','cheatcode_activate','cheatcode_approved','cheatcode_healthcheck','cheatcode_install','cheatcode_installed','cheatcode_search','cheatcode_uninstalled','cheatcode_vet','config_changed','consultant_spawn_nudged','containment_denied','decision_gate_waived','deep_scan_completed','embeddings_degraded','embeddings_recovered','hook_block_bypassed','hook_denied','intent_gate_waived','issue_adopted','issue_auto_close_deferred','issue_auto_close_remote_skipped','issue_auto_closed_on_merge','issue_close_remote_skipped','issue_linked','issue_updated','legacy_event','mcp_unavailable_fallback_invoked','milestone_closed','milestone_reconcile_failed','milestone_seed_skipped','milestone_seeded','milestones_reconciled','persona_block_written','planning_complete','project_made_standalone','readme_staleness_surfaced','registry_gate_waived','repo_remotes_migration_skipped','repo_rename_detected','repo_renamed','review_gate_bypassed','review_gate_waived','reviewer_identity_observed','roundtable_slash_invoked','roundtable_summary','scan_discovered','scan_discovered_repair','scan_skipped','scope_gate_waived','skill_creator_blocked','spec_shape_gate_waived','stray_db_removed','swe_atomic_close_auto_completed','swe_brief_fetched','swe_resume_observed','sync_skipped','task_effort_raised','task_escalated_by_issue_close','task_escalated_repair','task_overrun_alerted','task_recovered','task_reopened','task_retry_attempted','task_spec_amended','task_stale_swept','tmb_agent_created','tmb_branch_autocreated','tmb_skill_created','trajectory_doctor_run','validation_session_unverified','verification_gate_waived') GROUP BY event_type ORDER BY n DESC LIMIT 5"
+      "sample_sql": "SELECT event_type, COUNT(*) AS n FROM audit WHERE event_type NOT IN ('agent_arg_mismatch','agent_runs_capture_skipped','agent_runs_backfilled','agent_runs_claimed','branch_gate_waived','branch_id_proposed','bro_verification_fail','bro_verification_pass','cheatcode_activate','cheatcode_approved','cheatcode_healthcheck','cheatcode_install','cheatcode_installed','cheatcode_search','cheatcode_uninstalled','cheatcode_vet','concept_proposal_applied','concept_proposal_rejected','config_changed','consultant_spawn_nudged','containment_denied','decision_gate_waived','deep_scan_completed','embeddings_degraded','embeddings_recovered','hook_block_bypassed','hook_denied','intent_gate_waived','issue_adopted','issue_auto_close_deferred','issue_auto_close_remote_skipped','issue_auto_closed_on_merge','issue_close_remote_skipped','issue_linked','issue_updated','legacy_event','mcp_unavailable_fallback_invoked','milestone_closed','milestone_reconcile_failed','milestone_seed_skipped','milestone_seeded','milestones_reconciled','persona_block_written','planning_complete','project_made_standalone','readme_staleness_surfaced','registry_gate_waived','repo_remotes_migration_skipped','repo_rename_detected','repo_renamed','review_gate_bypassed','review_gate_waived','reviewer_identity_observed','roundtable_slash_invoked','roundtable_summary','scan_discovered','scan_discovered_repair','scan_skipped','scope_gate_waived','skill_creator_blocked','spec_shape_gate_waived','stray_db_removed','swe_atomic_close_auto_completed','swe_brief_fetched','swe_resume_observed','sync_skipped','task_effort_raised','task_escalated_by_issue_close','task_escalated_repair','task_overrun_alerted','task_recovered','task_reopened','task_retry_attempted','task_spec_amended','task_stale_swept','tmb_agent_created','tmb_branch_autocreated','tmb_skill_created','trajectory_doctor_run','validation_session_unverified','verification_gate_waived') GROUP BY event_type ORDER BY n DESC LIMIT 5"
     },
     {
       "id": "swe_runs_metered",
@@ -297,6 +297,53 @@
         "value": 0
       },
       "sample_sql": "SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id\n             WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed') ORDER BY i.id DESC, t.id LIMIT 5"
+    },
+    {
+      "id": "concepts_trusted",
+      "severity": "warn",
+      "min_schema": 45,
+      "description": "no L2 concept is suspect or broken (a scan found an anchored step changed or gone, or a claim failing): re-verify it with world_model_concept_upsert or retire it",
+      "sql": "SELECT COUNT(*) FROM wm_concepts WHERE status IN ('suspect','broken')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT id, repo, name, status, status_reason FROM wm_concepts WHERE status IN ('suspect','broken') ORDER BY id DESC LIMIT 5"
+    },
+    {
+      "id": "concept_proposals_not_stale",
+      "severity": "warn",
+      "min_schema": 48,
+      "description": "no concept a closed, reviewed task proposed in its completion report (report.concepts) is still pending — no concept_proposal_applied or concept_proposal_rejected row for its task and name — 7 days after the close (tasks has no closed_at, so the close time is updated_at): scan_run applies a proposal once its anchors are in the scanned checkout's index",
+      "sql": "SELECT COUNT(*) FROM tasks t,\n               json_each(CASE WHEN json_valid(t.completion_report) THEN t.completion_report ELSE '{}' END, '$.concepts') c\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND EXISTS (SELECT 1 FROM validation_attempts va\n  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (\n    SELECT MIN(a.created_at) FROM audit a\n      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)\n        AND json_extract(a.content_json, '$.task_id') = t.id\n        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))\n               AND NOT EXISTS (SELECT 1 FROM audit p\n                                WHERE p.event_type IN ('concept_proposal_applied','concept_proposal_rejected')\n                                  AND CASE WHEN json_valid(p.content_json) THEN json_extract(p.content_json, '$.task_id') END = t.id\n                                  AND CASE WHEN json_valid(p.content_json) THEN json_extract(p.content_json, '$.name') END = json_extract(c.value, '$.name'))",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT t.id AS task_id, json_extract(c.value, '$.name') AS name, t.updated_at FROM tasks t,\n               json_each(CASE WHEN json_valid(t.completion_report) THEN t.completion_report ELSE '{}' END, '$.concepts') c\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND EXISTS (SELECT 1 FROM validation_attempts va\n  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (\n    SELECT MIN(a.created_at) FROM audit a\n      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)\n        AND json_extract(a.content_json, '$.task_id') = t.id\n        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))\n               AND NOT EXISTS (SELECT 1 FROM audit p\n                                WHERE p.event_type IN ('concept_proposal_applied','concept_proposal_rejected')\n                                  AND CASE WHEN json_valid(p.content_json) THEN json_extract(p.content_json, '$.task_id') END = t.id\n                                  AND CASE WHEN json_valid(p.content_json) THEN json_extract(p.content_json, '$.name') END = json_extract(c.value, '$.name')) ORDER BY t.id DESC LIMIT 5"
+    },
+    {
+      "id": "concept_proposals_not_rejected",
+      "severity": "warn",
+      "description": "no concept_proposal_rejected row from the last 30 days (a reviewed task's concept proposal still failed to upsert 14 days after its close; content_json.error names why)",
+      "sql": "SELECT COUNT(*) FROM audit a WHERE a.event_type = 'concept_proposal_rejected' AND strftime('%Y-%m-%dT%H:%M:%fZ', a.created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT a.id, a.issue_id, a.created_at, a.content_json FROM audit a\n             WHERE a.event_type = 'concept_proposal_rejected' AND strftime('%Y-%m-%dT%H:%M:%fZ', a.created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')\n             ORDER BY a.id DESC LIMIT 5"
+    },
+    {
+      "id": "concepts_cover_indexed_repos",
+      "severity": "warn",
+      "min_schema": 45,
+      "description": "no repo with 100 or more wm_symbols rows has no live (non-retired) wm_concepts row: the L1 index is there but nobody has written its L2 concepts",
+      "sql": "SELECT COUNT(*) FROM (SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= 100) s\n             WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k WHERE k.repo = s.repo AND k.status <> 'retired')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT s.repo, s.symbols FROM (SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= 100) s\n             WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k WHERE k.repo = s.repo AND k.status <> 'retired') ORDER BY s.symbols DESC LIMIT 5"
     }
   ]
 }

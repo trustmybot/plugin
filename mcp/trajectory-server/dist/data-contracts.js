@@ -16,7 +16,7 @@
  * fault.
  */
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
-import { STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
+import { HAS_PASS_SQL, STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
 import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
 export const isSqlContract = (c) => c.source !== 'files';
@@ -70,6 +70,25 @@ const UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
 const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
+// The L2 concept tables (GH 1680) arrived in v45, tasks.completion_report in v48.
+const CONCEPTS_SCHEMA = 45;
+const COMPLETION_REPORT_SCHEMA = 48;
+const PENDING_PROPOSAL_DAYS = 7;
+const CONCEPTS_MIN_SYMBOLS = 100;
+const auditField = (alias, field) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.${field}') END`;
+// One row per concept a closed, reviewed task proposed (report.concepts) that
+// applyConceptProposals has neither applied nor rejected, closed over
+// PENDING_PROPOSAL_DAYS days ago.
+const PENDING_PROPOSALS = `tasks t,
+               json_each(CASE WHEN json_valid(t.completion_report) THEN t.completion_report ELSE '{}' END, '$.concepts') c
+             WHERE t.status = 'closed' AND ${ts('t.updated_at')} < ${daysAgo(PENDING_PROPOSAL_DAYS)}
+               AND ${HAS_PASS_SQL}
+               AND NOT EXISTS (SELECT 1 FROM audit p
+                                WHERE p.event_type IN ('concept_proposal_applied','concept_proposal_rejected')
+                                  AND ${auditField('p', 'task_id')} = t.id
+                                  AND ${auditField('p', 'name')} = json_extract(c.value, '$.name'))`;
+const UNCONCEPTUALIZED_REPOS = `(SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= ${CONCEPTS_MIN_SYMBOLS}) s
+             WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k WHERE k.repo = s.repo AND k.status <> 'retired')`;
 // The plugin / MCP-server names the scan fixtures in src/test/ register.
 const FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
                AND (${alias}.name IN ('alpha','beta','alpha-server')
@@ -348,6 +367,43 @@ export function buildDataContracts(documentedEventTypes) {
             expect: { op: '=', value: 0 },
             sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES}) ORDER BY i.id DESC, t.id LIMIT 5`,
+        },
+        {
+            id: 'concepts_trusted',
+            severity: 'warn',
+            min_schema: CONCEPTS_SCHEMA,
+            description: 'no L2 concept is suspect or broken (a scan found an anchored step changed or gone, or a claim failing): re-verify it with world_model_concept_upsert or retire it',
+            sql: `SELECT COUNT(*) FROM wm_concepts WHERE status IN ('suspect','broken')`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT id, repo, name, status, status_reason FROM wm_concepts WHERE status IN ('suspect','broken') ORDER BY id DESC LIMIT 5`,
+        },
+        {
+            id: 'concept_proposals_not_stale',
+            severity: 'warn',
+            min_schema: COMPLETION_REPORT_SCHEMA,
+            description: `no concept a closed, reviewed task proposed in its completion report (report.concepts) is still pending — no concept_proposal_applied or concept_proposal_rejected row for its task and name — ${PENDING_PROPOSAL_DAYS} days after the close (tasks has no closed_at, so the close time is updated_at): scan_run applies a proposal once its anchors are in the scanned checkout's index`,
+            sql: `SELECT COUNT(*) FROM ${PENDING_PROPOSALS}`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT t.id AS task_id, json_extract(c.value, '$.name') AS name, t.updated_at FROM ${PENDING_PROPOSALS} ORDER BY t.id DESC LIMIT 5`,
+        },
+        {
+            id: 'concept_proposals_not_rejected',
+            severity: 'warn',
+            description: 'no concept_proposal_rejected row from the last 30 days (a reviewed task\'s concept proposal still failed to upsert 14 days after its close; content_json.error names why)',
+            sql: `SELECT COUNT(*) FROM audit a WHERE a.event_type = 'concept_proposal_rejected' AND ${ts('a.created_at')} >= ${daysAgo(30)}`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT a.id, a.issue_id, a.created_at, a.content_json FROM audit a
+             WHERE a.event_type = 'concept_proposal_rejected' AND ${ts('a.created_at')} >= ${daysAgo(30)}
+             ORDER BY a.id DESC LIMIT 5`,
+        },
+        {
+            id: 'concepts_cover_indexed_repos',
+            severity: 'warn',
+            min_schema: CONCEPTS_SCHEMA,
+            description: `no repo with ${CONCEPTS_MIN_SYMBOLS} or more wm_symbols rows has no live (non-retired) wm_concepts row: the L1 index is there but nobody has written its L2 concepts`,
+            sql: `SELECT COUNT(*) FROM ${UNCONCEPTUALIZED_REPOS}`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT s.repo, s.symbols FROM ${UNCONCEPTUALIZED_REPOS} ORDER BY s.symbols DESC LIMIT 5`,
         },
         {
             source: 'files',

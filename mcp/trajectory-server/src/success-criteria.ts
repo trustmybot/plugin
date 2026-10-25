@@ -10,7 +10,18 @@
  * whose stored report misses one (reportMissingIds). A spec written before
  * the ids (no SC-prefixed bullet) is legacy: specCriterionIds returns [] and
  * no report is required.
+ *
+ * A report may also carry `concepts` (GH 1680, ADR 0002): up to five L2
+ * concept proposals, checked here for shape only. scan_run applies a closed,
+ * reviewed task's proposals once their anchors are in the index
+ * (applyConceptProposals).
  */
+import type { ConceptInput } from './world-model/concepts.js';
+
+export const CONCEPT_KINDS = ['flow', 'subsystem', 'invariant'] as const;
+export const HANDOFFS = ['calls', 'sources', 'runs', 'hook_fires'] as const;
+export const CLAIMS = ['exists', 'calls', 'only_writers_of', 'tested_by'] as const;
+export const MAX_CONCEPT_PROPOSALS = 5;
 
 export const CRITERION_STATUSES = ['met', 'not_met', 'not_applicable'] as const;
 export type CriterionStatus = (typeof CRITERION_STATUSES)[number];
@@ -22,7 +33,11 @@ export interface CompletionReport {
   criteria: Array<{ id: string; status: CriterionStatus; evidence_cmd?: string; note?: string }>;
   extras?: Array<{ path: string; reason: string }>;
   findings_fixed?: string[];
+  concepts?: ConceptProposal[];
 }
+
+/** A concept as swe proposes it: world_model_concept_upsert's input, repo defaulting to the task's. */
+export type ConceptProposal = Omit<ConceptInput, 'repo'> & { repo?: string };
 
 const SECTION_RE = /^## Success Criteria\s*$/i;
 const SECTION_END_RE = /^#{1,2}\s/;
@@ -204,7 +219,83 @@ export function parseCompletionReport(raw: unknown, ids: readonly string[]): Com
     }
     report.findings_fixed = fixed as string[];
   }
+  if (r['concepts'] !== undefined && r['concepts'] !== null) {
+    report.concepts = parseConceptProposals(r['concepts'], ids);
+  }
   return report;
+}
+
+type Kind = (typeof CONCEPT_KINDS)[number];
+type Handoff = (typeof HANDOFFS)[number];
+type Claim = (typeof CLAIMS)[number];
+type ProposalStep = ConceptProposal['steps'][number];
+type ProposalClaim = NonNullable<ConceptProposal['claims']>[number];
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+const CONCEPT_SHAPE = '{name, steps, kind?, body?, claims?, repo?}';
+
+function parseConceptProposals(raw: unknown, ids: readonly string[]): ConceptProposal[] {
+  if (!Array.isArray(raw)) throw shapeError(ids, `report.concepts must be an array of concepts ${CONCEPT_SHAPE}.`);
+  if (raw.length > MAX_CONCEPT_PROPOSALS) {
+    throw shapeError(ids, `report.concepts holds ${raw.length} concepts (max ${MAX_CONCEPT_PROPOSALS}).`);
+  }
+  const names = new Set<string>();
+  return raw.map((item, i): ConceptProposal => {
+    const at = `report.concepts[${i}]`;
+    if (!isObject(item)) throw shapeError(ids, `${at} must be an object ${CONCEPT_SHAPE}.`);
+    if (!nonEmpty(item['name'])) throw shapeError(ids, `${at}.name must be a non-empty string.`);
+    const name = item['name'].trim();
+    if (names.has(name)) throw shapeError(ids, `${at}.name '${name}' repeats an earlier concept in this report.`);
+    names.add(name);
+    const repo = optionalString(item['repo'], `${at}.repo`);
+    const body = optionalString(item['body'], `${at}.body`);
+    const kind = item['kind'] ?? undefined;
+    if (kind !== undefined && !CONCEPT_KINDS.includes(kind as Kind)) {
+      throw shapeError(ids, `${at}.kind must be one of ${CONCEPT_KINDS.join(', ')}.`);
+    }
+    const steps = item['steps'];
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw shapeError(ids, `${at}.steps must be a non-empty array of {path, description, kind?, qualified_name?, handoff?}.`);
+    }
+    const claims = item['claims'] ?? undefined;
+    if (claims !== undefined && !Array.isArray(claims)) throw shapeError(ids, `${at}.claims must be an array of {claim, args}.`);
+    return {
+      name,
+      ...(kind !== undefined ? { kind: kind as Kind } : {}),
+      ...(body !== undefined ? { body } : {}),
+      ...(repo !== undefined && repo.trim() !== '' ? { repo: repo.trim() } : {}),
+      steps: steps.map((s, j) => parseProposalStep(s, `${at}.steps[${j}]`, ids)),
+      ...(Array.isArray(claims) ? { claims: claims.map((c, j) => parseProposalClaim(c, `${at}.claims[${j}]`, ids)) } : {}),
+    };
+  });
+}
+
+function parseProposalStep(raw: unknown, at: string, ids: readonly string[]): ProposalStep {
+  if (!isObject(raw)) throw shapeError(ids, `${at} must be an object {path, description, kind?, qualified_name?, handoff?}.`);
+  if (!nonEmpty(raw['path'])) throw shapeError(ids, `${at}.path must be a non-empty string.`);
+  if (!nonEmpty(raw['description'])) throw shapeError(ids, `${at}.description must be a non-empty string.`);
+  const kind = optionalString(raw['kind'], `${at}.kind`);
+  const qualifiedName = optionalString(raw['qualified_name'], `${at}.qualified_name`);
+  const handoff = raw['handoff'] ?? undefined;
+  if (handoff !== undefined && !HANDOFFS.includes(handoff as Handoff)) {
+    throw shapeError(ids, `${at}.handoff must be one of ${HANDOFFS.join(', ')}.`);
+  }
+  return {
+    path: raw['path'],
+    description: raw['description'],
+    ...(kind !== undefined ? { kind } : {}),
+    ...(qualifiedName !== undefined ? { qualified_name: qualifiedName } : {}),
+    ...(handoff !== undefined ? { handoff: handoff as Handoff } : {}),
+  };
+}
+
+function parseProposalClaim(raw: unknown, at: string, ids: readonly string[]): ProposalClaim {
+  if (!isObject(raw) || !CLAIMS.includes(raw['claim'] as Claim)) {
+    throw shapeError(ids, `${at}.claim must be one of ${CLAIMS.join(', ')}.`);
+  }
+  if (!isObject(raw['args'])) throw shapeError(ids, `${at}.args must be an object.`);
+  return { claim: raw['claim'] as Claim, args: raw['args'] };
 }
 
 /** The spec ids a stored completion_report (JSON text) does not cover; every id when there is none. */

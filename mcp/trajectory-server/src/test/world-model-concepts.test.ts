@@ -9,6 +9,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
+import { insertAudit } from '../tools/audit.js';
+import { applyConceptProposals } from '../world-model/concepts.js';
 import type { TrajectoryDB } from '../db.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 
@@ -421,5 +423,123 @@ describe('L2 concept drift and re-resolution on a temp copy of the repo (GH 1680
     } finally {
       fresh.close();
     }
+  });
+});
+
+describe('concepts proposed at close, applied by scan once reviewed (GH 1680)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-proposals-'));
+  const root = join(ws, 'fixture');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const DAY = 86_400_000;
+  let repo = '';
+  let branches = 0;
+
+  const proposal = (name: string, finisher = 'finishRun') => ({
+    name,
+    kind: 'flow',
+    body: 'How a run starts and finishes.',
+    steps: [
+      { path: 'src/start.ts', kind: 'function', qualified_name: 'startRun', description: 'Starts the run.', handoff: 'calls' },
+      { path: 'src/finish.ts', kind: 'function', qualified_name: finisher, description: 'Finishes the run.' },
+    ],
+  });
+
+  const closedTask = (concepts: unknown[], opts: { reviewed: boolean; closedAt: Date }): number => {
+    const closedAt = opts.closedAt.toISOString();
+    const branch = `feat/1-proposals-${++branches}`;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, verification, commit_sha, repo,
+                          completion_report, created_at, updated_at)
+       VALUES (1, ?, 't', 'd', 'closed', '', '[]', '[]', 'abc1234', ?, ?, ?, ?)`,
+      [branch, repo, JSON.stringify({ criteria: [{ id: 'SC1', status: 'met' }], concepts }), closedAt, closedAt],
+    );
+    const id = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
+    if (opts.reviewed) {
+      insertAudit(db, {
+        issue_id: 1,
+        branch_id: branch,
+        from_node: 'bro',
+        event_type: 'bro_verification_pass',
+        summary: 'verified',
+        content_json: JSON.stringify({ task_id: id, commit_sha: 'abc1234' }),
+        created_at: new Date(opts.closedAt.getTime() - 2 * 60_000).toISOString(),
+        repo,
+      });
+      db.run(
+        `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'pr-reviewer', 'pass', 1, ?)`,
+        [id, new Date(opts.closedAt.getTime() - 60_000).toISOString()],
+      );
+    }
+    return id;
+  };
+
+  const rows = (event: string) =>
+    db
+      .all<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = ? ORDER BY id`, [event])
+      .map((r) => JSON.parse(r.content_json) as Payload);
+
+  before(async () => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(
+      join(root, 'src/start.ts'),
+      "import { finishRun } from './finish.js';\n\nexport function startRun(): number {\n  return finishRun(1);\n}\n",
+    );
+    writeFileSync(join(root, 'src/finish.ts'), 'export function finishRun(n: number): number {\n  return n + 1;\n}\n');
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: root });
+    repo = (await scan(db, holder, ws)).repos[0]!.name;
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`,
+    );
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  let reviewed = 0;
+
+  it('a scan applies a reviewed task\'s proposal as a verified concept and writes one applied row', async () => {
+    reviewed = closedTask([proposal('run flow')], { reviewed: true, closedAt: new Date() });
+    closedTask([proposal('unreviewed flow')], { reviewed: false, closedAt: new Date() });
+    await scan(db, holder, ws);
+    const concepts = db.all<{ id: number; name: string; status: string; verified_by: string }>(
+      `SELECT id, name, status, verified_by FROM wm_concepts WHERE repo = ?`,
+      [repo],
+    );
+    assert.deepEqual(concepts.map((c) => ({ ...c })), [{ id: concepts[0]!.id, name: 'run flow', status: 'verified', verified_by: 'swe' }]);
+    assert.deepEqual(rows('concept_proposal_applied'), [{ task_id: reviewed, concept_id: concepts[0]!.id, name: 'run flow' }]);
+    assert.deepEqual(rows('concept_proposal_rejected'), []);
+  });
+
+  it('a second scan does not re-apply, and the unreviewed proposal stays unapplied', async () => {
+    await scan(db, holder, ws);
+    assert.equal(rows('concept_proposal_applied').length, 1);
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_concepts WHERE name = 'unreviewed flow'`)!.n, 0);
+  });
+
+  it('an unresolved anchor stays pending without a row until 14 days after close, then writes one rejected row', () => {
+    const now = new Date();
+    const fresh = closedTask([proposal('fresh broken', 'noSuchFunction')], { reviewed: true, closedAt: now });
+    const old = closedTask([proposal('old broken', 'noSuchFunction')], { reviewed: true, closedAt: new Date(now.getTime() - 15 * DAY) });
+    assert.deepEqual(applyConceptProposals(db, repo, root, now), { applied: 0, rejected: 1, pending: 1 });
+    const rejected = rows('concept_proposal_rejected');
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0]!['task_id'], old);
+    assert.equal(rejected[0]!['name'], 'old broken');
+    assert.match(String(rejected[0]!['error']), /anchor not found: step 2 noSuchFunction/);
+
+    assert.deepEqual(applyConceptProposals(db, repo, root, now), { applied: 0, rejected: 0, pending: 1 });
+    assert.equal(rows('concept_proposal_rejected').length, 1, 'a settled proposal is not retried');
+
+    assert.deepEqual(applyConceptProposals(db, repo, root, new Date(now.getTime() + 14 * DAY)), { applied: 0, rejected: 1, pending: 0 });
+    assert.deepEqual(rows('concept_proposal_rejected').map((r) => r['task_id']), [old, fresh]);
+    assert.equal(rows('concept_proposal_applied').length, 1);
   });
 });
