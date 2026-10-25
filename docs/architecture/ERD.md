@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 48`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 49`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 48`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 49`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -56,6 +56,7 @@ erDiagram
     tasks |o--o{ agent_runs : "task_id (NO ACTION)"
     issues |o--o{ agent_runs : "issue_id (NO ACTION)"
     repos |o--o{ agent_runs : "repo (RESTRICT)"
+    agent_runs |o--o{ agent_runs : "resumed_from (NO ACTION)"
     tasks |o--o{ pr_review_runs : "task_id (NO ACTION)"
     discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
     audit ||--o| audit_embeddings : "audit_id (CASCADE)"
@@ -268,6 +269,7 @@ erDiagram
         TEXT host "CHECK claude|codex"
         TEXT exit_reason "CHECK completed|failed|escalated|swept_orphan|swept_stale|issue_closed"
         TEXT effort "CHECK low|medium|high"
+        INTEGER resumed_from FK "→ agent_runs.id NO ACTION"
     }
 
     pr_review_runs {
@@ -683,6 +685,7 @@ Table constraints:
 | `host` | TEXT | nullable |  | CHECK `host IN ('claude','codex')` |
 | `exit_reason` | TEXT | nullable |  | CHECK `exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed')` |
 | `effort` | TEXT | nullable |  | CHECK `effort IN ('low','medium','high')` |
+| `resumed_from` | INTEGER | nullable |  | FK → `agent_runs.id` ON DELETE NO ACTION |
 
 ### `pr_review_runs`
 
@@ -925,6 +928,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `agent_runs` | `task_id` | `tasks(id)` | NO ACTION |
 | `agent_runs` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_runs` | `repo` | `repos(name)` | RESTRICT |
+| `agent_runs` | `resumed_from` | `agent_runs(id)` | NO ACTION |
 | `pr_review_runs` | `task_id` | `tasks(id)` | NO ACTION |
 | `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
 | `audit_embeddings` | `audit_id` | `audit(id)` | CASCADE |
@@ -968,7 +972,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_agent_runs_task` | `agent_runs` | `task_id` |  |  |
 | `idx_agent_runs_issue` | `agent_runs` | `issue_id` |  |  |
 | `idx_agent_runs_open` | `agent_runs` | `agent_type` |  | `completed_at IS NULL` |
-| `idx_agent_runs_spawn` | `agent_runs` | `task_id, spawn_id` | yes | `spawn_id IS NOT NULL` |
+| `idx_agent_runs_spawn` | `agent_runs` | `task_id, spawn_id` | yes | `spawn_id IS NOT NULL AND resumed_from IS NULL` |
+| `idx_agent_runs_resumed` | `agent_runs` | `resumed_from` | yes | `resumed_from IS NOT NULL` |
 | `idx_agent_runs_session` | `agent_runs` | `session_id` |  | `session_id IS NOT NULL` |
 | `idx_audit_event_type` | `audit` | `event_type` |  |  |
 | `idx_audit_issue_branch` | `audit` | `issue_id, branch_id` |  |  |
@@ -1172,7 +1177,8 @@ The `cheatcodes` table is the unified capability catalog (#101): a **portable ca
 
 - **Bro rows** are written by the `bro-turn-usage.sh` Stop hook, one per session: `agent_type = 'bro'`, `task_id` and `issue_id` NULL, `session_id` the payload's session, `usage_source = 'transcript'`, `host = 'claude'`, `exit_reason = 'completed'`, `started_at` / `completed_at` the first / last main-loop message of the session transcript, `model` the model with the most tokens, and `root_dir` the project holding the trajectory DB (NULL when the DB sits elsewhere). Every Stop rewrites the row with the absolute sums of the session's main-loop usage, or inserts it when absent — idempotent, and parallel sessions never share a row. The task tools open no bro row; `session_id` stays an accepted, validated argument. Per-task bro rows opened by older versions stay as history: the closing paths below still close them, and `task_stats` and the data contracts skip them.
 - **Swe rows** open when the swe calls `task_brief` (one open row per task). The `swe-atomic-close.sh` SubagentStop hook binds the spawn to the task named by `task_id=<N>` in its spawn prompt, for any task status, and writes the spawn transcript's totals onto that row (`spawn_id` = the payload's `agent_id`), or inserts a complete row when none was opened. A spawn with no resolvable task id writes an `agent_runs_capture_skipped` audit row instead — the hook never guesses a task.
-- **Rework.** `task_stats` derives a task's rework at read time, nothing stored (GH 1738): `swe_spawn_count` counts its swe rows minus those closed `swept_orphan` (spawns that never started, duplicate rows), `rework_count` is that minus 1 (floor 0), `review_fail_count` its `validation_attempts` FAIL verdicts, `wall_clock_ms` its `created_at` to its close (`updated_at` of a `closed` task) or to now while open. The `rework-limit` and `task-overrun-alert` hook gates count spawns the same way (`src/task-rework.ts`).
+- **Rework.** `task_stats` derives a task's rework at read time, nothing stored (GH 1738): `swe_spawn_count` counts its swe rows minus those closed `swept_orphan` (spawns that never started, duplicate rows), `rework_count` is that minus 1 (floor 0), `review_fail_count` its `validation_attempts` FAIL verdicts, `wall_clock_ms` its `created_at` to its close (`updated_at` of a `closed` task) or to now while open. The `rework-limit` and `task-overrun-alert` hook gates count spawns the same way (`src/task-rework.ts`). `reworks` splits the reworks into `fresh` (fresh swe rows after the first) and `resumed` (rows with `resumed_from` set), each with `count`, `wall_clock_ms` (summed `duration_ms`), `tool_uses` and `cache_read_tokens` (GH 1742).
+- **Resumed swe runs.** A swe bro resumes through `SendMessage` (GH 1742) gets a row of its own at its next `task_brief`: `swe-brief-gate.sh` sees every row keyed by its `agent_id` closed and records a `swe_resume_observed` audit row, and `openSweRun` opens a row with that `spawn_id`, the previous row's `effort` and `resumed_from` = the previous row, consuming the observation. `swe-atomic-close.sh` meters only the transcript entries from that row's `started_at` on. The unique index on `(task_id, spawn_id)` covers fresh rows only; `resumed_from` is unique, so a row is resumed at most once.
 - **Closing.** `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` sweeps rows left open on tasks that are already terminal.
 
 ### How this serves both runtimes

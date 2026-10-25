@@ -92,6 +92,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / headless / ADR / consultant / search-grounding) to the right guidance; `headless-intent` asks one consent before enabling headless enforcement |
 | `roundtable-slash-detect.sh` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |
+| `swe-resume-gate.ts` | PreToolUse SendMessage | Judge a message to a swe (an agent id that is the `spawn_id` of an agent_runs swe row) as a resume of its task: deny it at the rework limit with `rework-limit`'s reason, and deny it when the swe's latest run has an effort other than the task's current one, naming a fresh spawn at the task's effort. Other targets and a swe of a closed task pass with no output; a DB read failure denies |
 | `task-overrun-alert.ts` | UserPromptSubmit + PostToolUse trajectory-server | Tell bro, once per task, that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since `created_at`: minutes, swe spawns and the blocker (the latest FAIL's first line, else the status); the `task_overrun_alerted` audit row is the once-marker. Bro only, never denies |
 | `git-guards.sh` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
 | `git-push-guard.sh` | PreToolUse Bash | SWE can't push; push requires passing validation_attempts |

@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 48;
+export const TARGET_SCHEMA_VERSION = 49;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -656,6 +656,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 48 && toVersion >= 48) {
         migrateV47toV48(db);
+    }
+    if (fromVersion < 49 && toVersion >= 49) {
+        migrateV48toV49(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2517,6 +2520,36 @@ function migrateV47toV48(db) {
         if (!hasColumn(db, 'tasks', 'spawn_note')) {
             db.exec('ALTER TABLE tasks ADD COLUMN spawn_note TEXT');
         }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v48→v49: resumed swe runs (GH 1742). agent_runs gains the nullable
+// resumed_from (the row of the same spawn_id a resumed run continues), and the
+// one-row-per-(task_id, spawn_id) index narrows to fresh rows so a resume can
+// carry its spawn's id; each row is resumed at most once. Existing rows keep
+// resumed_from NULL.
+function migrateV48toV49(db) {
+    if (!tableExists(db, 'agent_runs'))
+        return;
+    beginImmediate(db);
+    try {
+        if (!hasColumn(db, 'agent_runs', 'resumed_from')) {
+            db.exec('ALTER TABLE agent_runs ADD COLUMN resumed_from INTEGER REFERENCES agent_runs(id)');
+        }
+        db.exec(`
+      DROP INDEX IF EXISTS idx_agent_runs_spawn;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
+    `);
         commitTransaction(db);
     }
     catch (err) {

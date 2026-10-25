@@ -60,6 +60,7 @@ spec_shape_gate_waived	bro
 stray_db_removed	bro
 swe_atomic_close_auto_completed	hook
 swe_brief_fetched	swe
+swe_resume_observed	hook
 sync_skipped	bro
 task_effort_raised	bro
 task_escalated_by_issue_close	bro

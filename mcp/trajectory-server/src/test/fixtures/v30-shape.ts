@@ -8,7 +8,7 @@ export const V30_INDEXES: Array<[string, RegExp]> = [
   ['idx_agent_runs_task', /ON agent_runs\(task_id\)$/],
   ['idx_agent_runs_issue', /ON agent_runs\(issue_id\)$/],
   ['idx_agent_runs_open', /WHERE completed_at IS NULL$/],
-  ['idx_agent_runs_spawn', /UNIQUE INDEX .* ON agent_runs\(task_id, spawn_id\) WHERE spawn_id IS NOT NULL$/],
+  ['idx_agent_runs_spawn', /UNIQUE INDEX .* ON agent_runs\(task_id, spawn_id\) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL$/],
   ['idx_agent_runs_session', /ON agent_runs\(session_id\) WHERE session_id IS NOT NULL$/],
   ['idx_discussions_remote_comment', /UNIQUE INDEX .* ON discussions\(remote_comment_id\) WHERE remote_comment_id IS NOT NULL$/],
   ['idx_cheatcode_attachments_cheatcode', /ON cheatcode_attachments\(cheatcode_id\)$/],

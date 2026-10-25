@@ -27,11 +27,13 @@
 #   4. No sentinel + blocked tool  → DENY with recovery instruction
 #
 # Run binding (task_brief only, fail-open, never denies): the payload's
-# agent_id keys the spawn's swe agent_runs row. A row of the task already keyed
-# by that agent_id (a resumed spawn) is reopened (completed_at and exit_reason
-# NULL); otherwise the task's newest open swe row whose spawn_id is NULL or
-# tool_use:* (opened by record-swe-spawn.sh) is rebound to spawn_id = agent_id.
-# Either way task_brief's openSweRun finds an open row and inserts none.
+# agent_id keys the spawn's swe agent_runs row. With no row of the task keyed by
+# that agent_id, the task's newest open swe row whose spawn_id is NULL or
+# tool_use:* (opened by record-swe-spawn.sh) is rebound to spawn_id = agent_id,
+# and task_brief's openSweRun finds it open and inserts none. With every keyed
+# row closed (a swe resumed through SendMessage, GH 1742), nothing is reopened:
+# a swe_resume_observed audit row names the agent_id, and openSweRun opens a
+# new row for it with resumed_from = its previous row.
 #
 # Skips:
 #   - Non-SWE callers (bro, pr-reviewer, etc.)
@@ -96,15 +98,26 @@ if [ "$IS_TASK_BRIEF" = "yes" ]; then
   AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)
   if [ -n "$AGENT_ID" ]; then
     SAFE_AGENT_ID=$(tmb_sql_quote "$AGENT_ID")
-    tmb_db_write "$DB" "
-UPDATE agent_runs SET completed_at = NULL, exit_reason = NULL
- WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND spawn_id = '${SAFE_AGENT_ID}';
+    KEYED=$(tmb_sqlite_ro "$DB" "
+SELECT COALESCE(MAX(completed_at IS NULL), -1) || '|' || (SELECT issue_id FROM tasks WHERE id = ${TASK_ID})
+  FROM agent_runs
+ WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND spawn_id = '${SAFE_AGENT_ID}';" 2>/dev/null || true)
+    case "$KEYED" in
+      -1\|*)
+        tmb_db_write "$DB" "
 UPDATE agent_runs SET spawn_id = '${SAFE_AGENT_ID}'
- WHERE (SELECT changes()) = 0
-   AND id = (SELECT id FROM agent_runs
+ WHERE id = (SELECT id FROM agent_runs
               WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL
                 AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
               ORDER BY id DESC LIMIT 1);" >/dev/null 2>&1 || true
+        ;;
+      0\|*)
+        RESUME_JSON=$(jq -cn --argjson t "$TASK_ID" --arg g "$AGENT_ID" --arg o "$(tmb_now_iso)" \
+          '{task_id:$t, agent_id:$g, observed_at:$o, consumed:0}')
+        tmb_audit_append "$DB" "${KEYED#*|}" '' "hook:swe-brief-gate" "swe_resume_observed" \
+          "swe ${AGENT_ID} resumed task ${TASK_ID} and called task_brief" "$RESUME_JSON" >/dev/null 2>&1 || true
+        ;;
+    esac
   fi
   exit 0
 fi

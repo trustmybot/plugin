@@ -171,6 +171,17 @@
         ]
       },
       {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-resume-gate",
+            "timeout": 6,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__.*trajectory-server__.*",
         "hooks": [
           {
