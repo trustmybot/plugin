@@ -99,9 +99,12 @@
 #    <install>/mcp/trajectory-server/dist/hooks-gates.txt (written by the
 #    build from src/hooks/registry.ts) runs as
 #    `node <install>/mcp/trajectory-server/dist/hooks.js <gate>` in place of
-#    `bash <gate>.sh`, when node is on PATH and dist/hooks.js exists. Its .sh
-#    must still exist, and everything above applies to it unchanged.
-#    TMB_HOOKS_IMPL=bash is the kill switch: every gate runs its .sh.
+#    `bash <gate>.sh`, when node is on PATH and dist/hooks.js exists, and
+#    everything above applies to it unchanged. A gate born in TypeScript has
+#    no .sh: the install ships it when the manifest lists it and dist/hooks.js
+#    exists (task-overrun-alert, GH 1738), and without node it is not run
+#    (exit 1 with a stderr line). TMB_HOOKS_IMPL=bash is the kill switch:
+#    every gate with a .sh runs it, a gate without one is not run.
 
 set -uo pipefail
 
@@ -417,34 +420,43 @@ if [ "$FAIL_CLOSED" = "1" ] && ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
+# ts_gate <root> — <root> ships dist/hooks.js and this gate is a line of its
+# TypeScript gate manifest.
+ts_gate() {
+  local line dist="$1/mcp/trajectory-server/dist"
+  { [ -f "$dist/hooks.js" ] && [ -f "$dist/hooks-gates.txt" ]; } || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ "$line" = "$GATE" ] && return 0
+  done < "$dist/hooks-gates.txt"
+  return 1
+}
+
+# has_gate <root> — <root> ships this gate: its .sh, or a TypeScript-only gate.
+has_gate() {
+  [ -f "$1/scripts/hooks/$GATE.sh" ] || ts_gate "$1"
+}
+
 ROOT=$(tmb_active_install)
-TARGET="$ROOT/scripts/hooks/$GATE.sh"
-if [ -z "$ROOT" ] || [ ! -f "$TARGET" ]; then
+if [ -z "$ROOT" ] || ! has_gate "$ROOT"; then
   if [ -n "$ROOT" ] && [ "$ROOT" != "$SELF_ROOT" ]; then
     printf 'TMB dispatch: no gate %s.sh in %s — using %s\n' "$GATE" "$ROOT" "$SELF_ROOT" >&2
   fi
   ROOT="$SELF_ROOT"
-  TARGET="$SELF_ROOT/scripts/hooks/$GATE.sh"
 fi
-if [ ! -f "$TARGET" ]; then
+if ! has_gate "$ROOT"; then
   printf 'TMB dispatch: no gate %s.sh in %s — not run\n' "$GATE" "$ROOT" >&2
   exit 1
 fi
+TARGET="$ROOT/scripts/hooks/$GATE.sh"
 export CLAUDE_PLUGIN_ROOT="$ROOT"
 
-# ts_gate — this gate is a line of the install's TypeScript gate manifest.
-ts_gate() {
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    [ "$line" = "$GATE" ] && return 0
-  done < "$ROOT/mcp/trajectory-server/dist/hooks-gates.txt"
-  return 1
-}
-
-GATE_CMD=(bash "$TARGET")
-if [ "${TMB_HOOKS_IMPL:-}" != "bash" ] && [ -f "$ROOT/mcp/trajectory-server/dist/hooks.js" ] \
-   && [ -f "$ROOT/mcp/trajectory-server/dist/hooks-gates.txt" ] && ts_gate && command -v node >/dev/null 2>&1; then
+if [ "${TMB_HOOKS_IMPL:-}" != "bash" ] && ts_gate "$ROOT" && command -v node >/dev/null 2>&1; then
   GATE_CMD=(node "$ROOT/mcp/trajectory-server/dist/hooks.js" "$GATE")
+elif [ -f "$TARGET" ]; then
+  GATE_CMD=(bash "$TARGET")
+else
+  printf 'TMB dispatch: gate %s has no .sh and needs node to run %s/mcp/trajectory-server/dist/hooks.js (TMB_HOOKS_IMPL=bash runs only .sh gates) — not run\n' "$GATE" "$ROOT" >&2
+  exit 1
 fi
 
 LOCK_BASE=""

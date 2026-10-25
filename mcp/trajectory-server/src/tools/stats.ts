@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { elapsedMs, reworkCount, SWE_SPAWN_SQL } from '../task-rework.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -181,7 +182,37 @@ const TOKENS_TOTAL_SQL =
 // session, so a legacy per-task bro row is history, not task cost.
 const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
 
-export function statsTools(db: TrajectoryDB): {
+interface ReworkStats {
+  wall_clock_ms: number | null;
+  review_fail_count: number;
+  swe_spawn_count: number;
+  rework_count: number;
+}
+
+// Computed at read time, nothing stored. wall_clock_ms runs from the task's
+// created_at to its close (updated_at of a closed task: the close is its last
+// write) or to now while it is open; null for an unknown task.
+function reworkStats(db: TrajectoryDB, taskId: number, now: Date): ReworkStats {
+  const task = db.get<{ status: string; created_at: string; updated_at: string }>(
+    'SELECT status, created_at, updated_at FROM tasks WHERE id = ?',
+    [taskId],
+  );
+  const fails = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND verdict = 'fail'",
+    [taskId],
+  );
+  const spawns = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
+  const sweSpawnCount = spawns?.n ?? 0;
+  const endedAt = task?.status === 'closed' ? new Date(task.updated_at) : now;
+  return {
+    wall_clock_ms: task ? elapsedMs(task.created_at, endedAt) : null,
+    review_fail_count: fails?.n ?? 0,
+    swe_spawn_count: sweSpawnCount,
+    rework_count: reworkCount(sweSpawnCount),
+  };
+}
+
+export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date()): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -189,7 +220,7 @@ export function statsTools(db: TrajectoryDB): {
     {
       name: 'task_stats',
       description:
-        'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
+        'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -267,6 +298,7 @@ export function statsTools(db: TrajectoryDB): {
           cost_estimate: cost.cost_estimate,
           unpriced_tokens: cost.unpriced_tokens,
           cost_groups: cost.groups,
+          ...reworkStats(db, taskId, clock()),
           spawns,
         });
       }),

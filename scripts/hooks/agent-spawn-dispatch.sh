@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PreToolUse hook — dispatcher for all Agent-matcher checks.
 #
-# Runs the seven Agent-spawn gates IN ORDER, short-circuiting on the
+# Runs the eight Agent-spawn gates IN ORDER, short-circuiting on the
 # first deny (emits that deny verbatim and exits). On a clean pass from
-# all seven, emits the union of any additionalContext outputs (currently
-# none of the seven produce context, but the union logic is future-proof).
+# all eight, emits the union of any additionalContext outputs (currently
+# none of the eight produce context, but the union logic is future-proof).
 #
 # Hook order:
 #   1. require-task-spec              — swe must cite a valid task_id
@@ -15,6 +15,9 @@
 #   6. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
 #   7. pr-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
 #      task commit's five deterministic checks; denies {check, expected, actual}
+#   8. rework-limit                   — TypeScript gate (dist/hooks.js): a swe
+#      spawn after two review FAILs since the last pass needs a newer decision
+#      row or a Human comment (GH 1738)
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
 #
@@ -40,6 +43,7 @@ HOOKS=(
   "$SCRIPT_DIR/pr-reviewer-spawn-prompt-shape.sh"
   "$SCRIPT_DIR/pr-reviewer-after-atomic-close.sh"
   pr-reviewer-preflight
+  rework-limit
 )
 
 CONTEXT_PARTS=()

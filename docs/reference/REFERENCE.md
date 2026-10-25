@@ -74,7 +74,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 
 ## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PermissionDenied / Stop / SubagentStop / WorktreeCreate)
 
-59 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
+59 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`, plus gates born in TypeScript (a `.ts` row: `mcp/trajectory-server/src/hooks/<name>.ts`, no `.sh`; `dispatch.sh` runs it through `node dist/hooks.js` when `dist/hooks-gates.txt` lists it). The eight PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -92,6 +92,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / headless / ADR / consultant / search-grounding) to the right guidance; `headless-intent` asks one consent before enabling headless enforcement |
 | `roundtable-slash-detect.sh` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |
+| `task-overrun-alert.ts` | UserPromptSubmit + PostToolUse trajectory-server | Tell bro, once per task, that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since `created_at`: minutes, swe spawns and the blocker (the latest FAIL's first line, else the status); the `task_overrun_alerted` audit row is the once-marker. Bro only, never denies |
 | `git-guards.sh` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
 | `git-push-guard.sh` | PreToolUse Bash | SWE can't push; push requires passing validation_attempts |
 | `swe-boundary.sh` | PreToolUse Bash + Edit/Write | Keep SWE inside its worktree and assigned scope |
@@ -101,7 +102,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `commit-msg-lint.sh` | PreToolUse Bash | Enforce conventional-commit subject format |
 | `no-remote-auth-guard.sh` | PreToolUse Bash | Block interactive remote-auth flows (gh/glab login) |
 | `remote-id-guard.sh` | PreToolUse Bash | Guard remote-identity / repo-creation operations |
-| `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-spawn-effort.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then prepares the worktree via `ensure-swe-worktree.sh` and records the swe spawn via `record-swe-spawn.sh` (task → running, one open `agent_runs` row) |
+| `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-spawn-effort.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then the TypeScript gates `pr-reviewer-preflight` (the task commit's deterministic checks) and `rework-limit` (deny a swe spawn after two review FAILs since the task's last pass unless a newer `kind='decision'` row or a Human comment exists), then prepares the worktree via `ensure-swe-worktree.sh` and records the swe spawn via `record-swe-spawn.sh` (task → running, one open `agent_runs` row) |
 | `agent-arg-matches-caller.sh` | PreToolUse trajectory-server | Deny a call whose `agent` argument names another role than the caller (the payload's `agent_type`, or bro for the main session) and audit `agent_arg_mismatch`; a missing `agent` is allowed and the decision never depends on the trajectory DB |
 | `swe-brief-gate.sh` | PreToolUse trajectory-server + Edit/Write | SWE must have fetched its task brief (`task_brief` records the `swe_brief_fetched` sentinel; the hook reads it) before touching state or files |
 | `swe-verification-gate.sh` | PreToolUse trajectory-server (task_update_status) | Gate the SWE close transition on verification |

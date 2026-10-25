@@ -2,10 +2,10 @@
 # Tests for scripts/hooks/agent-spawn-dispatch.sh
 #
 # Dispatcher contract:
-#   - Runs the six Agent-spawn gate hooks in order.
+#   - Runs the eight Agent-spawn gate hooks in order.
 #   - Short-circuits on the first deny: emits that deny verbatim and exits.
 #   - On full pass: emits union of any additionalContext blocks (currently
-#     none of the six produce context, but the merge path is exercised).
+#     none of the eight produce context, but the merge path is exercised).
 #   - A non-deny, non-context output from any hook is ignored.
 set -uo pipefail
 
@@ -174,17 +174,34 @@ sqlite3 "$db" "
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE repos (name TEXT, path TEXT);
+  CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
+  CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
   INSERT INTO repos (name, path) VALUES ('fixture', '$WORK');
   INSERT INTO issues (id) VALUES (1);
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body)
     VALUES (1, 1, 'fix/1-foo', 'pending', '## spec body');
 " >/dev/null
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"swe",effort:"medium",prompt:"task_id=1 worktree=/some/path You are SWE."}}')
-out=$(
-  cd "$WORK" || exit 1
-  printf '%s' "$payload" | TRAJECTORY_DB_PATH="$db" bash "$DISPATCHER" 2>/dev/null || true
-)
+spawn() {
+  (
+    cd "$WORK" || exit 1
+    printf '%s' "$payload" | TRAJECTORY_DB_PATH="$db" bash "$DISPATCHER" 2>/dev/null || true
+  )
+}
+out=$(spawn)
 assert_eq "" "$out" "silent pass — no deny, no context"
+
+test_case "rework-limit: a swe spawn after two review FAILs is denied until a newer decision"
+sqlite3 "$db" "
+  INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES
+    (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');
+" >/dev/null
+out=$(spawn)
+assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" "2 review FAILs since its last pass" "rework-limit wording present"
+sqlite3 "$db" "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'bro', 'decision', '2026-10-25T11:00:00.000Z');" >/dev/null
+out=$(spawn)
+assert_not_contains "$out" '"permissionDecision":"deny"' "a newer decision lets the spawn through"
 rm -rf "$WORK"
 
 # ----- tests: non-Agent tool is a no-op ------------------------------------

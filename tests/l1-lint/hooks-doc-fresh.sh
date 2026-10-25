@@ -4,6 +4,8 @@
 # registered in hooks.json (`dispatch.sh <name>`, or as a gate of a chain
 # registration, scripts/hooks/lib/registrations.sh), so a deleted or unwired
 # hook cannot leave a stale row; every hook hooks.json registers has a row.
+# A gate born in TypeScript (no .sh) has a `<name>.ts` row naming its
+# mcp/trajectory-server/src/hooks/<name>.ts source.
 #
 # Usage: hooks-doc-fresh.sh [<root>]   (default: this repo; self-tests first)
 
@@ -22,24 +24,28 @@ registered() {
 }
 
 check_tree() {
-  local root="$1" hook failed=0 rows=0 gates
+  local root="$1" hook row dir failed=0 rows=0 gates
   # shellcheck source=scripts/hooks/lib/registrations.sh
   . "$root/scripts/hooks/lib/registrations.sh"
   gates=$(registered "$root")
-  for hook in $(awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" \
-      | grep -oE '^\| `[a-z0-9-]+\.sh`' | sed -E 's/^\| `(.*)\.sh`/\1/'); do
+  for row in $(awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" \
+      | grep -oE '^\| `[a-z0-9-]+\.(sh|ts)`' | sed -E 's/^\| `(.*)`/\1/'); do
     rows=$((rows + 1))
-    if [ ! -f "$root/scripts/hooks/$hook.sh" ]; then
-      echo "  ✗ docs/reference/REFERENCE.md lists $hook.sh, which is not in scripts/hooks/" >&2
+    hook="${row%.*}"
+    if [ "${row##*.}" = ts ]; then dir="mcp/trajectory-server/src/hooks"; else dir="scripts/hooks"; fi
+    if [ ! -f "$root/$dir/$row" ]; then
+      echo "  ✗ docs/reference/REFERENCE.md lists $row, which is not in $dir/" >&2
       failed=1
     elif ! printf '%s\n' "$gates" | grep -xF "$hook" >/dev/null; then
-      echo "  ✗ docs/reference/REFERENCE.md lists $hook.sh, which hooks/hooks.json does not register" >&2
+      echo "  ✗ docs/reference/REFERENCE.md lists $row, which hooks/hooks.json does not register" >&2
       failed=1
     fi
   done
   for hook in $gates; do
-    if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -F "| \`$hook.sh\` |" >/dev/null; then
-      echo "  ✗ hooks/hooks.json registers $hook.sh, which has no row in the docs/reference/REFERENCE.md hook table" >&2
+    row="$hook.sh"
+    [ -f "$root/scripts/hooks/$row" ] || [ ! -f "$root/mcp/trajectory-server/src/hooks/$hook.ts" ] || row="$hook.ts"
+    if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -F "| \`$row\` |" >/dev/null; then
+      echo "  ✗ hooks/hooks.json registers $row, which has no row in the docs/reference/REFERENCE.md hook table" >&2
       failed=1
     fi
   done
@@ -56,8 +62,9 @@ self_test() {
   tmp=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-hooks-doc-fresh-XXXXXX")
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
-  mkdir -p "$tmp/t/docs/reference" "$tmp/t/hooks"
+  mkdir -p "$tmp/t/docs/reference" "$tmp/t/hooks" "$tmp/t/mcp/trajectory-server/src"
   cp -R "$REPO_ROOT/scripts" "$tmp/t/scripts"
+  cp -R "$REPO_ROOT/mcp/trajectory-server/src/hooks" "$tmp/t/mcp/trajectory-server/src/hooks"
   cp "$REPO_ROOT/hooks/hooks.json" "$tmp/t/hooks/hooks.json"
   awk '{print} /^\| Hook \| Trigger \| Purpose \|/{getline; print; print "| `deleted-hook.sh` | Stop | gone |"}' \
     "$REPO_ROOT/docs/reference/REFERENCE.md" > "$tmp/t/docs/reference/REFERENCE.md"
