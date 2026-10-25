@@ -1,0 +1,2 @@
+### Fixed
+- **The dist-fresh lint passes again and tracks new parser grammars on its own** (GH 1848): the lint kept its own hand-written list of tree-sitter wasm files, which missed `tree-sitter-python.wasm` once the build started shipping it, so it failed with `Only in dist/parsing: tree-sitter-python.wasm`. It now reads the wasm list from the trajectory-server `build` script, so the two can no longer drift, and fails loudly if that list comes back empty.

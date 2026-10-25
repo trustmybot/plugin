@@ -99,12 +99,17 @@ perl scripts/postprocess-bundle.pl \
   | node --input-type=module > "$TMPDIR/hooks-gates.txt"
 cp src/schema*.sql "$TMPDIR/"
 mkdir -p "$TMPDIR/parsing"
-cp node_modules/web-tree-sitter/tree-sitter.wasm \
-  node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm \
-  node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm \
-  node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm \
-  node_modules/tree-sitter-bash/tree-sitter-bash.wasm \
-  "$TMPDIR/parsing/"
+# The wasm list comes from the build script itself so the two cannot drift (GH 1848).
+WASM_FILES=()
+while IFS= read -r wasm; do
+  [ -n "$wasm" ] && WASM_FILES+=("$wasm")
+done < <(node -e 'for (const t of require("./package.json").scripts.build.split(/\s+/)) if (/^node_modules\/\S*\.wasm$/.test(t)) console.log(t);')
+if [ "${#WASM_FILES[@]}" -eq 0 ]; then
+  echo "dist-fresh: no node_modules/...*.wasm path found in package.json scripts.build" >&2
+  echo "Dist-fresh: FAIL" >&2
+  exit 1
+fi
+cp "${WASM_FILES[@]}" "$TMPDIR/parsing/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)
 DIFF_OUT=$(diff -ru \
