@@ -48,9 +48,30 @@ function readStringArrayConfig(db, key) {
     }
     return null;
 }
+// Read a {string: string} config key from plugin_config; returns null when
+// unset or malformed.
+function readStringMapConfig(db, key) {
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [key]);
+    if (!row)
+        return null;
+    try {
+        const parsed = JSON.parse(row.value_json);
+        if (typeof parsed === 'object' &&
+            parsed !== null &&
+            !Array.isArray(parsed) &&
+            Object.values(parsed).every((v) => typeof v === 'string')) {
+            return parsed;
+        }
+    }
+    catch {
+        // malformed config row — read as unset
+    }
+    return null;
+}
 // Resolve the configured (or generic-default) classification + priority sets
-// for the active project. The validator matches a label against the resolved
-// sets by exact membership.
+// for the active project, plus the opt-in area set and its path map (empty
+// when unset). The validator matches a label against the resolved sets by
+// exact membership.
 function resolveLabelTaxonomy(db) {
     const classification = readStringArrayConfig(db, 'issue_classification_labels') ?? [
         ...DEFAULT_CLASSIFICATION_LABELS,
@@ -58,7 +79,9 @@ function resolveLabelTaxonomy(db) {
     const priorityLabels = readStringArrayConfig(db, 'issue_priority_labels') ?? [
         ...DEFAULT_PRIORITY_LABELS,
     ];
-    return { classification, priorityLabels };
+    const areaLabels = readStringArrayConfig(db, 'issue_area_labels') ?? [];
+    const areaPaths = readStringMapConfig(db, 'issue_area_paths') ?? {};
+    return { classification, priorityLabels, areaLabels, areaPaths };
 }
 // A minimal valid label set (one classification + one priority) drawn from the
 // project taxonomy. issue_create labels aren't persisted locally, so a retry
@@ -76,17 +99,25 @@ export function defaultSyncLabels(db) {
     return labels;
 }
 // Fail closed: reject unless the labels arg satisfies BOTH required categories,
-// checked against the project's configured (or generic-default) taxonomy.
+// checked against the project's configured (or generic-default) taxonomy, and
+// carries exactly one area label when the project configures an area set.
 // Returns a named error string listing what is missing and the valid options,
-// or null when the labels are valid. Extra labels (in neither set) are allowed.
+// or null when the labels are valid. Extra labels (in no set) are allowed.
 export function validateIssueLabels(db, labels, taxonomy, tool = 'issue_create') {
-    const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
+    const { classification, priorityLabels, areaLabels = [] } = taxonomy ?? resolveLabelTaxonomy(db);
     const classificationSet = new Set(classification);
     const prioritySet = new Set(priorityLabels);
+    const areaSet = new Set(areaLabels);
     const hasPriority = labels.some((l) => prioritySet.has(l));
     const hasClassification = labels.some((l) => classificationSet.has(l));
-    if (hasPriority && hasClassification)
+    const areas = [...new Set(labels.filter((l) => areaSet.has(l)))];
+    const hasArea = areaSet.size === 0 || areas.length > 0;
+    if (hasPriority && hasClassification && hasArea) {
+        if (areas.length > 1) {
+            return `multiple_area_labels: ${tool} requires exactly one area label (one of: ${areaLabels.join(', ')}). Got areas: [${areas.join(', ')}]`;
+        }
         return null;
+    }
     const missing = [];
     if (!hasClassification) {
         missing.push(`a classification label (one of: ${classification.join(', ')})`);
@@ -94,7 +125,71 @@ export function validateIssueLabels(db, labels, taxonomy, tool = 'issue_create')
     if (!hasPriority) {
         missing.push(`a priority label (one of: ${priorityLabels.join(', ')})`);
     }
+    if (!hasArea) {
+        missing.push(`an area label (one of: ${areaLabels.join(', ')})`);
+    }
     return `missing_required_labels: ${tool} requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
+}
+const PATH_TOKEN_SPLIT = /[\s`'"()[\]{}<>,;|*]+/;
+// Path-like tokens named in free text: a token holding a '/' or ending in a
+// file extension, stripped of a leading './', a '#anchor', trailing sentence
+// punctuation and ':line[:col]' suffixes.
+function pathTokens(text) {
+    return text
+        .split(PATH_TOKEN_SPLIT)
+        .map((t) => t
+        .replace(/#.*$/, '')
+        .replace(/[.:!?]+$/, '')
+        .replace(/(?::\d+)+$/, '')
+        .replace(/^\.\//, ''))
+        .filter((t) => t.includes('/') || /\.[A-Za-z0-9]+$/.test(t));
+}
+function stripSlashes(path) {
+    return path.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+// Opt-in area inference: when the project configures an area set and the
+// caller supplied no area label, map every path-like token in the texts to
+// the area of its longest matching issue_area_paths prefix (directory
+// semantics). One area is appended to the labels; two or more refuse with
+// ambiguous_area; none leaves the labels for validateIssueLabels to refuse.
+export function inferIssueArea(db, labels, texts, taxonomy, tool = 'issue_create') {
+    const { areaLabels = [], areaPaths = {} } = taxonomy ?? resolveLabelTaxonomy(db);
+    const areaSet = new Set(areaLabels);
+    if (areaSet.size === 0 || labels.some((l) => areaSet.has(l))) {
+        return { labels, areaInferred: null };
+    }
+    const prefixes = Object.entries(areaPaths)
+        .map(([prefix, area]) => ({ prefix: stripSlashes(prefix), area }))
+        .filter((p) => p.prefix.length > 0)
+        .sort((a, b) => b.prefix.length - a.prefix.length);
+    const hits = new Map();
+    for (const token of texts.flatMap(pathTokens)) {
+        const match = prefixes.find((p) => token === p.prefix || token.startsWith(`${p.prefix}/`));
+        if (!match)
+            continue;
+        if (!areaSet.has(match.area)) {
+            return {
+                error: `invalid_area_config: issue_area_paths maps "${match.prefix}" to "${match.area}", which is not in issue_area_labels (${areaLabels.join(', ')})`,
+            };
+        }
+        const paths = hits.get(match.area) ?? [];
+        if (!paths.includes(token))
+            paths.push(token);
+        hits.set(match.area, paths);
+    }
+    if (hits.size > 1) {
+        const candidates = [...hits.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([area, paths]) => `${area} (${paths.join(', ')})`)
+            .join('; ');
+        return {
+            error: `ambiguous_area: ${tool} found paths in more than one area: ${candidates}. Pass exactly one area label (one of: ${areaLabels.join(', ')})`,
+        };
+    }
+    const [inferred] = [...hits.keys()];
+    if (inferred === undefined)
+        return { labels, areaInferred: null };
+    return { labels: [...labels, inferred], areaInferred: inferred };
 }
 // FK (milestone, repo) -> milestones(name, repo): upsert the milestones row so
 // the issues insert doesn't violate it. Only meaningful when repo is non-null
@@ -376,7 +471,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                     agent: { type: 'string', description: 'Caller agent name' },
                     objective: { type: 'string', description: 'Short one-liner summary' },
                     description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
-                    labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue.' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore), plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted). Extra labels are allowed. Applied to the remote issue.' },
                     milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
                     repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists.' },
                     allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
@@ -499,7 +594,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                     agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
                     issue_id: { type: 'string', description: 'Issue ID as string' },
                     milestone: { type: 'string', description: 'Milestone name; its milestones row is created for the issue repo when missing' },
-                    labels: { type: 'array', items: { type: 'string' }, description: 'Full replacement label set; must include one classification and one priority label' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Full replacement label set; must include one classification and one priority label, plus exactly one area label when the project configures issue_area_labels' },
                     objective: { type: 'string', description: 'New objective (the remote issue title)' },
                     include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
                 },
@@ -561,7 +656,10 @@ export function issueTools(db, dbPath = '', options = {}) {
             // labels: passed to remote sync AND persisted on the row (#53) as a JSON
             // array string so issue_sync_retry replays the original validated set
             // instead of re-deriving defaultSyncLabels.
-            const labels = args['labels'] ?? [];
+            const inference = inferIssueArea(db, args['labels'] ?? [], [objective, description], options.labelTaxonomy);
+            if ('error' in inference)
+                return err(inference.error);
+            const { labels, areaInferred } = inference;
             // Mandatory tagging (#93/#777): fail closed before any insert/sync.
             const labelError = validateIssueLabels(db, labels, options.labelTaxonomy);
             if (labelError !== null) {
@@ -641,6 +739,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                 const adoptedPayload = {
                     ...adoptedRedacted,
                     ...milestoneDefaultFields(milestoneResolution),
+                    area_inferred: areaInferred,
                 };
                 adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
                 return ok(adoptedPayload);
@@ -691,6 +790,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                         const payload = {
                             ...redacted,
                             ...milestoneDefaultFields(milestoneResolution),
+                            area_inferred: areaInferred,
                         };
                         payload._sync = syncDiagnostic;
                         return ok(payload);
@@ -920,6 +1020,7 @@ export function issueTools(db, dbPath = '', options = {}) {
             const payload = {
                 ...redacted,
                 ...milestoneDefaultFields(milestoneResolution),
+                area_inferred: areaInferred,
             };
             if (syncDiagnostic)
                 payload._sync = syncDiagnostic;

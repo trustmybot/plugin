@@ -1361,6 +1361,202 @@ describe('issue_create mandatory tagging (#93/#777)', () => {
   });
 });
 
+describe('issueTools — opt-in area labels (GH 1770)', () => {
+  const AREAS = ['Area: Alpha', 'Area: Beta', 'Area: Gamma'];
+
+  async function configureAreas(
+    db: ReturnType<typeof tempDB>,
+    paths?: Record<string, string>,
+  ): Promise<void> {
+    const cfg = configTools(db);
+    const labels = await call(cfg.handlers, 'config_set', { agent: 'bro', key: 'issue_area_labels', value: AREAS });
+    assert.ok(!labels.isError, JSON.stringify(parseResult(labels)));
+    if (paths) {
+      const set = await call(cfg.handlers, 'config_set', { agent: 'bro', key: 'issue_area_paths', value: paths });
+      assert.ok(!set.isError, JSON.stringify(parseResult(set)));
+    }
+  }
+
+  it('reports area_inferred null when no area config is set', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'no area config',
+      description: 'touches src/hooks/x.ts',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, created.error);
+    assert.equal(created.area_inferred, null);
+    assert.deepEqual(JSON.parse(created.labels), VALID_LABELS);
+    db.close();
+  });
+
+  it('refuses no area and no path hit, listing the valid areas', async () => {
+    const db = tempDB();
+    await configureAreas(db);
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'area missing',
+      labels: VALID_LABELS,
+    });
+    assert.ok(result.isError);
+    const error = parseResult(result).error as string;
+    assert.match(error, /^missing_required_labels: issue_create requires an area label \(one of: Area: Alpha, Area: Beta, Area: Gamma\)/);
+    db.close();
+  });
+
+  it('refuses two area labels', async () => {
+    const db = tempDB();
+    await configureAreas(db);
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'two areas',
+      labels: [...VALID_LABELS, 'Area: Alpha', 'Area: Beta'],
+    });
+    assert.ok(result.isError);
+    const error = parseResult(result).error as string;
+    assert.match(error, /^multiple_area_labels: issue_create requires exactly one area label/);
+    assert.match(error, /Area: Alpha, Area: Beta, Area: Gamma/);
+    db.close();
+  });
+
+  it('accepts exactly one area label and reports area_inferred null', async () => {
+    const db = tempDB();
+    await configureAreas(db, { 'src/hooks/': 'Area: Beta' });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'one area',
+      description: 'touches src/hooks/x.ts',
+      labels: [...VALID_LABELS, 'Area: Alpha'],
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, created.error);
+    assert.equal(created.area_inferred, null);
+    assert.deepEqual(JSON.parse(created.labels), [...VALID_LABELS, 'Area: Alpha']);
+    db.close();
+  });
+
+  it('infers the area from a path named in the description', async () => {
+    const db = tempDB();
+    await configureAreas(db, { 'src/hooks/': 'Area: Beta', 'docs': 'Area: Gamma' });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'inferred area',
+      description: 'The guard in `src/hooks/x.ts:42` misfires.',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, created.error);
+    assert.notEqual(created.area_inferred, null);
+    assert.equal(created.area_inferred, 'Area: Beta');
+    assert.deepEqual(JSON.parse(created.labels), [...VALID_LABELS, 'Area: Beta']);
+    db.close();
+  });
+
+  it('refuses paths in two areas with ambiguous_area naming the candidates', async () => {
+    const db = tempDB();
+    await configureAreas(db, { 'src/hooks/': 'Area: Beta', 'docs/': 'Area: Gamma' });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'fix src/hooks/x.ts',
+      description: 'and update docs/guide.md.',
+      labels: VALID_LABELS,
+    });
+    assert.ok(result.isError);
+    const error = parseResult(result).error as string;
+    assert.match(error, /^ambiguous_area: issue_create/);
+    assert.match(error, /Area: Beta \(src\/hooks\/x\.ts\)/);
+    assert.match(error, /Area: Gamma \(docs\/guide\.md\)/);
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM issues WHERE id != -1')!.n, 0);
+    db.close();
+  });
+
+  it('lets the longest prefix win', async () => {
+    const db = tempDB();
+    await configureAreas(db, { 'src': 'Area: Alpha', 'src/hooks': 'Area: Beta' });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'longest prefix',
+      description: 'see ./src/hooks/lib/x.ts',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, created.error);
+    assert.equal(created.area_inferred, 'Area: Beta');
+    db.close();
+  });
+
+  it('matches prefixes on directory boundaries only', async () => {
+    const db = tempDB();
+    await configureAreas(db, { 'src/hooks': 'Area: Beta' });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'boundary',
+      description: 'see src/hooksmith/x.ts',
+      labels: VALID_LABELS,
+    });
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^missing_required_labels: issue_create requires an area label/);
+    db.close();
+  });
+
+  it('refuses a path map that points at an unconfigured area', async () => {
+    const db = tempDB();
+    await configureAreas(db, { 'lib/': 'Area: Delta' });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'bad map',
+      description: 'see lib/x.ts',
+      labels: VALID_LABELS,
+    });
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^invalid_area_config: issue_area_paths maps "lib" to "Area: Delta"/);
+    db.close();
+  });
+
+  it('config_set refuses malformed area values', async () => {
+    const db = tempDB();
+    const cfg = configTools(db);
+    for (const [key, value] of [
+      ['issue_area_labels', [1]],
+      ['issue_area_labels', 'Area: Alpha'],
+      ['issue_area_paths', ['src/']],
+      ['issue_area_paths', { 'src/': '' }],
+      ['issue_area_paths', { 'src/': 3 }],
+    ] as const) {
+      const result = await call(cfg.handlers, 'config_set', { agent: 'bro', key, value });
+      assert.ok(result.isError, `${key}=${JSON.stringify(value)} must be refused`);
+      assert.match(parseResult(result).error, /typed_field_violation/);
+    }
+    db.close();
+  });
+
+  it('an empty area set leaves validation unchanged', async () => {
+    const db = tempDB();
+    const cfg = configTools(db);
+    await call(cfg.handlers, 'config_set', { agent: 'bro', key: 'issue_area_labels', value: [] });
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'empty area set',
+      labels: VALID_LABELS,
+    });
+    assert.ok(!result.isError, parseResult(result).error);
+    assert.equal(parseResult(result).area_inferred, null);
+    db.close();
+  });
+});
+
 describe('issueTools — milestone (#83/#763)', () => {
   it('issue_create persists the milestone on the row', async () => {
     const db = tempDB();

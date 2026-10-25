@@ -1,7 +1,7 @@
 import { CodexAgentMaterializationError, CodexAgentMaterializer, } from './codex-agent-materializer.js';
 import { CodexRuntimeError, } from './codex-runtime.js';
 import { discussionTools } from './tools/discussions.js';
-import { getConfigValues, setConfigValues, storedConfigParseErrorPrefix, } from './tools/config.js';
+import { ISSUE_AREA_LABELS_KEY, ISSUE_AREA_PATHS_KEY, getConfigValues, isAreaPathMap, isNonEmptyStringArray, setConfigValues, storedConfigParseErrorPrefix, } from './tools/config.js';
 import { issueTools } from './tools/issues.js';
 import { scanTools } from './tools/scan.js';
 import { worldModelTools } from './tools/world_model.js';
@@ -67,7 +67,7 @@ export function createCodexToolRegistry(manager) {
             repo: { type: 'string', description: 'Optional repository-name restriction.' },
             k: { type: 'integer', minimum: 1, maximum: 20, description: 'Maximum result count. Defaults to 5.' },
         }, ['query'], { readOnly: true }),
-        tool('planning_label_taxonomy_get', 'Read the exact classification and priority labels accepted by the selected project.', {}, [], { readOnly: true }),
+        tool('planning_label_taxonomy_get', 'Read the exact classification and priority labels accepted by the selected project, plus its area labels and area path map when configured.', {}, [], { readOnly: true }),
         tool('planning_label_taxonomy_set', 'Configure the exact project-local classification and priority labels accepted by Codex planning.', {
             classification_labels: {
                 type: 'array',
@@ -99,7 +99,7 @@ export function createCodexToolRegistry(manager) {
                 type: 'array',
                 minItems: 1,
                 items: { type: 'string', minLength: 1, pattern: '\\S' },
-                description: 'Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy; additional explicit labels are allowed. Cannot be combined with classification or priority.',
+                description: 'Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy, plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted); additional explicit labels are allowed. Cannot be combined with classification or priority.',
             },
             repo: { type: 'string', description: 'Optional repository name from project_inventory.' },
             allow_duplicate: { type: 'boolean', description: 'Allow an objective similar to an existing open local issue.' },
@@ -239,6 +239,8 @@ export function createCodexToolRegistry(manager) {
                 labelTaxonomy: {
                     classification: taxonomy.classification_labels,
                     priorityLabels: taxonomy.priority_labels,
+                    areaLabels: taxonomy.area_labels ?? [],
+                    areaPaths: taxonomy.area_paths ?? {},
                 },
             });
             return callShared(shared.handlers['issue_create'], compact({
@@ -456,31 +458,41 @@ function forceLocalIssueSync(runtime) {
      VALUES ('issue_sync', '"off"')
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
 }
+const TAXONOMY_CONFIG_KEYS = [
+    CLASSIFICATION_TAXONOMY_KEY,
+    PRIORITY_TAXONOMY_KEY,
+    ISSUE_AREA_LABELS_KEY,
+    ISSUE_AREA_PATHS_KEY,
+];
 async function resolvePlanningLabelTaxonomy(runtime) {
     let values;
     try {
-        values = getConfigValues(runtime.db, [
-            CLASSIFICATION_TAXONOMY_KEY,
-            PRIORITY_TAXONOMY_KEY,
-        ]);
+        values = getConfigValues(runtime.db, TAXONOMY_CONFIG_KEYS);
     }
     catch (error) {
-        if (error instanceof Error &&
-            [CLASSIFICATION_TAXONOMY_KEY, PRIORITY_TAXONOMY_KEY].some((key) => error.message.startsWith(storedConfigParseErrorPrefix(key)))) {
-            const key = error.message.startsWith(storedConfigParseErrorPrefix(CLASSIFICATION_TAXONOMY_KEY))
-                ? CLASSIFICATION_TAXONOMY_KEY
-                : PRIORITY_TAXONOMY_KEY;
+        const key = TAXONOMY_CONFIG_KEYS.find((candidate) => error instanceof Error &&
+            error.message.startsWith(storedConfigParseErrorPrefix(candidate)));
+        if (key !== undefined)
             throw invalidLabelTaxonomy(key);
-        }
         throw error;
     }
     const classification = readTaxonomyConfig(values[CLASSIFICATION_TAXONOMY_KEY], CLASSIFICATION_TAXONOMY_KEY, DEFAULT_CLASSIFICATION_LABELS);
     const priority = readTaxonomyConfig(values[PRIORITY_TAXONOMY_KEY], PRIORITY_TAXONOMY_KEY, DEFAULT_PRIORITY_LABELS);
+    const areaLabels = values[ISSUE_AREA_LABELS_KEY] ?? [];
+    if (!isNonEmptyStringArray(areaLabels)) {
+        throw invalidLabelTaxonomy(ISSUE_AREA_LABELS_KEY, 'must be an array of non-empty strings.');
+    }
+    const areaPaths = values[ISSUE_AREA_PATHS_KEY];
+    if (areaPaths !== null && !isAreaPathMap(areaPaths)) {
+        throw invalidLabelTaxonomy(ISSUE_AREA_PATHS_KEY, 'must be an object mapping non-empty path prefixes to non-empty area labels.');
+    }
     return {
         classification_labels: classification.labels,
         priority_labels: priority.labels,
         classification_source: classification.source,
         priority_source: priority.source,
+        ...(areaLabels.length > 0 ? { area_labels: [...areaLabels] } : {}),
+        ...(areaPaths !== null ? { area_paths: { ...areaPaths } } : {}),
     };
 }
 function requireTaxonomyArray(input, inputKey, configKey) {
@@ -507,8 +519,8 @@ function readTaxonomyConfig(value, key, defaults) {
         source: arraysEqual(labels, defaults) ? 'default' : 'configured',
     };
 }
-function invalidLabelTaxonomy(key) {
-    return new CodexAdapterError('invalid_label_taxonomy', `${key} must be a non-empty array of non-empty strings.`);
+function invalidLabelTaxonomy(key, requirement = 'must be a non-empty array of non-empty strings.') {
+    return new CodexAdapterError('invalid_label_taxonomy', `${key} ${requirement}`);
 }
 function arraysEqual(left, right) {
     return (left.length === right.length &&

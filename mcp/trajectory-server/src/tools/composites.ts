@@ -24,6 +24,7 @@ import {
   milestoneDefaultFields,
   validateIssueLabels,
   defaultSyncLabels,
+  inferIssueArea,
 } from './issues.js';
 import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
@@ -634,7 +635,7 @@ export function compositeTools(
           intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
           branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
           repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create.' },
-          labels: { type: 'array', items: { type: 'string' }, description: 'Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row.' },
+          labels: { type: 'array', items: { type: 'string' }, description: 'Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore), plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row.' },
         },
         required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
       },
@@ -1947,11 +1948,17 @@ export function compositeTools(
         }
 
         const suppliedLabels = args['labels'] as string[] | undefined;
-        if (suppliedLabels !== undefined) {
-          const labelError = validateIssueLabels(db, suppliedLabels);
-          if (labelError !== null) return err(labelError);
-        }
-        const labels = suppliedLabels ?? defaultSyncLabels(db);
+        const inference = inferIssueArea(
+          db,
+          suppliedLabels ?? defaultSyncLabels(db),
+          [objective],
+          undefined,
+          'intent_start',
+        );
+        if ('error' in inference) return err(inference.error);
+        const { labels, areaInferred } = inference;
+        const labelError = validateIssueLabels(db, labels);
+        if (labelError !== null) return err(labelError);
 
         const now = nowISO();
         // Resolve the issue's repo (explicit arg, else the sole registered repo)
@@ -1993,6 +2000,7 @@ export function compositeTools(
             issue_id: issueId,
             branch_id: branchId,
             ...milestoneDefaultFields(milestoneResolution),
+            area_inferred: areaInferred,
           };
         });
 

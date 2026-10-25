@@ -40,6 +40,20 @@ export const KEYS = [
     effect: '`issue_create` requires at least one of these labels; unset or malformed falls back to the generic default.',
   },
   {
+    name: 'issue_area_labels',
+    type: 'string[]',
+    defaultText: 'unset (no area required)',
+    setBy: 'bro via `config_set` (anything but an array of non-empty strings is refused)',
+    effect: 'When non-empty, `issue_create`, `issue_update` (when labels are passed), `intent_start` and Codex `planning_issue_create` require exactly one of these labels; zero is `missing_required_labels`, two or more is `multiple_area_labels`. Unset or `[]` changes nothing.',
+  },
+  {
+    name: 'issue_area_paths',
+    type: 'object: `{"<path prefix>": "<area label>"}`',
+    defaultText: 'unset (no inference)',
+    setBy: 'bro via `config_set` (anything but an object of non-empty strings is refused)',
+    effect: 'When `issue_area_labels` is set and the caller passes no area, `issue_create` / `intent_start` match the paths named in the objective and description against these prefixes (longest wins), append the one area found and return it as `area_inferred`; paths in two or more areas refuse with `ambiguous_area`.',
+  },
+  {
     name: 'model_prices',
     type: 'object: `{"<model>": {input, output, cache_read, cache_creation}}` (USD per 1M tokens)',
     setBy: 'bro via `config_set`',

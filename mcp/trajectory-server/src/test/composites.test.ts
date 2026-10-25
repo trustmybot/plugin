@@ -1948,6 +1948,89 @@ describe('intent_start (#426)', () => {
     assert.equal(count!.n, 0);
     db.close();
   });
+
+  it('reports area_inferred null when no area config is set', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'fix src/hooks/x.ts',
+      intent_verbatim: 'x',
+      branch_id: 'fix/no-area-config',
+    });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(parse(r)['area_inferred'], null);
+    db.close();
+  });
+
+  describe('with issue_area_labels configured (GH 1770)', () => {
+    function configure(db: TrajectoryDB): void {
+      db.run(
+        `INSERT INTO plugin_config (key, value_json) VALUES ('issue_area_labels', ?), ('issue_area_paths', ?)`,
+        [JSON.stringify(['Area: Alpha', 'Area: Beta']), JSON.stringify({ 'src/hooks/': 'Area: Alpha', 'docs/': 'Area: Beta' })],
+      );
+    }
+
+    async function start(db: TrajectoryDB, objective: string, labels?: string[]): Promise<RawResult> {
+      const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+      return call(composites.handlers, 'intent_start', {
+        agent: 'bro',
+        objective,
+        intent_verbatim: 'x',
+        branch_id: 'feat/area-intent',
+        ...(labels ? { labels } : {}),
+      });
+    }
+
+    it('refuses no area and no path hit', async () => {
+      const db = tempDB();
+      configure(db);
+      const r = await start(db, 'no paths here');
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^missing_required_labels: .*an area label \(one of: Area: Alpha, Area: Beta\)/);
+      assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM issues WHERE id != -1`)!.n, 0);
+      db.close();
+    });
+
+    it('refuses two areas', async () => {
+      const db = tempDB();
+      configure(db);
+      const r = await start(db, 'two areas', ['Bug', 'Priority: High', 'Area: Alpha', 'Area: Beta']);
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^multiple_area_labels:/);
+      db.close();
+    });
+
+    it('refuses paths in two areas with ambiguous_area', async () => {
+      const db = tempDB();
+      configure(db);
+      const r = await start(db, 'touch src/hooks/x.ts and docs/y.md');
+      assert.equal(r.isError, true);
+      assert.match(parse(r)['error'] as string, /^ambiguous_area: intent_start .*Area: Alpha \(src\/hooks\/x\.ts\); Area: Beta \(docs\/y\.md\)/);
+      db.close();
+    });
+
+    it('accepts one supplied area', async () => {
+      const db = tempDB();
+      configure(db);
+      const r = await start(db, 'one area', ['Bug', 'Priority: High', 'Area: Beta']);
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['area_inferred'], null);
+      db.close();
+    });
+
+    it('infers the area from the objective onto the default labels', async () => {
+      const db = tempDB();
+      configure(db);
+      const r = await start(db, 'fix src/hooks/x.ts');
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['area_inferred'], 'Area: Alpha');
+      const issueId = (parse(r) as { issue_id: number }).issue_id;
+      const row = db.get<{ labels: string }>(`SELECT labels FROM issues WHERE id = ?`, [issueId]);
+      assert.ok((JSON.parse(row!.labels) as string[]).includes('Area: Alpha'));
+      db.close();
+    });
+  });
 });
 
 describe('filesToDirs (#300)', () => {

@@ -1532,6 +1532,89 @@ describe('Codex tool surface', () => {
     }
   });
 
+  it('carries configured area labels and paths into planning issue validation (GH 1770)', async () => {
+    const project = gitProject();
+    const runtimeManager = manager();
+    try {
+      const registry = createCodexToolRegistry(runtimeManager);
+      await runtimeManager.initialize(project);
+      await runtimeManager.withRuntime(project, ({ db }) => {
+        db.run(
+          `INSERT INTO plugin_config (key, value_json) VALUES ('issue_area_labels', ?), ('issue_area_paths', ?)`,
+          [JSON.stringify(['Area: Alpha', 'Area: Beta']), JSON.stringify({ 'src/hooks/': 'Area: Alpha' })],
+        );
+      });
+
+      const taxonomy = await registry.call('planning_label_taxonomy_get', { project_root: project });
+      const data = toolPayload(taxonomy)['data'] as Record<string, unknown>;
+      assert.deepEqual(data['area_labels'], ['Area: Alpha', 'Area: Beta']);
+      assert.deepEqual(data['area_paths'], { 'src/hooks/': 'Area: Alpha' });
+
+      const missing = await registry.call('planning_issue_create', {
+        project_root: project,
+        objective: 'Area missing',
+        labels: ['Feature', 'Priority: Medium'],
+      });
+      assert.equal(missing.isError, true);
+      assert.equal((toolPayload(missing)['error'] as Record<string, unknown>)['code'], 'missing_required_labels');
+
+      const two = await registry.call('planning_issue_create', {
+        project_root: project,
+        objective: 'Two areas',
+        labels: ['Feature', 'Priority: Medium', 'Area: Alpha', 'Area: Beta'],
+      });
+      assert.equal(two.isError, true);
+      assert.equal((toolPayload(two)['error'] as Record<string, unknown>)['code'], 'multiple_area_labels');
+
+      const inferred = await registry.call('planning_issue_create', {
+        project_root: project,
+        objective: 'Inferred hook area',
+        description: 'The guard in src/hooks/x.ts misfires.',
+      });
+      assert.notEqual(inferred.isError, true, JSON.stringify(toolPayload(inferred)));
+      const issue = toolPayload(inferred)['data'] as { labels: string; area_inferred: string | null };
+      assert.equal(issue.area_inferred, 'Area: Alpha');
+      assert.deepEqual(JSON.parse(issue.labels), ['Feature', 'Priority: Medium', 'Area: Alpha']);
+    } finally {
+      runtimeManager.close();
+    }
+  });
+
+  it('fails closed on a malformed stored area configuration', async () => {
+    for (const { key, invalidValue } of [
+      { key: 'issue_area_labels', invalidValue: '[1]' },
+      { key: 'issue_area_labels', invalidValue: '"Area: Alpha"' },
+      { key: 'issue_area_labels', invalidValue: 'not-json' },
+      { key: 'issue_area_paths', invalidValue: '["src/"]' },
+      { key: 'issue_area_paths', invalidValue: '{"src/":""}' },
+    ]) {
+      const project = gitProject();
+      const runtimeManager = manager();
+      try {
+        const registry = createCodexToolRegistry(runtimeManager);
+        await runtimeManager.initialize(project);
+        await runtimeManager.withRuntime(project, ({ db }) => {
+          db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`, [key, invalidValue]);
+        });
+        const created = await registry.call('planning_issue_create', {
+          project_root: project,
+          objective: `Reject area config ${invalidValue}`,
+          labels: ['Feature', 'Priority: Medium'],
+        });
+        assert.equal(created.isError, true);
+        assert.equal(
+          (toolPayload(created)['error'] as Record<string, unknown>)['code'],
+          'invalid_label_taxonomy',
+        );
+        await runtimeManager.withRuntime(project, ({ db }) => {
+          assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM issues WHERE id != -1')!.n, 0);
+        });
+      } finally {
+        runtimeManager.close();
+      }
+    }
+  });
+
   it('runs a local-only scan and planning flow with fixed Bro authorship', async () => {
     const project = gitProject();
     execFileSync('git', ['-C', project, 'config', 'user.email', 'test@example.com']);
