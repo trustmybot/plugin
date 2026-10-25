@@ -17,10 +17,10 @@ export function relativeText(date: Date, now: Date): string {
     const format = date.getFullYear() === now.getFullYear() ? THIS_YEAR : OTHER_YEAR;
     return `on ${format.format(date)}`;
   }
-  if (abs < MINUTE) return RELATIVE.format(Math.round(diff / SECOND), 'second');
-  if (abs < HOUR) return RELATIVE.format(Math.round(diff / MINUTE), 'minute');
-  if (abs < DAY) return RELATIVE.format(Math.round(diff / HOUR), 'hour');
-  return RELATIVE.format(Math.round(diff / DAY), 'day');
+  if (abs < MINUTE) return RELATIVE.format(Math.trunc(diff / SECOND), 'second');
+  if (abs < HOUR) return RELATIVE.format(Math.trunc(diff / MINUTE), 'minute');
+  if (abs < DAY) return RELATIVE.format(Math.trunc(diff / HOUR), 'hour');
+  return RELATIVE.format(Math.trunc(diff / DAY), 'day');
 }
 
 export function RelativeTime({ value, now }: { value: unknown; now?: Date }) {

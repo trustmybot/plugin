@@ -1,4 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react';
+// Forked from Primer React DataTable (github.com/primer/react, MIT), rebuilt on TanStack Table and Primer tokens without @primer/react.
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { ArrowBothIcon, ArrowDownIcon, ArrowUpIcon, SearchIcon, TableIcon } from '@primer/octicons-react';
 import {
   flexRender,
   getCoreRowModel,
@@ -9,12 +11,29 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import type { Row } from './api.ts';
+import { FIELD } from './shared/classes.ts';
+import { Blankslate } from './ui/Blankslate.tsx';
+import { Box } from './ui/Box.tsx';
 
 export interface Column {
   key: string;
   header: string;
   cell?: (row: Row) => ReactNode;
   truncate?: boolean;
+  hideBelow?: 'sm' | 'md';
+}
+
+const HIDE_BELOW = { sm: 'max-sm:hidden', md: 'max-md:hidden' } as const;
+const FOCUS_RING = 'focus-visible:outline-(length:--focus-outline-width) focus-visible:outline-(--focus-outline-color) focus-visible:-outline-offset-2';
+const ARIA_SORT = { asc: 'ascending', desc: 'descending' } as const;
+
+const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
+const hideClass = (col?: Column) => col?.hideBelow && HIDE_BELOW[col.hideBelow];
+
+function SortIcon({ dir }: { dir: false | 'asc' | 'desc' }) {
+  if (dir === 'asc') return <ArrowUpIcon size={16} aria-hidden="true" />;
+  if (dir === 'desc') return <ArrowDownIcon size={16} aria-hidden="true" />;
+  return <ArrowBothIcon size={16} aria-hidden="true" className="rotate-90 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />;
 }
 
 export function DataTable({
@@ -51,41 +70,67 @@ export function DataTable({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
   });
+  const visible = table.getRowModel().rows;
+  const activate = (row: Row) => (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    onRowClick?.(row);
+  };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {filter && (
-        <input
-          className="w-full max-w-xs rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700"
-          placeholder="Filter…"
-          value={globalFilter}
-          onChange={(e) => setGlobalFilter(e.target.value)}
-        />
+        <div className="relative max-w-sm">
+          <SearchIcon size={16} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-fg-muted" />
+          <input
+            type="search"
+            aria-label="Filter rows"
+            className={`${FIELD} pl-8`}
+            placeholder="Filter…"
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+          />
+        </div>
       )}
-      <div className="overflow-x-auto rounded border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-100 dark:bg-zinc-900">
+      <Box className="overflow-x-auto">
+        <table className="w-full border-separate border-spacing-0 text-left text-sm">
+          <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th
-                    key={h.id}
-                    className="cursor-pointer select-none whitespace-nowrap px-3 py-2 font-medium"
-                    onClick={h.column.getToggleSortingHandler()}
-                  >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {{ asc: ' ▲', desc: ' ▼' }[h.column.getIsSorted() as string] ?? ''}
-                  </th>
-                ))}
+                {hg.headers.map((h) => {
+                  const dir = h.column.getIsSorted();
+                  return (
+                    <th
+                      key={h.id}
+                      scope="col"
+                      aria-sort={dir ? ARIA_SORT[dir] : 'none'}
+                      className={cx(
+                        'whitespace-nowrap border-b border-(--borderColor-default) bg-canvas-muted px-4 py-2 text-xs font-semibold text-fg-muted first:rounded-tl-md last:rounded-tr-md max-sm:px-2',
+                        hideClass(byKey.get(h.column.id)),
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className={`group -mx-1 inline-flex items-center gap-1 rounded-md px-1 font-semibold hover:text-fg ${FOCUS_RING}`}
+                        onClick={h.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                        <SortIcon dir={dir} />
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((r) => (
+            {visible.map((r) => (
               <tr
                 key={r.id}
-                className={`border-t border-zinc-200 dark:border-zinc-800 ${onRowClick ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900' : ''}`}
+                className={cx('group/row', onRowClick && `cursor-pointer ${FOCUS_RING}`)}
+                tabIndex={onRowClick ? 0 : undefined}
                 onClick={onRowClick ? () => onRowClick(r.original) : undefined}
+                onKeyDown={onRowClick ? activate(r.original) : undefined}
               >
                 {r.getVisibleCells().map((cell) => {
                   const col = byKey.get(cell.column.id);
@@ -93,7 +138,11 @@ export function DataTable({
                   return (
                     <td
                       key={cell.id}
-                      className={`whitespace-nowrap px-3 py-1.5 align-top ${col?.truncate ? 'max-w-[32rem] truncate' : ''}`}
+                      className={cx(
+                        'whitespace-nowrap border-t border-(--borderColor-muted) px-4 py-2 align-top group-first/row:border-t-0 group-hover/row:bg-canvas-muted max-sm:px-2',
+                        col?.truncate && 'max-w-[32rem] truncate',
+                        hideClass(col),
+                      )}
                       title={col?.truncate && value !== '' && value !== null && value !== undefined ? String(value) : undefined}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -102,21 +151,25 @@ export function DataTable({
                 })}
               </tr>
             ))}
-            {table.getRowModel().rows.length === 0 && (
+            {visible.length === 0 && (
               <tr>
-                <td className="px-3 py-4 text-zinc-500" colSpan={columns.length}>
-                  No rows.
+                <td colSpan={columns.length}>
+                  <Blankslate
+                    icon={TableIcon}
+                    heading={rows.length === 0 ? 'No rows yet' : 'No matching rows'}
+                    description={rows.length === 0 ? undefined : 'Try a different filter.'}
+                  />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      </div>
+      </Box>
     </div>
   );
 }
 
 function formatCell(value: unknown): ReactNode {
-  if (value === null || value === undefined || value === '') return <span className="text-zinc-400">—</span>;
+  if (value === null || value === undefined || value === '') return <span className="text-fg-muted">—</span>;
   return String(value);
 }
