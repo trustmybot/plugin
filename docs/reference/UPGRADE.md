@@ -18,31 +18,29 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
   "SELECT plugin_version FROM plugin_meta;"
 ```
 
-Or open Claude Code and inspect the plugin via `/plugin info tmb`.
+Or, from the project root, run `claude plugin list` (each install's version and scope) or `claude plugin details tmb@<marketplace>`.
 
 The SessionStart project inventory also prints a `Plugin version:` line at the top of every session, so you can see the running version without a query.
 
 ### Version-skew banner — "restart to apply"
 
-CC can fetch a newer version into its marketplace cache while the **older** MCP server / hooks keep running until you reload. When that happens, the SessionStart inventory appends a line:
+CC can fetch a newer version into its marketplace cache while the **older** MCP server / hooks keep running until you restart Claude Code. When that happens, the SessionStart inventory appends a line:
 
 ```
-newer plugin version <X.Y.Z> is installed but <A.B.C> is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply
+newer plugin version <X.Y.Z> is installed but <A.B.C> is still running — fully quit and relaunch Claude Code to apply
 ```
 
-That is your cue to reload — the new files are on disk but inert until the MCP server reboots (see below). The line disappears once the running version matches the highest cached version. It is read-only and never blocks the session.
+That is your cue to restart — the new files are on disk but inert until the MCP server reboots (see below). The line disappears once the running version matches the highest cached version. It is read-only and never blocks the session.
 
 ### How CC delivers an update
 
 Claude Code checks the marketplace for new versions automatically. A new version is detected when the `version` field in `plugin.json` changes — pushing commits without bumping `version` does **not** trigger an update.
 
-When CC pulls a new version, the new files land on disk but the **running MCP server keeps using the old code's path** until you reload. The schema migration is part of the MCP server's boot sequence, so the migration does not apply until the MCP server restarts.
+When CC pulls a new version, the new files land on disk but the **running MCP server keeps using the old code's path** until you restart Claude Code. The schema migration is part of the MCP server's boot sequence, so the migration does not apply until the MCP server restarts.
 
 ### Trigger the new MCP server (required to apply the migration)
 
-After CC reports the plugin updated, **fully quit Claude Code and relaunch it** — `Cmd+R` in the desktop app, or close + reopen. A full quit + relaunch reboots the MCP server process, and its fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies any pending migrations, and bumps the version. Reconnecting the trajectory-server via `/mcp` also reboots the server and applies the migration.
-
-`/reload-plugins` re-reads hooks, skills, and commands from the new cache, but it does **not** restart the MCP server process — on its own it will not apply a pending migration.
+After CC reports the plugin updated, **fully quit Claude Code and relaunch it** — `Cmd+R` in the desktop app, or close + reopen. A full quit + relaunch reboots the MCP server process, and its fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies any pending migrations, and bumps the version. The same restart loads the new hooks, skills, agents and commands; nothing short of it applies a pending migration.
 
 If the SessionStart "newer plugin version … restart to apply" banner is showing, this is the step that clears it.
 
@@ -112,7 +110,7 @@ Both columns should match the version you just installed.
 
 ### Upgrading into v1.1.0 — the bro persona loads from the plugin
 
-Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your sessions through two hooks: `session-start-persona.sh` injects the plugin's `CLAUDE.md` on startup, resume, `/clear` and compaction, and `user-prompt-persona.sh` injects it once on the first prompt of a session that has not had it yet. After installing or upgrading mid-session, run `/reload-plugins` or start a new session. TMB does not write, edit or remove anything in `<project>/CLAUDE.md`, and `onboard_apply` rejects a `persona` argument (`persona_input_removed`).
+Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your sessions through two hooks: `session-start-persona.sh` injects the plugin's `CLAUDE.md` on startup, resume, `/clear` and compaction, and `user-prompt-persona.sh` injects it once on the first prompt of a session that has not had it yet. After installing or upgrading mid-session, fully quit and relaunch Claude Code. TMB does not write, edit or remove anything in `<project>/CLAUDE.md`, and `onboard_apply` rejects a `persona` argument (`persona_input_removed`).
 
 An earlier release candidate's `/onboard` copied the persona into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`. TMB leaves that block where it is; the injected context notes that it is not needed, and you may delete the marked lines yourself.
 
@@ -157,7 +155,7 @@ v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal ch
 
 ### Two enabled TMB copies — gates silently missing
 
-Installing a second channel without removing the first (`tmb@trustmybot-dev` and `tmb@trustmybot-rc` both enabled for one project, at any mix of user, project and local scope) leaves two enabled plugins with the manifest name `tmb`. Claude Code registers the `hooks/hooks.json` of only one of them and skips the other's with a note under `/plugin` → Errors; which copy it keeps is not documented. MCP tools can keep working while the skipped copy's gates never fire. TMB detects it from `~/.claude/plugins/installed_plugins.json` plus the `enabledPlugins` maps in the project's `.claude/settings.local.json`, `.claude/settings.json` and the user `settings.json` (file reads only; a user-scope and a project-scope entry of one marketplace count as one copy) in three places: the SessionStart banner (`mcp-health-check.sh` warning and a `Plugin: duplicate tmb copies enabled (…)` line from the prescan), `scripts/health.sh` (`WARN  duplicate-plugin`, exit code unchanged) and the error-severity `trajectory_doctor` contract `single_tmb_plugin_enabled`. Fix: run `/plugin`, disable or uninstall the extra copy, then restart Claude Code.
+Installing a second channel without removing the first (`tmb@trustmybot-dev` and `tmb@trustmybot-rc` both enabled for one project, at any mix of user, project and local scope) leaves two enabled plugins with the manifest name `tmb`. Claude Code registers the `hooks/hooks.json` of only one of them and skips the other's with a plugin load error; which copy it keeps is not documented. MCP tools can keep working while the skipped copy's gates never fire. TMB detects it from `~/.claude/plugins/installed_plugins.json` plus the `enabledPlugins` maps in the project's `.claude/settings.local.json`, `.claude/settings.json` and the user `settings.json` (file reads only; a user-scope and a project-scope entry of one marketplace count as one copy) in three places: the SessionStart banner (`mcp-health-check.sh` warning and a `Plugin: duplicate tmb copies enabled (…)` line from the prescan), `scripts/health.sh` (`WARN  duplicate-plugin`, exit code unchanged) and the error-severity `trajectory_doctor` contract `single_tmb_plugin_enabled`. Fix: from the project root, disable the extra copy at the scope it is installed at, e.g. `claude plugin disable tmb@trustmybot-rc --scope local` (the warnings print the command for each copy), then fully quit and relaunch Claude Code.
 
 ### MCP server disabled via CC's per-project state (rare, hard to detect)
 
@@ -178,13 +176,13 @@ Recovery (one of):
   ```bash
   jq '.projects."<project-path>".disabledMcpServers = []' ~/.claude.json > ~/.claude.json.tmp && mv ~/.claude.json.tmp ~/.claude.json
   ```
-  Then relaunch CC (or `/reload-plugins`).
+  Then fully quit and relaunch CC.
 
 The flag is written by CC when a user disables an MCP server through the CC UI, OR potentially when CC auto-disables a misbehaving server. The plugin cannot read or write it — it's CC-owned state. Track at #2888 for context on how this was discovered.
 
 ### MCP server never registers after upgrade (CC plugin cache bug, issue #2888)
 
-After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a new tmb version, the trajectory MCP server can fail to register entirely. CC loads tmb's hooks / skills / agents / commands from the new cache dir, but the MCP server is absent from CC's resolved plugin list — and **`/reload-plugins` does not fix it. A full CC quit + relaunch does not fix it either.** CC persists the broken resolved-plugin list to disk somewhere that survives process restart.
+After disabling and re-enabling the plugin, or after CC's auto-update lands a new tmb version, the trajectory MCP server can fail to register entirely. CC loads tmb's hooks / skills / agents / commands from the new cache dir, but the MCP server is absent from CC's resolved plugin list — and **a full CC quit + relaunch does not fix it.** CC persists the broken resolved-plugin list to disk somewhere that survives process restart.
 
 **Symptoms:**
 

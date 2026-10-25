@@ -27,3 +27,4 @@ const q = 'https://example.com'; // claude mcp remove x in a trailing comment
 const kinds = ['skill', 'mcp', 'plugin'];
 const r = execSync(`${claudeBin} mcp remove ${name} --scope project`);
 const s = runClaude(['plugin', 'install', ref, '--scope', 'user', '--scope=project'], t);
+const remedy = 'run `claude plugin disable <plugin>@<marketplace> --scope <scope>`'; // cli-config-scope: printed

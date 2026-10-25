@@ -39,7 +39,11 @@
 # test/ (test sources quote CLI calls in prose and pass `['plugin', dir]` as
 # SQL parameters), dist/ and node_modules/ directory.
 #
-# Exempt: the Human-run repair tools on tests/l1-lint/no-home-writes.allowlist.
+# Exempt: the Human-run repair tools on tests/l1-lint/no-home-writes.allowlist,
+# and a call shown to the Human rather than run — a remedy line or a README
+# template giving the channel's own scope (`--scope local` for rc/dev,
+# GH 1730). Mark it with a `# cli-config-scope: printed` (or `//`) comment on
+# its line; on a heredoc's opening line the comment covers the whole body.
 #
 # --self-test runs the checks against fixtures/cli-config-scope/: every line
 # marked VIOLATION in a bad fixture is flagged, nothing else is, and the good
@@ -317,6 +321,18 @@ for my $file (@ARGV) {
   close $fh;
   $raw = "" unless defined $raw;
   my $js = $file =~ /\.(?:[cm]?js|[cm]?ts)$/;
+  my %printed;
+  my @raw = split /\n/, $raw, -1;
+  for my $k (0 .. $#raw) {
+    next unless $raw[$k] =~ m{(?:#|//)\s*cli-config-scope: printed\b};
+    $printed{ $k + 1 } = 1;
+    next unless $raw[$k] =~ /<<-?[ \t]*(["\x27]?)([A-Za-z_]\w*)\1/;
+    my $d = $2;
+    for my $m ($k + 1 .. $#raw) {
+      $printed{ $m + 1 } = 1;
+      last if $raw[$m] =~ /^\t*\Q$d\E\s*$/;
+    }
+  }
   my ($text, $map, $toks) = lex($raw, $js);
   my %prog;
   while ($text =~ /(?<![\w\$])([A-Za-z_]\w*)[ \t]*=(?![=~])[ \t]*([^\n;]*)/g) {
@@ -327,7 +343,7 @@ for my $file (@ARGV) {
   my $report = sub {
     my ($pos, $call) = @_;
     my $n = 1 + (substr($text, 0, $pos) =~ tr/\n//);
-    return if $seen{$n}++;
+    return if $printed{$n} || $seen{$n}++;
     $call =~ s/\s+/ /g;
     $call =~ s/^ | $//g;
     print "$file:$n: $call\n";

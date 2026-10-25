@@ -17,11 +17,11 @@
 #   - a leftover graph file from the old store → INFO line, file kept
 #   - the DB file's bytes and mtime unchanged after the run (read-only probe)
 #
-# LOAD-BEARING (#144): NO MCP-server-state FAIL — server-unreachable,
-# schema-stale, world-model-unavailable — ever prescribes `/reload-plugins`.
-# Those require a FULL Claude Code restart because /reload-plugins re-reads
-# hook/skill/agent/command DEFINITIONS but does NOT respawn the long-lived MCP
-# server. Each such scenario asserts the absence of /reload-plugins explicitly.
+# LOAD-BEARING (#144, GH 1730): every remediation names a scoped `claude
+# plugin …` command and/or a FULL Claude Code quit + relaunch, and none names an
+# in-session command (`/plugin`, `/reload-plugins`, `/mcp`): a plugin change
+# applies only after a full restart, which also respawns the long-lived MCP
+# server. Each failing scenario asserts that with assert_no_in_session_cmd.
 #
 # All state lives under a mktemp sandbox; the script reads only via env
 # overrides (TRAJECTORY_DB_PATH + TMB_HEALTH_*), so the real plugin DB / cache /
@@ -51,6 +51,13 @@ cleanup() {
   rm -rf "$SANDBOX"
 }
 trap cleanup EXIT
+
+IN_SESSION_CMD='(^|[ `"'"'"'(])/(plugin|reload-plugins|mcp)([ `"'"'"'),.;:]|$)'
+assert_no_in_session_cmd() {
+  local found
+  found=$(printf '%s\n' "$1" | grep -E "$IN_SESSION_CMD" || true)
+  assert_eq "" "$found" "$2"
+}
 
 # The script's server-reachable probe shells out to pgrep. Shadow it via PATH
 # with a stub so the developer's real trajectory-server processes never leak in.
@@ -215,11 +222,8 @@ test_case "check1 server-reachable: remediation says full quit + relaunch"
 rem=$(remediation_after "$out" "FAIL  server-reachable")
 assert_contains "$rem" "Fully quit Claude Code" "server-down restart remediation"
 
-test_case "check1 server-reachable: LOAD-BEARING — never prescribes /reload-plugins"
-assert_not_contains "$rem" "/reload-plugins NOW" "no reload directive in server-state remediation"
-# The only mention allowed is the explicit negation ("NOT /reload-plugins").
-# Assert no bare positive directive: the remediation must contain "NOT /reload-plugins".
-assert_contains "$rem" "NOT /reload-plugins" "server-down explicitly forbids /reload-plugins"
+test_case "check1 server-reachable: LOAD-BEARING — no in-session command"
+assert_no_in_session_cmd "$rem" "server-down remediation names no /plugin, /reload-plugins or /mcp"
 
 # ============================================================================
 # Check 2 — cache-version: DB booted older than installed → FAIL, restart
@@ -252,8 +256,9 @@ assert_contains "$(scoped_rem tmb@trustmybot '"scope":"local",')" "claude plugin
 assert_contains "$(scoped_rem tmb@trustmybot '"scope":"user",')" "claude plugin update tmb@trustmybot --scope project" "user scope falls back to stable default"
 assert_contains "$(scoped_rem tmb@trustmybot-dev '')" "claude plugin update tmb@trustmybot-dev --scope local" "no scope falls back to dev default"
 
-test_case "check2 cache-version: LOAD-BEARING — /reload-plugins won't pick up server"
-assert_contains "$rem" "/reload-plugins will NOT pick up the new server" "cache-version forbids reload as the fix"
+test_case "check2 cache-version: LOAD-BEARING — only a full restart picks up the server"
+assert_contains "$rem" "Only a full restart picks up the new server" "cache-version names the full restart"
+assert_no_in_session_cmd "$rem" "cache-version remediation names no /plugin, /reload-plugins or /mcp"
 
 # ============================================================================
 # Check 3 — schema-version: DB schema behind installed target → FAIL, restart
@@ -270,8 +275,8 @@ rem=$(remediation_after "$out" "FAIL  schema-version")
 assert_contains "$rem" "Fully quit + relaunch Claude Code" "schema restart remediation"
 assert_contains "$rem" "migration runs on the next SERVER start" "schema migration framing"
 
-test_case "check3 schema-version: LOAD-BEARING — /reload-plugins does NOT run the migration"
-assert_contains "$rem" "/reload-plugins does NOT restart the server" "schema forbids reload as the fix"
+test_case "check3 schema-version: LOAD-BEARING — no in-session command"
+assert_no_in_session_cmd "$rem" "schema remediation names no /plugin, /reload-plugins or /mcp"
 
 # ============================================================================
 # Check 4 — world-model: wm_ tables with rows → PASS naming the counts
@@ -311,7 +316,7 @@ assert_contains "$out" "FAIL  world-model: wm_directories / wm_files missing" "m
 rem=$(remediation_after "$out" "FAIL  world-model")
 assert_contains "$rem" "quit + relaunch" "missing-tables remediation restarts"
 assert_contains "$rem" "run /scan" "missing-tables remediation then scans"
-assert_not_contains "$rem" "/reload-plugins" "missing-tables remediation never mentions /reload-plugins"
+assert_no_in_session_cmd "$rem" "missing-tables remediation names no /plugin, /reload-plugins or /mcp"
 
 # ============================================================================
 # Check 4 — a leftover graph file from the old store → INFO, never deleted
@@ -413,9 +418,8 @@ assert_contains "$out" "feat/some-thing" "stale remediation names the branch"
 assert_contains "$out" ".claude/worktrees/some-thing" "stale remediation names the worktree"
 
 # ============================================================================
-# Check 7 — hook-cache-drift: dev checkout version != cache → FAIL, /reload OK
-# This is the ONE check where /reload-plugins is the CORRECT remediation
-# (hook/skill/agent/command DEFINITION drift, not MCP server state).
+# Check 7 — hook-cache-drift: dev checkout version != cache → FAIL, scoped
+# update then a full restart (definition drift needs one too).
 # ============================================================================
 test_case "check7 hook-cache-drift: dev checkout != cache → FAIL"
 reset_scenario hook-drift
@@ -428,42 +432,34 @@ F_INTENDED="0.10.0-delta"
 out=$(run_health)
 assert_contains "$out" "FAIL  hook-cache-drift: dev checkout is 0.10.0-epsilon but the cache runs 0.10.0-delta" "hook-drift FAIL line"
 
-test_case "check7 hook-cache-drift: remediation EXPLICITLY allows /reload-plugins"
+test_case "check7 hook-cache-drift: remediation = scoped claude plugin update + full relaunch"
 rem=$(remediation_after "$out" "FAIL  hook-cache-drift")
-assert_contains "$rem" "run /reload-plugins" "drift remediation prescribes /reload-plugins (correct here)"
-assert_contains "$rem" "the RIGHT tool here" "drift remediation marks /reload-plugins as correct"
+assert_contains "$rem" "claude plugin update tmb@<marketplace> --scope project (stable) or --scope local (rc/dev)" "drift remediation names the scoped update"
+assert_contains "$rem" "fully quit + relaunch Claude Code" "drift remediation prescribes a full restart"
+assert_no_in_session_cmd "$rem" "drift remediation names no /plugin, /reload-plugins or /mcp"
 
 # ============================================================================
-# Cross-cutting LOAD-BEARING sweep (#144):
-# Run each MCP-server-state failure and assert /reload-plugins is NEVER the
-# prescribed fix. The drift check (7) is the only legitimate /reload-plugins
-# emitter; all server-state checks must steer to a full restart.
+# Cross-cutting LOAD-BEARING sweep (#144, GH 1730): the whole output of every
+# failing scenario names no in-session command.
 # ============================================================================
-test_case "sweep: server-down emits NO bare /reload-plugins directive"
+test_case "sweep: server-down output names no in-session command"
 reset_scenario sweep-server
 F_PGREP="0"
 out=$(run_health)
-rem=$(remediation_after "$out" "FAIL  server-reachable")
-# A server-state remediation may NEGATE /reload-plugins but must never tell the
-# user to run it. Strip the explicit negations, then assert nothing remains.
-residual=$(printf '%s\n' "$rem" | grep -F '/reload-plugins' | grep -vF 'NOT /reload-plugins' || true)
-assert_eq "" "$residual" "server-state remediation has no positive /reload-plugins directive"
+assert_no_in_session_cmd "$out" "server-down output names no /plugin, /reload-plugins or /mcp"
 
-test_case "sweep: schema-stale emits NO bare /reload-plugins directive"
+test_case "sweep: schema-stale output names no in-session command"
 reset_scenario sweep-schema
 sqlite3 "$F_DB" "UPDATE plugin_meta SET schema_version=23 WHERE id=1;"
 make_cache "$F_CACHE" 24
 out=$(run_health)
-rem=$(remediation_after "$out" "FAIL  schema-version")
-residual=$(printf '%s\n' "$rem" | grep -F '/reload-plugins' | grep -vF 'does NOT restart the server' || true)
-assert_eq "" "$residual" "schema-state remediation has no positive /reload-plugins directive"
+assert_no_in_session_cmd "$out" "schema-stale output names no /plugin, /reload-plugins or /mcp"
 
-test_case "sweep: world-model tables missing emits NO /reload-plugins at all"
+test_case "sweep: world-model tables missing output names no in-session command"
 reset_scenario sweep-world-model
 sqlite3 "$F_DB" "DROP TABLE wm_files; DROP TABLE wm_directories;"
 out=$(run_health)
-rem=$(remediation_after "$out" "FAIL  world-model")
-assert_not_contains "$rem" "/reload-plugins" "world-model remediation never mentions /reload-plugins"
+assert_no_in_session_cmd "$out" "world-model output names no /plugin, /reload-plugins or /mcp"
 
 # ============================================================================
 # duplicate-plugin warning — two enabled copies: WARN naming both, exit 0
@@ -486,7 +482,9 @@ rc=$?
 set -e
 assert_contains "$out" "WARN  duplicate-plugin: 2 enabled tmb copies" "WARN line"
 assert_contains "$out" "trustmybot-dev@1.0.3, trustmybot-rc@1.0.2-rc.3" "names both copies"
-assert_contains "$out" "Run /plugin and disable the extra copy" "remedy"
+assert_contains "$out" "claude plugin disable tmb@trustmybot-dev --scope local; claude plugin disable tmb@trustmybot-rc --scope local" "remedy names a scoped disable per copy"
+assert_contains "$out" "Then fully quit + relaunch Claude Code." "remedy restarts"
+assert_no_in_session_cmd "$out" "duplicate-plugin output names no /plugin, /reload-plugins or /mcp"
 assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
 assert_exit_code 0 "$rc" "exit code unchanged"
 

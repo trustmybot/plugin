@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/user-prompt-persona.sh.
-# Covers: with no persona marker for the session (plugin installed mid-session,
-# then /reload-plugins) the persona is injected once and the marker written;
+# Covers: with no persona marker for the session (plugin hooks reloaded
+# mid-session) the persona is injected once and the marker written;
 # silence once session-start-persona.sh marked the session; the old-block note;
 # silence at the plugin root and without a session_id; a once-only plain
 # notice to start a new session when the plugin CLAUDE.md cannot be read; raw

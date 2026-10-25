@@ -298,12 +298,12 @@ $COLD_NOTE"
 # Version-skew note (#602) — only when a newer version sits in the cache but
 # the older one is still running.
 [ -n "$NEWER_CACHED_VERSION" ] && COLD_SUFFIX="${COLD_SUFFIX}
-newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply"
+newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — fully quit and relaunch Claude Code to apply"
 
 # Duplicate enabled copies of this plugin: Claude Code keeps one copy's hooks.
 DUP_INSTALLS=$(tmb_duplicate_installs "$(tmb_project_root)" 2>/dev/null || true)
 [ -n "$DUP_INSTALLS" ] && COLD_SUFFIX="${COLD_SUFFIX}
-Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; run /plugin"
+Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; keep one and disable the others from the project root ($(tmb_duplicate_installs_disable_cmds "$DUP_INSTALLS")), then fully quit and relaunch Claude Code"
 
 # Pre-1.1.0 TMB hooks in the user-scope settings.json run in every project;
 # the Human removes them by hand.

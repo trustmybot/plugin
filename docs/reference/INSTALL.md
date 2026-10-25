@@ -20,7 +20,7 @@ claude plugin marketplace update trustmybot   # no scope flag
 
 For another channel, swap in its marketplace: `trustmybot/marketplace-rc` with `tmb@trustmybot-rc`, or `trustmybot/marketplace-dev` with `tmb@trustmybot-dev`.
 
-Inside Claude Code, `/plugin install` asks for the scope; pick **project** or **local**.
+After any install, update, enable, disable or uninstall, fully quit and relaunch Claude Code: a plugin change applies only on a fresh start. TMB gives these commands only in their CLI form, because the in-session plugin command does not work in Claude Desktop and a full restart is needed either way.
 
 Installing at both scopes is safe. Each project uses exactly one install: its own project (or local) install when there is one, else the user-scope install; with two project installs the newest wins. Every hook registration runs through `scripts/hooks/dispatch.sh`, which executes that install's gate once per event however many registrations fire, so a user-scope or stale install never runs a second copy of a gate or an older version of it. SessionStart says once per session when a user-scope install is ignored in favour of the project's. See [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md).
 
@@ -58,7 +58,7 @@ Nothing is written under `~/.claude` or anywhere else in your home directory. Th
 bro's persona and routing table live in the plugin's own `CLAUDE.md`, which Claude Code never loads for a plugin, so two hooks deliver it as session context:
 
 - `session-start-persona.sh` (SessionStart) injects it on startup, resume, `/clear` and compaction, and writes the session's `.persona` marker.
-- `user-prompt-persona.sh` (UserPromptSubmit) covers a session that started before the plugin's hooks were loaded: on the first prompt with no marker it injects the persona once. Installed TMB mid-session? Run `/reload-plugins` (or start a new session); your next prompt brings bro in. If the plugin's `CLAUDE.md` cannot be read, it shows a one-time notice to start a new session instead.
+- `user-prompt-persona.sh` (UserPromptSubmit) covers a session that started before the plugin's hooks were loaded: on the first prompt with no marker it injects the persona once. Installed TMB mid-session? Fully quit and relaunch Claude Code; your next prompt brings bro in. If the plugin's `CLAUDE.md` cannot be read, it shows a one-time notice to start a new session instead.
 
 Neither hook runs its injection when the project is the TMB source checkout itself, where Claude Code already loads that `CLAUDE.md`. A `<!-- tmb:persona start … -->` … `<!-- tmb:persona end -->` block an older `/onboard` copied into your `CLAUDE.md` is not needed: the injected context carries a one-line note saying so, and you may delete the marked lines whenever you like.
 

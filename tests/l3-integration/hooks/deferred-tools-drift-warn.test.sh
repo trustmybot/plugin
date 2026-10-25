@@ -65,6 +65,8 @@ assert_contains "$out" '"hookEventName":"SessionStart"' "JSON event name present
 assert_contains "$out" 'deferred-tools drift' "warning label present"
 assert_contains "$out" '#98' "issue reference present"
 assert_contains "$out" 'Tier 2' "tier 2 workaround present"
+assert_contains "$out" 'fully quit and relaunch Claude Code' "workaround is a full restart"
+assert_eq "" "$(printf '%s\n' "$out" | grep -E '(^|[ `"'"'"'(])/(plugin|reload-plugins|mcp)([ `"'"'"'),.;:]|$)' || true)" "names no /plugin, /reload-plugins or /mcp"
 assert_contains "$out" 'additionalContext' "additionalContext key present"
 
 test_case "all tool files older than child (future child start): silent no-op"

@@ -162,6 +162,8 @@ run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l
 run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
 run_step "L1 lint: claude CLI config calls pinned to project scope (self-test)" bash "$HERE/l1-lint/cli-config-scope.sh" --self-test
 run_step "L1 lint: claude CLI config calls pinned to project scope" bash "$HERE/l1-lint/cli-config-scope.sh"
+run_step "L1 lint: no in-session plugin commands prescribed (self-test)" bash "$HERE/l1-lint/no-in-session-plugin-commands.sh" --self-test
+run_step "L1 lint: no in-session plugin commands prescribed" bash "$HERE/l1-lint/no-in-session-plugin-commands.sh"
 run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
 run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
 run_step "L1 lint: live-db shim survives a plain parent directory" bash "$HERE/l1-lint/live-db-shim-parent-layout.sh"

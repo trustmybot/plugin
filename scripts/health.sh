@@ -34,12 +34,12 @@
 #
 # LOAD-BEARING REMEDIATION RULE
 # ----------------------------
-# NEVER recommend `/reload-plugins` for an MCP-SERVER-STATE failure
-# (world-model-unavailable, schema mismatch, stale server graph/config, a dead
-# server). Those need a FULL Claude Code session restart (quit + relaunch),
-# because `/reload-plugins` re-reads hooks/skills/agents/commands but does NOT
-# respawn the long-lived MCP server. `/reload-plugins` is correct ONLY for
-# hook/skill/agent/command DEFINITION drift (check 7).
+# Every remediation names a scoped `claude plugin …` command run from the
+# project root and/or a FULL Claude Code quit + relaunch — never an in-session
+# slash command (managing or reloading plugins, reconnecting an MCP server). A
+# plugin change applies only after a full restart, which also respawns the
+# long-lived MCP server, and the in-session plugin command does not work in
+# Claude Desktop.
 #
 # Env overrides (primarily for tests; production auto-resolves all of these):
 #   TRAJECTORY_DB_PATH         — pin the trajectory DB.
@@ -149,9 +149,9 @@ if [ -n "$INSTALL_KEY" ]; then
          *) INSTALL_SCOPE="local" ;;
        esac ;;
   esac
-  UPDATE_CMD="claude plugin update $INSTALL_KEY --scope $INSTALL_SCOPE"
+  UPDATE_CMD="claude plugin update $INSTALL_KEY --scope $INSTALL_SCOPE" # cli-config-scope: printed
 else
-  UPDATE_CMD="claude plugin update ${PLUGIN_NAME}@<marketplace> --scope project (stable) or --scope local (rc/dev)"
+  UPDATE_CMD="claude plugin update ${PLUGIN_NAME}@<marketplace> --scope project (stable) or --scope local (rc/dev)" # cli-config-scope: printed
 fi
 
 # Server log: prefer override, else the logs dir beside the trajectory DB
@@ -197,7 +197,7 @@ elif [ "$PGREP_COUNT" -gt 0 ] 2>/dev/null; then
 else
   fail "server-reachable: NO trajectory-server process found"
   remediate \
-    "Fully quit Claude Code (Cmd-Q) and relaunch — a dead MCP server needs a full restart, NOT /reload-plugins." \
+    "Fully quit Claude Code (Cmd-Q) and relaunch — a dead MCP server needs a full restart." \
     "If it does not come back after relaunch, see skills/tmb_recovery (CC plugin MCP-config cache bug)." \
     "Forensics: tail -n 50 ${SERVER_LOG:-<project>/.claude/${PLUGIN_NAME}/logs/mcp-server.log}"
 fi
@@ -222,7 +222,7 @@ else
   remediate \
     "From the project root, run $UPDATE_CMD; then fully quit + relaunch Claude Code so the server reboots on the new cache." \
     "Scope rule: $SCOPE_DOC" \
-    "/reload-plugins will NOT pick up the new server — the MCP process is long-lived."
+    "Only a full restart picks up the new server — the MCP process is long-lived."
 fi
 
 # ===========================================================================
@@ -258,8 +258,7 @@ elif [ "$DB_SCHEMA_VERSION" = "$TARGET_SCHEMA" ]; then
 else
   fail "schema-version: DB at v$DB_SCHEMA_VERSION but installed server targets v$TARGET_SCHEMA"
   remediate \
-    "Fully quit + relaunch Claude Code — the migration runs on the next SERVER start." \
-    "/reload-plugins does NOT restart the server, so it will NOT run the migration."
+    "Fully quit + relaunch Claude Code — the migration runs on the next SERVER start."
 fi
 
 # ===========================================================================
@@ -401,8 +400,7 @@ else
   fail "hook-cache-drift: dev checkout is $DRIFT_SOURCE_VERSION but the cache runs $INTENDED_VERSION"
   remediate \
     "Your edits to hooks/skills/agents/commands are NOT live until the cache updates." \
-    "Once the cache is at your version (from the project root: $UPDATE_CMD), run /reload-plugins to load the new hook/skill/agent/command definitions." \
-    "(/reload-plugins is the RIGHT tool here — these are definition files, not the MCP server.)"
+    "Once the cache is at your version (from the project root: $UPDATE_CMD), fully quit + relaunch Claude Code to load the new hook/skill/agent/command definitions."
 fi
 
 # ===========================================================================
@@ -452,8 +450,9 @@ if [ -n "$DUP_INSTALLS" ]; then
   printf 'WARN  duplicate-plugin: %s enabled %s copies for %s: %s\n' \
     "$(printf '%s\n' "$DUP_INSTALLS" | grep -c .)" "$PLUGIN_NAME" "$DUP_PROJECT" "$(tmb_duplicate_installs_names "$DUP_INSTALLS")"
   remediate \
-    "Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors — TMB's gates may be missing while its MCP tools still work." \
-    "Run /plugin and disable the extra copy, then restart Claude Code."
+    "Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a plugin load error — TMB's gates may be missing while its MCP tools still work." \
+    "Keep one copy and disable the others from the project root, one of: $(tmb_duplicate_installs_disable_cmds "$DUP_INSTALLS")" \
+    "Then fully quit + relaunch Claude Code."
 fi
 
 # ===========================================================================
