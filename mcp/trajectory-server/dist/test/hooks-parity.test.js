@@ -3,7 +3,9 @@
  * payload in tests/fixtures/hook-corpus/<gate>/ gives the same exit code and
  * the same stdout (empty, or deep-equal JSON) through
  * `bash scripts/hooks/<gate>.sh` and `node dist/hooks.js <gate>`, and a gate
- * that audits writes the same audit rows (id and created_at aside).
+ * that audits writes the same audit rows (id and created_at aside). A gate
+ * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
+ * (pr-reviewer-preflight), has no bash side and is not in the parity set.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,6 +21,7 @@ const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
 const HOOKS_BUNDLE = join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js');
 const MIN_CORPUS = 8;
+const PARITY_GATES = gateNames().filter((gate) => existsSync(join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)));
 const LOCALES = ['C', 'en_US.UTF-8', 'UTF-8'];
 const FAKE_UID = 4242424;
 function corpusFiles(root, gate) {
@@ -162,9 +165,12 @@ describe('hooks parity: bash vs node over the corpus', () => {
         rmSync(project, { recursive: true, force: true });
         rmSync(scratch, { recursive: true, force: true });
     });
-    it('every registered gate has a corpus of at least 8 inputs', () => {
-        assert.ok(gateNames().length > 0, 'the registry lists no gate');
-        assert.deepEqual(corpusProblems(gateNames(), CORPUS_ROOT), []);
+    it('every registered gate with a bash twin has a corpus of at least 8 inputs', () => {
+        assert.ok(PARITY_GATES.length > 0, 'the registry lists no gate with a bash twin');
+        assert.deepEqual(corpusProblems(PARITY_GATES, CORPUS_ROOT), []);
+    });
+    it('pr-reviewer-preflight is the only registered gate without a bash twin', () => {
+        assert.deepEqual(gateNames().filter((gate) => !PARITY_GATES.includes(gate)), ['pr-reviewer-preflight']);
     });
     it('self-test: a registered gate without a corpus, or with too few inputs, fails the check', () => {
         const root = mkdtempSync(join(tmpdir(), 'tmb-hooks-corpus-'));
@@ -181,7 +187,7 @@ describe('hooks parity: bash vs node over the corpus', () => {
             rmSync(root, { recursive: true, force: true });
         }
     });
-    for (const gate of gateNames()) {
+    for (const gate of PARITY_GATES) {
         for (const file of corpusFiles(CORPUS_ROOT, gate)) {
             for (const locale of LOCALES) {
                 it(`${gate} / ${file.slice(CORPUS_ROOT.length + gate.length + 2)} (LC_ALL=${locale})`, () => {
