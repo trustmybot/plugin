@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useApi, type Gates, type Row } from '../api.ts';
 import { DataTable, type Column } from '../DataTable.tsx';
-import { badge, exitBadge, RUN_COLUMNS, time } from '../shared/columns.tsx';
+import { badge, exitBadge, RUN_COLUMNS, TASK_ID_COLUMN, TASK_TITLE_COLUMN, time } from '../shared/columns.tsx';
 import { Loading } from '../shared/Loading.tsx';
 
 const mono = (key: string, length?: number) => (r: Row) => <span className="font-mono text-xs">{String(r[key] ?? '').slice(0, length)}</span>;
@@ -15,8 +15,8 @@ const AGENT_RUN_COLUMNS: Column[] = [
 
 const VALIDATION_COLUMNS: Column[] = [
   { key: 'id', header: 'ID', cell: mono('id') },
-  { key: 'task_id', header: 'Task', hideBelow: 'sm' },
-  { key: 'task_title', header: 'Title', truncate: true, hideBelow: 'md' },
+  { ...TASK_ID_COLUMN, hideBelow: 'sm' },
+  TASK_TITLE_COLUMN,
   { key: 'attempt_n', header: 'Attempt', hideBelow: 'sm' },
   { key: 'agent', header: 'Agent', hideBelow: 'md' },
   { key: 'verdict', header: 'Verdict', cell: badge('verdict') },
@@ -25,8 +25,8 @@ const VALIDATION_COLUMNS: Column[] = [
 
 const VERIFICATION_COLUMNS: Column[] = [
   { key: 'id', header: 'Run', hideBelow: 'sm' },
-  { key: 'task_id', header: 'Task' },
-  { key: 'task_title', header: 'Title', truncate: true, hideBelow: 'md' },
+  TASK_ID_COLUMN,
+  TASK_TITLE_COLUMN,
   { key: 'commit_sha', header: 'Commit', cell: mono('commit_sha', 8), hideBelow: 'sm' },
   { key: 'source', header: 'Source', hideBelow: 'md' },
   { key: 'exit_code', header: 'Result', cell: exitBadge },

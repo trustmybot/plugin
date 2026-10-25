@@ -78,11 +78,11 @@ describe('DataTable', () => {
   });
 });
 
-test('TasksView rows link to #/issues/<issue_id>', () => {
+test('TasksView rows link to #/tasks/<id> and to their issue', () => {
   const out = ui.renderTasks([
     { id: 7, issue_id: 42, title: 'Ship tables', status: 'running', branch_id: 'feat/x', effort: 'medium', repo: 'plugin', updated_at: null },
   ]);
-  assert.match(out, /<a href="#\/issues\/42"[^>]*>Ship tables<\/a>/);
-  assert.match(out, />#7 · issue #42</);
+  assert.match(out, /<a href="#\/tasks\/7"[^>]*>Ship tables<\/a>/);
+  assert.match(out, /#7 · <a href="#\/issues\/42"[^>]*>issue #42<\/a>/);
   assert.match(out, /octicon-git-branch/);
 });

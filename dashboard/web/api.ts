@@ -18,6 +18,43 @@ export interface IssueDetail {
   milestones: string[];
 }
 
+export interface CompletionCriterion {
+  id: string;
+  status: string;
+  evidence_cmd?: string;
+  note?: string;
+}
+
+export interface CompletionReport {
+  criteria?: CompletionCriterion[];
+  extras?: Array<{ path: string; reason: string }>;
+  findings_fixed?: string[];
+}
+
+export interface VerificationCommand {
+  ordinal: number;
+  command: string;
+  exit_code: number | null;
+  elapsed_s: number | null;
+  output_tail: string | null;
+}
+
+export interface TaskDetail {
+  task: Row & {
+    files: unknown;
+    verification: unknown;
+    completion_report: CompletionReport | null;
+    files_raw?: string;
+    verification_raw?: string;
+    completion_report_raw?: string;
+  };
+  issue: { id: number; objective: string } | null;
+  validations: Row[];
+  findings: Row[];
+  verifications: Array<Row & { commands: VerificationCommand[] }>;
+  agent_runs: Row[];
+}
+
 export interface Gates {
   validations: Row[];
   verifications: Row[];

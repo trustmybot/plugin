@@ -33,7 +33,7 @@ const now = new Date().toISOString();
 const { lastInsertRowid: issue } = db
   .prepare('INSERT INTO issues (objective, created_at, updated_at) VALUES (?, ?, ?)')
   .run(title, now, now);
-db.prepare(
+const { lastInsertRowid: task } = db.prepare(
   "INSERT INTO tasks (issue_id, branch_id, title, description, created_at, updated_at) VALUES (?, 'feat/smoke', 'Smoke task', 'd', ?, ?)",
 ).run(issue, now, now);
 db.prepare("INSERT INTO discussions (issue_id, author, body, created_at) VALUES (?, 'bro', 'Smoke discussion', ?)")
@@ -51,9 +51,10 @@ db.prepare(
 ).run(now);
 db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 db.close();
-console.log(Number(issue));
+console.log(`${Number(issue)} ${Number(task)}`);
 JS
 )
+read -r ISSUE_ID TASK_ID <<<"$ISSUE_ID"
 
 node - "$SCHEMA" "$OLD_DB" <<'JS'
 const { readFileSync } = require('node:fs');
@@ -114,6 +115,8 @@ check "api/issues" "$TITLE"
 check "api/issues/$ISSUE_ID" "$TITLE"
 check "api/version" '"data_version"'
 check "api/tasks" 'Smoke task'
+check "api/tasks/$TASK_ID" '"title":"Smoke task"'
+check "tasks/$TASK_ID" '<div id="root">'
 check "api/agent-runs" ''
 check "api/gates" '"verifications"'
 check "api/audit?limit=5" 'Smoke audit row'

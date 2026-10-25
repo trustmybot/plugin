@@ -120,6 +120,71 @@ export function tasks(db: DatabaseSync): Row[] {
   );
 }
 
+// A JSON text column parsed. On bad JSON the value is null and the raw text is
+// returned under `<key>_raw`.
+function parseJsonColumn(row: Row, key: string): Row {
+  const raw = row[key];
+  if (raw === null || raw === undefined) return { [key]: null };
+  try {
+    return { [key]: JSON.parse(String(raw)) as unknown };
+  } catch {
+    return { [key]: null, [`${key}_raw`]: String(raw) };
+  }
+}
+
+export function taskDetail(db: DatabaseSync, id: number): Row | null {
+  const task = one(
+    db,
+    `SELECT id, issue_id, branch_id, parent_branch_id, title, status, spec_body, commit_sha,
+            repo, effort, files, verification, completion_report, created_at, updated_at,
+            completed_at
+       FROM tasks WHERE id = ?`,
+    id,
+  );
+  if (!task) return null;
+  const commands = db.prepare(
+    `SELECT ordinal, command, exit_code, elapsed_s, output_tail
+       FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
+  );
+  const runs = all(
+    db,
+    `SELECT id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out
+       FROM verification_runs WHERE task_id = ? ORDER BY started_at DESC, id DESC`,
+    id,
+  );
+  return {
+    task: {
+      ...task,
+      ...parseJsonColumn(task, 'files'),
+      ...parseJsonColumn(task, 'verification'),
+      ...parseJsonColumn(task, 'completion_report'),
+    },
+    issue: one(db, `SELECT id, objective FROM issues WHERE id = ?`, Number(task['issue_id'])) ?? null,
+    validations: all(
+      db,
+      `SELECT id, attempt_n, agent, verdict, feedback, mcp_available, created_at
+         FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n, id`,
+      id,
+    ),
+    findings: all(
+      db,
+      `SELECT id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at,
+              resolved_at
+         FROM review_findings WHERE task_id = ? ORDER BY attempt_n, created_at, id`,
+      id,
+    ),
+    verifications: runs.map((r) => ({ ...r, commands: commands.all(Number(r['id'])) as Row[] })),
+    agent_runs: all(
+      db,
+      `SELECT id, agent_type, model, effort, tokens_in, tokens_out, cache_read_tokens,
+              cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
+              exit_reason
+         FROM agent_runs WHERE task_id = ? ORDER BY id`,
+      id,
+    ),
+  };
+}
+
 export function agentRuns(db: DatabaseSync): Row[] {
   return all(
     db,
