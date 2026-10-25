@@ -25256,6 +25256,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "stray_db_removed", writers: ["bro"], description: "`onboard_apply(remove_stray_dbs)` deleted an empty trajectory DB (0 issues, 0 tasks) below the project root, with its `-wal`/`-shm` files and its state dir, on the Human's yes; one row per DB on the system issue `-1`; `content_json` carries `path`, `state_dir`, `project_root`" },
   { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
   { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
+  { type: "swe_resume_observed", writers: ["hook"], description: "`swe-brief-gate` saw a swe call `task_brief` with an `agent_id` whose `agent_runs` rows for the task are all closed: a swe resumed through SendMessage (GH 1742); one row per such call on the task's issue, from_node `hook:swe-brief-gate`; `content_json` carries `task_id`, `agent_id`, `observed_at`, `consumed` (0 until `task_brief`'s `openSweRun` opens the resumed run's row from it, with `resumed_from` its previous row, and sets 1; a row observed more than 600 s before the call is never consumed). `audit_append` refuses this event" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
@@ -25437,7 +25438,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 48;
+var TARGET_SCHEMA_VERSION = 49;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -25988,6 +25989,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 48 && toVersion >= 48) {
     migrateV47toV48(db2);
+  }
+  if (fromVersion < 49 && toVersion >= 49) {
+    migrateV48toV49(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27700,6 +27704,27 @@ function migrateV47toV48(db2) {
     if (!hasColumn(db2, "tasks", "spawn_note")) {
       db2.exec("ALTER TABLE tasks ADD COLUMN spawn_note TEXT");
     }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
+function migrateV48toV49(db2) {
+  if (!tableExists(db2, "agent_runs")) return;
+  beginImmediate(db2);
+  try {
+    if (!hasColumn(db2, "agent_runs", "resumed_from")) {
+      db2.exec("ALTER TABLE agent_runs ADD COLUMN resumed_from INTEGER REFERENCES agent_runs(id)");
+    }
+    db2.exec(`
+      DROP INDEX IF EXISTS idx_agent_runs_spawn;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
+    `);
     commitTransaction(db2);
   } catch (err21) {
     try {
@@ -30659,6 +30684,32 @@ function parseRunSessionId(value) {
   }
   return value;
 }
+var SWE_RESUME_OBSERVE_FROM_NODE = "hook:swe-brief-gate";
+var SWE_RESUME_OBSERVATION_TTL_S = 600;
+function observedResume(db2, taskId, now2) {
+  const observedAfter = new Date(Date.parse(now2) - SWE_RESUME_OBSERVATION_TTL_S * 1e3).toISOString();
+  const observation = db2.get(
+    `SELECT id, json_extract(content_json, '$.agent_id') AS agent_id
+       FROM audit
+      WHERE event_type = 'swe_resume_observed'
+        AND from_node = ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.observed_at'), created_at) >= ?
+      ORDER BY id DESC
+      LIMIT 1`,
+    [SWE_RESUME_OBSERVE_FROM_NODE, taskId, observedAfter]
+  );
+  if (!observation || typeof observation.agent_id !== "string" || observation.agent_id === "") return null;
+  const previous = db2.get(
+    `SELECT id, spawn_id, effort FROM agent_runs
+      WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ?
+      ORDER BY id DESC LIMIT 1`,
+    [taskId, observation.agent_id]
+  );
+  return previous ? { observationId: observation.id, previous } : null;
+}
 function openSweRun(db2, task, now2, ctx, rootDir) {
   const orphanBefore = new Date(Date.parse(now2) - SWE_ORPHAN_AFTER_MS).toISOString();
   finalizeOpenRuns(
@@ -30673,6 +30724,18 @@ function openSweRun(db2, task, now2, ctx, rootDir) {
     [task.id]
   );
   if (open) return false;
+  const resume = observedResume(db2, task.id, now2);
+  if (resume) {
+    db2.transaction(() => {
+      db2.run(
+        `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, spawn_id, effort, resumed_from)
+         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?, ?)`,
+        [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host, resume.previous.spawn_id, resume.previous.effort, resume.previous.id]
+      );
+      db2.run(`UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`, [resume.observationId]);
+    });
+    return true;
+  }
   db2.run(
     `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
      VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
@@ -35538,6 +35601,25 @@ function costEstimate(rows, prices) {
 }
 var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
 var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
+function reworkKinds(db2, taskId) {
+  const rows = db2.all(
+    `SELECT CASE WHEN resumed_from IS NULL THEN 'fresh' ELSE 'resumed' END AS kind,
+            COUNT(*) AS count,
+            COALESCE(SUM(duration_ms), 0) AS wall_clock_ms,
+            COALESCE(SUM(tool_uses), 0) AS tool_uses,
+            COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+       FROM agent_runs
+      WHERE task_id = ? AND ${SWE_SPAWN_SQL}
+        AND (resumed_from IS NOT NULL
+             OR id > (SELECT MIN(id) FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL} AND resumed_from IS NULL))
+      GROUP BY kind`,
+    [taskId, taskId]
+  );
+  const empty = () => ({ count: 0, wall_clock_ms: 0, tool_uses: 0, cache_read_tokens: 0 });
+  const reworks = { fresh: empty(), resumed: empty() };
+  for (const { kind, ...totals } of rows) reworks[kind] = totals;
+  return reworks;
+}
 function reworkStats(db2, taskId, now2) {
   const task = db2.get(
     "SELECT status, created_at, updated_at FROM tasks WHERE id = ?",
@@ -35554,14 +35636,15 @@ function reworkStats(db2, taskId, now2) {
     wall_clock_ms: task ? elapsedMs(task.created_at, endedAt) : null,
     review_fail_count: fails?.n ?? 0,
     swe_spawn_count: sweSpawnCount,
-    rework_count: reworkCount(sweSpawnCount)
+    rework_count: reworkCount(sweSpawnCount),
+    reworks: reworkKinds(db2, taskId)
   };
 }
 function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1).",
+      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens.",
       inputSchema: {
         type: "object",
         properties: {

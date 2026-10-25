@@ -4,4 +4,5 @@ ensure-mcp-deps-installed
 pr-reviewer-preflight
 pr-reviewer-spawn-note
 rework-limit
+swe-resume-gate
 task-overrun-alert

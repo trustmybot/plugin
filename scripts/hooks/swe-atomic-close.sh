@@ -31,9 +31,11 @@
 # (record-swe-spawn.sh) and bound to the agent_id at task_brief
 # (swe-brief-gate.sh), or opened unkeyed by task_brief — is UPDATEd (started_at
 # preserved); with none, a complete row is INSERTed with started_at = the
-# transcript's first timestamp. A re-fire or a resumed spawn's next stop
-# updates the same row, and exit_reason is always the latest stop's outcome
-# (the task's state once that stop ended).
+# transcript's first timestamp. A re-fire updates the same row, and
+# exit_reason is always the latest stop's outcome (the task's state once that
+# stop ended). A swe resumed through SendMessage stops onto its newest keyed
+# row; when that row is a resumed one (resumed_from set, opened by task_brief,
+# GH 1742) only the transcript entries from its started_at on are metered.
 #
 # Log: <project>/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended);
 # no log when the project has no TMB state dir.
@@ -63,14 +65,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # the earliest timestamp normalized to 24-char ms-ISO. model is the dominant
 # message.model (the one with the most tokens), restricted to
 # [A-Za-z0-9._:@/[]-]; CC's synthetic messages (<synthetic>) carry no model.
+# An optional second argument (a 24-char ms-ISO instant) keeps only the lines
+# timestamped at or after it: a resumed run meters its own entries alone.
 tmb_parse_transcript_stats() {
-  local transcript_path="$1"
+  local transcript_path="$1" since="${2:-}"
   if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
     echo "0|0|0|0|0|0||"
     return 0
   fi
   local result
-  result=$(jq -rsc '
+  result=$(jq -rsc --arg since "$since" '
     def ms:
       capture("^(?<sec>[^.]+?)(\\.(?<f>[0-9]+))?Z$")
       | ((.sec + "Z") | fromdateiso8601) * 1000 + (((.f // "") + "000")[0:3] | tonumber);
@@ -82,6 +86,7 @@ tmb_parse_transcript_stats() {
     def n: if type == "number" and . >= 0 then floor else 0 end;
     def model:
       if type == "string" and (startswith("<") | not) then gsub("[^A-Za-z0-9._:@/\\[\\]-]"; "") else "" end;
+    (if $since == "" then . else map(select((.timestamp | iso) as $t | $t != null and $t >= $since)) end) |
     ([.[] | .timestamp | iso | select(. != null)]) as $stamps |
     ( [ to_entries[] | .key as $i | .value
         | select(.message.usage != null)
@@ -174,7 +179,14 @@ ISSUE_ID=$(echo "$ROW" | cut -d'|' -f6)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Per-spawn metrics into agent_runs. A failed write is logged, never fatal.
-STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
+RESUMED_SINCE=""
+if [ "$AGENT_TYPE" = "swe" ]; then
+  RESUMED_SINCE=$(tmb_sqlite_ro "$DB" "
+SELECT CASE WHEN resumed_from IS NOT NULL THEN started_at END FROM agent_runs
+ WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND spawn_id = '$(tmb_sql_quote "$SPAWN_ID")'
+ ORDER BY id DESC LIMIT 1;" 2>/dev/null || true)
+fi
+STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH" "$RESUMED_SINCE")
 IFS='|' read -r TOKENS_IN TOKENS_OUT TOOL_USES DURATION_MS CACHE_READ_TOKENS CACHE_CREATION_TOKENS FIRST_TS MODEL <<< "$STATS"
 jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" --arg stats "$STATS" \
   '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,stats:$stats,transcript:$tr}' \
@@ -409,8 +421,8 @@ esac
 # One transaction: UPDATE this spawn's row — the one already keyed by spawn_id,
 # else the unbound swe row (spawn_id NULL or tool_use:*) opened for this spawn
 # and never bound to its agent_id — and INSERT a complete row only when nothing
-# was updated. A resumed spawn's task_brief reopens its keyed row
-# (swe-brief-gate.sh); a spawn with no agent_id can still leave a second
+# was updated. A resumed spawn's task_brief opens a new keyed row for it
+# (openSweRun); a spawn with no agent_id can still leave a second
 # unkeyed row, and the hook can meter only one row, so a final statement marks
 # every other zero-token unkeyed swe row of this task from the spawn's window
 # unmeasured, keeping the swe_runs_metered doctor contract clean. It also closes

@@ -127,11 +127,52 @@ export function parseRunSessionId(value: unknown): string | null {
   return value;
 }
 
+export const SWE_RESUME_OBSERVE_FROM_NODE = 'hook:swe-brief-gate';
+export const SWE_RESUME_OBSERVATION_TTL_S = 600;
+
+// The swe a swe_resume_observed row names, when swe-brief-gate recorded it for
+// this task within SWE_RESUME_OBSERVATION_TTL_S of `now`, it is unconsumed,
+// and the swe has an earlier row of the task: that latest row, its spawn_id
+// and effort.
+function observedResume(
+  db: TrajectoryDB,
+  taskId: number,
+  now: string,
+): { observationId: number; previous: { id: number; spawn_id: string; effort: string | null } } | null {
+  const observedAfter = new Date(Date.parse(now) - SWE_RESUME_OBSERVATION_TTL_S * 1000).toISOString();
+  const observation = db.get<{ id: number; agent_id: string | null }>(
+    `SELECT id, json_extract(content_json, '$.agent_id') AS agent_id
+       FROM audit
+      WHERE event_type = 'swe_resume_observed'
+        AND from_node = ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.observed_at'), created_at) >= ?
+      ORDER BY id DESC
+      LIMIT 1`,
+    [SWE_RESUME_OBSERVE_FROM_NODE, taskId, observedAfter],
+  );
+  if (!observation || typeof observation.agent_id !== 'string' || observation.agent_id === '') return null;
+  const previous = db.get<{ id: number; spawn_id: string; effort: string | null }>(
+    `SELECT id, spawn_id, effort FROM agent_runs
+      WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ?
+      ORDER BY id DESC LIMIT 1`,
+    [taskId, observation.agent_id],
+  );
+  return previous ? { observationId: observation.id, previous } : null;
+}
+
 // Opens the swe row for a task unless one is already open; root_dir is the
 // task's worktree. The Agent spawn hook normally opened it already and
 // swe-brief-gate bound it to the swe's agent_id. An open unbound swe row older
 // than SWE_ORPHAN_AFTER_MS is an earlier spawn's orphan: it is closed as
 // swept_orphan and a fresh row opens; a bound row is a live spawn and is kept.
+// A swe resumed through SendMessage (GH 1742) reaches its task_brief with no
+// open row; swe-brief-gate recorded its agent_id as swe_resume_observed, and
+// the row opened for it carries that spawn_id, resumed_from = its previous
+// row and that row's effort, and the observation is consumed. Any other new
+// row is a fresh one (resumed_from NULL).
 // The SubagentStop hook later UPDATEs the open row with the spawn's totals.
 // Returns true when a row was inserted.
 export function openSweRun(
@@ -154,6 +195,18 @@ export function openSweRun(
     [task.id],
   );
   if (open) return false;
+  const resume = observedResume(db, task.id, now);
+  if (resume) {
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, spawn_id, effort, resumed_from)
+         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?, ?)`,
+        [task.id, task.issue_id, now, task.repo, rootDir, ctx.host, resume.previous.spawn_id, resume.previous.effort, resume.previous.id],
+      );
+      db.run(`UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`, [resume.observationId]);
+    });
+    return true;
+  }
   db.run(
     `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
      VALUES (?, ?, 'swe', ?, ?, ?, ?)`,

@@ -45,13 +45,27 @@ export function denyReason(taskId, state) {
         `write a decision naming the change of approach (discussion_append kind='decision' task_id=${taskId}); ` +
         'task_retry with a redesigned spec; split the task into smaller tasks; or ask the Human (a Human comment on the issue waives this).');
 }
-function deny(reason) {
+export function denyPreToolUse(reason) {
     return {
         stdout: `${jqCompact({
             hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
         })}\n`,
         code: 0,
     };
+}
+export function denyUnreadable(gate, env) {
+    return { stdout: `${denyDbUnavailable(gate, env)}\n`, code: 0 };
+}
+// The rework-limit verdict on one more swe run of `taskId` (a spawn, or a
+// resume through SendMessage, GH 1742): denied at REWORK_FAIL_LIMIT FAILs with
+// no newer decision or Human row, denied on a DB read failure, else allowed.
+export function reworkLimitVerdict(gate, db, taskId, env) {
+    const state = readState(db, taskId, env);
+    if (state === GATE_READ_ERROR)
+        return denyUnreadable(gate, env);
+    if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived)
+        return ALLOW;
+    return denyPreToolUse(denyReason(taskId, state));
 }
 export const reworkLimit = (payload, env) => {
     if (jqAlternatives(payload, [['tool_name']]) !== 'Agent')
@@ -66,12 +80,7 @@ export const reworkLimit = (payload, env) => {
     if (db === null)
         return ALLOW;
     if (!haveSqlite(env))
-        return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
-    const state = readState(db, taskId, env);
-    if (state === GATE_READ_ERROR)
-        return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
-    if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived)
-        return ALLOW;
-    return deny(denyReason(taskId, state));
+        return denyUnreadable(GATE_NAME, env);
+    return reworkLimitVerdict(GATE_NAME, db, taskId, env);
 };
 //# sourceMappingURL=rework-limit.js.map

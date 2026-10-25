@@ -182,11 +182,42 @@ const TOKENS_TOTAL_SQL =
 // session, so a legacy per-task bro row is history, not task cost.
 const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
 
+interface ReworkKindStats {
+  count: number;
+  wall_clock_ms: number;
+  tool_uses: number;
+  cache_read_tokens: number;
+}
+
 interface ReworkStats {
   wall_clock_ms: number | null;
   review_fail_count: number;
   swe_spawn_count: number;
   rework_count: number;
+  reworks: { fresh: ReworkKindStats; resumed: ReworkKindStats };
+}
+
+// The task's swe reworks by kind (GH 1742): fresh = every fresh swe spawn
+// after the first, resumed = every run resumed through SendMessage
+// (resumed_from set). wall_clock_ms sums the runs' duration_ms.
+function reworkKinds(db: TrajectoryDB, taskId: number): ReworkStats['reworks'] {
+  const rows = db.all<{ kind: 'fresh' | 'resumed'; count: number; wall_clock_ms: number; tool_uses: number; cache_read_tokens: number }>(
+    `SELECT CASE WHEN resumed_from IS NULL THEN 'fresh' ELSE 'resumed' END AS kind,
+            COUNT(*) AS count,
+            COALESCE(SUM(duration_ms), 0) AS wall_clock_ms,
+            COALESCE(SUM(tool_uses), 0) AS tool_uses,
+            COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+       FROM agent_runs
+      WHERE task_id = ? AND ${SWE_SPAWN_SQL}
+        AND (resumed_from IS NOT NULL
+             OR id > (SELECT MIN(id) FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL} AND resumed_from IS NULL))
+      GROUP BY kind`,
+    [taskId, taskId],
+  );
+  const empty = (): ReworkKindStats => ({ count: 0, wall_clock_ms: 0, tool_uses: 0, cache_read_tokens: 0 });
+  const reworks = { fresh: empty(), resumed: empty() };
+  for (const { kind, ...totals } of rows) reworks[kind] = totals;
+  return reworks;
 }
 
 // Computed at read time, nothing stored. wall_clock_ms runs from the task's
@@ -209,6 +240,7 @@ function reworkStats(db: TrajectoryDB, taskId: number, now: Date): ReworkStats {
     review_fail_count: fails?.n ?? 0,
     swe_spawn_count: sweSpawnCount,
     rework_count: reworkCount(sweSpawnCount),
+    reworks: reworkKinds(db, taskId),
   };
 }
 
@@ -220,7 +252,7 @@ export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date(
     {
       name: 'task_stats',
       description:
-        'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1).',
+        'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens.',
       inputSchema: {
         type: 'object',
         properties: {

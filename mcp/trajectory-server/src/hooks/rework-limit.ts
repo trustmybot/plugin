@@ -59,13 +59,27 @@ export function denyReason(taskId: string, state: ReworkState): string {
   );
 }
 
-function deny(reason: string): GateResult {
+export function denyPreToolUse(reason: string): GateResult {
   return {
     stdout: `${jqCompact({
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
     })}\n`,
     code: 0,
   };
+}
+
+export function denyUnreadable(gate: string, env: NodeJS.ProcessEnv): GateResult {
+  return { stdout: `${denyDbUnavailable(gate, env)}\n`, code: 0 };
+}
+
+// The rework-limit verdict on one more swe run of `taskId` (a spawn, or a
+// resume through SendMessage, GH 1742): denied at REWORK_FAIL_LIMIT FAILs with
+// no newer decision or Human row, denied on a DB read failure, else allowed.
+export function reworkLimitVerdict(gate: string, db: string, taskId: string, env: NodeJS.ProcessEnv): GateResult {
+  const state = readState(db, taskId, env);
+  if (state === GATE_READ_ERROR) return denyUnreadable(gate, env);
+  if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived) return ALLOW;
+  return denyPreToolUse(denyReason(taskId, state));
 }
 
 export const reworkLimit: SyncGate = (payload, env) => {
@@ -76,9 +90,6 @@ export const reworkLimit: SyncGate = (payload, env) => {
   if (taskId === '') return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
-  const state = readState(db, taskId, env);
-  if (state === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME, env)}\n`, code: 0 };
-  if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived) return ALLOW;
-  return deny(denyReason(taskId, state));
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME, env);
+  return reworkLimitVerdict(GATE_NAME, db, taskId, env);
 };

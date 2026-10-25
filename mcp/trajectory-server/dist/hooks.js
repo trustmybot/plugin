@@ -12220,7 +12220,7 @@ function readState(db, taskId, env) {
 function denyReason2(taskId, state) {
   return `BLOCKED: task ${taskId} has ${state.fails} review FAILs since its last pass (the latest at ${state.lastFailAt}) and no decision since, so a further swe spawn would repeat the approach that failed. Before spawning swe again, do one of: write a decision naming the change of approach (discussion_append kind='decision' task_id=${taskId}); task_retry with a redesigned spec; split the task into smaller tasks; or ask the Human (a Human comment on the issue waives this).`;
 }
-function deny3(reason) {
+function denyPreToolUse(reason) {
   return {
     stdout: `${jqCompact({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
@@ -12228,6 +12228,16 @@ function deny3(reason) {
 `,
     code: 0
   };
+}
+function denyUnreadable(gate, env) {
+  return { stdout: `${denyDbUnavailable(gate, env)}
+`, code: 0 };
+}
+function reworkLimitVerdict(gate, db, taskId, env) {
+  const state = readState(db, taskId, env);
+  if (state === GATE_READ_ERROR) return denyUnreadable(gate, env);
+  if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived) return ALLOW;
+  return denyPreToolUse(denyReason2(taskId, state));
 }
 var reworkLimit = (payload, env) => {
   if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
@@ -12237,21 +12247,48 @@ var reworkLimit = (payload, env) => {
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return { stdout: `${denyDbUnavailable(GATE_NAME4, env)}
-`, code: 0 };
-  const state = readState(db, taskId, env);
-  if (state === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME4, env)}
-`, code: 0 };
-  if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived) return ALLOW;
-  return deny3(denyReason2(taskId, state));
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME4, env);
+  return reworkLimitVerdict(GATE_NAME4, db, taskId, env);
+};
+
+// src/hooks/swe-resume-gate.ts
+var GATE_NAME5 = "swe-resume-gate";
+function effortMismatchReason(agentId, target) {
+  return `BLOCKED: swe ${agentId} ran task ${target.task_id} at effort ${target.run_effort}; the task's effort is now ${target.task_effort}. A resumed swe keeps the effort it was spawned at, so resuming it would ignore the change. Spawn a fresh swe at the task's effort instead: Agent(subagent_type='swe', effort='${target.task_effort}', prompt starting 'task_id=${target.task_id}').`;
+}
+var sweResumeGate = (payload, env) => {
+  if (jqAlternatives(payload, [["tool_name"]]) !== "SendMessage") return ALLOW;
+  const to = jqAlternatives(payload, [["tool_input", "to"]]);
+  if (to === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME5, env);
+  const out2 = gateRead(
+    db,
+    `SELECT json_object('task_id', r.task_id, 'status', t.status, 'run_effort', r.effort, 'task_effort', t.effort)
+       FROM agent_runs r JOIN tasks t ON t.id = r.task_id
+      WHERE r.agent_type = 'swe' AND r.spawn_id = '${sqlQuote(to)}'
+      ORDER BY r.id DESC LIMIT 1;`,
+    env
+  );
+  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME5, env);
+  if (out2 === "") return ALLOW;
+  const target = JSON.parse(out2.split("\n")[0]);
+  if (target.status === "closed") return ALLOW;
+  const verdict = reworkLimitVerdict(GATE_NAME5, db, String(target.task_id), env);
+  if (verdict !== ALLOW) return verdict;
+  if (target.run_effort !== null && target.task_effort !== null && target.run_effort !== target.task_effort) {
+    return denyPreToolUse(effortMismatchReason(to, target));
+  }
+  return ALLOW;
 };
 
 // src/hooks/task-overrun-alert.ts
-var GATE_NAME5 = "task-overrun-alert";
+var GATE_NAME6 = "task-overrun-alert";
 var OVERRUN_ENV = "TMB_TASK_OVERRUN_MIN";
 var DEFAULT_OVERRUN_MIN = 60;
 var EVENT = "task_overrun_alerted";
-var FROM_NODE = `hook:${GATE_NAME5}`;
+var FROM_NODE = `hook:${GATE_NAME6}`;
 var MS_PER_MIN = 6e4;
 function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
@@ -12292,7 +12329,7 @@ function claim(db, found, now, env) {
   const statements = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
-    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME5 });
+    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME6 });
     const row = auditSql(
       {
         issueId: String(o.issueId),
@@ -12303,12 +12340,12 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME5, env, now: nowIso(now) }
+      { caller: GATE_NAME6, env, now: nowIso(now) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
   }
-  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME5, env });
+  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME6, env });
   if (!w.ok) return null;
   return new Set(w.stdout.split("\n").map((l) => sqlInt(l.trim())).filter((id) => id !== "").map(Number));
 }
@@ -12344,7 +12381,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME2, prReviewerPreflight],
   [GATE_NAME3, prReviewerSpawnNote],
   [GATE_NAME4, reworkLimit],
-  [GATE_NAME5, taskOverrunAlert]
+  [GATE_NAME5, sweResumeGate],
+  [GATE_NAME6, taskOverrunAlert]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 48, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 49, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -354,6 +354,8 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 --     as history.
 --   swe rows — opened by task_brief; the SubagentStop hook binds the spawn to
 --     the task_id in its spawn prompt and writes the spawn transcript's totals.
+--     A swe resumed through SendMessage gets a row of its own at its next
+--     task_brief, linked to its previous row by resumed_from (GH 1742).
 -- bro_atomic_close and a terminal task_update_status close every open row of
 -- the task; task_recover sweeps rows whose task is already terminal. Whoever
 -- closes a row stamps its exit_reason.
@@ -381,7 +383,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     completed_at         TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task/issue repo.
     repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
-    -- spawn_id: the Agent-tool spawn this run measures (one row per spawn per task).
+    -- spawn_id: the Agent-tool spawn this run measures (one fresh row per spawn
+    --   per task, plus one row per resume of it).
     -- session_id: the CC session that owns the run, so a hook resolves its own row.
     -- usage_source: where the token values came from; NULL until first measured.
     spawn_id             TEXT,
@@ -400,13 +403,21 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     -- swe-atomic-close.sh at SubagentStop (swe: the task's effort; pr-reviewer:
     -- plugin_config.reviewer_effort). NULL on other agent types and on runs
     -- recorded before schema v37.
-    effort               TEXT CHECK (effort IN ('low','medium','high'))
+    effort               TEXT CHECK (effort IN ('low','medium','high')),
+    -- resumed_from: the row of the same spawn_id this run resumed (a swe sent
+    -- a SendMessage after it stopped). task_brief's openSweRun sets it; it is
+    -- NULL on a fresh spawn and on every other agent type (GH 1742; schema
+    -- v49). The row meters only the transcript entries from its started_at on.
+    -- Keep this comment comma-free: SQLite's DROP COLUMN on a last column cuts back to the
+    -- nearest comma and would land inside this comment.
+    resumed_from         INTEGER REFERENCES agent_runs(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);

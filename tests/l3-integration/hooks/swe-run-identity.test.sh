@@ -7,8 +7,8 @@
 #   2. Bind — the swe's task_brief (swe-brief-gate.sh, then the handler) binds
 #      that row to its agent_id; repeated briefs keep one row.
 #   3. Live — a bound row is never swept_orphan, however old.
-#   4. Resume — a failed stop, a resumed brief and a committed stop leave one
-#      row whose exit_reason is the latest stop's (completed).
+#   4. Resume (GH 1742) — a failed stop, a resumed brief and a committed stop
+#      leave the failed row and a completed row chained to it by resumed_from.
 #   5. Refused spawn (GH 1509) — an unbound row older than 90 s no longer
 #      blocks a respawn and is swept_orphan by it; PostToolUse(Agent) binds the
 #      row to tool_response.agentId; PermissionDenied(Agent) closes it and
@@ -141,19 +141,24 @@ assert_eq "ok" "$(brief 7 agent-7 toolu_brief3)" "task_brief after 11 minutes"
 assert_eq "1" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=7;")" "no new row"
 assert_eq "agent-7||" "$(q "SELECT spawn_id, COALESCE(exit_reason, ''), COALESCE(completed_at, '') FROM agent_runs WHERE task_id=7;")" "not swept_orphan"
 
-test_case "(d) failed stop, resume, committed stop leave one completed row"
+test_case "(d) failed stop, resume, committed stop leave the failed row and a chained completed row"
 spawn 8 toolu_spawn8 >/dev/null
 assert_eq "ok" "$(brief 8 agent-8 toolu_brief4)" "task_brief binds"
 stop 8 agent-8
 assert_eq "running" "$(q "SELECT status FROM tasks WHERE id=8;")" "a stop without commits leaves the task running"
 assert_eq "failed" "$(q "SELECT exit_reason FROM agent_runs WHERE task_id=8;")" "the first stop records failed"
+FIRST8=$(q "SELECT id FROM agent_runs WHERE task_id=8;")
 assert_eq "ok" "$(brief 8 agent-8 toolu_brief5)" "the resumed spawn's task_brief"
-assert_eq "|" "$(q "SELECT COALESCE(exit_reason, ''), COALESCE(completed_at, '') FROM agent_runs WHERE task_id=8;")" "the row reopens"
+assert_eq "failed|||$FIRST8" \
+  "$(q "SELECT GROUP_CONCAT(COALESCE(exit_reason, '') || '|' || COALESCE(resumed_from, ''), '|') FROM (SELECT * FROM agent_runs WHERE task_id=8 ORDER BY id);")" \
+  "the first row stays failed and an open row resumes from it"
 (cd "$REPO/.claude/worktrees/8-resume" && echo w > w.txt && git add w.txt && git commit -qm "feat: w")
 stop 8 agent-8
 assert_eq "completed" "$(q "SELECT status FROM tasks WHERE id=8;")" "the committed stop completes the task"
-assert_eq "1" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=8;")" "one row"
-assert_eq "agent-8|completed" "$(q "SELECT spawn_id, exit_reason FROM agent_runs WHERE task_id=8;")" "the latest stop's exit_reason"
+assert_eq "2" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=8;")" "two rows"
+assert_eq "agent-8|completed|$FIRST8" \
+  "$(q "SELECT spawn_id, exit_reason, resumed_from FROM agent_runs WHERE task_id=8 ORDER BY id DESC LIMIT 1;")" \
+  "the resumed row carries the latest stop's exit_reason"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=8 AND exit_reason='swept_orphan';")" "zero swept_orphan rows"
 
 test_case "(f) no closed task's latest bound swe row reads failed (GH 1500)"
