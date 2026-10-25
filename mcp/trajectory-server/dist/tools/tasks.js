@@ -9,6 +9,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort } from './config.js';
+import { enrollEffortAb } from '../effort-ab.js';
 import { CLAIMS, CONCEPT_KINDS, CRITERION_STATUSES, HANDOFFS, MAX_CONCEPT_PROPOSALS, parseCompletionReport, specCriteriaProblem, specCriterionIds, } from '../success-criteria.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
@@ -275,7 +276,7 @@ export function taskTools(db) {
                                 effort: {
                                     type: 'string',
                                     enum: [...EFFORT_LEVELS],
-                                    description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths.',
+                                    description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths. While plugin_config.swe_effort_ab is on, a default or explicit medium task is enrolled at its id-parity arm (even high, odd medium; effort_reason ab_arm).',
                                 },
                             },
                             required: ['branch_id', 'description'],
@@ -780,6 +781,7 @@ export function taskTools(db) {
                         autocreatedAudits.push(audit);
                 }
             }
+            const effortReasons = new Map();
             const inserted = db.transaction(() => {
                 const results = [];
                 const now = nowISO();
@@ -830,11 +832,12 @@ export function taskTools(db) {
                         parentBranchId = 'main';
                     const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
                     const { files: typedFiles, verification: typedVerification, effort: explicitEffort } = validateTypedRailsFields(t);
-                    const { effort } = computeEffort(db, {
+                    const computedEffort = computeEffort(db, {
                         effort: explicitEffort,
                         prompt_bearing: promptBearing,
                         files: typedFiles,
                     });
+                    const { effort } = computedEffort;
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
@@ -854,8 +857,14 @@ export function taskTools(db) {
                         now,
                     ]);
                     const row = db.get('SELECT * FROM tasks WHERE rowid = last_insert_rowid()');
-                    if (row)
-                        results.push(row);
+                    if (row) {
+                        const assigned = enrollEffortAb(db, computedEffort, {
+                            id: row.id, issue_id: row.issue_id, branch_id: row.branch_id,
+                            from_node: args['agent'] ?? 'bro', created_at: now,
+                        });
+                        effortReasons.set(row.id, assigned.reason);
+                        results.push({ ...row, effort: assigned.effort });
+                    }
                 }
                 // Audit rows for any branches auto-created by ensureBranchInRepo (#529).
                 for (const ac of autocreatedAudits) {
@@ -1026,6 +1035,7 @@ export function taskTools(db) {
                     repo: t.repo,
                     prompt_bearing: t.prompt_bearing,
                     effort: t.effort,
+                    effort_reason: effortReasons.get(t.id),
                 })),
                 parallel_groups: parallelGroups,
                 overlapping_pairs: overlappingPairs,

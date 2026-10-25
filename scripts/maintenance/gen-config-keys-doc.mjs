@@ -116,6 +116,13 @@ export const KEYS = [
     effect: 'A files[] entry that equals or sits under (or contains) a listed prefix, with directory semantics, raises the `tasks.effort` a task gets to `high` when `task_create_batch` / `task_provision` name none; the other triggers are a prompt-bearing task and rework by `task_reopen` / `task_retry`, and an explicit `effort` always wins.',
   },
   {
+    name: 'swe_effort_ab',
+    type: 'object: `{label: string, target: positive integer}`',
+    defaultText: 'unset (off)',
+    setBy: 'bro via `config_set` (any other shape is refused)',
+    effect: 'The opt-in swe effort A/B (GH 1745): while fewer than `target` tasks carry `label`, a new task from `task_provision` / `task_create_batch` whose computed effort is the default or an explicit `medium` runs at the arm of its id\'s parity (even `high`, odd `medium`, `effort_reason` `ab_arm`) with one `effort_ab_enrolled` audit row. Reworks, explicit `high` / `low`, prompt-bearing and `high_effort_paths` tasks are never enrolled. `node scripts/maintenance/effort-ab-report.ts --label <label>` reports the arms. Unset or malformed is off.',
+  },
+  {
     name: 'reviewer_effort',
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `high`)',

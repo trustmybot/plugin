@@ -5,6 +5,9 @@ import { elapsedMs, reworkCount, SWE_SPAWN_SQL } from '../task-rework.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+/** The read surface the shared task metrics need: a TrajectoryDB, or any reader with its get/all. */
+export type StatsReader = Pick<TrajectoryDB, 'get' | 'all'>;
+
 const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'] as const;
 
 function ok(data: unknown): CallToolResult {
@@ -200,7 +203,7 @@ interface ReworkStats {
 // The task's swe reworks by kind (GH 1742): fresh = every fresh swe spawn
 // after the first, resumed = every run resumed through SendMessage
 // (resumed_from set). wall_clock_ms sums the runs' duration_ms.
-function reworkKinds(db: TrajectoryDB, taskId: number): ReworkStats['reworks'] {
+function reworkKinds(db: StatsReader, taskId: number): ReworkStats['reworks'] {
   const rows = db.all<{ kind: 'fresh' | 'resumed'; count: number; wall_clock_ms: number; tool_uses: number; cache_read_tokens: number }>(
     `SELECT CASE WHEN resumed_from IS NULL THEN 'fresh' ELSE 'resumed' END AS kind,
             COUNT(*) AS count,
@@ -223,7 +226,7 @@ function reworkKinds(db: TrajectoryDB, taskId: number): ReworkStats['reworks'] {
 // Computed at read time, nothing stored. wall_clock_ms runs from the task's
 // created_at to its close (updated_at of a closed task: the close is its last
 // write) or to now while it is open; null for an unknown task.
-function reworkStats(db: TrajectoryDB, taskId: number, now: Date): ReworkStats {
+export function reworkStats(db: StatsReader, taskId: number, now: Date): ReworkStats {
   const task = db.get<{ status: string; created_at: string; updated_at: string }>(
     'SELECT status, created_at, updated_at FROM tasks WHERE id = ?',
     [taskId],
@@ -242,6 +245,16 @@ function reworkStats(db: TrajectoryDB, taskId: number, now: Date): ReworkStats {
     rework_count: reworkCount(sweSpawnCount),
     reworks: reworkKinds(db, taskId),
   };
+}
+
+/** Tool calls and cache-read tokens summed over every swe spawn of the task. */
+export function sweRunTotals(db: StatsReader, taskId: number): { tool_uses: number; cache_read_tokens: number } {
+  const row = db.get<{ tool_uses: number; cache_read_tokens: number }>(
+    `SELECT COALESCE(SUM(tool_uses), 0) AS tool_uses, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+       FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`,
+    [taskId],
+  );
+  return { tool_uses: row?.tool_uses ?? 0, cache_read_tokens: row?.cache_read_tokens ?? 0 };
 }
 
 export function statsTools(db: TrajectoryDB, clock: () => Date = () => new Date()): {

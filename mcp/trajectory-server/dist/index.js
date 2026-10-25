@@ -25217,6 +25217,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
   { type: "decision_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
   { type: "deep_scan_completed", writers: ["bro"], description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
+  { type: "effort_ab_enrolled", writers: ["bro"], description: "`task_provision` or `task_create_batch` enrolled a new task in the opt-in swe effort A/B (`plugin_config.swe_effort_ab`, GH 1745): its computed effort was the default or an explicit `medium` and fewer than `target` tasks carried the label, so its effort became the arm of its id's parity (even `high`, odd `medium`) with `effort_reason` `ab_arm`; one row per task on its issue, in the insert's transaction; `content_json` carries `label`, `arm`, `task_id`" },
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
@@ -32916,6 +32917,25 @@ function pathsOverlap(file2, prefix) {
   const b = stripTrailingSlash(prefix);
   return a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
 }
+var SWE_EFFORT_AB_KEY = "swe_effort_ab";
+function isEffortAbConfig(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const { label, target } = value;
+  return typeof label === "string" && label.trim().length > 0 && Number.isInteger(target) && target > 0;
+}
+function readEffortAb(db2) {
+  const row = db2.get(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [SWE_EFFORT_AB_KEY]
+  );
+  if (!row) return null;
+  try {
+    const value = JSON.parse(row.value_json);
+    if (isEffortAbConfig(value)) return { label: value.label, target: value.target };
+  } catch {
+  }
+  return null;
+}
 function computeEffort(db2, input) {
   if (isEffort(input.effort)) return { effort: input.effort, reason: "explicit" };
   const base = input.rework && input.current ? input.current : resolveEffortDefaults(db2).swe;
@@ -32955,6 +32975,11 @@ function validateKnownConfigValue(key, value) {
       );
     }
     return;
+  }
+  if (key === SWE_EFFORT_AB_KEY && !isEffortAbConfig(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object {"label": non-empty string, "target": positive integer}, got ${JSON.stringify(value)}.`
+    );
   }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
     throw new Error(
@@ -33100,6 +33125,247 @@ function configTools(db2) {
     })
   };
   return { definitions, handlers };
+}
+
+// src/task-rework.ts
+var SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
+function reworkCount(sweSpawnCount) {
+  return Math.max(0, sweSpawnCount - 1);
+}
+function elapsedMs(createdAt, endedAt) {
+  const start2 = Date.parse(createdAt);
+  const end = endedAt.getTime();
+  if (Number.isNaN(start2) || Number.isNaN(end)) return null;
+  return Math.max(0, end - start2);
+}
+
+// src/tools/stats.ts
+var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
+function ok6(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err7(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function wrapHandler5(fn) {
+  return async (args2) => {
+    try {
+      return await fn(args2);
+    } catch (e) {
+      return err7(e.message);
+    }
+  };
+}
+var RATE_INPUT_PER_MTK = 15;
+var RATE_OUTPUT_PER_MTK = 75;
+var RATE_CACHE_READ_PER_MTK = 1.5;
+var RATE_CACHE_CREATION_PER_MTK = 18.75;
+function estimateCostUsd(tokensIn, tokensOut, cacheRead, cacheCreation) {
+  return (tokensIn * RATE_INPUT_PER_MTK + tokensOut * RATE_OUTPUT_PER_MTK + cacheRead * RATE_CACHE_READ_PER_MTK + cacheCreation * RATE_CACHE_CREATION_PER_MTK) / 1e6;
+}
+var PRICE_FIELDS = ["input", "output", "cache_read", "cache_creation"];
+function readModelPrices(db2) {
+  const prices = /* @__PURE__ */ new Map();
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'model_prices'`);
+  if (!row) return prices;
+  let parsed;
+  try {
+    parsed = JSON.parse(row.value_json);
+  } catch {
+    return prices;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return prices;
+  for (const [model, entry] of Object.entries(parsed)) {
+    if (entry === null || typeof entry !== "object") continue;
+    const e = entry;
+    if (PRICE_FIELDS.every((f) => typeof e[f] === "number" && Number.isFinite(e[f]))) {
+      prices.set(model, {
+        input: e["input"],
+        output: e["output"],
+        cache_read: e["cache_read"],
+        cache_creation: e["cache_creation"]
+      });
+    }
+  }
+  return prices;
+}
+var round4 = (n) => Math.round(n * 1e4) / 1e4;
+function costEstimate(rows, prices) {
+  const groups = /* @__PURE__ */ new Map();
+  let cost = 0;
+  let unpriced = 0;
+  for (const r of rows) {
+    const ti = r.tokens_in ?? 0;
+    const to = r.tokens_out ?? 0;
+    const cr = r.cache_read_tokens ?? 0;
+    const cc = r.cache_creation_tokens ?? 0;
+    const total = ti + to + cr + cc;
+    const price = r.model !== null ? prices.get(r.model) : void 0;
+    const rowCost = price ? (ti * price.input + to * price.output + cr * price.cache_read + cc * price.cache_creation) / 1e6 : 0;
+    const rowUnpriced = price ? 0 : total;
+    cost += rowCost;
+    unpriced += rowUnpriced;
+    const key = JSON.stringify([r.host, r.model]);
+    const g = groups.get(key) ?? {
+      host: r.host,
+      model: r.model,
+      spawn_count: 0,
+      tokens_total: 0,
+      cost_estimate: 0,
+      unpriced_tokens: 0,
+      cost: 0
+    };
+    g.spawn_count += 1;
+    g.tokens_total += total;
+    g.cost += rowCost;
+    g.unpriced_tokens += rowUnpriced;
+    groups.set(key, g);
+  }
+  return {
+    cost_estimate: round4(cost),
+    unpriced_tokens: unpriced,
+    groups: [...groups.values()].map(({ cost: c, ...g }) => ({ ...g, cost_estimate: round4(c) }))
+  };
+}
+var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
+var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
+function reworkKinds(db2, taskId) {
+  const rows = db2.all(
+    `SELECT CASE WHEN resumed_from IS NULL THEN 'fresh' ELSE 'resumed' END AS kind,
+            COUNT(*) AS count,
+            COALESCE(SUM(duration_ms), 0) AS wall_clock_ms,
+            COALESCE(SUM(tool_uses), 0) AS tool_uses,
+            COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+       FROM agent_runs
+      WHERE task_id = ? AND ${SWE_SPAWN_SQL}
+        AND (resumed_from IS NOT NULL
+             OR id > (SELECT MIN(id) FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL} AND resumed_from IS NULL))
+      GROUP BY kind`,
+    [taskId, taskId]
+  );
+  const empty = () => ({ count: 0, wall_clock_ms: 0, tool_uses: 0, cache_read_tokens: 0 });
+  const reworks = { fresh: empty(), resumed: empty() };
+  for (const { kind, ...totals } of rows) reworks[kind] = totals;
+  return reworks;
+}
+function reworkStats(db2, taskId, now2) {
+  const task = db2.get(
+    "SELECT status, created_at, updated_at FROM tasks WHERE id = ?",
+    [taskId]
+  );
+  const fails = db2.get(
+    "SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND verdict = 'fail'",
+    [taskId]
+  );
+  const spawns = db2.get(`SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
+  const sweSpawnCount = spawns?.n ?? 0;
+  const endedAt = task?.status === "closed" ? new Date(task.updated_at) : now2;
+  return {
+    wall_clock_ms: task ? elapsedMs(task.created_at, endedAt) : null,
+    review_fail_count: fails?.n ?? 0,
+    swe_spawn_count: sweSpawnCount,
+    rework_count: reworkCount(sweSpawnCount),
+    reworks: reworkKinds(db2, taskId)
+  };
+}
+function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
+  const definitions = [
+    {
+      name: "task_stats",
+      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", description: "Calling agent identity" },
+          task_id: { type: "integer", description: "Task ID to query stats for" }
+        },
+        required: ["agent", "task_id"]
+      }
+    }
+  ];
+  const handlers = {
+    task_stats: requireRoles(
+      "task_stats",
+      [...ALLOWED_ROLES],
+      wrapHandler5(async (args2) => {
+        normalizeAgent(args2["agent"]);
+        const rawTaskId = args2["task_id"];
+        const taskId = Number(rawTaskId);
+        if (!Number.isInteger(taskId) || taskId <= 0) {
+          throw new Error("task_id must be a positive integer");
+        }
+        const aggRow = db2.get(
+          `SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`,
+          [taskId]
+        );
+        const sumIn = aggRow?.sum_tokens_in ?? 0;
+        const sumOut = aggRow?.sum_tokens_out ?? 0;
+        const sumCacheRead = aggRow?.sum_cache_read ?? 0;
+        const sumCacheCreation = aggRow?.sum_cache_creation ?? 0;
+        const aggregate = {
+          spawn_count: aggRow?.spawn_count ?? 0,
+          tokens_in: sumIn,
+          tokens_out: sumOut,
+          tokens_total: aggRow?.sum_tokens_total ?? 0,
+          cache_read_tokens: sumCacheRead,
+          cache_creation_tokens: sumCacheCreation,
+          tool_uses: aggRow?.sum_tool_uses ?? 0,
+          duration_ms: aggRow?.sum_duration_ms ?? 0,
+          estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation)
+        };
+        const spawns = db2.all(
+          `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
+          [taskId]
+        );
+        const cost = costEstimate(spawns, readModelPrices(db2));
+        return ok6({
+          task_id: taskId,
+          aggregate,
+          cost_estimate: cost.cost_estimate,
+          unpriced_tokens: cost.unpriced_tokens,
+          cost_groups: cost.groups,
+          ...reworkStats(db2, taskId, clock()),
+          spawns
+        });
+      })
+    )
+  };
+  return { definitions, handlers };
+}
+
+// src/effort-ab-report.ts
+var EFFORT_AB_EVENT = "effort_ab_enrolled";
+var LABEL_SQL = "event_type = ? AND json_valid(content_json) AND json_extract(content_json, '$.label') = ?";
+function effortAbEnrolledCount(db2, label) {
+  return db2.get(`SELECT COUNT(*) AS n FROM audit WHERE ${LABEL_SQL}`, [EFFORT_AB_EVENT, label])?.n ?? 0;
+}
+
+// src/effort-ab.ts
+function effortAbArm(taskId) {
+  return taskId % 2 === 0 ? "high" : "medium";
+}
+function isEligible(computed) {
+  return computed.reason === "default" || computed.reason === "explicit" && computed.effort === "medium";
+}
+function enrollEffortAb(db2, computed, task) {
+  if (!isEligible(computed)) return computed;
+  const ab = readEffortAb(db2);
+  if (!ab || effortAbEnrolledCount(db2, ab.label) >= ab.target) return computed;
+  const arm = effortAbArm(task.id);
+  db2.run(`UPDATE tasks SET effort = ? WHERE id = ?`, [arm, task.id]);
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: task.from_node,
+    event_type: EFFORT_AB_EVENT,
+    summary: `Task ${task.id} enrolled in effort A/B '${ab.label}' at ${arm}.`,
+    content_json: JSON.stringify({ label: ab.label, arm, task_id: task.id }),
+    created_at: task.created_at
+  });
+  return { effort: arm, reason: "ab_arm" };
 }
 
 // src/success-criteria.ts
@@ -33497,10 +33763,10 @@ var BRO_TRANSITIONS = {
   escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
   closed: /* @__PURE__ */ new Set(["escalated"])
 };
-function ok6(data) {
+function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err7(message2) {
+function err8(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -33512,12 +33778,12 @@ function requireArg4(args2, name2) {
   }
   return args2[name2];
 }
-function wrapHandler5(fn) {
+function wrapHandler6(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err7(e.message);
+      return err8(e.message);
     }
   };
 }
@@ -33576,7 +33842,7 @@ function taskTools(db2) {
                 effort: {
                   type: "string",
                   enum: [...EFFORT_LEVELS],
-                  description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths."
+                  description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths. While plugin_config.swe_effort_ab is on, a default or explicit medium task is enrolled at its id-parity arm (even high, odd medium; effort_reason ab_arm)."
                 }
               },
               required: ["branch_id", "description"]
@@ -33764,17 +34030,17 @@ function taskTools(db2) {
     }
   ];
   const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler5(async (args2) => {
+    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler6(async (args2) => {
       requireArg4(args2, "agent");
       const issueId = requireArg4(args2, "issue_id");
       requireArg4(args2, "tasks");
       if (Number(issueId) === -1) {
-        return err7("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
+        return err8("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
       }
       const taskInputs = args2["tasks"];
       parseRunSessionId(args2["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok6([]);
+        return ok7([]);
       }
       const waived = args2["waive_scope_gate"] === true;
       const waiverReason = args2["waive_scope_gate_reason"] ?? "";
@@ -33782,7 +34048,7 @@ function taskTools(db2) {
       const specShapeWaiverReason = args2["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err7("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err8("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
@@ -33812,7 +34078,7 @@ function taskTools(db2) {
           }
           const criteriaProblem = specCriteriaProblem(t.spec_body);
           if (criteriaProblem) {
-            return err7(
+            return err8(
               `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${criteriaProblem} Or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`
             );
           }
@@ -33859,7 +34125,7 @@ function taskTools(db2) {
       const branchGateWaiverReason = args2["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err7("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err8("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -33886,7 +34152,7 @@ function taskTools(db2) {
       const registryGateWaiverReason = args2["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err7("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err8("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -33911,7 +34177,7 @@ function taskTools(db2) {
       const intentGateWaiverReason = args2["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err7("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err8("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -33938,7 +34204,7 @@ function taskTools(db2) {
       const decisionGateWaiverReason = args2["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err7("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err8("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -34018,6 +34284,7 @@ function taskTools(db2) {
           if (audit) autocreatedAudits.push(audit);
         }
       }
+      const effortReasons = /* @__PURE__ */ new Map();
       const inserted = db2.transaction(() => {
         const results = [];
         const now2 = nowISO();
@@ -34057,11 +34324,12 @@ function taskTools(db2) {
           if (parentBranchId == null) parentBranchId = "main";
           const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
           const { files: typedFiles, verification: typedVerification, effort: explicitEffort } = validateTypedRailsFields(t);
-          const { effort } = computeEffort(db2, {
+          const computedEffort = computeEffort(db2, {
             effort: explicitEffort,
             prompt_bearing: promptBearing,
             files: typedFiles
           });
+          const { effort } = computedEffort;
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -34086,7 +34354,17 @@ function taskTools(db2) {
           const row = db2.get(
             "SELECT * FROM tasks WHERE rowid = last_insert_rowid()"
           );
-          if (row) results.push(row);
+          if (row) {
+            const assigned = enrollEffortAb(db2, computedEffort, {
+              id: row.id,
+              issue_id: row.issue_id,
+              branch_id: row.branch_id,
+              from_node: args2["agent"] ?? "bro",
+              created_at: now2
+            });
+            effortReasons.set(row.id, assigned.reason);
+            results.push({ ...row, effort: assigned.effort });
+          }
         }
         for (const ac of autocreatedAudits) {
           insertAudit(db2, {
@@ -34228,7 +34506,7 @@ function taskTools(db2) {
           }
         }
       }
-      return ok6({
+      return ok7({
         tasks: inserted.map((t) => ({
           id: t.id,
           issue_id: t.issue_id,
@@ -34238,13 +34516,14 @@ function taskTools(db2) {
           status: t.status,
           repo: t.repo,
           prompt_bearing: t.prompt_bearing,
-          effort: t.effort
+          effort: t.effort,
+          effort_reason: effortReasons.get(t.id)
         })),
         parallel_groups: parallelGroups,
         overlapping_pairs: overlappingPairs
       });
     })),
-    task_get: wrapHandler5(async (args2) => {
+    task_get: wrapHandler6(async (args2) => {
       requireArg4(args2, "agent");
       const taskId = requireArg4(args2, "task_id");
       const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
@@ -34253,12 +34532,12 @@ function taskTools(db2) {
       }
       const includeSpec = args2["include_spec_body"] === true;
       if (includeSpec) {
-        return ok6(task);
+        return ok7(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok6(thin);
+      return ok7(thin);
     }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler5(async (args2) => {
+    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler6(async (args2) => {
       requireArg4(args2, "agent");
       const agent = normalizeAgent(args2["agent"]);
       const taskId = requireArg4(args2, "task_id");
@@ -34338,9 +34617,9 @@ function taskTools(db2) {
         }
       });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok6(updated);
+      return ok7(updated);
     })),
-    task_first_actionable: wrapHandler5(async (args2) => {
+    task_first_actionable: wrapHandler6(async (args2) => {
       requireArg4(args2, "agent");
       const issueId = requireArg4(args2, "issue_id");
       const task = db2.get(
@@ -34350,7 +34629,7 @@ function taskTools(db2) {
          LIMIT 1`,
         [issueId]
       );
-      return ok6(task ?? null);
+      return ok7(task ?? null);
     })
   };
   return { definitions, handlers };
@@ -34433,10 +34712,10 @@ function latestVerificationRun(db2, taskId, startedBy) {
 
 // src/tools/validation.ts
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
-function ok7(data) {
+function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message2) {
+function err9(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -34448,12 +34727,12 @@ function requireArg5(args2, name2) {
   }
   return args2[name2];
 }
-function wrapHandler6(fn) {
+function wrapHandler7(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err8(e.message);
+      return err9(e.message);
     }
   };
 }
@@ -34611,7 +34890,7 @@ function validationTools(db2) {
     }
   ];
   const handlers = {
-    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler6(async (args2) => {
+    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler7(async (args2) => {
       const agent = requireArg5(args2, "agent");
       const taskId = coerceTaskId(requireArg5(args2, "task_id"));
       requireArg5(args2, "attempt_n");
@@ -34751,9 +35030,9 @@ function validationTools(db2) {
         [taskId, attemptN]
       );
       const recorded = findingIds.map((id) => ({ ...db2.get("SELECT * FROM review_findings WHERE id = ?", [id]) }));
-      return ok7({ ...row, findings: recorded });
+      return ok8({ ...row, findings: recorded });
     })),
-    validation_history: wrapHandler6(async (args2) => {
+    validation_history: wrapHandler7(async (args2) => {
       const agent = normalizeAgent(args2["agent"]);
       const taskId = coerceTaskId(requireArg5(args2, "task_id"));
       const ownTaskIdRaw = args2["own_task_id"];
@@ -34765,7 +35044,7 @@ function validationTools(db2) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err8(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
+          return err9(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(redacted) {
@@ -34780,7 +35059,7 @@ function validationTools(db2) {
           `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
           [taskId]
         );
-        return ok7(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
+        return ok8(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -34801,7 +35080,7 @@ function validationTools(db2) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
-      return ok7({
+      return ok8({
         rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
         next_cursor
       });
@@ -34821,10 +35100,10 @@ var VALID_STATUS_TRANSITIONS = /* @__PURE__ */ new Map([
 var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
   ["agent", /* @__PURE__ */ new Set(["curated"])]
 ]);
-function ok8(data) {
+function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err9(message2) {
+function err10(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -34836,12 +35115,12 @@ function requireArg6(args2, name2) {
   }
   return args2[name2];
 }
-function wrapHandler7(fn) {
+function wrapHandler8(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err9(e.message);
+      return err10(e.message);
     }
   };
 }
@@ -34884,7 +35163,7 @@ function skillTools(db2) {
     }
   ];
   const handlers = {
-    skill_register: wrapHandler7(async (args2) => {
+    skill_register: wrapHandler8(async (args2) => {
       requireArg6(args2, "agent");
       const name2 = requireArg6(args2, "name");
       const description = requireArg6(args2, "description");
@@ -34914,9 +35193,9 @@ function skillTools(db2) {
         [name2, description, filePath, scope, trustTier, now2, now2, now2]
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
-      return ok8(row);
+      return ok9(row);
     }),
-    skill_promote: wrapHandler7(async (args2) => {
+    skill_promote: wrapHandler8(async (args2) => {
       requireArg6(args2, "agent");
       const name2 = requireArg6(args2, "name");
       const fromStatus = requireArg6(args2, "from_status");
@@ -34959,7 +35238,7 @@ function skillTools(db2) {
         `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
         [name2]
       );
-      return ok8(updated);
+      return ok9(updated);
     })
   };
   return { definitions, handlers };
@@ -34969,10 +35248,10 @@ function skillTools(db2) {
 import { existsSync as existsSync4 } from "node:fs";
 import { dirname as dirname4, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-function ok9(data) {
+function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err10(message2) {
+function err11(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -34984,12 +35263,12 @@ function requireArg7(args2, name2) {
   }
   return args2[name2];
 }
-function wrapHandler8(fn) {
+function wrapHandler9(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err10(e.message);
+      return err11(e.message);
     }
   };
 }
@@ -35096,7 +35375,7 @@ function agentTools(db2, dbPath2 = "") {
     resolved_path: resolveMarkedPath(row.file_path, workspaceRoot)
   });
   const handlers = {
-    agent_list: wrapHandler8(async (args2) => {
+    agent_list: wrapHandler9(async (args2) => {
       requireArg7(args2, "agent");
       const root = args2["root"];
       if (root !== void 0 && !VALID_ROOTS.has(root)) {
@@ -35105,9 +35384,9 @@ function agentTools(db2, dbPath2 = "") {
         );
       }
       const rows = root ? db2.all("SELECT * FROM agents WHERE file_path LIKE ? ORDER BY name", [`${root}:%`]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok9({ agents: rows.map(withResolvedPath) });
+      return ok10({ agents: rows.map(withResolvedPath) });
     }),
-    agent_register: wrapHandler8(async (args2) => {
+    agent_register: wrapHandler9(async (args2) => {
       requireArg7(args2, "agent");
       const name2 = requireArg7(args2, "name");
       const kind = requireArg7(args2, "kind");
@@ -35156,12 +35435,12 @@ function agentTools(db2, dbPath2 = "") {
           content_json: contentJson
         });
       }
-      return ok9(row ? withResolvedPath(row) : row);
+      return ok10(row ? withResolvedPath(row) : row);
     }),
     agent_resolve: requireRoles(
       "agent_resolve",
       ["bro"],
-      wrapHandler8(async (args2) => {
+      wrapHandler9(async (args2) => {
         requireArg7(args2, "agent");
         const name2 = requireArg7(args2, "name");
         validateAgentName(name2);
@@ -35169,14 +35448,14 @@ function agentTools(db2, dbPath2 = "") {
         const resolvedPath = resolveMarkedPath(filePath, workspaceRoot);
         const target = { file_path: filePath, resolved_path: resolvedPath };
         if (resolvedPath && existsSync4(resolvedPath)) {
-          return ok9({ mode: "collision", ...target });
+          return ok10({ mode: "collision", ...target });
         }
         const templatePath = join9(PLUGIN_ROOT, "templates", "agents", `${name2}.md`);
         if (existsSync4(templatePath)) {
-          return ok9({ mode: "template-copy", source_path: templatePath, ...target });
+          return ok10({ mode: "template-copy", source_path: templatePath, ...target });
         }
         const scaffoldPath = join9(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok9({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
+        return ok10({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
       })
     )
   };
@@ -35186,10 +35465,10 @@ function agentTools(db2, dbPath2 = "") {
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
 import { dirname as dirname5, resolve as resolve3, sep as sep3 } from "node:path";
-function ok10(data) {
+function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err11(message2) {
+function err12(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -35201,12 +35480,12 @@ function requireArg8(args2, name2) {
   }
   return args2[name2];
 }
-function wrapHandler9(fn) {
+function wrapHandler10(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err11(e.message);
+      return err12(e.message);
     }
   };
 }
@@ -35247,7 +35526,7 @@ function reportTools(db2) {
     }
   ];
   const handlers = {
-    issue_report_md: wrapHandler9(async (args2) => {
+    issue_report_md: wrapHandler10(async (args2) => {
       requireArg8(args2, "agent");
       const issueId = requireArg8(args2, "issue_id");
       const mode = args2["mode"] ?? "summary";
@@ -35299,7 +35578,7 @@ function reportTools(db2) {
             lines2.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
           }
         }
-        return ok10({ markdown: lines2.join("\n"), mode: "summary" });
+        return ok11({ markdown: lines2.join("\n"), mode: "summary" });
       }
       const tasks = db2.all(
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
@@ -35357,9 +35636,9 @@ function reportTools(db2) {
         }
       }
       lines2.push("");
-      return ok10({ markdown: lines2.join("\n"), mode: "detail" });
+      return ok11({ markdown: lines2.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer", "consultant"], wrapHandler9(async (args2) => {
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer", "consultant"], wrapHandler10(async (args2) => {
       requireArg8(args2, "agent");
       const issueId = requireArg8(args2, "issue_id");
       const rawOutputPath = args2["output_path"];
@@ -35451,17 +35730,17 @@ function reportTools(db2) {
       const markdown = lines2.join("\n");
       mkdirSync3(dirname5(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
-      return ok10({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
+      return ok11({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
   };
   return { definitions, handlers };
 }
 
 // src/tools/branch_report_md.ts
-function ok11(data) {
+function ok12(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err12(message2) {
+function err13(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -35473,12 +35752,12 @@ function requireArg9(args2, name2) {
   }
   return args2[name2];
 }
-function wrapHandler10(fn) {
+function wrapHandler11(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err12(e.message);
+      return err13(e.message);
     }
   };
 }
@@ -35510,7 +35789,7 @@ function branchReportMdTools(db2) {
     branch_report_md: requireRoles(
       "branch_report_md",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler10(async (args2) => {
+      wrapHandler11(async (args2) => {
         requireArg9(args2, "agent");
         const issueId = requireArg9(args2, "issue_id");
         const branchId = requireArg9(args2, "branch_id");
@@ -35575,7 +35854,7 @@ function branchReportMdTools(db2) {
               lines2.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
             }
           }
-          return ok11({ markdown: lines2.join("\n"), mode: "summary" });
+          return ok12({ markdown: lines2.join("\n"), mode: "summary" });
         }
         const taskIds = tasks.map((t) => String(t.id));
         const placeholders2 = taskIds.map(() => "?").join(", ");
@@ -35621,216 +35900,7 @@ function branchReportMdTools(db2) {
             lines2.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
           }
         }
-        return ok11({ markdown: lines2.join("\n"), mode: "detail" });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/task-rework.ts
-var SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
-function reworkCount(sweSpawnCount) {
-  return Math.max(0, sweSpawnCount - 1);
-}
-function elapsedMs(createdAt, endedAt) {
-  const start2 = Date.parse(createdAt);
-  const end = endedAt.getTime();
-  if (Number.isNaN(start2) || Number.isNaN(end)) return null;
-  return Math.max(0, end - start2);
-}
-
-// src/tools/stats.ts
-var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
-function ok12(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err13(message2) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
-    isError: true
-  };
-}
-function wrapHandler11(fn) {
-  return async (args2) => {
-    try {
-      return await fn(args2);
-    } catch (e) {
-      return err13(e.message);
-    }
-  };
-}
-var RATE_INPUT_PER_MTK = 15;
-var RATE_OUTPUT_PER_MTK = 75;
-var RATE_CACHE_READ_PER_MTK = 1.5;
-var RATE_CACHE_CREATION_PER_MTK = 18.75;
-function estimateCostUsd(tokensIn, tokensOut, cacheRead, cacheCreation) {
-  return (tokensIn * RATE_INPUT_PER_MTK + tokensOut * RATE_OUTPUT_PER_MTK + cacheRead * RATE_CACHE_READ_PER_MTK + cacheCreation * RATE_CACHE_CREATION_PER_MTK) / 1e6;
-}
-var PRICE_FIELDS = ["input", "output", "cache_read", "cache_creation"];
-function readModelPrices(db2) {
-  const prices = /* @__PURE__ */ new Map();
-  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'model_prices'`);
-  if (!row) return prices;
-  let parsed;
-  try {
-    parsed = JSON.parse(row.value_json);
-  } catch {
-    return prices;
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return prices;
-  for (const [model, entry] of Object.entries(parsed)) {
-    if (entry === null || typeof entry !== "object") continue;
-    const e = entry;
-    if (PRICE_FIELDS.every((f) => typeof e[f] === "number" && Number.isFinite(e[f]))) {
-      prices.set(model, {
-        input: e["input"],
-        output: e["output"],
-        cache_read: e["cache_read"],
-        cache_creation: e["cache_creation"]
-      });
-    }
-  }
-  return prices;
-}
-var round4 = (n) => Math.round(n * 1e4) / 1e4;
-function costEstimate(rows, prices) {
-  const groups = /* @__PURE__ */ new Map();
-  let cost = 0;
-  let unpriced = 0;
-  for (const r of rows) {
-    const ti = r.tokens_in ?? 0;
-    const to = r.tokens_out ?? 0;
-    const cr = r.cache_read_tokens ?? 0;
-    const cc = r.cache_creation_tokens ?? 0;
-    const total = ti + to + cr + cc;
-    const price = r.model !== null ? prices.get(r.model) : void 0;
-    const rowCost = price ? (ti * price.input + to * price.output + cr * price.cache_read + cc * price.cache_creation) / 1e6 : 0;
-    const rowUnpriced = price ? 0 : total;
-    cost += rowCost;
-    unpriced += rowUnpriced;
-    const key = JSON.stringify([r.host, r.model]);
-    const g = groups.get(key) ?? {
-      host: r.host,
-      model: r.model,
-      spawn_count: 0,
-      tokens_total: 0,
-      cost_estimate: 0,
-      unpriced_tokens: 0,
-      cost: 0
-    };
-    g.spawn_count += 1;
-    g.tokens_total += total;
-    g.cost += rowCost;
-    g.unpriced_tokens += rowUnpriced;
-    groups.set(key, g);
-  }
-  return {
-    cost_estimate: round4(cost),
-    unpriced_tokens: unpriced,
-    groups: [...groups.values()].map(({ cost: c, ...g }) => ({ ...g, cost_estimate: round4(c) }))
-  };
-}
-var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
-var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
-function reworkKinds(db2, taskId) {
-  const rows = db2.all(
-    `SELECT CASE WHEN resumed_from IS NULL THEN 'fresh' ELSE 'resumed' END AS kind,
-            COUNT(*) AS count,
-            COALESCE(SUM(duration_ms), 0) AS wall_clock_ms,
-            COALESCE(SUM(tool_uses), 0) AS tool_uses,
-            COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
-       FROM agent_runs
-      WHERE task_id = ? AND ${SWE_SPAWN_SQL}
-        AND (resumed_from IS NOT NULL
-             OR id > (SELECT MIN(id) FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL} AND resumed_from IS NULL))
-      GROUP BY kind`,
-    [taskId, taskId]
-  );
-  const empty = () => ({ count: 0, wall_clock_ms: 0, tool_uses: 0, cache_read_tokens: 0 });
-  const reworks = { fresh: empty(), resumed: empty() };
-  for (const { kind, ...totals } of rows) reworks[kind] = totals;
-  return reworks;
-}
-function reworkStats(db2, taskId, now2) {
-  const task = db2.get(
-    "SELECT status, created_at, updated_at FROM tasks WHERE id = ?",
-    [taskId]
-  );
-  const fails = db2.get(
-    "SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND verdict = 'fail'",
-    [taskId]
-  );
-  const spawns = db2.get(`SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
-  const sweSpawnCount = spawns?.n ?? 0;
-  const endedAt = task?.status === "closed" ? new Date(task.updated_at) : now2;
-  return {
-    wall_clock_ms: task ? elapsedMs(task.created_at, endedAt) : null,
-    review_fail_count: fails?.n ?? 0,
-    swe_spawn_count: sweSpawnCount,
-    rework_count: reworkCount(sweSpawnCount),
-    reworks: reworkKinds(db2, taskId)
-  };
-}
-function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
-  const definitions = [
-    {
-      name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Calling agent identity" },
-          task_id: { type: "integer", description: "Task ID to query stats for" }
-        },
-        required: ["agent", "task_id"]
-      }
-    }
-  ];
-  const handlers = {
-    task_stats: requireRoles(
-      "task_stats",
-      [...ALLOWED_ROLES],
-      wrapHandler11(async (args2) => {
-        normalizeAgent(args2["agent"]);
-        const rawTaskId = args2["task_id"];
-        const taskId = Number(rawTaskId);
-        if (!Number.isInteger(taskId) || taskId <= 0) {
-          throw new Error("task_id must be a positive integer");
-        }
-        const aggRow = db2.get(
-          `SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`,
-          [taskId]
-        );
-        const sumIn = aggRow?.sum_tokens_in ?? 0;
-        const sumOut = aggRow?.sum_tokens_out ?? 0;
-        const sumCacheRead = aggRow?.sum_cache_read ?? 0;
-        const sumCacheCreation = aggRow?.sum_cache_creation ?? 0;
-        const aggregate = {
-          spawn_count: aggRow?.spawn_count ?? 0,
-          tokens_in: sumIn,
-          tokens_out: sumOut,
-          tokens_total: aggRow?.sum_tokens_total ?? 0,
-          cache_read_tokens: sumCacheRead,
-          cache_creation_tokens: sumCacheCreation,
-          tool_uses: aggRow?.sum_tool_uses ?? 0,
-          duration_ms: aggRow?.sum_duration_ms ?? 0,
-          estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation)
-        };
-        const spawns = db2.all(
-          `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
-          [taskId]
-        );
-        const cost = costEstimate(spawns, readModelPrices(db2));
-        return ok12({
-          task_id: taskId,
-          aggregate,
-          cost_estimate: cost.cost_estimate,
-          unpriced_tokens: cost.unpriced_tokens,
-          cost_groups: cost.groups,
-          ...reworkStats(db2, taskId, clock()),
-          spawns
-        });
+        return ok12({ markdown: lines2.join("\n"), mode: "detail" });
       })
     )
   };
@@ -37617,11 +37687,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(task.effort)}.`
           );
         }
-        const { effort, reason: effortReason } = computeEffort(db2, {
+        const computedEffort = computeEffort(db2, {
           effort: task.effort,
           prompt_bearing: promptBearing,
           files
         });
+        const { effort } = computedEffort;
         const slug = branchId.replace(/^[^/]+\//, "");
         const specShapeWaived = args2["waive_spec_shape"] === true;
         const specShapeWaiverReason = args2["waive_spec_shape_reason"] ?? "";
@@ -37771,6 +37842,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
+          const assigned = enrollEffortAb(db2, computedEffort, {
+            id: row.id,
+            issue_id: issueId,
+            branch_id: branchId,
+            from_node: agent,
+            created_at: now2
+          });
           insertDiscussion(db2, {
             issue_id: issueId,
             author: agent,
@@ -37802,7 +37880,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (specShapeWaived) {
             insertSpecShapeWaiver(db2, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, "task_provision", now2);
           }
-          return { task_id: row.id };
+          return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason };
         });
         let gitSetup = branchExists2 ? "reused" : "created";
         let worktreeReused = false;
@@ -37819,8 +37897,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           branch_id: branchId,
           repo: repoValue,
           slug,
-          effort,
-          effort_reason: effortReason,
+          effort: result2.effort,
+          effort_reason: result2.effort_reason,
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
