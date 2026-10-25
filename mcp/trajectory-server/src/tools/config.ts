@@ -141,7 +141,35 @@ export function computeEffort(
   return { effort: base, reason: 'default' };
 }
 
+export const ISSUE_AREA_LABELS_KEY = 'issue_area_labels';
+export const ISSUE_AREA_PATHS_KEY = 'issue_area_paths';
+
+export function isNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((el) => typeof el === 'string' && el.trim().length > 0);
+}
+
+export function isAreaPathMap(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.entries(value).every(
+      ([prefix, area]) => prefix.trim().length > 0 && typeof area === 'string' && area.trim().length > 0,
+    )
+  );
+}
+
 function validateKnownConfigValue(key: string, value: unknown): void {
+  if (key === ISSUE_AREA_LABELS_KEY && !isNonEmptyStringArray(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an array of non-empty strings, got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (key === ISSUE_AREA_PATHS_KEY && !isAreaPathMap(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object mapping non-empty path prefixes to non-empty area labels, got ${JSON.stringify(value)}.`,
+    );
+  }
   if (key === HIGH_EFFORT_PATHS_KEY) {
     if (!Array.isArray(value) || value.some((el) => typeof el !== 'string' || el.trim().length === 0)) {
       throw new Error(

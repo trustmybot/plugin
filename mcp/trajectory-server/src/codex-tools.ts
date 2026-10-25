@@ -11,7 +11,11 @@ import {
 } from './codex-runtime.js';
 import { discussionTools } from './tools/discussions.js';
 import {
+  ISSUE_AREA_LABELS_KEY,
+  ISSUE_AREA_PATHS_KEY,
   getConfigValues,
+  isAreaPathMap,
+  isNonEmptyStringArray,
   setConfigValues,
   storedConfigParseErrorPrefix,
 } from './tools/config.js';
@@ -132,7 +136,7 @@ export function createCodexToolRegistry(
     ),
     tool(
       'planning_label_taxonomy_get',
-      'Read the exact classification and priority labels accepted by the selected project.',
+      'Read the exact classification and priority labels accepted by the selected project, plus its area labels and area path map when configured.',
       {},
       [],
       { readOnly: true },
@@ -177,7 +181,7 @@ export function createCodexToolRegistry(
           type: 'array',
           minItems: 1,
           items: { type: 'string', minLength: 1, pattern: '\\S' },
-          description: 'Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy; additional explicit labels are allowed. Cannot be combined with classification or priority.',
+          description: 'Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy, plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted); additional explicit labels are allowed. Cannot be combined with classification or priority.',
         },
         repo: { type: 'string', description: 'Optional repository name from project_inventory.' },
         allow_duplicate: { type: 'boolean', description: 'Allow an objective similar to an existing open local issue.' },
@@ -425,6 +429,8 @@ export function createCodexToolRegistry(
               labelTaxonomy: {
                 classification: taxonomy.classification_labels,
                 priorityLabels: taxonomy.priority_labels,
+                areaLabels: taxonomy.area_labels ?? [],
+                areaPaths: taxonomy.area_paths ?? {},
               },
             },
           );
@@ -812,31 +818,30 @@ interface PlanningLabelTaxonomy {
   priority_labels: string[];
   classification_source: 'configured' | 'default';
   priority_source: 'configured' | 'default';
+  area_labels?: string[];
+  area_paths?: Record<string, string>;
 }
+
+const TAXONOMY_CONFIG_KEYS = [
+  CLASSIFICATION_TAXONOMY_KEY,
+  PRIORITY_TAXONOMY_KEY,
+  ISSUE_AREA_LABELS_KEY,
+  ISSUE_AREA_PATHS_KEY,
+] as const;
 
 async function resolvePlanningLabelTaxonomy(
   runtime: CodexRuntimeAccess,
 ): Promise<PlanningLabelTaxonomy> {
   let values: Readonly<Record<string, unknown | null>>;
   try {
-    values = getConfigValues(runtime.db, [
-      CLASSIFICATION_TAXONOMY_KEY,
-      PRIORITY_TAXONOMY_KEY,
-    ]);
+    values = getConfigValues(runtime.db, TAXONOMY_CONFIG_KEYS);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      [CLASSIFICATION_TAXONOMY_KEY, PRIORITY_TAXONOMY_KEY].some((key) =>
-        error.message.startsWith(storedConfigParseErrorPrefix(key)),
-      )
-    ) {
-      const key = error.message.startsWith(
-        storedConfigParseErrorPrefix(CLASSIFICATION_TAXONOMY_KEY),
-      )
-        ? CLASSIFICATION_TAXONOMY_KEY
-        : PRIORITY_TAXONOMY_KEY;
-      throw invalidLabelTaxonomy(key);
-    }
+    const key = TAXONOMY_CONFIG_KEYS.find(
+      (candidate) =>
+        error instanceof Error &&
+        error.message.startsWith(storedConfigParseErrorPrefix(candidate)),
+    );
+    if (key !== undefined) throw invalidLabelTaxonomy(key);
     throw error;
   }
   const classification = readTaxonomyConfig(
@@ -849,11 +854,27 @@ async function resolvePlanningLabelTaxonomy(
     PRIORITY_TAXONOMY_KEY,
     DEFAULT_PRIORITY_LABELS,
   );
+  const areaLabels = values[ISSUE_AREA_LABELS_KEY] ?? [];
+  if (!isNonEmptyStringArray(areaLabels)) {
+    throw invalidLabelTaxonomy(
+      ISSUE_AREA_LABELS_KEY,
+      'must be an array of non-empty strings.',
+    );
+  }
+  const areaPaths = values[ISSUE_AREA_PATHS_KEY];
+  if (areaPaths !== null && !isAreaPathMap(areaPaths)) {
+    throw invalidLabelTaxonomy(
+      ISSUE_AREA_PATHS_KEY,
+      'must be an object mapping non-empty path prefixes to non-empty area labels.',
+    );
+  }
   return {
     classification_labels: classification.labels,
     priority_labels: priority.labels,
     classification_source: classification.source,
     priority_source: priority.source,
+    ...(areaLabels.length > 0 ? { area_labels: [...areaLabels] } : {}),
+    ...(areaPaths !== null ? { area_paths: { ...areaPaths } } : {}),
   };
 }
 
@@ -899,10 +920,13 @@ function readTaxonomyConfig(
   };
 }
 
-function invalidLabelTaxonomy(key: string): CodexAdapterError {
+function invalidLabelTaxonomy(
+  key: string,
+  requirement = 'must be a non-empty array of non-empty strings.',
+): CodexAdapterError {
   return new CodexAdapterError(
     'invalid_label_taxonomy',
-    `${key} must be a non-empty array of non-empty strings.`,
+    `${key} ${requirement}`,
   );
 }
 

@@ -30902,7 +30902,27 @@ function isEffort(value) {
   return typeof value === "string" && EFFORT_LEVELS.includes(value);
 }
 var HIGH_EFFORT_PATHS_KEY = "high_effort_paths";
+var ISSUE_AREA_LABELS_KEY = "issue_area_labels";
+var ISSUE_AREA_PATHS_KEY = "issue_area_paths";
+function isNonEmptyStringArray(value) {
+  return Array.isArray(value) && value.every((el) => typeof el === "string" && el.trim().length > 0);
+}
+function isAreaPathMap(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.entries(value).every(
+    ([prefix, area]) => prefix.trim().length > 0 && typeof area === "string" && area.trim().length > 0
+  );
+}
 function validateKnownConfigValue(key, value) {
+  if (key === ISSUE_AREA_LABELS_KEY && !isNonEmptyStringArray(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an array of non-empty strings, got ${JSON.stringify(value)}.`
+    );
+  }
+  if (key === ISSUE_AREA_PATHS_KEY && !isAreaPathMap(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be an object mapping non-empty path prefixes to non-empty area labels, got ${JSON.stringify(value)}.`
+    );
+  }
   if (key === HIGH_EFFORT_PATHS_KEY) {
     if (!Array.isArray(value) || value.some((el) => typeof el !== "string" || el.trim().length === 0)) {
       throw new Error(
@@ -31718,6 +31738,21 @@ function readStringArrayConfig(db, key) {
   }
   return null;
 }
+function readStringMapConfig(db, key) {
+  const row = db.get(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [key]
+  );
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && Object.values(parsed).every((v) => typeof v === "string")) {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+}
 function resolveLabelTaxonomy(db) {
   const classification = readStringArrayConfig(db, "issue_classification_labels") ?? [
     ...DEFAULT_CLASSIFICATION_LABELS
@@ -31725,7 +31760,9 @@ function resolveLabelTaxonomy(db) {
   const priorityLabels = readStringArrayConfig(db, "issue_priority_labels") ?? [
     ...DEFAULT_PRIORITY_LABELS
   ];
-  return { classification, priorityLabels };
+  const areaLabels = readStringArrayConfig(db, "issue_area_labels") ?? [];
+  const areaPaths = readStringMapConfig(db, "issue_area_paths") ?? {};
+  return { classification, priorityLabels, areaLabels, areaPaths };
 }
 function defaultSyncLabels(db) {
   const { classification, priorityLabels } = resolveLabelTaxonomy(db);
@@ -31735,12 +31772,20 @@ function defaultSyncLabels(db) {
   return labels;
 }
 function validateIssueLabels(db, labels, taxonomy, tool2 = "issue_create") {
-  const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
+  const { classification, priorityLabels, areaLabels = [] } = taxonomy ?? resolveLabelTaxonomy(db);
   const classificationSet = new Set(classification);
   const prioritySet = new Set(priorityLabels);
+  const areaSet = new Set(areaLabels);
   const hasPriority = labels.some((l) => prioritySet.has(l));
   const hasClassification = labels.some((l) => classificationSet.has(l));
-  if (hasPriority && hasClassification) return null;
+  const areas = [...new Set(labels.filter((l) => areaSet.has(l)))];
+  const hasArea = areaSet.size === 0 || areas.length > 0;
+  if (hasPriority && hasClassification && hasArea) {
+    if (areas.length > 1) {
+      return `multiple_area_labels: ${tool2} requires exactly one area label (one of: ${areaLabels.join(", ")}). Got areas: [${areas.join(", ")}]`;
+    }
+    return null;
+  }
   const missing = [];
   if (!hasClassification) {
     missing.push(`a classification label (one of: ${classification.join(", ")})`);
@@ -31748,7 +31793,49 @@ function validateIssueLabels(db, labels, taxonomy, tool2 = "issue_create") {
   if (!hasPriority) {
     missing.push(`a priority label (one of: ${priorityLabels.join(", ")})`);
   }
+  if (!hasArea) {
+    missing.push(`an area label (one of: ${areaLabels.join(", ")})`);
+  }
   return `missing_required_labels: ${tool2} requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
+}
+var PATH_TOKEN_SPLIT = /[\s`'"()[\]{}<>,;|*]+/;
+function pathTokens(text) {
+  return text.split(PATH_TOKEN_SPLIT).map(
+    (t) => t.replace(/#.*$/, "").replace(/[.:!?]+$/, "").replace(/(?::\d+)+$/, "").replace(/^\.\//, "")
+  ).filter((t) => t.includes("/") || /\.[A-Za-z0-9]+$/.test(t));
+}
+function stripSlashes(path) {
+  return path.replace(/^\.\//, "").replace(/\/+$/, "");
+}
+function inferIssueArea(db, labels, texts, taxonomy, tool2 = "issue_create") {
+  const { areaLabels = [], areaPaths = {} } = taxonomy ?? resolveLabelTaxonomy(db);
+  const areaSet = new Set(areaLabels);
+  if (areaSet.size === 0 || labels.some((l) => areaSet.has(l))) {
+    return { labels, areaInferred: null };
+  }
+  const prefixes = Object.entries(areaPaths).map(([prefix, area]) => ({ prefix: stripSlashes(prefix), area })).filter((p) => p.prefix.length > 0).sort((a, b) => b.prefix.length - a.prefix.length);
+  const hits = /* @__PURE__ */ new Map();
+  for (const token of texts.flatMap(pathTokens)) {
+    const match = prefixes.find((p) => token === p.prefix || token.startsWith(`${p.prefix}/`));
+    if (!match) continue;
+    if (!areaSet.has(match.area)) {
+      return {
+        error: `invalid_area_config: issue_area_paths maps "${match.prefix}" to "${match.area}", which is not in issue_area_labels (${areaLabels.join(", ")})`
+      };
+    }
+    const paths = hits.get(match.area) ?? [];
+    if (!paths.includes(token)) paths.push(token);
+    hits.set(match.area, paths);
+  }
+  if (hits.size > 1) {
+    const candidates = [...hits.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([area, paths]) => `${area} (${paths.join(", ")})`).join("; ");
+    return {
+      error: `ambiguous_area: ${tool2} found paths in more than one area: ${candidates}. Pass exactly one area label (one of: ${areaLabels.join(", ")})`
+    };
+  }
+  const [inferred] = [...hits.keys()];
+  if (inferred === void 0) return { labels, areaInferred: null };
+  return { labels: [...labels, inferred], areaInferred: inferred };
 }
 function ensureMilestoneRow(db, milestone, repo) {
   if (repo === null) return;
@@ -31971,7 +32058,7 @@ function issueTools(db, dbPath = "", options = {}) {
           agent: { type: "string", description: "Caller agent name" },
           objective: { type: "string", description: "Short one-liner summary" },
           description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
-          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue." },
+          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore), plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted). Extra labels are allowed. Applied to the remote issue." },
           milestone: { type: "string", description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
           repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
           allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." },
@@ -32094,7 +32181,7 @@ function issueTools(db, dbPath = "", options = {}) {
           agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
           issue_id: { type: "string", description: "Issue ID as string" },
           milestone: { type: "string", description: "Milestone name; its milestones row is created for the issue repo when missing" },
-          labels: { type: "array", items: { type: "string" }, description: "Full replacement label set; must include one classification and one priority label" },
+          labels: { type: "array", items: { type: "string" }, description: "Full replacement label set; must include one classification and one priority label, plus exactly one area label when the project configures issue_area_labels" },
           objective: { type: "string", description: "New objective (the remote issue title)" },
           include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
@@ -32153,7 +32240,14 @@ function issueTools(db, dbPath = "", options = {}) {
       const objective = args2["objective"];
       const description = args2["description"] ?? "";
       const includeDescription = args2["include_description"] ?? false;
-      const labels = args2["labels"] ?? [];
+      const inference = inferIssueArea(
+        db,
+        args2["labels"] ?? [],
+        [objective, description],
+        options.labelTaxonomy
+      );
+      if ("error" in inference) return err3(inference.error);
+      const { labels, areaInferred } = inference;
       const labelError = validateIssueLabels(db, labels, options.labelTaxonomy);
       if (labelError !== null) {
         return err3(labelError);
@@ -32226,7 +32320,8 @@ function issueTools(db, dbPath = "", options = {}) {
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: includeDescription });
         const adoptedPayload = {
           ...adoptedRedacted,
-          ...milestoneDefaultFields(milestoneResolution)
+          ...milestoneDefaultFields(milestoneResolution),
+          area_inferred: areaInferred
         };
         adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
         return ok2(adoptedPayload);
@@ -32269,7 +32364,8 @@ function issueTools(db, dbPath = "", options = {}) {
             const redacted2 = redactIssue(issue3, agent, { include_description: includeDescription });
             const payload2 = {
               ...redacted2,
-              ...milestoneDefaultFields(milestoneResolution)
+              ...milestoneDefaultFields(milestoneResolution),
+              area_inferred: areaInferred
             };
             payload2._sync = syncDiagnostic;
             return ok2(payload2);
@@ -32477,7 +32573,8 @@ function issueTools(db, dbPath = "", options = {}) {
       const redacted = redactIssue(issue2, agent, { include_description: includeDescription });
       const payload = {
         ...redacted,
-        ...milestoneDefaultFields(milestoneResolution)
+        ...milestoneDefaultFields(milestoneResolution),
+        area_inferred: areaInferred
       };
       if (syncDiagnostic) payload._sync = syncDiagnostic;
       return ok2(payload);
@@ -36496,7 +36593,7 @@ function createCodexToolRegistry(manager2) {
     ),
     tool(
       "planning_label_taxonomy_get",
-      "Read the exact classification and priority labels accepted by the selected project.",
+      "Read the exact classification and priority labels accepted by the selected project, plus its area labels and area path map when configured.",
       {},
       [],
       { readOnly: true }
@@ -36541,7 +36638,7 @@ function createCodexToolRegistry(manager2) {
           type: "array",
           minItems: 1,
           items: { type: "string", minLength: 1, pattern: "\\S" },
-          description: "Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy; additional explicit labels are allowed. Cannot be combined with classification or priority."
+          description: "Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy, plus exactly one area label when the project configures issue_area_labels (inferred from issue_area_paths when omitted); additional explicit labels are allowed. Cannot be combined with classification or priority."
         },
         repo: { type: "string", description: "Optional repository name from project_inventory." },
         allow_duplicate: { type: "boolean", description: "Allow an objective similar to an existing open local issue." }
@@ -36769,7 +36866,9 @@ function createCodexToolRegistry(manager2) {
           {
             labelTaxonomy: {
               classification: taxonomy.classification_labels,
-              priorityLabels: taxonomy.priority_labels
+              priorityLabels: taxonomy.priority_labels,
+              areaLabels: taxonomy.area_labels ?? [],
+              areaPaths: taxonomy.area_paths ?? {}
             }
           }
         );
@@ -37066,22 +37165,21 @@ function forceLocalIssueSync(runtime2) {
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`
   );
 }
+var TAXONOMY_CONFIG_KEYS = [
+  CLASSIFICATION_TAXONOMY_KEY,
+  PRIORITY_TAXONOMY_KEY,
+  ISSUE_AREA_LABELS_KEY,
+  ISSUE_AREA_PATHS_KEY
+];
 async function resolvePlanningLabelTaxonomy(runtime2) {
   let values;
   try {
-    values = getConfigValues(runtime2.db, [
-      CLASSIFICATION_TAXONOMY_KEY,
-      PRIORITY_TAXONOMY_KEY
-    ]);
+    values = getConfigValues(runtime2.db, TAXONOMY_CONFIG_KEYS);
   } catch (error2) {
-    if (error2 instanceof Error && [CLASSIFICATION_TAXONOMY_KEY, PRIORITY_TAXONOMY_KEY].some(
-      (key) => error2.message.startsWith(storedConfigParseErrorPrefix(key))
-    )) {
-      const key = error2.message.startsWith(
-        storedConfigParseErrorPrefix(CLASSIFICATION_TAXONOMY_KEY)
-      ) ? CLASSIFICATION_TAXONOMY_KEY : PRIORITY_TAXONOMY_KEY;
-      throw invalidLabelTaxonomy(key);
-    }
+    const key = TAXONOMY_CONFIG_KEYS.find(
+      (candidate) => error2 instanceof Error && error2.message.startsWith(storedConfigParseErrorPrefix(candidate))
+    );
+    if (key !== void 0) throw invalidLabelTaxonomy(key);
     throw error2;
   }
   const classification = readTaxonomyConfig(
@@ -37094,11 +37192,27 @@ async function resolvePlanningLabelTaxonomy(runtime2) {
     PRIORITY_TAXONOMY_KEY,
     DEFAULT_PRIORITY_LABELS2
   );
+  const areaLabels = values[ISSUE_AREA_LABELS_KEY] ?? [];
+  if (!isNonEmptyStringArray(areaLabels)) {
+    throw invalidLabelTaxonomy(
+      ISSUE_AREA_LABELS_KEY,
+      "must be an array of non-empty strings."
+    );
+  }
+  const areaPaths = values[ISSUE_AREA_PATHS_KEY];
+  if (areaPaths !== null && !isAreaPathMap(areaPaths)) {
+    throw invalidLabelTaxonomy(
+      ISSUE_AREA_PATHS_KEY,
+      "must be an object mapping non-empty path prefixes to non-empty area labels."
+    );
+  }
   return {
     classification_labels: classification.labels,
     priority_labels: priority.labels,
     classification_source: classification.source,
-    priority_source: priority.source
+    priority_source: priority.source,
+    ...areaLabels.length > 0 ? { area_labels: [...areaLabels] } : {},
+    ...areaPaths !== null ? { area_paths: { ...areaPaths } } : {}
   };
 }
 function requireTaxonomyArray(input, inputKey, configKey) {
@@ -37125,10 +37239,10 @@ function readTaxonomyConfig(value, key, defaults) {
     source: arraysEqual(labels, defaults) ? "default" : "configured"
   };
 }
-function invalidLabelTaxonomy(key) {
+function invalidLabelTaxonomy(key, requirement = "must be a non-empty array of non-empty strings.") {
   return new CodexAdapterError(
     "invalid_label_taxonomy",
-    `${key} must be a non-empty array of non-empty strings.`
+    `${key} ${requirement}`
   );
 }
 function arraysEqual(left, right) {

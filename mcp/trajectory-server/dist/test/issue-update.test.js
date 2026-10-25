@@ -56,6 +56,37 @@ describe('issue_update', () => {
         assert.match(parseResult(result).error, /missing_required_labels: issue_update requires/);
         db.close();
     });
+    it('requires exactly one area label when issue_area_labels is configured (GH 1770)', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const id = await seed(db, tools);
+        await call(configTools(db).handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_area_labels',
+            value: ['Area: Alpha', 'Area: Beta'],
+        });
+        const none = await call(tools.handlers, 'issue_update', { agent: 'bro', issue_id: String(id), labels: VALID_LABELS });
+        assert.ok(none.isError);
+        assert.match(parseResult(none).error, /^missing_required_labels: issue_update requires an area label \(one of: Area: Alpha, Area: Beta\)/);
+        const two = await call(tools.handlers, 'issue_update', {
+            agent: 'bro',
+            issue_id: String(id),
+            labels: [...VALID_LABELS, 'Area: Alpha', 'Area: Beta'],
+        });
+        assert.ok(two.isError);
+        assert.match(parseResult(two).error, /^multiple_area_labels: issue_update requires exactly one area label/);
+        const one = await call(tools.handlers, 'issue_update', {
+            agent: 'bro',
+            issue_id: String(id),
+            labels: [...VALID_LABELS, 'Area: Beta'],
+        });
+        assert.ok(!one.isError, parseResult(one).error);
+        const row = db.get('SELECT labels FROM issues WHERE id = ?', [id]);
+        assert.deepEqual(JSON.parse(row.labels), [...VALID_LABELS, 'Area: Beta']);
+        const objectiveOnly = await call(tools.handlers, 'issue_update', { agent: 'bro', issue_id: String(id), objective: 'renamed' });
+        assert.ok(!objectiveOnly.isError, parseResult(objectiveOnly).error);
+        db.close();
+    });
     it('updates only the given column, creates the milestones row and writes one audit row', async () => {
         const db = tempDB();
         registerSoleRepo(db);
