@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
-const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
 function git(cwd, ...args) {
   return execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
@@ -51,7 +51,7 @@ function registerRepo(dbPath, name, path) {
     `INSERT INTO repos (name, path, target_branch) VALUES ('${name}', '${path}', 'dev');`]);
 }
 
-const AMENDED_SPEC = ['## Description', 'do the thing, narrower', '', '## Success Criteria', '- works', '- edge case handled'].join('\n');
+const AMENDED_SPEC = ['## Description', 'do the thing, narrower', '', '## Success Criteria', '- SC1: works', '- SC2: edge case handled'].join('\n');
 
 test('Flow 12 — task_update_spec amends a live task and audits it; refused once closed', async (t) => {
   const project = makeProject();
@@ -106,7 +106,7 @@ test('Flow 12 — task_update_spec amends a live task and audits it; refused onc
   assert.equal(payload.task_id, taskId);
   assert.equal(payload.reason, 'the edge case surfaced after provisioning');
 
-  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha });
+  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }, { id: 'SC2', status: 'met' }] } });
   assert.equal(swe.ok, true, `swe completes: ${JSON.stringify(swe)}`);
   seedPassingVerificationRun(dbPath, taskId, project.sha);
   const closed = await call(client, 'bro_atomic_close', {

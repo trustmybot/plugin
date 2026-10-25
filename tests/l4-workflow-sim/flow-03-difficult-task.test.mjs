@@ -74,7 +74,7 @@ test('Flow 3 — difficult task: Q+A discussions precede task_provision; its dec
     task: {
       title: 'Replace session middleware with JWT (RS256)',
       description: 'Per ADR-0042: implement RS256, force re-login on cutover.',
-      spec_body: '## Success Criteria\n- JWT validates RS256\n- old session code removed',
+      spec_body: '## Success Criteria\n- SC1: JWT validates RS256\n- SC2: old session code removed',
       files: ['auth/'],
       verification: ['test -d auth'],
       repo: project.name,
@@ -119,7 +119,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
     tasks: [{
       branch_id: 'refactor/x',
       title: 't', description: 'd',
-      spec_body: '## Success Criteria\n- x refactored',
+      spec_body: '## Success Criteria\n- SC1: x refactored',
     }],
   });
   assert.equal(batch.ok, false,

@@ -25437,7 +25437,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 47;
+var TARGET_SCHEMA_VERSION = 48;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -25985,6 +25985,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 47 && toVersion >= 47) {
     migrateV46toV47(db2);
+  }
+  if (fromVersion < 48 && toVersion >= 48) {
+    migrateV47toV48(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27686,6 +27689,25 @@ function migrateV46toV47(db2) {
     CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
       ON review_findings(task_id, status);
   `);
+}
+function migrateV47toV48(db2) {
+  if (!tableExists(db2, "tasks")) return;
+  beginImmediate(db2);
+  try {
+    if (!hasColumn(db2, "tasks", "completion_report")) {
+      db2.exec("ALTER TABLE tasks ADD COLUMN completion_report TEXT");
+    }
+    if (!hasColumn(db2, "tasks", "spawn_note")) {
+      db2.exec("ALTER TABLE tasks ADD COLUMN spawn_note TEXT");
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
 }
 function migrateV22toV23(db2) {
   const soleRepo = () => {
@@ -32349,9 +32371,9 @@ function createRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
 function closeRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
   const coll = collectionPath(target);
   if (!coll) return badSlug(target);
-  const listed = fetchRemoteMilestones(target, spawnFn);
-  if (!listed.ok) return listed;
-  const match = listed.milestones.find((m) => m.title === title);
+  const listed2 = fetchRemoteMilestones(target, spawnFn);
+  if (!listed2.ok) return listed2;
+  const match = listed2.milestones.find((m) => m.title === title);
   if (!match) {
     return { ok: false, backend: target.backend, reason: "not_found", message: `no remote milestone titled "${title}"` };
   }
@@ -32444,17 +32466,17 @@ function reconcileRepoMilestones(db2, repo, targets, spawnFn) {
   let anyFetched = false;
   let allFetched = true;
   for (const target of targets) {
-    const listed = fetchRemoteMilestones(target, spawnFn);
-    if (!listed.ok) {
+    const listed2 = fetchRemoteMilestones(target, spawnFn);
+    if (!listed2.ok) {
       allFetched = false;
-      auditMilestone(db2, "milestone_reconcile_failed", `milestone reconcile failed for ${repo} via ${target.backend}: ${listed.reason}`, {
+      auditMilestone(db2, "milestone_reconcile_failed", `milestone reconcile failed for ${repo} via ${target.backend}: ${listed2.reason}`, {
         repo,
-        ...failureContent(listed)
+        ...failureContent(listed2)
       });
       continue;
     }
     anyFetched = true;
-    for (const m of listed.milestones) {
+    for (const m of listed2.milestones) {
       if (merged.get(m.title) !== "open") merged.set(m.title, m.state);
     }
   }
@@ -32996,6 +33018,182 @@ function configTools(db2) {
   return { definitions, handlers };
 }
 
+// src/success-criteria.ts
+var CRITERION_STATUSES = ["met", "not_met", "not_applicable"];
+var SPAWN_NOTE_MAX_CHARS = 300;
+var SECTION_RE = /^## Success Criteria\s*$/i;
+var SECTION_END_RE = /^#{1,2}\s/;
+var FENCE_RE = /^(```|~~~)/;
+var TOP_BULLET_RE = /^[-*+]\s+(.*)$/;
+var ID_RE = /^SC(\d+):/;
+var MAX_LISTED = 5;
+var FORMAT_HINT = "Start each top-level bullet under ## Success Criteria with a unique id, e.g.\n- SC1: <first criterion>\n- SC2: <second criterion>\n  - Writer: ... (nested sub-bullets carry no id)";
+function scanCriteria(specBody) {
+  const scan = { found: false, ids: [], unlabeled: [] };
+  let inSection = false;
+  let inFence = false;
+  for (const line of specBody.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (FENCE_RE.test(trimmed.trimStart())) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (SECTION_RE.test(trimmed)) {
+      inSection = true;
+      scan.found = true;
+      continue;
+    }
+    if (!inSection) continue;
+    if (SECTION_END_RE.test(trimmed)) {
+      inSection = false;
+      continue;
+    }
+    const bullet = TOP_BULLET_RE.exec(trimmed);
+    if (!bullet) continue;
+    const id = ID_RE.exec(bullet[1]);
+    if (id) scan.ids.push(`SC${id[1]}`);
+    else scan.unlabeled.push(bullet[1]);
+  }
+  return scan;
+}
+function listed(items) {
+  const shown = items.slice(0, MAX_LISTED).join("; ");
+  return items.length > MAX_LISTED ? `${shown}; (+${items.length - MAX_LISTED} more)` : shown;
+}
+function duplicatesOf(ids) {
+  const seen = /* @__PURE__ */ new Set();
+  const dups = /* @__PURE__ */ new Set();
+  for (const id of ids) {
+    if (seen.has(id)) dups.add(id);
+    seen.add(id);
+  }
+  return [...dups];
+}
+function specCriteriaProblem(specBody) {
+  const scan = scanCriteria(specBody);
+  if (!scan.found) return `spec_body must contain a ## Success Criteria H2 section. ${FORMAT_HINT}`;
+  if (scan.ids.length === 0) {
+    return `success_criteria_ids_missing: no bullet under ## Success Criteria starts with an SC<n>: id. ${FORMAT_HINT}`;
+  }
+  if (scan.unlabeled.length > 0) {
+    return `success_criteria_ids_missing: ${scan.unlabeled.length} top-level bullet(s) under ## Success Criteria carry no SC<n>: id: ${listed(scan.unlabeled.map((b) => JSON.stringify(b.slice(0, 60))))}. ${FORMAT_HINT}`;
+  }
+  const dups = duplicatesOf(scan.ids);
+  if (dups.length > 0) {
+    return `success_criteria_ids_duplicate: ${dups.join(", ")} appear more than once under ## Success Criteria; ids are unique within a spec.`;
+  }
+  return null;
+}
+function specCriterionIds(specBody) {
+  return [...new Set(scanCriteria(specBody ?? "").ids)];
+}
+function examplePayload(ids) {
+  const criteria = (ids.length > 0 ? ids : ["SC1"]).map((id) => ({ id, status: "met" }));
+  return JSON.stringify({ criteria });
+}
+function optionalString(value, field2) {
+  if (value === void 0 || value === null) return void 0;
+  if (typeof value !== "string") throw new Error(`completion_report_invalid: ${field2} must be a string.`);
+  return value;
+}
+function shapeError(ids, detail) {
+  return new Error(`completion_report_invalid: ${detail} A minimal valid report: report=${examplePayload(ids)}`);
+}
+function parseCompletionReport(raw, ids) {
+  if (raw === void 0 || raw === null) {
+    if (ids.length === 0) return null;
+    throw new Error(
+      `completion_report_missing: the spec's Success Criteria carry ids ${ids.join(", ")}; task_update_status(status='completed') needs a report with one criteria entry per id (status met | not_met | not_applicable). A minimal valid report: report=${examplePayload(ids)}`
+    );
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) throw shapeError(ids, "report must be an object.");
+  const r = raw;
+  if (!Array.isArray(r["criteria"])) throw shapeError(ids, "report.criteria must be an array.");
+  const criteria = [];
+  for (const [i2, item] of r["criteria"].entries()) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw shapeError(ids, `report.criteria[${i2}] must be an object {id, status, evidence_cmd?, note?}.`);
+    }
+    const c = item;
+    if (typeof c["id"] !== "string" || c["id"].trim() === "") {
+      throw shapeError(ids, `report.criteria[${i2}].id must be a non-empty string.`);
+    }
+    if (!CRITERION_STATUSES.includes(c["status"])) {
+      throw shapeError(ids, `report.criteria[${i2}].status must be one of ${CRITERION_STATUSES.join(", ")}.`);
+    }
+    const evidence = optionalString(c["evidence_cmd"], `report.criteria[${i2}].evidence_cmd`);
+    const note = optionalString(c["note"], `report.criteria[${i2}].note`);
+    criteria.push({
+      id: c["id"].trim(),
+      status: c["status"],
+      ...evidence !== void 0 ? { evidence_cmd: evidence } : {},
+      ...note !== void 0 ? { note } : {}
+    });
+  }
+  if (ids.length > 0) {
+    const given = criteria.map((c) => c.id);
+    const missing = ids.filter((id) => !given.includes(id));
+    const unknown2 = [...new Set(given.filter((id) => !ids.includes(id)))];
+    const repeated = duplicatesOf(given);
+    if (missing.length > 0 || unknown2.length > 0 || repeated.length > 0) {
+      const parts2 = [
+        missing.length > 0 ? `missing ids: ${missing.join(", ")}` : null,
+        unknown2.length > 0 ? `unknown ids: ${unknown2.join(", ")}` : null,
+        repeated.length > 0 ? `ids listed more than once: ${repeated.join(", ")}` : null
+      ].filter((p) => p !== null);
+      throw new Error(
+        `completion_report_incomplete: report.criteria must cover the spec's ids ${ids.join(", ")} exactly once (${parts2.join("; ")}). A minimal valid report: report=${examplePayload(ids)}`
+      );
+    }
+  }
+  const report = { criteria };
+  if (r["extras"] !== void 0 && r["extras"] !== null) {
+    if (!Array.isArray(r["extras"])) throw shapeError(ids, "report.extras must be an array of {path, reason}.");
+    report.extras = r["extras"].map((e, i2) => {
+      const x = typeof e === "object" && e !== null ? e : {};
+      if (typeof x["path"] !== "string" || typeof x["reason"] !== "string") {
+        throw shapeError(ids, `report.extras[${i2}] must be {path: string, reason: string}.`);
+      }
+      return { path: x["path"], reason: x["reason"] };
+    });
+  }
+  if (r["findings_fixed"] !== void 0 && r["findings_fixed"] !== null) {
+    const fixed = r["findings_fixed"];
+    if (!Array.isArray(fixed) || fixed.some((f) => typeof f !== "string")) {
+      throw shapeError(ids, "report.findings_fixed must be an array of finding ids (strings).");
+    }
+    report.findings_fixed = fixed;
+  }
+  return report;
+}
+function reportMissingIds(stored, ids) {
+  if (ids.length === 0) return [];
+  const report = parseStoredReport(stored);
+  const covered = new Set(report?.criteria.map((c) => c.id) ?? []);
+  return ids.filter((id) => !covered.has(id));
+}
+function parseStoredReport(stored) {
+  if (!stored) return null;
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed && Array.isArray(parsed.criteria) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function parseSpawnNote(raw, tool) {
+  if (raw === void 0 || raw === null) return null;
+  if (typeof raw !== "string") throw new Error(`${tool}: spawn_note must be a string.`);
+  const note = raw.trim();
+  if (note.length > SPAWN_NOTE_MAX_CHARS) {
+    throw new Error(
+      `${tool}: spawn_note is ${note.length} characters (max ${SPAWN_NOTE_MAX_CHARS}). Keep it to the context a reviewer cannot read from task_brief; the spec, discussions and completion report are already there.`
+    );
+  }
+  return note === "" ? null : note;
+}
+
 // src/tools/tasks.ts
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
@@ -33201,7 +33399,7 @@ function taskTools(db2) {
                 description: { type: "string" },
                 spec_body: {
                   type: "string",
-                  description: "Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it)."
+                  description: "Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it). Each top-level ## Success Criteria bullet starts with a unique id: `- SC1: ...`."
                 },
                 repo: {
                   type: "string",
@@ -33281,7 +33479,7 @@ function taskTools(db2) {
           },
           waive_spec_shape: {
             type: "boolean",
-            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it."
+            description: "Bypass the spec-section shape gate (## Success Criteria with SC<n>: ids, \u2264200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it."
           },
           waive_spec_shape_reason: {
             type: "string",
@@ -33309,7 +33507,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -33322,6 +33520,40 @@ function taskTools(db2) {
           commit_sha: {
             type: "string",
             description: "Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update."
+          },
+          report: {
+            type: "object",
+            description: "The typed completion report; only with status='completed'. Required when the spec's Success Criteria carry SC<n>: ids: criteria covers each id exactly once.",
+            properties: {
+              criteria: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", description: "A spec criterion id, e.g. SC1." },
+                    status: { type: "string", enum: [...CRITERION_STATUSES] },
+                    evidence_cmd: { type: "string", description: "The command whose output shows the criterion holds." },
+                    note: { type: "string" }
+                  },
+                  required: ["id", "status"]
+                }
+              },
+              extras: {
+                type: "array",
+                description: "Paths edited outside files[], each with why it had to change.",
+                items: {
+                  type: "object",
+                  properties: { path: { type: "string" }, reason: { type: "string" } },
+                  required: ["path", "reason"]
+                }
+              },
+              findings_fixed: {
+                type: "array",
+                items: { type: "string" },
+                description: "Review finding ids (F<task_id>-<n>) this attempt fixes."
+              }
+            },
+            required: ["criteria"]
           }
         },
         required: ["agent", "task_id", "status"]
@@ -33386,6 +33618,12 @@ function taskTools(db2) {
                 })
               }]
             };
+          }
+          const criteriaProblem = specCriteriaProblem(t.spec_body);
+          if (criteriaProblem) {
+            return err7(
+              `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${criteriaProblem} Or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`
+            );
           }
         }
       }
@@ -33872,8 +34110,13 @@ function taskTools(db2) {
           );
         }
       }
+      if (args2["report"] !== void 0 && args2["report"] !== null && status !== "completed") {
+        throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
+      }
+      const report = status === "completed" ? parseCompletionReport(args2["report"], specCriterionIds(task.spec_body)) : null;
       const now2 = nowISO();
       const completedAt = status === "completed" ? now2 : status === "closed" ? task.completed_at : null;
+      const completionReport = status === "completed" ? report ? JSON.stringify(report) : null : status === "closed" ? task.completion_report : null;
       db2.transaction(() => {
         if (status === "closed" && task.status !== "closed") {
           recordReviewBypassIfUnreviewed(
@@ -33886,13 +34129,13 @@ function taskTools(db2) {
         }
         if (rawCommitSha !== void 0) {
           db2.run(
-            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
-            [status, now2, completedAt, rawCommitSha, taskId]
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, commit_sha = ? WHERE id = ?`,
+            [status, now2, completedAt, completionReport, rawCommitSha, taskId]
           );
         } else {
           db2.run(
-            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
-            [status, now2, completedAt, taskId]
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ? WHERE id = ?`,
+            [status, now2, completedAt, completionReport, taskId]
           );
         }
         if (TERMINAL_TASK_STATUSES.has(status)) {
@@ -36879,7 +37122,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
+      description: `Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one \`[probe <id>]\` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. Report gate: a spec whose Success Criteria carry SC<n>: ids closes only when the completion report stored by task_update_status covers every id; otherwise it refuses with completion_report_missing naming the ids. spawn_note (\u2264${SPAWN_NOTE_MAX_CHARS} chars) is stored for task_brief. PostToolUse hooks fire on bro_atomic_close (not task_update_status).`,
       inputSchema: {
         type: "object",
         properties: {
@@ -36901,6 +37144,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           scope_waiver_reason: {
             type: "string",
             description: "Required with waive_scope_gate (at least 10 characters): why bro accepts the extra paths."
+          },
+          spawn_note: {
+            type: "string",
+            description: `Optional context for pr-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.`
           }
         },
         required: ["agent", "task_id", "commit_sha", "verification_summary"]
@@ -36976,7 +37223,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               description: { type: "string" },
               spec_body: {
                 type: "string",
-                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2.`
+                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2 whose top-level bullets each start with a unique id: \`- SC1: ...\`.`
               },
               files: {
                 type: "array",
@@ -37010,7 +37257,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_reopen",
-      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37032,6 +37279,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             enum: [...EFFORT_LEVELS],
             description: "Optional new effort for the rework (e.g. 'high'); omit to run the rework at high."
           },
+          spawn_note: {
+            type: "string",
+            description: `Optional context for the rework swe beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars; task_brief returns it as spawn_note.`
+          },
           session_id: RUN_SESSION_ID_SCHEMA
         },
         required: ["agent", "task_id", "reason"]
@@ -37050,7 +37301,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           verification: { type: "array", items: { type: "string" }, description: "Replacement verification[] commands (non-empty)." },
           spec_body: {
             type: "string",
-            description: `Replacement spec_body; max ${SPEC_BODY_MAX_BYTES} chars, must contain a ## Success Criteria H2.`
+            description: `Replacement spec_body; max ${SPEC_BODY_MAX_BYTES} chars, must contain a ## Success Criteria H2 whose top-level bullets each start with a unique SC<n>: id.`
           }
         },
         required: ["agent", "task_id", "reason"]
@@ -37058,7 +37309,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs. A swe call opens the task's swe agent_runs row when none is open.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37109,6 +37360,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
           );
         }
+        const criteriaProblem = specCriteriaProblem(task.spec_body);
+        if (criteriaProblem) return err16(criteriaProblem);
         const validateStrArray = (value, field2) => {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`task.${field2} must be a non-empty array of strings.`);
@@ -37373,6 +37626,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (effortArg !== void 0 && !isEffort(effortArg)) {
           return err16(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
+        const spawnNote = parseSpawnNote(args2["spawn_note"], "task_reopen");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
@@ -37406,8 +37660,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const now2 = nowISO();
         db2.transaction(() => {
           db2.run(
-            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
-            [JSON.stringify(files), JSON.stringify(verification), effort, now2, taskId]
+            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL,
+                    completion_report = NULL, spawn_note = ?, updated_at = ? WHERE id = ?`,
+            [JSON.stringify(files), JSON.stringify(verification), effort, spawnNote, now2, taskId]
           );
           const fenceLines = [
             filesAdd.length > 0 ? `files[] += ${filesAdd.join(", ")}` : null,
@@ -37499,9 +37754,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (newSpec.length > SPEC_BODY_MAX_BYTES) {
             return err16(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
           }
-          if (!/^## Success Criteria\s*$/m.test(newSpec)) {
-            return err16("spec_body must contain a ## Success Criteria H2 section.");
-          }
+          const criteriaProblem = specCriteriaProblem(newSpec);
+          if (criteriaProblem) return err16(criteriaProblem);
         }
         if (newFiles === void 0 && newVerification === void 0 && newSpec === void 0) {
           return err16("task_update_spec: pass at least one of files, verification, spec_body");
@@ -37567,7 +37821,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (taskId === void 0 || taskId === null) return err16("task_id is required");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, i.objective
+                  t.effort, t.completion_report, t.spawn_note, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId]
@@ -37696,6 +37950,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           scope,
           verification_run: latestVerificationRun(db2, task.id),
           open_findings,
+          completion_report: parseStoredReport(task.completion_report),
+          spawn_note: task.spawn_note,
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
           task_discussions,
@@ -38136,14 +38392,22 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const closeIssueIfLast = args2["close_issue_if_last_task"] === true;
         const waiveScopeGate = args2["waive_scope_gate"] === true;
+        const spawnNote = parseSpawnNote(args2["spawn_note"], "bro_atomic_close");
         const task = db2.get(
-          "SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification FROM tasks WHERE id = ? LIMIT 1",
+          `SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files, verification, spec_body, completion_report
+             FROM tasks WHERE id = ? LIMIT 1`,
           [taskId]
         );
         if (!task) return err16(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
           return err16(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
+          );
+        }
+        const unreported = reportMissingIds(task.completion_report, specCriterionIds(task.spec_body));
+        if (unreported.length > 0) {
+          return err16(
+            `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ${task.completion_report ? "does not cover" : "is missing for"}: ${unreported.join(", ")}. Resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: [{id, status}, ...]}) with one entry per id, then retry bro_atomic_close.`
           );
         }
         const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db2, task.id));
@@ -38230,6 +38494,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             });
           }
           const closed = closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, null, scopeRecord);
+          db2.run("UPDATE tasks SET spawn_note = ? WHERE id = ?", [spawnNote, task.id]);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
@@ -43135,9 +43400,9 @@ function reconcileCheatcodes(db2, evidence, opts) {
 }
 var NO_EVIDENCE = { mcpServers: null, plugins: null };
 async function probeAndReconcile(db2, identity, projectRoot, fingerprint) {
-  const { evidence, listed } = await probeListings(healthcheckTimeoutSec(), projectRoot);
+  const { evidence, listed: listed2 } = await probeListings(healthcheckTimeoutSec(), projectRoot);
   const now2 = nowISO();
-  if (listed) writeProbeCache(projectRoot, { fingerprint, probed_at: now2 });
+  if (listed2) writeProbeCache(projectRoot, { fingerprint, probed_at: now2 });
   const transitions = reconcileCheatcodes(db2, evidence, { ...identity, now: now2 });
   return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
 }

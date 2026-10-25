@@ -9,6 +9,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort } from './config.js';
+import { CRITERION_STATUSES, parseCompletionReport, specCriteriaProblem, specCriterionIds } from '../success-criteria.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
 // BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
@@ -251,7 +252,7 @@ export function taskTools(db) {
                                 description: { type: 'string' },
                                 spec_body: {
                                     type: 'string',
-                                    description: 'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it).',
+                                    description: 'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it). Each top-level ## Success Criteria bullet starts with a unique id: `- SC1: ...`.',
                                 },
                                 repo: {
                                     type: 'string',
@@ -331,7 +332,7 @@ export function taskTools(db) {
                     },
                     waive_spec_shape: {
                         type: 'boolean',
-                        description: 'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it.',
+                        description: 'Bypass the spec-section shape gate (## Success Criteria with SC<n>: ids, ≤200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it.',
                     },
                     waive_spec_shape_reason: {
                         type: 'string',
@@ -359,7 +360,7 @@ export function taskTools(db) {
         },
         {
             name: 'task_update_status',
-            description: 'Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.',
+            description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -372,6 +373,40 @@ export function taskTools(db) {
                     commit_sha: {
                         type: 'string',
                         description: 'Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update.',
+                    },
+                    report: {
+                        type: 'object',
+                        description: "The typed completion report; only with status='completed'. Required when the spec's Success Criteria carry SC<n>: ids: criteria covers each id exactly once.",
+                        properties: {
+                            criteria: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        id: { type: 'string', description: 'A spec criterion id, e.g. SC1.' },
+                                        status: { type: 'string', enum: [...CRITERION_STATUSES] },
+                                        evidence_cmd: { type: 'string', description: 'The command whose output shows the criterion holds.' },
+                                        note: { type: 'string' },
+                                    },
+                                    required: ['id', 'status'],
+                                },
+                            },
+                            extras: {
+                                type: 'array',
+                                description: 'Paths edited outside files[], each with why it had to change.',
+                                items: {
+                                    type: 'object',
+                                    properties: { path: { type: 'string' }, reason: { type: 'string' } },
+                                    required: ['path', 'reason'],
+                                },
+                            },
+                            findings_fixed: {
+                                type: 'array',
+                                items: { type: 'string' },
+                                description: 'Review finding ids (F<task_id>-<n>) this attempt fixes.',
+                            },
+                        },
+                        required: ['criteria'],
                     },
                 },
                 required: ['agent', 'task_id', 'status'],
@@ -412,7 +447,8 @@ export function taskTools(db) {
             const waived = args['waive_scope_gate'] === true;
             const waiverReason = (args['waive_scope_gate_reason'] ?? '');
             // --- Spec-section shape gate (MCP-level enforcement) ---
-            // Each spec_body must contain the ## Success Criteria H2 section and be ≤200 lines.
+            // Each spec_body must contain the ## Success Criteria H2 section, its
+            // top-level bullets each led by a unique SC<n>: id, and be ≤200 lines.
             // Waivable with waive_spec_shape_reason (≥10 chars, audited).
             const specShapeWaived = args['waive_spec_shape'] === true;
             const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '');
@@ -450,6 +486,11 @@ export function taskTools(db) {
                                     }),
                                 }],
                         };
+                    }
+                    const criteriaProblem = specCriteriaProblem(t.spec_body);
+                    if (criteriaProblem) {
+                        return err(`Spec shape gate: task branch_id='${t.branch_id}' — ${criteriaProblem} ` +
+                            `Or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (≥10 chars) for tasks without full specs.`);
                     }
                 }
             }
@@ -1007,21 +1048,27 @@ export function taskTools(db) {
                         `Close verified work via bro_atomic_close; reopen a task for rework with task_reopen. See #278.`);
                 }
             }
+            if (args['report'] !== undefined && args['report'] !== null && status !== 'completed') {
+                throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
+            }
+            const report = status === 'completed' ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
             const now = nowISO();
             // completed_at is carried only by post-completion states. Stamp it on
             // 'completed', preserve it through 'closed', and clear it on any move to
             // an active/failed/escalated state — a reopened task must not keep a
             // stale completion stamp that downstream gates would trust (#278).
+            // completion_report follows the same rule (GH 1744).
             const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
+            const completionReport = status === 'completed' ? (report ? JSON.stringify(report) : null) : status === 'closed' ? task.completion_report : null;
             db.transaction(() => {
                 if (status === 'closed' && task.status !== 'closed') {
                     recordReviewBypassIfUnreviewed(db, { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null }, 'task_update_status', agent, now);
                 }
                 if (rawCommitSha !== undefined) {
-                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, rawCommitSha, taskId]);
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, completionReport, rawCommitSha, taskId]);
                 }
                 else {
-                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, now, completedAt, taskId]);
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ? WHERE id = ?`, [status, now, completedAt, completionReport, taskId]);
                 }
                 if (TERMINAL_TASK_STATUSES.has(status)) {
                     closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));

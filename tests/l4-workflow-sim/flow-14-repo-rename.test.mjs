@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
-const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
 function git(cwd, ...args) {
   return execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
@@ -85,7 +85,7 @@ test('Flow 14 — repo_rename: rename_in_progress while a worktree is live, appl
   assert.equal(count(`SELECT COUNT(*) AS c FROM repos WHERE name = 'app'`), 1, 'refused rename leaves the repo');
   assert.equal(count(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'repo_renamed'`), 0);
 
-  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha });
+  const swe = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }] } });
   assert.equal(swe.ok, true, `swe completes: ${JSON.stringify(swe)}`);
   seedPassingVerificationRun(dbPath, taskId, project.sha);
   const closed = await call(client, 'bro_atomic_close', {

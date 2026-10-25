@@ -2,10 +2,10 @@
 # Tests for scripts/hooks/agent-spawn-dispatch.sh
 #
 # Dispatcher contract:
-#   - Runs the eight Agent-spawn gate hooks in order.
+#   - Runs the nine Agent-spawn gate hooks in order.
 #   - Short-circuits on the first deny: emits that deny verbatim and exits.
 #   - On full pass: emits union of any additionalContext blocks (currently
-#     none of the eight produce context, but the merge path is exercised).
+#     none of the nine produce context, but the merge path is exercised).
 #   - A non-deny, non-context output from any hook is ignored.
 set -uo pipefail
 
@@ -101,6 +101,23 @@ payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effo
 out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "missing required anchors" "prompt-shape wording present"
+rm -rf "$WORK"
+
+# ----- tests: pr-reviewer-spawn-note caps the prose beyond the anchors -------
+
+test_case "pr-reviewer spawn with the seven anchors and over 300 chars of prose is denied naming spawn_note"
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
+db=$(setup_db "$WORK")
+insert_task "$db" 5 "closed" "fix/5-pr" "## spec"
+anchors="task_id=5 commit_sha=abc1234 branch_id=fix/5-pr repo=plugin repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-xyz"
+prose=$(printf 'Context the reviewer could read from task_brief. %.0s' 1 2 3 4 5 6 7 8)
+payload=$(jq -n --arg p "$anchors $prose" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:$p}}')
+out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 TMB_SKIP_PR_REVIEWER_PREFLIGHT=1 run_dispatcher "$payload" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" "spawn_note" "spawn-note wording present"
+payload=$(jq -n --arg p "$anchors Focus on the migration." '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:$p}}')
+out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 TMB_SKIP_PR_REVIEWER_PREFLIGHT=1 run_dispatcher "$payload" "$db")
+assert_not_contains "$out" "spawn_note" "anchors plus a short line pass the spawn-note gate"
 rm -rf "$WORK"
 
 # ----- tests: shape hook enforces attempt_n + subagent_session_id anchors ----

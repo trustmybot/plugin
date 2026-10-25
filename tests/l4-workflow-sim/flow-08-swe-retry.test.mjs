@@ -18,7 +18,7 @@ async function completeAndClose(client, dbPath, project, taskId, worktreePath, f
   assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
   const sha = project.commitIn(worktreePath, file, `${file}\n`, `work ${file}`);
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);
@@ -40,7 +40,7 @@ async function setupClosedTask(client, dbPath, project, branch) {
     task: {
       title: 't',
       description: 'd',
-      spec_body: '## Success Criteria\n- bug fixed',
+      spec_body: '## Success Criteria\n- SC1: bug fixed',
       files: ['work-1.txt', 'work-2.txt', 'work-3.txt'],
       verification: ['test -f work-1.txt'],
       repo: project.name,

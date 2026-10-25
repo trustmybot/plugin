@@ -1683,7 +1683,7 @@ describe('taskTools', () => {
       tasks: [{
         branch_id: 'feat/no-files-section',
         description: 'spec with only ## Success Criteria',
-        spec_body: '## Description\ndo the thing\n\n## Success Criteria\n- it works',
+        spec_body: '## Description\ndo the thing\n\n## Success Criteria\n- SC1: it works',
         files: ['mcp/trajectory-server/src/tools/tasks.ts'],
         verification: ['bun test'],
       }],
@@ -1699,7 +1699,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const longBody = '## Files\n- file.ts\n\n## Success Criteria\n- done\n\n## Verification\n- run tests\n' +
+    const longBody = '## Files\n- file.ts\n\n## Success Criteria\n- SC1: done\n\n## Verification\n- run tests\n' +
       Array.from({ length: 195 }, (_, i) => `line ${i + 1}`).join('\n');
 
     const result = await call(tools.handlers, 'task_create_batch', {
@@ -1802,7 +1802,7 @@ describe('taskTools', () => {
       waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
       agent: 'bro',
       issue_id: String(issueId),
-      tasks: [{ branch_id: 'feat/unwaived', description: 'u', spec_body: '## Success Criteria\n- works' }],
+      tasks: [{ branch_id: 'feat/unwaived', description: 'u', spec_body: '## Success Criteria\n- SC1: works' }],
     });
     assert.ok(!result.isError, JSON.stringify(parseResult(result)));
     assert.equal(
@@ -1822,7 +1822,7 @@ describe('taskTools', () => {
       '- mcp/trajectory-server/src/tools/tasks.ts',
       '',
       '## Success Criteria',
-      '- Gate rejects invalid specs',
+      '- SC1: Gate rejects invalid specs',
       '',
       '## Verification',
       '- bun test',
@@ -1848,7 +1848,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const validSpec = '## Success Criteria\n- pass';
+    const validSpec = '## Success Criteria\n- SC1: pass';
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
@@ -1874,7 +1874,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const validSpec = '## Success Criteria\n- pass';
+    const validSpec = '## Success Criteria\n- SC1: pass';
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
@@ -1902,7 +1902,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const validSpec = '## Success Criteria\n- pass';
+    const validSpec = '## Success Criteria\n- SC1: pass';
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
@@ -2130,7 +2130,7 @@ describe('taskTools', () => {
 });
 
 describe('effort (GH 1349)', () => {
-  const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+  const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
   const WAIVERS = {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
     waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',

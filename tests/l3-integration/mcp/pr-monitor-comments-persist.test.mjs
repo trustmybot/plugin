@@ -65,7 +65,7 @@ test('pr_monitor_comments_get persists comments once and dedupes re-fetches (moc
       branch_id: BRANCH,
       title: 'Ship the PR',
       description: 'Task whose branch is the PR head.',
-      spec_body: '# Task\n\n## Success Criteria\n- PR comments land on this issue',
+      spec_body: '# Task\n\n## Success Criteria\n- SC1: PR comments land on this issue',
     }],
   });
   assert.equal(batch.ok, true, `task_create_batch: ${JSON.stringify(batch)}`);

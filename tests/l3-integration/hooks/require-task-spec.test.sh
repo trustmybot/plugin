@@ -370,7 +370,7 @@ resetEmbeddingModelForTests(() => new Promise(() => {}));
 const db = new TrajectoryDB(process.env.TRAJECTORY_DB_PATH);
 db.run("INSERT INTO issues (objective, status, created_at, updated_at) VALUES (?, ?, ?, ?)", ["spec waiver", "open", new Date().toISOString(), new Date().toISOString()]);
 const issueId = db.get("SELECT MAX(id) AS id FROM issues").id;
-const spec = "Add a new column ended_at to tasks.\n## Success Criteria\n- the column exists";
+const spec = "Add a new column ended_at to tasks.\n## Success Criteria\n- SC1: the column exists";
 const gates = {
   waive_scope_gate: true, waive_scope_gate_reason: "not under test here",
   waive_branch_gate: true, waive_branch_gate_reason: "not under test here",

@@ -1767,7 +1767,7 @@ function seedTask(db, opts) {
     return row.id;
 }
 describe('task_brief (#300)', () => {
-    const SPEC = ['## Files', '- `src/api/handler.ts` — edit', '', '## Success Criteria', '- works'].join('\n');
+    const SPEC = ['## Files', '- `src/api/handler.ts` — edit', '', '## Success Criteria', '- SC1: works'].join('\n');
     it('bundles task meta + spec + discussions; flags world model unavailable when graph is null', async () => {
         const db = tempDB();
         const id = seedTask(db, { repo: 'app', spec: SPEC });
@@ -1908,7 +1908,7 @@ describe('task_brief (#300)', () => {
     });
 });
 describe('task_provision (#157)', () => {
-    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
     // Build a real git repo with an `origin/main` remote-tracking ref. The repos
     // row carries target_branch='main' (the sole source of truth, #980), so the
     // composite branches from origin/main unless an explicit `base` is passed.
@@ -2706,7 +2706,7 @@ describe('task_provision (#157)', () => {
     });
 });
 describe('task_reopen + task_update_spec', () => {
-    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
     function setup() {
         const ws = mkdtempSync(join(tmpdir(), 'reopen-'));
         const repoRoot = join(ws, 'app');
@@ -2898,7 +2898,7 @@ describe('task_reopen + task_update_spec', () => {
         const { ws, db, handlers } = setup();
         try {
             const id = await provision(handlers, 'fix/amend');
-            const newSpec = `${SPEC}\n- also this`;
+            const newSpec = `${SPEC}\n- SC2: also this`;
             const r = await call(handlers, 'task_update_spec', {
                 agent: 'bro', task_id: id, reason: 'typo in the fence',
                 files: ['src/x.ts', 'src/z.ts'], verification: ['npm test'], spec_body: newSpec,

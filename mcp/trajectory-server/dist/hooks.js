@@ -10644,6 +10644,37 @@ var prReviewerPreflight = (payload, env) => {
   return preflight(db, taskId, env);
 };
 
+// src/success-criteria.ts
+var SPAWN_NOTE_MAX_CHARS = 300;
+
+// src/hooks/pr-reviewer-spawn-note.ts
+var GATE_NAME3 = "pr-reviewer-spawn-note";
+var BYPASS_ENV2 = "TMB_SKIP_PR_REVIEWER_SPAWN_NOTE";
+var ANCHORS = ["task_id", "commit_sha", "branch_id", "repo", "repo_path", "attempt_n", "subagent_session_id"];
+var ANCHOR_RE = new RegExp(`\\b(?:${ANCHORS.join("|")})\\s*=\\s*(?:'[^']*'|"[^"]*"|\`[^\`]*\`|\\S+)`, "g");
+function spawnProse(prompt) {
+  return prompt.replace(ANCHOR_RE, " ").replace(/\s+/g, " ").trim();
+}
+function denyReason(proseChars) {
+  return `BLOCKED: the pr-reviewer spawn prompt carries ${proseChars} characters of prose beyond its anchors (${ANCHORS.map((a) => `${a}=`).join(", ")}); the cap is ${SPAWN_NOTE_MAX_CHARS}. The reviewer reads the spec, discussions and swe's completion report from task_brief. Store the remaining context as spawn_note (at most ${SPAWN_NOTE_MAX_CHARS} chars) with bro_atomic_close, where task_brief returns it, and respawn with the anchors and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose.`;
+}
+function deny2(reason) {
+  return {
+    stdout: `${jqCompact({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
+    })}
+`,
+    code: 0
+  };
+}
+var prReviewerSpawnNote = (payload, env) => {
+  if (env[BYPASS_ENV2] === "1") return ALLOW;
+  if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
+  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "pr-reviewer") return ALLOW;
+  const prose = spawnProse(jqAlternatives(payload, [["tool_input", "prompt"]]));
+  return prose.length > SPAWN_NOTE_MAX_CHARS ? deny2(denyReason(prose.length)) : ALLOW;
+};
+
 // src/task-rework.ts
 var SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
 var REWORK_FAIL_LIMIT = 2;
@@ -10655,7 +10686,7 @@ function elapsedMs(createdAt, endedAt) {
 }
 
 // src/hooks/rework-limit.ts
-var GATE_NAME3 = "rework-limit";
+var GATE_NAME4 = "rework-limit";
 function readState(db, taskId, env) {
   const out2 = gateRead(
     db,
@@ -10679,10 +10710,10 @@ function readState(db, taskId, env) {
   const row = JSON.parse(out2.split("\n")[0]);
   return { fails: row.fails, lastFailAt: row.last_fail_at, waived: row.waived === 1 };
 }
-function denyReason(taskId, state) {
+function denyReason2(taskId, state) {
   return `BLOCKED: task ${taskId} has ${state.fails} review FAILs since its last pass (the latest at ${state.lastFailAt}) and no decision since, so a further swe spawn would repeat the approach that failed. Before spawning swe again, do one of: write a decision naming the change of approach (discussion_append kind='decision' task_id=${taskId}); task_retry with a redesigned spec; split the task into smaller tasks; or ask the Human (a Human comment on the issue waives this).`;
 }
-function deny2(reason) {
+function deny3(reason) {
   return {
     stdout: `${jqCompact({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
@@ -10699,21 +10730,21 @@ var reworkLimit = (payload, env) => {
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return { stdout: `${denyDbUnavailable(GATE_NAME3, env)}
+  if (!haveSqlite(env)) return { stdout: `${denyDbUnavailable(GATE_NAME4, env)}
 `, code: 0 };
   const state = readState(db, taskId, env);
-  if (state === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME3, env)}
+  if (state === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME4, env)}
 `, code: 0 };
   if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived) return ALLOW;
-  return deny2(denyReason(taskId, state));
+  return deny3(denyReason2(taskId, state));
 };
 
 // src/hooks/task-overrun-alert.ts
-var GATE_NAME4 = "task-overrun-alert";
+var GATE_NAME5 = "task-overrun-alert";
 var OVERRUN_ENV = "TMB_TASK_OVERRUN_MIN";
 var DEFAULT_OVERRUN_MIN = 60;
 var EVENT = "task_overrun_alerted";
-var FROM_NODE = `hook:${GATE_NAME4}`;
+var FROM_NODE = `hook:${GATE_NAME5}`;
 var MS_PER_MIN = 6e4;
 function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
@@ -10754,7 +10785,7 @@ function claim(db, found, now, env) {
   const statements = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
-    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME4 });
+    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME5 });
     const row = auditSql(
       {
         issueId: String(o.issueId),
@@ -10765,12 +10796,12 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME4, env, now: nowIso(now) }
+      { caller: GATE_NAME5, env, now: nowIso(now) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
   }
-  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME4, env });
+  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME5, env });
   if (!w.ok) return null;
   return new Set(w.stdout.split("\n").map((l) => sqlInt(l.trim())).filter((id) => id !== "").map(Number));
 }
@@ -10804,8 +10835,9 @@ var GATES = /* @__PURE__ */ new Map([
   ["containment-guard", containmentGuard],
   ["ensure-mcp-deps-installed", ensureMcpDepsInstalled],
   [GATE_NAME2, prReviewerPreflight],
-  [GATE_NAME3, reworkLimit],
-  [GATE_NAME4, taskOverrunAlert]
+  [GATE_NAME3, prReviewerSpawnNote],
+  [GATE_NAME4, reworkLimit],
+  [GATE_NAME5, taskOverrunAlert]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

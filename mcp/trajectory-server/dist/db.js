@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 47;
+export const TARGET_SCHEMA_VERSION = 48;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -653,6 +653,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 47 && toVersion >= 47) {
         migrateV46toV47(db);
+    }
+    if (fromVersion < 48 && toVersion >= 48) {
+        migrateV47toV48(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2498,6 +2501,33 @@ function migrateV46toV47(db) {
     CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
       ON review_findings(task_id, status);
   `);
+}
+// v47→v48: the typed swe completion report and the spawn note (GH 1744).
+// tasks gains the nullable completion_report (JSON) and spawn_note; existing
+// tasks keep both NULL, and their specs, written before SC<n>: ids, need no
+// report to complete or close.
+function migrateV47toV48(db) {
+    if (!tableExists(db, 'tasks'))
+        return;
+    beginImmediate(db);
+    try {
+        if (!hasColumn(db, 'tasks', 'completion_report')) {
+            db.exec('ALTER TABLE tasks ADD COLUMN completion_report TEXT');
+        }
+        if (!hasColumn(db, 'tasks', 'spawn_note')) {
+            db.exec('ALTER TABLE tasks ADD COLUMN spawn_note TEXT');
+        }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
 }
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //

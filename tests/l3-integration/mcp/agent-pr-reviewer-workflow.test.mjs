@@ -25,7 +25,7 @@ async function seedCompletedTask(client) {
         '# Task: pr-test handler',
         '',
         '## Success Criteria',
-        '- handler returns 200 with body "ok"',
+        '- SC1: handler returns 200 with body "ok"',
       ].join('\n'),
     }],
   });
@@ -33,7 +33,7 @@ async function seedCompletedTask(client) {
 
   // SWE completes it.
   await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
-  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
+  await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', report: { criteria: [{ id: 'SC1', status: 'met' }] } });
 
   return taskId;
 }

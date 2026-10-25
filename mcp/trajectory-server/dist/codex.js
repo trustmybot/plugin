@@ -25496,7 +25496,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 47;
+var TARGET_SCHEMA_VERSION = 48;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26041,6 +26041,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 47 && toVersion >= 47) {
     migrateV46toV47(db);
+  }
+  if (fromVersion < 48 && toVersion >= 48) {
+    migrateV47toV48(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
@@ -27742,6 +27745,25 @@ function migrateV46toV47(db) {
     CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
       ON review_findings(task_id, status);
   `);
+}
+function migrateV47toV48(db) {
+  if (!tableExists(db, "tasks")) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, "tasks", "completion_report")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN completion_report TEXT");
+    }
+    if (!hasColumn(db, "tasks", "spawn_note")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN spawn_note TEXT");
+    }
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
 }
 function migrateV22toV23(db) {
   const soleRepo = () => {
