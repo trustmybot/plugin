@@ -32,8 +32,12 @@ _tmb_vr_fail() {
 
 # tmb_verification_run_start <db> <task_id> <commit_sha> <source> <budget_s>
 # Inserts a verification_runs row (started_at = now, finished_at/exit_code
-# NULL) and prints its id. <source> is gate or manual. Exit 2 on invalid input,
-# else tmb_db_write's exit code.
+# NULL) and prints its id. <source> is gate or manual. In the same transaction
+# it first finishes every unfinished row, of any task or source, started more
+# than its own budget_s + 60 s ago, as exit_code 137, timed_out 0: a run whose
+# writer was killed (SIGKILL cannot be trapped) is never left open, and a run
+# still inside its budget is never touched. Exit 2 on invalid input, else
+# tmb_db_write's exit code.
 tmb_verification_run_start() {
   local db="${1:-}" task_id="${2:-}" sha="${3:-}" source="${4:-}" budget="${5:-}"
   local SAFE_TASK
@@ -47,7 +51,10 @@ tmb_verification_run_start() {
   SAFE_SOURCE="$source"
   SAFE_BUDGET=$(tmb_sql_int "$budget")
   SAFE_NOW=$(tmb_now_iso)
-  tmb_db_write "$db" "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${SAFE_TASK}, '${SAFE_SHA}', '${SAFE_SOURCE}', '${SAFE_NOW}', ${SAFE_BUDGET});
+  tmb_db_write "$db" "UPDATE verification_runs SET finished_at = '${SAFE_NOW}', exit_code = 137, timed_out = 0
+ WHERE finished_at IS NULL
+   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${SAFE_NOW}', '-' || (budget_s + 60) || ' seconds');
+INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${SAFE_TASK}, '${SAFE_SHA}', '${SAFE_SOURCE}', '${SAFE_NOW}', ${SAFE_BUDGET});
 SELECT last_insert_rowid();"
 }
 

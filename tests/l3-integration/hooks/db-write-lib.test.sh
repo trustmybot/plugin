@@ -298,6 +298,31 @@ tmb_db_write "$DB" "DELETE FROM verification_runs WHERE id = $RUN;"
 assert_eq "" "$(tmb_verification_run_reusable "$DB" 4242 "$SHA")" "a timed-out run is not reusable"
 assert_eq "0" "$(count "SELECT COUNT(*) FROM verification_run_commands WHERE run_id = $RUN;")" "deleting a run cascades to its commands"
 
+test_case "verification runs: start finishes unfinished runs past budget_s + 60 s as exit 137 (GH 1814)"
+iso_ago() { sqlite3 "$DB" "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-$1 seconds');"; }
+seed_run() { count "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (4242, '$1', '$2', '$(iso_ago "$3")', $4); SELECT last_insert_rowid();"; }
+OTHER_SHA=fedcba9876543210fedcba9876543210fedcba98
+STALE=$(seed_run "$SHA" manual 10800 900)
+STALE_GATE=$(seed_run "$OTHER_SHA" gate 70 5)
+LIVE=$(seed_run "$SHA" manual 900 900)
+FINISHED=$(count "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s) VALUES (4242, '$SHA', 'gate', '$(iso_ago 5000)', '$(iso_ago 4990)', 1, 900); SELECT last_insert_rowid();")
+FINISHED_AT=$(count "SELECT finished_at FROM verification_runs WHERE id = $FINISHED;")
+CONTRACT_SQL=$(jq -r '.contracts[] | select(.id == "no_unfinished_verification_runs") | .sql' "$PLUGIN_ROOT/scripts/hooks/lib/data-contracts.json")
+assert_eq "1" "$(count "$CONTRACT_SQL")" "no_unfinished_verification_runs counts the 3 h old run before the sweep"
+_TMB_DB_WRITE_SPENT_MS=0
+NEXT=$(tmb_verification_run_start "$DB" 4242 "$SHA" manual 900 2>&1) && RC=0 || RC=$?
+assert_eq "0" "$RC" "start succeeds while sweeping"
+case "$NEXT" in ''|*[!0-9]*) _fail "start still prints a numeric run id, got <$NEXT>" ;; *) _pass ;; esac
+assert_eq "1" "$(count "SELECT COUNT(*) FROM verification_runs WHERE id = $NEXT AND finished_at IS NULL AND exit_code IS NULL;")" "the new run row is inserted unfinished"
+assert_eq "137|0|1" "$(count "SELECT exit_code || '|' || timed_out || '|' || (finished_at IS NOT NULL) FROM verification_runs WHERE id = $STALE;")" "a run past budget_s + 60 s is finished as 137, not timed out"
+assert_eq "137|0" "$(count "SELECT exit_code || '|' || timed_out FROM verification_runs WHERE id = $STALE_GATE;")" "the sweep spans sources, by each row's own budget_s"
+assert_eq "|" "$(count "SELECT COALESCE(finished_at, '') || '|' || COALESCE(exit_code, '') FROM verification_runs WHERE id = $LIVE;")" "a run within budget_s + 60 s is left unfinished"
+assert_eq "1|$FINISHED_AT" "$(count "SELECT exit_code || '|' || finished_at FROM verification_runs WHERE id = $FINISHED;")" "a finished run is not rewritten"
+assert_eq "0" "$(count "$CONTRACT_SQL")" "no_unfinished_verification_runs counts 0 after the sweep"
+assert_eq "" "$(tmb_verification_run_reusable "$DB" 4242 "$OTHER_SHA")" "a swept run is not reusable"
+assert_eq "" "$(tmb_verification_run_reusable "$DB" 4242 "$SHA")" "nor is one of the commit the new run is for"
+count "DELETE FROM verification_runs WHERE id IN ($STALE, $STALE_GATE, $LIVE, $FINISHED, $NEXT);"
+
 test_case "verification runs: invalid input is refused with exit 2 and nothing written"
 BEFORE=$(count "SELECT COUNT(*) FROM verification_runs;")
 for args in "4242|$SHA|bot|900" "x|$SHA|gate|900" "4242||gate|900" "4242|$SHA|gate|abc"; do

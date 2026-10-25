@@ -172,6 +172,41 @@ assert_eq "7" "$(q "SELECT exit_code FROM verification_run_commands WHERE ordina
 assert_no_temp_worktree
 cleanup
 
+# The second command runs in the temp worktree <repo>/.claude/worktrees/integrate-1.*,
+# so ../../tmb is <repo>/.claude/tmb.
+SLOW='["test -f a.txt", "touch ../../tmb/cmd-started; sleep 2"]'
+
+# integrate_signalled <signal> — runs `integrate.sh 1 main` as its own job (set -m,
+# so a background INT is not ignored), sends <signal> to its pid alone once the
+# slow command has started, and sets RC.
+integrate_signalled() {
+  local pid i
+  set -m
+  (cd "$REPO" && TRAJECTORY_DB_PATH="$DB" exec bash "$SCRIPT" 1 main >/dev/null 2>&1) &
+  pid=$!
+  set +m
+  for ((i = 0; i < 100; i++)); do
+    [ -e "$REPO/.claude/tmb/cmd-started" ] && break
+    sleep 0.1
+  done
+  kill "-$1" "$pid"
+  RC=0
+  wait "$pid" || RC=$?
+}
+
+for SIG_RC in TERM:143 INT:130; do
+  SIG="${SIG_RC%%:*}"
+  WANT="${SIG_RC##*:}"
+  test_case "$SIG during a verification command: exit $WANT, the run finished as $WANT, temp worktree removed (GH 1814)"
+  setup clean "$SLOW"
+  integrate_signalled "$SIG"
+  assert_exit_code "$WANT" "$RC" "integrate.sh exit"
+  assert_eq "1|$WANT|0|1" "$(q "SELECT COUNT(*) || '|' || MAX(exit_code) || '|' || MAX(timed_out) || '|' || MIN(finished_at IS NOT NULL) FROM verification_runs;")" "the run row is finished with the signal's exit code"
+  assert_eq "$COMMIT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+  assert_no_temp_worktree
+  cleanup
+done
+
 test_case "no review: exit 3, nothing touched"
 setup clean
 q "DELETE FROM validation_attempts;"

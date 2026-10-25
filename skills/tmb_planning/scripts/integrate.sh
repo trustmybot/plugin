@@ -31,7 +31,11 @@
 #      verification_runs row (source manual, commit_sha = the rebased SHA).
 #      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
 #      to the rebased SHA and prints it.
-#   6. The temporary worktree is removed on every exit.
+#   6. The temporary worktree is removed on every exit. A run still open when
+#      the script exits (INT → 130, TERM → 143, or the failure it exits with)
+#      is finished with that exit code; a finished run is not rewritten. A
+#      SIGKILL leaves the run open until a later run start sweeps it (exit
+#      137) once it is past its budget + 60 s.
 # The branch is moved only when no worktree has it checked out and it still
 # points at commit_sha, or at a rebase of it with a passing recorded run.
 # git-push-guard.sh denies a push of a rebased task commit without such a run.
@@ -166,8 +170,15 @@ TIP=""
 branch_movable || exit 4
 
 WT=""
+RUN_ID=""
+RUN_OPEN=0
 # shellcheck disable=SC2329 # invoked by the EXIT trap
 cleanup() {
+  local rc=$?
+  if [ "$RUN_OPEN" = 1 ]; then
+    [ "$rc" -ne 0 ] || rc=1
+    finish "$rc" 0 || say "run #$RUN_ID finish write failed on exit $rc"
+  fi
   [ -n "$WT" ] || return 0
   g worktree remove --force "$WT" >/dev/null 2>&1 || { rm -rf "$WT"; g worktree prune >/dev/null 2>&1; }
   WT=""
@@ -274,11 +285,15 @@ record() { _TMB_DB_WRITE_SPENT_MS=0; "$@"; }
 
 RUN_ID=$(record tmb_verification_run_start "$DB" "$TASK_ID" "$NEW_SHA" manual "$TIMEOUT_S") && [ -n "$RUN_ID" ] \
   || die 4 "could not record a verification run for $NEW_SHA; $BRANCH unmoved"
+RUN_OPEN=1
 
 finish() {
   local attempt
   for attempt in $(seq 1 "$FINISH_ATTEMPTS"); do
-    record tmb_verification_run_finish "$DB" "$RUN_ID" "$1" "$2" && return 0
+    if record tmb_verification_run_finish "$DB" "$RUN_ID" "$1" "$2"; then
+      RUN_OPEN=0
+      return 0
+    fi
     sleep "$attempt"
   done
   return 1
