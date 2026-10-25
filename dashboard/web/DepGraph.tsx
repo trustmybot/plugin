@@ -1,5 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { SearchIcon } from '@primer/octicons-react';
 import { query, useApi, type FileEdgeKind, type FileGraph } from './api.ts';
+import { Flash } from './ui/Flash.tsx';
 
 const NH = 28;
 const GAP = 4;
@@ -21,14 +23,30 @@ const DASH: Record<FileEdgeKind, string> = {
 };
 const LANG: Record<string, string> = { tsx: 'ts', mjs: 'js', cjs: 'js' };
 
-const MUTED = 'text-zinc-600 dark:text-zinc-400';
-const FAINT = 'text-zinc-400 dark:text-zinc-500';
-const SURFACE = 'bg-white dark:bg-zinc-900';
-const SURFACE2 = 'bg-zinc-100 dark:bg-zinc-800';
-const BORDER = 'border-zinc-200 dark:border-zinc-800';
-const BORDER2 = 'border-zinc-300 dark:border-zinc-700';
-const SEG = `inline-flex overflow-hidden rounded-[7px] border ${BORDER2}`;
-const SEG_BTN = `cursor-pointer border-0 bg-transparent ${MUTED} aria-pressed:bg-zinc-100 aria-pressed:font-semibold aria-pressed:text-zinc-900 dark:aria-pressed:bg-zinc-800 dark:aria-pressed:text-zinc-100`;
+const HUES = [
+  '--bgColor-accent-emphasis',
+  '--bgColor-success-emphasis',
+  '--bgColor-attention-emphasis',
+  '--bgColor-done-emphasis',
+  '--bgColor-severe-emphasis',
+  '--bgColor-sponsors-emphasis',
+  '--bgColor-danger-emphasis',
+  '--bgColor-neutral-emphasis',
+];
+
+const MUTED = 'text-fg-muted';
+const FAINT = 'text-(--fgColor-disabled)';
+const SURFACE = 'bg-canvas';
+const SURFACE2 = 'bg-(--bgColor-neutral-muted)';
+const BORDER = 'border-(--borderColor-muted)';
+const BORDER2 = 'border-(--borderColor-default)';
+const HOVER = 'hover:bg-(--control-transparent-bgColor-hover) hover:text-fg';
+const HOVER_BORDER = 'hover:border-(--borderColor-emphasis)';
+const ACCENT_BORDER = 'border-(--borderColor-accent-emphasis)';
+const EDGE = 'stroke-(--borderColor-default)';
+const EDGE_HI = 'stroke-(--borderColor-accent-emphasis)';
+const SEG = `inline-flex overflow-hidden rounded-md border ${BORDER2}`;
+const SEG_BTN = `cursor-pointer border-0 bg-transparent ${MUTED} aria-pressed:bg-(--control-transparent-bgColor-selected) aria-pressed:font-semibold aria-pressed:text-fg`;
 
 interface FileNode {
   i: number;
@@ -51,6 +69,7 @@ interface Model {
   inc: Map<number, Map<number, Link>>;
   byPath: Map<string, number>;
   top: number;
+  hue: Map<string, string>;
 }
 
 interface Box {
@@ -113,7 +132,11 @@ function buildModel(g: FileGraph): Model {
     total[e.dst]! += e.weight;
   }
   const top = total.reduce((best, w, i) => (w > total[best]! ? i : best), 0);
-  return { files, out, inc, byPath: new Map(files.map((f) => [f.path, f.i])), top };
+  const perLang = new Map<string, number>();
+  for (const f of files) perLang.set(f.lang, (perLang.get(f.lang) ?? 0) + 1);
+  const langs = [...perLang].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const hue = new Map(langs.map(([l], i) => [l, HUES[i % HUES.length]!]));
+  return { files, out, inc, byPath: new Map(files.map((f) => [f.path, f.i])), top, hue };
 }
 
 const uses = (m: Model, i: number) => [...(m.out.get(i)?.values() ?? [])];
@@ -294,10 +317,10 @@ function edgePath(A: Anim, B: Anim): string {
 
 export function DepGraph({ repo }: { repo: string }) {
   const q = useApi<FileGraph>(`world-model/graph?${query({ repo })}`);
-  if (q.error) return <p className="text-red-600">{q.error.message}</p>;
-  if (q.data === undefined) return <p className="text-zinc-500">Loading…</p>;
-  if (!q.data.available) return <p className="text-zinc-500">No dependency graph yet — run /scan in a Claude Code session.</p>;
-  if (q.data.files.length === 0) return <p className="text-zinc-500">No file dependencies recorded for {repo}.</p>;
+  if (q.error) return <Flash variant="danger">{q.error.message}</Flash>;
+  if (q.data === undefined) return <p className="text-fg-muted">Loading…</p>;
+  if (!q.data.available) return <p className="text-fg-muted">No dependency graph yet — run /scan in a Claude Code session.</p>;
+  if (q.data.files.length === 0) return <p className="text-fg-muted">No file dependencies recorded for {repo}.</p>;
   return <Graph data={q.data} />;
 }
 
@@ -488,14 +511,11 @@ function Graph({ data }: { data: FileGraph }) {
   const tipNode = tip ? m.files[tip.id] : undefined;
 
   return (
-    <section className={`overflow-hidden rounded border ${BORDER} text-[13px] leading-[1.45]`}>
-      <header className={`flex flex-wrap items-center gap-x-5 gap-y-3 border-b px-6 py-3.5 ${BORDER} ${SURFACE}`}>
+    <section className={`min-w-0 overflow-hidden rounded-md border ${BORDER2} text-[13px] leading-[1.45]`}>
+      <header className={`flex flex-wrap items-center gap-x-5 gap-y-3 border-b bg-canvas-muted px-4 py-3 sm:px-6 ${BORDER2}`}>
         <h2 className="m-0 text-[15px] font-semibold">Dependency graph</h2>
         <div className="relative">
-          <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" className="absolute left-[9px] top-[9px] h-3.5 w-3.5 stroke-zinc-400 dark:stroke-zinc-500">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.5-3.5" />
-          </svg>
+          <SearchIcon size={14} aria-hidden="true" className="pointer-events-none absolute left-[9px] top-[9px] text-fg-muted" />
           <input
             list={`${uid}-paths`}
             placeholder={`Focus a file: ${node.name}`}
@@ -520,7 +540,7 @@ function Graph({ data }: { data: FileGraph }) {
                 e.currentTarget.blur();
               }
             }}
-            className={`h-8 w-80 max-w-[60vw] rounded-[7px] border bg-zinc-50 pl-[30px] pr-2.5 focus:outline-2 focus:-outline-offset-1 focus:outline-blue-600 dark:bg-zinc-950 dark:focus:outline-blue-400 ${BORDER2}`}
+            className="h-8 w-80 max-w-[60vw] rounded-md border border-(--control-borderColor-rest) bg-(--control-bgColor-rest) pl-[30px] pr-2.5 text-(--control-fgColor-rest) placeholder:text-(--control-fgColor-placeholder) focus-visible:border-(--borderColor-accent-emphasis) focus-visible:outline-(length:--focus-outline-width) focus-visible:outline-(--focus-outline-color) focus-visible:-outline-offset-1"
           />
           <datalist id={`${uid}-paths`}>
             {m.files.map((f) => <option key={f.path} value={f.path} />)}
@@ -559,7 +579,7 @@ function Graph({ data }: { data: FileGraph }) {
           ))}
         </div>
       </header>
-      <nav className={`flex min-h-[38px] flex-wrap items-center gap-1.5 px-6 py-2.5 text-xs ${MUTED}`} aria-label="Focus history">
+      <nav className={`flex min-h-[38px] flex-wrap items-center gap-1.5 px-4 py-2.5 text-xs sm:px-6 ${MUTED}`} aria-label="Focus history">
         {hist.map((p, ix) => {
           const i = m.byPath.get(p);
           if (i === undefined) return null;
@@ -569,7 +589,7 @@ function Graph({ data }: { data: FileGraph }) {
                 type="button"
                 title={p}
                 onClick={() => backTo(ix)}
-                className={`cursor-pointer rounded px-1 py-0.5 font-mono text-xs ${MUTED} hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100`}
+                className={`cursor-pointer rounded px-1 py-0.5 font-mono text-xs ${MUTED} ${HOVER}`}
               >
                 {m.files[i]!.name}
               </button>
@@ -577,33 +597,29 @@ function Graph({ data }: { data: FileGraph }) {
             </span>
           );
         })}
-        <span className="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100">{node.path}</span>
+        <span className="break-all font-mono text-xs font-semibold text-fg">{node.path}</span>
       </nav>
       <div className={`grid border-t lg:grid-cols-[minmax(0,1fr)_340px] ${BORDER}`}>
         <div
           ref={stage}
-          className="relative min-h-[520px] overflow-x-auto overflow-y-hidden"
+          className="relative min-h-[520px] overflow-x-auto overflow-y-hidden overscroll-x-contain"
           style={{ height: SH }}
           onMouseLeave={clearHover}
         >
           <svg className="pointer-events-none absolute left-0 top-0" style={{ width: lay?.CW ?? 0, height: SH }}>
             <defs>
               <marker id={arrow} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" markerUnits="userSpaceOnUse" orient="auto">
-                <path d="M1 1L7 4L1 7" fill="none" strokeWidth="1.3" className="stroke-zinc-400 dark:stroke-zinc-500" />
+                <path d="M1 1L7 4L1 7" fill="none" strokeWidth="1.3" className={EDGE} />
               </marker>
               <marker id={arrowHi} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" markerUnits="userSpaceOnUse" orient="auto">
-                <path d="M1 1L7 4L1 7" fill="none" strokeWidth="1.4" className="stroke-blue-600 dark:stroke-blue-400" />
+                <path d="M1 1L7 4L1 7" fill="none" strokeWidth="1.4" className={EDGE_HI} />
               </marker>
             </defs>
             <g>
               {lay?.edges.map((e) => {
                 const key = `${e.a}>${e.b}`;
                 const on = hover !== null && (e.a === hover || e.b === hover);
-                const tone = hover === null
-                  ? 'stroke-zinc-400 dark:stroke-zinc-500'
-                  : on
-                    ? 'stroke-blue-600 opacity-100! dark:stroke-blue-400'
-                    : 'stroke-zinc-400 opacity-[.12]! dark:stroke-zinc-500';
+                const tone = hover === null ? EDGE : on ? `${EDGE_HI} opacity-100!` : `${EDGE} opacity-[.12]!`;
                 return (
                   <path
                     key={key}
@@ -656,7 +672,7 @@ function Graph({ data }: { data: FileGraph }) {
           </div>
           {tip && tipNode && (
             <div
-              className={`pointer-events-none absolute z-10 max-w-[320px] rounded-lg border px-2.5 py-2 text-xs shadow-[0_6px_20px_rgba(0,0,0,.12)] transition-opacity duration-100 ${BORDER2} ${SURFACE}`}
+              className={`pointer-events-none absolute z-10 max-w-[320px] rounded-lg border px-2.5 py-2 text-xs shadow-(--shadow-floating-small) transition-opacity duration-100 ${BORDER2} ${SURFACE}`}
               style={{ left: tip.x, top: tip.y, opacity: tip.on ? 1 : 0 }}
             >
               <div className={`mb-1 break-all font-mono text-[11px] ${MUTED}`}>{tipNode.path}</div>
@@ -718,7 +734,7 @@ function GraphNode({
 }) {
   const shell = 'absolute left-0 top-0 flex rounded-md transition-[opacity,border-color,background-color] duration-150';
   const base = `${shell} cursor-pointer items-center gap-1.5 whitespace-nowrap border px-2`;
-  const state = `${dim ? 'opacity-30!' : ''} ${hi ? 'border-blue-600 dark:border-blue-400' : ''}`;
+  const state = `${dim ? 'opacity-30!' : ''} ${hi ? ACCENT_BORDER : ''}`;
   const activate = (fn: () => void) => ({
     role: 'button',
     tabIndex: 0,
@@ -739,7 +755,7 @@ function GraphNode({
         {...activate(() => onExpand(item.ck))}
         onMouseEnter={onEnter}
         onMouseLeave={onLeave}
-        className={`${base} border-dashed bg-transparent ${MUTED} ${state} ${hi ? '' : `${BORDER2} hover:border-zinc-900 dark:hover:border-zinc-100`}`}
+        className={`${base} border-dashed bg-transparent ${MUTED} ${state} ${hi ? '' : `${BORDER2} ${HOVER_BORDER}`}`}
       >
         <span className="flex-1 truncate text-xs">+{item.count} more</span>
       </div>
@@ -747,7 +763,10 @@ function GraphNode({
   }
   const n = m.files[item.id]!;
   const lang = (
-    <span className={`rounded-[3px] px-1 font-mono text-[10px] leading-4 ${MUTED} ${SURFACE2}`}>{n.lang}</span>
+    <span className={`inline-flex items-center gap-1 rounded-[3px] px-1 font-mono text-[10px] leading-4 ${MUTED} ${SURFACE2}`}>
+      <span aria-hidden="true" className="size-2 rounded-full" style={{ background: `var(${m.hue.get(n.lang)})` }} />
+      {n.lang}
+    </span>
   );
   if (item.kind === 'focus') {
     return (
@@ -755,11 +774,11 @@ function GraphNode({
         ref={bind}
         onMouseEnter={onEnter}
         onMouseLeave={onLeave}
-        className={`${shell} cursor-default flex-col items-stretch justify-center gap-1 overflow-hidden whitespace-normal border-[1.5px] border-blue-600 bg-blue-50 px-3 py-2.5 dark:border-blue-400 dark:bg-blue-950 ${dim ? 'opacity-30!' : ''}`}
+        className={`${shell} cursor-default flex-col items-stretch justify-center gap-1 overflow-hidden whitespace-normal border-[1.5px] ${ACCENT_BORDER} bg-(--bgColor-accent-muted) px-3 py-2.5 ${dim ? 'opacity-30!' : ''}`}
       >
         <div className="flex items-center gap-1.5">
           {lang}
-          <span className="flex-1 truncate font-mono text-[13px] font-semibold text-blue-700 dark:text-blue-300">{n.name}</span>
+          <span className="flex-1 truncate font-mono text-[13px] font-semibold text-(--fgColor-accent)">{n.name}</span>
         </div>
         <div className={`truncate font-mono text-[11px] ${MUTED}`}>{n.dirPath}</div>
         {n.summary && <div className="line-clamp-3 text-xs">{n.summary}</div>}
@@ -773,7 +792,7 @@ function GraphNode({
       {...activate(() => onFocusFile(item.id))}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`${base} ${SURFACE} ${state} ${hi ? '' : `${BORDER2} hover:border-zinc-900 dark:hover:border-zinc-100`}`}
+      className={`${base} ${SURFACE} ${state} ${hi ? '' : `${BORDER2} ${HOVER_BORDER}`}`}
     >
       {item.w >= 150 && lang}
       <span className="flex-1 truncate font-mono text-xs">{n.name}</span>
@@ -823,7 +842,7 @@ function Panel({
               onClick={() => onFocusFile(e.id)}
               onMouseEnter={() => onRowEnter(e.id)}
               onMouseLeave={onRowLeave}
-              className={`flex w-full cursor-pointer items-center gap-2 border-0 border-b bg-transparent px-1 py-1.5 text-left font-mono text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${BORDER}`}
+              className={`flex w-full cursor-pointer items-center gap-2 border-0 border-b bg-transparent px-1 py-1.5 text-left font-mono text-xs hover:bg-(--control-transparent-bgColor-hover) ${BORDER}`}
             >
               <span className="flex-1 truncate">
                 {m.files[e.id]!.name} <span className={`text-[11px] ${FAINT}`}>{m.files[e.id]!.dirPath}</span>
@@ -846,7 +865,7 @@ function Panel({
           [ub.length, 'Direct dependents'],
           [us.length, 'Direct dependencies'],
         ].map(([v, k]) => (
-          <div key={k} className={`rounded-[7px] px-2.5 py-2 ${SURFACE2}`}>
+          <div key={k} className="rounded-md bg-canvas-muted px-2.5 py-2">
             <div className="text-lg font-semibold tabular-nums">{v}</div>
             <div className={`text-[11px] ${MUTED}`}>{k}</div>
           </div>
