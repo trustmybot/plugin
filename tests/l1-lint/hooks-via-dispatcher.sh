@@ -4,7 +4,8 @@
 # (the placeholder quoted, so a plugin root with a space stays one word)
 # and scripts/hooks/<gate>.sh exists and is executable (git mode 100755). A
 # chain name (scripts/hooks/lib/registrations.sh) stands for its gates: each
-# of them must exist and be executable.
+# of them must exist and be executable. A gate born in TypeScript has no .sh:
+# its src/hooks/<gate>.ts exists and dist/hooks-gates.txt lists it.
 # The dispatcher is what makes one gate execution per event hold however many
 # registrations fire; a registration that calls a gate directly bypasses it.
 
@@ -17,6 +18,13 @@ command -v jq >/dev/null 2>&1 || { printf "hooks-via-dispatcher: jq required\n" 
 
 # shellcheck source=scripts/hooks/lib/registrations.sh
 . scripts/hooks/lib/registrations.sh
+
+# ts_only <gate> — a gate born in TypeScript: no .sh, but its
+# mcp/trajectory-server/src/hooks/<gate>.ts exists and dist/hooks-gates.txt
+# lists it, so dispatch.sh runs it through node dist/hooks.js.
+ts_only() {
+  [ -f "mcp/trajectory-server/src/hooks/$1.ts" ] && grep -qxF "$1" mcp/trajectory-server/dist/hooks-gates.txt 2>/dev/null
+}
 
 FAIL=0
 CHECKED=0
@@ -42,6 +50,9 @@ while IFS= read -r cmd; do
   for g in ${members:-$gate}; do
     GATES=$((GATES + 1))
     rel="scripts/hooks/$g.sh"
+    if [ ! -f "$rel" ] && ts_only "$g"; then
+      continue
+    fi
     mode=$(git ls-files -s -- "$rel" | awk '{print $1}')
     if [ ! -f "$rel" ]; then
       printf "hooks-via-dispatcher: gate script missing: %s\n" "$rel" >&2

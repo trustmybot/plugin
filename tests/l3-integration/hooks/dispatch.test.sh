@@ -951,6 +951,33 @@ out=$(dispatch "$TSI" fx-ts "$(payload "ls ts5" tu-ts5)" 2>/dev/null)
 assert_eq "bash fx-ts" "$(ran)" "the .sh ran"
 mv "$TMP/hooks.js.off" "$TSI/mcp/trajectory-server/dist/hooks.js"
 
+test_case "TypeScript-only gate: a manifest gate with no .sh runs through node, and is not run without node"
+reset_runs
+P=$(payload "ls ts6" tu-ts6)
+out=$(dispatch "$TSI" fx-ts-other "$P" 2>"$TMP/err")
+assert_eq "node fx-ts-other" "$(ran)" "node ran the gate"
+assert_contains "$out" "from node ${#P}" "its stdout came back"
+assert_eq "" "$(cat "$TMP/err")" "nothing on stderr"
+for mode in bash nonode; do
+  reset_runs
+  rc=0
+  if [ "$mode" = bash ]; then
+    TMB_HOOKS_IMPL=bash dispatch "$TSI" fx-ts-other "$(payload "ls ts7 $mode" "tu-ts7-$mode")" >/dev/null 2>"$TMP/err" || rc=$?
+  else
+    PATH="$NONODE" dispatch "$TSI" fx-ts-other "$(payload "ls ts7 $mode" "tu-ts7-$mode")" >/dev/null 2>"$TMP/err" || rc=$?
+  fi
+  assert_eq "0" "$(runs)" "nothing ran ($mode)"
+  assert_eq "1" "$rc" "the dispatcher exits 1 ($mode)"
+  assert_contains "$(cat "$TMP/err")" "gate fx-ts-other has no .sh and needs node" "stderr names the cause ($mode)"
+done
+mv "$TSI/mcp/trajectory-server/dist/hooks-gates.txt" "$TMP/gates.off"
+reset_runs
+rc=0
+dispatch "$TSI" fx-ts-other "$(payload "ls ts8" tu-ts8)" >/dev/null 2>"$TMP/err" || rc=$?
+assert_eq "1" "$rc" "with no manifest the gate is not found"
+assert_contains "$(cat "$TMP/err")" "no gate fx-ts-other.sh" "stderr says so"
+mv "$TMP/gates.off" "$TSI/mcp/trajectory-server/dist/hooks-gates.txt"
+
 test_case "TypeScript gate (real): askuserquestion-length-lint runs from dist/hooks.js; TMB_HOOKS_IMPL=bash runs the .sh"
 SHIMBIN="$TMP/nodeshim"
 mkdir -p "$SHIMBIN"

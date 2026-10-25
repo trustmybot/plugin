@@ -16,6 +16,8 @@
 #   - calls a function from a library it sources (scripts/hooks/lib/*.sh)
 #     whose body prints a deny (tmb_deny_db_unavailable, …), or
 #   - runs another scripts/hooks/<name>.sh that is deny-capable.
+# A gate born in TypeScript (no .sh; dist/hooks-gates.txt lists it) is
+# judged from mcp/trajectory-server/src/hooks/<gate>.ts the same way.
 # A chain registration (`dispatch.sh <chain>`, scripts/hooks/lib/
 # registrations.sh) is checked once per gate it runs, under the chain's
 # onFailure; an observe-only gate in a fail-closed chain is not warned.
@@ -49,6 +51,21 @@ DENY_RE='permissionDecision"?[[:space:]]*:[[:space:]]*"deny"|"?decision"?[[:spac
 
 # code <file> — the file without comment lines.
 code() { grep -vE '^[[:space:]]*#' "$1" 2>/dev/null || true; }
+
+# A gate born in TypeScript (no .sh) is deny-capable when its source, outside
+# comment lines, builds a deny or calls denyDbUnavailable.
+TS_DENY_RE="permissionDecision: *'deny'|decision: *'block'|denyDbUnavailable\\("
+
+# ts_source <scripts/hooks dir> <gate> — the gate's src/hooks/<gate>.ts when
+# dist/hooks-gates.txt lists it, else nothing.
+ts_source() {
+  local mcp="$1/../../mcp/trajectory-server"
+  [ -f "$mcp/src/hooks/$2.ts" ] && grep -qxF "$2" "$mcp/dist/hooks-gates.txt" 2>/dev/null \
+    && printf '%s\n' "$mcp/src/hooks/$2.ts"
+}
+
+# ts_code <file> — the TypeScript file without // and /** */ comment lines.
+ts_code() { grep -vE '^[[:space:]]*(//|/?\*)' "$1" 2>/dev/null || true; }
 
 # deny_functions <lib> — names of the functions in <lib> whose body denies.
 deny_functions() {
@@ -104,16 +121,20 @@ expand_chains() {
 # check <hooks.json> <scripts/hooks dir> — prints the table; exit 1 on FAIL.
 check() {
   local hooks_json="$1" dir="$2" fail=0 warn=0 n=0
-  local event gate on_failure chain capable status
+  local event gate on_failure chain capable status ts
   printf '%-18s %-34s %-12s %-10s %s\n' EVENT GATE DENY-CAPABLE ONFAILURE STATUS
   while IFS=$'\t' read -r event gate on_failure chain; do
     n=$((n + 1))
-    if [ -z "$gate" ] || [ ! -f "$dir/$gate.sh" ]; then
+    ts=""
+    [ -n "$gate" ] && [ ! -f "$dir/$gate.sh" ] && ts=$(ts_source "$dir" "$gate")
+    if [ -z "$gate" ] || { [ ! -f "$dir/$gate.sh" ] && [ -z "$ts" ]; }; then
       printf '%-18s %-34s %-12s %-10s %s\n' "$event" "${gate:-?}" "?" "$on_failure" "FAIL (no scripts/hooks/<gate>.sh)"
       fail=$((fail + 1))
       continue
     fi
-    if deny_capable "$dir" "$gate"; then capable=yes; else capable=no; fi
+    if [ -n "$ts" ]; then
+      if ts_code "$ts" | grep -E "$TS_DENY_RE" >/dev/null; then capable=yes; else capable=no; fi
+    elif deny_capable "$dir" "$gate"; then capable=yes; else capable=no; fi
     case "$on_failure" in
       block|continue|-) ;;
       *)

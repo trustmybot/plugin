@@ -80,6 +80,11 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-slash-detect",
             "timeout": 21
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" task-overrun-alert",
+            "timeout": 6
           }
         ]
       }
@@ -293,6 +298,16 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" post-task-create-spawn-hint",
             "timeout": 4
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" task-overrun-alert",
+            "timeout": 6
           }
         ]
       },

@@ -1,4 +1,5 @@
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { elapsedMs, reworkCount, SWE_SPAWN_SQL } from '../task-rework.js';
 const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'];
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -108,11 +109,27 @@ const TOKENS_TOTAL_SQL = 'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_t
 // Per-task cost is the task's swe and pr-reviewer runs: bro is metered per
 // session, so a legacy per-task bro row is history, not task cost.
 const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
-export function statsTools(db) {
+// Computed at read time, nothing stored. wall_clock_ms runs from the task's
+// created_at to its close (updated_at of a closed task: the close is its last
+// write) or to now while it is open; null for an unknown task.
+function reworkStats(db, taskId, now) {
+    const task = db.get('SELECT status, created_at, updated_at FROM tasks WHERE id = ?', [taskId]);
+    const fails = db.get("SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND verdict = 'fail'", [taskId]);
+    const spawns = db.get(`SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ? AND ${SWE_SPAWN_SQL}`, [taskId]);
+    const sweSpawnCount = spawns?.n ?? 0;
+    const endedAt = task?.status === 'closed' ? new Date(task.updated_at) : now;
+    return {
+        wall_clock_ms: task ? elapsedMs(task.created_at, endedAt) : null,
+        review_fail_count: fails?.n ?? 0,
+        swe_spawn_count: sweSpawnCount,
+        rework_count: reworkCount(sweSpawnCount),
+    };
+}
+export function statsTools(db, clock = () => new Date()) {
     const definitions = [
         {
             name: 'task_stats',
-            description: 'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
+            description: 'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -165,6 +182,7 @@ export function statsTools(db) {
                 cost_estimate: cost.cost_estimate,
                 unpriced_tokens: cost.unpriced_tokens,
                 cost_groups: cost.groups,
+                ...reworkStats(db, taskId, clock()),
                 spawns,
             });
         })),

@@ -5,7 +5,8 @@
  * `bash scripts/hooks/<gate>.sh` and `node dist/hooks.js <gate>`, and a gate
  * that audits writes the same audit rows (id and created_at aside). A gate
  * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
- * (pr-reviewer-preflight), has no bash side and is not in the parity set.
+ * (pr-reviewer-preflight, rework-limit, task-overrun-alert), has no bash side
+ * and is not in the parity set.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -198,8 +199,12 @@ describe('hooks parity: bash vs node over the corpus', () => {
     assert.deepEqual(corpusProblems(PARITY_GATES, CORPUS_ROOT), []);
   });
 
-  it('pr-reviewer-preflight is the only registered gate without a bash twin', () => {
-    assert.deepEqual(gateNames().filter((gate) => !PARITY_GATES.includes(gate)), ['pr-reviewer-preflight']);
+  it('the gates born in TypeScript are the only registered gates without a bash twin', () => {
+    assert.deepEqual(gateNames().filter((gate) => !PARITY_GATES.includes(gate)), [
+      'pr-reviewer-preflight',
+      'rework-limit',
+      'task-overrun-alert',
+    ]);
   });
 
   it('self-test: a registered gate without a corpus, or with too few inputs, fails the check', () => {

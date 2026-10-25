@@ -378,4 +378,83 @@ describe('statsTools — task_stats cost_estimate', () => {
     assert.deepEqual(payload.spawns.map((s: { agent_type: string }) => s.agent_type), ['swe']);
     db.close();
   });
+
+  describe('rework fields (GH 1738)', () => {
+    const CREATED = '2026-10-25T10:00:00.000Z';
+    const CLOSED = '2026-10-25T11:30:00.000Z';
+
+    function reworkTask(db: ReturnType<typeof tempDB>, status: string): number {
+      db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('i', '', 'open', ?, ?)", [CREATED, CREATED]);
+      const issueId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+      db.run(
+        "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/rework', 't', 'd', ?, ?, ?)",
+        [issueId, status, CREATED, CLOSED],
+      );
+      const taskId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+      const runs: Array<[string, number | null, string | null]> = [
+        ['swe', 1000, 'completed'],
+        ['swe', 2000, 'completed'],
+        ['swe', null, 'swept_orphan'],
+        ['swe', 3000, 'completed'],
+        ['pr-reviewer', 500, 'completed'],
+      ];
+      for (const [agentType, cacheRead, exitReason] of runs) {
+        db.run(
+          'INSERT INTO agent_runs (task_id, issue_id, agent_type, cache_read_tokens, exit_reason) VALUES (?, ?, ?, ?, ?)',
+          [taskId, issueId, agentType, cacheRead, exitReason],
+        );
+      }
+      ['fail', 'fail', 'fail', 'pass'].forEach((verdict, i) => {
+        db.run(
+          "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 'f', 1, ?)",
+          [taskId, i + 1, verdict, CREATED],
+        );
+      });
+      return taskId;
+    }
+
+    it('a closed task reports wall clock to its close, FAILs, swe spawns and rework', async () => {
+      const db = tempDB();
+      const taskId = reworkTask(db, 'closed');
+      const payload = parseResult(
+        await call(statsTools(db, () => new Date('2026-10-26T00:00:00.000Z')).handlers, 'task_stats', { agent: 'bro', task_id: taskId }),
+      );
+      assert.equal(payload.wall_clock_ms, 90 * 60_000);
+      assert.equal(payload.review_fail_count, 3);
+      assert.equal(payload.swe_spawn_count, 3);
+      assert.equal(payload.rework_count, 2);
+      assert.equal(payload.aggregate.cache_read_tokens, 6500);
+      for (const key of ['wall_clock_ms', 'review_fail_count', 'swe_spawn_count', 'rework_count']) {
+        assert.equal(typeof payload[key], 'number', `${key} is a number`);
+      }
+      assert.equal(typeof payload.aggregate.cache_read_tokens, 'number');
+      db.close();
+    });
+
+    it('an open task reports wall clock to now', async () => {
+      const db = tempDB();
+      const taskId = reworkTask(db, 'running');
+      const payload = parseResult(
+        await call(statsTools(db, () => new Date('2026-10-25T10:45:00.000Z')).handlers, 'task_stats', { agent: 'bro', task_id: taskId }),
+      );
+      assert.equal(payload.wall_clock_ms, 45 * 60_000);
+      db.close();
+    });
+
+    it('a task with no swe spawn has rework_count 0', async () => {
+      const db = tempDB();
+      db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('i', '', 'open', ?, ?)", [CREATED, CREATED]);
+      const issueId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+      db.run(
+        "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/none', 't', 'd', 'pending', ?, ?)",
+        [issueId, CREATED, CREATED],
+      );
+      const taskId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+      const payload = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+      assert.equal(payload.swe_spawn_count, 0);
+      assert.equal(payload.rework_count, 0);
+      assert.equal(payload.review_fail_count, 0);
+      db.close();
+    });
+  });
 });
