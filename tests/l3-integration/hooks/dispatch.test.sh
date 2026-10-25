@@ -8,7 +8,11 @@
 #     - duplicate right after the holder finished  → deny replayed, gate not rerun
 #     - identical event after the window (retry)   → gate runs again
 #     - result older than the TTL                  → pruned
-#     - stale lock (holder killed)                 → reclaimed by mtime
+#     - stale lock without a deadline (killed)     → reclaimed by mtime
+#     - hold() stamps deadline = now + timeout + 5 s; a lock past it is
+#       reclaimed, a live one before it is not (even past 3 × TTL)
+#     - sweep of 300 lock dirs: ≤ 2 finds, ≤ 1 rm, removal by rule;
+#       throttled to once per TMB_DISPATCH_SWEEP_S
 #     - un-onboarded project                       → gate runs, no locks dir
 #   One install per project:
 #     - project install B named in installed_plugins.json → B's gate runs from A
@@ -158,7 +162,7 @@ dispatch() {
 }
 
 runs() { [ -f "$RUNS" ] && wc -l < "$RUNS" | tr -d ' ' || echo 0; }
-reset_runs() { rm -f "$RUNS"; rm -rf "$EVENTS"; }
+reset_runs() { rm -f "$RUNS" "$EVENTS.sweep"; rm -rf "$EVENTS"; }
 
 # ===========================================================================
 test_case "concurrent duplicates of a deny gate: gate runs once, both deny"
@@ -232,16 +236,113 @@ FX_SLEEP=0 dispatch "$A" fx-allow "$(payload "ls ttl" tu-ttl)" > /dev/null
 [ ! -d "$EVENTS/oldkey" ] && _pass || _fail "stale result dir not pruned"
 
 # ===========================================================================
-test_case "stale lock (holder killed) is reclaimed by mtime"
+test_case "stale lock without a deadline (holder killed) is reclaimed by mtime"
 reset_runs
 P=$(payload "git commit" tu-stale)
 FX_SLEEP=0 dispatch "$A" fx-deny "$P" > /dev/null
 key=$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | head -1)
-rm -f "$key/rc" "$key/result" "$key/stderr"
+rm -f "$key/rc" "$key/result" "$key/stderr" "$key/deadline"
 touch -t 202001010000 "$key"
 out=$(FX_SLEEP=0 dispatch "$A" fx-deny "$P")
 assert_eq "2" "$(runs)" "gate re-executed after reclaim"
 assert_contains "$out" '"permissionDecision":"deny"' "reclaimer emits the gate's deny"
+
+# ===========================================================================
+test_case "hold() stamps deadline = now + gate timeout + 5 s"
+reset_runs
+before=$(date +%s)
+FX_SLEEP=0 dispatch "$A" fx-allow "$(payload "ls dl" tu-dl)" > /dev/null
+key=$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | head -1)
+dl=$(cat "$key/deadline" 2>/dev/null || true)
+want=$((before + 6 + 5))
+case "$dl" in ''|*[!0-9]*) _fail "deadline missing or not digits: '$dl'" ;;
+  *) [ "$dl" -ge $((want - 2)) ] && [ "$dl" -le $((want + 2)) ] && _pass || _fail "deadline $dl not within 2 s of $want" ;;
+esac
+
+# ===========================================================================
+test_case "unfinished lock past its deadline is reclaimed, whatever its mtime"
+reset_runs
+P=$(payload "git tag" tu-dead)
+FX_SLEEP=0 dispatch "$A" fx-deny "$P" > /dev/null
+key=$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | head -1)
+rm -f "$key/rc" "$key/result" "$key/stderr"
+echo $(( $(date +%s) - 1 )) > "$key/deadline"
+rm -f "$EVENTS.sweep"
+out=$(FX_SLEEP=0 TMB_DISPATCH_SWEEP_S=3600 dispatch "$A" fx-deny "$P")
+assert_eq "2" "$(runs)" "gate re-executed after its holder's deadline"
+assert_contains "$out" '"permissionDecision":"deny"' "reclaimer emits the gate's deny"
+date +%s > "$EVENTS.sweep"
+rm -f "$key/rc" "$key/result" "$key/stderr"
+echo $(( $(date +%s) - 1 )) > "$key/deadline"
+out=$(FX_SLEEP=0 TMB_DISPATCH_SWEEP_S=3600 dispatch "$A" fx-deny "$P")
+assert_eq "3" "$(runs)" "reclaimed by _expired with no sweep"
+
+# ===========================================================================
+test_case "live holder before its deadline is not reclaimed, even past 3 x TTL"
+reset_runs
+P=$(payload "git log" tu-live)
+FX_SLEEP=0 dispatch "$A" fx-deny "$P" > /dev/null
+key=$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | head -1)
+rm -f "$key/rc" "$key/result" "$key/stderr" "$EVENTS.sweep"
+echo $(( $(date +%s) + 3600 )) > "$key/deadline"
+touch -t 202001010000 "$key"
+out=$(FX_SLEEP=0 dispatch "$A" fx-deny "$P")
+assert_eq "1" "$(runs)" "gate not re-executed while its holder is live"
+assert_eq "" "$out" "waiter gives up silently"
+[ -d "$key" ] && _pass || _fail "live holder's lock removed"
+
+# ===========================================================================
+# epoch_touch <minutes ago> <path>... — sets the mtime of <path>s.
+epoch_touch() {
+  local t=$(( $(date +%s) - $1 * 60 )) stamp
+  shift
+  stamp=$(date -d "@$t" '+%Y%m%d%H%M.%S' 2>/dev/null || date -r "$t" '+%Y%m%d%H%M.%S')
+  touch -t "$stamp" "$@"
+}
+
+test_case "sweep of 300 lock dirs: at most 2 finds and 1 rm, by rule"
+reset_runs
+mkdir -p "$EVENTS"
+now=$(date +%s)
+legacy15=() legacy40=() rc15=() dead=() live40=()
+for i in $(seq 1 200); do legacy15+=("$EVENTS/legacy15-$i"); done
+for i in $(seq 1 10); do legacy40+=("$EVENTS/legacy40-$i"); done
+for i in $(seq 1 40); do rc15+=("$EVENTS/rc15-$i"); done
+for i in $(seq 1 40); do dead+=("$EVENTS/dead-$i"); done
+for i in $(seq 1 10); do live40+=("$EVENTS/live40-$i"); done
+mkdir "${legacy15[@]}" "${legacy40[@]}" "${rc15[@]}" "${dead[@]}" "${live40[@]}"
+for d in "${rc15[@]}"; do echo 0 > "$d/rc"; done
+for d in "${dead[@]}"; do echo $((now - 5)) > "$d/deadline"; done
+for d in "${live40[@]}"; do echo $((now + 3600)) > "$d/deadline"; done
+epoch_touch 15 "${legacy15[@]}" "${rc15[@]}" "${dead[@]:0:20}"
+epoch_touch 40 "${legacy40[@]}" "${live40[@]}" "${dead[@]:20}"
+assert_eq "300" "$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | grep -c .)" "300 lock dirs seeded"
+t0=$(date +%s)
+printf '%s' "$(payload "ls sweep" tu-sweep)" | CLAUDE_PLUGIN_ROOT="$A" FX_SLEEP=0 \
+  bash -x "$A/scripts/hooks/dispatch.sh" fx-allow > /dev/null 2> "$TMP/sweep.trace"
+elapsed=$(( $(date +%s) - t0 ))
+finds=$(grep -cE '^\++ find ' "$TMP/sweep.trace" || true)
+rms=$(grep -cE '^\++ rm ' "$TMP/sweep.trace" || true)
+[ "$finds" -le 2 ] && [ "$finds" -ge 1 ] && _pass || _fail "sweep forked $finds finds (want 1-2)"
+[ "$rms" -le 1 ] && _pass || _fail "sweep ran $rms rm (want at most 1)"
+[ "$elapsed" -le 5 ] && _pass || _fail "dispatch over 300 lock dirs took ${elapsed}s"
+left() { local n=0 d; for d in "$@"; do [ -d "$d" ] && n=$((n + 1)); done; echo "$n"; }
+assert_eq "0" "$(left "${rc15[@]}")" "results older than TTL removed"
+assert_eq "0" "$(left "${dead[@]}")" "unfinished locks past their deadline removed"
+assert_eq "10" "$(left "${live40[@]}")" "live holders past 3 x TTL kept before their deadline"
+assert_eq "200" "$(left "${legacy15[@]}")" "legacy locks under 3 x TTL kept"
+assert_eq "0" "$(left "${legacy40[@]}")" "legacy locks over 3 x TTL removed"
+
+test_case "sweep throttle: a second call within TMB_DISPATCH_SWEEP_S does not sweep"
+printf '%s' "$(payload "ls sweep2" tu-sweep2)" | CLAUDE_PLUGIN_ROOT="$A" FX_SLEEP=0 \
+  bash -x "$A/scripts/hooks/dispatch.sh" fx-allow > /dev/null 2> "$TMP/sweep2.trace"
+assert_eq "0" "$(grep -cE '^\++ find ' "$TMP/sweep2.trace" || true)" "no sweep find within the window"
+echo $(( $(date +%s) - 61 )) > "$EVENTS.sweep"
+mkdir "$EVENTS/rc-late" && echo 0 > "$EVENTS/rc-late/rc" && epoch_touch 15 "$EVENTS/rc-late"
+printf '%s' "$(payload "ls sweep3" tu-sweep3)" | CLAUDE_PLUGIN_ROOT="$A" FX_SLEEP=0 \
+  bash -x "$A/scripts/hooks/dispatch.sh" fx-allow > /dev/null 2> "$TMP/sweep3.trace"
+[ "$(grep -cE '^\++ find ' "$TMP/sweep3.trace" || true)" -ge 1 ] && _pass || _fail "no sweep after the window"
+[ ! -d "$EVENTS/rc-late" ] && _pass || _fail "sweep after the window left an old result"
 
 # ===========================================================================
 test_case "un-onboarded project: gate runs, no locks dir created"
