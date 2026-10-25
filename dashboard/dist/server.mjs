@@ -685,7 +685,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 47;
+var TARGET_SCHEMA_VERSION = 48;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1230,6 +1230,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 47 && toVersion >= 47) {
     migrateV46toV47(db);
+  }
+  if (fromVersion < 48 && toVersion >= 48) {
+    migrateV47toV48(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -2932,6 +2935,25 @@ function migrateV46toV47(db) {
       ON review_findings(task_id, status);
   `);
 }
+function migrateV47toV48(db) {
+  if (!tableExists(db, "tasks")) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, "tasks", "completion_report")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN completion_report TEXT");
+    }
+    if (!hasColumn(db, "tasks", "spawn_note")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN spawn_note TEXT");
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
 function migrateV22toV23(db) {
   const soleRepo = () => {
     if (!tableExists(db, "repos")) return null;
@@ -4036,10 +4058,11 @@ function issues(db) {
   return all(
     db,
     `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
-            i.created_at, i.updated_at, i.closed_at,
+            i.created_at, i.updated_at, i.closed_at, i.labels,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
-               AND t.status IN ('completed','closed')) AS tasks_done
+               AND t.status IN ('completed','closed')) AS tasks_done,
+            (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = i.id) AS discussion_count
        FROM issues i
       WHERE i.id > 0
       ORDER BY i.status = 'open' DESC, i.updated_at DESC`

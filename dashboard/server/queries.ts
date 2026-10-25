@@ -44,10 +44,11 @@ export function issues(db: DatabaseSync): Row[] {
   return all(
     db,
     `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
-            i.created_at, i.updated_at, i.closed_at,
+            i.created_at, i.updated_at, i.closed_at, i.labels,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id) AS task_count,
             (SELECT COUNT(*) FROM tasks t WHERE t.issue_id = i.id
-               AND t.status IN ('completed','closed')) AS tasks_done
+               AND t.status IN ('completed','closed')) AS tasks_done,
+            (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = i.id) AS discussion_count
        FROM issues i
       WHERE i.id > 0
       ORDER BY i.status = 'open' DESC, i.updated_at DESC`,
