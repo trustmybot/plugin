@@ -12,7 +12,8 @@
 #   - the same path again → silent (deduped per task); another task → noted
 #   - no-task, empty files[], a target outside the worktree, no spawn
 #     transcript, non-Edit tool → silent
-#   - dir-granularity: file listed → its directory is the scope
+#   - subtree rule (GH 1705): an entry covers itself and everything beneath
+#     it, never its siblings
 #   - root-level file listed → only that exact file is in scope
 #   - tests/ path in scope when files[] includes a tests/ parent
 #   - the hook source carries no deny
@@ -38,8 +39,8 @@ WT_B="$WT_ROOT/task-beta"
 mkdir -p "$WT_A" "$WT_B"
 
 # Typed files[] fixtures (JSON arrays — Typed Rails #673).
-FILES_WITH_FILES='["scripts/hooks/my-hook.sh","tests/l3-integration/hooks/my-hook.test.sh"]'
-FILES_MULTIDIR='["src/api/handler.ts","src/lib/util.ts","tests/unit/handler.test.ts"]'
+FILES_WITH_FILES='["scripts/hooks/","tests/l3-integration/hooks/my-hook.test.sh"]'
+FILES_MULTIDIR='["src/api/","src/lib/util.ts","tests/unit/handler.test.ts"]'
 FILES_EMPTY='[]'
 FILES_ROOT_FILE='["Makefile"]'
 FILES_TRAILING_SLASH='["tests/"]'
@@ -68,6 +69,9 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (3, 1, 'feat/task-nofiles', 'running', '', 0, '$FILES_EMPTY');
   INSERT INTO tasks VALUES (5, 1, 'feat/task-rootfile', 'running', '', 0, '$FILES_ROOT_FILE');
   INSERT INTO tasks VALUES (6, 1, 'feat/task-trailingslash', 'running', '', 0, '$FILES_TRAILING_SLASH');
+  INSERT INTO tasks VALUES (7, 1, 'feat/allows-file', 'running', '', 0, '[\"src/a/b.ts\"]');
+  INSERT INTO tasks VALUES (8, 1, 'feat/allows-dir', 'running', '', 0, '[\"src/a\"]');
+  INSERT INTO tasks VALUES (9, 1, 'feat/allows-tests', 'running', '', 0, '[\"tests/l1/x.sh\"]');
   ALTER TABLE tasks ADD COLUMN repo TEXT;
   CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
   INSERT INTO repos VALUES ('proj', '$TMPDIR');
@@ -144,7 +148,7 @@ test_case "out-of-scope: Edit to an unrelated dir is allowed with a note"
 out=$(run_hook "$WT_A" "$(make_edit_input "src/api/handler.ts")")
 assert_not_contains "$out" "$DENY" "out-of-scope edit is allowed"
 assert_contains "$out" "additionalContext" "the note is additionalContext"
-assert_contains "$out" "src/api/handler.ts is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks); list it and why in your report" "the note names the path and the listed dirs"
+assert_contains "$out" "src/api/handler.ts is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks/my-hook.test.sh); list it and why in your report" "the note names the path and the listed dirs"
 
 test_case "out-of-scope: the same path again is silent"
 out=$(run_hook "$WT_A" "$(make_edit_input "src/api/handler.ts")")
@@ -160,12 +164,32 @@ assert_contains "$out" "docs/README.md is outside this task's files[]" "a new pa
 assert_eq "$([ -d "$TMPDIR/locks/scope-notes/1" ] && [ -d "$TMPDIR/locks/scope-notes/2" ] && echo yes)" "yes" "markers live per task under the state dir's locks/"
 
 # ===========================================================================
-# Dir-granularity: file listed → directory is the scope
+# Subtree rule (GH 1705): an entry covers itself and its subtree, never siblings
 # ===========================================================================
 
-test_case "dir-granularity: multi-dir spec — src/api/other.ts is in scope"
+# allows <task_id> <path> — yes/no from tmb_scope_fence_allows after loading the task.
+allows() {
+  (
+    # shellcheck source=/dev/null
+    . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
+    # shellcheck source=/dev/null
+    . "$PLUGIN_ROOT/scripts/hooks/lib/scope-fence.sh"
+    tmb_scope_fence_load "$DB" "$1"
+    if tmb_scope_fence_allows "$2"; then echo yes; else echo no; fi
+  )
+}
+
+test_case "subtree: tmb_scope_fence_allows matches pathInFiles"
+assert_eq "$(allows 7 src/a/c.ts)" "no" "a file entry does not cover its sibling"
+assert_eq "$(allows 7 src/a/b.ts)" "yes" "a file entry covers itself"
+assert_eq "$(allows 8 src/a/x/y.ts)" "yes" "a dir entry covers its subtree"
+assert_eq "$(allows 9 tests/z.sh)" "yes" "any tests/ entry covers all of tests/"
+
+test_case "subtree: a listed dir covers its files, a listed file never its sibling"
 out=$(run_hook "$WT_B" "$(make_edit_input "src/api/other.ts")")
-assert_not_contains "$out" "outside this task" "sibling in a listed dir carries no note"
+assert_not_contains "$out" "outside this task" "a file under a listed dir carries no note"
+out=$(run_hook "$WT_B" "$(make_edit_input "src/lib/other.ts")")
+assert_contains "$out" "src/lib/other.ts is outside this task's files[]" "a sibling of a listed file is noted"
 
 test_case "root-file: the exact root file is in scope, another root file is noted"
 WT_ROOTFILE="$WT_ROOT/task-rootfile"
@@ -223,7 +247,7 @@ heredoc_cmd=$(printf '%s\n' "python3 - <<'EOF'" "open('src/heredoc_out.py', 'w')
 bash_input=$(with_task 1 "$(jq -n --arg c "$heredoc_cmd" '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":$c}}')")
 out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)
 assert_not_contains "$out" "$DENY" "the note never denies"
-assert_contains "$out" "src/heredoc_out.py is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks)" "the extracted path is noted"
+assert_contains "$out" "src/heredoc_out.py is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks/my-hook.test.sh)" "the extracted path is noted"
 out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)
 assert_not_contains "$out" "outside this task" "noted once per path"
 

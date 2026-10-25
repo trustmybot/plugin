@@ -32461,6 +32461,19 @@ function resolveBaseRef(repoPath, base) {
   if (refResolves(repoPath, `refs/heads/${base}`)) return base;
   return null;
 }
+function resolveCutBase(repoPath, base) {
+  const remoteRef = `origin/${base}`;
+  const remoteSha = gitOut(repoPath, ["rev-parse", "--verify", "--quiet", `refs/remotes/${remoteRef}^{commit}`]);
+  const localSha = gitOut(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${base}^{commit}`]);
+  if (!remoteSha) return localSha ? { ref: base } : null;
+  if (!localSha || localSha === remoteSha) return { ref: remoteRef };
+  const counts = gitOut(repoPath, ["rev-list", "--left-right", "--count", `${remoteSha}...${localSha}`]);
+  const [behind, ahead] = (counts ?? "").split(/\s+/).map((n) => Number.parseInt(n, 10));
+  if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return { ref: remoteRef };
+  if (behind === 0 && ahead > 0) return { ref: base };
+  if (ahead === 0) return { ref: remoteRef };
+  return { ref: remoteRef, diverged: { local_sha: localSha, remote_sha: remoteSha, ahead, behind } };
+}
 function branchRefExists(repoPath, branch) {
   return refResolves(repoPath, `refs/heads/${branch}`) || refResolves(repoPath, `refs/remotes/origin/${branch}`);
 }
@@ -36040,15 +36053,10 @@ function parseTaskFiles(filesJson) {
     return [];
   }
 }
-function fileEntryDir(entry) {
-  if (entry.endsWith("/")) return entry.replace(/\/+$/, "");
-  const slash = entry.lastIndexOf("/");
-  return slash >= 0 ? entry.slice(0, slash) : entry;
-}
 function pathInFiles(path2, files) {
-  const dirs = files.map(fileEntryDir).filter((d) => d.length > 0);
-  if (dirs.some((d) => d === "tests" || d.startsWith("tests/"))) dirs.push("tests");
-  return dirs.some((d) => path2 === d || path2.startsWith(`${d}/`));
+  const entries = files.map((e) => e.replace(/\/+$/, "")).filter((e) => e.length > 0);
+  if (entries.some((e) => e === "tests" || e.startsWith("tests/"))) entries.push("tests");
+  return entries.some((e) => path2 === e || path2.startsWith(`${e}/`));
 }
 function scopeSurface(path2) {
   const slash = path2.indexOf("/");
@@ -36072,16 +36080,10 @@ function gitOut2(repoPath, args2) {
 }
 function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef = null) {
   let mergeBase;
-  let diffOut;
   try {
     mergeBase = gitOut2(repoPath, ["merge-base", commitSha, targetRef]);
-    diffOut = gitOut2(repoPath, ["diff", "--name-only", mergeBase, commitSha]);
   } catch (e) {
-    return {
-      outOfScope: [],
-      checked: false,
-      reason: e.message.split("\n")[0] || "git diff failed"
-    };
+    return scopeUnchecked(e);
   }
   let recordedBase = mergeBase;
   if (recordedBaseRef && recordedBaseRef !== targetRef) {
@@ -36091,8 +36093,22 @@ function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef
       recordedBase = null;
     }
   }
+  const diffBase = recordedBase && !(recordedBase !== mergeBase && isAncestor(repoPath, recordedBase, mergeBase)) ? recordedBase : mergeBase;
+  let diffOut;
+  try {
+    diffOut = gitOut2(repoPath, ["diff", "--name-only", diffBase, commitSha]);
+  } catch (e) {
+    return scopeUnchecked(e);
+  }
   const outOfScope = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0 && !pathInFiles(l, files));
   return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+}
+function scopeUnchecked(e) {
+  return {
+    outOfScope: [],
+    checked: false,
+    reason: e.message.split("\n")[0] || "git diff failed"
+  };
 }
 function resolveRepoPath(db2, repoValue) {
   const name2 = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
@@ -36524,7 +36540,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base \u2014 local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36795,7 +36811,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const localSha = refSha(repoPath, localRef);
         const originSha = refSha(repoPath, originRef);
         const branchExists2 = localSha !== null || originSha !== null;
-        const resolvedBaseRef = resolveBaseRef(repoPath, base);
+        const cutBase = resolveCutBase(repoPath, base);
+        const resolvedBaseRef = cutBase?.ref ?? null;
         if (!resolvedBaseRef && !(branchExists2 && reuseExisting)) {
           return err16(
             `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
@@ -36928,6 +36945,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
+          ...resolvedBaseRef ? { base_ref: resolvedBaseRef } : {},
+          ...cutBase?.diverged ? {
+            base_diverged: {
+              ...cutBase.diverged,
+              message: `Local '${base}' and 'origin/${base}' have diverged (local ${cutBase.diverged.ahead} ahead, ${cutBase.diverged.behind} behind); the branch was cut from 'origin/${base}'.`
+            }
+          } : {},
           ...diagnostic ? { diagnostic } : {}
         });
       })
@@ -37711,7 +37735,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             if (targetRef) break;
           }
         }
-        const recordedBaseRef = repoPath && task.parent_branch_id ? resolveBaseRef(repoPath, task.parent_branch_id) : null;
+        const recordedBaseRef = repoPath && task.parent_branch_id ? resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null : null;
         const scope = repoPath && targetRef ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef) : {
           outOfScope: [],
           checked: false,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034 # TMB_FENCE_STATE / TMB_FENCE_DIRS are read by the sourcing hook
-# Library: the SWE scope classifier — a task's typed files[] as a dir list.
+# Library: the SWE scope classifier — a task's typed files[] as a path list.
 # Sourced (not exec'd) after query-task.sh. No set -e here — libs must not
 # mutate caller shell options. Used by swe-scope-fence.sh (Edit/Write) and
 # swe-boundary.sh (every path a Bash command writes, as tmb_cmd_write_paths
@@ -11,16 +11,17 @@
 # tmb_scope_fence_load <db> <task_id>
 #   Reads the task's typed `files` column (JSON array) into TMB_FENCE_DIRS and
 #   sets TMB_FENCE_STATE:
-#     ok    — at least one listed dir
+#     ok    — at least one listed path
 #     empty — files[] empty or unparseable: no notes
 #     none  — no task row (or no usable task id): no notes
 #     error — the DB read failed: no notes
-#   Dir granularity: each listed path contributes its containing directory; a
-#   root-level path (no slash) contributes itself; a trailing slash marks the
-#   directory itself. Any tests/ entry also covers all of tests/.
+#   Each entry, trailing slashes stripped, covers itself and everything
+#   beneath it (the CODEOWNERS / git-pathspec rule), never its siblings:
+#   `src/a/b.ts` covers only that file. Any tests/ entry also covers all of
+#   tests/. Same rule as pathInFiles in bro_atomic_close's scope gate.
 #
 # tmb_scope_fence_allows <repo-relative-path>
-#   Exit 0 when the path is inside a listed dir (path boundary).
+#   Exit 0 when the path is a listed entry or beneath one (path boundary).
 #
 # tmb_scope_fence_note <task_id> <repo-relative-path>
 #   Prints the note for a path outside files[] the first time this task writes
@@ -43,11 +44,8 @@ tmb_scope_fence_load() {
   [ -n "$files_json" ] || return 0
   file_paths=$(printf '%s' "$files_json" | jq -r '.[]?' 2>/dev/null || true)
   while IFS= read -r path_token; do
-    case "$path_token" in
-      */) dir="${path_token%/}" ;;
-      */*) dir=$(dirname "$path_token") ;;
-      *)   dir="$path_token" ;;
-    esac
+    dir="$path_token"
+    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
     [ -n "$dir" ] || continue
     TMB_FENCE_DIRS+=("$dir")
     case "$dir" in tests/*|tests) _TMB_FENCE_TESTS="yes" ;; esac
