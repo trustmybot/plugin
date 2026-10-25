@@ -263,7 +263,7 @@ unresolved() {
     '') why="depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command" ;;
     *) why="depends on a variable the guard cannot resolve in this command: \$${var} is not set to a literal earlier in it; inline the path or set ${var}=<path> in the same command" ;;
   esac
-  deny "$raw" "BLOCKED: write target \"$raw\" ${why}."
+  deny "$raw" "BLOCKED: write target \"$raw\" cannot be judged: ${why}."
 }
 
 # glob_climbs <target> — a `..` after a glob component: the glob may match a

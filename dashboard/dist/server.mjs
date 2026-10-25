@@ -6,22 +6,215 @@ import { extname, join as join8, normalize, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
+// ../mcp/trajectory-server/src/embeddings/model.ts
+import { homedir } from "node:os";
+import { join as join2 } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// ../mcp/trajectory-server/src/runtime-deps.ts
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+var TRANSFORMERS_VERSION = "3.8.1";
+var TRANSFORMERS_PACKAGE = "@huggingface/transformers";
+function runtimeDepsKey(platform = process.platform, arch = process.arch) {
+  return `${TRANSFORMERS_VERSION}-${platform}-${arch}`;
+}
+function runtimeDepsRoot(dataDir = process.env.CLAUDE_PLUGIN_DATA, key = runtimeDepsKey()) {
+  return dataDir ? join(dataDir, "deps", key) : void 0;
+}
+function isObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function readPackageJson(pkgDir) {
+  try {
+    const parsed = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+    return isObject(parsed) ? parsed : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function rootExport(exportsField) {
+  if (!isObject(exportsField)) return exportsField;
+  const subpaths = Object.keys(exportsField).some((k) => k.startsWith("."));
+  return subpaths ? exportsField["."] : exportsField;
+}
+function nodeImportDefault(entry) {
+  if (!isObject(entry)) return void 0;
+  const node = entry["node"];
+  if (!isObject(node)) return void 0;
+  const imp = node["import"];
+  if (typeof imp === "string") return imp;
+  if (!isObject(imp)) return void 0;
+  const target = imp["default"];
+  return typeof target === "string" ? target : void 0;
+}
+function transformersPackageDir(root) {
+  return join(root, "node_modules", TRANSFORMERS_PACKAGE);
+}
+function transformersEsmEntry(root) {
+  const pkgDir = transformersPackageDir(root);
+  const target = nodeImportDefault(rootExport(readPackageJson(pkgDir)?.["exports"]));
+  if (!target) return void 0;
+  const entry = resolve(pkgDir, target);
+  return existsSync(entry) ? entry : void 0;
+}
+
+// ../mcp/trajectory-server/src/embeddings/model.ts
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join2(homedir(), ".cache", "huggingface");
+var MODEL_REPO = "Xenova/bge-small-en-v1.5";
+var MODEL_DTYPE = "q8";
+var MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
+var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
+var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
+function transformersSources(dataDir = process.env["CLAUDE_PLUGIN_DATA"]) {
+  const root = runtimeDepsRoot(dataDir);
+  if (!root) return { specifiers: [TRANSFORMERS_PACKAGE], misses: ["CLAUDE_PLUGIN_DATA is unset"] };
+  const entry = transformersEsmEntry(root);
+  if (!entry) return { specifiers: [TRANSFORMERS_PACKAGE], misses: [`no ${TRANSFORMERS_PACKAGE} at ${transformersPackageDir(root)}`] };
+  return { specifiers: [pathToFileURL(entry).href, TRANSFORMERS_PACKAGE], misses: [] };
+}
+async function importTransformers(sources = transformersSources(), importer = (s) => import(s)) {
+  const failures = [...sources.misses];
+  for (const specifier of sources.specifiers) {
+    try {
+      return await importer(specifier);
+    } catch (e) {
+      failures.push(`${specifier}: ${message(e)}`);
+    }
+  }
+  throw new Error(`${TRANSFORMERS_PACKAGE} did not load (${failures.join("; ")})`);
+}
+async function defaultLoader() {
+  const { pipeline, env } = await importTransformers();
+  env.cacheDir = TMB_MODEL_CACHE_DIR;
+  return await pipeline("feature-extraction", MODEL_REPO, { dtype: MODEL_DTYPE });
+}
+var now = Date.now;
+var loader = defaultLoader;
+var pipePromise = null;
+var loadingSince = null;
+var readySince = null;
+var consecutiveFailures = 0;
+var degraded = null;
+var retrying = false;
+var listeners = /* @__PURE__ */ new Set();
+function embedRetryDelayMs(retries, env = process.env) {
+  const raw = env["TMB_EMBED_RETRY_MS"];
+  const override = raw === void 0 || raw === "" ? NaN : Number(raw);
+  if (Number.isFinite(override) && override >= 0) return override;
+  return EMBED_RETRY_SCHEDULE_MS[Math.min(retries, EMBED_RETRY_SCHEDULE_MS.length - 1)];
+}
+function embedFailThreshold(env = process.env) {
+  const raw = Number(env["TMB_EMBED_FAIL_THRESHOLD"]);
+  return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
+}
+function emit(t) {
+  for (const l of listeners) {
+    try {
+      l(t);
+    } catch (e) {
+      console.error("[embeddings] transition listener failed:", e);
+    }
+  }
+}
+function message(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function loadPipe() {
+  if (!pipePromise) {
+    loadingSince = new Date(now()).toISOString();
+    readySince = null;
+    const p = loader();
+    pipePromise = p;
+    p.then(
+      () => {
+        if (pipePromise !== p) return;
+        readySince = new Date(now()).toISOString();
+        if (!degraded) emit({ kind: "ready" });
+      },
+      () => {
+        if (pipePromise === p) pipePromise = null;
+      }
+    );
+  }
+  return pipePromise;
+}
+function enterDegraded(reason) {
+  if (degraded) return;
+  degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
+  emit({ kind: "degraded", reason, consecutive_failures: consecutiveFailures });
+}
+async function retry(text) {
+  const d = degraded;
+  retrying = true;
+  pipePromise = null;
+  try {
+    const pipe = await loadPipe();
+    const result = await pipe(text, { pooling: "mean", normalize: true });
+    consecutiveFailures = 0;
+    degraded = null;
+    emit({ kind: "recovered", degraded_since: d.since, reason: d.reason, retries: d.retries + 1 });
+    return new Float32Array(result.data);
+  } catch (e) {
+    console.error("[embeddings] re-attempt failed:", e);
+    consecutiveFailures++;
+    d.retries++;
+    d.reason = `re-attempt failed: ${message(e)}`;
+    d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
+    return null;
+  } finally {
+    retrying = false;
+  }
+}
+async function embed(text) {
+  if (degraded) {
+    if (retrying || now() < degraded.nextRetryAt) return null;
+    return retry(text);
+  }
+  let pipe;
+  try {
+    pipe = await loadPipe();
+  } catch (e) {
+    if (degraded) return null;
+    console.error("[embeddings] model load failed:", e);
+    consecutiveFailures++;
+    enterDegraded(`model load failed: ${message(e)}`);
+    return null;
+  }
+  try {
+    const result = await pipe(text, { pooling: "mean", normalize: true });
+    consecutiveFailures = 0;
+    return new Float32Array(result.data);
+  } catch (e) {
+    console.error("[embeddings] embed failed:", e);
+    if (degraded) return null;
+    consecutiveFailures++;
+    if (consecutiveFailures >= embedFailThreshold()) {
+      enterDegraded(`${consecutiveFailures} consecutive embed failures: ${message(e)}`);
+    }
+    return null;
+  }
+}
+function setEmbeddingLoader(next) {
+  loader = next;
+}
+
 // ../mcp/trajectory-server/src/platform.ts
 import {
-  existsSync,
+  existsSync as existsSync2,
   lstatSync,
   readdirSync,
-  readFileSync,
+  readFileSync as readFileSync2,
   realpathSync,
   statSync
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir as homedir2, tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
   basename,
   dirname,
   isAbsolute,
-  join,
+  join as join3,
   relative,
   sep
 } from "node:path";
@@ -38,7 +231,7 @@ function readClaudePluginMetadata(env = process.env) {
   }
   try {
     const manifest = JSON.parse(
-      readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")
+      readFileSync2(join3(root, ".claude-plugin", "plugin.json"), "utf8")
     );
     const name = typeof manifest.name === "string" && manifest.name.length > 0 ? manifest.name : "tmb";
     const version = typeof manifest.version === "string" && manifest.version.length > 0 ? manifest.version : null;
@@ -60,7 +253,7 @@ function resolveClaudeProjectRoot(env = process.env) {
 function resolveClaudeDbPath(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
-  const home = opts?.home ?? homedir();
+  const home = opts?.home ?? homedir2();
   const pluginName = resolveClaudePluginName(env);
   return resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home });
 }
@@ -75,16 +268,16 @@ function resolveClaudeDbPathForPlugin(pluginName, opts) {
 }
 var CLAUDE_STATE_HOST_DIR = ".claude";
 function claudeDbLocation(root, pluginName) {
-  return join(root, CLAUDE_STATE_HOST_DIR, pluginName, "trajectory.db");
+  return join3(root, CLAUDE_STATE_HOST_DIR, pluginName, "trajectory.db");
 }
 function claudeLogDirFor(trajectoryDb, pluginName) {
-  if (trajectoryDb === ":memory:") return join(tmpdir(), `${pluginName}-memory-logs`);
-  return join(dirname(trajectoryDb), "logs");
+  if (trajectoryDb === ":memory:") return join3(tmpdir(), `${pluginName}-memory-logs`);
+  return join3(dirname(trajectoryDb), "logs");
 }
 function resolveClaudeLogDir(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
-  const home = opts?.home ?? homedir();
+  const home = opts?.home ?? homedir2();
   const pluginName = resolveClaudePluginName(env);
   return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home }), pluginName);
 }
@@ -141,16 +334,16 @@ function probeClaudeDb(path) {
 }
 var CLAUDE_STANDALONE_MARKER = "standalone";
 function isStandaloneClaudeDb(dbPath) {
-  return existsSync(join(dirname(dbPath), CLAUDE_STANDALONE_MARKER));
+  return existsSync2(join3(dirname(dbPath), CLAUDE_STANDALONE_MARKER));
 }
 function walkClaudeDbs(start, pluginName, opts) {
-  const home = opts?.home ?? homedir();
+  const home = opts?.home ?? homedir2();
   const probe = opts?.probe ?? probeClaudeDb;
   const found = [];
   for (let dir = start; dirname(dir) !== dir; dir = dirname(dir)) {
     if (dir === home && start !== home) break;
     const candidate = claudeDbLocation(dir, pluginName);
-    if (!existsSync(candidate) || probe(candidate) === "stale") continue;
+    if (!existsSync2(candidate) || probe(candidate) === "stale") continue;
     found.push(candidate);
     if (isStandaloneClaudeDb(candidate)) break;
   }
@@ -160,7 +353,7 @@ function findExistingClaudeDbUp(startDir, pluginName, opts) {
   const env = opts?.env ?? process.env;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) {
-    return existsSync(override) ? override : null;
+    return existsSync2(override) ? override : null;
   }
   const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
   return walkClaudeDbs(projectRoot ?? startDir, pluginName, opts).resolved;
@@ -179,7 +372,7 @@ function assertExistingAncestorContained(root, path, label, expectedKind) {
   const parts = rel === "" ? [] : rel.split(sep);
   let current = root;
   for (let index = 0; index < parts.length; index += 1) {
-    current = join(current, parts[index]);
+    current = join3(current, parts[index]);
     let currentStat;
     try {
       currentStat = lstatSync(current);
@@ -226,8 +419,8 @@ function freezePlugin(plugin) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-import { readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
-import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
+import { readFileSync as readFileSync3, readdirSync as readdirSync2 } from "node:fs";
+import { basename as basename2, join as join5, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
@@ -241,7 +434,7 @@ import {
   mkdirSync,
   openSync
 } from "node:fs";
-import { join as join2 } from "node:path";
+import { join as join4 } from "node:path";
 function createLogger(opts, ensureLogDir, appendLine) {
   let logDirState = "pending";
   const logDirReady = () => {
@@ -255,8 +448,8 @@ function createLogger(opts, ensureLogDir, appendLine) {
     }
     return logDirState === "ready";
   };
-  const serverLogPath = join2(opts.logDir, "mcp-server.log");
-  const sqlLogPath = join2(opts.logDir, "sql.log");
+  const serverLogPath = join4(opts.logDir, "mcp-server.log");
+  const sqlLogPath = join4(opts.logDir, "sql.log");
   const serverLog2 = (entry) => {
     if (!logDirReady()) return;
     try {
@@ -566,7 +759,7 @@ var TrajectoryDB = class {
    */
   applySchema() {
     const schemaDir = dirname2(fileURLToPath(import.meta.url));
-    const sql = readFileSync2(join3(schemaDir, "schema.sql"), "utf8");
+    const sql = readFileSync3(join5(schemaDir, "schema.sql"), "utf8");
     this.db.exec("PRAGMA foreign_keys = OFF");
     let outcome;
     try {
@@ -593,7 +786,7 @@ var TrajectoryDB = class {
   applySchemaLocked(sql, schemaDir) {
     const applyEvalIfNeeded = () => {
       if (process.env["TMB_EVAL_MODE"] === "1") {
-        const evalSql = readFileSync2(join3(schemaDir, "schema-eval.sql"), "utf8");
+        const evalSql = readFileSync3(join5(schemaDir, "schema-eval.sql"), "utf8");
         this.db.exec(evalSql);
       }
     };
@@ -4242,11 +4435,14 @@ function conceptsApi(db, url) {
   return sub === "graph" ? conceptGraph(db, id, clamp(limit, LIMITS.graph)) : conceptDetail(db, id);
 }
 
+// server/no-embeddings.ts
+var noEmbeddings = () => Promise.reject(new Error("embeddings are not loaded in the dashboard"));
+
 // ../mcp/trajectory-server/src/utils/repo-paths.ts
-import { dirname as dirname3, isAbsolute as isAbsolute3, resolve } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute3, resolve as resolve2 } from "node:path";
 
 // ../mcp/trajectory-server/src/tools/containment.ts
-import { isAbsolute as isAbsolute2, join as join4, parse, relative as relative2, sep as sep2 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join6, parse, relative as relative2, sep as sep2 } from "node:path";
 function projectRootFromDbPath(dbPath) {
   if (!dbPath || dbPath === ":memory:") return null;
   const segments = dbPath.split(sep2);
@@ -4259,7 +4455,7 @@ function projectRootFromDbPath(dbPath) {
 function repoRowPath(db, path) {
   if (isAbsolute3(path)) return path;
   const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath);
-  return resolve(base, path);
+  return resolve2(base, path);
 }
 function resolveRepoForSync(db, repoName) {
   if (repoName) {
@@ -4439,7 +4635,7 @@ function remoteSyncGate(db, opts = {}) {
 // ../mcp/trajectory-server/src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join5 } from "node:path";
+import { join as join7 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -4453,7 +4649,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join5(logDir, "issue-sync.log"), line);
+    appendFileSync2(join7(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -4901,196 +5097,6 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
     const message2 = e instanceof Error ? e.message : String(e);
     syncLog({ event: "issue_update_error", backend, remote_iid: iid, error: message2 });
     return { ok: false, reason: "spawn_error", message: message2 };
-  }
-}
-
-// ../mcp/trajectory-server/src/embeddings/model.ts
-import { homedir as homedir2 } from "node:os";
-import { join as join7 } from "node:path";
-import { pathToFileURL } from "node:url";
-
-// ../mcp/trajectory-server/src/runtime-deps.ts
-import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
-import { join as join6, resolve as resolve2 } from "node:path";
-var TRANSFORMERS_VERSION = "3.8.1";
-var TRANSFORMERS_PACKAGE = "@huggingface/transformers";
-function runtimeDepsKey(platform = process.platform, arch = process.arch) {
-  return `${TRANSFORMERS_VERSION}-${platform}-${arch}`;
-}
-function runtimeDepsRoot(dataDir = process.env.CLAUDE_PLUGIN_DATA, key = runtimeDepsKey()) {
-  return dataDir ? join6(dataDir, "deps", key) : void 0;
-}
-function isObject(v) {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function readPackageJson(pkgDir) {
-  try {
-    const parsed = JSON.parse(readFileSync3(join6(pkgDir, "package.json"), "utf8"));
-    return isObject(parsed) ? parsed : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function rootExport(exportsField) {
-  if (!isObject(exportsField)) return exportsField;
-  const subpaths = Object.keys(exportsField).some((k) => k.startsWith("."));
-  return subpaths ? exportsField["."] : exportsField;
-}
-function nodeImportDefault(entry) {
-  if (!isObject(entry)) return void 0;
-  const node = entry["node"];
-  if (!isObject(node)) return void 0;
-  const imp = node["import"];
-  if (typeof imp === "string") return imp;
-  if (!isObject(imp)) return void 0;
-  const target = imp["default"];
-  return typeof target === "string" ? target : void 0;
-}
-function transformersPackageDir(root) {
-  return join6(root, "node_modules", TRANSFORMERS_PACKAGE);
-}
-function transformersEsmEntry(root) {
-  const pkgDir = transformersPackageDir(root);
-  const target = nodeImportDefault(rootExport(readPackageJson(pkgDir)?.["exports"]));
-  if (!target) return void 0;
-  const entry = resolve2(pkgDir, target);
-  return existsSync2(entry) ? entry : void 0;
-}
-
-// ../mcp/trajectory-server/src/embeddings/model.ts
-var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join7(homedir2(), ".cache", "huggingface");
-var MODEL_REPO = "Xenova/bge-small-en-v1.5";
-var MODEL_DTYPE = "q8";
-var MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
-var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
-var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
-function transformersSources(dataDir = process.env["CLAUDE_PLUGIN_DATA"]) {
-  const root = runtimeDepsRoot(dataDir);
-  if (!root) return { specifiers: [TRANSFORMERS_PACKAGE], misses: ["CLAUDE_PLUGIN_DATA is unset"] };
-  const entry = transformersEsmEntry(root);
-  if (!entry) return { specifiers: [TRANSFORMERS_PACKAGE], misses: [`no ${TRANSFORMERS_PACKAGE} at ${transformersPackageDir(root)}`] };
-  return { specifiers: [pathToFileURL(entry).href, TRANSFORMERS_PACKAGE], misses: [] };
-}
-async function importTransformers(sources = transformersSources(), importer = (s) => import(s)) {
-  const failures = [...sources.misses];
-  for (const specifier of sources.specifiers) {
-    try {
-      return await importer(specifier);
-    } catch (e) {
-      failures.push(`${specifier}: ${message(e)}`);
-    }
-  }
-  throw new Error(`${TRANSFORMERS_PACKAGE} did not load (${failures.join("; ")})`);
-}
-async function defaultLoader() {
-  const { pipeline, env } = await importTransformers();
-  env.cacheDir = TMB_MODEL_CACHE_DIR;
-  return await pipeline("feature-extraction", MODEL_REPO, { dtype: MODEL_DTYPE });
-}
-var now = Date.now;
-var loader = defaultLoader;
-var pipePromise = null;
-var loadingSince = null;
-var readySince = null;
-var consecutiveFailures = 0;
-var degraded = null;
-var retrying = false;
-var listeners = /* @__PURE__ */ new Set();
-function embedRetryDelayMs(retries, env = process.env) {
-  const raw = env["TMB_EMBED_RETRY_MS"];
-  const override = raw === void 0 || raw === "" ? NaN : Number(raw);
-  if (Number.isFinite(override) && override >= 0) return override;
-  return EMBED_RETRY_SCHEDULE_MS[Math.min(retries, EMBED_RETRY_SCHEDULE_MS.length - 1)];
-}
-function embedFailThreshold(env = process.env) {
-  const raw = Number(env["TMB_EMBED_FAIL_THRESHOLD"]);
-  return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
-}
-function emit(t) {
-  for (const l of listeners) {
-    try {
-      l(t);
-    } catch (e) {
-      console.error("[embeddings] transition listener failed:", e);
-    }
-  }
-}
-function message(e) {
-  return e instanceof Error ? e.message : String(e);
-}
-function loadPipe() {
-  if (!pipePromise) {
-    loadingSince = new Date(now()).toISOString();
-    readySince = null;
-    const p = loader();
-    pipePromise = p;
-    p.then(
-      () => {
-        if (pipePromise !== p) return;
-        readySince = new Date(now()).toISOString();
-        if (!degraded) emit({ kind: "ready" });
-      },
-      () => {
-        if (pipePromise === p) pipePromise = null;
-      }
-    );
-  }
-  return pipePromise;
-}
-function enterDegraded(reason) {
-  if (degraded) return;
-  degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
-  emit({ kind: "degraded", reason, consecutive_failures: consecutiveFailures });
-}
-async function retry(text) {
-  const d = degraded;
-  retrying = true;
-  pipePromise = null;
-  try {
-    const pipe = await loadPipe();
-    const result = await pipe(text, { pooling: "mean", normalize: true });
-    consecutiveFailures = 0;
-    degraded = null;
-    emit({ kind: "recovered", degraded_since: d.since, reason: d.reason, retries: d.retries + 1 });
-    return new Float32Array(result.data);
-  } catch (e) {
-    console.error("[embeddings] re-attempt failed:", e);
-    consecutiveFailures++;
-    d.retries++;
-    d.reason = `re-attempt failed: ${message(e)}`;
-    d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
-    return null;
-  } finally {
-    retrying = false;
-  }
-}
-async function embed(text) {
-  if (degraded) {
-    if (retrying || now() < degraded.nextRetryAt) return null;
-    return retry(text);
-  }
-  let pipe;
-  try {
-    pipe = await loadPipe();
-  } catch (e) {
-    if (degraded) return null;
-    console.error("[embeddings] model load failed:", e);
-    consecutiveFailures++;
-    enterDegraded(`model load failed: ${message(e)}`);
-    return null;
-  }
-  try {
-    const result = await pipe(text, { pooling: "mean", normalize: true });
-    consecutiveFailures = 0;
-    return new Float32Array(result.data);
-  } catch (e) {
-    console.error("[embeddings] embed failed:", e);
-    if (degraded) return null;
-    consecutiveFailures++;
-    if (consecutiveFailures >= embedFailThreshold()) {
-      enterDegraded(`${consecutiveFailures} consecutive embed failures: ${message(e)}`);
-    }
-    return null;
   }
 }
 
@@ -7429,6 +7435,7 @@ var IssueWriter = class {
 };
 
 // server/main.ts
+setEmbeddingLoader(noEmbeddings);
 var HOST = "127.0.0.1";
 var DEFAULT_PORT = 7477;
 var WEB_ROOT = fileURLToPath2(new URL("./web/", import.meta.url));

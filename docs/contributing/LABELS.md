@@ -1,116 +1,109 @@
 # Label Doctrine
 
-**Source of truth for GitHub issue labels, Linear labels, AND the local DB `issue_labels` table** (when shipped — see #38). All three sides use the **same names**; no translation.
+**Source of truth for the issue labels on the trustmybot/plugin GitHub board.** The taxonomy governs TMB development only. It does not ship to TMB users: no shipped default, prompt, skill or tool description names these labels.
 
-## Rule: keep labels self-explanatory
+Every label lives in [`.github/labels.json`](../../.github/labels.json) as `{name, color, description, group}`. The tables below are generated from it.
 
-Labels are read by humans on every triage. The name should answer "what is this?" without consulting a glossary. We picked Linear-native flat style after the K8s `area/install` / `priority/critical-urgent` convention proved opaque (per #101).
+## Rule: one type, one priority, one area
 
-If you need a new label and it's not below, ask in the PR. Adding a label is a doctrine change.
+Every issue carries exactly **one type**, **one priority** and **one area**. Themes are optional. An issue that misses the rule gets `needs-triage` until it is fixed.
+
+Names stay flat and self-explanatory; groups that need a prefix use the `Prefix: Value` form (`Priority: High`, `Area: Hooks`), per GH 101.
+
+Adding, renaming or removing a label is a doctrine change: edit `labels.json` in a PR, regenerate this file, and let the sync workflow apply it.
 
 ---
 
-## Canonical list — 25 labels on GH, 14 on Linear (Linear has native priority field)
+## Canonical list
 
-### Type / kind (6)
+<!-- BEGIN GENERATED labels: scripts/maintenance/labels.mjs -->
+
+### Type — exactly one
 
 | Label | Means |
 |---|---|
-| **Bug** | Something is broken |
-| **Feature** | New functionality |
-| **Improvement** | Refactor, polish, quality work |
+| **Bug** | Something isn't working |
+| **Feature** | New feature or request |
+| **Improvement** | Refactor / polish / quality work |
 | **Docs** | Documentation-only changes |
 | **Test** | Test-only changes |
 | **Chore** | Tooling, deps, release mechanics |
+| **Research** | Papers, experiments and open design questions |
 
-Linear ships the first three by default; we add `Docs`.
-
-### Surface / area (8)
-
-| Label | Surface |
-|---|---|
-| **Install** | Marketplace install, cold-start path, channel isolation |
-| **Workflow** | Bro / SWE / pr-reviewer doctrine + planning skills |
-| **MCP** | Trajectory server (schema, tools, role enforcement) |
-| **Hooks** | Hook scripts (git-guards, push-guard, require-task-spec) |
-| **Roundtable** | Multi-agent roundtable feature |
-| **Multi-platform** | Codex / Cursor / OpenCode / Gemini adapters |
-| **Performance** | Latency / token cost |
-| **Tests** | Test infrastructure (L0–L5) |
-
-New area labels are added when a genuinely new surface emerges. Adding one is a doctrine change.
-
-### Priority — GH labels OR Linear native field
-
-| Label (GH) | Linear |
-|---|---|
-| **Priority: Urgent** | `priority: Urgent` (native field) |
-| **Priority: High** | `priority: High` (native field) |
-| **Priority: Medium** | `priority: Medium` (native field) |
-| **Priority: Low** | `priority: Low` (native field) |
-
-GH has no priority field, so we keep them as labels. Linear has a native priority field — no labels needed there.
-
-### TMB-specific (7)
+### Priority — exactly one
 
 | Label | Means |
 |---|---|
-| **Doctrine** | Design rule / contract change (CLAUDE.md, planning skills, agent prompts) |
-| **Discussion** | Open design question, no decided action yet |
-| **token-burn** | Issue or PR that caused or risks abnormally high token spend |
-| **architecture** | Architectural / structural design change |
-| **campaign** | Cross-issue auto-solve campaign tracker |
-| **design** | Design / ADR work |
-| **enforcement** | Enforcement substrate — hooks / guards |
+| **Priority: Urgent** | Critical priority — broken-in-prod class |
+| **Priority: High** | High priority — blocks meaningful workflows |
+| **Priority: Medium** | Medium priority — quality / UX |
+| **Priority: Low** | Low priority — polish / nice-to-have |
 
-Adding any other TMB-specific label requires an entry in this table with a "why" justification.
-
-### Dependabot (2)
-
-Applied automatically by Dependabot on dependency-update PRs — not hand-applied by agents.
+### Area — exactly one
 
 | Label | Means |
 |---|---|
-| **dependencies** | Dependency-update PRs (Dependabot) |
-| **javascript** | PRs touching JavaScript dependencies (Dependabot) |
+| **Area: Hooks** | Hook entry points, containment-guard, cmd-analysis, intent hints, git and push guards |
+| **Area: Trajectory Server** | MCP tools, schema, DB layer, task and issue flow, server-side gates |
+| **Area: World Model** | Scan, code graph, concepts, world_model_* tools, embeddings |
+| **Area: Dashboard** | dashboard/ server and UI |
+| **Area: Install** | Deps installer, plugin payload, marketplace channels, OS compatibility |
+| **Area: Agents** | agents/, skills/, commands/, CLAUDE.md and the bro/swe/pr-reviewer workflow |
+| **Area: Cheatcode** | Cheatcode search, vet, install and ranking |
+| **Area: Adapters** | Codex, Cursor and Gemini adapters |
+| **Area: Release** | CI workflows, dev-build, release-gate, integrate.sh, versioning |
+
+### Theme — optional
+
+| Label | Means |
+|---|---|
+| **token-burn** | Cost/perf cleanup to reduce LLM/API token consumption |
+
+### Status — set by the triage workflow
+
+| Label | Means |
+|---|---|
+| **needs-triage** | Missing exactly one type, one priority or one area |
+
+<!-- END GENERATED labels -->
 
 ---
 
-## Lifecycle / stale — no label
+## Enforcement
 
-GH: use `gh issue list --state open --search 'updated:<2026-01-01'` (or similar) to surface stale items.
-
-Linear: native auto-stale based on inactivity.
-
-We dropped `lifecycle/stale` (#101) — labels for time-based state are double bookkeeping when both platforms have built-in inactivity detection.
-
----
+| Piece | What it does |
+|---|---|
+| `scripts/maintenance/labels.mjs --sync` | Creates or updates GH labels to match `labels.json`. Extra labels on GH are printed, never deleted. |
+| `scripts/maintenance/labels.mjs --doc` | Regenerates the canonical list above. `--check` fails when it is stale. |
+| `scripts/maintenance/labels.mjs --check-live` | Diffs the GH labels against `labels.json`. Skips without `gh` or with `TMB_L1_OFFLINE=1`. |
+| `.github/workflows/label-sync.yml` | Runs `--sync` on a push to `dev` that changes `labels.json`, and on demand. |
+| `.github/ISSUE_TEMPLATE/` | Bug, Improvement, Feature and Research forms set the type and require an Area. Blank issues are disabled. |
+| `.github/workflows/issue-triage.yml` | Runs `--triage` on every issue open, edit, label and unlabel. It turns the form's Area answer into its label when the issue has no area, then adds `needs-triage` unless the issue has exactly one type, one priority and one area, and removes it once it does. |
+| `tests/l1-lint/labels.test.mjs` | Unit tests for the triage rule plus the doc-sync check. |
 
 ## How agents use labels
 
-When bro creates an issue:
+When bro files an issue, it applies one type, one priority and one area from the list above. **Don't invent labels.** If none fits, surface it to the Human: the answer is a `labels.json` change, never an ad-hoc label.
 
-1. Always run `gh label list --json name --jq '.[].name'` (or query the local DB once #38 lands) to see what labels exist in this repo.
-2. Apply matching labels from the canonical list above. **Don't invent.**
-3. If no existing label fits, surface that to the Human — the answer is "edit LABELS.md, add the label, then apply it" — never "make one up."
+## Lifecycle / stale — no label
 
-When pr-reviewer reviews a PR:
-
-1. Check labels on the linked issue. `Priority: Urgent` issues get deeper review.
-2. `Install` and `MCP` PRs trigger L0 install-smoke + L2 unit tests as a hard gate.
+Use `gh issue list --state open --search 'updated:<2026-01-01'` (or similar) to surface stale items. We dropped `lifecycle/stale` (GH 101): a label for time-based state is double bookkeeping.
 
 ---
 
 ## Migration history
 
-- **2026-04-25 (v0.4.1, PR #98)**: First migration — invented `area:install`, `p:high`, `stale`, etc. (8 invented labels) → adopted K8s convention (`area/install`, `priority/critical-urgent`).
-- **2026-04-25 (v0.4.1, PR for #101)**: Second migration — K8s prefixes proved opaque; pivoted to Linear-native flat style. `area/install` → `Install`, `priority/high` → `Priority: High`. Dropped `lifecycle/stale` and 6 unused GH defaults. Added `Improvement` and `Docs`.
+- **2026-04-25 (v0.4.1, PR GH 98)**: First migration — invented `area:install`, `p:high`, `stale`, etc. (8 invented labels) → adopted K8s convention (`area/install`, `priority/critical-urgent`).
+- **2026-04-25 (v0.4.1, PR for GH 101)**: Second migration — K8s prefixes proved opaque; pivoted to a flat style. `area/install` → `Install`, `priority/high` → `Priority: High`. Dropped `lifecycle/stale` and 6 unused GH defaults. Added `Improvement` and `Docs`.
+- **2026-10-25 (GH 1770)**: Third migration — one type, one priority and one area per issue, sourced from `labels.json`.
+  - Renamed: Hooks → Area: Hooks, MCP → Area: Trajectory Server, Install → Area: Install, Multi-platform → Area: Adapters, Workflow → Area: Agents, Discussion → Research.
+  - Merged, then deleted: Tests → Test, Performance → token-burn, enforcement → Area: Hooks, Doctrine → Area: Agents.
+  - Deleted: design, architecture, campaign, Roundtable, javascript, dependencies.
+  - Added: Area: World Model, Area: Dashboard, Area: Cheatcode, Area: Release, needs-triage.
 
 ---
 
 ## Related
 
 - [`ENUMS.md`](./ENUMS.md) — same governance rule applied to DB column ENUMs
-- Issue #38 — `issue_labels` table proposal (uses these names verbatim)
-- Issue #103 — Linear migration (mirrors these names into Linear's workspace)
-- `tests/l1-lint/labels-stable.sh` — verifies GH label set matches this doc
+- [`CONTRIBUTING.md`](../../CONTRIBUTING.md#filing-an-issue) — filing an issue

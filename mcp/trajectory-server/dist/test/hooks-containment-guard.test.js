@@ -5,10 +5,13 @@
  * starts with a literal path inside the root (which the .sh's literal-dir
  * allowance would let through). Everything else is the parity corpus's job.
  * The deny's phrase is pinned to dispatch.sh's UNJUDGED_PHRASE, which keeps
- * such a deny from recording boundary-deny paths (GH 1750).
+ * such a deny from recording boundary-deny paths (GH 1750); the deny of a
+ * target behind a variable, substitution or cd the guard cannot resolve
+ * carries it too (GH 1772).
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -19,6 +22,19 @@ import { findGate } from '../hooks/registry.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const FAKE_UID = 4242424;
+const DISPATCH = readFileSync(join(SERVER_ROOT, '../../scripts/hooks/dispatch.sh'), 'utf8');
+/** dispatch.sh's unjudged_deny run on <reason>: true when it records no boundary-deny path. */
+function unjudgedDeny(reason) {
+    const fn = DISPATCH.match(/^unjudged_deny\(\) \{\n[\s\S]*?\n\}$/m);
+    assert.ok(fn, 'dispatch.sh defines unjudged_deny');
+    try {
+        execFileSync('bash', ['-c', `UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'\n${fn[0]}\nunjudged_deny "$1"`, '_', reason]);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 const PARSE_TEXT = 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.';
 const COMPUTED_TEXT = 'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.';
 function reason(stdout) {
@@ -28,7 +44,7 @@ function reason(stdout) {
     assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
     return out.hookSpecificOutput.permissionDecisionReason;
 }
-describe('containment-guard (TS): $(parse) and $(computed) always deny', () => {
+describe('containment-guard (TS): denies that judge no path', () => {
     let sandbox;
     let project;
     let db;
@@ -106,11 +122,25 @@ describe('containment-guard (TS): $(parse) and $(computed) always deny', () => {
         assert.equal(reason(r.stdout), `BLOCKED: write target "${raw}" cannot be judged: ${PARSE_TEXT}`);
     });
     it("dispatch.sh's UNJUDGED_PHRASE is the deny's phrase, and no reason text holds the quote it stops at", () => {
-        const dispatch = readFileSync(join(SERVER_ROOT, '../../scripts/hooks/dispatch.sh'), 'utf8');
-        assert.deepEqual(dispatch.match(/^UNJUDGED_PHRASE='([^']*)'$/gm), [`UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'`]);
+        assert.deepEqual(DISPATCH.match(/^UNJUDGED_PHRASE='([^']*)'$/gm), [`UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'`]);
         assert.deepEqual(Object.keys(NEVER_JUDGED).sort(), ['$(computed)', '$(parse)']);
         for (const text of Object.values(NEVER_JUDGED))
             assert.ok(!text.includes('"'), text);
+    });
+    for (const variable of ['$(proc)', '$(alias-write)', '$()', 'PWD', '', 'OUT']) {
+        it(`an unresolved ${variable || "''"} target outside the root is denied as unjudged (GH 1772)`, async () => {
+            const raw = '/etc/tmb-cg/$OUT';
+            const r = await containmentGuardWith(lines(`UNRESOLVED:${variable}:${raw}`))(bash('x'), env);
+            const why = reason(r.stdout) ?? '';
+            assert.ok(why.startsWith(`BLOCKED: write target "${raw}" ${UNJUDGED_PHRASE} `), why);
+            assert.ok(unjudgedDeny(why), `dispatch.sh records paths for: ${why}`);
+        });
+    }
+    it('a judged deny of a literal target outside the root is not unjudged', async () => {
+        const r = await containmentGuard(bash('echo x > /etc/tmb-cg/a'), env);
+        const why = reason(r.stdout) ?? '';
+        assert.ok(!why.includes(UNJUDGED_PHRASE), why);
+        assert.equal(unjudgedDeny(why), false);
     });
     it('a bare in-root redirect still passes, so the denials above are the reasons, not the paths', async () => {
         const r = await containmentGuard(bash(`echo x > ${project}/src/a`), env);

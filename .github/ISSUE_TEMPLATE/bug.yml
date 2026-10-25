@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in TMB is broken
+labels: ["Bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. Validate against dev first.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TMB version
+      placeholder: 1.2.0-dev.67
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: The part of TMB this touches. See docs/contributing/LABELS.md.
+      options:
+        - Hooks
+        - Trajectory Server
+        - World Model
+        - Dashboard
+        - Install
+        - Agents
+        - Cheatcode
+        - Adapters
+        - Release
+    validations:
+      required: true

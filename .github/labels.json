@@ -1,0 +1,134 @@
+[
+  {
+    "name": "Bug",
+    "color": "d73a4a",
+    "description": "Something isn't working",
+    "group": "type"
+  },
+  {
+    "name": "Feature",
+    "color": "a2eeef",
+    "description": "New feature or request",
+    "group": "type"
+  },
+  {
+    "name": "Improvement",
+    "color": "bb87fc",
+    "description": "Refactor / polish / quality work",
+    "group": "type"
+  },
+  {
+    "name": "Docs",
+    "color": "fbca04",
+    "description": "Documentation-only changes",
+    "group": "type"
+  },
+  {
+    "name": "Test",
+    "color": "0e8a16",
+    "description": "Test-only changes",
+    "group": "type"
+  },
+  {
+    "name": "Chore",
+    "color": "8b949e",
+    "description": "Tooling, deps, release mechanics",
+    "group": "type"
+  },
+  {
+    "name": "Research",
+    "color": "c5def5",
+    "description": "Papers, experiments and open design questions",
+    "group": "type"
+  },
+  {
+    "name": "Priority: Urgent",
+    "color": "b60205",
+    "description": "Critical priority — broken-in-prod class",
+    "group": "priority"
+  },
+  {
+    "name": "Priority: High",
+    "color": "d93f0b",
+    "description": "High priority — blocks meaningful workflows",
+    "group": "priority"
+  },
+  {
+    "name": "Priority: Medium",
+    "color": "fbca04",
+    "description": "Medium priority — quality / UX",
+    "group": "priority"
+  },
+  {
+    "name": "Priority: Low",
+    "color": "0e8a16",
+    "description": "Low priority — polish / nice-to-have",
+    "group": "priority"
+  },
+  {
+    "name": "Area: Hooks",
+    "color": "5319e7",
+    "description": "Hook entry points, containment-guard, cmd-analysis, intent hints, git and push guards",
+    "group": "area"
+  },
+  {
+    "name": "Area: Trajectory Server",
+    "color": "5319e7",
+    "description": "MCP tools, schema, DB layer, task and issue flow, server-side gates",
+    "group": "area"
+  },
+  {
+    "name": "Area: World Model",
+    "color": "5319e7",
+    "description": "Scan, code graph, concepts, world_model_* tools, embeddings",
+    "group": "area"
+  },
+  {
+    "name": "Area: Dashboard",
+    "color": "5319e7",
+    "description": "dashboard/ server and UI",
+    "group": "area"
+  },
+  {
+    "name": "Area: Install",
+    "color": "5319e7",
+    "description": "Deps installer, plugin payload, marketplace channels, OS compatibility",
+    "group": "area"
+  },
+  {
+    "name": "Area: Agents",
+    "color": "5319e7",
+    "description": "agents/, skills/, commands/, CLAUDE.md and the bro/swe/pr-reviewer workflow",
+    "group": "area"
+  },
+  {
+    "name": "Area: Cheatcode",
+    "color": "5319e7",
+    "description": "Cheatcode search, vet, install and ranking",
+    "group": "area"
+  },
+  {
+    "name": "Area: Adapters",
+    "color": "5319e7",
+    "description": "Codex, Cursor and Gemini adapters",
+    "group": "area"
+  },
+  {
+    "name": "Area: Release",
+    "color": "5319e7",
+    "description": "CI workflows, dev-build, release-gate, integrate.sh, versioning",
+    "group": "area"
+  },
+  {
+    "name": "token-burn",
+    "color": "fbca04",
+    "description": "Cost/perf cleanup to reduce LLM/API token consumption",
+    "group": "theme"
+  },
+  {
+    "name": "needs-triage",
+    "color": "fbca04",
+    "description": "Missing exactly one type, one priority or one area",
+    "group": "status"
+  }
+]

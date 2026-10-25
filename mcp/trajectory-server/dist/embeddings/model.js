@@ -189,6 +189,10 @@ export function embeddingStatus() {
         return { state: 'loading', since: loadingSince ?? undefined, consecutive_failures: consecutiveFailures };
     return { state: 'disabled', consecutive_failures: consecutiveFailures };
 }
+/** Swap the model loader without resetting state: a host that must never load transformers installs a rejecting one at startup. */
+export function setEmbeddingLoader(next) {
+    loader = next;
+}
 /** Test seam: swap the model loader and reset every state; `null` restores the real loader. */
 export function resetEmbeddingModelForTests(next = null) {
     loader = next ?? defaultLoader;

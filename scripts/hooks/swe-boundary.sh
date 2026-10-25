@@ -210,7 +210,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   fi
 
   if [ -n "$UNRESOLVED_TARGET" ] && [ "$_PB_ALLOWED" != "yes" ]; then
-    jq -nc --arg r "BLOCKED: write target \"${UNRESOLVED_TARGET}\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command." \
+    jq -nc --arg r "BLOCKED: write target \"${UNRESOLVED_TARGET}\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command." \
       '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
     exit 0
   fi
