@@ -33,9 +33,17 @@
 #    context and banners are emitted once.
 #    A finished result answers duplicates for TMB_DISPATCH_WINDOW_S (default
 #    5 s) after it was written; a later identical event (a retry) runs the gate
-#    afresh. An unfinished lock older than the gate's timeout (holder killed)
-#    is reclaimed. Results older than TMB_DISPATCH_TTL_MIN (default 10 min)
-#    are pruned on every call.
+#    afresh. The holder writes deadline (epoch seconds: its start + the
+#    gate's timeout + 5 s), the time past which it is dead; an unfinished lock
+#    past its deadline (holder killed) is reclaimed, one without a readable
+#    deadline once it is older than the gate's timeout. A live holder is
+#    never reclaimed or pruned before its deadline.
+#    A sweep prunes results older than TMB_DISPATCH_TTL_MIN (default 10 min),
+#    unfinished locks past their deadline, and unfinished locks without one
+#    older than 3 × TMB_DISPATCH_TTL_MIN, in one pass (two finds, one rm,
+#    whatever the number of locks). It runs at most once per
+#    TMB_DISPATCH_SWEEP_S (default 60 s): <state>/locks/events.sweep holds
+#    the last sweep's epoch seconds.
 #    The lock directory and the shim's session marker are derived from the
 #    project's physical path (cd -P), so a symlinked project dir and its real
 #    path share one lock.
@@ -506,21 +514,53 @@ TTL_MIN="${TMB_DISPATCH_TTL_MIN:-10}"
 case "$TTL_MIN" in ''|*[!0-9]*) TTL_MIN=10 ;; esac
 WINDOW_S="${TMB_DISPATCH_WINDOW_S:-5}"
 case "$WINDOW_S" in ''|*[!0-9]*) WINDOW_S=5 ;; esac
-
-while IFS= read -r old; do
-  if [ -f "$old/rc" ] || [ -n "$(find "$old" -maxdepth 0 -mmin +$((TTL_MIN * 3)) 2>/dev/null)" ]; then
-    rm -rf "$old" 2>/dev/null || true
-  fi
-done < <(find "$LOCK_BASE" -mindepth 1 -maxdepth 1 -type d -mmin "+$TTL_MIN" 2>/dev/null)
-
+SWEEP_S="${TMB_DISPATCH_SWEEP_S:-60}"
+case "$SWEEP_S" in ''|*[!0-9]*) SWEEP_S=60 ;; esac
 case "$GATE_TIMEOUT" in ''|*[!0-9]*) GATE_TIMEOUT=6 ;; esac
 WAIT_S=$((GATE_TIMEOUT - 1))
 [ "$WAIT_S" -ge 1 ] || WAIT_S=1
 
 LOCK="$LOCK_BASE/$KEY"
 MUTEX="$LOCK.reclaim"
+SWEEP_STAMP="$LOCK_BASE.sweep"
 
 _now() { date +%s; }
+NOW=$(_now)
+
+# _stamp <file> — sets STAMP to the epoch seconds <file> holds, read without a
+# fork; fails when <file> is missing or does not hold only digits.
+_stamp() {
+  STAMP=""
+  { IFS= read -r STAMP < "$1"; } 2>/dev/null
+  case "$STAMP" in ''|*[!0-9]*) STAMP=""; return 1 ;; esac
+}
+
+# sweep — removes finished results older than TTL_MIN, unfinished locks past
+# their holder's deadline, and unfinished locks without a readable deadline
+# older than 3 × TTL_MIN: two finds and one rm, whatever the number of dirs.
+# A live holder is never removed before its deadline.
+sweep() {
+  local d f
+  local -a gone=()
+  while IFS= read -r d; do
+    [ -f "$d/rc" ] && gone+=("$d")
+  done < <(find "$LOCK_BASE" -mindepth 1 -maxdepth 1 -type d -mmin "+$TTL_MIN" 2>/dev/null)
+  while IFS= read -r d; do
+    [ -f "$d/rc" ] || _stamp "$d/deadline" || gone+=("$d")
+  done < <(find "$LOCK_BASE" -mindepth 1 -maxdepth 1 -type d -mmin "+$((TTL_MIN * 3))" 2>/dev/null)
+  for f in "$LOCK_BASE"/*/deadline; do
+    d="${f%/deadline}"
+    [ -f "$d/rc" ] && continue
+    _stamp "$f" && [ "$NOW" -gt "$STAMP" ] && gone+=("$d")
+  done
+  [ "${#gone[@]}" -eq 0 ] || rm -rf "${gone[@]}" 2>/dev/null
+  return 0
+}
+
+if ! _stamp "$SWEEP_STAMP" || [ "$STAMP" -gt "$NOW" ] || [ $((NOW - STAMP)) -ge "$SWEEP_S" ]; then
+  printf '%s\n' "$NOW" > "$SWEEP_STAMP" 2>/dev/null
+  sweep
+fi
 
 _mtime() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
@@ -542,9 +582,14 @@ unjudged_deny() {
 }
 
 # _expired <dir> — a finished result past the duplicate window, or an
-# unfinished lock past the gate's timeout.
+# unfinished lock past its holder's deadline (without a readable deadline:
+# older than the gate's timeout).
 _expired() {
   local age
+  if [ ! -f "$1/rc" ] && _stamp "$1/deadline"; then
+    [ "$(_now)" -gt "$STAMP" ]
+    return
+  fi
   age=$(_age "$1") || return 1
   if [ -f "$1/rc" ]; then
     [ "$age" -gt "$WINDOW_S" ]
@@ -586,6 +631,7 @@ record_bash_deny() {
 }
 
 hold() {
+  printf '%s\n' "$((NOW + GATE_TIMEOUT + 5))" > "$LOCK/deadline" 2>/dev/null
   printf '%s' "$PAYLOAD" | "${GATE_CMD[@]}" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
   local rc=${PIPESTATUS[1]}
   if [ "$rc" = "2" ] || { { [ "$rc" = "0" ] || [ "$FAIL_CLOSED" = "1" ]; } && grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null; }; then
@@ -638,7 +684,7 @@ reclaim() {
   return 0
 }
 
-DEADLINE=$(( $(_now) + WAIT_S ))
+DEADLINE=$((NOW + WAIT_S))
 while :; do
   mkdir "$LOCK" 2>/dev/null && hold
   if [ -f "$LOCK/rc" ] && ! _expired "$LOCK"; then
