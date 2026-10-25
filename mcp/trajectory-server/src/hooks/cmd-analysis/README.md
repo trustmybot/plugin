@@ -1,0 +1,65 @@
+# src/hooks/cmd-analysis
+
+The TypeScript write-path analyzer (GH 1692): `tmb_cmd_write_paths` of `scripts/hooks/lib/cmd-analysis.sh` rebuilt on a tree-sitter-bash parse. Given a Bash command, it lists every path the command may write. Where it cannot name a path it prints an `UNRESOLVED:` line, so a gate can deny rather than allow. `cmd-analysis.sh` is frozen: the TS matches it line for line, except on the recorded cases where it is stricter.
+
+## API
+
+`index.ts` is the only entry point.
+
+| Export | What it does |
+|---|---|
+| `writePaths(command, { cwd, raw, root, env })` | Resolves to the lines `tmb_cmd_write_paths "$command" "$cwd" [raw] "$root"` prints: absolute paths, `UNRESOLVED:<reason>:<text>` lines and, with `raw`, paths as written. `root` is the run root that a lister-bound loop variable or find / fd placeholder must stay under. `env` supplies `HOME`, `TMPDIR`, `CLAUDE_PROJECT_DIR` and `TMB_MODEL_CACHE_DIR` / `HF_HOME` (default `process.env`). A blank command resolves to `[]` without loading a parser. |
+| `pathCanonical(path)` | `tmb_path_canonical`: follows symlinks in the existing prefix (at most 40 hops) and keeps the missing tail. A relative path comes back unchanged. |
+| `payloadCwd(json, env)` | `tmb_payload_cwd`: the hook payload's `.cwd` when it is a non-empty string, else `env.PWD`. |
+| `bashParserLoads()` | How many times this process has loaded the bash grammar: 0 after import, 1 after any number of commands. |
+
+## Module map
+
+| File | Role |
+|---|---|
+| `index.ts` | The public API above. |
+| `parser.ts` | Loads the bash grammar lazily, once per process (see Cold start). |
+| `encode.ts` | The `keep` skeleton of `tmb_cmd_strip_literals`: heredoc bodies and comments dropped, quotes removed, quoted blanks and operators turned into reversible control bytes; `decode` maps them back. A quoted `(` / `)` inside a substitution gets its own bytes (`SUB_PO` / `SUB_PC`), so a held-program check is not fooled by `"$(cat ')')"`. A substitution's frame starts at its real `$(` or backtick, not at the blanks tree-sitter-bash folds into the opener after a preceding expansion (`"$(cat a) $(cat b)"`). |
+| `statements.ts` | `_tmb_cmd_statements_enc`: one record per executable statement, with its effective dir (cd / pushd / popd / git -C / subshells), assignments and loop sources. |
+| `unwrap.ts` | Skips `VAR=value` words and the wrappers `sudo`, `env`, `command`, `nohup`, `time`, `exec`, plus `timeout` (and its duration), `stdbuf` and `nice` and their Homebrew coreutils names `gtimeout`, `gstdbuf` and `gnice`, each with its own options. These last six are TS-only. |
+| `targets.ts` | The paths one statement writes as written: redirects, `tee`, `cp` / `mv` / `rm` / `touch` / `sed -i` and the rest, the sources `mv` removes, and the git tree commands. |
+| `programs.ts` | Interpreter programs (`python -c`, `node -e`, `perl -e`, `ruby -e`, heredocs, here-strings, stdin programs): their write-call targets, held programs and the `$(computed)` fail-closed marker. |
+| `prog-calls.ts` | The `_tmb_cmd_prog_calls` awk scanner ported state for state; emits the `W` / `T` / `F` / `S` / `R` / `U` / `H` / `C` / `Q` / `A` lines `programs.ts` reads. A python or node write target that is one bare name, a python `write_text` / `write_bytes` receiver that is one bare name, or a `sys.argv[<n>]` / `process.argv[<n>]` target prints `F<TAB><name>` where the awk prints `F`. |
+| `lister.ts` | The path-listing model: binds a loop variable or a find / fd placeholder to what its lister may list when that stays inside the run root. |
+| `path.ts` | `pathCanonical` and `payloadCwd`. |
+| `write-paths.ts` | `tmb_cmd_write_paths` itself: walks the statements, expands variables, recurses into `bash -c` / `eval` / `watch` bodies and sh programs on stdin (to depth 3), judges what find / fd / xargs run, and prints the lines. A `bash -c` statement's own redirects and write commands (`bash -c 'ls' > /etc/out`) are judged before its body; that is TS-only. `node --test` / `--run` / `--watch` and `python3 -m<module>` are not stdin programs. |
+
+## UNRESOLVED reasons
+
+Every line that is not a path is `UNRESOLVED:<reason>:<text>`. Any of them means "this command writes somewhere the analyzer cannot name".
+
+| Reason | Meaning |
+|---|---|
+| `$(parse)` | tree-sitter-bash could not parse the command. The `<text>` is the first 80 characters of the command and it is the only line printed, so a parse error never yields a partial list. A process call's shell command that does not parse prints the line beside the program's other lines; it keeps its reason (TS-only), where the .sh strips the prefix and judges the text as a path. |
+| `$(computed)` | TS-only. The command writes, but the target is computed where neither analyzer can see it: a program piped or redirected into an interpreter (an info option such as `--version` exempts it only among the interpreter's own options, so `python3 - --version` still fails closed; `perl -c` runs `BEGIN` blocks and is not one, `ruby -c` is), a program held in a variable or in substitutions nested to any depth (`"$(cat $(echo x))"`, a quoted paren inside included), a write call with a computed target (concatenation, f-string, `%` / `.format`, `os.path.join` / `path.join` with a non-literal part, a variable, a loop over `listdir` / `glob` / `readdirSync`, a `sys.argv[n]` / `process.argv[n]`), printed beside any literal paths the program also names. An argv target never resolves to an operand, since the program can rebind, mutate or shadow argv (`sys.argv[1] = …`, `process.argv.splice(…)`, `const process = …`): `python3 -c … foo` prints the operands, as the .sh does, and the line; `python3 - foo <<EOF` prints only the line, since the .sh prints no stdin program's operands. A python or node target name the program binds exactly once, first, at top level, to one plain string literal (python also `Path` / `pathlib.Path` / `PurePath` of one) resolves to that literal and adds no line, when every other use is a whole call argument or (python) the receiver of a method call `p.<ident>(`. A rebound, augmented, loop / branch / with / for-bound or non-literal name does not, nor does a name that takes an attribute store (`p._str = …`) or a non-call attribute access (`p.name`). No name resolves in a program that reaches its namespace dynamically: `import` then `*` across blanks or backslash-newlines, `exec(`, `eval(`, `compile(`, `globals(`, `locals(`, `vars(`, `setattr(`, `delattr(`, `__dict__`, `__builtins__`, `__import__` or `importlib`. The marker also covers a shell body that find / fd / xargs run on a target it cannot bind, and nesting deeper than 3 levels. A process call's command keeps the line with its reason. The `<text>` is the interpreter name or the program or body text, at most 80 characters. |
+| `$(proc)` | An interpreter program's process call (`os.system`, `subprocess`, `child_process`, …) runs a command whose target cannot be named. |
+| `$(alias-write)` | An interpreter program holds or aliases a write callable (`w = open`, `from os import remove as r`), so its calls cannot be traced. |
+| `$()` | The target contains a command substitution or backticks. |
+| `PWD` | The statement's dir is unknown (after `cd "$X"` with an unknown `$X`), so the target is shown as `$PWD/<path>`. |
+| a variable name | `$NAME` or `${NAME}` has no known value: not assigned in the command and not one of the allowlisted env variables. |
+| a `${…}` text | A positional parameter, or a `${…}` expansion the analyzer does not model. |
+
+A gate should treat every `UNRESOLVED:` line as a write it cannot place.
+
+## Corpus and divergences
+
+`src/test/cmd-analysis-diff.test.ts` runs every row of `tests/fixtures/cmd-analysis/write-paths.jsonl` (`{cmd, cwd?, raw?, root?, layout?}`, with `$TMP` standing for the test's temp dir) through one bash process that sources `cmd-analysis.sh` and through `writePaths`, under a fixed `HOME` / `TMPDIR` / `CLAUDE_PROJECT_DIR` / `TMB_MODEL_CACHE_DIR` and `LC_ALL=C`.
+
+- Each row must print the same lines in both, unless its `cmd` is in `tests/fixtures/cmd-analysis/divergences.jsonl`.
+- A divergence `{cmd, sh, ts, reason}` must still differ exactly as recorded, and its `reason` explains why the TS is right. Divergences only ever make the TS stricter: it prints an `UNRESOLVED:` line, or more paths, where the .sh prints fewer or none.
+- A change that alters a row's TS output either keeps it equal to the .sh, or records the row as a divergence with the new output and a reason.
+- Read-only programs (for example `python3 -c "print(open('README.md').read())"`) belong in the corpus too, and must stay `[]` in both.
+- A `layout: "repo-worktree-symlink"` row also checks `pathCanonical` against `tmb_path_canonical` on each absolute line.
+
+## Cold start
+
+A hook runs as a short-lived process, so the analyzer keeps its cold start small:
+
+- Importing `index.ts` loads no parser. The first non-blank command loads only the bash grammar (`loadParser('bash')` from `../../parsing/loader.js`), once per process. `src/test/cmd-analysis-lazy.test.ts` checks this through `bashParserLoads()`.
+- Before that load, `parser.ts` sets the V8 flags `--no-wasm-dynamic-tiering` and `--no-wasm-tier-up`, so the process does not compile optimized wasm code it will not run long enough to use.
+- A failed load is not cached, so the next command tries again.

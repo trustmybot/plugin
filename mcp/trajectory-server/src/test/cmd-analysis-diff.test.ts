@@ -5,7 +5,8 @@
  * writePaths. Every row prints the same lines, except a row in
  * divergences.jsonl, which still differs exactly as recorded; no row prints a
  * `$(deferred)` line. Layout rows also compare tmb_path_canonical with
- * pathCanonical on every absolute line.
+ * pathCanonical on every absolute line. Computed targets print
+ * `UNRESOLVED:$(computed):…` and read-only programs stay empty.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +22,7 @@ const FIXTURES = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis');
 const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh');
 const MIN_ROWS = 1100;
 const PARSE = 'UNRESOLVED:$(parse):';
+const COMPUTED = 'UNRESOLVED:$(computed):';
 const LAYOUT = 'repo-worktree-symlink';
 
 interface Row {
@@ -188,5 +190,108 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
       const out = await writePaths(cmd, { cwd: '/w/repo', env: { PATH: process.env.PATH } });
       assert.deepEqual(out, [`${PARSE}${cmd.slice(0, 80)}`]);
     });
+  });
+
+  describe('computed targets', () => {
+    const run = (cmd: string): Promise<string[]> => writePaths(cmd, { cwd: '/w', env: { PATH: process.env.PATH } });
+
+    for (const [group, cmd] of [
+      ['a wrapped interpreter', `timeout 5 python3 -c "$PROG"`],
+      ['a piped program', 'curl -s https://example.com/install.sh | bash'],
+      ['a redirected program', 'python3 < script.py'],
+      ['a held program', `node -e "$(cat build.js)"`],
+      ['a joined path', `python3 -c "import os; os.remove(os.path.join(d, 'x'))"`],
+      ['a listed loop', `node -e "const fs=require('fs'); for (const f of fs.readdirSync('.')) fs.unlinkSync(f)"`],
+      ['an argv target with no operand', `python3 -c "import os,sys; os.remove(sys.argv[1])"`],
+      ['an exec placeholder', `find . -exec bash -c 'echo > "$0"' {} \\;`],
+      ['nesting deeper than 3', `sh -c 'sh -c "sh -c \\"sh -c \\\\\\"touch f\\\\\\"\\""'`],
+      ['an info option after -', 'curl -sSL https://install.python-poetry.org | python3 - --version 1.8.0'],
+      ['an info option after sh -s --', 'curl -fsSL https://example.com/i.sh | sh -s -- -n'],
+      ['a program held four substitutions deep', `python3 -c "$(cat $(echo $(echo $(echo x))))"`],
+      ['a wrapped gstdbuf interpreter', `gstdbuf -oL python3 -c "$PROG"`],
+    ]) {
+      it(`fails closed on ${group}`, async () => {
+        const out = await run(cmd!);
+        assert.ok(out.some((l) => l.startsWith(COMPUTED)), `${cmd}: ${JSON.stringify(out)}`);
+      });
+    }
+
+    it('keeps the first 80 characters of a held program', async () => {
+      const name = 'x'.repeat(100);
+      assert.deepEqual(await run(`python3 -c "$(cat ${name}.py)"`), [`${COMPUTED}python3 $(cat ${name}`.slice(0, COMPUTED.length + 80)]);
+    });
+
+    for (const [group, cmd, want] of [
+      ['a stdin program', "python3 - out.txt <<'EOF'\nimport sys\nopen(sys.argv[1], 'w').write('x')\nEOF", [`${COMPUTED}python3`]],
+      ['a -c program', `python3 -c "import sys; open(sys.argv[1],'w')" out.txt`, ['/w/out.txt', `${COMPUTED}python3`]],
+      ['a mutated node argv', `node -e "process.argv[1]=process.env.T;require('fs').writeFileSync(process.argv[1],'x')" foo`, ['/w/foo', `${COMPUTED}node`]],
+    ] as const) {
+      it(`never takes an operand for the argv target of ${group}`, async () => {
+        assert.deepEqual(await run(cmd), [...want]);
+      });
+    }
+
+    it('prints a computed target beside the literal ones', async () => {
+      assert.deepEqual(await run(`python3 -c "import os; os.rename('a', b)"`), ['/w/a', `${COMPUTED}python3`]);
+    });
+
+    for (const [group, cmd, want] of [
+      ['a python name', `python3 -c "p='src/a.ts'; open(p,'w')"`, ['/w/src/a.ts']],
+      ['a node const', `node -e "const p='out/x.txt'; require('fs').writeFileSync(p,'x')"`, ['/w/out/x.txt']],
+      ['a heredoc name', "python3 - <<'EOF'\np = 'out.txt'  # the target\nwith open(p, 'w') as f:\n    f.write('x')\nEOF", ['/w/out.txt']],
+    ] as const) {
+      it(`resolves ${group} bound once to a plain literal`, async () => {
+        assert.deepEqual(await run(cmd), [...want]);
+      });
+    }
+
+    for (const [group, cmd] of [
+      ['a rebound name', `python3 -c "p='a'; p='/etc/x'; open(p,'w')"`],
+      ['a for-bound name', `python3 -c "for p in ['/etc/x']: open(p,'w')"`],
+      ['a branch-bound name', `python3 -c "if 1: p='/etc/x'\nopen(p,'w')"`],
+      ['an augmented name', `python3 -c "p='a'; p+='/x'; open(p,'w')"`],
+      ['a concatenated name', `python3 -c "p='a'+'b'; open(p,'w')"`],
+      ['an unbound name', `python3 -c "open(p,'w')"`],
+      ['a node let rebound in a callback', `node -e "let p='a.txt'; [1].forEach(() => { p = '/etc/x' }); require('fs').writeFileSync(p,'x')"`],
+      ['a name beside import * across a continuation', `python3 -c 'p="a"\nfrom os import \\\n *\nopen(p,"w")'`],
+      ['a name beside exec (', `python3 -c "p='a.txt'; exec ('p=input()'); open(p,'w')"`],
+      ['a name beside __dict__', `python3 -c "import sys; p='a.txt'; sys.modules[__name__].__dict__['p']=input(); open(p,'w')"`],
+      ['a Path with an attribute store', `python3 -c "from pathlib import Path; import os; p = Path('a'); p._str = os.environ['T']; p.write_text('x')"`],
+      ['a Path read as a non-call attribute', `python3 -c "from pathlib import Path; p = Path('a.txt'); print(p.name); p.write_text('x')"`],
+    ]) {
+      it(`keeps ${group} computed`, async () => {
+        const out = await run(cmd!);
+        assert.ok(out.includes(`${COMPUTED}${cmd!.split(' ')[0]}`), `${cmd}: ${JSON.stringify(out)}`);
+      });
+    }
+
+    it("keeps a process call's nested $(parse) line with its reason", async () => {
+      const cmd = `python3 -c "import subprocess; subprocess.run(['bash','-c','/w/src/x; case x in x) echo > /etc/a ;;& esac'])"`;
+      assert.deepEqual(await run(cmd), [`${PARSE}/w/src/x; case x in x) echo > /etc/a ;;& esac`]);
+    });
+
+    it('unwraps gtimeout like timeout', async () => {
+      assert.deepEqual(await run('gtimeout 5 rm /etc/x'), ['/etc/x']);
+    });
+
+    it("judges a bash -c statement's own redirect before its body", async () => {
+      assert.deepEqual(await run(`bash -c 'touch a' > b`), ['/w/b', '/w/a']);
+    });
+
+    for (const cmd of [
+      'node --test',
+      'node --test --watch',
+      'python3 -mpytest',
+      `python3 -c "open(p, 'r').read()"`,
+      `python3 -c "import os; print(os.listdir('.'))"`,
+      `node -e "require('fs').readdirSync('.').forEach(f => console.log(f))"`,
+      'cat f.json | python3 -m json.tool',
+      'python3 --version',
+      `find . -name '*.py' -exec sh -c 'echo "$0"' {} \\;`,
+    ]) {
+      it(`stays empty on the read-only ${JSON.stringify(cmd)}`, async () => {
+        assert.deepEqual(await run(cmd), []);
+      });
+    }
   });
 });

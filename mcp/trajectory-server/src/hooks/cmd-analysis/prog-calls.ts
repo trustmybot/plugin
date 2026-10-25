@@ -3,6 +3,9 @@
  * node / perl / ruby program, ported state for state. It runs on the
  * program's UTF-8 bytes, as awk does under LC_ALL=C, and prints the same
  * lines: `W` and `T<TAB><literal>` / `F` per write call, `S<TAB><command>`,
+ * except that a python or node target that is one bare name, a python
+ * write_text / write_bytes receiver that is one, or one `sys.argv[<n>]` /
+ * `process.argv[<n>]` prints `F<TAB><name>` (GH 1692) where the awk prints `F`,
  * `R<TAB><code>`, `U`, `H`, `C`, `Q<TAB><quoted literal>` and `A`.
  */
 
@@ -96,16 +99,20 @@ class Scanner {
   private readonly atok: number[] = [];
   private readonly aoth: number[] = [];
   private readonly alit: string[] = [];
+  private readonly anam: string[] = [];
+  private readonly aargv: string[] = [];
   private readonly akw: string[] = [];
   private readonly acode: string[] = [];
   private readonly alam: number[] = [];
 
   private readonly pk = new Map<string, string>();
   private readonly pv = new Map<string, string>();
+  private readonly pn = new Map<string, string>();
   private readonly pcd = new Map<string, string>();
   private readonly plam = new Map<string, number>();
   private readonly kk = new Map<string, string>();
   private readonly kv = new Map<string, string>();
+  private readonly kn = new Map<string, string>();
   private readonly kcd = new Map<string, string>();
   private readonly klam = new Map<string, number>();
 
@@ -164,18 +171,25 @@ class Scanner {
     if (this.d === 0) return;
     const t = this.fidAt(this.d);
     this.atok[t] = (this.atok[t] ?? 0) + 1;
+    this.anam[t] = '';
     if (k === 'L') this.alit[t] = v;
     else this.aoth[t] = 1;
   }
 
   private oth(): void {
-    if (this.d > 0) this.aoth[this.fidAt(this.d)] = 1;
+    if (this.d > 0) {
+      const t = this.fidAt(this.d);
+      this.aoth[t] = 1;
+      this.anam[t] = '';
+    }
   }
 
   private resetarg(t: number): void {
     this.atok[t] = 0;
     this.aoth[t] = 0;
     this.alit[t] = '';
+    this.anam[t] = '';
+    this.aargv[t] = '';
     this.akw[t] = '';
     this.acode[t] = '';
     this.alam[t] = 0;
@@ -747,10 +761,12 @@ class Scanner {
     const akw = this.akw[t] ?? '';
     if (atok === 0 && !aoth && akw === '') return;
     const k = atok === 1 && !aoth ? 'L' : 'E';
+    const nm = this.anam[t] || (atok === 2 ? (this.aargv[t] ?? '') : '');
     if (akw !== '') {
       const kt = key(t, akw);
       this.kk.set(kt, k);
       this.kv.set(kt, this.alit[t] ?? '');
+      this.kn.set(kt, nm);
       this.kcd.set(kt, this.acode[t] ?? '');
       this.klam.set(kt, this.alam[t] ?? 0);
     } else {
@@ -758,6 +774,7 @@ class Scanner {
       const kt = key(t, np);
       this.pk.set(kt, k);
       this.pv.set(kt, this.alit[t] ?? '');
+      this.pn.set(kt, nm);
       this.pcd.set(kt, this.acode[t] ?? '');
       this.plam.set(kt, this.alam[t] ?? 0);
     }
@@ -801,21 +818,24 @@ class Scanner {
     this.pc = 0;
   }
 
-  private hit(k: string, v: string): void {
+  /** A literal target prints `T<TAB><value>`; a lone name prints `F<TAB><name>` for programs.ts to resolve; anything else prints `F`. */
+  private hit(k: string, v: string, nm = ''): void {
     this.print('W');
     if (k === 'L' && v !== '' && !(this.py && pyesc(v))) this.print('T\t' + v);
+    else if (k !== 'L' && nm !== '') this.print('F\t' + nm);
     else this.print('F');
   }
 
   private arg(t: number, i: number, kws: string): void {
     if ((this.np[t] ?? 0) >= i) {
-      this.hit(this.pk.get(key(t, i)) ?? '', this.pv.get(key(t, i)) ?? '');
+      const kt = key(t, i);
+      this.hit(this.pk.get(kt) ?? '', this.pv.get(kt) ?? '', this.pn.get(kt) ?? '');
       return;
     }
     for (const a of split(kws, ' ')) {
       const kt = key(t, a);
       if (this.kk.has(kt)) {
-        this.hit(this.kk.get(kt) ?? '', this.kv.get(kt) ?? '');
+        this.hit(this.kk.get(kt) ?? '', this.kv.get(kt) ?? '', this.kn.get(kt) ?? '');
         return;
       }
     }
@@ -945,7 +965,7 @@ class Scanner {
       this.arg(t, 1, 'file');
     } else if (k === 'p1') this.arg(t, 1, 'path name file');
     else if (k === 'fw') this.arg(t, 1, '');
-    else if (k === 'wt') this.hit('E', '');
+    else if (k === 'wt') this.hit('E', '', this.py && /^[A-Za-z_][A-Za-z0-9_]*$/.test(pre) ? pre : '');
     else if (k === 'pn') this.arg(t, 1, 'path name');
     else if (k === 'dst') this.arg(t, 2, 'dst dest');
     else if (k === 'mv') {
@@ -1125,7 +1145,11 @@ class Scanner {
       const t = this.fidAt(this.d);
       if ((this.atok[t] ?? 0) === 0 && !this.aoth[t]) this.alam[t] = 1;
     }
+    const lone = this.d > 0 && (this.py || lang === 'node') && (this.atok[this.fidAt(this.d)] ?? 0) === 0 && !this.aoth[this.fidAt(this.d)];
     this.tok('E', '');
+    if (lone && /^[A-Za-z_][A-Za-z0-9_]*$/.test(nm)) this.anam[this.fidAt(this.d)] = nm;
+    const argv = lone && nm === (this.py ? 'sys.argv' : 'process.argv') ? /^[ \t]*\[[ \t]*([0-9]+)[ \t]*\][ \t]*[,)]/.exec(substr(this.s, this.ip)) : null;
+    if (argv) this.aargv[this.fidAt(this.d)] = `${nm}[${Number(argv[1])}]`;
   }
 
   scan(program: string): string[] {

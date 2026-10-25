@@ -8,7 +8,7 @@
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
  * \022<dir>\022<word>… mark.
  */
-import { ENC, QC, QO } from './encode.js';
+import { ENC, QC, QO, SUB_PC, SUB_PO } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 export const SEP = '\x12';
 export const WSEP = '\x14';
@@ -44,6 +44,7 @@ function norm(p) {
         return '@' + joined;
     return joined === '' ? '/' : joined;
 }
+/** A double-quoted substitution's body as one word; its quoted parens become SUB_PO / SUB_PC so `heldProgram` can tell them from the frame (TS only). */
 function rawword(t) {
     let out = '';
     for (const ch of t) {
@@ -51,6 +52,10 @@ function rawword(t) {
             out += '$' + ENC[8];
         else if (ch === QC)
             out += ENC[9];
+        else if (ch === ENC[8])
+            out += SUB_PO;
+        else if (ch === ENC[9])
+            out += SUB_PC;
         else if (ch === '\n')
             out += ENC[12];
         else {
