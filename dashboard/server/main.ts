@@ -5,6 +5,7 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
+import { conceptsApi } from './concepts.ts';
 import * as q from './queries.ts';
 import { IssueWriter, isWriteAction } from './writes.ts';
 
@@ -60,6 +61,8 @@ function clampLimit(raw: string | null): number {
 function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const [resource, id] = parts;
+  const concepts = conceptsApi(db, url);
+  if (concepts) return sendJson(res, concepts.status, concepts.body);
   if (parts.length === 1) {
     switch (resource) {
       case 'summary': return sendJson(res, 200, q.summary(db));
