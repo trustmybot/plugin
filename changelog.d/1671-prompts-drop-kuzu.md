@@ -1,0 +1,2 @@
+### Fixed
+- **bro describes the world model as it is** (GH 1671): bro's persona said the world model was a kuzu graph, which it has not been since the move to the trajectory DB (GH 1632). It now says the world model is the directory and file tables in the trajectory DB, built by `/scan`. A new lint (`tests/l1-lint/no-kuzu-in-prompts.sh`) fails the build when `kuzu` shows up in bro's persona, an agent, a command or a skill, so the stale wording cannot come back.

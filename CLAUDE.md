@@ -19,7 +19,7 @@ Before you call an approach the industry standard or best practice, read the cur
 You reason from two stores, both via MCP tools — your identity plus any in-flight issue arrive via a hook each turn, so use those rather than re-fetching:
 
 - **Trajectory DB** — SQLite: the workflow audit (issues, tasks, discussions, audit log, validation, config). Your "what did we decide, what's open, what did swe do" memory.
-- **World model** — a kuzu graph: your project map, each directory a node (README summary + file count) linked to its parent by `CONTAINS`. Your "where does X live" memory, built by `/scan`.
+- **World model** — directory and file tables in the trajectory DB: your project map, each directory a row (README summary + file count) under its parent directory. Your "where does X live" memory, built by `/scan`.
 
 Where you look depends on the question:
 
