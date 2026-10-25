@@ -71,11 +71,15 @@
 #    decides), so no later gate runs for it. A chain, a gate run with
 #    --chain, and any gate when lib/registrations.sh cannot be loaded are
 #    fail-closed whatever hooks.json says.
-# 6. Bash deny records. When a gate denies a Bash command, the dispatcher
-#    writes one record per path the command writes (tmb_cmd_write_paths) to
+# 6. Bash deny records. When a gate judges a Bash command's write targets and
+#    denies it, the dispatcher writes one record per path the command writes
+#    (tmb_cmd_write_paths) to
 #    <state>/locks/boundary-denies/<session_id>/<sha256 of the canonical path>
 #    (gate name, epoch seconds), for swe-boundary.sh to match against a later
-#    Edit/Write (audit hook_block_bypassed). Records older than
+#    Edit/Write (audit hook_block_bypassed). A deny that judged no path, the
+#    containment-guard "cannot be judged" deny of a $(parse) or $(computed)
+#    target, writes none: the literal-path write it prescribes is not a
+#    workaround (GH 1750). Records older than
 #    TMB_BYPASS_WINDOW_MIN minutes (default 10) are pruned on every write. It
 #    observes only: the gate's stdout, exit code and timing are unchanged.
 # 7. Deny audit. Every deny the dispatcher returns — a gate's exit 2,
@@ -134,6 +138,10 @@ DENY_PATTERN='"permissionDecision"[[:space:]]*:[[:space:]]*"deny"|"decision"[[:s
 # Exit code of a chain gate whose duplicate waiter gave up on the holder: the
 # chain ends without a decision of its own (the holder's chain decides).
 CHAIN_YIELD=75
+# The phrase of containment-guard's deny of a target it cannot judge
+# (UNJUDGED_PHRASE in mcp/trajectory-server/src/hooks/containment-guard.ts):
+#   BLOCKED: write target "<target>" cannot be judged: <why>
+UNJUDGED_PHRASE='cannot be judged:'
 FAIL_CLOSED=1
 DENIED=0
 DENIED_GATE=""
@@ -513,6 +521,13 @@ _age() {
   printf '%s\n' "$(( $(_now) - m ))"
 }
 
+# unjudged_deny <reason> — <reason> is a deny that judged no path. <why> holds
+# no double quote, so a target that spells the phrase does not pass for one.
+unjudged_deny() {
+  case "$1" in "BLOCKED: write target \""*"\" $UNJUDGED_PHRASE "*) ;; *) return 1 ;; esac
+  case "${1##*"\" $UNJUDGED_PHRASE "}" in *\"*) return 1 ;; esac
+}
+
 # _expired <dir> — a finished result past the duplicate window, or an
 # unfinished lock past the gate's timeout.
 _expired() {
@@ -528,13 +543,15 @@ _expired() {
 # record_bash_deny <rc> — when this gate denied a Bash command, one record per
 # path the command writes, <state>/locks/boundary-denies/<session_id>/<digest>
 # (line 1 the gate, line 2 epoch seconds), for swe-boundary.sh to match against
-# a later Edit/Write. Observes only: a missing session_id or jq records
-# nothing, and nothing here changes the gate's output or exit code.
+# a later Edit/Write. Observes only: a missing session_id or jq, or an
+# unjudged deny, records nothing, and nothing here changes the gate's output
+# or exit code.
 record_bash_deny() {
   local session cmd base dir window
   [ "$1" = "2" ] || grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null || return 0
   command -v jq >/dev/null 2>&1 || return 0
   [ "$(printf '%s' "$PAYLOAD" | jq -r '.tool_name // empty' 2>/dev/null)" = "Bash" ] || return 0
+  unjudged_deny "$(deny_reason "$(cat "$LOCK/result" 2>/dev/null)" "$(cat "$LOCK/stderr" 2>/dev/null)")" && return 0
   session=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null)
   case "$session" in ''|*/*|.*) return 0 ;; esac
   cmd=$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)
