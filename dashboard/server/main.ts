@@ -4,10 +4,14 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { setEmbeddingLoader } from '../../mcp/trajectory-server/src/embeddings/model.ts';
 import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts';
 import { conceptsApi } from './concepts.ts';
+import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
 import { IssueWriter, isWriteAction } from './writes.ts';
+
+setEmbeddingLoader(noEmbeddings);
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 7477;
