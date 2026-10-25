@@ -1,14 +1,17 @@
 // The L1 symbol index (ADR 0001, GH 1680): wm_symbols and wm_edges, written by
 // scan_run and read by world_model_search and world_model_symbol. A file is
-// re-parsed only when its wm_files.content_md5 moved past symbols_md5. Calls
+// re-parsed only when its symbols_md5 differs from content_md5 salted with
+// EXTRACTOR_VERSION, so a version bump re-parses every file once. Calls
 // resolve by import, same-file definition, sourced file or unique name;
 // resolution is a hint, never a guarantee every caller was found. Resolution
 // passes adapted from the GH 1680 MVP. hooks/hooks.json is indexed as 'hook'
 // rows (parsing/hooks.ts), and a pass re-resolves the non-exact edges of
 // unchanged files that name a symbol this pass inserted (ADR 0002).
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, join, posix } from 'node:path';
 import type { TrajectoryDB } from './db.js';
+import { resolveSoleRepo } from './utils/repo-paths.js';
 import { loadParsers, type Parsers } from './parsing/loader.js';
 import {
   extractFile,
@@ -26,8 +29,11 @@ import {
 import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH } from './parsing/hooks.js';
 import type { KeywordMatch } from './graph.js';
 
+export const EXTRACTOR_VERSION = 1;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
+export const IMPACT_REF_CAP = 200;
+export const IMPACT_MAX_DEPTH = 5;
 const OR_FALLBACK_MIN_HITS = 3;
 
 export interface SymbolIndexStats {
@@ -67,8 +73,20 @@ export interface RefList {
   truncated: boolean;
 }
 
+export interface ImpactLevel {
+  depth: number;
+  refs: SymbolRef[];
+}
+
+export interface SymbolImpact {
+  depth: number;
+  levels: ImpactLevel[];
+  tests: SymbolRef[];
+  truncated: boolean;
+}
+
 export interface SymbolCard {
-  symbol: SymbolRow;
+  symbol: SymbolRow & { stale: boolean };
   callers: RefList;
   callees: RefList;
   imports: RefList;
@@ -382,11 +400,17 @@ function reresolveEdges(db: TrajectoryDB, repo: string, names: Set<string>, skip
 
 // Bring one repo's symbols up to date with its wm_files rows. The grammars
 // load on the first call that has a stale TS/JS or shell file to parse.
-export async function indexRepoSymbols(db: TrajectoryDB, repo: string, repoPath: string): Promise<SymbolIndexStats> {
+export async function indexRepoSymbols(
+  db: TrajectoryDB,
+  repo: string,
+  repoPath: string,
+  extractorVersion: number = EXTRACTOR_VERSION,
+): Promise<SymbolIndexStats> {
   const stale = db
     .all<StaleFile & { size_bytes: number }>(
-      `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND symbols_md5 IS NOT content_md5 ORDER BY path`,
-      [repo],
+      `SELECT id, path, content_md5, size_bytes FROM wm_files
+        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ? ORDER BY path`,
+      [repo, String(extractorVersion)],
     )
     .filter((f) => inSymbolScope(f.path));
   if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
@@ -432,7 +456,7 @@ export async function indexRepoSymbols(db: TrajectoryDB, repo: string, repoPath:
       } else {
         deleteFileSymbols(db, repo, file.path);
       }
-      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 WHERE id = ?`, [file.id]);
+      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [String(extractorVersion), file.id]);
     }
     let resolved = 0;
     if (pending.length > 0) {
@@ -576,8 +600,9 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
   const isTable = symbol.kind === 'sql_table';
   const tableSide = isTable ? inbound : outbound;
   const of = (rows: EdgeEnd[], kinds: EdgeKind[]) => rows.filter((r) => kinds.includes(r.edge_kind));
+  const stale = staleFiles(db, [symbol]);
   const card: SymbolCard = {
-    symbol,
+    symbol: { ...symbol, stale: stale.has(fileRefKey(symbol)) },
     callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
     callees: refList(of(outbound, CALL_EDGES)),
     imports: refList(of(symbol.kind === 'module' ? outbound : inbound, ['imports'])),
@@ -587,4 +612,96 @@ export function symbolCard(db: TrajectoryDB, symbol: SymbolRow): SymbolCard {
   };
   if ([...inbound, ...outbound].some((r) => r.resolution !== 'exact')) card.note = 'found by name; not all callers';
   return card;
+}
+
+// Transitive inbound callers over CALL_EDGES, breadth-first and grouped by
+// hop. A test-path caller lands in tests and is not walked past; the visited
+// set ends cycles; past IMPACT_REF_CAP refs the walk stops with truncated.
+export function symbolImpact(db: TrajectoryDB, symbol: SymbolRow, depth: number): SymbolImpact {
+  const visited = new Set<number>([symbol.id]);
+  const levels: ImpactLevel[] = [];
+  const tests: SymbolRef[] = [];
+  let total = 0;
+  let truncated = false;
+  let frontier = [symbol.id];
+  for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
+    const rows = db.all<EdgeEnd>(
+      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind IN (SELECT value FROM json_each(?))
+        ORDER BY o.path, o.start_line, o.id`,
+      [JSON.stringify(frontier), JSON.stringify(CALL_EDGES)],
+    );
+    const refs: SymbolRef[] = [];
+    const next: number[] = [];
+    for (const r of rows) {
+      const id = Number(r.id);
+      if (visited.has(id)) continue;
+      if (total >= IMPACT_REF_CAP) {
+        truncated = true;
+        break;
+      }
+      visited.add(id);
+      total++;
+      const ref: SymbolRef = {
+        id,
+        qualified_name: r.qualified_name!,
+        kind: r.kind!,
+        repo: r.repo!,
+        path: r.path!,
+        line_start: Number(r.start_line),
+      };
+      if (isTestPath(ref.path)) {
+        tests.push(ref);
+      } else {
+        refs.push(ref);
+        next.push(id);
+      }
+    }
+    if (refs.length > 0) levels.push({ depth: d, refs });
+    frontier = next;
+  }
+  return { depth, levels, tests, truncated };
+}
+
+export function symbolsStamp(contentMd5: string, extractorVersion: number = EXTRACTOR_VERSION): string {
+  return `${contentMd5}:${extractorVersion}`;
+}
+
+export function fileRefKey(f: { repo: string; path: string }): string {
+  return `${f.repo}\u0000${f.path}`;
+}
+
+function fileMd5(absPath: string): string | null {
+  try {
+    return createHash('md5').update(readFileSync(absPath)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+// The files, keyed by fileRefKey, whose indexed symbols no longer describe
+// the disk: the file's md5 differs from wm_files.content_md5, symbols_md5 is
+// not symbolsStamp(content_md5), or the file is gone. Each file is hashed once per call; a repo
+// with no resolvable root cannot be checked and counts as fresh.
+export function staleFiles(db: TrajectoryDB, files: Array<{ repo: string; path: string }>): Set<string> {
+  const roots = new Map<string, string | null>();
+  const checked = new Map<string, boolean>();
+  for (const f of files) {
+    const key = fileRefKey(f);
+    if (checked.has(key)) continue;
+    if (!roots.has(f.repo)) roots.set(f.repo, resolveSoleRepo(db, f.repo)?.path ?? null);
+    const root = roots.get(f.repo)!;
+    if (root === null) {
+      checked.set(key, false);
+      continue;
+    }
+    const row = db.get<{ content_md5: string; symbols_md5: string | null }>(
+      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
+      [f.repo, f.path],
+    );
+    const disk = fileMd5(join(root, f.path));
+    checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
+  }
+  return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
 }

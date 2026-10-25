@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { parserLoadCount } from '../parsing/loader.js';
+import { EXTRACTOR_VERSION, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
@@ -112,13 +114,13 @@ describe('L1 symbol index over this worktree (GH 1680)', () => {
     assert.equal(badUnresolved, 0, 'an unresolved edge never has a dst_id');
   });
 
-  it('stamps symbols_md5 with content_md5 for every indexed .ts file', () => {
+  it('stamps symbols_md5 with content_md5 and EXTRACTOR_VERSION for every indexed .ts file', () => {
     const rows = db.all<{ path: string; content_md5: string; symbols_md5: string | null }>(
       `SELECT path, content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path LIKE '%.ts' AND path NOT LIKE '%dist/%'`,
       [repo],
     );
     assert.ok(rows.length > 0);
-    for (const r of rows) assert.equal(r.symbols_md5, r.content_md5, r.path);
+    for (const r of rows) assert.equal(r.symbols_md5, `${r.content_md5}:${EXTRACTOR_VERSION}`, r.path);
   });
 
   it('a rescan of an unchanged tree parses nothing and keeps every id', async () => {
@@ -286,7 +288,7 @@ describe('L1 symbol index freshness on a small repo (GH 1680)', () => {
     const md5 = db.get<{ content_md5: string; symbols_md5: string }>(
       `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = 'app' AND path = 'src/b.ts'`,
     )!;
-    assert.equal(md5.symbols_md5, md5.content_md5);
+    assert.equal(md5.symbols_md5, symbolsStamp(md5.content_md5));
   });
 
   it('deleting a definition leaves its callers unresolved', async () => {
@@ -311,5 +313,163 @@ describe('L1 symbol index freshness on a small repo (GH 1680)', () => {
       [idOf('scripts/lib.sh', 'say_hi')],
     )!.n;
     assert.equal(sayHi, 0, 'the removed caller took its edges along');
+  });
+});
+
+describe('world_model_symbol impact, source and stale (GH 1680)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-impact-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const wm = worldModelTools(db, holder).handlers;
+
+  const CHAIN_TS = (tail = '') =>
+    [
+      'export function stepC(n: number): number {',
+      '  return n > 0 ? stepB(n - 1) : 0;',
+      '}',
+      'export function stepB(n: number): number {',
+      '  return stepC(n);',
+      '}',
+      'export function stepA(n: number): number {',
+      '  return stepB(n);',
+      '}',
+      'export function entryPoint(): number {',
+      '  return stepA(1);',
+      '}',
+      tail,
+    ].join('\n');
+  const HUB_CALLERS = 210;
+  const LONG_BODY = 250;
+
+  const commit = () => {
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'change', '--allow-empty'], { cwd: root });
+  };
+
+  const symbol = async (args: Payload) =>
+    parse<Payload & { symbol: Payload }>(
+      (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', ...args })) as CallToolResult,
+    );
+
+  before(async () => {
+    mkdirSync(join(root, 'src', 'test'), { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    writeFileSync(join(root, 'src/chain.ts'), CHAIN_TS());
+    writeFileSync(
+      join(root, 'src/test/chain.test.ts'),
+      ["import { stepA } from '../chain.js';", 'export function checkStepA(): number {', '  return stepA(2);', '}', ''].join('\n'),
+    );
+    const hub = ['export function hubTarget(): number {', '  return 1;', '}'];
+    for (let i = 0; i < HUB_CALLERS; i++) hub.push(`export function hubCaller${i}(): number {`, '  return hubTarget();', '}');
+    writeFileSync(join(root, 'src/hub.ts'), `${hub.join('\n')}\n`);
+    const long = ['export function longBody(): number {', '  let n = 0;'];
+    for (let i = 0; i < LONG_BODY; i++) long.push(`  n += ${i};`);
+    long.push('  return n;', '}', '');
+    writeFileSync(join(root, 'src/long.ts'), long.join('\n'));
+    commit();
+    await scan(db, holder, ws);
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('impact walks callers by depth, routes tests aside and ends a cycle', async () => {
+    const card = await symbol({ qualified_name: 'stepC', impact: 3 });
+    const impact = card['impact'] as {
+      depth: number;
+      levels: Array<{ depth: number; refs: Payload[] }>;
+      tests: Payload[];
+      truncated: boolean;
+    };
+    assert.equal(impact.depth, 3);
+    assert.deepEqual(
+      impact.levels.map((l) => [l.depth, l.refs.map((r) => r['qualified_name'])]),
+      [
+        [1, ['stepB']],
+        [2, ['stepA']],
+        [3, ['entryPoint']],
+      ],
+    );
+    assert.deepEqual(impact.tests.map((r) => [r['qualified_name'], r['path']]), [['checkStepA', 'src/test/chain.test.ts']]);
+    assert.equal(impact.truncated, false);
+  });
+
+  it('impact: true walks two hops and an omitted impact adds no key', async () => {
+    const card = await symbol({ qualified_name: 'stepC', impact: true });
+    const impact = card['impact'] as { depth: number; levels: Array<{ depth: number }>; tests: Payload[] };
+    assert.equal(impact.depth, 2);
+    assert.deepEqual(impact.levels.map((l) => l.depth), [1, 2]);
+    assert.deepEqual(impact.tests, []);
+    assert.ok(!('impact' in (await symbol({ qualified_name: 'stepC' }))));
+    const bad = (await wm['world_model_symbol']!({ agent: 'bro', repo: 'app', qualified_name: 'stepC', impact: 6 })) as CallToolResult;
+    assert.equal(bad.isError, true);
+  });
+
+  it('impact stops at 200 refs with truncated', async () => {
+    const card = await symbol({ qualified_name: 'hubTarget', impact: 1 });
+    const impact = card['impact'] as { levels: Array<{ refs: Payload[] }>; truncated: boolean };
+    assert.equal(impact.levels[0]!.refs.length, 200);
+    assert.equal(impact.truncated, true);
+  });
+
+  it('source: true returns the body lines from disk; omitted source leaves no key', async () => {
+    const card = await symbol({ qualified_name: 'stepA', source: true });
+    assert.deepEqual(card['source'], {
+      start_line: 7,
+      end_line: 9,
+      text: frameUntrusted('symbol-source', CHAIN_TS().split('\n').slice(6, 9).join('\n')),
+      truncated: false,
+    });
+    assert.ok(!('source' in (await symbol({ qualified_name: 'stepA' }))));
+  });
+
+  it('source over 200 lines is cut with truncated', async () => {
+    const card = await symbol({ qualified_name: 'longBody', source: true });
+    const source = card['source'] as { start_line: number; end_line: number; text: string; truncated: boolean };
+    assert.equal(source.truncated, true);
+    assert.equal(source.start_line, 1);
+    assert.equal(source.end_line, 200);
+    const body = source.text.split('\n').slice(1, -1);
+    assert.equal(body.length, 200);
+    assert.equal(body[0], 'export function longBody(): number {');
+    assert.equal(source.text, frameUntrusted('symbol-source', body.join('\n')));
+  });
+
+  it('a bumped EXTRACTOR_VERSION re-parses every file once; the same version re-parses none', async () => {
+    const same = await indexRepoSymbols(db, 'app', root);
+    assert.equal(same.files_parsed, 0);
+    const indexed = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_files WHERE repo = 'app' AND symbols_md5 IS NOT NULL`)!.n;
+    const bumped = await indexRepoSymbols(db, 'app', root, EXTRACTOR_VERSION + 1);
+    assert.ok(bumped.files_parsed > 0);
+    assert.equal(bumped.files_parsed, indexed);
+    assert.equal((await indexRepoSymbols(db, 'app', root, EXTRACTOR_VERSION + 1)).files_parsed, 0);
+    assert.equal((await indexRepoSymbols(db, 'app', root)).files_parsed, indexed);
+  });
+
+  it('stale flips on an edit after indexing and back after a rescan', async () => {
+    const searchHit = async () => {
+      const out = parse<{ results: Payload[] }>(
+        (await wm['world_model_search']!({ agent: 'bro', repo: 'app', query: 'stepA', mode: 'keyword', k: 10 })) as CallToolResult,
+      );
+      const hit = out.results.find((r) => r['kind'] === 'symbol' && r['qualified_name'] === 'stepA');
+      assert.ok(hit, JSON.stringify(out.results));
+      return hit;
+    };
+    assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], false);
+    assert.equal((await searchHit())['stale'], false);
+
+    writeFileSync(join(root, 'src/chain.ts'), CHAIN_TS('// edited'));
+    assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], true);
+    assert.equal((await searchHit())['stale'], true);
+
+    commit();
+    await scan(db, holder, ws);
+    assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], false);
+    assert.equal((await searchHit())['stale'], false);
   });
 });

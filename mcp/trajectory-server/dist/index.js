@@ -3599,49 +3599,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative3, options, skipNormalization) {
+    function resolveComponent(base, relative4, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative3 = parse4(serialize(relative3, options), options);
+        relative4 = parse4(serialize(relative4, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative3.scheme) {
-        target.scheme = relative3.scheme;
-        target.userinfo = relative3.userinfo;
-        target.host = relative3.host;
-        target.port = relative3.port;
-        target.path = removeDotSegments(relative3.path || "");
-        target.query = relative3.query;
+      if (!options.tolerant && relative4.scheme) {
+        target.scheme = relative4.scheme;
+        target.userinfo = relative4.userinfo;
+        target.host = relative4.host;
+        target.port = relative4.port;
+        target.path = removeDotSegments(relative4.path || "");
+        target.query = relative4.query;
       } else {
-        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
-          target.userinfo = relative3.userinfo;
-          target.host = relative3.host;
-          target.port = relative3.port;
-          target.path = removeDotSegments(relative3.path || "");
-          target.query = relative3.query;
+        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
+          target.userinfo = relative4.userinfo;
+          target.host = relative4.host;
+          target.port = relative4.port;
+          target.path = removeDotSegments(relative4.path || "");
+          target.query = relative4.query;
         } else {
-          if (!relative3.path) {
+          if (!relative4.path) {
             target.path = base.path;
-            if (relative3.query !== void 0) {
-              target.query = relative3.query;
+            if (relative4.query !== void 0) {
+              target.query = relative4.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative3.path[0] === "/") {
-              target.path = removeDotSegments(relative3.path);
+            if (relative4.path[0] === "/") {
+              target.path = removeDotSegments(relative4.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative3.path;
+                target.path = "/" + relative4.path;
               } else if (!base.path) {
-                target.path = relative3.path;
+                target.path = relative4.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative3.query;
+            target.query = relative4.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3649,7 +3649,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative3.fragment;
+      target.fragment = relative4.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -10772,7 +10772,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync9, readFileSync as readFileSync13 } from "node:fs";
+import { mkdirSync as mkdirSync9, readFileSync as readFileSync14 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -36688,7 +36688,7 @@ function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
   return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ?? fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
 }
 function prMonitorTools(db2, _spawnFn) {
-  const spawn3 = _spawnFn ?? defaultSpawnFn2;
+  const spawn4 = _spawnFn ?? defaultSpawnFn2;
   const definitions = [
     {
       name: "pr_monitor_comments_get",
@@ -36769,11 +36769,11 @@ function prMonitorTools(db2, _spawnFn) {
       const configValue = configRow ? JSON.parse(configRow.value_json) : "auto";
       let backend;
       if (configValue === "off") {
-        const ghAvail = spawn3("gh", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
+        const ghAvail = spawn4("gh", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
         if (ghAvail) {
           backend = "gh";
         } else {
-          const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
+          const glabAvail = spawn4("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
           if (!glabAvail) {
             return err15("Neither gh nor glab is installed/available; cannot fetch PR comments");
           }
@@ -36794,7 +36794,7 @@ function prMonitorTools(db2, _spawnFn) {
         }
       }
       const botPatterns = buildBotPatterns(botsOverride);
-      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
+      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn4);
       if (!fetchResult) {
         return err15("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
@@ -37168,12 +37168,12 @@ function openChangeRequestsForBranch(db2, repoName, repoPath, branchId, spawnFn)
   if (!repoName) return [];
   const { gated, targets } = resolveMilestoneTargets(db2, repoName, spawnFn);
   if (!gated) return [];
-  const spawn3 = spawnFn ?? defaultSpawnFn;
+  const spawn4 = spawnFn ?? defaultSpawnFn;
   const found = [];
   for (const target of targets) {
     const args2 = target.backend === "gh" ? ["pr", "list", "--head", branchId, "--state", "open", "--json", "number,url", "--repo", target.slug] : ["mr", "list", "--source-branch", branchId, "--output", "json", "-R", target.slug];
     try {
-      const res = spawn3(target.backend, args2, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      const res = spawn4(target.backend, args2, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
       if (res.status !== 0) continue;
       const rows = JSON.parse(res.stdout || "[]");
       if (!Array.isArray(rows)) continue;
@@ -41204,6 +41204,7 @@ function readmeDrift(history, dir, readmeName, readme) {
 }
 
 // src/symbol-index.ts
+import { createHash as createHash2 } from "node:crypto";
 import { readFileSync as readFileSync7 } from "node:fs";
 import { basename as basename7, join as join16, posix as posix2 } from "node:path";
 
@@ -41750,8 +41751,11 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
+var EXTRACTOR_VERSION = 1;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
+var IMPACT_REF_CAP = 200;
+var IMPACT_MAX_DEPTH = 5;
 var OR_FALLBACK_MIN_HITS = 3;
 var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order";
 var CALLABLE = /* @__PURE__ */ new Set(["function", "method", "class", "sh_function"]);
@@ -41972,10 +41976,11 @@ function reresolveEdges(db2, repo, names, skip2) {
   }
   return resolved;
 }
-async function indexRepoSymbols(db2, repo, repoPath) {
+async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
   const stale = db2.all(
-    `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND symbols_md5 IS NOT content_md5 ORDER BY path`,
-    [repo]
+    `SELECT id, path, content_md5, size_bytes FROM wm_files
+        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ? ORDER BY path`,
+    [repo, String(extractorVersion)]
   ).filter((f) => inSymbolScope(f.path));
   if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db2.get(
@@ -42018,7 +42023,7 @@ async function indexRepoSymbols(db2, repo, repoPath) {
       } else {
         deleteFileSymbols(db2, repo, file2.path);
       }
-      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 WHERE id = ?`, [file2.id]);
+      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [String(extractorVersion), file2.id]);
     }
     let resolved = 0;
     if (pending2.length > 0) {
@@ -42124,8 +42129,9 @@ function symbolCard(db2, symbol2) {
   const isTable = symbol2.kind === "sql_table";
   const tableSide = isTable ? inbound : outbound;
   const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
+  const stale = staleFiles(db2, [symbol2]);
   const card = {
-    symbol: symbol2,
+    symbol: { ...symbol2, stale: stale.has(fileRefKey(symbol2)) },
     callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
     callees: refList(of(outbound, CALL_EDGES)),
     imports: refList(of(symbol2.kind === "module" ? outbound : inbound, ["imports"])),
@@ -42135,6 +42141,86 @@ function symbolCard(db2, symbol2) {
   };
   if ([...inbound, ...outbound].some((r) => r.resolution !== "exact")) card.note = "found by name; not all callers";
   return card;
+}
+function symbolImpact(db2, symbol2, depth) {
+  const visited = /* @__PURE__ */ new Set([symbol2.id]);
+  const levels = [];
+  const tests = [];
+  let total = 0;
+  let truncated = false;
+  let frontier = [symbol2.id];
+  for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
+    const rows = db2.all(
+      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind IN (SELECT value FROM json_each(?))
+        ORDER BY o.path, o.start_line, o.id`,
+      [JSON.stringify(frontier), JSON.stringify(CALL_EDGES)]
+    );
+    const refs = [];
+    const next = [];
+    for (const r of rows) {
+      const id = Number(r.id);
+      if (visited.has(id)) continue;
+      if (total >= IMPACT_REF_CAP) {
+        truncated = true;
+        break;
+      }
+      visited.add(id);
+      total++;
+      const ref2 = {
+        id,
+        qualified_name: r.qualified_name,
+        kind: r.kind,
+        repo: r.repo,
+        path: r.path,
+        line_start: Number(r.start_line)
+      };
+      if (isTestPath(ref2.path)) {
+        tests.push(ref2);
+      } else {
+        refs.push(ref2);
+        next.push(id);
+      }
+    }
+    if (refs.length > 0) levels.push({ depth: d, refs });
+    frontier = next;
+  }
+  return { depth, levels, tests, truncated };
+}
+function symbolsStamp(contentMd5, extractorVersion = EXTRACTOR_VERSION) {
+  return `${contentMd5}:${extractorVersion}`;
+}
+function fileRefKey(f) {
+  return `${f.repo}\0${f.path}`;
+}
+function fileMd5(absPath) {
+  try {
+    return createHash2("md5").update(readFileSync7(absPath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+function staleFiles(db2, files) {
+  const roots = /* @__PURE__ */ new Map();
+  const checked = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    const key = fileRefKey(f);
+    if (checked.has(key)) continue;
+    if (!roots.has(f.repo)) roots.set(f.repo, resolveSoleRepo(db2, f.repo)?.path ?? null);
+    const root = roots.get(f.repo);
+    if (root === null) {
+      checked.set(key, false);
+      continue;
+    }
+    const row = db2.get(
+      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
+      [f.repo, f.path]
+    );
+    const disk = fileMd5(join16(root, f.path));
+    checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
+  }
+  return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
 }
 
 // src/world-model/concepts.ts
@@ -42702,7 +42788,7 @@ function deriveDirectoryEntries(out2) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename8(dirPath);
-  const join22 = (names) => {
+  const join23 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -42713,10 +42799,10 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join22(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join23(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join22(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join23(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
@@ -43490,7 +43576,7 @@ import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 import { existsSync as existsSync13, mkdirSync as mkdirSync7, readFileSync as readFileSync9, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { dirname as dirname11, isAbsolute as isAbsolute5, join as join18 } from "node:path";
@@ -43609,7 +43695,7 @@ function cliConfigFingerprint(projectRoot) {
     },
     installedPlugins: readJson(join18(home, ".claude", "plugins", "installed_plugins.json"))
   };
-  return createHash2("sha256").update(stableJson(inputs)).digest("hex");
+  return createHash3("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot) {
   return join18(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
@@ -44800,6 +44886,8 @@ function cheatcodeTools(db2) {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync13 } from "node:child_process";
+import { readFileSync as readFileSync11, realpathSync as realpathSync6 } from "node:fs";
+import { isAbsolute as isAbsolute6, join as join20, relative as relative3 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -44807,6 +44895,8 @@ var UNMERGED_WORK_MAX_BRANCHES = 10;
 var SYMBOL_POOL = 40;
 var FILE_RANK_POOL = 20;
 var PATH_RANK_K = 10;
+var DEFAULT_IMPACT_DEPTH = 2;
+var SOURCE_MAX_LINES = 200;
 function git3(repoPath, args2) {
   return spawnSync13("git", ["-C", repoPath, ...args2], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
 }
@@ -44938,7 +45028,33 @@ function framedSymbol(s) {
     doc: s.doc ? frameUntrusted("symbol-doc", s.doc) : ""
   };
 }
-function symbolResult(symbol2, score) {
+function symbolSource(db2, symbol2) {
+  const rootArg = resolveSoleRepo(db2, symbol2.repo)?.path;
+  if (!rootArg) return { source: null, source_reason: "repo-path-unknown" };
+  let root;
+  let file2;
+  try {
+    root = realpathSync6(rootArg);
+    file2 = realpathSync6(join20(root, symbol2.path));
+  } catch {
+    return { source: null, source_reason: "file-missing" };
+  }
+  const rel = relative3(root, file2);
+  if (rel === "" || rel.startsWith("..") || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
+  let lines2;
+  try {
+    lines2 = readFileSync11(file2, "utf8").split("\n");
+  } catch {
+    return { source: null, source_reason: "file-unreadable" };
+  }
+  const start2 = Math.max(1, symbol2.start_line);
+  const end = Math.min(symbol2.end_line, lines2.length);
+  const truncated = end - start2 + 1 > SOURCE_MAX_LINES;
+  const last = truncated ? start2 + SOURCE_MAX_LINES - 1 : end;
+  const text = frameUntrusted("symbol-source", lines2.slice(start2 - 1, last).join("\n"));
+  return { source: { start_line: start2, end_line: last, text, truncated } };
+}
+function symbolResult(symbol2, score, stale) {
   const s = framedSymbol(symbol2);
   return {
     kind: "symbol",
@@ -44951,6 +45067,7 @@ function symbolResult(symbol2, score) {
     line_end: s.end_line,
     signature: s.signature,
     doc: s.doc,
+    stale,
     score
   };
 }
@@ -44963,10 +45080,10 @@ function fileHit(node) {
 function symbolHit(node) {
   return { kind: "symbol", key: `symbol:${node.id}`, node };
 }
-function hitResult(hit, score) {
+function hitResult(hit, score, stale) {
   if (hit.kind === "dir") return dirResult({ ...hit.node, score });
   if (hit.kind === "file") return fileResult({ ...hit.node, score });
-  return symbolResult(hit.node, score);
+  return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)));
 }
 function isBuildOutput(path2) {
   return /(^|\/)dist\//.test(path2) || path2.endsWith(".map");
@@ -45130,7 +45247,7 @@ function worldModelTools(db2, graphHolder2) {
     },
     {
       name: "world_model_search",
-      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'; without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
+      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'|'symbol'; a symbol hit carries stale: true when its file changed on disk since the last scan. Without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
       inputSchema: {
         type: "object",
         properties: {
@@ -45158,7 +45275,7 @@ function worldModelTools(db2, graphHolder2) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -45169,7 +45286,15 @@ function worldModelTools(db2, graphHolder2) {
             description: "Repo name. Defaults to the sole registered repo; required in multi-repo projects without id."
           },
           path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
-          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." }
+          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+          impact: {
+            type: ["boolean", "integer"],
+            description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`
+          },
+          source: {
+            type: "boolean",
+            description: "Add source {start_line, end_line, text, truncated}: the body read from disk, capped at 200 lines, text framed as untrusted content."
+          }
         },
         required: ["agent"]
       }
@@ -45311,7 +45436,12 @@ function worldModelTools(db2, graphHolder2) {
         const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
         const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
         const respond = (ranked, extra = {}) => {
-          const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
+          const top = ranked.slice(0, k);
+          const stale = staleFiles(
+            db2,
+            top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
+          );
+          const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
           return ok20({ results, total_matched: results.length, ...extra, mode, match });
         };
         if (mode === "keyword") return respond(keywordRanked);
@@ -45367,8 +45497,24 @@ function worldModelTools(db2, graphHolder2) {
           }
           symbol2 = matches[0];
         }
+        const impactArg = args2["impact"];
+        let impactDepth = null;
+        if (impactArg === true) impactDepth = DEFAULT_IMPACT_DEPTH;
+        else if (typeof impactArg === "number") {
+          if (!Number.isInteger(impactArg) || impactArg < 1 || impactArg > IMPACT_MAX_DEPTH) {
+            return err19(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+          }
+          impactDepth = impactArg;
+        } else if (impactArg !== void 0 && impactArg !== false && impactArg !== null) {
+          return err19(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+        }
         const card = symbolCard(db2, symbol2);
-        return ok20({ ...card, symbol: framedSymbol(card.symbol) });
+        return ok20({
+          ...card,
+          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
+          ...impactDepth !== null ? { impact: symbolImpact(db2, symbol2, impactDepth) } : {},
+          ...args2["source"] === true ? symbolSource(db2, symbol2) : {}
+        });
       })
     ),
     world_model_concepts: requireRoles(
@@ -45417,15 +45563,15 @@ function worldModelTools(db2, graphHolder2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync15, readdirSync as readdirSync4, readFileSync as readFileSync11, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync15, readdirSync as readdirSync4, readFileSync as readFileSync12, statSync as statSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename9, join as join20 } from "node:path";
+import { basename as basename9, join as join21 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function readRecords(path2) {
   let text;
   try {
-    text = readFileSync11(path2, "utf8");
+    text = readFileSync12(path2, "utf8");
   } catch {
     return [];
   }
@@ -45448,7 +45594,7 @@ function messageOf(r) {
 function taskIdFromTranscript(path2) {
   let text;
   try {
-    text = readFileSync11(path2, "utf8");
+    text = readFileSync12(path2, "utf8");
   } catch {
     return null;
   }
@@ -45566,22 +45712,22 @@ function sessionSpawnTypes(records) {
   return out2;
 }
 function defaultTranscriptsDir(projectRoot) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join20(homedir4(), ".claude");
-  return join20(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join21(homedir4(), ".claude");
+  return join21(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
   for (const name2 of readdirSync4(dir).sort()) {
-    const p = join20(dir, name2);
+    const p = join21(dir, name2);
     if (name2.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join20(p, "subagents");
+    const sub = join21(p, "subagents");
     if (!existsSync15(sub) || !statSync4(sub).isDirectory()) continue;
     for (const f of readdirSync4(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join20(sub, f), session: name2 });
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join21(sub, f), session: name2 });
     }
   }
   return { sessions, subagents };
@@ -45590,7 +45736,7 @@ function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
   if (existsSync15(meta3)) {
     try {
-      const t = normalizeRole(JSON.parse(readFileSync11(meta3, "utf8"))["agentType"]);
+      const t = normalizeRole(JSON.parse(readFileSync12(meta3, "utf8"))["agentType"]);
       if (t) return t;
     } catch {
     }
@@ -45830,24 +45976,24 @@ function agentRunsBackfillTools(db2, dbPath2) {
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync12, realpathSync as realpathSync6 } from "node:fs";
-import { join as join21 } from "node:path";
+import { readFileSync as readFileSync13, realpathSync as realpathSync7 } from "node:fs";
+import { join as join22 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join21(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join22(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join21(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join22(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync6(dir);
+    return realpathSync7(dir);
   } catch {
     return dir;
   }
 }
 function readJsonObject(path2) {
   try {
-    const parsed = JSON.parse(readFileSync12(path2, "utf8"));
+    const parsed = JSON.parse(readFileSync13(path2, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -45855,9 +46001,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join21(claudeConfigDir(env), "settings.json"),
-    join21(project, ".claude", "settings.json"),
-    join21(project, ".claude", "settings.local.json")
+    join22(claudeConfigDir(env), "settings.json"),
+    join22(project, ".claude", "settings.json"),
+    join22(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {
@@ -46667,6 +46813,42 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
   stdin.on("close", () => shutdown2("stdin-close"));
 }
 
+// src/startup-catchup.ts
+import { spawn as spawn3 } from "node:child_process";
+import { existsSync as existsSync16 } from "node:fs";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
+var RUN_SCAN_SCRIPT = fileURLToPath7(new URL("../../../scripts/maintenance/run-scan.mjs", import.meta.url));
+function decideStartupCatchup(opts) {
+  const script = opts.script ?? RUN_SCAN_SCRIPT;
+  const exists = opts.exists ?? existsSync16;
+  if (opts.dbPath === ":memory:") return { spawn: false, reason: "memory-db" };
+  if (opts.env["TMB_SKIP_AUTO_RESCAN"] === "1") return { spawn: false, reason: "skip-env" };
+  if (opts.env["NODE_TEST_CONTEXT"]) return { spawn: false, reason: "test-context" };
+  const projectRoot = opts.env["CLAUDE_PROJECT_DIR"]?.trim();
+  if (!projectRoot) return { spawn: false, reason: "no-project-root" };
+  if (!exists(script)) return { spawn: false, reason: "script-missing" };
+  return { spawn: true, script, projectRoot, reason: "spawned" };
+}
+function startStartupCatchup(dbPath2) {
+  const decision = decideStartupCatchup({ dbPath: dbPath2, env: process.env });
+  if (decision.spawn) {
+    try {
+      const child = spawn3(process.execPath, [...process.execArgv, decision.script, decision.projectRoot], {
+        detached: true,
+        stdio: "ignore",
+        env: { ...process.env, TRAJECTORY_DB_PATH: dbPath2 }
+      });
+      child.on("error", (e) => serverLog({ kind: "startup_catchup_error", error_message: e.message }));
+      child.unref();
+    } catch (e) {
+      serverLog({ kind: "startup_catchup", spawned: false, reason: "spawn-error", error_message: e.message });
+      return decision;
+    }
+  }
+  serverLog({ kind: "startup_catchup", spawned: decision.spawn, reason: decision.reason });
+  return decision;
+}
+
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
@@ -46677,7 +46859,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync13(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync14(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -46808,6 +46990,7 @@ serverLog({
   db_path: dbPath,
   legacy_db_no_plugin_meta: db.legacyNoPluginMeta
 });
+startStartupCatchup(dbPath);
 process.stderr.write(`server started (db: ${dbPath})
 `);
 if (db.legacyNoPluginMeta) {

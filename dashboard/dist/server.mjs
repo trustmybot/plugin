@@ -3826,6 +3826,35 @@ function migrateV1toV2(db) {
   }
 }
 
+// ../mcp/trajectory-server/src/utils/repo-paths.ts
+import { dirname as dirname3, isAbsolute as isAbsolute3, resolve as resolve2 } from "node:path";
+
+// ../mcp/trajectory-server/src/tools/containment.ts
+import { isAbsolute as isAbsolute2, join as join6, parse, relative as relative2, sep as sep2 } from "node:path";
+function projectRootFromDbPath(dbPath) {
+  if (!dbPath || dbPath === ":memory:") return null;
+  const segments = dbPath.split(sep2);
+  const idx = segments.lastIndexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+
+// ../mcp/trajectory-server/src/utils/repo-paths.ts
+function repoRowPath(db, path) {
+  if (isAbsolute3(path)) return path;
+  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath);
+  return resolve2(base, path);
+}
+function resolveRepoForSync(db, repoName) {
+  if (repoName) {
+    const row = db.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: repoRowPath(db, row.path) } : null;
+  }
+  const rows = db.all(`SELECT name, path FROM repos`);
+  if (rows.length !== 1) return null;
+  return { name: rows[0].name, path: repoRowPath(db, rows[0].path) };
+}
+
 // ../mcp/trajectory-server/src/parsing/extract.ts
 var SH_BUILTINS = new Set(
   "echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh".split(
@@ -4108,16 +4137,6 @@ function insertAudit(db, entry) {
     (e) => console.error("[embeddings] insertAudit embed failed:", e)
   );
   return id;
-}
-
-// ../mcp/trajectory-server/src/tools/containment.ts
-import { isAbsolute as isAbsolute2, join as join6, parse, relative as relative2, sep as sep2 } from "node:path";
-function projectRootFromDbPath(dbPath) {
-  if (!dbPath || dbPath === ":memory:") return null;
-  const segments = dbPath.split(sep2);
-  const idx = segments.lastIndexOf(".claude");
-  if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
 }
 
 // ../mcp/trajectory-server/src/tools/agent-runs.ts
@@ -4814,23 +4833,6 @@ function conceptsApi(db, url) {
 
 // server/no-embeddings.ts
 var noEmbeddings = () => Promise.reject(new Error("embeddings are not loaded in the dashboard"));
-
-// ../mcp/trajectory-server/src/utils/repo-paths.ts
-import { dirname as dirname3, isAbsolute as isAbsolute3, resolve as resolve2 } from "node:path";
-function repoRowPath(db, path) {
-  if (isAbsolute3(path)) return path;
-  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath);
-  return resolve2(base, path);
-}
-function resolveRepoForSync(db, repoName) {
-  if (repoName) {
-    const row = db.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
-    return row ? { name: row.name, path: repoRowPath(db, row.path) } : null;
-  }
-  const rows = db.all(`SELECT name, path FROM repos`);
-  if (rows.length !== 1) return null;
-  return { name: rows[0].name, path: repoRowPath(db, rows[0].path) };
-}
 
 // ../mcp/trajectory-server/src/sync/backend.ts
 import { spawnSync } from "node:child_process";
