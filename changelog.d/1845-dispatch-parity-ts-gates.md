@@ -1,0 +1,2 @@
+### Fixed
+- **The dispatcher parity test checks TypeScript-only gates** (GH 1845): the parity case in `dispatch.test.sh` ran a `.sh` for every PreToolUse gate, so the TypeScript-only `swe-resume-gate` exited 127 and the case failed. Its direct leg now picks the implementation the way `dispatch.sh` does, running `dist/hooks.js` for a gate listed in `dist/hooks-gates.txt`, and names any registered gate that has neither.
