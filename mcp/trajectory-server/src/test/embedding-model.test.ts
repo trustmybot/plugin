@@ -8,6 +8,7 @@ import {
   embedFailThreshold,
   embedRetryDelayMs,
   resetEmbeddingModelForTests,
+  setEmbeddingLoader,
   __setClockForTests,
   type EmbeddingLoader,
 } from '../embeddings/model.js';
@@ -283,6 +284,17 @@ describe('embedding model state', () => {
     advance(250);
     await embed('b');
     assert.equal(embeddingStatus().next_retry_at, iso(T0 + 500));
+  });
+
+  it('setEmbeddingLoader with a rejecting loader degrades without running the previous loader (GH 1758)', async () => {
+    const m = mockLoader();
+    resetEmbeddingModelForTests(m.loader);
+    setEmbeddingLoader(() => Promise.reject(new Error('embeddings are not loaded in the dashboard')));
+    assert.equal(await embed('hello'), null);
+    const status = embeddingStatus();
+    assert.equal(status.state, 'degraded');
+    assert.match(status.reason!, /embeddings are not loaded in the dashboard/);
+    assert.equal(m.loads, 0);
   });
 
   it('re-attempt schedule is 1 min, 5 min, then every 10 min; TMB_EMBED_RETRY_MS overrides it', () => {
