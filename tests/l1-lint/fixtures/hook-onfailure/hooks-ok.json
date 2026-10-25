@@ -32,6 +32,17 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-observe",
             "timeout": 6
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-ts-helper-gate",
+            "timeout": 6,
+            "onFailure": "block"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-ts-observe",
+            "timeout": 6
           }
         ]
       }
