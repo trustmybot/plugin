@@ -329,6 +329,17 @@ type IssueLeftOpen =
   | { reason: 'issue_has_open_tasks'; tasks: Array<{ task_id: number; status: string }> }
   | { reason: 'tasks_without_review'; tasks: Array<{ task_id: number; commit_sha: string | null }>; review_pending: true };
 
+// task_brief sections (GH 1743): a swe gets 'core' by default and loads the
+// rest on demand; every other caller gets 'all'.
+export const BRIEF_SECTIONS = ['core', 'verification', 'scope', 'history', 'all'] as const;
+export type BriefSection = (typeof BRIEF_SECTIONS)[number];
+const isBriefSection = (v: unknown): v is BriefSection => (BRIEF_SECTIONS as readonly unknown[]).includes(v);
+const BRIEF_SECTION_HINTS = {
+  verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
+  scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
+  history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
+};
+
 // The close-time scope record bro_atomic_close writes into its
 // bro_verification_pass row: the paths outside files[] bro accepted and
 // whether the task's recorded base moved off the merge-base with the target.
@@ -938,12 +949,20 @@ export function compositeTools(
     {
       name: 'task_brief',
       description:
-        "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+        "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none). " +
+        "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, plus a `sections` map of what the others hold), " +
+        "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
+        "Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           task_id: { type: 'number', description: 'Task id to assemble the brief for.' },
+          section: {
+            type: 'string',
+            enum: [...BRIEF_SECTIONS],
+            description: "Part of the brief to return. Default 'core' for swe, 'all' for every other caller.",
+          },
         },
         required: ['agent', 'task_id'],
       },
@@ -1574,6 +1593,12 @@ export function compositeTools(
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
+        const isSwe = normalizeAgent(args['agent'] as string | undefined) === 'swe';
+        const section = args['section'] ?? (isSwe ? 'core' : 'all');
+        if (!isBriefSection(section)) {
+          return err(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(', ')}`);
+        }
+        const want = (s: BriefSection): boolean => section === 'all' || section === s;
 
         const task = db.get<{
           id: number;
@@ -1599,7 +1624,7 @@ export function compositeTools(
         );
         if (!task) return err(`No task with id=${taskId}`);
 
-        if (normalizeAgent(args['agent'] as string | undefined) === 'swe') {
+        if (isSwe) {
           const repoPath = resolveRepoPath(db, task.repo);
           openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null);
           const sentinel = db.get<{ n: number }>(
@@ -1628,139 +1653,149 @@ export function compositeTools(
           repo = resolveSoleRepo(db)?.name ?? '';
         }
 
-        // Scope: the dirs the task's typed files[] touch, resolved in the world model.
-        const dirs = filesToDirs(parseTaskFiles(task.files));
-        let scope_world_model: Array<{
-          dir: string;
-          summary: string | null;
-          children: Array<{ path: string; summary: string | null }>;
-        }> = [];
-        let world_model_warning: string | undefined;
-        const graph = graphHolder?.ensureGraph() ?? null;
-        if (!graph) {
-          world_model_warning = 'world-model-unavailable';
-        } else {
-          const nodes = graph.allDirectoriesForRepo(repo);
-          if (nodes.length === 0) {
-            world_model_warning = 'world-model-empty';
-          } else {
-            const byPath = new Map(nodes.map((n) => [n.path, n]));
-            const childrenByParent = new Map<string, typeof nodes>();
-            for (const n of nodes) {
-              const key = n.parent_path ?? '';
-              if (key === n.path) continue;
-              if (!childrenByParent.has(key)) childrenByParent.set(key, []);
-              childrenByParent.get(key)!.push(n);
-            }
-            scope_world_model = dirs.map((d) => ({
-              dir: d,
-              summary: byPath.get(d)?.summary ?? null,
-              children: (childrenByParent.get(d) ?? []).map((c) => ({
-                path: c.path,
-                summary: c.summary,
-              })),
-            }));
-          }
-        }
-
-        // GH 1741: the brief carries this task's decision/intent rows in full,
-        // the newest issue-level decision (task_id IS NULL), and the last few
-        // other-kind rows truncated; a row another row supersedes is skipped.
-        // Everything else stays reachable through discussion_search.
-        type BriefDiscussion = { id: number; author: string; kind: string; body: string; created_at: string };
-        const NOTE_CAP = 500;
-        const OTHER_ROW_CAP = 8;
-        const historyHint = `discussion_search(issue_id=${task.issue_id}) returns the full history`;
-        const taskRows = db.all<BriefDiscussion>(
-          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
-            WHERE d.issue_id = ? AND d.task_id = ? AND d.kind IN ('decision', 'intent')
-              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)`,
-          [task.issue_id, task.id],
-        );
-        const issueDecision = db.get<BriefDiscussion>(
-          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
-            WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
-              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
-            ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
-          [task.issue_id],
-        );
-        const otherRows = db.all<BriefDiscussion>(
-          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
-            WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
-              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
-            ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
-          [task.issue_id, OTHER_ROW_CAP],
-        );
-        const task_discussions = [...taskRows, ...(issueDecision ? [issueDecision] : []), ...otherRows]
-          .sort((a, b) => (a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1))
-          .map((d) => {
-            if (d.kind === 'decision' || d.kind === 'intent' || d.body.length <= NOTE_CAP) return d;
-            return {
-              ...d,
-              body: d.body.slice(0, NOTE_CAP) + `\n… [truncated; ${historyHint}]`,
-              truncated: true,
-            };
-          });
-        const issueRowCount =
-          db.get<{ n: number }>('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [task.issue_id])?.n ?? 0;
-        const omittedCount = issueRowCount - task_discussions.length;
-        const task_discussions_omitted =
-          omittedCount > 0
-            ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` }
-            : undefined;
-
-        // The latest bro_atomic_close scope record (extras bro accepted, base
-        // moved) — pr-reviewer reads it instead of recomputing the diff.
-        const closeRow = db.get<{ content_json: string | null }>(
-          `SELECT content_json FROM audit
-            WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
-              AND json_extract(content_json, '$.task_id') = ?
-            ORDER BY created_at DESC, id DESC LIMIT 1`,
-          [task.id],
-        );
-        const closeScope = closeRow?.content_json
-          ? ((JSON.parse(closeRow.content_json) as { scope?: Partial<CloseScope> }).scope ?? null)
-          : null;
-        const scope = {
-          files: parseTaskFiles(task.files),
-          extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
-          base_moved: closeScope ? closeScope.base_moved === true : null,
+        const coreSection = (): Record<string, unknown> => {
+          const open_findings = db.all<{
+            id: string;
+            criterion_id: string | null;
+            probe_cmd: string;
+            expected: string;
+            observed: string;
+          }>(
+            `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
+              WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+            [task.id],
+          ).map((f) => ({ ...f }));
+          return {
+            task_id: task.id,
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            title: task.title,
+            objective: task.objective,
+            status: task.status,
+            commit_sha: task.commit_sha,
+            repo,
+            effort: task.effort,
+            spec_body: task.spec_body,
+            files: parseTaskFiles(task.files),
+            open_findings,
+            completion_report: parseStoredReport(task.completion_report),
+            spawn_note: task.spawn_note,
+          };
         };
 
-        const open_findings = db.all<{
-          id: string;
-          criterion_id: string | null;
-          probe_cmd: string;
-          expected: string;
-          observed: string;
-        }>(
-          `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
-            WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
-          [task.id],
-        ).map((f) => ({ ...f }));
+        const scopeSection = (): Record<string, unknown> => {
+          // The dirs the task's typed files[] touch, resolved in the world model.
+          const dirs = filesToDirs(parseTaskFiles(task.files));
+          let scope_world_model: Array<{
+            dir: string;
+            summary: string | null;
+            children: Array<{ path: string; summary: string | null }>;
+          }> = [];
+          let world_model_warning: string | undefined;
+          const graph = graphHolder?.ensureGraph() ?? null;
+          if (!graph) {
+            world_model_warning = 'world-model-unavailable';
+          } else {
+            const nodes = graph.allDirectoriesForRepo(repo);
+            if (nodes.length === 0) {
+              world_model_warning = 'world-model-empty';
+            } else {
+              const byPath = new Map(nodes.map((n) => [n.path, n]));
+              const childrenByParent = new Map<string, typeof nodes>();
+              for (const n of nodes) {
+                const key = n.parent_path ?? '';
+                if (key === n.path) continue;
+                if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+                childrenByParent.get(key)!.push(n);
+              }
+              scope_world_model = dirs.map((d) => ({
+                dir: d,
+                summary: byPath.get(d)?.summary ?? null,
+                children: (childrenByParent.get(d) ?? []).map((c) => ({
+                  path: c.path,
+                  summary: c.summary,
+                })),
+              }));
+            }
+          }
+
+          // The latest bro_atomic_close scope record (extras bro accepted, base
+          // moved) — pr-reviewer reads it instead of recomputing the diff.
+          const closeRow = db.get<{ content_json: string | null }>(
+            `SELECT content_json FROM audit
+              WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
+                AND json_extract(content_json, '$.task_id') = ?
+              ORDER BY created_at DESC, id DESC LIMIT 1`,
+            [task.id],
+          );
+          const closeScope = closeRow?.content_json
+            ? ((JSON.parse(closeRow.content_json) as { scope?: Partial<CloseScope> }).scope ?? null)
+            : null;
+          const scope = {
+            files: parseTaskFiles(task.files),
+            extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
+            base_moved: closeScope ? closeScope.base_moved === true : null,
+          };
+          return { scope, scope_world_model, ...(world_model_warning ? { world_model_warning } : {}) };
+        };
+
+        const historySection = (): Record<string, unknown> => {
+          // GH 1741: the brief carries this task's decision/intent rows in full,
+          // the newest issue-level decision (task_id IS NULL), and the last few
+          // other-kind rows truncated; a row another row supersedes is skipped.
+          // Everything else stays reachable through discussion_search.
+          type BriefDiscussion = { id: number; author: string; kind: string; body: string; created_at: string };
+          const NOTE_CAP = 500;
+          const OTHER_ROW_CAP = 8;
+          const historyHint = `discussion_search(issue_id=${task.issue_id}) returns the full history`;
+          const taskRows = db.all<BriefDiscussion>(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.task_id = ? AND d.kind IN ('decision', 'intent')
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)`,
+            [task.issue_id, task.id],
+          );
+          const issueDecision = db.get<BriefDiscussion>(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+              ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
+            [task.issue_id],
+          );
+          const otherRows = db.all<BriefDiscussion>(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+              ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
+            [task.issue_id, OTHER_ROW_CAP],
+          );
+          const task_discussions = [...taskRows, ...(issueDecision ? [issueDecision] : []), ...otherRows]
+            .sort((a, b) => (a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1))
+            .map((d) => {
+              if (d.kind === 'decision' || d.kind === 'intent' || d.body.length <= NOTE_CAP) return d;
+              return {
+                ...d,
+                body: d.body.slice(0, NOTE_CAP) + `\n… [truncated; ${historyHint}]`,
+                truncated: true,
+              };
+            });
+          const issueRowCount =
+            db.get<{ n: number }>('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [task.issue_id])?.n ?? 0;
+          const omittedCount = issueRowCount - task_discussions.length;
+          const task_discussions_omitted =
+            omittedCount > 0
+              ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` }
+              : undefined;
+          return { task_discussions, ...(task_discussions_omitted ? { task_discussions_omitted } : {}) };
+        };
 
         return ok({
-          task_id: task.id,
-          issue_id: task.issue_id,
-          branch_id: task.branch_id,
-          title: task.title,
-          objective: task.objective,
-          status: task.status,
-          commit_sha: task.commit_sha,
-          repo,
-          effort: task.effort,
-          spec_body: task.spec_body,
-          files: parseTaskFiles(task.files),
-          verification: parseTaskFiles(task.verification),
-          scope,
-          verification_run: latestVerificationRun(db, task.id),
-          open_findings,
-          completion_report: parseStoredReport(task.completion_report),
-          spawn_note: task.spawn_note,
-          scope_world_model,
-          ...(world_model_warning ? { world_model_warning } : {}),
-          task_discussions,
-          ...(task_discussions_omitted ? { task_discussions_omitted } : {}),
+          ...(want('core') ? coreSection() : {}),
+          ...(section === 'core' ? { sections: BRIEF_SECTION_HINTS } : {}),
+          ...(want('verification')
+            ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db, task.id) }
+            : {}),
+          ...(want('scope') ? scopeSection() : {}),
+          ...(want('history') ? historySection() : {}),
         });
       }),
     ),

@@ -152,7 +152,7 @@ Embeddings are computed on demand: each `semantic` or `hybrid` search embeds up 
 
 ## Consumers
 
-`task_brief(task_id)` (a composite in `tools/composites.ts`) is the world model's main programmatic consumer: it parses a task spec's `## Files`, resolves those directories against the world model (each dir's summary + its children's), and bundles that with the task row + the issue's discussion thread into one read. swe receives this brief instead of orchestrating `task_get` + `world_model_get` + `discussion_search` itself — the Architect→SWE handoff. Decision record: issue #300.
+`task_brief(task_id)` (a composite in `tools/composites.ts`) is the world model's main programmatic consumer: it parses a task spec's `## Files`, resolves those directories against the world model (each dir's summary + its children's), and bundles that with the task row + the issue's discussion thread into one read. Its `section` argument splits the read (GH 1743): swe gets `core` by default and loads `scope` (the world-model part), `verification` and `history` on demand; every other caller gets `all`. swe receives this brief instead of orchestrating `task_get` + `world_model_get` + `discussion_search` itself — the Architect→SWE handoff. Decision record: issue #300.
 
 ## Design history
 
