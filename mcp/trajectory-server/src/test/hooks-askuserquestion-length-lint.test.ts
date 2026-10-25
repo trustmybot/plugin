@@ -62,6 +62,7 @@ describe('askuserquestion-length-lint (TS)', () => {
     const nbsp = ask([{ label: 'a b c d e f' }]);
     assert.equal(context(nbsp, C), null);
     assert.match(context(nbsp, UTF8) ?? '', /label is 6 words/);
+    assert.match(context(nbsp, { LC_ALL: 'UTF-8' }) ?? '', /label is 6 words/, 'the bare UTF-8 locale splits on NBSP too');
     assert.equal(context(ask([{ label: 'a　b　c　d　e　f' }]), UTF8), null);
   });
 

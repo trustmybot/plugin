@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "D=@SANDBOX@/outside; mkdir -p \"$D/sub\"",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus"
+}

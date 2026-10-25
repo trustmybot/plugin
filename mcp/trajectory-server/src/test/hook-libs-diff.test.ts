@@ -537,6 +537,7 @@ function buildCases(): Case[] {
   add('tmb_deny_db_unavailable', 'empty', [''], { env: { TRAJECTORY_DB_PATH: empty } });
   add('tmb_deny_db_unavailable', 'unresolved', [], { cwd: join(R, 'nodb') });
   add('tmb_deny_db_unavailable', 'escaped', ['a"b\\c'], { env: { TRAJECTORY_DB_PATH: join(R, 'odd"dir\ttab/x.db') } });
+  add('tmb_deny_db_unavailable', 'del-escaped', ['g\x7fh'], { env: { TRAJECTORY_DB_PATH: exlock, ...fast } });
 
   const tasksSql = 'SELECT id, branch_id, repo FROM tasks ORDER BY id;';
   add('tmb_gate_read', 'warm', [warm, tasksSql]);
@@ -552,6 +553,8 @@ function buildCases(): Case[] {
   add('tmb_gate_read', 'values', [warm, "SELECT 1.0, 2.5, 1e20, 1e-5, 0.1+0.2, -0.0, NULL, x'414200', 'a|b', 100000.0, 1e15;"]);
   add('tmb_gate_read', 'multi-statement', [warm, 'SELECT 1; SELECT 2;']);
   add('tmb_gate_read', 'partial-error', [warm, 'SELECT 1; SELECT nope;']);
+  add('tmb_gate_read', 'double-quoted-literal', [warm, 'SELECT "dq";']);
+  add('tmb_gate_read', 'foreign-keys-off', [warm, 'PRAGMA foreign_keys;']);
   add('tmb_sqlite_ro', 'warm', [warm, tasksSql]);
   add('tmb_sqlite_ro', 'timeout', [exlock, 'SELECT 1;']);
   add('tmb_sqlite_ro', 'sql-error', [warm, 'SELECT nope;']);
@@ -565,6 +568,14 @@ function buildCases(): Case[] {
   add('op_budget', 'cold', [join(m, 'cold-budget.db'), '1000', 'SELECT count(*) FROM tasks;']);
   add('op_budget', 'bad-budget', [warm, 'x', 'SELECT 9;']);
   add('op_budget', 'meta-error', [warm, '1000', '.bogus\nSELECT 4;']);
+  add('op_budget', 'param-single-quoted', [warm, '1000', ".parameter set :s 'a b'\nSELECT :s, typeof(:s);"]);
+  add('op_budget', 'param-double-quoted', [warm, '1000', '.parameter set :s "a\\tb"\nSELECT :s;']);
+  add('op_budget', 'param-sql-literal', [warm, '1000', `.parameter set :s "'x y'"\nSELECT :s, typeof(:s);`]);
+  add('op_budget', 'killed-partial', [
+    warm,
+    '1000',
+    'SELECT 1;\nWITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 100000000) SELECT count(*) FROM c;',
+  ]);
 
   add('_tmb_db_immutable_uri', 'absolute', ['/a/b%c?d#e.db']);
   add('_tmb_db_immutable_uri', 'relative', ['x/y.db'], { cwd: link });
@@ -599,6 +610,7 @@ function buildCases(): Case[] {
     ['empty', ''],
     ['inner-newline', "a\nb'c"],
     ['trailing-newline', "x'\n"],
+    ['trailing-newlines', 'x\n\n'],
   ]) {
     add('tmb_sql_quote', label, [v]);
   }
@@ -657,6 +669,7 @@ function buildCases(): Case[] {
   add('tmb_caller_run', 'null-task', [swe({ agent_id: 'agent-null' }), warm]);
   add('tmb_caller_run', 'no-row', [swe({ agent_id: 'agent-none' }), warm]);
   add('tmb_caller_run', 'quoted-id', [swe({ agent_id: "a'b" }), warm]);
+  add('tmb_caller_run', 'trailing-newline-id', [swe({ agent_id: 'agent-bound\n' }), warm]);
   add('tmb_caller_run', 'reviewer-row', [swe({ agent_id: 'agent-rev' }), warm]);
   add('tmb_caller_run', 'busy', [swe({ agent_id: 'agent-bound' }), exlock], { env: fast });
 
@@ -727,6 +740,7 @@ function buildCases(): Case[] {
   add('tmb_audit_dedupe_guard', 'no-path', ['hook_block_bypassed', content]);
   add('tmb_audit_dedupe_guard', 'invalid-path', ['hook_block_bypassed', content, '$.a[0]']);
   add('tmb_audit_dedupe_guard', 'empty-content', ["it's", '', '$.x']);
+  add('tmb_audit_dedupe_guard', 'trailing-newline-content', ['hook_block_bypassed', `${content}\n`, '$.task_id']);
 
   add('tmb_audit_sql', 'hook', ['1', 'feat/x', 'hook:containment-guard', 'containment_denied', "it's", content]);
   add('tmb_audit_sql', 'system', ['-1', '', 'system', 'agent_runs_claimed', 's', '']);
@@ -740,6 +754,7 @@ function buildCases(): Case[] {
   add('tmb_audit_sql', 'system-hook-event', ['1', '', 'system', 'containment_denied', 's', '{}']);
   add('tmb_audit_sql', 'bad-issue', ['x1', '', 'hook:h', 'containment_denied', 's', '{}']);
   add('tmb_audit_sql', 'empty-issue', ['', '', 'hook:h', 'containment_denied', 's', '{}']);
+  add('tmb_audit_sql', 'trailing-newlines', ['1', '', 'hook:h', 'containment_denied', "s'\n\n", `${content}\n`]);
 
   add('tmb_db_write', 'insert', [audit, `INSERT INTO audit (issue_id, from_node, event_type, summary, created_at) VALUES (1, 'hook:w', 'raw_write', 'r', '${NOW}');`]);
   add('tmb_db_write', 'stdout', [audit, 'SELECT 40 + 2;\nSELECT count(*) FROM issues;']);

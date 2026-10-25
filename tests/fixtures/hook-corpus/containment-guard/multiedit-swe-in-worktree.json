@@ -1,0 +1,18 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/cg-task",
+  "tool_name": "MultiEdit",
+  "tool_input": {
+    "file_path": "@SANDBOX@/project/.claude/worktrees/cg-task/src/m.ts",
+    "edits": [
+      {
+        "old_string": "a",
+        "new_string": "b"
+      }
+    ]
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/spawn-5.jsonl",
+  "tool_use_id": "tu-corpus"
+}

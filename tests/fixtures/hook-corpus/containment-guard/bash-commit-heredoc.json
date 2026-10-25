@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/cg-task",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git commit -F - <<'EOF'\nfeat: x > /etc/passwd\n\nCo-Authored-By: a <a@b>\nEOF",
+    "description": "corpus"
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/spawn-5.jsonl",
+  "tool_use_id": "tu-corpus"
+}

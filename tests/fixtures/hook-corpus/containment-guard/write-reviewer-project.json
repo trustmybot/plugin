@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "@SANDBOX@/project/review.md",
+    "content": "x"
+  },
+  "agent_type": "tmb:pr-reviewer",
+  "tool_use_id": "tu-corpus"
+}

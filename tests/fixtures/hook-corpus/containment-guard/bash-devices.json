@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/cg-task",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo x > /dev/null 2>/dev/stderr; echo y > /dev/fd/2; echo z >/dev/tty",
+    "description": "corpus"
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/spawn-5.jsonl",
+  "tool_use_id": "tu-corpus"
+}

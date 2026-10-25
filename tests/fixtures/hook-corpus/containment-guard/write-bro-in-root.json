@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "@SANDBOX@/project/src/a.ts",
+    "content": "x"
+  },
+  "tool_use_id": "tu-corpus"
+}

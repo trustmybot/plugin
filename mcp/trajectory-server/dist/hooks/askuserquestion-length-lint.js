@@ -7,8 +7,8 @@
  * into a shell variable, words are counted like `wc -w` and preview lines
  * like `grep -c '^'`, so both give the same output for the same payload.
  */
-import { existsSync } from 'node:fs';
 import { ALLOW } from './gate.js';
+import { ctypeUtf8 } from './lib/project-env.js';
 const LABEL_MAX_WORDS = 5;
 const DESC_MAX_WORDS = 15;
 const PREVIEW_MAX_LINES = 4;
@@ -60,16 +60,8 @@ function fieldText(option, key) {
         throw err;
     }
 }
-function ctypeLocale(env) {
-    return env.LC_ALL || env.LC_CTYPE || env.LANG || 'C';
-}
 // macOS wc -w also splits on U+00A0 (and only that beyond ASCII) under an
 // installed UTF-8 locale.
-function splitsOnNbsp(env) {
-    const locale = ctypeLocale(env);
-    return /\.utf-8$/i.test(locale) && !locale.includes('/')
-        && existsSync(`/usr/share/locale/${locale}/LC_CTYPE`);
-}
 function wordCount(text, nbsp) {
     const separators = nbsp ? /[ \t\n\v\f\r ]+/ : /[ \t\n\v\f\r]+/;
     return text.split(separators).filter((word) => word !== '').length;
@@ -99,7 +91,7 @@ export const askuserquestionLengthLint = (payload, env) => {
     const input = parsePayload(payload);
     if (input === undefined || toolName(input) !== 'AskUserQuestion')
         return ALLOW;
-    const nbsp = splitsOnNbsp(env);
+    const nbsp = ctypeUtf8(env);
     const warnings = [];
     const questions = jqItems(() => jqAlt(jqField(jqField(input, 'tool_input'), 'questions'), []));
     questions.forEach((question, q) => {
