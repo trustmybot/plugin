@@ -1,5 +1,6 @@
+import { AlertIcon, CheckIcon, XCircleIcon, type Icon } from '@primer/octicons-react';
 import { query, type Trust } from '../../api.ts';
-import { BUTTON } from '../../shared/classes.ts';
+import { buttonClass } from '../../ui/Button.tsx';
 
 export const CONCEPT_COPY = {
   placeholder: 'Search concepts or functions…',
@@ -11,17 +12,16 @@ export const CONCEPT_COPY = {
   showTable: 'Show as table',
 };
 
-export const TRUST_LABEL: Record<Trust, { icon: string; label: string }> = {
-  verified: { icon: '✓', label: 'Verified' },
-  suspect: { icon: '!', label: 'Suspect' },
-  broken: { icon: '✕', label: 'Broken' },
+export const TRUST_LABEL: Record<Trust, { icon: Icon; label: string }> = {
+  verified: { icon: CheckIcon, label: 'Verified' },
+  suspect: { icon: AlertIcon, label: 'Suspect' },
+  broken: { icon: XCircleIcon, label: 'Broken' },
 };
 
 export const DERIVED_ID = 'derived';
 export const MIN_QUERY = 2;
-export const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:focus-visible:outline-blue-400';
-export const MUTED = 'text-zinc-600 dark:text-zinc-400';
-export const TARGET = `${BUTTON} min-h-6 ${FOCUS}`;
+export const MUTED = 'text-fg-muted';
+export const TARGET = `${buttonClass('invisible', 'small')} aria-pressed:bg-(--button-invisible-bgColor-active) aria-expanded:bg-(--button-invisible-bgColor-active)`;
 
 export const stepCount = (n: number) => `${n} ${n === 1 ? 'step' : 'steps'}`;
 

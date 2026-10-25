@@ -1,0 +1,2 @@
+### Changed
+- **The dashboard's Concepts tab looks like GitHub and follows light and dark mode** (GH 1790): search has a search icon. Results are a bordered list with a step counter and coloured trust labels, and the selected concept is highlighted with an accent edge. Steps and the graph sit in GitHub-style boxes, and every code path has a copy button. The concept graph now draws in the theme colours, with a coloured dot per directory, so it stays readable in dark mode. On a phone the list, steps and graph stack and the graph scrolls inside its box.
