@@ -103,7 +103,7 @@ fi
 # --- Duplicate enabled copies (read only) -----------------------------------
 dup_installs=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-}" 2>/dev/null || true)
 if [ -n "$dup_installs" ]; then
-  DUP_TEXT="TMB WARNING: $(printf '%s\n' "$dup_installs" | grep -c .) copies of the $(_tmb_install_plugin_name) plugin are enabled for this project ($(tmb_duplicate_installs_names "$dup_installs")). Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors, so TMB's gates may be missing while its MCP tools still work. Remedy: run /plugin and disable the extra copy."
+  DUP_TEXT="TMB WARNING: $(printf '%s\n' "$dup_installs" | grep -c .) copies of the $(_tmb_install_plugin_name) plugin are enabled for this project ($(tmb_duplicate_installs_names "$dup_installs")). Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a plugin load error, so TMB's gates may be missing while its MCP tools still work. Remedy: keep one copy and disable the others from the project root, one of: $(tmb_duplicate_installs_disable_cmds "$dup_installs"); then fully quit and relaunch Claude Code."
   CONTEXT="${CONTEXT:+$CONTEXT
 
 }${DUP_TEXT}"

@@ -434,7 +434,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       source: 'files',
       id: 'single_tmb_plugin_enabled',
       severity: 'error',
-      description: 'at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB\'s gates — run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable',
+      description: 'at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB\'s gates — from the project root, run `claude plugin disable <plugin>@<marketplace> --scope <scope>` for the extra copy, then fully quit and relaunch Claude Code. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable', // cli-config-scope: printed
       expect: { op: '<=', value: 1 },
       check: singleTmbPluginEnabled,
     },

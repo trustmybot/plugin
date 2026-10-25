@@ -158,7 +158,8 @@ out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-2"}')
 ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
 assert_contains "$ctx" "2 copies of the tmb plugin are enabled for this project (trustmybot-dev@1.0.3, trustmybot-rc@1.0.2-rc.3)" "names both copies"
 assert_contains "$ctx" "registers the hooks of only one of them" "names the failure mode"
-assert_contains "$ctx" "run /plugin and disable the extra copy" "names the remedy"
+assert_contains "$ctx" "Remedy: keep one copy and disable the others from the project root, one of: claude plugin disable tmb@trustmybot-dev --scope local; claude plugin disable tmb@trustmybot-rc --scope local; then fully quit and relaunch Claude Code." "names a scoped disable per copy and a full restart"
+assert_eq "" "$(printf '%s\n' "$ctx" | grep -E '(^|[ `"'"'"'(])/(plugin|reload-plugins|mcp)([ `"'"'"'),.;:]|$)' || true)" "names no /plugin, /reload-plugins or /mcp"
 
 test_case "duplicate copies: two installed, one disabled is silent"
 reset 1

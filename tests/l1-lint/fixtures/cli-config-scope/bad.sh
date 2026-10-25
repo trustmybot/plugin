@@ -56,3 +56,7 @@ ok=`claude mcp remove "$name"` # VIOLATION
 bash <<EOF
 claude plugin install foo # VIOLATION
 EOF
+echo "claude plugin disable foo --scope local cli-config-scope: printed" # VIOLATION
+cat <<'NOTES'
+claude plugin enable foo --scope local # VIOLATION
+NOTES

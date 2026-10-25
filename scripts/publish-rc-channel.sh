@@ -184,7 +184,7 @@ mv "$UPDATED_JSON" "$MARKETPLACE_JSON"
 README_CREATED=0
 if [ ! -f "$README" ]; then
   README_CREATED=1
-  cat > "$README" <<'EOF'
+  cat > "$README" <<'EOF' # cli-config-scope: printed
 # TMB plugin marketplace — RC
 
 Catalog for the **rc channel** of the [TMB plugin](https://github.com/trustmybot/plugin). Pins the latest `vX.Y.Z-rc.N` tag under validation — the release candidate that's passed the local L6 chain and is being re-confirmed by the CI release-gate before it ships as stable. Use this when you want to dogfood a build that's close to release but ahead of the stable channel.
@@ -202,11 +202,13 @@ The rc channel installs as `tmb` (same name as the released plugin), so only one
 
 ### Disable any existing `tmb` install first
 
+From the project root, with `<marketplace>` the channel it came from (e.g. `trustmybot`):
+
 ```
-/plugin disable tmb
+claude plugin disable tmb@<marketplace> --scope local
 ```
 
-Use `/plugin disable` rather than uninstalling so you can flip back to the released channel with `/plugin enable tmb` when done.
+Disable rather than uninstall so you can flip back to the released channel with `claude plugin enable tmb@<marketplace> --scope local` when done. Fully quit and relaunch Claude Code after each change; a plugin change applies only on a fresh start.
 
 The rc channel is a per-developer choice, so every command here installs at local scope; see [Recommended scope](https://github.com/trustmybot/plugin/blob/main/docs/reference/INSTALL.md#recommended-scope-project-or-local).
 
@@ -219,14 +221,16 @@ claude plugin marketplace update trustmybot-rc
 claude plugin update tmb@trustmybot-rc --scope local
 ```
 
-`/reload-plugins` only re-reads what CC already has on disk; you need `marketplace update` + `update` to fetch the newly-pinned tag from the remote.
+A restart alone only loads what CC already has on disk; you need `marketplace update` + `update` to fetch the newly-pinned tag from the remote, then fully quit and relaunch Claude Code.
 
 ## Flip back to the released channel when done
 
 ```
 claude plugin uninstall tmb@trustmybot-rc --scope local
-/plugin enable tmb
+claude plugin enable tmb@<marketplace> --scope local
 ```
+
+Then fully quit and relaunch Claude Code.
 
 ## Channel routing
 

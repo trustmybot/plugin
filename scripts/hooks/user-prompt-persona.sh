@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook — the fallback for bro's persona. When this session has
 # no persona marker (<project>/.claude/<plugin>/sessions/<session_id>.persona,
-# written by session-start-persona.sh), as after installing the plugin
-# mid-session and running /reload-plugins, it injects the same context once and
+# written by session-start-persona.sh), as after the plugin's hooks are
+# reloaded mid-session, it injects the same context once and
 # writes the marker. When the plugin's CLAUDE.md cannot be read it shows the
 # Human a plain notice to start a new session instead, once per session.
 #

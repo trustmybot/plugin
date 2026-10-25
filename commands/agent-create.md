@@ -42,4 +42,4 @@ Every agent written by template-copy or from-scratch keeps the `experimental:` /
 ## Post-create reminder
 
 After creation completes, emit (interactive only):
-> *Agent landed at `<project>/.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/reload-plugins`.*
+> *Agent landed at `<project>/.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, fully quit and relaunch Claude Code.*

@@ -28,6 +28,7 @@ cleanup_sidecar_check() {
 trap cleanup_sidecar_check EXIT
 
 DB="$TMPDIR/trajectory.db"
+IN_SESSION_CMD='(^|[ `"'"'"'(])/(plugin|reload-plugins|mcp)([ `"'"'"'),.;:]|$)'
 # Never read the real Claude Code install registry or user settings.
 export TMB_INSTALLED_JSON="$TMPDIR/installed_plugins.json"
 export CLAUDE_CONFIG_DIR="$TMPDIR/claude-config"
@@ -475,7 +476,8 @@ assert_eq "" "$(dup_line)" "no Plugin line"
 test_case "duplicate plugin: two enabled copies for this project add one line naming both"
 printf '{"plugins":{"tmb@trustmybot-dev":[%s],"tmb@trustmybot-rc":[%s]}}' "$(dup_entry local 1.0.3)" "$(dup_entry project 1.0.2-rc.3)" > "$TMB_INSTALLED_JSON"
 echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$LOCAL_SETTINGS"
-assert_eq "Plugin: duplicate tmb copies enabled (trustmybot-dev, trustmybot-rc) — hooks from one are dropped; run /plugin" "$(dup_line)" "Plugin line"
+assert_eq "Plugin: duplicate tmb copies enabled (trustmybot-dev, trustmybot-rc) — hooks from one are dropped; keep one and disable the others from the project root (claude plugin disable tmb@trustmybot-dev --scope local; claude plugin disable tmb@trustmybot-rc --scope project), then fully quit and relaunch Claude Code" "$(dup_line)" "Plugin line names a scoped disable per copy and a full restart"
+assert_eq "" "$(dup_line | grep -E "$IN_SESSION_CMD" || true)" "Plugin line names no /plugin, /reload-plugins or /mcp"
 
 test_case "duplicate plugin: two installed, one disabled is silent"
 echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' > "$LOCAL_SETTINGS"
@@ -497,6 +499,16 @@ assert_eq "" "$(dup_line)" "unreadable installed_plugins.json: no Plugin line"
 assert_eq "" "$(cat "$TMPDIR/dup.err")" "unreadable installed_plugins.json: no stderr"
 chmod 600 "$TMB_INSTALLED_JSON"
 rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
+
+# ---- Version skew: a newer cached version than the running one ----
+test_case "version skew: names a full quit and relaunch, no in-session command"
+SKEW_ROOT="$TMPDIR/skew-cache/trustmybot-dev/tmb/1.0.0"
+mkdir -p "$SKEW_ROOT/.claude-plugin" "$TMPDIR/skew-cache/trustmybot-dev/tmb/1.0.1"
+echo '{"name":"tmb","version":"1.0.0"}' > "$SKEW_ROOT/.claude-plugin/plugin.json"
+skew_ctx=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" CLAUDE_PLUGIN_ROOT="$SKEW_ROOT" TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 HOME="$DUP_HOME" bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)
+skew_line=$(printf '%s\n' "$skew_ctx" | grep '^newer plugin version' || true)
+assert_eq "newer plugin version 1.0.1 is installed but 1.0.0 is still running — fully quit and relaunch Claude Code to apply" "$skew_line" "skew line"
+assert_eq "" "$(printf '%s\n' "$skew_ctx" | grep -E "$IN_SESSION_CMD" || true)" "prescan output names no /plugin, /reload-plugins or /mcp"
 
 # ---- Pre-1.1.0 TMB hooks in the user-scope settings.json ----
 LEGACY_CFG="$CLAUDE_CONFIG_DIR"

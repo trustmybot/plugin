@@ -109,7 +109,7 @@ tmb_active_install() {
 
 # tmb_duplicate_installs <project_dir>
 # Claude Code registers the hooks of only one enabled plugin per manifest name;
-# the other copy's hooks.json is skipped with a note under /plugin Errors. This
+# the other copy's hooks.json is skipped with a plugin load error. This
 # lists the enabled <plugin>@<marketplace> keys of this plugin that apply to
 # <project_dir>, one TSV line each:
 #   <marketplace>\t<version>\t<installPath>\t<scope>
@@ -157,6 +157,13 @@ tmb_duplicate_installs() {
 # tmb_duplicate_installs_names <rows> — "a@1.0.1, b@1.0.2" from tmb_duplicate_installs output.
 tmb_duplicate_installs_names() {
   printf '%s\n' "${1:-}" | awk -F'\t' 'NF { printf "%s%s@%s", (n++ ? ", " : ""), $1, $2 }'
+}
+
+# tmb_duplicate_installs_disable_cmds <rows> — "claude plugin disable a --scope local; …",
+# one per copy from tmb_duplicate_installs output, at the copy's own scope.
+tmb_duplicate_installs_disable_cmds() {
+  printf '%s\n' "${1:-}" | awk -F'\t' -v p="$(_tmb_install_plugin_name)" \
+    'NF { printf "%sclaude plugin disable %s@%s --scope %s", (n++ ? "; " : ""), p, $1, $4 }' # cli-config-scope: printed
 }
 
 tmb_user_settings_json() {

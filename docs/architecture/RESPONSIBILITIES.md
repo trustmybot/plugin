@@ -73,7 +73,7 @@ Bro is the only agent allowed to call:
 
 | Hook | When | Effect |
 |---|---|---|
-| `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin installed mid-session, then `/reload-plugins`) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
+| `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin hooks reloaded mid-session) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
 | `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
 | `session-start-persona.sh` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |

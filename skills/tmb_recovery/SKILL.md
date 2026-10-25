@@ -36,14 +36,14 @@ Two distinct sub-cases — read the `additionalContext` warning from `mcp-health
 
 ### B.1 — MCP absent this session
 
-The plugin's MCP server is missing from CC's resolved-plugin list — `/reload-plugins` and full quit + relaunch won't fix it because CC persists the cached config to disk.
+The plugin's MCP server is missing from CC's resolved-plugin list — a full quit + relaunch won't fix it because CC persists the cached config to disk.
 
 <!-- LOAD-BEARING-SAFETY: halt-on-B.1 (MCP absent) is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
 **During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh`) is still available for emergency reads.
 
 Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
 
-1. `/plugin uninstall tmb@<your-marketplace>`, quit CC fully, then reinstall from your marketplace via `/plugin install tmb@<your-marketplace>` — the marketplace-valid remedy (a standard install has only `~/.claude/plugins/cache/`, no plugin source on disk).
+1. From the project root, `claude plugin uninstall tmb@<your-marketplace> --scope <your-scope>`, quit CC fully, then reinstall with `claude plugin install tmb@<your-marketplace> --scope <your-scope>` and relaunch CC — the marketplace-valid remedy (a standard install has only `~/.claude/plugins/cache/`, no plugin source on disk).
 2. Dev-only: if you have the plugin source checked out, `claude --plugin-dir <plugin-source>` re-resolves the MCP config from disk with the plugin cache cleared.
 
 ### B.2 — MCP died mid-session
@@ -68,6 +68,6 @@ The MCP child process was alive at session start but is now gone — CC's plugin
 The world model is a set of tables in the trajectory DB, so it is reachable whenever the trajectory-server is.
 
 1. **`warning: world-model-empty`** — no scan has filled it yet. Run `/scan` (`scan_run`).
-2. **`warning: world-model-unavailable`**, or `scan_run` returning `graph_db_open_failed` — the server has no handle on the trajectory DB. Treat it as §B.2: reconnect the trajectory-server through `/mcp` (or quit and relaunch CC) so a fresh server process opens the DB.
+2. **`warning: world-model-unavailable`**, or `scan_run` returning `graph_db_open_failed` — the server has no handle on the trajectory DB. Treat it as §B.2: fully quit and relaunch CC so a fresh server process opens the DB.
 
 Scanned data survives a restart — only an empty world model needs `/scan`.

@@ -46,3 +46,8 @@ EOF
 claude plugin enable "$name" --scope project
 command -v claude >/dev/null
 echo "$CLAUDE_PROJECT_DIR"
+UPDATE_CMD="claude plugin update $INSTALL_KEY --scope $INSTALL_SCOPE" # cli-config-scope: printed
+cat > "$README" <<'NOTES' # cli-config-scope: printed
+claude plugin marketplace update trustmybot-rc
+claude plugin disable tmb@<marketplace> --scope local
+NOTES

@@ -5,8 +5,8 @@
 # than the running trajectory-server child process. When drift is found,
 # emits additionalContext with a Tier 2 restart recommendation.
 #
-# CC's deferred-tools registry is session-scoped: /reload-plugins does NOT
-# refresh it for newly-registered MCP tools (upstream CC behavior). This
+# CC's deferred-tools registry is session-scoped: reloading plugins in-session
+# does NOT refresh it for newly-registered MCP tools (upstream CC behavior). This
 # hook provides structural, plugin-side visibility into that drift.
 #
 # Silent no-op when:
@@ -152,7 +152,7 @@ rm -f "$REF_FILE"
 
 count=$(printf '%s\n' "$NEWER_TOOLS" | grep -c . || true)
 
-CONTEXT="[tmb deferred-tools drift] ${count} MCP tool source file(s) on disk are newer than the running trajectory-server child (PID ${MCP_PID}). /reload-plugins is INSUFFICIENT — CC's deferred-tools registry is session-scoped and will not replay tool discovery. Workaround (Tier 2): pkill -f 'trajectory-server/dist/index.js' then quit and relaunch CC to bind the new tools. See #98."
+CONTEXT="[tmb deferred-tools drift] ${count} MCP tool source file(s) on disk are newer than the running trajectory-server child (PID ${MCP_PID}). CC's deferred-tools registry is session-scoped and only a new session replays tool discovery. Workaround (Tier 2): fully quit and relaunch Claude Code to bind the new tools. See #98."
 
 jq -nc --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {
