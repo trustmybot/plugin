@@ -73,6 +73,20 @@ describe('directory tree', () => {
     assert.match(items[2], /aria-level="3"[^>]*aria-expanded="false"[^>]*tabindex="-1"/);
     assert.match(html, /<ul role="group"/);
     assert.match(html, /--control-transparent-bgColor-selected/);
+    assert.equal(html.match(/tabindex="0"/g).length, 1, 'exactly one tab stop');
+    for (const m of html.matchAll(/aria-labelledby="([^"]+)"/g)) assert.ok(html.includes(`<span id="${m[1]}"`), m[1]);
+  });
+
+  test('a selection hidden in a collapsed directory leaves the first item as the tab stop', () => {
+    const html = map.render(
+      FIXTURE,
+      map.h(map.DirectoryTree, { root: ROOT, selected: 'dashboard/web', expanded: new Set(['']), onSelect: noop, onToggle: noop }),
+    );
+    const items = [...html.matchAll(/<li role="treeitem"([^>]*)>/g)].map((m) => m[1]);
+    assert.equal(items.length, 3, 'root, dashboard, hooks');
+    assert.doesNotMatch(html, /aria-current/);
+    assert.match(items[0], /tabindex="0"/);
+    for (const attrs of items.slice(1)) assert.match(attrs, /tabindex="-1"/);
   });
 });
 

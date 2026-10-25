@@ -602,7 +602,7 @@ function Graph({ data }: { data: FileGraph }) {
       <div className={`grid border-t lg:grid-cols-[minmax(0,1fr)_340px] ${BORDER}`}>
         <div
           ref={stage}
-          className="relative min-h-[520px] touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain"
+          className="relative min-h-[520px] overflow-x-auto overflow-y-hidden overscroll-x-contain"
           style={{ height: SH }}
           onMouseLeave={clearHover}
         >

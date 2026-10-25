@@ -1,7 +1,7 @@
 import { FileDirectoryFillIcon, FileDirectoryOpenFillIcon } from '@primer/octicons-react';
 import { useApi, type WmNode, type WorldModel } from '../../api.ts';
 import { TreeView, TreeViewItem } from '../../ui/TreeView.tsx';
-import { childrenOf, childrenPath, dirName } from './paths.ts';
+import { ancestors, childrenOf, childrenPath, dirName } from './paths.ts';
 
 type TreeState = {
   selected: string;
@@ -13,14 +13,17 @@ type TreeState = {
 const ICON = 'text-(--treeViewItem-leadingVisual-iconColor-rest,var(--fgColor-accent))';
 
 export function DirectoryTree({ root, ...state }: TreeState & { root: WmNode }) {
+  const selectedVisible = ancestors(state.selected)
+    .slice(0, -1)
+    .every((p) => state.expanded.has(p));
   return (
     <TreeView label={`Directories in ${root.repo}`}>
-      <DirNode node={root} level={1} {...state} />
+      <DirNode node={root} level={1} tabStop={!selectedVisible} {...state} />
     </TreeView>
   );
 }
 
-function DirNode({ node, level, ...state }: TreeState & { node: WmNode; level: number }) {
+function DirNode({ node, level, tabStop, ...state }: TreeState & { node: WmNode; level: number; tabStop?: boolean }) {
   const open = state.expanded.has(node.path);
   const Icon = open ? FileDirectoryOpenFillIcon : FileDirectoryFillIcon;
   return (
@@ -28,6 +31,7 @@ function DirNode({ node, level, ...state }: TreeState & { node: WmNode; level: n
       level={level}
       label={dirName(node)}
       current={state.selected === node.path}
+      tabStop={tabStop}
       expanded={open}
       leadingVisual={<Icon size={16} className={ICON} />}
       onSelect={() => state.onSelect(node.path)}

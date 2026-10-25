@@ -1,6 +1,6 @@
 // Forked from Primer React TreeView (github.com/primer/react, MIT), rebuilt on Primer --control-* and border tokens without @primer/react.
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useId, type KeyboardEvent, type ReactNode } from 'react';
 
 export function TreeView({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -14,6 +14,7 @@ type ItemProps = {
   level: number;
   label: ReactNode;
   current?: boolean;
+  tabStop?: boolean;
   expanded?: boolean;
   leadingVisual?: ReactNode;
   trailingVisual?: ReactNode;
@@ -24,7 +25,8 @@ type ItemProps = {
 
 const items = (el: HTMLElement) => [...(el.closest('[role="tree"]')?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])];
 
-export function TreeViewItem({ level, label, current = false, expanded, leadingVisual, trailingVisual, onSelect, onToggle, children }: ItemProps) {
+export function TreeViewItem({ level, label, current = false, tabStop = false, expanded, leadingVisual, trailingVisual, onSelect, onToggle, children }: ItemProps) {
+  const id = useId();
   const onKeyDown = (e: KeyboardEvent<HTMLLIElement>) => {
     if (e.target !== e.currentTarget) return;
     const self = e.currentTarget;
@@ -64,10 +66,11 @@ export function TreeViewItem({ level, label, current = false, expanded, leadingV
   return (
     <li
       role="treeitem"
+      aria-labelledby={`${id}-label`}
       aria-level={level}
       aria-expanded={expanded}
       aria-current={current || undefined}
-      tabIndex={current ? 0 : -1}
+      tabIndex={current || tabStop ? 0 : -1}
       onKeyDown={onKeyDown}
       className="outline-none [&:focus-visible>div]:outline-(length:--focus-outline-width) [&:focus-visible>div]:outline-(--focus-outline-color) [&:focus-visible>div]:-outline-offset-2"
     >
@@ -98,7 +101,9 @@ export function TreeViewItem({ level, label, current = false, expanded, leadingV
             </span>
           )}
           {leadingVisual && <span className="flex shrink-0 items-center">{leadingVisual}</span>}
-          <span className="min-w-0 flex-1 truncate">{label}</span>
+          <span id={`${id}-label`} className="min-w-0 flex-1 truncate">
+            {label}
+          </span>
           {trailingVisual && <span className="flex shrink-0 items-center text-xs text-fg-muted">{trailingVisual}</span>}
         </span>
       </div>

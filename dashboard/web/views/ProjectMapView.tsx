@@ -23,12 +23,13 @@ export function ProjectMapView() {
     setSelected(path);
     setExpanded((s) => new Set([...s, ...ancestors(path)]));
   };
-  const toggle = (path: string) =>
-    setExpanded((s) => {
-      const next = new Set(s);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
+  const toggle = (path: string) => {
+    const next = new Set(expanded);
+    if (next.delete(path)) {
+      if (ancestors(selected).includes(path)) setSelected(path);
+    } else next.add(path);
+    setExpanded(next);
+  };
 
   return (
     <Loading q={q}>
