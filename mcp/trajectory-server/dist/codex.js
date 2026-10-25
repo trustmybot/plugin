@@ -30479,11 +30479,12 @@ function requireArg(args2, name2) {
 function optionalId(args2, name2) {
   const raw = args2[name2];
   if (raw === void 0 || raw === null || raw === "") return null;
-  const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) {
-    throw new Error(`${name2} must be a positive integer id (got ${JSON.stringify(raw)})`);
-  }
-  return id;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw > 0) return raw;
+  if (typeof raw === "string" && /^[1-9][0-9]*$/.test(raw)) return Number(raw);
+  throw new Error(`${name2} must be a positive integer id (got ${JSON.stringify(raw)})`);
+}
+function agentName(name2) {
+  return typeof name2 === "string" ? name2.toLowerCase().replace(/^tmb:/, "") : "";
 }
 function wrapHandler(fn) {
   return async (args2) => {
@@ -30580,7 +30581,7 @@ function discussionTools(db) {
           },
           supersedes: {
             type: "string",
-            description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it."
+            description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it."
           },
           verified_human: {
             type: "boolean",
@@ -30829,10 +30830,18 @@ function discussionTools(db) {
         }
         const supersedes = optionalId(args2, "supersedes");
         if (supersedes !== null) {
-          const prior = db.get("SELECT issue_id FROM discussions WHERE id = ?", [supersedes]);
+          const prior = db.get(
+            "SELECT issue_id, author FROM discussions WHERE id = ?",
+            [supersedes]
+          );
           if (!prior) throw new Error(`Not found: discussion ${supersedes}`);
           if (prior.issue_id !== issue2.id) {
             throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue2.id}`);
+          }
+          if (normalizeAgent(args2["agent"]) !== "bro" && agentName(prior.author) !== agentName(args2["agent"])) {
+            throw new Error(
+              `supersedes_forbidden: only bro or the row's author (${prior.author}) may supersede discussion ${supersedes}`
+            );
           }
         }
         const now2 = nowISO();

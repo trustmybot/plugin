@@ -29349,9 +29349,9 @@ function auditTools(db2) {
       return ok(response);
     }),
     audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args2) => {
-      const agentName = String(requireArg(args2, "agent")).toLowerCase();
-      const role = normalizeAgent(agentName);
-      const fromNode = role === "consultant" ? agentName : role;
+      const agentName2 = String(requireArg(args2, "agent")).toLowerCase();
+      const role = normalizeAgent(agentName2);
+      const fromNode = role === "consultant" ? agentName2 : role;
       const issueId = requireArg(args2, "issue_id");
       const branchId = args2["branch_id"] ?? null;
       const now2 = nowISO();
@@ -29468,11 +29468,12 @@ function requireArg2(args2, name2) {
 function optionalId(args2, name2) {
   const raw = args2[name2];
   if (raw === void 0 || raw === null || raw === "") return null;
-  const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) {
-    throw new Error(`${name2} must be a positive integer id (got ${JSON.stringify(raw)})`);
-  }
-  return id;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw > 0) return raw;
+  if (typeof raw === "string" && /^[1-9][0-9]*$/.test(raw)) return Number(raw);
+  throw new Error(`${name2} must be a positive integer id (got ${JSON.stringify(raw)})`);
+}
+function agentName(name2) {
+  return typeof name2 === "string" ? name2.toLowerCase().replace(/^tmb:/, "") : "";
 }
 function wrapHandler2(fn) {
   return async (args2) => {
@@ -29569,7 +29570,7 @@ function discussionTools(db2) {
           },
           supersedes: {
             type: "string",
-            description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it."
+            description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it."
           },
           verified_human: {
             type: "boolean",
@@ -29818,10 +29819,18 @@ function discussionTools(db2) {
         }
         const supersedes = optionalId(args2, "supersedes");
         if (supersedes !== null) {
-          const prior = db2.get("SELECT issue_id FROM discussions WHERE id = ?", [supersedes]);
+          const prior = db2.get(
+            "SELECT issue_id, author FROM discussions WHERE id = ?",
+            [supersedes]
+          );
           if (!prior) throw new Error(`Not found: discussion ${supersedes}`);
           if (prior.issue_id !== issue2.id) {
             throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue2.id}`);
+          }
+          if (normalizeAgent(args2["agent"]) !== "bro" && agentName(prior.author) !== agentName(args2["agent"])) {
+            throw new Error(
+              `supersedes_forbidden: only bro or the row's author (${prior.author}) may supersede discussion ${supersedes}`
+            );
           }
         }
         const now2 = nowISO();
@@ -46468,7 +46477,7 @@ var debugStepCounter = 0;
 function maybeRecordTrajectory(toolName, args2, result2) {
   if (!debugTrajectoryEnabled) return;
   try {
-    const agentName = args2?.agent ?? null;
+    const agentName2 = args2?.agent ?? null;
     const argsJson = JSON.stringify(args2 ?? {}).slice(0, 4e3);
     const firstContent = result2.content?.[0];
     const resultText = firstContent && typeof firstContent.text === "string" ? firstContent.text : "";
@@ -46480,7 +46489,7 @@ function maybeRecordTrajectory(toolName, args2, result2) {
       [
         debugSessionId,
         ++debugStepCounter,
-        agentName,
+        agentName2,
         toolName,
         argsJson,
         resultJson,

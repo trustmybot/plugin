@@ -35,11 +35,13 @@ function requireArg(args: Record<string, unknown>, name: string): unknown {
 function optionalId(args: Record<string, unknown>, name: string): number | null {
   const raw = args[name];
   if (raw === undefined || raw === null || raw === '') return null;
-  const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) {
-    throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
-  }
-  return id;
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) return raw;
+  if (typeof raw === 'string' && /^[1-9][0-9]*$/.test(raw)) return Number(raw);
+  throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
+}
+
+function agentName(name: unknown): string {
+  return typeof name === 'string' ? name.toLowerCase().replace(/^tmb:/, '') : '';
 }
 
 function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResult>): Fn {
@@ -186,7 +188,7 @@ export function discussionTools(db: TrajectoryDB): {
           supersedes: {
             type: 'string',
             description:
-              'Optional — id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it.',
+              'Optional — id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it.',
           },
           verified_human: {
             type: 'boolean',
@@ -489,10 +491,18 @@ export function discussionTools(db: TrajectoryDB): {
         }
         const supersedes = optionalId(args, 'supersedes');
         if (supersedes !== null) {
-          const prior = db.get<{ issue_id: number }>('SELECT issue_id FROM discussions WHERE id = ?', [supersedes]);
+          const prior = db.get<{ issue_id: number; author: string }>(
+            'SELECT issue_id, author FROM discussions WHERE id = ?',
+            [supersedes],
+          );
           if (!prior) throw new Error(`Not found: discussion ${supersedes}`);
           if (prior.issue_id !== issue.id) {
             throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue.id}`);
+          }
+          if (normalizeAgent(args['agent']) !== 'bro' && agentName(prior.author) !== agentName(args['agent'])) {
+            throw new Error(
+              `supersedes_forbidden: only bro or the row's author (${prior.author}) may supersede discussion ${supersedes}`,
+            );
           }
         }
 

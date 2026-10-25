@@ -920,3 +920,117 @@ describe('issue_get_with_discussions compact DESC pagination (#1019)', () => {
     }
   });
 });
+
+describe('discussion_append supersedes: only bro or the row author (GH 1759)', () => {
+  let db: TrajectoryDB;
+  let taskId: number;
+
+  before(() => {
+    db = tempDB();
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (77, 'supersedes gate', 'd', 'open', datetime('now'), datetime('now'))`,
+    );
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+       VALUES (77, 'fix/77-gate', 't', 'd', 'pending', 's', datetime('now'), datetime('now'))`,
+    );
+    taskId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  const append = async (args: Record<string, unknown>): Promise<RawResult> =>
+    call(discussionTools(db).handlers, 'discussion_append', { issue_id: '77', kind: 'decision', body: 'b', ...args });
+  const rowCount = (): number => db.get<{ n: number }>('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = 77')!.n;
+  const seed = async (author: string): Promise<number> => {
+    const r = await append({ agent: author, author });
+    assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+    return parseResult(r).id as number;
+  };
+
+  it('SC1: swe superseding a bro decision is rejected and writes no row', async () => {
+    const broRow = await seed('bro');
+    const before = rowCount();
+    const r = await append({ agent: 'swe', author: 'swe', supersedes: String(broRow) });
+    assert.equal(r.isError, true);
+    assert.equal(
+      parseResult(r).error,
+      `supersedes_forbidden: only bro or the row's author (bro) may supersede discussion ${broRow}`,
+    );
+    assert.equal(rowCount(), before);
+  });
+
+  it('a consultant superseding a human row is rejected', async () => {
+    const r0 = await append({ agent: 'bro', author: 'human', verified_human: true });
+    const humanRow = parseResult(r0).id as number;
+    const before = rowCount();
+    const r = await append({ agent: 'security', author: 'security', supersedes: String(humanRow) });
+    assert.equal(r.isError, true);
+    assert.match(parseResult(r).error, /^supersedes_forbidden: .*\(human\)/);
+    assert.equal(rowCount(), before);
+  });
+
+  it('a caller naming the author only in its author arg is still rejected', async () => {
+    const broRow = await seed('bro');
+    const r = await append({ agent: 'swe', author: 'bro', supersedes: String(broRow) });
+    assert.equal(r.isError, true);
+    assert.match(parseResult(r).error, /^supersedes_forbidden/);
+  });
+
+  it('SC2: bro may supersede a swe row', async () => {
+    const sweRow = await seed('swe');
+    const r = await append({ agent: 'bro', author: 'bro', supersedes: String(sweRow) });
+    assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+    assert.equal(parseResult(r).supersedes, sweRow);
+  });
+
+  it('SC2: an author may supersede its own row (swe, a consultant slug, tmb: prefix and case ignored)', async () => {
+    const sweRow = await seed('swe');
+    const own = await append({ agent: 'swe', author: 'swe', supersedes: String(sweRow) });
+    assert.ok(!own.isError, JSON.stringify(parseResult(own)));
+    assert.equal(parseResult(own).supersedes, sweRow);
+
+    const consultantRow = await seed('security');
+    const viaPrefix = await append({ agent: 'tmb:Security', author: 'security', supersedes: consultantRow });
+    assert.ok(!viaPrefix.isError, JSON.stringify(parseResult(viaPrefix)));
+    assert.equal(parseResult(viaPrefix).supersedes, consultantRow);
+  });
+
+  for (const name of ['supersedes', 'task_id'] as const) {
+    it(`SC3: ${name} rejects true, [5], ' 7 ', '7.0', 0, -1 with the positive-integer error`, async () => {
+      const before = rowCount();
+      for (const bad of [true, [5], ' 7 ', '7.0', 0, -1]) {
+        const r = await append({ agent: 'bro', author: 'bro', [name]: bad });
+        assert.equal(r.isError, true, `${name}=${JSON.stringify(bad)} must be rejected`);
+        assert.equal(
+          parseResult(r).error,
+          `${name} must be a positive integer id (got ${JSON.stringify(bad)})`,
+        );
+      }
+      assert.equal(rowCount(), before);
+    });
+  }
+
+  it("SC3: supersedes and task_id accept a number and a digit string; '' and null mean absent", async () => {
+    const prior = await seed('bro');
+    for (const value of [prior, String(prior)]) {
+      const r = await append({ agent: 'bro', author: 'bro', supersedes: value });
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      assert.equal(parseResult(r).supersedes, prior);
+    }
+    for (const value of [taskId, String(taskId)]) {
+      const r = await append({ agent: 'bro', author: 'bro', task_id: value });
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      assert.equal(parseResult(r).task_id, taskId);
+    }
+    for (const value of ['', null]) {
+      const r = await append({ agent: 'bro', author: 'bro', task_id: value, supersedes: value });
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      assert.equal(parseResult(r).task_id, null);
+      assert.equal(parseResult(r).supersedes, null);
+    }
+  });
+});
