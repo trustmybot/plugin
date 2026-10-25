@@ -134,6 +134,45 @@ test_case "cheatcode-routing: 'install dependencies' does NOT fire cheatcode cue
 out=$(run_hook "install dependencies before running the build")
 assert_not_contains "$out" "cheatcode-routing" "install dependencies must not fire"
 
+test_case "cheatcode-routing: words inside an injected <system-reminder> do NOT fire (GH 1764)"
+out=$(run_hook 'tag 1737 - 1745 with token-burn
+<system-reminder>
+Another session: no dependencies installed yet; passed the overlap warning to swe.
+</system-reminder>')
+assert_not_contains "$out" "cheatcode-routing" "harness-injected reminder text is not the Human's intent"
+
+test_case "cheatcode-routing: 'install the playwright skill for swe' fires (GH 1764)"
+out=$(run_hook "install the playwright skill for swe")
+assert_contains "$out" "cheatcode-routing" "install + skill + for swe in one clause must fire"
+
+test_case "cheatcode-routing: 'installed' and a later clause's 'to swe' do NOT fire (GH 1764)"
+out=$(run_hook "I installed it. Then hand it to swe")
+assert_not_contains "$out" "cheatcode-routing" "install must be a whole word with its target in the same clause"
+
+test_case "cheatcode-routing: install verb and agent target split by a newline do NOT fire (GH 1764)"
+out=$(run_hook "install it
+then hand the result to swe")
+assert_not_contains "$out" "cheatcode-routing" "a newline ends the clause"
+
+test_case "cheatcode-routing: 'add <X> onto pr-reviewer' fires (GH 1764)"
+out=$(run_hook "add the lint skill onto pr-reviewer")
+assert_contains "$out" "cheatcode-routing" "onto <agent> is an agent target"
+
+test_case "injected blocks: <pasted_content> and <agent-message> spans are stripped (GH 1764)"
+out=$(run_hook 'what changed? <pasted_content id="1">install the x skill for swe</pasted_content>')
+assert_not_contains "$out" "cheatcode-routing" "pasted content is not the Human's own words"
+out=$(run_hook 'thanks <agent-message from="swe">please audit the importer</agent-message>')
+assert_not_contains "$out" "audit-intent hint" "an agent-message turn stays silent"
+
+test_case "injected blocks: typed text outside a <system-reminder> still fires"
+out=$(run_hook '<system-reminder>nothing to see</system-reminder>
+please check the audit')
+assert_contains "$out" "audit-intent hint" "the Human's words around a reminder are still matched"
+
+test_case "injected blocks: a reminder-only prompt emits nothing"
+out=$(run_hook '<system-reminder>install the x skill for swe; audit it</system-reminder>')
+assert_not_contains "$out" "additionalContext" "a prompt of injected text alone is silent"
+
 # ---------------------------------------------------------------------------
 # synthetic-turn early-exit: harness-generated turns emit NOTHING
 # ---------------------------------------------------------------------------

@@ -54,6 +54,48 @@ tmb_is_harness_turn "$PROMPT_RAW" && exit 0
 
 tmb_db_path_advisory prompt-intent-hints >/dev/null || true
 
+# strip_injected_blocks <text> — prints <text> without the harness-injected
+# <system-reminder…>, <pasted_content…> and <agent-message…> blocks, each cut
+# from its opening tag to the first matching close tag; an unclosed block stays.
+strip_injected_blocks() {
+  printf '%s\n' "${1:-}" | awk '
+    function opening(s, tag,   k, c) {
+      k = index(s, "<" tag)
+      while (k > 0) {
+        c = substr(s, k + length(tag) + 1, 1)
+        if (c == ">" || c == " " || c == "\t" || c == "\n") return k
+        c = index(substr(s, k + 1), "<" tag)
+        k = (c > 0) ? k + c : 0
+      }
+      return 0
+    }
+    { buf = (NR == 1) ? $0 : buf "\n" $0 }
+    END {
+      ntags = split("system-reminder pasted_content agent-message", tags, " ")
+      out = ""
+      while (1) {
+        first = 0; ft = ""
+        for (t = 1; t <= ntags; t++) {
+          k = opening(buf, tags[t])
+          if (k > 0 && (first == 0 || k < first)) { first = k; ft = tags[t] }
+        }
+        if (first == 0) break
+        close_tag = "</" ft ">"
+        e = index(substr(buf, first), close_tag)
+        if (e == 0) { out = out substr(buf, 1, first); buf = substr(buf, first + 1); continue }
+        out = out substr(buf, 1, first - 1) " "
+        buf = substr(buf, first + e - 1 + length(close_tag))
+      }
+      print out buf
+    }
+  '
+}
+
+# Hints match the Human's own words: text the harness injected into the prompt
+# (reminders quoting other sessions, pasted content) is never intent (GH 1764).
+PROMPT_RAW=$(strip_injected_blocks "$PROMPT_RAW")
+case "$PROMPT_RAW" in *[![:space:]]*) ;; *) exit 0 ;; esac
+
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 # The prompt with backticked and quoted spans removed: concerns, push, resume,
 # architectural and audit hints match only what the Human wrote, not text they quote.
@@ -120,35 +162,62 @@ has_word() {
 if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
   cheatcode_install_match=""
 
-  # capability-on-agent: an install/add verb whose target is a known agent name
-  # ("for|to <agent>"), where agent ∈ {swe, pr-reviewer, bro} plus any active
-  # consultant role from the registry. This is the cheatcode-reuse path — a
-  # capability attached to an agent — so it loads tmb_cheatcode. Dependency
-  # installs never match: "for the build" / "to get the deps" carry no agent name.
+  # capability-on-agent: the whole word install/add, followed in the same clause
+  # (no . ; ? ! or newline between) by "for|to|onto <agent>" as whole words, where
+  # agent ∈ {swe, pr-reviewer, bro} plus any active consultant role from the
+  # registry. This is the cheatcode-reuse path — a capability attached to an
+  # agent — so it loads tmb_cheatcode. Dependency installs never match: "for the
+  # build" / "to get the deps" carry no agent name.
   capability_on_agent=""
-  case "$LOWER" in
-    *install*|*" add "*|"add "*)
-      AGENT_TARGETS="swe pr-reviewer bro"
-      DB=$(tmb_db_path 2>/dev/null || true)
-      if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-        CONSULTANT_ROLES=$(tmb_sqlite_ro "$DB" "SELECT name FROM agents WHERE kind='consultant';")
-        while IFS= read -r role; do
-          [ -n "$role" ] || continue
-          AGENT_TARGETS="$AGENT_TARGETS $(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
-        done <<EOF
+  if printf '%s' "$LOWER" | grep -E '(^|[^a-z0-9_])(install|add)([^a-z0-9_]|$)' >/dev/null; then
+    AGENT_TARGETS="swe pr-reviewer bro"
+    DB=$(tmb_db_path 2>/dev/null || true)
+    if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+      CONSULTANT_ROLES=$(tmb_sqlite_ro "$DB" "SELECT name FROM agents WHERE kind='consultant';")
+      while IFS= read -r role; do
+        [ -n "$role" ] || continue
+        AGENT_TARGETS="$AGENT_TARGETS $(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
+      done <<EOF
 $CONSULTANT_ROLES
 EOF
-      fi
-      for agent in $AGENT_TARGETS; do
-        case "$LOWER" in
-          *"for ${agent}"*|*"to ${agent}"*)
-            capability_on_agent="$agent"
-            break
-            ;;
-        esac
-      done
-      ;;
-  esac
+    fi
+    capability_on_agent=$(printf '%s\n' "$LOWER" | awk -v agents="$AGENT_TARGETS" '
+      function word(c) { return c ~ /[a-z0-9_]/ }
+      function has_target(t, a,   np, preps, p, needle, k, off, before, after) {
+        np = split("for to onto", preps, " ")
+        for (p = 1; p <= np; p++) {
+          needle = preps[p] " " a
+          off = 0
+          while ((k = index(substr(t, off + 1), needle)) > 0) {
+            k += off
+            before = (k == 1) ? "" : substr(t, k - 1, 1)
+            after = substr(t, k + length(needle), 1)
+            if (!word(before) && !word(after) && after != "-") return 1
+            off = k
+          }
+        }
+        return 0
+      }
+      BEGIN { na = split(agents, ag, " ") }
+      {
+        nc = split($0, clauses, /[.;?!]/)
+        for (c = 1; c <= nc; c++) {
+          s = clauses[c]
+          gsub(/[ \t]+/, " ", s)
+          pos = 1
+          while (match(substr(s, pos), /install|add/)) {
+            v = pos + RSTART - 1
+            e = v + RLENGTH
+            if ((v == 1 || !word(substr(s, v - 1, 1))) && !word(substr(s, e, 1))) {
+              tail = substr(s, e)
+              for (i = 1; i <= na; i++) if (has_target(tail, ag[i])) { print ag[i]; exit }
+            }
+            pos = v + 1
+          }
+        }
+      }
+    ')
+  fi
 
   if [ -n "$capability_on_agent" ]; then
     CTX="[tmb cheatcode-routing] This installs a capability ONTO the \`${capability_on_agent}\` agent — that is the cheatcode-reuse path. Load \`tmb_cheatcode\`: search/vet/approve the capability (cheatcode_search → cheatcode_approve) then materialize it onto the agent. This is capability reuse, so it routes through the cheatcode pipeline rather than the build flow."
