@@ -25,11 +25,14 @@ function optionalId(args, name) {
     const raw = args[name];
     if (raw === undefined || raw === null || raw === '')
         return null;
-    const id = Number(raw);
-    if (!Number.isInteger(id) || id <= 0) {
-        throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
-    }
-    return id;
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0)
+        return raw;
+    if (typeof raw === 'string' && /^[1-9][0-9]*$/.test(raw))
+        return Number(raw);
+    throw new Error(`${name} must be a positive integer id (got ${JSON.stringify(raw)})`);
+}
+function agentName(name) {
+    return typeof name === 'string' ? name.toLowerCase().replace(/^tmb:/, '') : '';
 }
 function wrapHandler(fn) {
     return async (args) => {
@@ -121,7 +124,7 @@ export function discussionTools(db) {
                     },
                     supersedes: {
                         type: 'string',
-                        description: 'Optional — id of an earlier discussion on this issue that this entry replaces. task_brief skips the superseded row; discussion_search still returns it.',
+                        description: 'Optional — id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it.',
                     },
                     verified_human: {
                         type: 'boolean',
@@ -356,11 +359,14 @@ export function discussionTools(db) {
             }
             const supersedes = optionalId(args, 'supersedes');
             if (supersedes !== null) {
-                const prior = db.get('SELECT issue_id FROM discussions WHERE id = ?', [supersedes]);
+                const prior = db.get('SELECT issue_id, author FROM discussions WHERE id = ?', [supersedes]);
                 if (!prior)
                     throw new Error(`Not found: discussion ${supersedes}`);
                 if (prior.issue_id !== issue.id) {
                     throw new Error(`supersedes ${supersedes} belongs to issue ${prior.issue_id}, not issue ${issue.id}`);
+                }
+                if (normalizeAgent(args['agent']) !== 'bro' && agentName(prior.author) !== agentName(args['agent'])) {
+                    throw new Error(`supersedes_forbidden: only bro or the row's author (${prior.author}) may supersede discussion ${supersedes}`);
                 }
             }
             const now = nowISO();
