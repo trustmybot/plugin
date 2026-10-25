@@ -1,0 +1,27 @@
+# label-sync — apply .github/labels.json to the repo's GitHub labels (GH 1770).
+# Creates and updates labels; extras are reported, never deleted.
+name: label sync
+
+on:
+  push:
+    branches: [dev]
+    paths: [.github/labels.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Sync labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/maintenance/labels.mjs --sync --repo "$GITHUB_REPOSITORY"

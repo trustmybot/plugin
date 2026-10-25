@@ -1,0 +1,34 @@
+name: Feature request
+description: New functionality for TMB
+labels: ["Feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today, and why does it matter?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: The part of TMB this touches. See docs/contributing/LABELS.md.
+      options:
+        - Hooks
+        - Trajectory Server
+        - World Model
+        - Dashboard
+        - Install
+        - Agents
+        - Cheatcode
+        - Adapters
+        - Release
+    validations:
+      required: true

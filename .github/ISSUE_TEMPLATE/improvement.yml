@@ -1,0 +1,33 @@
+name: Improvement
+description: Refactor, polish or quality work on something that already exists
+labels: ["Improvement"]
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: The part of TMB this touches. See docs/contributing/LABELS.md.
+      options:
+        - Hooks
+        - Trajectory Server
+        - World Model
+        - Dashboard
+        - Install
+        - Agents
+        - Cheatcode
+        - Adapters
+        - Release
+    validations:
+      required: true
