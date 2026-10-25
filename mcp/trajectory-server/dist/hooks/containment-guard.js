@@ -13,7 +13,10 @@
  * Deny messages, audit rows and the allow/deny decision are the .sh's, with
  * one exception: a target the analyzer reports as `$(parse)` (the command did
  * not parse) or `$(computed)` (a path built at run time) is always denied,
- * never through the literal-dir allowance.
+ * never through the literal-dir allowance. That deny reads
+ * `BLOCKED: write target "<target>" cannot be judged: <why>`; dispatch.sh
+ * matches the phrase (its UNJUDGED_PHRASE) and keeps no boundary-deny record
+ * for it, since no path was judged (GH 1750).
  */
 import { lstatSync, statSync } from 'node:fs';
 import { ALLOW } from './gate.js';
@@ -29,9 +32,11 @@ const RUN_BUDGET_MS = '2500';
 const JUDGED_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash']);
 const DEVICE = /^\/dev\/(null|stdout|stderr|tty)$|^\/dev\/fd\//;
 const GLOB_CHAR = /[*?[]/;
-const NEVER_JUDGED = {
+export const UNJUDGED_PHRASE = 'cannot be judged:';
+/** Why each never-judged target is denied; dispatch.sh relies on no text holding a double quote. */
+export const NEVER_JUDGED = {
     '$(parse)': 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.',
-    '$(computed)': 'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; write to a literal path.',
+    '$(computed)': 'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.',
 };
 /** What a `$(...)` capture of a command's output keeps. */
 function capture(text) {
@@ -277,7 +282,7 @@ async function judgeBash(g, input, analyze) {
         seen.add(word);
         const { variable, target } = splitUnresolved(word);
         if (variable !== null && Object.hasOwn(NEVER_JUDGED, variable)) {
-            g.deny(target, `BLOCKED: write target "${target}" cannot be judged: ${NEVER_JUDGED[variable]}`);
+            g.deny(target, `BLOCKED: write target "${target}" ${UNJUDGED_PHRASE} ${NEVER_JUDGED[variable]}`);
         }
         if (globClimbs(target)) {
             g.deny(target, `BLOCKED: containment — write target "${target}" climbs with .. after a glob; the guard cannot tell where that lands. Name the directory without .. after a glob.`);

@@ -4,6 +4,8 @@
  * or `UNRESOLVED:$(computed):…` is always denied, even when its raw text
  * starts with a literal path inside the root (which the .sh's literal-dir
  * allowance would let through). Everything else is the parity corpus's job.
+ * The deny's phrase is pinned to dispatch.sh's UNJUDGED_PHRASE, which keeps
+ * such a deny from recording boundary-deny paths (GH 1750).
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +14,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { containmentGuard, containmentGuardWith, type WritePathsFn } from '../hooks/containment-guard.js';
+import {
+  containmentGuard,
+  containmentGuardWith,
+  NEVER_JUDGED,
+  UNJUDGED_PHRASE,
+  type WritePathsFn,
+} from '../hooks/containment-guard.js';
 import { findGate } from '../hooks/registry.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -21,7 +29,7 @@ const FAKE_UID = 4242424;
 
 const PARSE_TEXT = 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.';
 const COMPUTED_TEXT =
-  'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; write to a literal path.';
+  'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.';
 
 function reason(stdout: string): string | null {
   if (stdout === '') return null;
@@ -117,6 +125,13 @@ describe('containment-guard (TS): $(parse) and $(computed) always deny', () => {
     const r = await containmentGuard(bash(command), env);
     const raw = [...command].slice(0, 80).join('');
     assert.equal(reason(r.stdout), `BLOCKED: write target "${raw}" cannot be judged: ${PARSE_TEXT}`);
+  });
+
+  it("dispatch.sh's UNJUDGED_PHRASE is the deny's phrase, and no reason text holds the quote it stops at", () => {
+    const dispatch = readFileSync(join(SERVER_ROOT, '../../scripts/hooks/dispatch.sh'), 'utf8');
+    assert.deepEqual(dispatch.match(/^UNJUDGED_PHRASE='([^']*)'$/gm), [`UNJUDGED_PHRASE='${UNJUDGED_PHRASE}'`]);
+    assert.deepEqual(Object.keys(NEVER_JUDGED).sort(), ['$(computed)', '$(parse)']);
+    for (const text of Object.values(NEVER_JUDGED)) assert.ok(!text.includes('"'), text);
   });
 
   it('a bare in-root redirect still passes, so the denials above are the reasons, not the paths', async () => {

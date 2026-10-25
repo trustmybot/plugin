@@ -38,8 +38,9 @@
 #     jq reading for every hooks.json entry, whatever the key order
 #   Symlinked project dir and its real path → one lock, one shim project
 #   Bash deny records: a denied Bash command that writes a path leaves one
-#     <state>/locks/boundary-denies/<session>/<digest> record for it; an allow
-#     and a denied non-Bash tool leave none
+#     <state>/locks/boundary-denies/<session>/<digest> record for it; an allow,
+#     a denied non-Bash tool and a "cannot be judged" deny leave none, a
+#     target that only spells that phrase still leaves one
 #   Deny audit: one hook_denied row per deny (hook, rule, tool, agent_type,
 #     cwd), none for an allow or a replayed duplicate; an exit-2 block and a
 #     fail-closed deny count; a task's deny lands on its issue with the rule
@@ -121,6 +122,11 @@ EOF
 cat >/dev/null
 echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"fx own deny"}}'
 exit 1
+EOF
+  cat > "$root/scripts/hooks/fx-deny-reason.sh" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+jq -nc --arg r "$FX_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
 EOF
   cp "$root/scripts/hooks/fx-gate-dies.sh" "$root/scripts/hooks/fx-observe-dies.sh"
   chmod +x "$root/scripts/hooks/"*.sh
@@ -739,6 +745,21 @@ FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg p "$X" '{hook_event_name:"PreTo
 [ ! -e "$DENIES" ] && _pass || _fail "a denied non-Bash tool left a record"
 FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg c "$CMD" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},tool_use_id:"tu-rec4"}')" > /dev/null
 [ ! -e "$DENIES" ] && _pass || _fail "a payload without session_id left a record"
+
+test_case "GH 1750: a \"cannot be judged\" Bash deny leaves no record; a judged deny whose target spells the phrase does"
+rm -rf "$DENIES"
+for why in 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.' \
+  'the program builds the path at run time (a computed or argv path, `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path.'; do
+  FX_REASON="BLOCKED: write target \"$CMD\" cannot be judged: $why" dispatch "$A" fx-deny-reason "$(payload "$CMD" "tu-uj-${#why}")" > /dev/null
+done
+[ ! -e "$DENIES" ] && _pass || _fail "an unjudged deny left a record"
+FX_REASON="BLOCKED: write target \"$X\" cannot be judged: x\" depends on a variable the guard cannot resolve in this command." \
+  dispatch "$A" fx-deny-reason "$(payload "$CMD" tu-uj-spelled)" > /dev/null
+shopt -s nullglob
+recs=("$DENIES/s-1/"*)
+shopt -u nullglob
+assert_eq "1" "${#recs[@]}" "a quote after the phrase makes it a judged deny"
+rm -rf "$DENIES"
 
 # ===========================================================================
 AP="$TMP/audit-proj"

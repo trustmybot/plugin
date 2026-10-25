@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # L3 tests: scripts/hooks/containment-guard.sh denies writes outside the run's
 # root (the swe row's worktree, else the project), audits every denial, and
-# leaves reads, the model cache and un-onboarded projects alone.
+# leaves reads, the model cache and un-onboarded projects alone. Through the
+# real dispatcher, a "cannot be judged" Bash deny records no boundary-deny path,
+# so the literal-path Edit it prescribes is no bypass; a judged deny records one.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -480,6 +482,56 @@ for prog in 'import csv|for row in rows: print(row.open, row.close)' "import fee
   IFS='|' read -r -a lines <<< "$prog"
   assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${lines[@]}")")")")" "swe: an attribute read named like a writer: $prog"
 done
+
+# dispatched <gate> <tool> <tool_input-json> <tool_use_id> — <gate> through the
+# real dispatcher on a swe payload of session s-1, from the worktree.
+dispatched() {
+  local payload
+  payload=$(jq -nc --arg tool "$2" --argjson ti "$3" --arg id "$4" --arg cwd "$WT" --arg tr "$TRANSCRIPT" \
+    '{hook_event_name:"PreToolUse", session_id:"s-1", cwd:$cwd, agent_type:"swe", agent_transcript_path:$tr,
+      tool_name:$tool, tool_input:$ti, tool_use_id:$id}')
+  (cd "$WT" && printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$PROJECT" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_CONFIG_DIR="" \
+    TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" PATH="$SHIM:$PATH" \
+    NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$1" 2>/dev/null)
+}
+DENIES="$PROJECT/.claude/tmb/locks/boundary-denies"
+bypasses() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='hook_block_bypassed';"; }
+UJ_FILE="$WT/src/uj.md"
+UJ_COMPUTED=$(printf "python3 - <<'EOF'\nimport os\nopen(os.path.join('%s'), 'w').write('x')\nEOF" "$UJ_FILE")
+UJ_PARSE=$(printf 'echo hi > %s; echo "unterminated' "$UJ_FILE")
+
+test_case "GH 1750: a cannot-be-judged Bash deny records no path, so the Edit it prescribes is no bypass"
+for kind in computed parse; do
+  rm -rf "$DENIES"
+  cmd=$UJ_COMPUTED
+  [ "$kind" = parse ] && cmd=$UJ_PARSE
+  before=$(bypasses)
+  OUT=$(dispatched containment-guard Bash "$(bash_cmd "$cmd")" "tu-uj-$kind")
+  assert_eq "deny" "$(decision "$OUT")" "\$($kind) through the dispatcher"
+  assert_contains "$OUT" "cannot be judged: " "\$($kind): the cannot-be-judged reason"
+  [ ! -e "$DENIES" ] && _pass || _fail "\$($kind): a boundary-denies record was written"
+  OUT=$(dispatched swe-boundary Edit "$(jq -nc --arg p "$UJ_FILE" '{file_path:$p, old_string:"a", new_string:"b"}')" "tu-uj-edit-$kind")
+  assert_not_contains "$OUT" '"permissionDecision":"deny"' "\$($kind): the literal-path Edit is allowed"
+  assert_not_contains "$OUT" "hook_block_bypassed" "\$($kind): no bypass context"
+  assert_not_contains "$OUT" "hard stop" "\$($kind): no hard-stop message"
+  assert_eq "$before" "$(bypasses)" "\$($kind): no hook_block_bypassed row"
+done
+rm -rf "$DENIES"
+OUT=$(TMB_HOOKS_IMPL=bash dispatched containment-guard Bash "$(bash_cmd "$UJ_COMPUTED")" tu-uj-bash)
+assert_eq "allow" "$(decision "$OUT")" "TMB_HOOKS_IMPL=bash: the .sh judges the literal path and allows"
+[ ! -e "$DENIES" ] && _pass || _fail "TMB_HOOKS_IMPL=bash: a boundary-denies record was written"
+
+test_case "GH 1750: a judged containment deny of a Bash write still records its path"
+rm -rf "$DENIES"
+OUT=$(dispatched containment-guard Bash "$(bash_cmd "touch $SANDBOX/judged.txt")" tu-judged)
+assert_eq "deny" "$(decision "$OUT")" "outside the worktree"
+assert_not_contains "$OUT" "cannot be judged" "a judged reason"
+shopt -s nullglob
+recs=("$DENIES/s-1/"*)
+shopt -u nullglob
+assert_eq "1" "${#recs[@]}" "one record for the judged path"
+assert_eq "containment-guard" "$(sed -n 1p "${recs[0]:-/dev/null}")" "the record names the gate"
+rm -rf "$DENIES"
 
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
