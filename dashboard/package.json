@@ -7,7 +7,8 @@
     "build:server": "esbuild server/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs && cp ../mcp/trajectory-server/src/schema.sql ../mcp/trajectory-server/src/schema-eval.sql dist/",
     "build:web": "rm -rf dist/web && mkdir -p dist/web && cp web/index.html dist/web/ && esbuild web/main.tsx --bundle --minify --format=esm --target=es2022 --jsx=automatic --define:process.env.NODE_ENV='\"production\"' --outfile=dist/web/app.js && tailwindcss -i web/styles.css -o dist/web/app.css --minify",
     "build": "tsc --noEmit && bun run build:server && bun run build:web",
-    "start": "node dist/server.mjs"
+    "start": "node dist/server.mjs",
+    "dev": "node scripts/dev.mjs"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.0",
