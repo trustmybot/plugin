@@ -1,0 +1,1 @@
+{"fn":"tmb_sql_quote","case":"tmb_sql_quote:trailing-newline","sh":"x''","ts":"x''\n","reason":"query-task.sh callers read tmb_sql_quote through $(...), which drops the trailing newlines of the value, so the SQL literal silently loses them; the TS port returns the value whole."}
