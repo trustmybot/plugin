@@ -228,6 +228,7 @@ run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l
 run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"
 run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash "$HERE/l3-integration/health.test.sh"
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
+run_step "L3 integration: runtime payload prune (dev-build)"          node --test "$HERE/l3-integration/runtime-payload.test.mjs"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 # The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan
