@@ -794,7 +794,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_brief',
-            description: "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none). " +
+            description: "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none). " +
                 "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, plus a `sections` map of what the others hold), " +
                 "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
                 "Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
@@ -1474,14 +1474,24 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
               WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
                 AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
               ORDER BY d.created_at DESC, d.id DESC LIMIT 1`, [task.issue_id]);
+                const issueIntent = db.get(`SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'intent'
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+              ORDER BY d.created_at DESC, d.id DESC LIMIT 1`, [task.issue_id]);
                 const otherRows = db.all(`SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
               WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
                 AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
               ORDER BY d.created_at DESC, d.id DESC LIMIT ?`, [task.issue_id, OTHER_ROW_CAP]);
-                const task_discussions = [...taskRows, ...(issueDecision ? [issueDecision] : []), ...otherRows]
+                const merged = new Map();
+                for (const d of [...taskRows, issueDecision, issueIntent, ...otherRows]) {
+                    if (d && !merged.has(d.id))
+                        merged.set(d.id, d);
+                }
+                const task_discussions = [...merged.values()]
                     .sort((a, b) => (a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1))
                     .map((d) => {
-                    if (d.kind === 'decision' || d.kind === 'intent' || d.body.length <= NOTE_CAP)
+                    const capped = d.id === issueIntent?.id || (d.kind !== 'decision' && d.kind !== 'intent');
+                    if (!capped || d.body.length <= NOTE_CAP)
                         return d;
                     return {
                         ...d,

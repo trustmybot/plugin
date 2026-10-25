@@ -1,9 +1,10 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TrajectoryDB } from '../db.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 import { compositeTools, filesToDirs, pathInFiles, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
@@ -3619,7 +3620,7 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
         [issueId, body, at, supersedes],
       ).lastInsertRowid,
     );
-  const seedIssueTasks =(db: TrajectoryDB, count: number): number[] => {
+  const seedIssueTasks = (db: TrajectoryDB, count: number): number[] => {
     db.run(
       `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
        VALUES (55, 'many tasks', 'd', 'open', datetime('now'), datetime('now'))`,
@@ -3743,6 +3744,17 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
       disc.filter((d) => d.kind === 'note').map((d) => d.body),
       Array.from({ length: 8 }, (_, i) => `note ${i}`),
     );
+    db.close();
+  });
+
+  it('the task_brief description and src/tools/README.md name the issue-level intent row (GH 1760)', () => {
+    const db = tempDB();
+    const def = compositeTools(db, '/tmp/.claude/tmb/trajectory.db').definitions.find((d) => d.name === 'task_brief');
+    assert.match(def!.description!, /issue-level decision and intent/);
+    const readme = readFileSync(fileURLToPath(new URL('../../src/tools/README.md', import.meta.url)), 'utf8');
+    const line = readme.split('\n').find((l) => l.includes('task_discussions'));
+    assert.match(line!, /issue-level intent/);
+    assert.doesNotMatch(readme, /carries only its newest issue-level decision\./);
     db.close();
   });
 
