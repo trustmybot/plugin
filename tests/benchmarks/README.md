@@ -72,6 +72,33 @@ Output: `spawns=N reads=M mean_reads_per_spawn=X.XX`
 
 High reads-per-spawn is a signal that subagents are doing expensive cold-start file exploration rather than relying on the world model.
 
+### bro-provision-reads.mjs
+
+Count the code reads bro makes before each `task_provision` call, to show whether bro scopes a task from the world model or from source files.
+
+```bash
+node tests/benchmarks/bro-provision-reads.mjs [--json] <session.jsonl | dir> [...]
+```
+
+A directory argument reads every `*.jsonl` directly inside it. Subagent lines (`isSidechain: true`) are skipped, and tool names match on their suffix, so `mcp__plugin_tmb_trajectory-server__task_provision` counts as `task_provision`.
+
+**Window rule:** each `task_provision` tool_use closes a window that starts after the previous `task_provision` in the same session, or at the session start. Calls after the last `task_provision` are not counted.
+
+**Fields per provision:**
+
+| Field | Description |
+|---|---|
+| `session` | Session file name without `.jsonl` |
+| `timestamp` | Timestamp of the assistant message carrying the `task_provision` call |
+| `task_id`, `branch_id` | Parsed from the `task_provision` tool_result JSON; `null` when there is no result |
+| `reads` | Read, Grep and Glob calls, plus Bash calls where any pipeline/`&&`/`;` segment starts with `cat`, `head`, `tail`, `sed`, `awk`, `grep`, `rg`, `find`, `ls`, `wc` or `git show\|diff\|log\|grep` |
+| `source_reads` | Reads that name a file outside `*.md` (best effort: Read uses `file_path`, Bash looks for path-like arguments, Grep and Glob always count) |
+| `read_result_chars` | Summed length of the reads' tool_result content |
+| `est_read_tokens` | `ceil(read_result_chars / 4)` |
+| `wm_calls` | Calls to `world_model_*`, `task_brief` or `scope_suggest` |
+
+The default output is a table plus a totals line. `--json` prints `{provisions: [...], totals: {provisions, reads, source_reads, est_read_tokens, mean_source_reads_per_provision}}`; the mean is `null` when there are no provisions. Unreadable input exits 1. The GH 1352 target is zero `source_reads` on ordinary tasks.
+
 ### codex-agent-materialization.mjs
 
 Measure `agent_materialization_get` against a copied installed plugin artifact and three disposable Git projects: `absent`, `current`, and `conflict`.
@@ -117,12 +144,13 @@ Other types (`last-prompt`, `permission-mode`, `file-history-snapshot`, `ai-titl
 
 ## Fixtures
 
-`fixtures/sessions/` contains two synthesized minimal fixtures. They are hand-built with shape-accurate field names from the actual CC transcript format — no real user content.
+`fixtures/sessions/` contains synthesized minimal fixtures. They are hand-built with shape-accurate field names from the actual CC transcript format — no real user content.
 
 | Fixture | Description |
 |---|---|
 | `bro-5turn.jsonl` | 5-turn bro session: task_list, task_brief, task_update_status calls with realistic usage fields and hook-injected system-reminders |
 | `bro-with-spawn.jsonl` | Session with two TaskCreate subagent spawns (swe + pr-reviewer) |
+| `bro-provision-reads.jsonl` | Two `task_provision` windows with Read/Grep/Glob, reading and non-reading Bash, world-model calls, an MCP-prefixed tool name and a sidechain read |
 
 ## Acceptance Criteria (token-burn issues)
 
