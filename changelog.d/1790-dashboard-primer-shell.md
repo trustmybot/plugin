@@ -1,0 +1,2 @@
+### Changed
+- **The dashboard has a GitHub-style header and tabs and a light, dark or auto colour mode you pick** (GH 1790): the page now sits on GitHub's Primer design tokens, with a dark header, underline tabs with icons that scroll sideways on a narrow screen, and a header button that cycles auto, light and dark. Your choice is remembered in the browser; auto follows your system setting as before. Every view, route and action works as it did.

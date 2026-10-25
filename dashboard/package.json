@@ -8,9 +8,12 @@
     "build:web": "rm -rf dist/web && mkdir -p dist/web && cp web/index.html dist/web/ && esbuild web/main.tsx --bundle --minify --format=esm --target=es2022 --jsx=automatic --define:process.env.NODE_ENV='\"production\"' --outfile=dist/web/app.js && tailwindcss -i web/styles.css -o dist/web/app.css --minify",
     "build": "tsc --noEmit && bun run build:server && bun run build:web",
     "start": "node dist/server.mjs",
-    "dev": "node scripts/dev.mjs"
+    "dev": "node scripts/dev.mjs",
+    "tokens": "node scripts/primer-tokens.mjs"
   },
   "devDependencies": {
+    "@primer/octicons-react": "19.15.0",
+    "@primer/primitives": "11.10.0",
     "@tailwindcss/cli": "^4.1.0",
     "@tanstack/react-query": "^5.0.0",
     "@tanstack/react-table": "^8.20.0",
