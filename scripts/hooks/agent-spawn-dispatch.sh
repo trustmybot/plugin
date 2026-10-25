@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PreToolUse hook — dispatcher for all Agent-matcher checks.
 #
-# Runs the six Agent-spawn gate hooks IN ORDER, short-circuiting on the
+# Runs the seven Agent-spawn gates IN ORDER, short-circuiting on the
 # first deny (emits that deny verbatim and exits). On a clean pass from
-# all six, emits the union of any additionalContext outputs (currently
-# none of the six produce context, but the union logic is future-proof).
+# all seven, emits the union of any additionalContext outputs (currently
+# none of the seven produce context, but the union logic is future-proof).
 #
 # Hook order:
 #   1. require-task-spec              — swe must cite a valid task_id
@@ -13,6 +13,8 @@
 #   4. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
 #   5. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have seven anchors
 #   6. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
+#   7. pr-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
+#      task commit's five deterministic checks; denies {check, expected, actual}
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
 #
@@ -28,6 +30,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || { echo "agent-spawn-dispatch: jq not found" >&2; exit 1; }
 
+HOOKS_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks.js"
+
 HOOKS=(
   "$SCRIPT_DIR/require-task-spec.sh"
   "$SCRIPT_DIR/require-spawn-effort.sh"
@@ -35,13 +39,17 @@ HOOKS=(
   "$SCRIPT_DIR/pr-reviewer-no-worktree.sh"
   "$SCRIPT_DIR/pr-reviewer-spawn-prompt-shape.sh"
   "$SCRIPT_DIR/pr-reviewer-after-atomic-close.sh"
+  pr-reviewer-preflight
 )
 
 CONTEXT_PARTS=()
 
 for hook in "${HOOKS[@]}"; do
-  [ -x "$hook" ] || continue
-  OUT=$(printf '%s' "$INPUT" | bash "$hook" 2>/dev/null) || true
+  case "$hook" in
+    *.sh) [ -x "$hook" ] || continue; GATE_CMD=(bash "$hook") ;;
+    *) { [ -f "$HOOKS_JS" ] && command -v node >/dev/null 2>&1; } || continue; GATE_CMD=(node "$HOOKS_JS" "$hook") ;;
+  esac
+  OUT=$(printf '%s' "$INPUT" | "${GATE_CMD[@]}" 2>/dev/null) || true
   [ -n "$OUT" ] || continue
 
   DECISION=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null)

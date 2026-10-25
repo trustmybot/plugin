@@ -6665,8 +6665,8 @@ function listerBind(host, name3, dirtok, mode, words, acts) {
   const rootc = host.rootc();
   const rootTrim = trimSlash(rootc);
   let bound = rootc;
-  const git = cmd === "git";
-  if (git) {
+  const git2 = cmd === "git";
+  if (git2) {
     bound = pathCanonical2(m.gdir);
     if (!(bound + "/").startsWith(rootTrim + "/")) return null;
   }
@@ -6689,7 +6689,7 @@ function listerBind(host, name3, dirtok, mode, words, acts) {
       w = pathCanonical2(w);
       if (!(w + "/").startsWith(trimSlash(bound) + "/")) return null;
       if (w.startsWith(rootTrim)) w = w.slice(rootTrim.length);
-      const at = git ? trimSlash(p) : trimSlash(v);
+      const at = git2 ? trimSlash(p) : trimSlash(v);
       if (isPromptSurfacePath(`${rootTrim}${trimSlash(w)}/x.md`, rootc)) vals.push(`${at}/*.md`);
       else if (cmd !== "ls") {
         const rel = w.replace(/^\//, "");
@@ -6706,7 +6706,7 @@ function listerBind(host, name3, dirtok, mode, words, acts) {
           vals.push(`${at}/${d === "CLAUDE.md" ? d : `${sub}/*.md`}`);
         }
       }
-      if (git) continue;
+      if (git2) continue;
       vals.push(v, `${trimSlash(v)}/*`);
       for (const pat of m.pats) {
         const body2 = pat.slice(2);
@@ -10307,11 +10307,342 @@ function containmentGuardWith(analyze) {
 }
 var containmentGuard = containmentGuardWith(writePaths);
 
+// src/hooks/pr-reviewer-preflight.ts
+import { spawnSync as spawnSync4 } from "node:child_process";
+
+// src/utils/git-refs.ts
+import { execFileSync, spawnSync as spawnSync3 } from "node:child_process";
+
+// src/utils/timeouts.ts
+var SUBPROCESS_TIMEOUT_MS = 5e3;
+
+// src/utils/git-refs.ts
+function refResolves(repoPath, ref) {
+  try {
+    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", ref], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: SUBPROCESS_TIMEOUT_MS
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resolveBaseRef(repoPath, base) {
+  if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
+  if (refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return null;
+}
+function gitOut(repoPath, args2) {
+  const res = spawnSync3("git", ["-C", repoPath, ...args2], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (res.error || res.status !== 0) return null;
+  const out2 = res.stdout.trim();
+  return out2.length > 0 ? out2 : null;
+}
+function resolveRepoDefaultBranch(repoPath) {
+  const originHead = gitOut(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  if (originHead) return originHead.replace(/^origin\//, "");
+  for (const candidate of ["main", "master", "dev"]) {
+    if (refResolves(repoPath, `refs/heads/${candidate}`)) return candidate;
+  }
+  return gitOut(repoPath, ["symbolic-ref", "--short", "HEAD"]) ?? "main";
+}
+
+// src/hooks/pr-reviewer-preflight.ts
+var GATE_NAME2 = "pr-reviewer-preflight";
+var BYPASS_ENV = "TMB_SKIP_PR_REVIEWER_PREFLIGHT";
+var GIT_TIMEOUT_MS = 1e4;
+var GIT_MAX_BUFFER = 256 * 1024 * 1024;
+var MAX_LISTED = 10;
+var DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
+var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
+var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
+var CHANGELOG_DIR = "changelog.d";
+function git(repo, args2, env) {
+  const r = spawnSync4("git", ["-C", repo, ...args2], {
+    encoding: "utf8",
+    env: { ...env, GIT_OPTIONAL_LOCKS: "0" },
+    timeout: GIT_TIMEOUT_MS,
+    maxBuffer: GIT_MAX_BUFFER
+  });
+  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "", stderr: (r.stderr ?? "") || (r.error?.message ?? "") };
+}
+function revParse(repo, rev, env) {
+  const r = git(repo, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], env);
+  const sha = r.stdout.trim();
+  return r.code === 0 && sha !== "" ? sha : null;
+}
+function nulFields(text) {
+  const fields = text.split("\0");
+  if (fields.at(-1) === "") fields.pop();
+  return fields;
+}
+function listed(items) {
+  const shown2 = items.slice(0, MAX_LISTED).join("; ");
+  return items.length > MAX_LISTED ? `${shown2}; (+${items.length - MAX_LISTED} more)` : shown2;
+}
+function deny(failure2) {
+  return {
+    stdout: `${jqCompact({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: JSON.stringify(failure2)
+      }
+    })}
+`,
+    code: 0
+  };
+}
+function dbUnavailable(env) {
+  return { stdout: `${denyDbUnavailable(GATE_NAME2, env)}
+`, code: 0 };
+}
+function treeBlobs(repo, rev, env) {
+  const r = git(repo, ["ls-tree", "-r", "-z", "--full-tree", rev], env);
+  if (r.code !== 0) return null;
+  const blobs = /* @__PURE__ */ new Map();
+  for (const entry of nulFields(r.stdout)) {
+    const tab = entry.indexOf("	");
+    const [, type, oid] = entry.slice(0, tab).split(" ");
+    if (type === "blob") blobs.set(entry.slice(tab + 1), oid);
+  }
+  return blobs;
+}
+function readBlobs(repo, oids, env) {
+  const contents = /* @__PURE__ */ new Map();
+  if (oids.length === 0) return contents;
+  const r = spawnSync4("git", ["-C", repo, "cat-file", "--batch"], {
+    input: `${oids.join("\n")}
+`,
+    env: { ...env, GIT_OPTIONAL_LOCKS: "0" },
+    timeout: GIT_TIMEOUT_MS,
+    maxBuffer: GIT_MAX_BUFFER
+  });
+  if (r.error || r.status !== 0) return null;
+  const out2 = r.stdout;
+  let at = 0;
+  while (at < out2.length) {
+    const eol = out2.indexOf(10, at);
+    if (eol < 0) return null;
+    const [oid, type, size] = out2.subarray(at, eol).toString("utf8").split(" ");
+    if (type === void 0 || size === void 0) return null;
+    const start2 = eol + 1;
+    const end = start2 + Number(size);
+    contents.set(oid, out2.subarray(start2, end).toString("utf8"));
+    at = end + 1;
+  }
+  return contents;
+}
+function toolNames(blobs, contents) {
+  const names = /* @__PURE__ */ new Set();
+  for (const [path, oid] of blobs) {
+    if (!TOOL_SOURCE.test(path) || path.includes("/test/")) continue;
+    for (const m of (contents.get(oid) ?? "").matchAll(TOOL_NAME)) names.add(m[1]);
+  }
+  return names;
+}
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function pathPattern(path) {
+  return new RegExp(`(?:^|(?<=\\./)|(?<![A-Za-z0-9_./-]))${escapeRegExp(path)}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`, "m");
+}
+function toolPattern(name3) {
+  return new RegExp(`(?:(?<=__)|(?<![A-Za-z0-9_]))${escapeRegExp(name3)}(?![A-Za-z0-9_])`, "m");
+}
+function dirOf(path) {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "" : path.slice(0, slash);
+}
+function removedInDiff(repo, base, commit, env) {
+  const diff = git(repo, ["diff", "--no-ext-diff", "--name-status", "-z", "-M", base, commit], env);
+  if (diff.code !== 0) return `git diff ${base}..${commit} failed: ${diff.stderr.trim()}`;
+  const fields = nulFields(diff.stdout);
+  const paths = [];
+  let touchesTools = false;
+  for (let i2 = 0; i2 < fields.length; ) {
+    const status = fields[i2];
+    const renamed = status.startsWith("R") || status.startsWith("C");
+    const from = fields[i2 + 1];
+    const to = renamed ? fields[i2 + 2] : from;
+    i2 += renamed ? 3 : 2;
+    if (TOOL_SOURCE.test(from) || TOOL_SOURCE.test(to)) touchesTools = true;
+    if (status === "D" || status.startsWith("R")) paths.push(from);
+  }
+  if (!touchesTools) return { paths, tools: [] };
+  const before2 = treeBlobs(repo, base, env);
+  const after2 = treeBlobs(repo, commit, env);
+  if (!before2 || !after2) return `git ls-tree of ${base} or ${commit} failed`;
+  const sources = (blobs) => [...blobs].filter(([p]) => TOOL_SOURCE.test(p) && !p.includes("/test/")).map(([, oid]) => oid);
+  const contents = readBlobs(repo, [.../* @__PURE__ */ new Set([...sources(before2), ...sources(after2)])], env);
+  if (!contents) return "git cat-file of the tool sources failed";
+  const kept = toolNames(after2, contents);
+  return { paths, tools: [...toolNames(before2, contents)].filter((t) => !kept.has(t)).sort() };
+}
+function staleDocRefs(repo, base, commit, env) {
+  const removed = removedInDiff(repo, base, commit, env);
+  if (typeof removed === "string") return removed;
+  if (removed.paths.length === 0 && removed.tools.length === 0) return [];
+  const blobs = treeBlobs(repo, commit, env);
+  if (!blobs) return `git ls-tree of ${commit} failed`;
+  const docs = [...blobs].filter(([p]) => DOC_PATH.test(p)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const contents = readBlobs(repo, docs.map(([, oid]) => oid), env);
+  if (!contents) return "git cat-file of the docs failed";
+  const tools = removed.tools.map((t) => ({ t, re: toolPattern(t) }));
+  const paths = removed.paths.map((p) => ({ p, re: pathPattern(p) }));
+  const hits = [];
+  for (const [doc, oid] of docs) {
+    const text = contents.get(oid) ?? "";
+    const dir = dirOf(doc);
+    for (const { p, re } of paths) {
+      const local = dir !== "" && p.startsWith(`${dir}/`) ? pathPattern(p.slice(dir.length + 1)) : null;
+      if (re.test(text) || local?.test(text)) hits.push(`${doc} mentions removed path '${p}'`);
+    }
+    for (const { t, re } of tools) {
+      if (re.test(text)) hits.push(`${doc} mentions removed MCP tool '${t}'`);
+    }
+  }
+  return hits;
+}
+function hasChangelogDir(repo, rev, env) {
+  const r = git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
+  return r.code === 0 && r.stdout.trim() !== "";
+}
+function readTask(db, taskId, env) {
+  const row = gateRead(
+    db,
+    `SELECT 'row|' || COALESCE(commit_sha, '') || '|' || COALESCE(parent_branch_id, '') || '|' || branch_id FROM tasks WHERE id = ${taskId};`,
+    env
+  );
+  if (row === GATE_READ_ERROR) return GATE_READ_ERROR;
+  if (row === "") return null;
+  const [, commitSha = "", parentBranch = "", ...branch] = row.split("\n")[0].split("|");
+  return { commitSha, parentBranch, branch: branch.join("|") };
+}
+function prTargetRef(repo, targetBranch, parentBranch) {
+  for (const candidate of [targetBranch, parentBranch, resolveRepoDefaultBranch(repo)]) {
+    if (candidate === "") continue;
+    const ref = resolveBaseRef(repo, candidate);
+    if (ref) return ref;
+  }
+  return null;
+}
+function preflight(db, taskId, env) {
+  const task = readTask(db, taskId, env);
+  if (task === GATE_READ_ERROR) return dbUnavailable(env);
+  if (task === null) return ALLOW;
+  const location = taskLocation(db, taskId, env);
+  if (location.code === 2) return dbUnavailable(env);
+  const recorded = task.commitSha;
+  if (location.code !== 0) {
+    return deny({ check: "sha_mismatch", expected: recorded || null, actual: `branch tip unresolvable: ${location.missing}` });
+  }
+  const repo = location.repoRoot;
+  const branch = task.branch;
+  const tip = revParse(repo, `refs/heads/${branch}`, env);
+  const commit = recorded === "" ? null : revParse(repo, recorded, env);
+  if (commit === null || tip !== commit) {
+    return deny({
+      check: "sha_mismatch",
+      expected: recorded === "" ? null : commit ?? recorded,
+      actual: tip ?? `refs/heads/${branch} does not resolve in ${repo}`
+    });
+  }
+  const shaIn = `commit_sha IN ('${sqlQuote(recorded)}', '${sqlQuote(commit)}')`;
+  const runs = gateRead(
+    db,
+    `SELECT COUNT(*) FROM verification_runs WHERE task_id = ${taskId} AND ${shaIn} AND exit_code = 0 AND timed_out = 0;`,
+    env
+  );
+  if (runs === GATE_READ_ERROR) return dbUnavailable(env);
+  if (Number(runs) === 0) {
+    const latest = gateRead(
+      db,
+      `SELECT 'run ' || id || ': exit_code=' || COALESCE(exit_code, 'null') || ', timed_out=' || timed_out
+         FROM verification_runs WHERE task_id = ${taskId} AND ${shaIn} ORDER BY id DESC LIMIT 1;`,
+      env
+    );
+    return deny({
+      check: "no_passing_run",
+      expected: `a verification_runs row for task ${taskId} at ${commit} with exit_code=0 and timed_out=0`,
+      actual: latest === GATE_READ_ERROR || latest === "" ? `no verification_runs row for task ${taskId} at ${commit}` : latest
+    });
+  }
+  const targetRow = gateRead(
+    db,
+    `SELECT COALESCE(target_branch, '') FROM repos WHERE name = '${sqlQuote(location.repo)}';`,
+    env
+  );
+  if (targetRow === GATE_READ_ERROR) return dbUnavailable(env);
+  const targetRef = prTargetRef(repo, targetRow.split("\n")[0], task.parentBranch);
+  const targetTip = targetRef === null ? null : revParse(repo, targetRef, env);
+  if (targetRef === null || targetTip === null) {
+    return deny({
+      check: "base_conflict",
+      expected: `${commit} merges cleanly into the PR target`,
+      actual: `no PR target ref resolves in ${repo}`
+    });
+  }
+  const merge = git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", targetTip, commit], env);
+  if (merge.code !== 0) {
+    const conflicted = merge.stdout.split("\n").slice(1).filter((l) => l !== "");
+    return deny({
+      check: "base_conflict",
+      expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
+      actual: merge.code === 1 && conflicted.length > 0 ? `conflicts in ${listed(conflicted)}` : `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}`
+    });
+  }
+  const mergeBase = git(repo, ["merge-base", targetTip, commit], env).stdout.trim();
+  if (mergeBase === "") {
+    return deny({
+      check: "base_conflict",
+      expected: `${commit} shares history with ${targetRef} (${targetTip})`,
+      actual: "no merge-base"
+    });
+  }
+  const stale = staleDocRefs(repo, mergeBase, commit, env);
+  if (typeof stale === "string" || stale.length > 0) {
+    return deny({
+      check: "stale_doc_ref",
+      expected: `no agents/, skills/, docs/ *.md, CLAUDE.md or README.md at ${commit} mentions a path or MCP tool that ${mergeBase}..${commit} removes`,
+      actual: typeof stale === "string" ? stale : listed(stale)
+    });
+  }
+  if (hasChangelogDir(repo, commit, env) || hasChangelogDir(repo, mergeBase, env)) {
+    const added = git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
+    if (added.code !== 0 || added.stdout.trim() === "") {
+      return deny({
+        check: "missing_changelog",
+        expected: `${mergeBase}..${commit} adds a file under ${CHANGELOG_DIR}/`,
+        actual: added.code !== 0 ? `git diff failed: ${added.stderr.trim()}` : `no file added under ${CHANGELOG_DIR}/`
+      });
+    }
+  }
+  return ALLOW;
+}
+var prReviewerPreflight = (payload, env) => {
+  if (env[BYPASS_ENV] === "1") return ALLOW;
+  if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
+  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "pr-reviewer") return ALLOW;
+  const m = /task_id\s*=\s*([0-9]+)/.exec(jqAlternatives(payload, [["tool_input", "prompt"]]));
+  const taskId = sqlInt(m?.[1] ?? "");
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return dbUnavailable(env);
+  return preflight(db, taskId, env);
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
   ["containment-guard", containmentGuard],
-  ["ensure-mcp-deps-installed", ensureMcpDepsInstalled]
+  ["ensure-mcp-deps-installed", ensureMcpDepsInstalled],
+  [GATE_NAME2, prReviewerPreflight]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
