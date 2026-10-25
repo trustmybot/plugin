@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 45`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 46`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 45`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 46`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -50,6 +50,8 @@ erDiagram
     roundtables ||--o{ roundtable_votes : "roundtable_id (NO ACTION)"
     issues ||--o{ discussions : "issue_id (NO ACTION)"
     repos |o--o{ discussions : "repo (RESTRICT)"
+    tasks |o--o{ discussions : "task_id (NO ACTION)"
+    discussions |o--o{ discussions : "supersedes (NO ACTION)"
     tasks |o--o{ agent_runs : "task_id (NO ACTION)"
     issues |o--o{ agent_runs : "issue_id (NO ACTION)"
     repos |o--o{ agent_runs : "repo (RESTRICT)"
@@ -213,6 +215,8 @@ erDiagram
         TEXT repo FK "→ repos.name RESTRICT"
         TEXT created_at "NOT NULL"
         TEXT remote_comment_id
+        INTEGER task_id FK "→ tasks.id NO ACTION"
+        INTEGER supersedes FK "→ discussions.id NO ACTION"
     }
 
     plugin_meta {
@@ -603,6 +607,8 @@ Table constraints:
 | `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
 | `created_at` | TEXT | NOT NULL |  |  |
 | `remote_comment_id` | TEXT | nullable |  |  |
+| `task_id` | INTEGER | nullable |  | FK → `tasks.id` ON DELETE NO ACTION |
+| `supersedes` | INTEGER | nullable |  | FK → `discussions.id` ON DELETE NO ACTION |
 
 ### `plugin_meta`
 
@@ -880,6 +886,8 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 | `roundtable_votes` | `roundtable_id` | `roundtables(id)` | NO ACTION |
 | `discussions` | `issue_id` | `issues(id)` | NO ACTION |
 | `discussions` | `repo` | `repos(name)` | RESTRICT |
+| `discussions` | `task_id` | `tasks(id)` | NO ACTION |
+| `discussions` | `supersedes` | `discussions(id)` | NO ACTION |
 | `agent_runs` | `task_id` | `tasks(id)` | NO ACTION |
 | `agent_runs` | `issue_id` | `issues(id)` | NO ACTION |
 | `agent_runs` | `repo` | `repos(name)` | RESTRICT |
@@ -920,6 +928,8 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 | `idx_verification_runs_task_commit` | `verification_runs` | `task_id, commit_sha, finished_at` |  |  |
 | `idx_discussions_issue_created` | `discussions` | `issue_id, created_at` |  |  |
 | `idx_discussions_remote_comment` | `discussions` | `remote_comment_id` | yes | `remote_comment_id IS NOT NULL` |
+| `idx_discussions_task` | `discussions` | `task_id` |  | `task_id IS NOT NULL` |
+| `idx_discussions_supersedes` | `discussions` | `supersedes` |  | `supersedes IS NOT NULL` |
 | `idx_agent_runs_task` | `agent_runs` | `task_id` |  |  |
 | `idx_agent_runs_issue` | `agent_runs` | `issue_id` |  |  |
 | `idx_agent_runs_open` | `agent_runs` | `agent_type` |  | `completed_at IS NULL` |
@@ -999,6 +1009,7 @@ Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MOD
 
 - `tasks`, `audit`, `discussions`, `roundtables` → `issues.id`: every row belongs to one issue. Project-level audit and discussion rows use the schema-seeded system issue `-1`; a task never does (`task_provision` / `task_create_batch` refuse it with `system_issue_reserved`).
 - `discussions.remote_comment_id` (unique when non-NULL, `idx_discussions_remote_comment`) holds one discussion per persisted PR/MR comment: `pr_monitor_comments_get` writes each fetched comment through `insertDiscussion` as a `note` on the issue of the task that owns the PR (`pr_review_runs.task_id`, else the most recently updated task on the PR head branch; failed and escalated tasks are skipped, closed ones are not), keyed `<provider>:<pr_number>:<comment_id>` (`github:12:IC_kwDO…`, `gitlab:7:4410`), so a re-fetch of the same comment inserts nothing.
+- `discussions.task_id` → `tasks.id` and `discussions.supersedes` → `discussions.id` (v46, GH 1741): `task_provision`, `task_retry`, `task_reopen` and `task_update_spec` stamp `task_id` on the decision they write, and `discussion_append` takes optional `task_id` and `supersedes`. `task_brief` carries the task's own decision/intent rows plus the newest issue-level (`task_id IS NULL`) decision, and skips any row another row supersedes. Rows written before v46 keep both `NULL`.
 - `roundtable_votes` → `roundtables.id`: one vote row per participant per roundtable.
 - `validation_attempts` → `tasks.id`: every pr-reviewer verdict belongs to one task.
 - `agent_runs` → `tasks.id` / `issues.id`: per-task and per-issue resource tracking.

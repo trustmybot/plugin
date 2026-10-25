@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 45;
+export const TARGET_SCHEMA_VERSION = 46;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -647,6 +647,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 45 && toVersion >= 45) {
         migrateV44toV45(db);
+    }
+    if (fromVersion < 46 && toVersion >= 46) {
+        migrateV45toV46(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2441,6 +2444,33 @@ function migrateV44toV45(db) {
     }
     finally {
         db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v45→v46: task-scoped discussions (GH 1741). discussions gains the nullable
+// task_id (FK tasks.id) and supersedes (FK discussions.id); existing rows keep
+// both NULL, so an old issue's brief falls back to its newest issue-level
+// decision. The partial indexes come from the schema.sql reapply.
+function migrateV45toV46(db) {
+    if (!tableExists(db, 'discussions'))
+        return;
+    beginImmediate(db);
+    try {
+        if (!hasColumn(db, 'discussions', 'task_id')) {
+            db.exec('ALTER TABLE discussions ADD COLUMN task_id INTEGER REFERENCES tasks(id)');
+        }
+        if (!hasColumn(db, 'discussions', 'supersedes')) {
+            db.exec('ALTER TABLE discussions ADD COLUMN supersedes INTEGER REFERENCES discussions(id)');
+        }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
     }
 }
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.

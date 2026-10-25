@@ -772,7 +772,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_brief',
-            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -1021,7 +1021,6 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             // Any DB error rolls back the whole transaction.
             const now = nowISO();
             const result = db.transaction(() => {
-                insertDiscussion(db, { issue_id: issueId, author: agent, kind: 'decision', body: decisionBody, created_at: now });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
@@ -1043,6 +1042,14 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
+                insertDiscussion(db, {
+                    issue_id: issueId,
+                    author: agent,
+                    kind: 'decision',
+                    body: decisionBody,
+                    created_at: now,
+                    task_id: row.id,
+                });
                 insertAudit(db, {
                     issue_id: issueId,
                     branch_id: branchId,
@@ -1166,6 +1173,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     kind: 'decision',
                     body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join('\n'),
                     created_at: now,
+                    task_id: task.id,
                 });
                 insertAudit(db, {
                     issue_id: task.issue_id,
@@ -1291,6 +1299,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     kind: 'decision',
                     body: `Task ${taskId} spec amended (${summaryParts.join('; ')}): ${reason}`,
                     created_at: now,
+                    task_id: task.id,
                 });
                 insertAudit(db, {
                     issue_id: task.issue_id,
@@ -1356,6 +1365,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     const childrenByParent = new Map();
                     for (const n of nodes) {
                         const key = n.parent_path ?? '';
+                        if (key === n.path)
+                            continue;
                         if (!childrenByParent.has(key))
                             childrenByParent.set(key, []);
                         childrenByParent.get(key).push(n);
@@ -1370,35 +1381,36 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     }));
                 }
             }
-            // The task issue's own discussion thread (intent / decision / notes).
-            // Bound it: keep decision/intent rows full (load-bearing scope the
-            // executor must obey verbatim); cap other kinds to the last few and
-            // truncate their bodies, with a pointer to discussion_search for the
-            // full text. This is the unbounded-growth term in the brief — paid on
-            // every swe/pr-reviewer spawn for a long-lived issue.
-            // #1026: window the NEWEST 200 rows (DESC LIMIT), then reverse to
-            // chronological order for display. An ASC LIMIT 200 would drop the
-            // latest decision/intent rows on issues with >200 discussions — the
-            // exact rows the executor must obey.
-            const raw = db.all(`SELECT author, kind, body, created_at FROM discussions
-            WHERE issue_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`, [task.issue_id]).reverse();
-            const FULL_KINDS = new Set(['decision', 'intent']);
             const NOTE_CAP = 500;
             const OTHER_ROW_CAP = 8;
-            const full = raw.filter((d) => FULL_KINDS.has(d.kind));
-            const other = raw.filter((d) => !FULL_KINDS.has(d.kind)).slice(-OTHER_ROW_CAP);
-            const task_discussions = raw
-                .filter((d) => full.includes(d) || other.includes(d))
+            const historyHint = `discussion_search(issue_id=${task.issue_id}) returns the full history`;
+            const taskRows = db.all(`SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+            WHERE d.issue_id = ? AND d.task_id = ? AND d.kind IN ('decision', 'intent')
+              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)`, [task.issue_id, task.id]);
+            const issueDecision = db.get(`SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+            WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
+              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+            ORDER BY d.created_at DESC, d.id DESC LIMIT 1`, [task.issue_id]);
+            const otherRows = db.all(`SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+            WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
+              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+            ORDER BY d.created_at DESC, d.id DESC LIMIT ?`, [task.issue_id, OTHER_ROW_CAP]);
+            const task_discussions = [...taskRows, ...(issueDecision ? [issueDecision] : []), ...otherRows]
+                .sort((a, b) => (a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1))
                 .map((d) => {
-                if (FULL_KINDS.has(d.kind) || d.body.length <= NOTE_CAP)
+                if (d.kind === 'decision' || d.kind === 'intent' || d.body.length <= NOTE_CAP)
                     return d;
                 return {
                     ...d,
-                    body: d.body.slice(0, NOTE_CAP) +
-                        `\n… [truncated; discussion_search(issue_id=${task.issue_id}) for full text]`,
+                    body: d.body.slice(0, NOTE_CAP) + `\n… [truncated; ${historyHint}]`,
                     truncated: true,
                 };
             });
+            const issueRowCount = db.get('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [task.issue_id])?.n ?? 0;
+            const omittedCount = issueRowCount - task_discussions.length;
+            const task_discussions_omitted = omittedCount > 0
+                ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` }
+                : undefined;
             // The latest bro_atomic_close scope record (extras bro accepted, base
             // moved) — pr-reviewer reads it instead of recomputing the diff.
             const closeRow = db.get(`SELECT content_json FROM audit
@@ -1431,6 +1443,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 scope_world_model,
                 ...(world_model_warning ? { world_model_warning } : {}),
                 task_discussions,
+                ...(task_discussions_omitted ? { task_discussions_omitted } : {}),
             });
         })),
         branch_id_propose: requireRoles('branch_id_propose', ['bro'], wrap(async (args) => {
@@ -1530,13 +1543,6 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             });
             const now = nowISO();
             const result = db.transaction(() => {
-                insertDiscussion(db, {
-                    issue_id: failed.issue_id,
-                    author: 'bro',
-                    kind: 'decision',
-                    body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
-                    created_at: now,
-                });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
@@ -1558,6 +1564,14 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 const newTask = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!newTask)
                     throw new Error('insert succeeded but row lookup failed');
+                insertDiscussion(db, {
+                    issue_id: failed.issue_id,
+                    author: 'bro',
+                    kind: 'decision',
+                    body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
+                    created_at: now,
+                    task_id: newTask.id,
+                });
                 insertAudit(db, {
                     issue_id: failed.issue_id,
                     branch_id: newBranchId,
