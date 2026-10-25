@@ -7,7 +7,7 @@
  */
 import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { claudeProjectDir, homeDir, pluginName, posixBasename, posixDirname, shellPwd, TMB_DB_FILENAME, TMB_STATE_HOST_DIR } from './project-env.js';
-import { jqAlternatives, jqContentStrings } from './jq.js';
+import { jqAlternatives, jqCompact, jqContentStrings } from './jq.js';
 import { agentRole } from './role.js';
 import { haveSqlite, sqliteBackend, sqliteRun } from './sqlite-shell.js';
 export { haveSqlite } from './sqlite-shell.js';
@@ -267,7 +267,7 @@ export function dbUnavailableReason(hook = '', env = process.env) {
 }
 /** tmb_deny_db_unavailable <hook>: the PreToolUse deny JSON for a DB read error. */
 export function denyDbUnavailable(hook = '', env = process.env) {
-    return JSON.stringify({
+    return jqCompact({
         hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: 'deny',
@@ -288,9 +288,12 @@ export function sweContext(agentType = '') {
 export function sqlInt(value = '') {
     return /^[0-9]+$/.test(value) ? value : '';
 }
-/** tmb_sql_quote <value>: <value> with every single quote doubled. */
+/**
+ * tmb_sql_quote <value>: <value> with every single quote doubled, minus the
+ * trailing newlines the .sh's `$(...)` capture drops.
+ */
 export function sqlQuote(value = '') {
-    return value.replace(/'/g, "''");
+    return stripTrailingNewlines(value.replace(/'/g, "''"));
 }
 /** tmb_branch_slug <branch_id>: the branch minus its first `<type>/`. */
 export function branchSlug(branch = '') {

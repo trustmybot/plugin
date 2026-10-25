@@ -8,6 +8,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
+# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh; its uid
+# comes from a preload stubbing process.getuid with the id shim's FAKE_UID.
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+hook() {
+  if [ "$HOOK_IMPL" = ts ]; then
+    NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" node "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" containment-guard
+  else
+    bash "$HOOK"
+  fi
+}
 
 SANDBOX=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-containment-guard.XXXXXX")
 trap 'rm -rf "$SANDBOX"' EXIT
@@ -50,7 +60,7 @@ run() {
      + (if $at == "" then {} else {agent_type:$at} end)
      + (if ($at | test("swe$")) and $tr != "" then {agent_transcript_path:$tr} else {} end)')
   (cd "$1" 2>/dev/null || cd "$SANDBOX" || exit 1
-   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" CLAUDE_CONFIG_DIR="" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" PATH="$SHIM:$PATH" bash "$HOOK" 2>&1)
+   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" CLAUDE_CONFIG_DIR="" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" PATH="$SHIM:$PATH" hook 2>&1)
 }
 write() { jq -nc --arg p "$1" '{file_path:$p, content:"x"}'; }
 bash_cmd() { jq -nc --arg c "$1" '{command:$c}'; }

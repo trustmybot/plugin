@@ -116,3 +116,8 @@ export function jqContentStrings(text: string): string[] {
   }
   return out;
 }
+
+/** `jq -c` output of a JSON value: JSON.stringify, with DEL escaped as jq does. */
+export function jqCompact(value: unknown): string {
+  return JSON.stringify(value).replace(/\x7f/g, '\\u007f');
+}

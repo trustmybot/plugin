@@ -106,7 +106,7 @@ function runCli(call, env) {
     if (errno === 'ENOENT')
         return { code: NOT_FOUND_CODE, stdout: '', stderr: 'sqlite3: command not found\n' };
     if (errno === 'ETIMEDOUT' || r.signal === 'SIGKILL')
-        return { code: KILLED_CODE, stdout: '', stderr: '' };
+        return { code: KILLED_CODE, stdout, stderr: '' };
     if (r.error)
         return { code: 1, stdout, stderr: stderr || `${r.error.message}\n` };
     return { code: r.status ?? 1, stdout, stderr };
@@ -354,16 +354,19 @@ class ShellSession {
                     bound[name] = this.parameters.get(name) ?? null;
             }
             const rows = Object.keys(bound).length > 0 ? prepared.iterate(bound) : prepared.iterate();
+            let out = '';
             for (const row of rows) {
+                this.checkDeadline();
                 const values = Array.isArray(row) ? row : Object.values(row);
-                this.stdout += `${values.map(listValue).join('|')}\n`;
+                out += `${values.map(listValue).join('|')}\n`;
             }
+            this.checkDeadline();
+            this.stdout += out;
         }
         catch (e) {
             this.checkDeadline();
             return { phase: 'step', failure: failure(e) };
         }
-        this.checkDeadline();
         return null;
     }
     evalParameter(value) {
@@ -389,7 +392,11 @@ class ShellSession {
 }
 function openSession(sqlite, call) {
     try {
-        const db = new sqlite.DatabaseSync(call.target, { readOnly: call.readonly });
+        const db = new sqlite.DatabaseSync(call.target, {
+            readOnly: call.readonly,
+            enableDoubleQuotedStringLiterals: true,
+            enableForeignKeyConstraints: false,
+        });
         return new ShellSession(db, call.timeoutMs, call.killAfterMs);
     }
     catch (e) {
@@ -419,7 +426,7 @@ function runNode(sqlite, call) {
     }
     catch (e) {
         if (e instanceof Killed)
-            return { code: KILLED_CODE, stdout: '', stderr: '' };
+            return { code: KILLED_CODE, stdout: opened.stdout, stderr: '' };
         throw e;
     }
     finally {
@@ -514,8 +521,61 @@ function inputLines(script) {
         lines.pop();
     return lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
 }
+const BACKSLASH_ESCAPES = {
+    a: '\x07',
+    b: '\b',
+    t: '\t',
+    n: '\n',
+    v: '\v',
+    f: '\f',
+    r: '\r',
+    '"': '"',
+    "'": "'",
+    '\\': '\\',
+};
+/** The CLI's resolve_backslashes: C escapes and up to three octal digits. */
+function resolveBackslashes(text) {
+    return text.replace(/\\([0-7]{1,3}|.)/gs, (all, esc) => {
+        if (/^[0-7]/.test(esc))
+            return String.fromCharCode(parseInt(esc, 8));
+        return BACKSLASH_ESCAPES[esc] ?? all;
+    });
+}
+/**
+ * The CLI's meta-command argument split: whitespace-separated words, a
+ * '…' or "…" word taken whole (a double-quoted one with its backslash
+ * escapes resolved), an unclosed quote running to the end of the line.
+ */
 function metaArgs(line) {
-    return line.slice(1).trim().split(/\s+/).filter((a) => a !== '');
+    const args = [];
+    let i = 1;
+    while (i < line.length) {
+        while (i < line.length && isSpace(line[i]))
+            i += 1;
+        if (i >= line.length)
+            break;
+        const delim = line[i];
+        if (delim === "'" || delim === '"') {
+            i += 1;
+            const start = i;
+            while (i < line.length && line[i] !== delim) {
+                if (line[i] === '\\' && delim === '"' && i + 1 < line.length)
+                    i += 1;
+                i += 1;
+            }
+            const word = line.slice(start, i);
+            if (i < line.length)
+                i += 1;
+            args.push(delim === '"' ? resolveBackslashes(word) : word);
+        }
+        else {
+            const start = i;
+            while (i < line.length && !isSpace(line[i]))
+                i += 1;
+            args.push(line.slice(start, i));
+        }
+    }
+    return args;
 }
 function integerValue(text) {
     const m = /^\s*([+-]?\d+)/.exec(text);

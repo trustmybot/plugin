@@ -4,7 +4,7 @@
  * reads from CLAUDE_PROJECT_DIR, HOME and the shell's working directory, each
  * resolved from the `env` a caller passes (process.env in a gate).
  */
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 export const TMB_STATE_HOST_DIR = '.claude';
 export const TMB_DB_FILENAME = 'trajectory.db';
@@ -110,5 +110,13 @@ export function installRoot(fromDir) {
             return null;
         dir = parent;
     }
+}
+/**
+ * Whether LC_ALL / LC_CTYPE / LANG name an installed macOS UTF-8 locale
+ * (en_US.UTF-8, UTF-8), under which wc and sed work on code points, not bytes.
+ */
+export function ctypeUtf8(env = process.env) {
+    const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || 'C';
+    return /(^|\.)utf-?8$/i.test(locale) && !locale.includes('/') && existsSync(`/usr/share/locale/${locale}/LC_CTYPE`);
 }
 //# sourceMappingURL=project-env.js.map

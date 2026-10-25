@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "/etc",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git status --short",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus"
+}
