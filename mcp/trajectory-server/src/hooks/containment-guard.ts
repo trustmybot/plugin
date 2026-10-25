@@ -12,7 +12,8 @@
  *
  * Deny messages, audit rows and the allow/deny decision are the .sh's, with
  * one exception: a target the analyzer reports as `$(parse)` (the command did
- * not parse) or `$(computed)` (a path built at run time) is always denied,
+ * not parse), `$(computed)` (a path built at run time) or `$(unproven)` (an
+ * inline program or command the analyzer cannot prove, GH 1739) is always denied,
  * never through the literal-dir allowance. That deny, and the deny of a
  * target behind a variable, substitution or cd the guard cannot resolve,
  * reads `BLOCKED: write target "<target>" cannot be judged: <why>`;
@@ -53,6 +54,8 @@ export const NEVER_JUDGED: Readonly<Record<string, string>> = {
   '$(parse)': 'the command could not be parsed, so its write targets are unknown; split it or fix its quoting.',
   '$(computed)':
     'the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.',
+  '$(unproven)':
+    'the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file.',
 };
 
 /** What a `$(...)` capture of a command's output keeps. */

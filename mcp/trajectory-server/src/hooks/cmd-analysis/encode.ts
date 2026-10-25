@@ -132,6 +132,11 @@ export class Encoder {
     return { text: '<<' + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
   }
 
+  /** One word node, encoded as `range` encodes it inside its command. */
+  word(node: Node): string {
+    return this.spans(specials(node, []), node.startIndex, node.endIndex);
+  }
+
   /** [from, to) of `node`'s source, encoded as unquoted shell text. */
   range(node: Node, from: number, to: number): string {
     const spans = node.children
@@ -184,9 +189,36 @@ export class Encoder {
 export interface Heredoc {
   delim: string;
   body: string;
+  /** The delimiter is unquoted and the body holds an expansion, so the shell fills part of it in (GH 1739). */
+  expands: boolean;
 }
 
-export type Encoded = { ok: true; text: string; heredocs: Heredoc[] } | { ok: false };
+/**
+ * `held` (GH 1739): the `heldKey` of every command or herestring word that
+ * holds an expansion outside single quotes, so part of its text is filled in
+ * by the shell at run time.
+ */
+export type Encoded = { ok: true; text: string; heredocs: Heredoc[]; held: Set<string> } | { ok: false };
+
+const EXPANSIONS = ['simple_expansion', 'expansion', 'command_substitution', 'arithmetic_expansion', 'process_substitution'];
+
+const expands = (node: Node): boolean => node.descendantsOfType(EXPANSIONS).length > 0;
+
+/** The text an encoded word is matched on in `Encoded.held`: decoded, a substitution frame shown as `$(` … `)`. */
+export function heldKey(word: string): string {
+  return decode(word).replace(/\x07/g, '$(').replace(/\x08/g, ')');
+}
+
+function heldWords(encoder: Encoder, root: Node): Set<string> {
+  const held = new Set<string>();
+  for (const node of root.descendantsOfType(['command', 'herestring_redirect'])) {
+    if (!node) continue;
+    for (const word of node.namedChildren) {
+      if (word && word.type !== 'file_redirect' && word.type !== 'herestring_redirect' && expands(word)) held.add(heldKey(encoder.word(word)));
+    }
+  }
+  return held;
+}
 
 function broken(node: Node): boolean {
   if (node.isError || node.isMissing) return true;
@@ -206,14 +238,15 @@ function heredocs(src: string, root: Node): Heredoc[] {
     const start = kids.find((c) => c.type === 'heredoc_start');
     const end = kids.find((c) => c.type === 'heredoc_end');
     if (!start || !end) return [];
-    const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
+    const bodyNode = kids.find((c) => c.type === 'heredoc_body');
+    const from = bodyNode?.startIndex ?? end.startIndex;
     const tabs = kids.some((c) => c.type === '<<-');
     const lineStart = src.lastIndexOf('\n', from - 1) + 1;
     const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
     let lines = endStart > lineStart ? src.slice(lineStart, endStart - 1).split('\n') : [];
     if (tabs) lines = lines.map((l) => l.replace(/^\t+/, ''));
     const body = lines.join('\n').replace(/^\t+/, '').replace(/\t+$/, '').replace(/\n+$/, '');
-    return [{ delim: src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, ''), body }];
+    return [{ delim: src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, ''), body, expands: bodyNode !== undefined && expands(bodyNode) }];
   });
 }
 
@@ -224,8 +257,9 @@ export function encode(parser: Parser, command: string): Encoded {
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
-    const text = new Encoder(command).range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [] };
+    const encoder = new Encoder(command);
+    const text = encoder.range(root, 0, command.length);
+    return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };
   } finally {
     tree.delete();
   }

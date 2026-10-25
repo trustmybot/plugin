@@ -1,7 +1,9 @@
-// Shared tree-sitter runtime (ADR 0001): web-tree-sitter plus the TS, TSX, JS
-// and bash grammars, shipped as .wasm files in dist/parsing/. Nothing loads at
-// server start; the first loadParser(name) / loadParsers() call imports the
-// runtime and compiles what it asks for, and every later call reuses them.
+// Shared tree-sitter runtime (ADR 0001): web-tree-sitter plus the TS, TSX, JS,
+// bash and python grammars, shipped as .wasm files in dist/parsing/. Nothing
+// loads at server start; the first loadParser(name) / loadParsers() call
+// imports the runtime and compiles what it asks for, and every later call
+// reuses them. loadParsers() compiles the four the symbol index reads; python
+// serves only the write-path analyzer (GH 1739).
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +13,9 @@ const GRAMMAR_WASM = {
     tsx: 'tree-sitter-tsx.wasm',
     javascript: 'tree-sitter-javascript.wasm',
     bash: 'tree-sitter-bash.wasm',
+    python: 'tree-sitter-python.wasm',
 };
+const INDEXED = ['typescript', 'tsx', 'javascript', 'bash'];
 let pending = null;
 let loads = 0;
 // How many times the grammars have been loaded in this process: 0 until the
@@ -62,7 +66,7 @@ export function loadParser(name) {
 }
 async function load() {
     const parsers = {};
-    for (const name of Object.keys(GRAMMAR_WASM))
+    for (const name of INDEXED)
         parsers[name] = await loadParser(name);
     loads++;
     return parsers;

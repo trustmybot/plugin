@@ -1463,4 +1463,9 @@ export function progCalls(lang, program) {
         return [];
     return Buffer.from(out.join('\n'), 'latin1').toString('utf8').split('\n');
 }
+/** Whether the scanner judges a call of `name` (dotted, aliases resolved): a write call of a known kind or a process call (GH 1739). */
+export function judgedCall(lang, name) {
+    const at = name.lastIndexOf('.');
+    return wkind(name.slice(at + 1), at < 0 ? '' : name.slice(0, at)) !== '' || new Scanner(lang).isproc(name);
+}
 //# sourceMappingURL=prog-calls.js.map

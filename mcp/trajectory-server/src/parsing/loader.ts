@@ -1,7 +1,9 @@
-// Shared tree-sitter runtime (ADR 0001): web-tree-sitter plus the TS, TSX, JS
-// and bash grammars, shipped as .wasm files in dist/parsing/. Nothing loads at
-// server start; the first loadParser(name) / loadParsers() call imports the
-// runtime and compiles what it asks for, and every later call reuses them.
+// Shared tree-sitter runtime (ADR 0001): web-tree-sitter plus the TS, TSX, JS,
+// bash and python grammars, shipped as .wasm files in dist/parsing/. Nothing
+// loads at server start; the first loadParser(name) / loadParsers() call
+// imports the runtime and compiles what it asks for, and every later call
+// reuses them. loadParsers() compiles the four the symbol index reads; python
+// serves only the write-path analyzer (GH 1739).
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,9 +11,11 @@ import type { Parser } from 'web-tree-sitter';
 
 type Runtime = typeof import('web-tree-sitter');
 
-export type GrammarName = 'typescript' | 'tsx' | 'javascript' | 'bash';
+export type IndexedGrammar = 'typescript' | 'tsx' | 'javascript' | 'bash';
 
-export type Parsers = Record<GrammarName, Parser>;
+export type GrammarName = IndexedGrammar | 'python';
+
+export type Parsers = Record<IndexedGrammar, Parser>;
 
 const RUNTIME_WASM = 'tree-sitter.wasm';
 
@@ -20,7 +24,10 @@ const GRAMMAR_WASM: Record<GrammarName, string> = {
   tsx: 'tree-sitter-tsx.wasm',
   javascript: 'tree-sitter-javascript.wasm',
   bash: 'tree-sitter-bash.wasm',
+  python: 'tree-sitter-python.wasm',
 };
+
+const INDEXED: IndexedGrammar[] = ['typescript', 'tsx', 'javascript', 'bash'];
 
 let pending: Promise<Parsers> | null = null;
 let loads = 0;
@@ -84,7 +91,7 @@ export function loadParser(name: GrammarName): Promise<Parser> {
 
 async function load(): Promise<Parsers> {
   const parsers = {} as Parsers;
-  for (const name of Object.keys(GRAMMAR_WASM) as GrammarName[]) parsers[name] = await loadParser(name);
+  for (const name of INDEXED) parsers[name] = await loadParser(name);
   loads++;
   return parsers;
 }

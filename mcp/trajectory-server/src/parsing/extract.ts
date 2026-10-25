@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 import type { Node } from 'web-tree-sitter';
-import type { GrammarName, Parsers } from './loader.js';
+import type { IndexedGrammar, Parsers } from './loader.js';
 
 export type SymbolKind =
   | 'function'
@@ -32,7 +32,7 @@ export type EdgeKind =
   | 'indexes'
   | 'triggers_on';
 
-export type SourceLanguage = GrammarName | 'sql';
+export type SourceLanguage = IndexedGrammar | 'sql';
 
 export interface ExtractedSymbol {
   kind: SymbolKind;

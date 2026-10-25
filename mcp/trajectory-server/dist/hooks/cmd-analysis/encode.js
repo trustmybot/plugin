@@ -124,6 +124,10 @@ export class Encoder {
             dropTo++;
         return { text: '<<' + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
     }
+    /** One word node, encoded as `range` encodes it inside its command. */
+    word(node) {
+        return this.spans(specials(node, []), node.startIndex, node.endIndex);
+    }
     /** [from, to) of `node`'s source, encoded as unquoted shell text. */
     range(node, from, to) {
         const spans = node.children
@@ -172,6 +176,24 @@ export class Encoder {
         return out + this.plain(at, to);
     }
 }
+const EXPANSIONS = ['simple_expansion', 'expansion', 'command_substitution', 'arithmetic_expansion', 'process_substitution'];
+const expands = (node) => node.descendantsOfType(EXPANSIONS).length > 0;
+/** The text an encoded word is matched on in `Encoded.held`: decoded, a substitution frame shown as `$(` … `)`. */
+export function heldKey(word) {
+    return decode(word).replace(/\x07/g, '$(').replace(/\x08/g, ')');
+}
+function heldWords(encoder, root) {
+    const held = new Set();
+    for (const node of root.descendantsOfType(['command', 'herestring_redirect'])) {
+        if (!node)
+            continue;
+        for (const word of node.namedChildren) {
+            if (word && word.type !== 'file_redirect' && word.type !== 'herestring_redirect' && expands(word))
+                held.add(heldKey(encoder.word(word)));
+        }
+    }
+    return held;
+}
 function broken(node) {
     if (node.isError || node.isMissing)
         return true;
@@ -193,7 +215,8 @@ function heredocs(src, root) {
         const end = kids.find((c) => c.type === 'heredoc_end');
         if (!start || !end)
             return [];
-        const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
+        const bodyNode = kids.find((c) => c.type === 'heredoc_body');
+        const from = bodyNode?.startIndex ?? end.startIndex;
         const tabs = kids.some((c) => c.type === '<<-');
         const lineStart = src.lastIndexOf('\n', from - 1) + 1;
         const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
@@ -201,7 +224,7 @@ function heredocs(src, root) {
         if (tabs)
             lines = lines.map((l) => l.replace(/^\t+/, ''));
         const body = lines.join('\n').replace(/^\t+/, '').replace(/\t+$/, '').replace(/\n+$/, '');
-        return [{ delim: src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, ''), body }];
+        return [{ delim: src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, ''), body, expands: bodyNode !== undefined && expands(bodyNode) }];
     });
 }
 /** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node. */
@@ -213,8 +236,9 @@ export function encode(parser, command) {
         const root = tree.rootNode;
         if (root.hasError || broken(root))
             return { ok: false };
-        const text = new Encoder(command).range(root, 0, command.length);
-        return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [] };
+        const encoder = new Encoder(command);
+        const text = encoder.range(root, 0, command.length);
+        return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };
     }
     finally {
         tree.delete();
