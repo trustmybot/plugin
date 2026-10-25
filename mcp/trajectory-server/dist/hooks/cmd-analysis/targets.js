@@ -488,8 +488,8 @@ function gitTree(chain, words) {
         outs = [tree || '.', ...outs];
     return outs.filter((w) => w !== '').map((w) => (chain ? under(cdir, w) : w));
 }
-/** _tmb_cmd_stmt_extra_writes without the interpreter one-liners, which the caller judges from `words`. */
-function extraWrites(chain, words) {
+/** _tmb_cmd_stmt_extra_writes, the interpreter one-liners judged by `interp`. */
+function extraWrites(chain, words, interp) {
     const out = [];
     let ops = [];
     const tool = basename(words[0]);
@@ -514,21 +514,19 @@ function extraWrites(chain, words) {
     const srcs = ops.filter((w) => !w.startsWith('-'));
     if (srcs.length >= 2)
         out.push(...srcs.slice(0, -1));
+    out.push(...interp(words));
     return out;
 }
-/**
- * _tmb_cmd_stmt_write_paths without the interpreter one-liners: the encoded
- * paths, and the words from the real argv0 on for the caller's own checks.
- */
-export function stmtWritePaths(stmt, chain) {
+/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on. */
+export function stmtWritePaths(stmt, chain, interp) {
     const paths = writeTargets(stmt);
     const { pre, words } = unwrapStatement(stmt);
     if (words.length <= 1)
         return { paths, words };
     if (pre === '')
-        paths.push(...extraWrites(chain, words));
+        paths.push(...extraWrites(chain, words, interp));
     else
-        for (const p of extraWrites(true, words))
+        for (const p of extraWrites(true, words, interp))
             if (p !== '')
                 paths.push(under(pre, p));
     return { paths, words };

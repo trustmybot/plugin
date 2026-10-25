@@ -163,7 +163,32 @@ function broken(node) {
         return false;
     return node.children.some((c) => c !== null && broken(c));
 }
-/** The encoded skeleton of `command`, or not ok when the tree has an ERROR or MISSING node. */
+/**
+ * tmb_cmd_strip_literals' `bodies`: each heredoc's delimiter and its body
+ * lines (leading tabs stripped for <<-), as _tmb_cmd_write_paths_in reads them
+ * back: outer tabs and trailing newlines trimmed.
+ */
+function heredocs(src, root) {
+    return root.descendantsOfType('heredoc_redirect').flatMap((node) => {
+        if (!node)
+            return [];
+        const kids = node.children.filter((c) => c !== null);
+        const start = kids.find((c) => c.type === 'heredoc_start');
+        const end = kids.find((c) => c.type === 'heredoc_end');
+        if (!start || !end)
+            return [];
+        const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
+        const tabs = kids.some((c) => c.type === '<<-');
+        const lineStart = src.lastIndexOf('\n', from - 1) + 1;
+        const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
+        let lines = endStart > lineStart ? src.slice(lineStart, endStart - 1).split('\n') : [];
+        if (tabs)
+            lines = lines.map((l) => l.replace(/^\t+/, ''));
+        const body = lines.join('\n').replace(/^\t+/, '').replace(/\t+$/, '').replace(/\n+$/, '');
+        return [{ delim: src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, ''), body }];
+    });
+}
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node. */
 export function encode(parser, command) {
     const tree = parser.parse(command);
     if (!tree)
@@ -172,7 +197,8 @@ export function encode(parser, command) {
         const root = tree.rootNode;
         if (root.hasError || broken(root))
             return { ok: false };
-        return { ok: true, text: new Encoder(command).range(root, 0, command.length) };
+        const text = new Encoder(command).range(root, 0, command.length);
+        return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [] };
     }
     finally {
         tree.delete();

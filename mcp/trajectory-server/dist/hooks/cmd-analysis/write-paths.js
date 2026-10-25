@@ -1,15 +1,14 @@
 import { decode, encode } from './encode.js';
+import { listerBind } from './lister.js';
+import { pathCanonical } from './path.js';
+import { interpWrites, progWrites } from './programs.js';
 import { SEP, WSEP, statementsEnc } from './statements.js';
-import { stmtWritePaths } from './targets.js';
+import { stmtWritePaths, unwrapStatement } from './targets.js';
 const BAD = '\x01';
-const DEFERRED_VALUE = '\x1e';
-const DEFERRED = '$(deferred)';
 const MAX_DEPTH = 3;
-const LISTERS = /^(find|ls|git|rg|fd|fdfind)$/;
 const VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const FIND_ACTIONS = /^(-exec|-execdir|-ok|-okdir|-delete|-fprint|-fprint0|-fprintf|-fls)$/;
-const FD_ACTIONS = /^(-x|--exec|-X|--exec-batch)$/;
-const PY_RUNNERS = /^(timeit|cProfile|profile|trace|pdb|runpy|code|doctest|pydoc|pickle|py_compile|compileall)$/;
+const PROG_DIR = '/.tmb-prog-dir';
+const XARGS_VALUE = /^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/;
 const basename = (w) => w.replace(/.*\//, '');
 const chomp = (s) => s.replace(/\n+$/, '');
 const dec = (s) => chomp(decode(s));
@@ -65,46 +64,6 @@ function inner(stmt) {
     if (argv0 === 'eval')
         return stmt.slice(4).replace(/^ /, '');
     return '';
-}
-/** _tmb_cmd_interp_writes' trigger: the interpreter of a one-liner with a program, or of `python -m <runner>`. */
-function interpreterProgram(words) {
-    const argv0 = basename(words[0]);
-    let flags;
-    let pyopt = false;
-    if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
-        flags = ['-c'];
-        pyopt = true;
-    }
-    else if (argv0 === 'node' || argv0 === 'nodejs')
-        flags = ['-e', '--eval', '-p', '--print'];
-    else if (argv0 === 'perl')
-        flags = ['-e', '-E'];
-    else if (argv0 === 'ruby')
-        flags = ['-e'];
-    else
-        return false;
-    let optarg = false;
-    let k = 1;
-    while (k < words.length) {
-        const w = words[k++];
-        if (pyopt) {
-            const m = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
-            if (m) {
-                pyopt = false;
-                if (PY_RUNNERS.test(dec(m[1] || (words[k] ?? ''))))
-                    return true;
-            }
-            else if (optarg)
-                optarg = false;
-            else if (w === '-W' || w === '-X')
-                optarg = true;
-            else if (!w.startsWith('-'))
-                pyopt = false;
-        }
-        if (flags.includes(w))
-            return dec(words[k] ?? '') !== '';
-    }
-    return false;
 }
 /** _tmb_cmd_stdin_interp: the interpreter kind that reads its program from stdin, '' for none. */
 function stdinInterp(words) {
@@ -164,42 +123,12 @@ function stdinInterp(words) {
     }
     return kind;
 }
-function stdinProgram(words) {
-    return words.some((w) => w.startsWith('<<<') || (w.startsWith('<<') && w.length > 2));
-}
-/** _tmb_cmd_exec_writes' trigger: a find / fd action, or a command xargs runs. */
-function runsCommand(words) {
-    const tool = basename(words[0]);
-    if (tool === 'find')
-        return words.slice(1).some((w) => FIND_ACTIONS.test(w));
-    if (tool === 'fd' || tool === 'fdfind')
-        return words.slice(1).some((w) => FD_ACTIONS.test(w));
-    if (tool !== 'xargs')
-        return false;
-    const n = words.length;
-    let k = 1;
-    while (k < n) {
-        const p = words[k];
-        if (p === '--') {
-            k++;
-            break;
-        }
-        if (p === '-I' || p === '-J' || p === '-a' || p === '--arg-file')
-            k += 2;
-        else if (/^(-d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars)$/.test(p))
-            k += 2;
-        else if (p.startsWith('-'))
-            k++;
-        else
-            break;
-    }
-    return k < n;
-}
 class WritePaths {
     parser;
     opts;
     out = '';
     pwd = '';
+    rootc;
     constructor(parser, opts) {
         this.parser = parser;
         this.opts = opts;
@@ -306,8 +235,6 @@ class WritePaths {
             if (vals !== null) {
                 if (vals.includes(BAD))
                     return fail(name);
-                if (vals.includes(DEFERRED_VALUE))
-                    return fail(DEFERRED);
             }
             else if (def !== null) {
                 if (/[$`]/.test(def))
@@ -399,27 +326,178 @@ class WritePaths {
         }
         this.out += `UNRESOLVED:${e.unres}:${p}\n`;
     }
-    deferred(word) {
-        this.out += `UNRESOLVED:${DEFERRED}:${word}\n`;
+    listerHost(level) {
+        const { cwd, root, env } = this.opts;
+        return {
+            cwd,
+            root,
+            home: env.HOME ?? '',
+            rootc: () => (this.rootc ??= pathCanonical(root)),
+            expand: (word) => {
+                const e = this.expand(word, level);
+                return e.ok ? e.values : null;
+            },
+        };
     }
-    /**
-     * _tmb_cmd_loop_source, deferred: a source _tmb_cmd_lister_bind would try to
-     * bind leaves the variable deferred; false, nothing recorded, for one it
-     * would refuse before looking at the lister's arguments.
-     */
-    loopSource(level, name, mark, word) {
+    bind(level, name, values) {
+        if (values === null)
+            return false;
+        for (const v of values)
+            level.vars += `${name}\t${v}\n`;
+        return true;
+    }
+    /** _tmb_cmd_loop_source: the variable bound from the lister of a source mark (\022<dir>\022<word>…). */
+    loopSource(level, name, mark) {
         let m = mark.replace(/^\x12/, '');
         const dirtok = before(m, SEP);
         m = dec(m.slice(dirtok.length).replace(/^\x12/, ''));
-        const first = before(before(m, '\n'), SEP);
-        if (this.opts.root === '' || !VAR_NAME.test(name))
+        const fields = before(m, '\n').split(SEP);
+        if (fields[fields.length - 1] === '')
+            fields.pop();
+        if (fields.length === 0)
             return false;
-        if (dirPath(dirtok, this.opts.cwd) === '' || !LISTERS.test(basename(first)))
-            return false;
-        level.vars += `${name}\t${DEFERRED_VALUE}\n`;
-        this.deferred(word);
-        return true;
+        return this.bind(level, name, listerBind(this.listerHost(level), name, dirtok, 'loop', fields, []));
     }
+    /** _tmb_cmd_exec_writes: what a find / fd / xargs statement writes through the command it runs. */
+    execWrites(outer, dir, mark, words) {
+        const level = { ...outer };
+        const tool = basename(words[0]);
+        const acts = [];
+        let name;
+        if (tool === 'find')
+            name = 'find_path';
+        else if (tool === 'fd' || tool === 'fdfind')
+            name = 'fd_path';
+        else if (tool === 'xargs') {
+            name = 'xargs_arg';
+            const n = words.length;
+            let k = 1;
+            let rep = '';
+            let noin = false;
+            while (k < n) {
+                const p = words[k];
+                if (p === '--') {
+                    k++;
+                    break;
+                }
+                if (p === '-I' || p === '-J') {
+                    rep = words[k + 1] ?? '';
+                    k += 2;
+                    continue;
+                }
+                k++;
+                if (p.startsWith('-I') || p.startsWith('-J'))
+                    rep = p.slice(2);
+                else if (p === '-i' || p === '--replace')
+                    rep = '{}';
+                else if (p.startsWith('-i'))
+                    rep = p.slice(2);
+                else if (p.startsWith('--replace='))
+                    rep = p.slice(10);
+                else if (p === '-a' || p === '--arg-file') {
+                    noin = true;
+                    k++;
+                }
+                else if (p.startsWith('-a') || p.startsWith('--arg-file='))
+                    noin = true;
+                else if (XARGS_VALUE.test(p))
+                    k++;
+                else if (!p.startsWith('-')) {
+                    k--;
+                    break;
+                }
+            }
+            if (k >= n)
+                return;
+            const rv = '${' + name + '}';
+            let cmd = words.slice(k).join(' ');
+            cmd = rep !== '' ? cmd.split(rep).join(rv) : `${cmd} ${rv}`;
+            acts.push('x' + cmd);
+            if (noin || mark === '' || !this.loopSource(level, name, mark))
+                level.vars += `${name}\t${BAD}\n`;
+        }
+        else
+            return;
+        if (tool !== 'xargs' && !this.bind(level, name, listerBind(this.listerHost(level), name, dir, 'exec', words, acts))) {
+            level.vars += `${name}\t${BAD}\n`;
+        }
+        const rv = '${' + name + '}';
+        for (const act of acts) {
+            if (act === 'd')
+                this.emit(level, dir, rv);
+            else if (act.startsWith('f'))
+                this.emit(level, dir, dec(act.slice(1)));
+            else if (act.startsWith('x')) {
+                let cmd = act.slice(1);
+                if (tool === 'find')
+                    cmd = cmd.split('{}').join(rv);
+                else if (tool !== 'xargs') {
+                    for (const ph of ['{//}', '{.}', '{}'])
+                        cmd = cmd.split(ph).join(rv);
+                    for (const ph of ['{/.}', '{/}'])
+                        cmd = cmd.split(ph).join('*');
+                }
+                for (const p of stmtWritePaths(cmd, true, this.interp).paths)
+                    if (p !== '')
+                        this.emit(level, dir, dec(p));
+            }
+        }
+    }
+    /** _tmb_cmd_proc_writes: what a program's process call writes, relative paths under `$(proc)/`. */
+    procWrites(cmd) {
+        const out = [];
+        for (const record of this.listing(cmd, '@', 0)) {
+            if (record.dir.startsWith('='))
+                continue;
+            const { words } = unwrapStatement(record.stmt);
+            if (words.length === 0)
+                continue;
+            if (/[$`]/.test(dec(words[0]))) {
+                out.push('$(proc)');
+                continue;
+            }
+            if (!cmd.includes('<<') && stdinInterp(words) !== '')
+                out.push('$(proc)');
+        }
+        const nested = new WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: '', env: this.opts.env });
+        nested.run(cmd, '@', 0, '');
+        const lines = nested.out.split('\n');
+        lines.pop();
+        for (let p of lines) {
+            if (p.startsWith('UNRESOLVED:PWD:'))
+                p = '$(proc)';
+            else if (p.startsWith('UNRESOLVED:') && p.indexOf(':', 11) >= 0)
+                p = p.slice(p.indexOf(':', 11) + 1);
+            if (p === '')
+                continue;
+            if (p === PROG_DIR)
+                p = '.';
+            else if (p.startsWith(PROG_DIR + '/'))
+                p = p.slice(PROG_DIR.length + 1);
+            else if (!/^[/~$]/.test(p))
+                p = '$(proc)/' + p;
+            out.push(p);
+        }
+        return out.join('\n');
+    }
+    /** _tmb_cmd_statements_enc to depth 3: bash -c / eval bodies listed as their own statements. */
+    listing(cmd, base, depth) {
+        const encoded = encode(this.parser, cmd);
+        if (!encoded.ok)
+            return [];
+        const out = [];
+        for (const record of statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true)) {
+            if (/^\t*$/.test(record.stmt))
+                continue;
+            const body = depth < MAX_DEPTH && !record.dir.startsWith('=') ? inner(record.stmt) : '';
+            if (body !== '')
+                out.push(...this.listing(dec(body), record.dir, depth + 1));
+            else
+                out.push(record);
+        }
+        return out;
+    }
+    interp = (words) => interpWrites(words, (cmd) => this.procWrites(cmd));
     /** _tmb_cmd_track_vars */
     trackVars(level, words) {
         switch (basename(words[0])) {
@@ -441,7 +519,7 @@ class WritePaths {
                 const name = words[1] ?? '';
                 const rest = words.slice(3);
                 if (rest.length === 1 && rest[0].startsWith('$\x0f\x10\x12')) {
-                    if (!this.loopSource(level, name, rest[0].slice(3), 'for'))
+                    if (!this.loopSource(level, name, rest[0].slice(3)))
                         level.vars += `${name}\t${BAD}\n`;
                     return;
                 }
@@ -469,7 +547,7 @@ class WritePaths {
                     else if (/^[A-Za-z_]/.test(w))
                         names.push(w);
                 }
-                if (names.length === 1 && mk !== '' && mk !== '!' && this.loopSource(level, names[0], mk, 'read'))
+                if (names.length === 1 && mk !== '' && mk !== '!' && this.loopSource(level, names[0], mk))
                     return;
                 for (const w of names)
                     level.vars += `${w}\t${BAD}\n`;
@@ -490,7 +568,11 @@ class WritePaths {
         }
         const level = { vars, oldtok: '-', why: '' };
         const { cwd } = this.opts;
-        for (const record of statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true)) {
+        const records = statementsEnc(encoded.text, base, this.opts.env.HOME ?? '', true).filter((r) => !/^\t*$/.test(r.stmt));
+        const bodies = heredocAlign(encoded.heredocs, records);
+        let idx = 0;
+        for (const record of records) {
+            idx++;
             let dir = record.dir;
             let old = dir.includes(SEP) ? after(dir, SEP) : '-';
             dir = before(dir, SEP);
@@ -519,25 +601,67 @@ class WritePaths {
                 }
             }
             let stmt = record.stmt;
+            let mark = '';
             if (basename(words[0]) === 'xargs' && words[words.length - 1].startsWith(SEP)) {
+                mark = words[words.length - 1];
                 words = words.slice(0, -1);
                 stmt = words.join(' ');
             }
             const chain = dir === '-' && why === '';
-            const written = stmtWritePaths(stmt, chain);
-            for (const p of written.paths)
+            for (const p of stmtWritePaths(stmt, chain, this.interp).paths)
                 if (p !== '')
                     this.emit(level, dir, dec(p));
-            if (written.words.length > 1 && interpreterProgram(written.words))
-                this.deferred(basename(written.words[0]));
-            if (runsCommand(words))
-                this.deferred(basename(words[0]));
-            if (stdinInterp(words) !== '' && stdinProgram(words))
-                this.deferred(basename(words[0]));
+            if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0])))
+                this.execWrites(level, dir, mark, words);
+            const kind = stdinInterp(words);
+            if (kind !== '') {
+                const progs = [];
+                for (let w = 0; w < words.length; w++) {
+                    if (words[w] === '<<<')
+                        progs.push(dec(words[w + 1] ?? ''));
+                    else if (words[w].startsWith('<<<'))
+                        progs.push(dec(words[w].slice(3)));
+                }
+                progs.push(...(bodies.get(idx) ?? []));
+                for (const prog of progs) {
+                    if (kind === 'sh') {
+                        if (depth < MAX_DEPTH)
+                            this.run(prog, tok, depth + 1, level.vars);
+                    }
+                    else {
+                        for (const p of progWrites(kind, prog, false, (c) => this.procWrites(c)))
+                            if (p !== '')
+                                this.emit(level, dir, p);
+                    }
+                }
+            }
             this.pwd = dirPath(dir, cwd);
             this.trackVars(level, words);
         }
     }
+}
+/** _tmb_cmd_heredoc_align: each heredoc body under the 1-based index of the statement whose `<<WORD` names its delimiter, in order. */
+function heredocAlign(heredocs, records) {
+    const out = new Map();
+    if (heredocs.length === 0)
+        return out;
+    const used = new Set();
+    let p = -1;
+    records.forEach((record, i) => {
+        for (const m of record.stmt.matchAll(/<<+([^ \t;&|<>()]*)/g)) {
+            if (m[0].length - m[1].length !== 2 || m[1] === '')
+                continue;
+            let j = p + 1;
+            while (j < heredocs.length && (used.has(j) || heredocs[j].delim !== m[1]))
+                j++;
+            if (j >= heredocs.length)
+                continue;
+            used.add(j);
+            p = j;
+            out.set(i + 1, [...(out.get(i + 1) ?? []), heredocs[j].body]);
+        }
+    });
+    return out;
 }
 /** The lines tmb_cmd_write_paths prints for `command`, parsed with the given tree-sitter-bash parser. */
 export function writePathsWith(parser, command, opts) {

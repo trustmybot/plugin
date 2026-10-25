@@ -398,8 +398,10 @@ export interface ExtraWrites {
   words: string[];
 }
 
-/** _tmb_cmd_stmt_extra_writes without the interpreter one-liners, which the caller judges from `words`. */
-function extraWrites(chain: boolean, words: string[]): string[] {
+export type Interp = (words: readonly string[]) => string[];
+
+/** _tmb_cmd_stmt_extra_writes, the interpreter one-liners judged by `interp`. */
+function extraWrites(chain: boolean, words: string[], interp: Interp): string[] {
   const out: string[] = [];
   let ops: string[] = [];
   const tool = basename(words[0]);
@@ -417,18 +419,16 @@ function extraWrites(chain: boolean, words: string[]): string[] {
   }
   const srcs = ops.filter((w) => !w.startsWith('-'));
   if (srcs.length >= 2) out.push(...srcs.slice(0, -1));
+  out.push(...interp(words));
   return out;
 }
 
-/**
- * _tmb_cmd_stmt_write_paths without the interpreter one-liners: the encoded
- * paths, and the words from the real argv0 on for the caller's own checks.
- */
-export function stmtWritePaths(stmt: string, chain: boolean): ExtraWrites {
+/** _tmb_cmd_stmt_write_paths: the encoded paths, and the words from the real argv0 on. */
+export function stmtWritePaths(stmt: string, chain: boolean, interp: Interp): ExtraWrites {
   const paths = writeTargets(stmt);
   const { pre, words } = unwrapStatement(stmt);
   if (words.length <= 1) return { paths, words };
-  if (pre === '') paths.push(...extraWrites(chain, words));
-  else for (const p of extraWrites(true, words)) if (p !== '') paths.push(under(pre, p));
+  if (pre === '') paths.push(...extraWrites(chain, words, interp));
+  else for (const p of extraWrites(true, words, interp)) if (p !== '') paths.push(under(pre, p));
   return { paths, words };
 }
