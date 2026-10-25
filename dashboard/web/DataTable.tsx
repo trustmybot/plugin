@@ -94,7 +94,7 @@ export function DataTable({
                     <td
                       key={cell.id}
                       className={`whitespace-nowrap px-3 py-1.5 align-top ${col?.truncate ? 'max-w-[32rem] truncate' : ''}`}
-                      title={col?.truncate && value !== '' ? String(value) : undefined}
+                      title={col?.truncate && value !== '' && value !== null && value !== undefined ? String(value) : undefined}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>

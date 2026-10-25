@@ -194,6 +194,7 @@ export function clampHits(raw: string | null): number {
 }
 
 const SUMMARY_MAX = 160;
+const HR_LINE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
 
 // One plain line from a world-model summary: the `<untrusted-content>` framing
 // and markdown syntax removed, the first non-empty line, at most SUMMARY_MAX
@@ -203,6 +204,7 @@ export function summaryLine(raw: unknown): string | null {
   const line = raw
     .replace(/<\/?untrusted-content[^>]*>/g, ' ')
     .split('\n')
+    .filter((l) => !HR_LINE.test(l))
     .map((l) =>
       l
         .replace(/^\s{0,3}#{1,6}\s+/, '')
@@ -244,6 +246,81 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
     depth,
   );
   return { available: true, repos, nodes: nodes.map((n) => ({ ...n, summary: summaryLine(n['summary']) })) };
+}
+
+const GRAPH_KINDS = ['calls', 'imports', 'runs', 'sources', 'instantiates'];
+
+function symbolGraphAvailable(db: DatabaseSync): boolean {
+  const found = one(
+    db,
+    `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('wm_symbols', 'wm_edges')`,
+  );
+  return Number(found?.['n'] ?? 0) === 2;
+}
+
+interface FilePair {
+  src: number;
+  dst: number;
+  kind: string;
+  weight: number;
+  top: number;
+}
+
+// The repo's symbol edges rolled up to one edge per ordered file pair: weight
+// is the number of symbol edges, kind the heaviest kind among them. `files`
+// holds only files that appear in an edge; `src`/`dst` index into it.
+export function graph(db: DatabaseSync, repo: string | null): Row {
+  if (!worldModelAvailable(db) || !symbolGraphAvailable(db)) {
+    return { available: false, repo: null, repos: [], files: [], edges: [] };
+  }
+  const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r['repo']));
+  const target = repo ?? repos[0];
+  if (target === undefined) return { available: true, repo: null, repos, files: [], edges: [] };
+  const rows = all(
+    db,
+    `SELECT s.path AS src, d.path AS dst, e.kind AS kind, COUNT(*) AS weight,
+            sf.purpose AS src_purpose, df.purpose AS dst_purpose
+       FROM wm_edges e
+       JOIN wm_symbols s ON s.id = e.src_id
+       JOIN wm_symbols d ON d.id = e.dst_id
+       LEFT JOIN wm_files sf ON sf.repo = s.repo AND sf.path = s.path
+       LEFT JOIN wm_files df ON df.repo = d.repo AND df.path = d.path
+      WHERE s.repo = ? AND d.repo = s.repo AND s.path <> d.path
+        AND e.kind IN (${GRAPH_KINDS.map(() => '?').join(', ')})
+      GROUP BY s.path, d.path, e.kind
+      ORDER BY s.path, d.path, weight DESC, e.kind`,
+    target,
+    ...GRAPH_KINDS,
+  );
+  const index = new Map<string, number>();
+  const files: Array<{ path: string; purpose: string }> = [];
+  const fileOf = (path: string, purpose: unknown): number => {
+    let i = index.get(path);
+    if (i === undefined) {
+      i = files.length;
+      index.set(path, i);
+      files.push({ path, purpose: summaryLine(purpose) ?? '' });
+    }
+    return i;
+  };
+  const pairs = new Map<string, FilePair>();
+  for (const r of rows) {
+    const src = fileOf(String(r['src']), r['src_purpose']);
+    const dst = fileOf(String(r['dst']), r['dst_purpose']);
+    const kind = String(r['kind']);
+    const weight = Number(r['weight']);
+    const pair = pairs.get(`${src}>${dst}`);
+    if (!pair) pairs.set(`${src}>${dst}`, { src, dst, kind, weight, top: weight });
+    else {
+      pair.weight += weight;
+      if (weight > pair.top) {
+        pair.kind = kind;
+        pair.top = weight;
+      }
+    }
+  }
+  const edges = [...pairs.values()].map(({ src, dst, kind, weight }) => ({ src, dst, kind, weight }));
+  return { available: true, repo: target, repos, files, edges };
 }
 
 export function ftsPhrase(raw: string): string {

@@ -28,15 +28,16 @@ Or run `/tmb:dashboard` in a Claude Code session: it starts the same script in t
 | `/api/version` | `{ data_version }` for polling |
 | `/api/world-model?repo=&path=&depth=` | `{ available, repos, nodes }`: the directory at `path` (default the repo root) and its subdirectories `depth` levels down (default 2, 0–5), each with `repo`, `path`, `parent_path`, `summary`, `file_count`; `repo` defaults to the first repo |
 | `/api/world-model/search?q=&limit=` | `{ available, hits }`: FTS5 hits over directory paths and summaries and file paths and purposes, best `bm25` rank first, each with `kind`, `repo`, `path`, `text`, `rank` (default 20, 1–100). `q` is matched as one phrase, so FTS syntax in it is plain text |
+| `/api/world-model/graph?repo=` | `{ available, repo, repos, files, edges }`: the repo's `calls`, `imports`, `runs`, `sources` and `instantiates` symbol edges rolled up to file level, same-repo and cross-file only. Each ordered file pair is one edge `{ src, dst, kind, weight }`: `src` and `dst` index into `files`, `weight` counts the symbol edges and `kind` is the heaviest kind among them. `files` holds only files that appear in an edge, each with `path` and `purpose` (one plain line, `''` when none); `repo` defaults to the first repo |
 
 | `/api/concepts?q=&repo=&limit=` | `{ available, repos, repo, concepts, derived }`: saved concepts matching `q` (default 20, 1–50), each with `id`, `name`, `body`, `step_count` and `trust` counts. When none matches, `derived` is an unverified chain read off the call graph, else `null`. A `q` under 2 characters after trimming returns `concepts: []`, `derived: null`; `repo` defaults to the first repo by name |
 | `/api/concepts/:id` | the concept with its ordered `steps` (at most 50; `steps_truncated` says when more exist). Each step has `ordinal`, `description`, `trust`, `trust_reason`, `handoff` and `symbol` (`null` when the anchor is gone, then `trust: broken`) |
 | `/api/concepts/:id/graph?limit=` | `{ nodes, edges, truncated }`: the step symbols plus their 1-hop `calls`, `sources`, `runs` and `imports` neighbours over exact edges, test and fixture paths dropped (default 60, 1–120). Step nodes are never cut; neighbours fill the rest of the limit in step order. Each node has `id`, `label`, `repo`, `path`, `dir`, `kind`, `line_start` and `step_ordinal` (`null` for a neighbour); each edge `src`, `dst`, `kind` |
 | `/api/symbols/:id/neighbourhood?limit=` | the same shape for one symbol and its 1-hop neighbours (default 40, 1–100), used to expand a graph node |
 
-Both world-model endpoints pass each `summary` and `text` through `summaryLine` in `server/queries.ts`: the `<untrusted-content>` framing and markdown syntax are removed and the first non-empty line is returned, at most 160 characters.
+The world-model endpoints pass each `summary`, `text` and `purpose` through `summaryLine` in `server/queries.ts`: the `<untrusted-content>` framing and markdown syntax are removed and the first non-empty line that is not a horizontal rule is returned, at most 160 characters.
 
-Both world-model endpoints answer `available: false` with empty arrays (HTTP 200) when the DB has no `wm_*` tables yet (schema below v42).
+The world-model endpoints answer `available: false` with empty arrays (HTTP 200) when the DB has no `wm_*` tables yet (schema below v42).
 
 The concept endpoints answer `available: false` (HTTP 200) on a DB below schema v45 or without the concept tables, and 404 JSON for an unknown id. They call the trajectory server's `searchConcepts`, `getConcept` and `derivedChain` in-process over the read-only connection, so they never write or migrate the DB.
 
@@ -68,7 +69,11 @@ The editor snapshots the issue when it opens. Its fields, the changed-field diff
 
 ## Project map
 
-The Project map tab reads the world model `/scan` builds: a repo selector, a directory tree that loads each directory's children when you expand it (with its README summary and file count), and a search box that lists matching directories and files with their paths. On a DB without the world-model tables it says so: open a Claude Code session to upgrade the DB, then run `/scan`.
+The Project map tab reads the world model `/scan` builds. A repo selector drives everything on it.
+
+At the top is a file-level dependency graph centred on one focus file, which starts as the file with the most edge weight. Files that use it are on the left ("Used by") and files it uses are on the right ("Uses"), grouped into dashed folder clusters sorted by weight. A folder with more than 5 files shows 4 and a "+N more" node that expands it. Edge width grows with weight and the line style shows the kind: `calls` solid, `imports` dashed, `runs` and `sources` dotted, `instantiates` dash-dot. The header has a file search, a 1 hop / 2 hops switch and the legend. Hovering a file highlights its edges and shows its path and summary; clicking it refocuses with an animation (none under `prefers-reduced-motion`), and the breadcrumbs keep the last 8 focuses. The side panel lists the focus file's dependents and dependencies, sortable by weight or name. Below 1024 px the panel stacks under the graph.
+
+Below the graph are a directory tree that loads each directory's children when you expand it (with its README summary and file count), and a search box that lists matching directories and files with their paths. On a DB without the world-model tables it says so: open a Claude Code session to upgrade the DB, then run `/scan`.
 
 ## Concepts
 
@@ -90,8 +95,9 @@ Commit `dist/` with the source change.
 
 ## Tests
 
-- `bash dashboard/test/smoke.sh` — seeds a temp DB from `schema.sql`, starts the built server on a free port, checks the page and each endpoint (world-model tree and search included, plus FTS syntax in a search query), and checks the DB file is unchanged; then checks both world-model endpoints answer `available: false` on a DB without the `wm_*` tables.
+- `bash dashboard/test/smoke.sh` — seeds a temp DB from `schema.sql`, starts the built server on a free port, checks the page and each endpoint (world-model tree, search and graph included, plus FTS syntax in a search query), and checks the DB file is unchanged; then checks the world-model endpoints answer `available: false` on a DB without the `wm_*` tables.
 - `bash dashboard/test/writes.test.sh` — builds a temp DB with `TrajectoryDB` under `$TMPDIR` and a fake `HOME`, starts the built server on a free port and checks each edit, the Human comment, the refused and the allowed close, their audit rows, the stale, token, Origin, Host (on GET too), body-size (the client receives the 413), path and schema-version guards, that the dashboard's `TrajectoryDB` open refuses an older DB and leaves it unmigrated with no backup, and that `server/*.ts` has no write SQL.
 - `node --test dashboard/test/concepts.test.mjs` — seeds a temp DB from `schema.sql` with a small symbol index and a 3-step concept whose last anchor is gone, starts the built server and checks concept search (a description word, a derived chain, a too-short query), the detail, the graph and its limit, a symbol neighbourhood, 404s, `available: false` on a v44 DB, and that both DB files are unchanged. `node dashboard/test/concepts.test.mjs --seed <path>` only writes the seeded DB, to view the tab against it.
 - `node --test dashboard/test/ux.test.mjs` — seeds a temp DB with a directory summary and a file purpose wrapped in `<untrusted-content>` and written in markdown, starts the built server and checks `/api/world-model` and `/api/world-model/search` return each as one plain line; unit-tests `summaryLine`; and renders `<Markdown>` to static HTML to check GFM renders and `<script>`, `<img onerror>` and `javascript:` links never do.
+- `node --test dashboard/test/graph.test.mjs` — seeds a temp DB with symbols in several files and edges of several kinds, starts the built server and checks `/api/world-model/graph` merges a pair linked by two kinds into one edge with the summed weight and the heaviest kind, drops self, cross-repo and excluded-kind edges, and returns plain purposes; unit-tests that `summaryLine` skips a leading horizontal rule.
 - `bash dashboard/test/size-budget.sh` — fails when the gzipped JS + CSS in `dist/web` is over 250 KB.

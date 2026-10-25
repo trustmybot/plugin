@@ -82,6 +82,9 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
     const p = url.searchParams;
     return sendJson(res, 200, q.worldModelSearch(db, p.get('q') ?? '', q.clampHits(p.get('limit'))));
   }
+  if (parts.length === 2 && resource === 'world-model' && id === 'graph') {
+    return sendJson(res, 200, q.graph(db, url.searchParams.get('repo') || null));
+  }
   if (parts.length === 2 && resource === 'issues' && /^-?\d+$/.test(id!)) {
     const detail = q.issueDetail(db, Number(id));
     return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: 'issue not found' });

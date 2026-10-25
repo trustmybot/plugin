@@ -24,6 +24,7 @@ import {
   type WorldModelSearch,
 } from './api.ts';
 import { DataTable, type Column } from './DataTable.tsx';
+import { DepGraph } from './DepGraph.tsx';
 import { Markdown } from './Markdown.tsx';
 import { Time } from './Time.tsx';
 
@@ -506,25 +507,29 @@ function ProjectMapView() {
         if (repo === undefined) return <p className="text-zinc-500">The world model is empty — run /scan in a Claude Code session.</p>;
         const root = wm.nodes[0];
         return (
-          <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] [&>*]:min-w-0">
-            <section className="space-y-2">
-              <div className="flex items-center gap-2">
+          <div className="space-y-6">
+            <label className="flex items-center gap-2 text-sm">
+              <span className="font-medium">Repo</span>
+              <select
+                className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700"
+                value={repo}
+                onChange={(e) => setPicked(e.target.value)}
+              >
+                {wm.repos.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+            <DepGraph key={repo} repo={repo} />
+            <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] [&>*]:min-w-0">
+              <section className="space-y-2">
                 <h2 className="font-medium">Directories</h2>
-                <select
-                  className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700"
-                  value={repo}
-                  onChange={(e) => setPicked(e.target.value)}
-                >
-                  {wm.repos.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-              {root ? (
-                <ul className="text-sm"><TreeNode node={root} open /></ul>
-              ) : (
-                <p className="text-sm text-zinc-500">No root directory recorded for {repo}.</p>
-              )}
-            </section>
-            <WorldModelSearchView />
+                {root ? (
+                  <ul className="text-sm"><TreeNode node={root} open /></ul>
+                ) : (
+                  <p className="text-sm text-zinc-500">No root directory recorded for {repo}.</p>
+                )}
+              </section>
+              <WorldModelSearchView />
+            </div>
           </div>
         );
       }}
