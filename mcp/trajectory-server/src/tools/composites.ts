@@ -1749,6 +1749,8 @@ export function compositeTools(
           // GH 1741: the brief carries this task's decision/intent rows in full,
           // the newest issue-level decision (task_id IS NULL), and the last few
           // other-kind rows truncated; a row another row supersedes is skipped.
+          // GH 1760: plus the newest issue-level intent (intent_start's verbatim
+          // Human words), truncated like a note but outside OTHER_ROW_CAP.
           // Everything else stays reachable through discussion_search.
           type BriefDiscussion = { id: number; author: string; kind: string; body: string; created_at: string };
           const NOTE_CAP = 500;
@@ -1767,6 +1769,13 @@ export function compositeTools(
               ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
             [task.issue_id],
           );
+          const issueIntent = db.get<BriefDiscussion>(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'intent'
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+              ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
+            [task.issue_id],
+          );
           const otherRows = db.all<BriefDiscussion>(
             `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
               WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
@@ -1774,10 +1783,15 @@ export function compositeTools(
               ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
             [task.issue_id, OTHER_ROW_CAP],
           );
-          const task_discussions = [...taskRows, ...(issueDecision ? [issueDecision] : []), ...otherRows]
+          const merged = new Map<number, BriefDiscussion>();
+          for (const d of [...taskRows, issueDecision, issueIntent, ...otherRows]) {
+            if (d && !merged.has(d.id)) merged.set(d.id, d);
+          }
+          const task_discussions = [...merged.values()]
             .sort((a, b) => (a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1))
             .map((d) => {
-              if (d.kind === 'decision' || d.kind === 'intent' || d.body.length <= NOTE_CAP) return d;
+              const capped = d.id === issueIntent?.id || (d.kind !== 'decision' && d.kind !== 'intent');
+              if (!capped || d.body.length <= NOTE_CAP) return d;
               return {
                 ...d,
                 body: d.body.slice(0, NOTE_CAP) + `\n… [truncated; ${historyHint}]`,
