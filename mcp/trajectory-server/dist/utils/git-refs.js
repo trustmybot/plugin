@@ -24,6 +24,30 @@ export function resolveBaseRef(repoPath, base) {
         return base;
     return null;
 }
+// The ref a task branch is cut from, with `git pull --ff-only` semantics:
+// local `<base>` when it is a strict descendant of `origin/<base>` (unpushed
+// work the task stacks on), else `origin/<base>`. When the two have diverged
+// the cut stays on origin and `diverged` carries both SHAs and the distance
+// (`ahead`/`behind` of local relative to origin). Only one side existing
+// returns that side; neither returns null.
+export function resolveCutBase(repoPath, base) {
+    const remoteRef = `origin/${base}`;
+    const remoteSha = gitOut(repoPath, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remoteRef}^{commit}`]);
+    const localSha = gitOut(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${base}^{commit}`]);
+    if (!remoteSha)
+        return localSha ? { ref: base } : null;
+    if (!localSha || localSha === remoteSha)
+        return { ref: remoteRef };
+    const counts = gitOut(repoPath, ['rev-list', '--left-right', '--count', `${remoteSha}...${localSha}`]);
+    const [behind, ahead] = (counts ?? '').split(/\s+/).map((n) => Number.parseInt(n, 10));
+    if (!Number.isFinite(ahead) || !Number.isFinite(behind))
+        return { ref: remoteRef };
+    if (behind === 0 && ahead > 0)
+        return { ref: base };
+    if (ahead === 0)
+        return { ref: remoteRef };
+    return { ref: remoteRef, diverged: { local_sha: localSha, remote_sha: remoteSha, ahead: ahead, behind: behind } };
+}
 export function branchRefExists(repoPath, branch) {
     return refResolves(repoPath, `refs/heads/${branch}`) || refResolves(repoPath, `refs/remotes/origin/${branch}`);
 }

@@ -631,7 +631,7 @@ assert_not_contains "$gh_fn" "--split-string" "no wrapper option list in tmb_gh_
 
 sqlite3 "$DB" "
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body, prompt_bearing, files)
-    VALUES (20, 1, 'feat/shape-plain', 'running', '', 0, '[\"src/index.ts\",\"notes/\",\"myskills/\"]');
+    VALUES (20, 1, 'feat/shape-plain', 'running', '', 0, '[\"src/\",\"notes/\",\"myskills/\"]');
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body, prompt_bearing, files)
     VALUES (21, 1, 'feat/shape-prompt', 'running', '', 1, '[\"agents/\",\"skills/\",\"commands/\",\"templates/\",\"CLAUDE.md\",\"src/\"]');
 "

@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pinScanEnv, tempDB } from './helpers.js';
-import { compositeTools, filesToDirs, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
+import { compositeTools, filesToDirs, pathInFiles, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
 import { GraphHolder } from '../graph.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -581,8 +581,18 @@ function seedReviewedCommit(db, issueId, taskId, sha) {
     db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'bro_verification_pass', 'ok', ?, ?)`, [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: sha }), earlier]);
     db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'pr-reviewer', 'pass', 1, ?)`, [taskId, later]);
 }
+describe('pathInFiles (GH 1705)', () => {
+    it('an entry covers itself and its subtree, never its siblings; any tests/ entry covers all of tests/', () => {
+        assert.equal(pathInFiles('src/a/c.ts', ['src/a/b.ts']), false, 'a file entry does not cover its sibling');
+        assert.equal(pathInFiles('src/a/b.ts', ['src/a/b.ts']), true, 'a file entry covers itself');
+        assert.equal(pathInFiles('src/a/x/y.ts', ['src/a']), true, 'a dir entry without a slash covers its subtree');
+        assert.equal(pathInFiles('src/a/x/y.ts', ['src/a/']), true, 'a trailing slash is stripped');
+        assert.equal(pathInFiles('src/ab.ts', ['src/a']), false, 'path boundary, not string prefix');
+        assert.equal(pathInFiles('tests/z.sh', ['tests/l1/x.sh']), true, 'any tests/ entry covers all of tests/');
+    });
+});
 describe('scopeCheckCommit (#157)', () => {
-    it('covers listed dirs (a file entry covers its directory, a trailing slash the directory itself); flags the rest', () => {
+    it('covers listed paths (a file entry covers itself, a trailing slash the directory beneath it); flags the rest', () => {
         const ws = mkdtempSync(join(tmpdir(), 'scopecheck-'));
         const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
         try {
@@ -601,9 +611,9 @@ describe('scopeCheckCommit (#157)', () => {
             git(ws, 'add', '.');
             git(ws, 'commit', '-q', '-m', 'work');
             const sha = git(ws, 'rev-parse', 'HEAD');
-            const res = scopeCheckCommit(ws, 'origin/dev', sha, ['src/b.ts', 'dist/']);
+            const res = scopeCheckCommit(ws, 'origin/dev', sha, ['src/a.ts', 'dist/']);
             assert.equal(res.checked, true);
-            assert.deepEqual(res.outOfScope, ['rogue.ts'], 'dist/ covers dist/index.js; src/b.ts covers src/; rogue.ts is out');
+            assert.deepEqual(res.outOfScope, ['rogue.ts'], 'dist/ covers dist/index.js; src/a.ts covers itself; rogue.ts is out');
             assert.equal(res.baseMoved, false);
         }
         finally {
@@ -655,6 +665,9 @@ describe('bro_atomic_close — scope gate (#157)', () => {
             git(repoRoot, 'commit', '-q', '-m', message);
             return git(repoRoot, 'rev-parse', 'HEAD');
         };
+        // Local dev carries unpushed commits the task is cut from (GH 1713).
+        if (opts.localAhead)
+            commitFiles(opts.localAhead, 'local ahead');
         // A sibling branch the task is stacked on (its recorded base).
         let siblingSha = null;
         if (opts.sibling) {
@@ -839,10 +852,10 @@ describe('bro_atomic_close — scope gate (#157)', () => {
             assert.equal(out['base_moved'], true);
             assert.equal(out['recorded_base'], siblingSha);
             assert.equal(out['merge_base'], baseSha);
-            assert.deepEqual(out['extras_accepted'], ['docs/sibling.md', 'tests/rogue.test.ts']);
+            assert.deepEqual(out['extras_accepted'], ['tests/rogue.test.ts'], 'the sibling base commits are not the task\'s own');
             const waive = db.get(`SELECT summary, content_json FROM audit WHERE issue_id = ? AND event_type = 'scope_gate_waived'`, [issueId]);
             const payload = JSON.parse(waive.content_json);
-            assert.deepEqual(payload['accepted_paths'], ['docs/sibling.md', 'tests/rogue.test.ts']);
+            assert.deepEqual(payload['accepted_paths'], ['tests/rogue.test.ts']);
             assert.equal(payload['reason'], 'sibling docs land with the stack; test needed');
             assert.equal(payload['base_moved'], true);
             assert.equal(payload['recorded_base'], siblingSha);
@@ -850,7 +863,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
             const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'pr-reviewer', task_id: Number(taskId) }));
             assert.deepEqual(brief['scope'], {
                 files: ['src/a.ts'],
-                extras_accepted: ['docs/sibling.md', 'tests/rogue.test.ts'],
+                extras_accepted: ['tests/rogue.test.ts'],
                 base_moved: true,
             });
         }
@@ -921,6 +934,23 @@ describe('bro_atomic_close — scope gate (#157)', () => {
         finally {
             db.close();
             rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('a task cut from a local dev ahead of origin/dev closes without the local base commits as extras (GH 1713)', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], {
+            localAhead: ['docs/local-only.md', 'scripts/unpushed.sh'],
+        });
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.ok(!r.isError, `local-ahead base commits must not be extras, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(parse(r)['extras_accepted'], undefined);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+        }
+        finally {
+            cleanup();
         }
     });
     it('remoteless repo: scope gate diffs against the local parent ref and still closes (#1063)', async () => {
@@ -1979,6 +2009,63 @@ describe('task_provision (#157)', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
+    describe('cut base (GH 1713)', () => {
+        const provisionDev = (branch_id) => ({
+            agent: 'bro', issue_id: 1, branch_id, base: 'dev', decision_body: 'approach: cut from dev; trade-off none.',
+            task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+        });
+        const commitOn = (repoRoot, git, parent, msg) => git(repoRoot, 'commit-tree', git(repoRoot, 'rev-parse', 'HEAD^{tree}'), '-p', parent, '-m', msg);
+        it('cuts at local dev when it is one commit ahead of origin/dev; base_ref is dev', async () => {
+            const { ws, repoRoot, git } = makeRepo();
+            try {
+                const head = git(repoRoot, 'rev-parse', 'HEAD');
+                git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', head);
+                const localDev = commitOn(repoRoot, git, head, 'unpushed');
+                git(repoRoot, 'update-ref', 'refs/heads/dev', localDev);
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const r = await call(composites.handlers, 'task_provision', provisionDev('feat/local-ahead'));
+                assert.ok(!r.isError, JSON.stringify(parse(r)));
+                const out = parse(r);
+                assert.equal(out['base_ref'], 'dev');
+                assert.equal(out['base_diverged'], undefined);
+                assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/local-ahead'), localDev, 'cut at local dev');
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it('a diverged dev cuts at origin/dev and reports base_diverged', async () => {
+            const { ws, repoRoot, git } = makeRepo();
+            try {
+                const head = git(repoRoot, 'rev-parse', 'HEAD');
+                const remoteDev = commitOn(repoRoot, git, head, 'pushed elsewhere');
+                const localDev = commitOn(repoRoot, git, head, 'local only');
+                git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', remoteDev);
+                git(repoRoot, 'update-ref', 'refs/heads/dev', localDev);
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const r = await call(composites.handlers, 'task_provision', provisionDev('feat/diverged-base'));
+                assert.ok(!r.isError, JSON.stringify(parse(r)));
+                const out = parse(r);
+                assert.equal(out['base_ref'], 'origin/dev');
+                const diverged = out['base_diverged'];
+                assert.ok(diverged, 'base_diverged present');
+                assert.equal(diverged['local_sha'], localDev);
+                assert.equal(diverged['remote_sha'], remoteDev);
+                assert.equal(diverged['ahead'], 1);
+                assert.equal(diverged['behind'], 1);
+                assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/diverged-base'), remoteDev, 'cut at origin/dev');
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+    });
     it('idempotent re-run reuses the existing branch + worktree (git_setup: reused)', async () => {
         const { ws, repoRoot } = makeRepo();
         try {
@@ -2161,9 +2248,12 @@ describe('task_provision (#157)', () => {
     it('origin/<base> wins over a diverging local branch (origin preference unchanged, #1063)', async () => {
         const { ws, repoRoot, git } = makeRepo();
         try {
-            // origin/main was fabricated at the base commit in makeRepo. Advance the
-            // LOCAL main past it so the two diverge; the branch must follow origin.
-            const originMainSha = git(repoRoot, 'rev-parse', 'refs/remotes/origin/main');
+            // origin/main was fabricated at the base commit in makeRepo. Give origin
+            // and the LOCAL main one commit each so the two diverge (a local main
+            // only ahead is cut from, GH 1713); the branch must follow origin.
+            const baseSha = git(repoRoot, 'rev-parse', 'HEAD');
+            const originMainSha = git(repoRoot, 'commit-tree', git(repoRoot, 'rev-parse', 'HEAD^{tree}'), '-p', baseSha, '-m', 'origin advance');
+            git(repoRoot, 'update-ref', 'refs/remotes/origin/main', originMainSha);
             writeFileSync(join(repoRoot, 'a.txt'), 'two\n');
             git(repoRoot, 'add', '.');
             git(repoRoot, 'commit', '-q', '-m', 'local advance');
@@ -2182,6 +2272,8 @@ describe('task_provision (#157)', () => {
             });
             assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
             assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/prefers-origin'), originMainSha, 'branch follows origin/main, not the diverged local main');
+            assert.equal(parse(r)['base_ref'], 'origin/main');
+            assert.ok(parse(r)['base_diverged'], 'divergence is reported');
             db.close();
         }
         finally {

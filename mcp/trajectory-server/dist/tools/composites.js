@@ -12,7 +12,7 @@ import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields,
 import { defaultSpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit } from './verification-runs.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
@@ -58,21 +58,15 @@ export function parseTaskFiles(filesJson) {
         return [];
     }
 }
-// The directory a files[] entry covers — the same rule as the edit-time
-// classifier (scripts/hooks/lib/scope-fence.sh): a trailing slash names the
-// directory itself, a nested path contributes its containing directory, a
-// root-level path covers itself. Any tests/ entry also covers all of tests/.
-function fileEntryDir(entry) {
-    if (entry.endsWith('/'))
-        return entry.replace(/\/+$/, '');
-    const slash = entry.lastIndexOf('/');
-    return slash >= 0 ? entry.slice(0, slash) : entry;
-}
+// A files[] entry covers the path itself and everything beneath it (the
+// CODEOWNERS / git-pathspec rule), never its siblings: `src/a/b.ts` covers
+// only that file, `src/a/` or `src/a` the whole directory. Any tests/ entry
+// also covers all of tests/. Same rule as scripts/hooks/lib/scope-fence.sh.
 export function pathInFiles(path, files) {
-    const dirs = files.map(fileEntryDir).filter((d) => d.length > 0);
-    if (dirs.some((d) => d === 'tests' || d.startsWith('tests/')))
-        dirs.push('tests');
-    return dirs.some((d) => path === d || path.startsWith(`${d}/`));
+    const entries = files.map((e) => e.replace(/\/+$/, '')).filter((e) => e.length > 0);
+    if (entries.some((e) => e === 'tests' || e.startsWith('tests/')))
+        entries.push('tests');
+    return entries.some((e) => path === e || path.startsWith(`${e}/`));
 }
 export function scopeSurface(path) {
     const slash = path.indexOf('/');
@@ -96,27 +90,23 @@ function gitOut(repoPath, args) {
         .toString()
         .trim();
 }
-// Close-time files[] scope gate: the task's own changes are
-// `git diff --name-only $(git merge-base <commit> <targetRef>) <commit>`, so
-// commits the PR target gained after the task branched never count. Returns
-// the changed paths files[] does not cover. `recordedBaseRef` (the task's
-// parent branch) gives `recordedBase` = merge-base(commit, recordedBaseRef);
-// `baseMoved` is true when it differs from the merge-base with the target.
-// `checked:false` + a reason when git can't resolve the repo or commit (the
-// caller fails CLOSED).
+// Close-time files[] scope gate: the task's own changes are the diff from
+// its base to <commit>, returning the changed paths files[] does not cover.
+// `mergeBase` = merge-base(commit, targetRef), so commits the PR target
+// gained after the task branched never count. `recordedBaseRef` (the task's
+// cut base) gives `recordedBase` = merge-base(commit, recordedBaseRef); when
+// it resolves the diff starts there, so commits a local-ahead base carries
+// beyond the target never count either — unless the target merge-base is
+// strictly newer. `baseMoved` is true when recordedBase differs from
+// mergeBase. `checked:false` + a reason when git can't resolve the repo or
+// commit (the caller fails CLOSED).
 export function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef = null) {
     let mergeBase;
-    let diffOut;
     try {
         mergeBase = gitOut(repoPath, ['merge-base', commitSha, targetRef]);
-        diffOut = gitOut(repoPath, ['diff', '--name-only', mergeBase, commitSha]);
     }
     catch (e) {
-        return {
-            outOfScope: [],
-            checked: false,
-            reason: e.message.split('\n')[0] || 'git diff failed',
-        };
+        return scopeUnchecked(e);
     }
     let recordedBase = mergeBase;
     if (recordedBaseRef && recordedBaseRef !== targetRef) {
@@ -127,11 +117,26 @@ export function scopeCheckCommit(repoPath, targetRef, commitSha, files, recorded
             recordedBase = null;
         }
     }
+    const diffBase = recordedBase && !(recordedBase !== mergeBase && isAncestor(repoPath, recordedBase, mergeBase)) ? recordedBase : mergeBase;
+    let diffOut;
+    try {
+        diffOut = gitOut(repoPath, ['diff', '--name-only', diffBase, commitSha]);
+    }
+    catch (e) {
+        return scopeUnchecked(e);
+    }
     const outOfScope = diffOut
         .split('\n')
         .map((l) => l.trim())
         .filter((l) => l.length > 0 && !pathInFiles(l, files));
     return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
+}
+function scopeUnchecked(e) {
+    return {
+        outOfScope: [],
+        checked: false,
+        reason: e.message.split('\n')[0] || 'git diff failed',
+    };
 }
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
 // against the project root). Sole-repo fallback applies when the
@@ -641,7 +646,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_provision',
-            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base — local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -933,10 +938,12 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const localSha = refSha(repoPath, localRef);
             const originSha = refSha(repoPath, originRef);
             const branchExists = localSha !== null || originSha !== null;
-            // Prefer origin/<base>, fall back to a local branch when no
-            // remote-tracking ref exists (remoteless repos), error when neither
+            // Cut from local <base> when it is a fast-forward ahead of
+            // origin/<base>, else origin/<base> (a diverged base is reported as
+            // base_diverged), else whichever side exists; error when neither
             // resolves — before anything is created.
-            const resolvedBaseRef = resolveBaseRef(repoPath, base);
+            const cutBase = resolveCutBase(repoPath, base);
+            const resolvedBaseRef = cutBase?.ref ?? null;
             if (!resolvedBaseRef && !(branchExists && reuseExisting)) {
                 return err(`task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
                     `No task row was created — retry with a valid base and the same branch_id.`);
@@ -1088,6 +1095,16 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 worktree_path: worktreePath,
                 git_setup: gitSetup,
                 worktree_reused: worktreeReused,
+                ...(resolvedBaseRef ? { base_ref: resolvedBaseRef } : {}),
+                ...(cutBase?.diverged
+                    ? {
+                        base_diverged: {
+                            ...cutBase.diverged,
+                            message: `Local '${base}' and 'origin/${base}' have diverged (local ${cutBase.diverged.ahead} ahead, ` +
+                                `${cutBase.diverged.behind} behind); the branch was cut from 'origin/${base}'.`,
+                        },
+                    }
+                    : {}),
                 ...(diagnostic ? { diagnostic } : {}),
             });
         })),
@@ -1864,7 +1881,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         break;
                 }
             }
-            const recordedBaseRef = repoPath && task.parent_branch_id ? resolveBaseRef(repoPath, task.parent_branch_id) : null;
+            const recordedBaseRef = repoPath && task.parent_branch_id ? (resolveCutBase(repoPath, task.parent_branch_id)?.ref ?? null) : null;
             const scope = repoPath && targetRef
                 ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
                 : {
