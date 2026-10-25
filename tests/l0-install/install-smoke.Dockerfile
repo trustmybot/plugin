@@ -116,6 +116,26 @@ RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-ser
      || (echo "❌ FAIL: MCP from real claude-plugin-install location did not return tools/list with onboard_state_get"; cat /tmp/installed-mcp.out /tmp/installed-mcp.err; exit 1)
 RUN echo "✓ A0b: genuine claude plugin install → MCP boots from installed cache location (no manual bun install), tools/list served, SDK inlined"
 
+# A0d / A0e: embeddings reach ready in both start scenarios (GH 1748), on the
+# installed cache from A0b. The driver copies the installed plugin (dist/,
+# package.json, runtime-deps/, plugin.json; no node_modules) to a temp root, so
+# the stripped cache itself is left as A0c expects it.
+# A0d very cold start: nothing installed anywhere. An empty CLAUDE_PLUGIN_DATA,
+# the server and the real ensure-mcp-deps-installed gate started together;
+# embeddings must reach ready within 300 s, then deps/<key>/ and the bridge
+# link must exist. The data dir it fills is kept for A0e.
+RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-server/dist/index.js' | head -n1); \
+    node /plugin/tests/l0-install/embeddings-data-dir-smoke.mjs --scenario very-cold --entry "$ENTRY" --data-dir /tmp/l0-plugin-data \
+     || { echo "❌ FAIL: very cold start — embeddings did not reach ready after ensure-mcp-deps-installed (GH 1748)"; exit 1; }
+RUN echo "✓ A0d: very cold start — empty data dir + concurrent ensure-mcp-deps-installed → embeddings ready; deps/<key>/ and the bridge in place"
+# A0e cold start: a fresh copy of the installed version with no bridge link,
+# and the data dir A0d left holding deps/<key>/. No hook runs; embeddings must
+# reach ready without degrading. Without CLAUDE_PLUGIN_DATA they must degrade.
+RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-server/dist/index.js' | head -n1); \
+    node /plugin/tests/l0-install/embeddings-data-dir-smoke.mjs --scenario cold --entry "$ENTRY" --data-dir /tmp/l0-plugin-data \
+     || { echo "❌ FAIL: cold start — embeddings did not load transformers from the plugin data dir (GH 1748)"; exit 1; }
+RUN echo "✓ A0e: cold start — transformers in the plugin data dir, no bridge link → embeddings ready; no data dir → degraded"
+
 # A0c: the SessionStart hook ensure-mcp-deps-installed.sh makes the external
 # @huggingface/transformers resolve from the INSTALLED mcp/trajectory-server
 # (GH 1669: nothing installed it, so every install ran with embeddings

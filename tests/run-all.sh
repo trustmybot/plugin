@@ -3,14 +3,14 @@
 # This script runs L1–L4 only. See tests/README.md for the full pyramid.
 #
 # Layered model (authoritative reference: tests/README.md):
-#   L0 — Install-smoke (Docker)          → tests/l0-install/install-smoke.Dockerfile (CI-only)
+#   L0 — Install-smoke (Docker)          → tests/l0-install/install-smoke.Dockerfile (installation layer: run locally with Docker before a PR; release-gate also runs it on rc tags)
 #   L1 — Static / lint                   → tests/l1-lint/*.sh              ← this file
 #   L2 — Unit (MCP handlers)             → mcp/trajectory-server/src/test/*.ts ← this file
 #   L3 — Integration (server + hooks)    → tests/l3-integration/mcp/*.mjs + tests/l3-integration/hooks/*.sh ← this file
 #   L4 — Workflow simulation             → tests/l4-workflow-sim/*.mjs     ← this file
 #   L5 — Per-row eval (real CC)          → bash tests/l5-l6/run-l5.sh (token required)
 #   L6 — Multi-turn chain (real CC)      → bash tests/l5-l6/run-l6-chain.sh (token required)
-#   Release canary                       → tests/l0-install/release-canary.Dockerfile (CI-only, RC tags)
+#   Release canary                       → tests/l0-install/release-canary.Dockerfile (release-gate on RC tags)
 
 set -uo pipefail
 
@@ -270,7 +270,7 @@ fi
 printf "\n========================================\n"
 if [ "$FAIL" -eq 0 ]; then
   printf "All test layers passed (L1 + L2 + L3 + L4).\n"
-  printf "L0 install-smoke runs separately in CI (docker required).\n"
+  printf "L0 install-smoke is separate: run bash tests/l0-install/run-install-smoke.sh with Docker before a PR (release-gate also runs it on rc tags).\n"
   exit 0
 else
   printf "One or more layers FAILED. See output above.\n"
