@@ -2,10 +2,10 @@
  * The TypeScript write-path analyzer against tmb_cmd_write_paths (GH 1692):
  * every corpus row of tests/fixtures/cmd-analysis/write-paths.jsonl runs
  * through one bash process that sources cmd-analysis.sh once, and through
- * writePaths. A non-deferred row prints the same lines; a row in
- * divergences.jsonl still differs exactly as recorded; a deferred row prints
- * an `UNRESOLVED:$(deferred):` line. Layout rows also compare
- * tmb_path_canonical with pathCanonical on every absolute line.
+ * writePaths. Every row prints the same lines, except a row in
+ * divergences.jsonl, which still differs exactly as recorded; no row prints a
+ * `$(deferred)` line. Layout rows also compare tmb_path_canonical with
+ * pathCanonical on every absolute line.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,8 +19,7 @@ import { pathCanonical, writePaths } from '../hooks/cmd-analysis/index.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const FIXTURES = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis');
 const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib/cmd-analysis.sh');
-const MIN_NON_DEFERRED = 300;
-const DEFERRED = 'UNRESOLVED:$(deferred):';
+const MIN_ROWS = 1100;
 const PARSE = 'UNRESOLVED:$(parse):';
 const LAYOUT = 'repo-worktree-symlink';
 
@@ -29,7 +28,6 @@ interface Row {
   cwd?: string;
   raw?: boolean;
   root?: string;
-  tag?: string;
   layout?: string;
 }
 
@@ -72,6 +70,9 @@ function makeLayout(tmp: string): void {
   git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init');
   git(repo, 'worktree', 'add', '-q', join(tmp, 'wt'), '-b', 'wt');
   symlinkSync(repo, join(tmp, 'link'));
+  const surf = join(tmp, 'surf');
+  for (const d of ['agents', 'skills/tool', 'commands', 'rules', '.claude/agents', 'docs']) mkdirSync(join(surf, d), { recursive: true });
+  writeFileSync(join(surf, 'CLAUDE.md'), 'surface\n');
 }
 
 const SCRIPT = `. "$1"
@@ -120,23 +121,23 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
 
   after(() => rmSync(tmp, { recursive: true, force: true }));
 
-  it(`has at least ${MIN_NON_DEFERRED} non-deferred rows, each in the corpus once`, () => {
+  it(`has at least ${MIN_ROWS} rows, each in the corpus once`, () => {
     const keys = rows.map((r) => JSON.stringify([r.cmd, r.cwd ?? '', r.raw === true, r.root ?? '']));
     assert.equal(new Set(keys).size, rows.length);
-    assert.ok(rows.filter((r) => r.tag !== 'deferred').length >= MIN_NON_DEFERRED);
+    assert.ok(rows.length >= MIN_ROWS);
   });
 
-  it('prints the same lines as tmb_cmd_write_paths on every non-deferred row', async () => {
+  it('prints the same lines as tmb_cmd_write_paths on every row', async () => {
     const mismatches: string[] = [];
     let same = 0;
     for (const [i, r] of rows.entries()) {
-      if (r.tag === 'deferred' || divergences.has(r.cmd)) continue;
+      if (divergences.has(r.cmd)) continue;
       const got = await ts(r);
       if (JSON.stringify(got) === JSON.stringify(sh[i]!.lines)) same++;
       else mismatches.push(`${JSON.stringify(r)}\n  sh: ${JSON.stringify(sh[i]!.lines.map(back))}\n  ts: ${JSON.stringify(got.map(back))}`);
     }
     assert.deepEqual(mismatches, []);
-    assert.ok(same >= MIN_NON_DEFERRED);
+    assert.ok(same >= MIN_ROWS);
   });
 
   it('still diverges exactly as divergences.jsonl records, each with a reason', async () => {
@@ -149,12 +150,10 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
     }
   });
 
-  it('prints a deferred line on every deferred row', async () => {
-    const missing: string[] = [];
-    for (const r of rows.filter((x) => x.tag === 'deferred')) {
-      if (!(await ts(r)).some((l) => l.startsWith(DEFERRED))) missing.push(r.cmd);
-    }
-    assert.deepEqual(missing, []);
+  it('prints no $(deferred) line on any row', async () => {
+    const deferred: string[] = [];
+    for (const r of rows) if ((await ts(r)).some((l) => l.includes('$(deferred)'))) deferred.push(r.cmd);
+    assert.deepEqual(deferred, []);
   });
 
   it('canonicalizes every absolute line of a layout row as tmb_path_canonical does', async () => {
@@ -170,25 +169,6 @@ describe('TS write-path analyzer vs cmd-analysis.sh (GH 1692)', () => {
     assert.equal(pathCanonical(join(tmp, 'link/missing/../file')), join(tmp, 'repo/file'));
     assert.equal(pathCanonical('relative/x'), 'relative/x');
     if (process.platform === 'darwin') assert.equal(pathCanonical('/tmp/x'), '/private/tmp/x');
-  });
-
-  describe('deferred shapes', () => {
-    const shapes: Array<[string, string]> = [
-      ['python -c', `python -c "open('a.txt','w')"`],
-      ['node -e', `node -e "require('fs').writeFileSync('n.txt','x')"`],
-      ['a heredoc to python3', `python3 <<'EOF'\nopen('hd.txt','w')\nEOF`],
-      ['find -exec', `find . -name '*.tmp' -exec rm {} \\;`],
-      ['find -delete', 'find . -type f -delete'],
-      ['xargs', 'ls | xargs rm'],
-      ['for f in $(find …)', `for f in $(find . -name '*.md'); do rm "$f"; done`],
-      ['… | while read f', `find . -name '*.sh' | while read f; do chmod +x "$f"; done`],
-    ];
-    for (const [name, cmd] of shapes) {
-      it(`${name} prints a deferred line`, async () => {
-        const out = await writePaths(cmd, { cwd: '/w/repo', root: '/w/repo', env: { PATH: process.env.PATH } });
-        assert.ok(out.some((l) => l.startsWith(DEFERRED)), JSON.stringify(out));
-      });
-    }
   });
 
   describe('parse errors', () => {
