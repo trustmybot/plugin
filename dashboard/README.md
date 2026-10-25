@@ -93,6 +93,10 @@ bun run build
 
 Commit `dist/` with the source change.
 
+## Develop
+
+`bun run dev` (in `dashboard/`) rebuilds the server, app and CSS into the gitignored `dist-dev/` on every save and restarts the server when its bundle changes; reload the browser to see a web or CSS change. It listens on port 7488 unless `TMB_DASHBOARD_PORT` is set, so it runs beside an installed dashboard on 7477. Point it at a DB with `TRAJECTORY_DB_PATH=/path/to/trajectory.db`. `dist/` is still produced only by `bun run build`.
+
 ## Tests
 
 - `bash dashboard/test/smoke.sh` — seeds a temp DB from `schema.sql`, starts the built server on a free port, checks the page and each endpoint (world-model tree, search and graph included, plus FTS syntax in a search query), and checks the DB file is unchanged; then checks the world-model endpoints answer `available: false` on a DB without the `wm_*` tables.
@@ -100,4 +104,5 @@ Commit `dist/` with the source change.
 - `node --test dashboard/test/concepts.test.mjs` — seeds a temp DB from `schema.sql` with a small symbol index and a 3-step concept whose last anchor is gone, starts the built server and checks concept search (a description word, a derived chain, a too-short query), the detail, the graph and its limit, a symbol neighbourhood, 404s, `available: false` on a v44 DB, and that both DB files are unchanged. `node dashboard/test/concepts.test.mjs --seed <path>` only writes the seeded DB, to view the tab against it.
 - `node --test dashboard/test/ux.test.mjs` — seeds a temp DB with a directory summary and a file purpose wrapped in `<untrusted-content>` and written in markdown, starts the built server and checks `/api/world-model` and `/api/world-model/search` return each as one plain line; unit-tests `summaryLine`; and renders `<Markdown>` to static HTML to check GFM renders and `<script>`, `<img onerror>` and `javascript:` links never do.
 - `node --test dashboard/test/graph.test.mjs` — seeds a temp DB with symbols in several files and edges of several kinds, starts the built server and checks `/api/world-model/graph` merges a pair linked by two kinds into one edge with the summed weight and the heaviest kind, drops self, cross-repo and excluded-kind edges, and returns plain purposes; unit-tests that `summaryLine` skips a leading horizontal rule.
+- `node --test dashboard/test/dev.test.mjs` — seeds a temp DB from `schema.sql`, runs `scripts/dev.mjs` on a free port, checks `/` and `/app.js` answer 200, then sends SIGTERM and checks it exits within 5 s and the port is closed.
 - `bash dashboard/test/size-budget.sh` — fails when the gzipped JS + CSS in `dist/web` is over 250 KB.
