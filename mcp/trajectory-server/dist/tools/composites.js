@@ -14,7 +14,7 @@ import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
-import { gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit } from './verification-runs.js';
+import { FINDING_ORDER_SQL, activeFindingProbes, gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit, } from './verification-runs.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
@@ -583,7 +583,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
                 'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
                 'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
-                'Verification gate: a task with non-empty verification[] closes only on a passing verification_runs row for the commit whose commands match the current verification[] (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
+                'Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
                 'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
             inputSchema: {
                 type: 'object',
@@ -772,7 +772,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_brief',
-            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs. A swe call opens the task's swe agent_runs row when none is open.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -1425,6 +1425,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
                 base_moved: closeScope ? closeScope.base_moved === true : null,
             };
+            const open_findings = db.all(`SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
+            WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`, [task.id]).map((f) => ({ ...f }));
             return ok({
                 task_id: task.id,
                 issue_id: task.issue_id,
@@ -1440,6 +1442,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 verification: parseTaskFiles(task.verification),
                 scope,
                 verification_run: latestVerificationRun(db, task.id),
+                open_findings,
                 scope_world_model,
                 ...(world_model_warning ? { world_model_warning } : {}),
                 task_discussions,
@@ -1860,17 +1863,18 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             // --- Close-time verification gate (GH 1672) ---
             // A task with verification[] closes only on a passing recorded run of
-            // its current verification[] for this commit, or a
+            // its current verification[] plus its review finding probes (GH 1737)
+            // for this commit, or a
             // verification_gate_waived row for it. The SubagentStop auto-complete
             // and a later task_update_spec both reach here without the swe gate
             // having run that verification[] on this commit.
-            const verificationCommands = gateCommands(parseTaskFiles(task.verification));
+            const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db, task.id));
             if (verificationCommands.length > 0 &&
                 passingRunForCommit(db, task.id, commitSha, verificationCommands) === null &&
                 !verificationWaivedForCommit(db, task.id, commitSha)) {
-                return err(`verification_run_missing: task ${task.id} has ${verificationCommands.length} verification[] command(s) and no ` +
-                    `passing verification run of its current verification[] recorded for commit ${commitSha} (a run made before ` +
-                    `verification[] was amended does not count), and no verification_gate_waived row for that commit. Get a run: ` +
+                return err(`verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no ` +
+                    `passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before ` +
+                    `verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: ` +
                     `resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') — ` +
                     `swe-verification-gate runs verification[] in the task worktree and records the run — then retry bro_atomic_close. ` +
                     `Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`);

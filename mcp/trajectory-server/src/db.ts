@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 46;
+export const TARGET_SCHEMA_VERSION = 47;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -794,6 +794,9 @@ function runMigrations(
   }
   if (fromVersion < 46 && toVersion >= 46) {
     migrateV45toV46(db);
+  }
+  if (fromVersion < 47 && toVersion >= 47) {
+    migrateV46toV47(db);
   }
 }
 
@@ -2802,6 +2805,29 @@ function migrateV45toV46(db: DatabaseSync): void {
     }
     throw err;
   }
+}
+
+// v46→v47: the review findings ledger (GH 1737). review_findings holds one
+// row per defect a FAIL/escalate verdict names, with the probe the
+// verification gate re-runs; existing verdicts have none.
+function migrateV46toV47(db: DatabaseSync): void {
+  if (!tableExists(db, 'tasks')) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS review_findings (
+      id           TEXT    PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      attempt_n    INTEGER NOT NULL,
+      criterion_id TEXT,
+      probe_cmd    TEXT    NOT NULL,
+      expected     TEXT    NOT NULL,
+      observed     TEXT    NOT NULL,
+      status       TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','fixed','wontfix')),
+      created_at   TEXT    NOT NULL,
+      resolved_at  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
+      ON review_findings(task_id, status);
+  `);
 }
 
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.

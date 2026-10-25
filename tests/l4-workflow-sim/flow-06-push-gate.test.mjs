@@ -140,6 +140,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const fail1 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
     feedback: 'Tests reference removed module; please fix.',
+    findings: [{ probe_cmd: 'npm test', expected: 'exit 0', observed: 'Cannot find module ./removed' }],
     subagent_session_id: 'flow06-fail-session-1',
   });
   assert.equal(fail1.ok, true);

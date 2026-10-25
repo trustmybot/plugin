@@ -684,7 +684,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 46;
+var TARGET_SCHEMA_VERSION = 47;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1226,6 +1226,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 46 && toVersion >= 46) {
     migrateV45toV46(db);
+  }
+  if (fromVersion < 47 && toVersion >= 47) {
+    migrateV46toV47(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -2908,6 +2911,25 @@ function migrateV45toV46(db) {
     }
     throw err3;
   }
+}
+function migrateV46toV47(db) {
+  if (!tableExists(db, "tasks")) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS review_findings (
+      id           TEXT    PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      attempt_n    INTEGER NOT NULL,
+      criterion_id TEXT,
+      probe_cmd    TEXT    NOT NULL,
+      expected     TEXT    NOT NULL,
+      observed     TEXT    NOT NULL,
+      status       TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','fixed','wontfix')),
+      created_at   TEXT    NOT NULL,
+      resolved_at  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_findings_task_status
+      ON review_findings(task_id, status);
+  `);
 }
 function migrateV22toV23(db) {
   const soleRepo = () => {

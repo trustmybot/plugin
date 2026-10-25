@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=46 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=47 (skills folded into cheatcodes #101; world model in wm_ tables, GH 1632)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -34,6 +34,8 @@ describe('TrajectoryDB', () => {
       // GH 1294 — recorded verification runs
       'verification_runs',
       'verification_run_commands',
+      // GH 1737 — review findings ledger
+      'review_findings',
       // #155 repos-centric schema — milestones FK hub
       'milestones',
       // #2905 FTS5 virtual tables
@@ -75,7 +77,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 46);
+    assert.equal(meta.schema_version, 47);
 
     db.close();
   });

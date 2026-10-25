@@ -1,10 +1,34 @@
 /**
- * The commands swe-verification-gate.sh runs for a verification[] list: every
- * non-empty line of every entry, in order — one verification_run_commands row
- * each.
+ * The verification_run_commands.command a review finding's probe is recorded
+ * under: `[probe <id>] <probe_cmd>`, the whole probe as one command.
  */
-export function gateCommands(verification) {
-    return verification.flatMap((entry) => entry.split('\n')).filter((line) => line !== '');
+export function probeCommand(probe) {
+    return `[probe ${probe.id}] ${probe.probe_cmd}`;
+}
+/** SQL ordering review_findings by the <n> of their F<task_id>-<n> id. */
+export const FINDING_ORDER_SQL = "CAST(substr(id, instr(id, '-') + 1) AS INTEGER)";
+/**
+ * The task's findings the gate probes: every status but wontfix, in id order.
+ * A DB without review_findings (schema < 47) has none.
+ */
+export function activeFindingProbes(db, taskId) {
+    const table = db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_findings'");
+    if (!table)
+        return [];
+    return db
+        .all(`SELECT id, probe_cmd FROM review_findings WHERE task_id = ? AND status <> 'wontfix' ORDER BY ${FINDING_ORDER_SQL}`, [taskId])
+        .map((f) => ({ id: f.id, probe_cmd: f.probe_cmd }));
+}
+/**
+ * The commands swe-verification-gate.sh runs for a verification[] list: every
+ * non-empty line of every entry, in order, then one entry per review finding
+ * probe (probeCommand) — one verification_run_commands row each.
+ */
+export function gateCommands(verification, probes = []) {
+    return [
+        ...verification.flatMap((entry) => entry.split('\n')).filter((line) => line !== ''),
+        ...probes.map(probeCommand),
+    ];
 }
 const shaMatches = (col) => `(substr(lower(${col}), 1, length(?)) = ? OR substr(?, 1, length(${col})) = lower(${col}))`;
 /**

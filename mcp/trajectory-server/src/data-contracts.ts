@@ -409,6 +409,18 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
              ORDER BY id DESC LIMIT 5`,
     },
     {
+      id: 'review_findings_resolved_at_matches_status',
+      severity: 'warn',
+      min_schema: 47,
+      description: 'every fixed review_findings row has resolved_at and no open one does (the verification gate sets both when an open finding\'s probe passes)',
+      sql: `SELECT COUNT(*) FROM review_findings
+             WHERE (status = 'fixed' AND resolved_at IS NULL) OR (status = 'open' AND resolved_at IS NOT NULL)`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT id, task_id, attempt_n, status, resolved_at FROM review_findings
+             WHERE (status = 'fixed' AND resolved_at IS NULL) OR (status = 'open' AND resolved_at IS NOT NULL)
+             ORDER BY created_at DESC LIMIT 5`,
+    },
+    {
       id: 'no_fixture_rows_in_inventory',
       severity: 'warn',
       description: 'no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test\'s scan.sh run reached this DB; report only — agents never delete these rows, the Human decides',

@@ -70,6 +70,14 @@ function seedVerifiedClose(db: TrajectoryDB, sha: string, updatedAt = iso(), ver
   return id;
 }
 
+function seedFinding(db: TrajectoryDB, taskId: number, n: number, status: string, resolvedAt: string | null): void {
+  db.run(
+    `INSERT INTO review_findings (id, task_id, attempt_n, probe_cmd, expected, observed, status, created_at, resolved_at)
+     VALUES (?, ?, 1, 'npm test', 'exit 0', 'exit 1', ?, ?, ?)`,
+    [`F${taskId}-${n}`, taskId, status, iso(-HOUR), resolvedAt],
+  );
+}
+
 function seedVerificationRun(db: TrajectoryDB, taskId: number, sha: string, startedAt = iso(-HOUR), finishedAt: string | null = iso()): void {
   db.run(
     `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
@@ -270,6 +278,18 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       const task = seedVerifiedClose(db, 'abc1234');
       seedVerificationRun(db, task, 'abc1234', iso(-30 * 60_000), null);
       seedVerificationRun(db, task, 'abc1234', iso(-3 * HOUR), iso(-3 * HOUR + 60_000));
+    },
+  },
+  review_findings_resolved_at_matches_status: {
+    violate: (db) => {
+      const task = seedTask(db, seedIssue(db), 'running');
+      seedFinding(db, task, 1, 'fixed', null);
+    },
+    pass: (db) => {
+      const task = seedTask(db, seedIssue(db), 'running');
+      seedFinding(db, task, 1, 'open', null);
+      seedFinding(db, task, 2, 'fixed', iso());
+      seedFinding(db, task, 3, 'wontfix', null);
     },
   },
   embeddings_not_degraded: {

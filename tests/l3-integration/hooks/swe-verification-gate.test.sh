@@ -717,6 +717,66 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "command 2 finishes ins
 assert_contains "$(cat "$TMPDIR/slow.err")" "tmb_db_write" "the command-row write did wait on the held lock"
 assert_eq "0|0" "$(sqlite3 "$DB" "SELECT exit_code || '|' || timed_out FROM verification_runs WHERE task_id = 93;")" "run finished exit 0, not timed out"
 
+# ---- Review findings (v47, GH 1737): probes run after verification[] ---------
+# Every case above ran against a DB without review_findings (no findings).
+sqlite3 "$DB" "
+  CREATE TABLE review_findings (
+    id TEXT PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    attempt_n INTEGER NOT NULL,
+    criterion_id TEXT,
+    probe_cmd TEXT NOT NULL,
+    expected TEXT NOT NULL,
+    observed TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','fixed','wontfix')),
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+  );
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (96, 1, 'feat/findings', 'plugin', 'pending', '', '[\"exit 0\"]');
+  INSERT INTO review_findings VALUES ('F96-1', 96, 1, 'SC1', 'exit 0', 'exit 0', 'exit 1', 'open', '2026-01-01T00:00:00.000Z', NULL);
+  INSERT INTO review_findings VALUES ('F96-2', 96, 1, NULL, 'echo still broken; exit 3', 'exit 0', 'exit 3', 'fixed', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z');
+  INSERT INTO review_findings VALUES ('F96-3', 96, 1, NULL, 'exit 9', 'exit 0', 'exit 9', 'wontfix', '2026-01-01T00:00:00.000Z', NULL);
+"
+git_worktree findings >/dev/null
+
+test_case "findings: a passing open probe sets fixed, a failing fixed probe denies as a regression, wontfix is skipped"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 96)")
+REASON=$(reason_of "$out")
+assert_contains "$out" '"permissionDecision":"deny"' "a failing probe denies"
+assert_contains "$REASON" "review finding probe(s) failed" "deny says a finding probe failed"
+assert_contains "$REASON" "Finding F96-2 (probe 3/3) — REGRESSION" "deny names F96-2 as a regression"
+assert_contains "$REASON" "still broken" "deny carries the probe output"
+assert_not_contains "$REASON" "Finding F96-1" "the passing probe is not named"
+assert_not_contains "$REASON" "F96-3" "the wontfix finding is not probed"
+assert_eq "fixed|1" "$(sqlite3 "$DB" "SELECT status || '|' || (resolved_at IS NOT NULL AND resolved_at > '2026-06-01') FROM review_findings WHERE id = 'F96-1';")" "F96-1 is fixed with a fresh resolved_at"
+assert_eq "fixed|2026-01-02T00:00:00.000Z" "$(sqlite3 "$DB" "SELECT status || '|' || resolved_at FROM review_findings WHERE id = 'F96-2';")" "F96-2 stays fixed, resolved_at untouched"
+assert_eq "wontfix|" "$(sqlite3 "$DB" "SELECT status || '|' || COALESCE(resolved_at, '') FROM review_findings WHERE id = 'F96-3';")" "F96-3 untouched"
+assert_eq "3|0|1" "$(sqlite3 "$DB" "SELECT r.exit_code || '|' || r.timed_out || '|' || (SELECT COUNT(*) FROM verification_runs WHERE task_id = 96) FROM verification_runs r WHERE r.task_id = 96;")" "run finished with the probe's exit, not timed out"
+assert_eq "exit 0|[probe F96-1] exit 0|[probe F96-2] echo still broken; exit 3" "$(sqlite3 "$DB" "SELECT group_concat(command, '|') FROM (SELECT c.command FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 96 ORDER BY c.ordinal);")" "probe rows are recorded after verification[] as [probe <id>]"
+
+test_case "findings: once every probe passes the close is allowed, and that run is reused only for the same findings"
+sqlite3 "$DB" "UPDATE review_findings SET probe_cmd = 'exit 0' WHERE id = 'F96-2';"
+git_commit findings "fix F96-2" >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 96)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "all probes pass"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 96)")
+assert_contains "$out" "verification reused" "the same findings reuse the passing run"
+sqlite3 "$DB" "INSERT INTO review_findings VALUES ('F96-4', 96, 2, NULL, 'exit 0', 'exit 0', 'exit 1', 'open', '2026-01-03T00:00:00.000Z', NULL);"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 96)")
+assert_not_contains "$out" "verification reused" "a new finding forces a fresh run"
+assert_eq "fixed" "$(sqlite3 "$DB" "SELECT status FROM review_findings WHERE id = 'F96-4';")" "the new finding's passing probe fixes it"
+
+test_case "findings: a task with empty verification[] still runs its probes"
+sqlite3 "$DB" "
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (97, 1, 'feat/findings-only', 'plugin', 'pending', '', '[]');
+  INSERT INTO review_findings VALUES ('F97-1', 97, 1, NULL, 'exit 4', 'exit 0', 'exit 4', 'open', '2026-01-01T00:00:00.000Z', NULL);
+"
+git_worktree findings-only >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 97)")
+assert_contains "$(reason_of "$out")" "Finding F97-1 (probe 1/1): exit 4" "the open finding's failing probe denies"
+assert_not_contains "$(reason_of "$out")" "REGRESSION" "an open finding is not a regression"
+assert_eq "open|" "$(sqlite3 "$DB" "SELECT status || '|' || COALESCE(resolved_at, '') FROM review_findings WHERE id = 'F97-1';")" "a failing open finding stays open"
+
 # ---- Chain: a call agent-arg-matches-caller denies never runs verification ---
 test_case "chain: main-loop task_update_status(agent='swe') is denied and records no verification run"
 sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (95, 1, 'feat/chain-close', 'plugin', 'pending', '', '[\"echo ok\"]');"

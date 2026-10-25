@@ -1,6 +1,6 @@
 {
   "generated_from": "mcp/trajectory-server/src/data-contracts.ts",
-  "schema_version": 38,
+  "schema_version": 47,
   "contracts": [
     {
       "id": "fk_check_empty",
@@ -168,6 +168,18 @@
         "value": 0
       },
       "sample_sql": "SELECT id, task_id, commit_sha, source, started_at FROM verification_runs\n             WHERE finished_at IS NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours')\n             ORDER BY id DESC LIMIT 5"
+    },
+    {
+      "id": "review_findings_resolved_at_matches_status",
+      "severity": "warn",
+      "min_schema": 47,
+      "description": "every fixed review_findings row has resolved_at and no open one does (the verification gate sets both when an open finding's probe passes)",
+      "sql": "SELECT COUNT(*) FROM review_findings\n             WHERE (status = 'fixed' AND resolved_at IS NULL) OR (status = 'open' AND resolved_at IS NOT NULL)",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT id, task_id, attempt_n, status, resolved_at FROM review_findings\n             WHERE (status = 'fixed' AND resolved_at IS NULL) OR (status = 'open' AND resolved_at IS NOT NULL)\n             ORDER BY created_at DESC LIMIT 5"
     },
     {
       "id": "no_fixture_rows_in_inventory",
