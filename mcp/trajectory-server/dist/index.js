@@ -41000,8 +41000,10 @@ var GRAMMAR_WASM = {
   typescript: "tree-sitter-typescript.wasm",
   tsx: "tree-sitter-tsx.wasm",
   javascript: "tree-sitter-javascript.wasm",
-  bash: "tree-sitter-bash.wasm"
+  bash: "tree-sitter-bash.wasm",
+  python: "tree-sitter-python.wasm"
 };
+var INDEXED = ["typescript", "tsx", "javascript", "bash"];
 var pending = null;
 var loads = 0;
 function wasmDir() {
@@ -41049,7 +41051,7 @@ function loadParser(name2) {
 }
 async function load() {
   const parsers = {};
-  for (const name2 of Object.keys(GRAMMAR_WASM)) parsers[name2] = await loadParser(name2);
+  for (const name2 of INDEXED) parsers[name2] = await loadParser(name2);
   loads++;
   return parsers;
 }

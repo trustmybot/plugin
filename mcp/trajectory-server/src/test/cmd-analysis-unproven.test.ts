@@ -1,7 +1,8 @@
 /**
  * Unproven programs fail closed (GH 1739): every row of
- * tests/fixtures/cmd-analysis/unproven-probes.jsonl runs through writePaths
- * with cwd and root /w. A fail_closed row prints an `UNRESOLVED:` line, its
+ * tests/fixtures/cmd-analysis/unproven-probes.jsonl and of
+ * unproven-review-probes.jsonl (the bypasses review found) runs through
+ * writePaths with cwd and root /w. A fail_closed row prints an `UNRESOLVED:` line, its
  * danger path, or a path outside /w; an empty row prints nothing; a resolves
  * row prints exactly its paths.
  */
@@ -13,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 import { writePaths } from '../hooks/cmd-analysis/index.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const PROBES = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis/unproven-probes.jsonl');
+const FIXTURES = join(PLUGIN_ROOT, 'tests/fixtures/cmd-analysis');
+const PROBE_FILES = ['unproven-probes.jsonl', 'unproven-review-probes.jsonl'];
 
 interface Probe {
   src: string;
@@ -23,10 +25,12 @@ interface Probe {
   paths?: string[];
 }
 
-const probes: Probe[] = readFileSync(PROBES, 'utf8')
-  .split('\n')
-  .filter((l) => l !== '')
-  .map((l) => JSON.parse(l) as Probe);
+const probes: Probe[] = PROBE_FILES.flatMap((f) =>
+  readFileSync(join(FIXTURES, f), 'utf8')
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l) as Probe),
+);
 
 const outside = (l: string): boolean => l.startsWith('/') && l !== '/w' && !l.startsWith('/w/');
 

@@ -3064,7 +3064,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
           __name(loadModule, "loadModule");
           if (flags.loadAsync) {
-            return metadata.neededDynlibs.reduce((chain, dynNeeded) => chain.then(() => loadDynamicLibrary(dynNeeded, flags, localScope)), Promise.resolve()).then(loadModule);
+            return metadata.neededDynlibs.reduce((chain2, dynNeeded) => chain2.then(() => loadDynamicLibrary(dynNeeded, flags, localScope)), Promise.resolve()).then(loadModule);
           }
           metadata.neededDynlibs.forEach((needed) => loadDynamicLibrary(needed, flags, localScope));
           return loadModule();
@@ -3184,7 +3184,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
             return;
           }
           addRunDependency("loadDylibs");
-          dynamicLibraries.reduce((chain, lib) => chain.then(() => loadDynamicLibrary(lib, {
+          dynamicLibraries.reduce((chain2, lib) => chain2.then(() => loadDynamicLibrary(lib, {
             loadAsync: true,
             global: true,
             nodelete: true,
@@ -4031,7 +4031,7 @@ function loadParser(name3) {
 }
 async function load() {
   const parsers = {};
-  for (const name3 of Object.keys(GRAMMAR_WASM)) parsers[name3] = await loadParser(name3);
+  for (const name3 of INDEXED) parsers[name3] = await loadParser(name3);
   loads++;
   return parsers;
 }
@@ -4044,7 +4044,7 @@ function loadParsers() {
   }
   return pending;
 }
-var RUNTIME_WASM, GRAMMAR_WASM, pending, loads, runtime, grammars;
+var RUNTIME_WASM, GRAMMAR_WASM, INDEXED, pending, loads, runtime, grammars;
 var init_loader = __esm({
   "src/parsing/loader.ts"() {
     "use strict";
@@ -4053,8 +4053,10 @@ var init_loader = __esm({
       typescript: "tree-sitter-typescript.wasm",
       tsx: "tree-sitter-tsx.wasm",
       javascript: "tree-sitter-javascript.wasm",
-      bash: "tree-sitter-bash.wasm"
+      bash: "tree-sitter-bash.wasm",
+      python: "tree-sitter-python.wasm"
     };
+    INDEXED = ["typescript", "tsx", "javascript", "bash"];
     pending = null;
     loads = 0;
     runtime = null;
@@ -6013,11 +6015,17 @@ function auditAppend(db, row, opts = {}) {
 import { setFlagsFromString } from "node:v8";
 var parser = null;
 var loads2 = 0;
+var programParsers = /* @__PURE__ */ new Map();
+var programLoads = /* @__PURE__ */ new Map();
+var wanted = /* @__PURE__ */ new Set();
+function tierDown() {
+  setFlagsFromString("--no-wasm-dynamic-tiering");
+  setFlagsFromString("--no-wasm-tier-up");
+}
 function bashParser() {
   if (!parser) {
     parser = (async () => {
-      setFlagsFromString("--no-wasm-dynamic-tiering");
-      setFlagsFromString("--no-wasm-tier-up");
+      tierDown();
       const { loadParser: loadParser2 } = await Promise.resolve().then(() => (init_loader(), loader_exports));
       const p = await loadParser2("bash");
       loads2++;
@@ -6028,6 +6036,24 @@ function bashParser() {
     });
   }
   return parser;
+}
+function programParser(name3) {
+  const p = programParsers.get(name3);
+  if (!p) wanted.add(name3);
+  return p;
+}
+async function loadWanted() {
+  if (wanted.size === 0) return false;
+  const names = [...wanted];
+  wanted.clear();
+  tierDown();
+  const { loadParser: loadParser2 } = await Promise.resolve().then(() => (init_loader(), loader_exports));
+  for (const name3 of names) {
+    if (programParsers.has(name3)) continue;
+    programParsers.set(name3, await loadParser2(name3));
+    programLoads.set(name3, (programLoads.get(name3) ?? 0) + 1);
+  }
+  return true;
 }
 
 // src/hooks/cmd-analysis/encode.ts
@@ -6125,20 +6151,24 @@ var Encoder = class {
     return out2 + this.quoted(at, to, true);
   }
   heredoc(node) {
-    const kids = node.children.filter((c) => c !== null);
-    const start2 = kids.find((c) => c.type === "heredoc_start");
-    const body2 = kids.find((c) => c.type === "heredoc_body");
-    const end = kids.find((c) => c.type === "heredoc_end");
+    const kids2 = node.children.filter((c) => c !== null);
+    const start2 = kids2.find((c) => c.type === "heredoc_start");
+    const body2 = kids2.find((c) => c.type === "heredoc_body");
+    const end = kids2.find((c) => c.type === "heredoc_end");
     const delim = start2 ? this.src.slice(start2.startIndex, start2.endIndex).replace(/['"\\]/g, "") : "";
     const rest = [];
     const opEnd = start2 ? start2.endIndex : node.startIndex + 2;
-    for (const c of kids) {
+    for (const c of kids2) {
       if (c.startIndex >= opEnd && c !== body2 && c !== end) specials(c, rest);
     }
     const dropFrom = body2?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
     if (end && this.src[dropTo] === "\n") dropTo++;
     return { text: "<<" + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
+  }
+  /** One word node, encoded as `range` encodes it inside its command. */
+  word(node) {
+    return this.spans(specials(node, []), node.startIndex, node.endIndex);
   }
   /** [from, to) of `node`'s source, encoded as unquoted shell text. */
   range(node, from, to) {
@@ -6184,6 +6214,21 @@ var Encoder = class {
     return out2 + this.plain(at, to);
   }
 };
+var EXPANSIONS = ["simple_expansion", "expansion", "command_substitution", "arithmetic_expansion", "process_substitution"];
+var expands = (node) => node.descendantsOfType(EXPANSIONS).length > 0;
+function heldKey(word) {
+  return decode(word).replace(/\x07/g, "$(").replace(/\x08/g, ")");
+}
+function heldWords(encoder, root) {
+  const held = /* @__PURE__ */ new Set();
+  for (const node of root.descendantsOfType(["command", "herestring_redirect"])) {
+    if (!node) continue;
+    for (const word of node.namedChildren) {
+      if (word && word.type !== "file_redirect" && word.type !== "herestring_redirect" && expands(word)) held.add(heldKey(encoder.word(word)));
+    }
+  }
+  return held;
+}
 function broken(node) {
   if (node.isError || node.isMissing) return true;
   if (!node.hasError) return false;
@@ -6192,18 +6237,19 @@ function broken(node) {
 function heredocs(src, root) {
   return root.descendantsOfType("heredoc_redirect").flatMap((node) => {
     if (!node) return [];
-    const kids = node.children.filter((c) => c !== null);
-    const start2 = kids.find((c) => c.type === "heredoc_start");
-    const end = kids.find((c) => c.type === "heredoc_end");
+    const kids2 = node.children.filter((c) => c !== null);
+    const start2 = kids2.find((c) => c.type === "heredoc_start");
+    const end = kids2.find((c) => c.type === "heredoc_end");
     if (!start2 || !end) return [];
-    const from = kids.find((c) => c.type === "heredoc_body")?.startIndex ?? end.startIndex;
-    const tabs = kids.some((c) => c.type === "<<-");
+    const bodyNode = kids2.find((c) => c.type === "heredoc_body");
+    const from = bodyNode?.startIndex ?? end.startIndex;
+    const tabs = kids2.some((c) => c.type === "<<-");
     const lineStart2 = src.lastIndexOf("\n", from - 1) + 1;
     const endStart = src.lastIndexOf("\n", end.startIndex - 1) + 1;
     let lines = endStart > lineStart2 ? src.slice(lineStart2, endStart - 1).split("\n") : [];
     if (tabs) lines = lines.map((l) => l.replace(/^\t+/, ""));
     const body2 = lines.join("\n").replace(/^\t+/, "").replace(/\t+$/, "").replace(/\n+$/, "");
-    return [{ delim: src.slice(start2.startIndex, start2.endIndex).replace(/['"\\]/g, ""), body: body2 }];
+    return [{ delim: src.slice(start2.startIndex, start2.endIndex).replace(/['"\\]/g, ""), body: body2, expands: bodyNode !== void 0 && expands(bodyNode) }];
   });
 }
 function encode(parser2, command) {
@@ -6212,8 +6258,9 @@ function encode(parser2, command) {
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
-    const text = new Encoder(command).range(root, 0, command.length);
-    return { ok: true, text, heredocs: command.includes("<<") ? heredocs(command, root) : [] };
+    const encoder = new Encoder(command);
+    const text = encoder.range(root, 0, command.length);
+    return { ok: true, text, heredocs: command.includes("<<") ? heredocs(command, root) : [], held: heldWords(encoder, root) };
   } finally {
     tree.delete();
   }
@@ -7931,10 +7978,1358 @@ function progCalls(lang, program) {
   if (out2.length === 0) return [];
   return Buffer.from(out2.join("\n"), "latin1").toString("utf8").split("\n");
 }
+function judgedCall(lang, name3) {
+  const at = name3.lastIndexOf(".");
+  return wkind(name3.slice(at + 1), at < 0 ? "" : name3.slice(0, at)) !== "" || new Scanner(lang).isproc(name3);
+}
+
+// src/hooks/cmd-analysis/prove.ts
+import { builtinModules } from "node:module";
+var PY_SAFE_BUILTINS = /* @__PURE__ */ new Set([
+  "print",
+  "len",
+  "str",
+  "int",
+  "float",
+  "bool",
+  "list",
+  "dict",
+  "set",
+  "tuple",
+  "sorted",
+  "min",
+  "max",
+  "sum",
+  "range",
+  "enumerate",
+  "zip",
+  "map",
+  "filter",
+  "any",
+  "all",
+  "repr",
+  "isinstance"
+]);
+var PY_BUILTINS = /* @__PURE__ */ new Set([
+  ...PY_SAFE_BUILTINS,
+  "abs",
+  "aiter",
+  "anext",
+  "ascii",
+  "bin",
+  "breakpoint",
+  "bytearray",
+  "bytes",
+  "callable",
+  "chr",
+  "classmethod",
+  "compile",
+  "complex",
+  "copyright",
+  "credits",
+  "delattr",
+  "dir",
+  "divmod",
+  "eval",
+  "exec",
+  "exit",
+  "format",
+  "frozenset",
+  "getattr",
+  "globals",
+  "hasattr",
+  "hash",
+  "help",
+  "hex",
+  "id",
+  "input",
+  "issubclass",
+  "iter",
+  "license",
+  "locals",
+  "memoryview",
+  "next",
+  "object",
+  "oct",
+  "open",
+  "ord",
+  "pow",
+  "property",
+  "quit",
+  "reversed",
+  "round",
+  "setattr",
+  "slice",
+  "staticmethod",
+  "super",
+  "type",
+  "vars",
+  "__import__",
+  "__build_class__"
+]);
+var PY_READ_MODES = /* @__PURE__ */ new Set(["r", "rb", "rt"]);
+var PY_SAFE_CALLS = /* @__PURE__ */ new Set(["json.load", "json.loads", "json.dumps", "os.listdir", "os.getcwd"]);
+var PY_SAFE_MODULES = {
+  re: {
+    names: /* @__PURE__ */ new Set([
+      "compile",
+      "search",
+      "match",
+      "fullmatch",
+      "split",
+      "findall",
+      "finditer",
+      "sub",
+      "subn",
+      "escape",
+      "purge",
+      "error",
+      "PatternError",
+      "Pattern",
+      "Match",
+      "RegexFlag",
+      "NOFLAG",
+      "ASCII",
+      "A",
+      "IGNORECASE",
+      "I",
+      "LOCALE",
+      "L",
+      "MULTILINE",
+      "M",
+      "DOTALL",
+      "S",
+      "VERBOSE",
+      "X",
+      "UNICODE",
+      "U",
+      "DEBUG"
+    ])
+  },
+  "os.path": {
+    names: /* @__PURE__ */ new Set([
+      "abspath",
+      "basename",
+      "commonpath",
+      "commonprefix",
+      "dirname",
+      "exists",
+      "lexists",
+      "expanduser",
+      "expandvars",
+      "getatime",
+      "getctime",
+      "getmtime",
+      "getsize",
+      "isabs",
+      "isdir",
+      "isfile",
+      "islink",
+      "ismount",
+      "isjunction",
+      "isdevdrive",
+      "isreserved",
+      "join",
+      "normcase",
+      "normpath",
+      "realpath",
+      "relpath",
+      "samefile",
+      "sameopenfile",
+      "samestat",
+      "split",
+      "splitdrive",
+      "splitext",
+      "splitroot",
+      "curdir",
+      "pardir",
+      "sep",
+      "altsep",
+      "extsep",
+      "pathsep",
+      "defpath",
+      "devnull",
+      "supports_unicode_filenames"
+    ])
+  },
+  collections: {
+    names: /* @__PURE__ */ new Set(["ChainMap", "Counter", "OrderedDict", "UserDict", "UserList", "UserString", "defaultdict", "deque", "namedtuple"]),
+    deep: /* @__PURE__ */ new Set(["ChainMap", "Counter", "OrderedDict", "defaultdict", "deque"])
+  },
+  itertools: {
+    names: /* @__PURE__ */ new Set([
+      "accumulate",
+      "batched",
+      "chain",
+      "combinations",
+      "combinations_with_replacement",
+      "compress",
+      "count",
+      "cycle",
+      "dropwhile",
+      "filterfalse",
+      "groupby",
+      "islice",
+      "pairwise",
+      "permutations",
+      "product",
+      "repeat",
+      "starmap",
+      "takewhile",
+      "tee",
+      "zip_longest"
+    ]),
+    deep: /* @__PURE__ */ new Set(["chain"])
+  },
+  math: { names: "*" },
+  datetime: {
+    names: /* @__PURE__ */ new Set(["date", "datetime", "time", "timedelta", "timezone", "tzinfo", "MINYEAR", "MAXYEAR", "UTC"]),
+    deep: /* @__PURE__ */ new Set(["date", "datetime", "time", "timedelta", "timezone"])
+  }
+};
+var PY_JSON_NAMES = /* @__PURE__ */ new Set(["load", "loads", "dump", "dumps", "JSONDecoder", "JSONEncoder", "JSONDecodeError"]);
+var PY_SAFE_STREAMS = /* @__PURE__ */ new Set(["sys.argv", "sys.stdin", "sys.stdout", "sys.stderr", "os.environ"]);
+var publicName = (p) => /^[A-Za-z][A-Za-z0-9_]*$/.test(p);
+function safeModuleMember(q) {
+  for (const [mod, { names, deep }] of Object.entries(PY_SAFE_MODULES)) {
+    if (!q.startsWith(`${mod}.`)) continue;
+    const [name3, attr, ...more] = q.slice(mod.length + 1).split(".");
+    if (more.length > 0 || !publicName(name3) || names !== "*" && !names.has(name3)) return false;
+    return attr === void 0 || deep?.has(name3) === true && publicName(attr);
+  }
+  return false;
+}
+function pySafeValue(q) {
+  if (Object.hasOwn(PY_SAFE_MODULES, q) || q === "json" || safeModuleMember(q)) return true;
+  const parts2 = q.split(".");
+  if (parts2[0] === "json") return parts2.length === 2 && PY_JSON_NAMES.has(parts2[1]);
+  const stream = parts2.slice(0, 2).join(".");
+  return PY_SAFE_STREAMS.has(stream) && parts2.slice(2).every(publicName);
+}
+var PY_PATH = /* @__PURE__ */ new Set(["pathlib.Path", "pathlib.PurePath"]);
+var PY_METHODS = /* @__PURE__ */ new Set([
+  "strip",
+  "split",
+  "rsplit",
+  "join",
+  "get",
+  "items",
+  "keys",
+  "values",
+  "lower",
+  "upper",
+  "startswith",
+  "endswith",
+  "read",
+  "readlines",
+  "format",
+  "count",
+  "find",
+  "append",
+  "extend",
+  "write",
+  "writelines",
+  "close",
+  "flush"
+]);
+var PY_DUNDERS = /* @__PURE__ */ new Set(["__name__", "__file__", "__doc__"]);
+var PY_UNPROVEN = /* @__PURE__ */ new Set([
+  "class_definition",
+  "decorated_definition",
+  "decorator",
+  "exec_statement",
+  "print_statement",
+  "match_statement",
+  "wildcard_import",
+  "relative_import",
+  "type_alias_statement"
+]);
+var JSON_HOOKS = ["object_hook", "object_pairs_hook", "parse_float", "parse_int", "parse_constant", "cls", "default"];
+var PY_CALLBACKS = {
+  map: { pos: [0], kw: [] },
+  filter: { pos: [0], kw: [] },
+  sorted: { pos: [], kw: ["key"] },
+  min: { pos: [], kw: ["key"] },
+  max: { pos: [], kw: ["key"] },
+  "re.sub": { pos: [1], kw: ["repl"] },
+  "re.subn": { pos: [1], kw: ["repl"] },
+  "json.load": { pos: [], kw: JSON_HOOKS },
+  "json.loads": { pos: [], kw: JSON_HOOKS },
+  "json.dumps": { pos: [], kw: JSON_HOOKS },
+  "collections.defaultdict": { pos: [0], kw: ["default_factory"] },
+  "itertools.accumulate": { pos: [1], kw: ["func"] },
+  "itertools.starmap": { pos: [0], kw: [] },
+  "itertools.filterfalse": { pos: [0], kw: [] },
+  "itertools.takewhile": { pos: [0], kw: [] },
+  "itertools.dropwhile": { pos: [0], kw: [] },
+  "itertools.groupby": { pos: [1], kw: ["key"] }
+};
+var JS_SAFE_GLOBAL_CALLS = /* @__PURE__ */ new Set(["parseInt", "parseFloat", "Number", "String"]);
+var JS_SAFE_GLOBALS = /* @__PURE__ */ new Set([
+  ...JS_SAFE_GLOBAL_CALLS,
+  "console",
+  "JSON",
+  "Math",
+  "Object",
+  "Array",
+  "undefined",
+  "NaN",
+  "Infinity",
+  "Map",
+  "Set",
+  "Date",
+  "RegExp",
+  "Error"
+]);
+var JS_NEW = /* @__PURE__ */ new Set(["Map", "Set", "Array", "Date", "RegExp", "Error"]);
+var JS_ROOTS = /* @__PURE__ */ new Set(["console", "JSON", "Math", "Object", "process", "Array", "String", "Number"]);
+var JS_SAFE_CALLS = /* @__PURE__ */ new Set([
+  "Object.keys",
+  "Object.values",
+  "Object.entries",
+  "fs.readFileSync",
+  "fs.existsSync",
+  "fs.readdirSync",
+  "fs.statSync",
+  "process.stdout.write",
+  "process.stderr.write"
+]);
+var JS_SAFE_ROOT_CALL = /^(console|JSON|Math)\./;
+var JS_SAFE_VALUE = /^process\.(argv|env|stdout|stderr|version|versions|platform|arch)(\.|$)/;
+var JS_METHODS = /* @__PURE__ */ new Set([
+  "at",
+  "concat",
+  "entries",
+  "every",
+  "filter",
+  "find",
+  "findIndex",
+  "findLast",
+  "findLastIndex",
+  "flat",
+  "flatMap",
+  "forEach",
+  "includes",
+  "indexOf",
+  "join",
+  "keys",
+  "lastIndexOf",
+  "map",
+  "reduce",
+  "reduceRight",
+  "slice",
+  "some",
+  "values",
+  "toSorted",
+  "toReversed",
+  "toString",
+  "charAt",
+  "charCodeAt",
+  "codePointAt",
+  "endsWith",
+  "localeCompare",
+  "match",
+  "matchAll",
+  "normalize",
+  "padEnd",
+  "padStart",
+  "repeat",
+  "replace",
+  "replaceAll",
+  "search",
+  "split",
+  "startsWith",
+  "substring",
+  "toLowerCase",
+  "toUpperCase",
+  "trim",
+  "trimEnd",
+  "trimStart",
+  "write",
+  "end",
+  "close"
+]);
+var JS_CALLBACK_METHODS = /* @__PURE__ */ new Set([
+  "every",
+  "filter",
+  "find",
+  "findIndex",
+  "findLast",
+  "findLastIndex",
+  "flatMap",
+  "forEach",
+  "map",
+  "reduce",
+  "reduceRight",
+  "some",
+  "toSorted"
+]);
+var JS_UNPROVEN = /* @__PURE__ */ new Set(["class_declaration", "class", "import_statement", "export_statement", "with_statement", "import"]);
+var JS_HIDDEN = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype", "__defineGetter__", "__defineSetter__"]);
+var SCRIPT_WORDS = /* @__PURE__ */ new Set([
+  "print",
+  "printf",
+  "say",
+  "puts",
+  "p",
+  "split",
+  "join",
+  "chomp",
+  "chop",
+  "lc",
+  "uc",
+  "length",
+  "substr",
+  "sprintf",
+  "sort",
+  "keys",
+  "values",
+  "reverse",
+  "map",
+  "grep",
+  "my",
+  "our",
+  "if",
+  "unless",
+  "for",
+  "foreach",
+  "while",
+  "ARGV",
+  "upcase",
+  "downcase",
+  "STDIN",
+  "STDOUT",
+  "STDERR",
+  "else",
+  "elsif",
+  "until",
+  "and",
+  "or",
+  "not",
+  "xor",
+  "eq",
+  "ne",
+  "lt",
+  "gt",
+  "le",
+  "ge",
+  "cmp",
+  "x",
+  "last",
+  "next",
+  "do",
+  "end",
+  "then",
+  "nil",
+  "true",
+  "false",
+  "in",
+  "BEGIN",
+  "END",
+  "write",
+  "close"
+]);
+var Bindings = class {
+  map = /* @__PURE__ */ new Map();
+  add(name3, bind) {
+    const list = this.map.get(name3);
+    if (list) list.push(bind);
+    else this.map.set(name3, [bind]);
+  }
+  resolve(name3) {
+    const list = this.map.get(name3);
+    if (!list) return void 0;
+    if (list.every((b) => b.kind === "import" && b.q === list[0].q)) return list[0];
+    if (list.every((b) => b.kind === "def")) return list[0];
+    return { kind: "local" };
+  }
+};
+var kids = (node) => node.namedChildren.filter((c) => c !== null);
+var field = (node, name3) => node.childForFieldName(name3);
+function chain(node, type, object, property) {
+  const parts2 = [];
+  let at = node;
+  while (at.type === type) {
+    const prop = field(at, property);
+    const obj = field(at, object);
+    if (!prop || !obj) break;
+    parts2.unshift(prop.text);
+    at = obj;
+  }
+  return { root: at, parts: parts2 };
+}
+var Proof = class {
+  binds = new Bindings();
+  ok = true;
+  judged = false;
+  fail() {
+    this.ok = false;
+  }
+};
+function pyLiteral(node) {
+  if (!node || node.type !== "string") return void 0;
+  if (kids(node).some((c) => c.type === "interpolation")) return void 0;
+  const m = /^(['"])([^'"\\]*)\1$/.exec(node.text);
+  return m?.[2];
+}
+var PyProof = class extends Proof {
+  bindTargets(node) {
+    switch (node.type) {
+      case "identifier":
+        this.binds.add(node.text, { kind: "local" });
+        return;
+      case "subscript":
+      case "attribute":
+        return;
+      default:
+        for (const c of kids(node)) this.bindTargets(c);
+    }
+  }
+  bindParams(node) {
+    for (const p of kids(node)) {
+      if (p.type === "identifier") this.binds.add(p.text, { kind: "local" });
+      else if (p.type === "default_parameter" || p.type === "typed_default_parameter") {
+        const name3 = field(p, "name");
+        if (name3) this.bindTargets(name3);
+      } else if (p.type === "typed_parameter" || p.type === "list_splat_pattern" || p.type === "dictionary_splat_pattern") {
+        for (const c of kids(p)) if (c.type === "identifier") this.binds.add(c.text, { kind: "local" });
+      } else this.bindTargets(p);
+    }
+  }
+  collect(node) {
+    switch (node.type) {
+      case "import_statement":
+        for (const name3 of node.childrenForFieldName("name")) {
+          if (!name3) continue;
+          if (name3.type === "aliased_import") {
+            const alias = field(name3, "alias");
+            const dotted = field(name3, "name");
+            if (alias && dotted) this.binds.add(alias.text, { kind: "import", q: dotted.text.replace(/\s+/g, "") });
+          } else {
+            const top = name3.text.replace(/\s+/g, "").split(".")[0];
+            this.binds.add(top, { kind: "import", q: top });
+          }
+        }
+        return;
+      case "import_from_statement": {
+        const mod = field(node, "module_name");
+        if (!mod || mod.type !== "dotted_name") {
+          this.fail();
+          return;
+        }
+        const base = mod.text.replace(/\s+/g, "");
+        for (const name3 of node.childrenForFieldName("name")) {
+          if (!name3) continue;
+          const dotted = name3.type === "aliased_import" ? field(name3, "name") : name3;
+          const alias = name3.type === "aliased_import" ? field(name3, "alias") : name3;
+          if (dotted && alias) this.binds.add(alias.text, { kind: "import", q: `${base}.${dotted.text.replace(/\s+/g, "")}` });
+        }
+        return;
+      }
+      case "function_definition": {
+        const name3 = field(node, "name");
+        if (name3) this.binds.add(name3.text, { kind: "def" });
+        const params = field(node, "parameters");
+        if (params) this.bindParams(params);
+        break;
+      }
+      case "lambda": {
+        const params = field(node, "parameters");
+        if (params) this.bindParams(params);
+        break;
+      }
+      case "assignment": {
+        const left = field(node, "left");
+        const right = field(node, "right");
+        if (left?.type === "identifier" && right?.type === "lambda") this.binds.add(left.text, { kind: "def" });
+        else if (left) this.bindTargets(left);
+        break;
+      }
+      case "augmented_assignment":
+      case "for_statement":
+      case "for_in_clause": {
+        const left = field(node, "left");
+        if (left) this.bindTargets(left);
+        break;
+      }
+      case "named_expression": {
+        const name3 = field(node, "name");
+        if (name3) this.bindTargets(name3);
+        break;
+      }
+      case "as_pattern_target":
+        this.bindTargets(node);
+        return;
+      case "delete_statement":
+        for (const c of kids(node)) this.bindTargets(c);
+        break;
+    }
+    for (const c of kids(node)) this.collect(c);
+  }
+  safeValue(q) {
+    return pySafeValue(q);
+  }
+  safeCall(q) {
+    if (PY_SAFE_CALLS.has(q) || safeModuleMember(q)) return true;
+    const at = q.lastIndexOf(".");
+    const last = q.slice(at + 1);
+    return at > 0 && last !== "replace" && PY_METHODS.has(last) && this.safeValue(q.slice(0, at)) && q.slice(0, at).includes(".");
+  }
+  qualified(root, parts2) {
+    if (root.type !== "identifier") return void 0;
+    const b = this.binds.resolve(root.text);
+    return b?.kind === "import" ? [b.q, ...parts2].join(".") : void 0;
+  }
+  dunder(name3) {
+    return /^__.*__$/.test(name3) && !PY_DUNDERS.has(name3);
+  }
+  name(node) {
+    const name3 = node.text;
+    if (this.dunder(name3)) return this.fail();
+    const b = this.binds.resolve(name3);
+    if (b?.kind === "import") {
+      if (!this.safeValue(b.q) && !this.safeCall(b.q)) this.fail();
+    } else if (!b && PY_BUILTINS.has(name3) && (!PY_SAFE_BUILTINS.has(name3) || name3 === "open")) this.fail();
+  }
+  attribute(node) {
+    const { root, parts: parts2 } = chain(node, "attribute", "object", "attribute");
+    if (parts2.some((p) => this.dunder(p))) return this.fail();
+    const q = this.qualified(root, parts2);
+    if (q !== void 0) {
+      if (!this.safeValue(q) && !this.safeCall(q)) this.fail();
+      return;
+    }
+    this.visit(root);
+  }
+  /** Whether a node in a position the call calls back is a function the proof follows. */
+  callback(node) {
+    if (node.type === "lambda") return true;
+    if (node.type === "identifier") {
+      const b = this.binds.resolve(node.text);
+      if (b?.kind === "def") return true;
+      if (b?.kind === "import") return this.safeCall(b.q);
+      if (b) return false;
+      return PY_SAFE_BUILTINS.has(node.text) && node.text !== "open" || !PY_BUILTINS.has(node.text) && !this.dunder(node.text);
+    }
+    if (node.type === "attribute") {
+      const { root, parts: parts2 } = chain(node, "attribute", "object", "attribute");
+      const q = this.qualified(root, parts2);
+      if (q !== void 0) return this.safeCall(q);
+      return root.type === "identifier" && !this.binds.resolve(root.text) && PY_SAFE_BUILTINS.has(root.text) && parts2.length === 1 && PY_METHODS.has(parts2[0]);
+    }
+    return false;
+  }
+  openMode(args2) {
+    const list = args2 ? kids(args2) : [];
+    const kw = list.find((a) => a.type === "keyword_argument" && field(a, "name")?.text === "mode");
+    const positional = list.filter((a) => a.type !== "keyword_argument");
+    if (list.some((a) => a.type === "list_splat" || a.type === "dictionary_splat")) this.judged = true;
+    const mode = kw ? field(kw, "value") : positional[1] ?? null;
+    if (mode && !PY_READ_MODES.has(pyLiteral(mode) ?? "")) this.judged = true;
+  }
+  call(node) {
+    const fn = field(node, "function");
+    const args2 = field(node, "arguments");
+    let callee;
+    if (!fn) return this.fail();
+    if (fn.type === "identifier") {
+      const name3 = fn.text;
+      const b = this.binds.resolve(name3);
+      if (this.dunder(name3)) return this.fail();
+      if (b?.kind === "import") {
+        callee = b.q;
+        if (!this.safeCall(b.q) && !PY_PATH.has(b.q)) {
+          if (judgedCall("py", b.q)) this.judged = true;
+          else return this.fail();
+        }
+      } else if (b?.kind === "local") return this.fail();
+      else if (!b) {
+        if (name3 === "open") this.openMode(args2);
+        else if (PY_SAFE_BUILTINS.has(name3)) callee = name3;
+        else if (PY_BUILTINS.has(name3)) return this.fail();
+      }
+    } else if (fn.type === "attribute") {
+      const { root, parts: parts2 } = chain(fn, "attribute", "object", "attribute");
+      if (parts2.some((p) => this.dunder(p))) return this.fail();
+      const q = this.qualified(root, parts2);
+      const last = parts2[parts2.length - 1];
+      if (q !== void 0) {
+        callee = q;
+        if (!this.safeCall(q) && !PY_PATH.has(q)) {
+          if (judgedCall("py", q)) this.judged = true;
+          else return this.fail();
+        }
+      } else {
+        this.visit(root);
+        const literal = root.type === "string" && parts2.length === 1;
+        const pre = root.type === "identifier" ? [root.text, ...parts2.slice(0, -1)].join(".") : "?";
+        if (last === "replace" ? !literal : !PY_METHODS.has(last)) {
+          if (judgedCall("py", `${pre}.${last}`)) this.judged = true;
+          else return this.fail();
+        }
+      }
+    } else return this.fail();
+    if (!args2) return;
+    const back = callee !== void 0 ? PY_CALLBACKS[callee] : void 0;
+    let pos = 0;
+    for (const a of kids(args2)) {
+      if (a.type === "keyword_argument") {
+        const value = field(a, "value");
+        if (back && value && back.kw.includes(field(a, "name")?.text ?? "") && !this.callback(value)) this.fail();
+        if (value) this.visit(value);
+        continue;
+      }
+      if (back && (a.type === "list_splat" || a.type === "dictionary_splat")) this.fail();
+      if (back?.pos.includes(pos) && !this.callback(a)) this.fail();
+      pos++;
+      this.visit(a);
+    }
+  }
+  /** An assignment or `del` target: a name binds, a subscript of a local name is checked, anything else is unproven. */
+  target(node) {
+    switch (node.type) {
+      case "identifier":
+        return;
+      case "subscript": {
+        const base = field(node, "value");
+        if (base?.type !== "identifier" || this.binds.resolve(base.text)?.kind !== "local") return this.fail();
+        for (const s of node.childrenForFieldName("subscript")) if (s) this.visit(s);
+        return;
+      }
+      case "attribute":
+        return this.fail();
+      default:
+        for (const c of kids(node)) this.target(c);
+    }
+  }
+  visit(node) {
+    if (!this.ok) return;
+    if (node.isError || node.isMissing || PY_UNPROVEN.has(node.type)) return this.fail();
+    switch (node.type) {
+      case "import_statement":
+      case "import_from_statement":
+      case "future_import_statement":
+      case "global_statement":
+      case "nonlocal_statement":
+        return;
+      case "identifier":
+        return this.name(node);
+      case "attribute":
+        return this.attribute(node);
+      case "call":
+        return this.call(node);
+      case "keyword_argument": {
+        const value = field(node, "value");
+        if (value) this.visit(value);
+        return;
+      }
+      case "assignment":
+      case "augmented_assignment": {
+        const left = field(node, "left");
+        if (left) this.target(left);
+        for (const f of ["type", "right"]) {
+          const c = field(node, f);
+          if (c) this.visit(c);
+        }
+        return;
+      }
+      case "for_statement":
+      case "for_in_clause": {
+        const left = field(node, "left");
+        if (left) this.target(left);
+        for (const c of kids(node)) if (c !== left) this.visit(c);
+        return;
+      }
+      case "as_pattern_target":
+      case "delete_statement":
+        for (const c of kids(node)) this.target(c);
+        return;
+      case "named_expression": {
+        const value = field(node, "value");
+        if (value) this.visit(value);
+        return;
+      }
+      case "function_definition": {
+        for (const f of ["parameters", "return_type", "body"]) {
+          const c = field(node, f);
+          if (c) this.visit(c);
+        }
+        return;
+      }
+      case "default_parameter":
+      case "typed_default_parameter": {
+        for (const f of ["type", "value"]) {
+          const c = field(node, f);
+          if (c) this.visit(c);
+        }
+        return;
+      }
+    }
+    for (const c of kids(node)) this.visit(c);
+  }
+};
+function requiredModule(node) {
+  if (node.type !== "call_expression" || field(node, "function")?.text !== "require") return void 0;
+  const args2 = field(node, "arguments");
+  const list = args2 ? kids(args2) : [];
+  if (list.length !== 1 || list[0].type !== "string") return void 0;
+  const lit = list[0].text.slice(1, -1);
+  if (/[\\'"]/.test(lit)) return void 0;
+  const bare = lit.replace(/^node:/, "");
+  if (builtinModules.includes(bare)) return bare;
+  return /^(\.{0,2}\/).*\.json$/.test(lit) ? lit : void 0;
+}
+var JsProof = class extends Proof {
+  bindPattern(node, kind = { kind: "local" }) {
+    switch (node.type) {
+      case "identifier":
+      case "shorthand_property_identifier_pattern":
+        this.binds.add(node.text, kind);
+        return;
+      case "member_expression":
+      case "subscript_expression":
+        return;
+      case "assignment_pattern": {
+        const left = field(node, "left");
+        if (left) this.bindPattern(left);
+        return;
+      }
+      case "pair_pattern": {
+        const value = field(node, "value");
+        if (value) this.bindPattern(value);
+        return;
+      }
+      default:
+        for (const c of kids(node)) this.bindPattern(c);
+    }
+  }
+  /** The module path a declaration's value names: `require('<m>')` or a member chain on one. */
+  moduleOf(value) {
+    if (!value) return void 0;
+    const { root, parts: parts2 } = chain(value, "member_expression", "object", "property");
+    const mod = requiredModule(root);
+    return mod === void 0 ? void 0 : [mod, ...parts2].join(".");
+  }
+  collect(node) {
+    switch (node.type) {
+      case "variable_declarator": {
+        const name3 = field(node, "name");
+        const value = field(node, "value");
+        const mod = this.moduleOf(value);
+        if (!name3) break;
+        if (mod !== void 0 && name3.type === "identifier") this.binds.add(name3.text, { kind: "import", q: mod });
+        else if (mod !== void 0 && name3.type === "object_pattern") {
+          for (const p of kids(name3)) {
+            if (p.type === "shorthand_property_identifier_pattern") this.binds.add(p.text, { kind: "import", q: `${mod}.${p.text}` });
+            else if (p.type === "pair_pattern" && field(p, "value")?.type === "identifier" && field(p, "key")?.type === "property_identifier") {
+              this.binds.add(field(p, "value").text, { kind: "import", q: `${mod}.${field(p, "key").text}` });
+            } else this.bindPattern(p);
+          }
+        } else if (name3.type === "identifier" && (value?.type === "arrow_function" || value?.type === "function_expression" || value?.type === "function")) {
+          this.binds.add(name3.text, { kind: "def" });
+        } else this.bindPattern(name3);
+        break;
+      }
+      case "function_declaration":
+      case "generator_function_declaration": {
+        const name3 = field(node, "name");
+        if (name3) this.binds.add(name3.text, { kind: "def" });
+        break;
+      }
+      case "formal_parameters":
+        for (const c of kids(node)) this.bindPattern(c);
+        break;
+      case "arrow_function": {
+        const param = field(node, "parameter");
+        if (param) this.bindPattern(param);
+        break;
+      }
+      case "assignment_expression":
+      case "augmented_assignment_expression":
+      case "for_in_statement": {
+        const left = field(node, "left");
+        if (left) this.bindPattern(left);
+        break;
+      }
+      case "update_expression": {
+        const arg = field(node, "argument");
+        if (arg) this.bindPattern(arg);
+        break;
+      }
+      case "catch_clause": {
+        const param = field(node, "parameter");
+        if (param) this.bindPattern(param);
+        break;
+      }
+    }
+    for (const c of kids(node)) this.collect(c);
+  }
+  safeCall(q) {
+    if (JS_SAFE_CALLS.has(q) || JS_SAFE_ROOT_CALL.test(q)) return true;
+    const at = q.lastIndexOf(".");
+    return at > 0 && JS_METHODS.has(q.slice(at + 1)) && JS_SAFE_VALUE.test(q.slice(0, at));
+  }
+  /** The dotted name of a chain rooted at a module alias, a literal require or a known global. */
+  qualified(root, parts2) {
+    const mod = requiredModule(root);
+    if (mod !== void 0) return [mod, ...parts2].join(".");
+    if (root.type !== "identifier") return void 0;
+    const b = this.binds.resolve(root.text);
+    if (b?.kind === "import") return [b.q, ...parts2].join(".");
+    if (!b && JS_ROOTS.has(root.text)) return [root.text, ...parts2].join(".");
+    return void 0;
+  }
+  name(node) {
+    const b = this.binds.resolve(node.text);
+    if (b?.kind === "import") this.fail();
+    else if (!b && !JS_SAFE_GLOBALS.has(node.text)) this.fail();
+  }
+  member(node) {
+    const { root, parts: parts2 } = chain(node, "member_expression", "object", "property");
+    if (parts2.some((p) => JS_HIDDEN.has(p))) return this.fail();
+    const q = this.qualified(root, parts2);
+    if (q !== void 0) {
+      if (root.type === "call_expression") this.visit(root);
+      if (!JS_SAFE_VALUE.test(q) && !this.safeCall(q) && !/^(console|JSON|Math|Object|Array|String|Number)\./.test(q) && !/\.json(\.|$)/.test(q)) this.fail();
+      return;
+    }
+    this.visit(root);
+  }
+  callback(node) {
+    if (node.type === "arrow_function" || node.type === "function_expression" || node.type === "function") return true;
+    if (node.type === "identifier") {
+      const b = this.binds.resolve(node.text);
+      if (b?.kind === "def") return true;
+      return !b && JS_SAFE_GLOBAL_CALLS.has(node.text);
+    }
+    if (node.type === "member_expression") {
+      const { root, parts: parts2 } = chain(node, "member_expression", "object", "property");
+      const q = this.qualified(root, parts2);
+      return q !== void 0 && this.safeCall(q);
+    }
+    return false;
+  }
+  /** A member assignment, update or delete target: only a property of a local name. */
+  target(node) {
+    if (node.type !== "member_expression" && node.type !== "subscript_expression") return this.visit(node);
+    let root = node;
+    while (root.type === "member_expression" || root.type === "subscript_expression") root = field(root, "object") ?? root;
+    if (root.type !== "identifier" || this.binds.resolve(root.text)?.kind !== "local") return this.fail();
+    for (const c of kids(node)) this.visit(c);
+  }
+  call(node) {
+    const fn = field(node, "function");
+    const args2 = field(node, "arguments");
+    if (!fn) return this.fail();
+    let callee;
+    let method = "";
+    if (fn.type === "identifier") {
+      const name3 = fn.text;
+      const b = this.binds.resolve(name3);
+      if (name3 === "require" && !b) {
+        if (requiredModule(node) === void 0) this.fail();
+        return;
+      }
+      if (b?.kind === "import") {
+        callee = b.q;
+        if (!this.safeCall(b.q)) {
+          if (judgedCall("node", b.q)) this.judged = true;
+          else return this.fail();
+        }
+      } else if (b?.kind === "local") return this.fail();
+      else if (!b) {
+        if (JS_SAFE_GLOBAL_CALLS.has(name3)) callee = name3;
+        else if (judgedCall("node", name3)) this.judged = true;
+        else return this.fail();
+      }
+    } else if (fn.type === "member_expression") {
+      const { root, parts: parts2 } = chain(fn, "member_expression", "object", "property");
+      if (parts2.some((p) => JS_HIDDEN.has(p))) return this.fail();
+      const q = this.qualified(root, parts2);
+      method = parts2[parts2.length - 1];
+      if (q !== void 0) {
+        if (root.type === "call_expression") this.visit(root);
+        callee = q;
+        if (!this.safeCall(q)) {
+          if (judgedCall("node", q)) this.judged = true;
+          else return this.fail();
+        }
+      } else {
+        this.visit(root);
+        const pre = root.type === "identifier" ? [root.text, ...parts2.slice(0, -1)].join(".") : "?()";
+        if (!JS_METHODS.has(method)) {
+          if (judgedCall("node", `${pre}.${method}`)) this.judged = true;
+          else return this.fail();
+        }
+      }
+    } else return this.fail();
+    if (!args2) return;
+    const list = args2.type === "template_string" ? [args2] : kids(args2);
+    const at = callee === "JSON.parse" || callee === "JSON.stringify" || method === "replace" || method === "replaceAll" ? 1 : JS_CALLBACK_METHODS.has(method) ? 0 : -1;
+    if (at >= 0 && list.some((a) => a.type === "spread_element")) this.fail();
+    list.forEach((a, i2) => {
+      if (i2 === at && !this.callback(a) && !(method.startsWith("replace") && a.type !== "arrow_function" && a.type !== "identifier" && a.type !== "member_expression" && a.type !== "function_expression" && a.type !== "call_expression" && a.type !== "subscript_expression")) this.fail();
+      this.visit(a);
+    });
+  }
+  visit(node) {
+    if (!this.ok) return;
+    if (node.isError || node.isMissing || JS_UNPROVEN.has(node.type)) return this.fail();
+    switch (node.type) {
+      case "identifier":
+        return this.name(node);
+      case "shorthand_property_identifier":
+        return this.name(node);
+      case "property_identifier":
+      case "shorthand_property_identifier_pattern":
+      case "statement_identifier":
+        return;
+      case "member_expression":
+        return this.member(node);
+      case "call_expression":
+        return this.call(node);
+      case "new_expression": {
+        const ctor = field(node, "constructor");
+        if (ctor?.type !== "identifier" || this.binds.resolve(ctor.text) || !JS_NEW.has(ctor.text)) return this.fail();
+        const args2 = field(node, "arguments");
+        if (args2) this.visit(args2);
+        return;
+      }
+      case "variable_declarator": {
+        const value = field(node, "value");
+        if (value) this.visit(value);
+        const name3 = field(node, "name");
+        if (name3 && name3.type !== "identifier") this.pattern(name3);
+        return;
+      }
+      case "assignment_expression":
+      case "augmented_assignment_expression": {
+        const left = field(node, "left");
+        if (left?.type === "object_pattern" || left?.type === "array_pattern") this.pattern(left);
+        else if (left && left.type !== "identifier") this.target(left);
+        const right = field(node, "right");
+        if (right) this.visit(right);
+        return;
+      }
+      case "update_expression": {
+        const arg = field(node, "argument");
+        if (arg && arg.type !== "identifier") this.target(arg);
+        return;
+      }
+      case "unary_expression": {
+        const arg = field(node, "argument");
+        if (node.child(0)?.type === "delete" && arg) return this.target(arg);
+        break;
+      }
+      case "for_in_statement": {
+        const left = field(node, "left");
+        if (left && (left.type === "member_expression" || left.type === "subscript_expression")) this.target(left);
+        for (const c of kids(node)) if (c !== left) this.visit(c);
+        return;
+      }
+      case "pair": {
+        const key2 = field(node, "key");
+        if (key2?.type === "computed_property_name") this.visit(key2);
+        const value = field(node, "value");
+        if (value) this.visit(value);
+        return;
+      }
+      case "formal_parameters":
+        return this.pattern(node);
+      case "function_declaration":
+      case "generator_function_declaration":
+      case "function_expression":
+      case "function":
+      case "arrow_function": {
+        for (const f of ["parameters", "body"]) {
+          const c = field(node, f);
+          if (c) this.visit(c);
+        }
+        return;
+      }
+      case "catch_clause": {
+        const body2 = field(node, "body");
+        if (body2) this.visit(body2);
+        return;
+      }
+    }
+    for (const c of kids(node)) this.visit(c);
+  }
+  /** A binding pattern: only its default values and computed keys are evaluated. */
+  pattern(node) {
+    switch (node.type) {
+      case "identifier":
+      case "shorthand_property_identifier_pattern":
+        return;
+      case "assignment_pattern": {
+        const left = field(node, "left");
+        const right = field(node, "right");
+        if (left) this.pattern(left);
+        if (right) this.visit(right);
+        return;
+      }
+      case "pair_pattern": {
+        const key2 = field(node, "key");
+        if (key2?.type === "computed_property_name") this.visit(key2);
+        const value = field(node, "value");
+        if (value) this.pattern(value);
+        return;
+      }
+      case "member_expression":
+      case "subscript_expression":
+        return this.target(node);
+      default:
+        for (const c of kids(node)) this.pattern(c);
+    }
+  }
+};
+var QUOTE_LIKE = /^(q|qq|qw|qr|m|s|tr|y)$/;
+var CLOSER = { "(": ")", "[": "]", "{": "}", "<": ">" };
+function delimited(src, i2, open) {
+  const close = CLOSER[open] ?? open;
+  let depth = 1;
+  for (let k = i2; k < src.length; k++) {
+    const c = src[k];
+    if (c === "\\") k++;
+    else if (c === close && --depth === 0) return k;
+    else if (c === open && close !== open) depth++;
+  }
+  return -1;
+}
+function runsCode(perl, body2) {
+  return perl ? /[@$]\{|\(\?\??\{/.test(body2) : /#\{|\(\?\??\{/.test(body2);
+}
+function lexScript(perl, src) {
+  const out2 = [];
+  const termPos = () => {
+    const prev = out2[out2.length - 1];
+    if (!prev) return true;
+    if (prev.t === "w") return true;
+    if (prev.t === "p") return !/^[)\]}]$/.test(prev.text);
+    return false;
+  };
+  let i2 = 0;
+  while (i2 < src.length) {
+    const c = src[i2];
+    const rest = src.slice(i2);
+    if (/\s/.test(c)) {
+      i2++;
+      continue;
+    }
+    if (c === "#") {
+      const e = src.indexOf("\n", i2);
+      i2 = e < 0 ? src.length : e;
+      continue;
+    }
+    if (c === "`") return void 0;
+    if (c === "'" || c === '"') {
+      const e = delimited(src, i2 + 1, c);
+      if (e < 0) return void 0;
+      if (c === '"' && runsCode(perl, src.slice(i2 + 1, e))) return void 0;
+      out2.push({ t: "lit", text: src.slice(i2, e + 1) });
+      i2 = e + 1;
+      continue;
+    }
+    if (perl && (c === "$" || c === "@" || c === "%")) {
+      const m = /^[$@%]#?(\$*)([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*|\^[A-Z]|[0-9]+|[^\sA-Za-z0-9_{])/.exec(rest);
+      if (m && (c !== "%" || termPos())) {
+        out2.push({ t: "v", text: m[0] });
+        i2 += m[0].length;
+        continue;
+      }
+    }
+    if (!perl && (c === "$" || c === "@")) {
+      const m = /^(@@?|\$)([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[^\sA-Za-z0-9_{])/.exec(rest);
+      if (m) {
+        out2.push({ t: "v", text: m[0] });
+        i2 += m[0].length;
+        continue;
+      }
+    }
+    if (!perl && c === "%" && termPos()) {
+      const m = /^%([qQwWiIrsx]?)([^\sA-Za-z0-9_])/.exec(rest);
+      if (m) {
+        if (m[1] === "x") return void 0;
+        const e = delimited(src, i2 + m[0].length, m[2]);
+        if (e < 0) return void 0;
+        if (/^[QWIr]?$/.test(m[1]) && runsCode(false, src.slice(i2 + m[0].length, e))) return void 0;
+        out2.push({ t: "lit", text: src.slice(i2, e + 1) });
+        i2 = e + 1;
+        continue;
+      }
+    }
+    if (!perl && c === ":" && src[i2 + 1] !== ":" && src[i2 - 1] !== ":") {
+      const m = /^:([A-Za-z_][A-Za-z0-9_]*[?!=]?)/.exec(rest);
+      if (m) {
+        out2.push({ t: "sym", text: m[1] });
+        i2 += m[0].length;
+        continue;
+      }
+      if (src[i2 + 1] === '"' || src[i2 + 1] === "'") {
+        i2++;
+        continue;
+      }
+    }
+    if (/[0-9]/.test(c)) {
+      i2 += /^[0-9][A-Za-z0-9_]*(\.[0-9][A-Za-z0-9_]*)*/.exec(rest)[0].length;
+      out2.push({ t: "lit", text: "0" });
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      const word = /^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*[?!]?/.exec(rest)[0];
+      const after2 = src.slice(i2 + word.length);
+      if (perl && QUOTE_LIKE.test(word) && /^\s*[^\sA-Za-z0-9_,;)=]/.test(after2) && !/^\s*=>/.test(after2)) {
+        if (word === "qx") return void 0;
+        let k = i2 + word.length;
+        while (/\s/.test(src[k] ?? "")) k++;
+        const open = src[k];
+        let e = delimited(src, k + 1, open);
+        if (e < 0) return void 0;
+        let body2 = src.slice(k + 1, e);
+        if (word === "s" || word === "tr" || word === "y") {
+          if (CLOSER[open]) {
+            k = e + 1;
+            while (/\s/.test(src[k] ?? "")) k++;
+            const second = src[k];
+            const e2 = delimited(src, k + 1, second);
+            if (e2 < 0) return void 0;
+            body2 += src.slice(k + 1, e2);
+            e = e2;
+          } else {
+            const e2 = delimited(src, e + 1, open);
+            if (e2 < 0) return void 0;
+            body2 += src.slice(e + 1, e2);
+            e = e2;
+          }
+        }
+        const flags2 = /^[A-Za-z]*/.exec(src.slice(e + 1))[0];
+        if (word === "s" && flags2.includes("e")) return void 0;
+        if (word !== "q" && word !== "qw" && word !== "tr" && word !== "y" && runsCode(true, body2)) return void 0;
+        out2.push({ t: "lit", text: src.slice(i2, e + 1 + flags2.length) });
+        i2 = e + 1 + flags2.length;
+        continue;
+      }
+      if (perl && (word === "__END__" || word === "__DATA__")) break;
+      out2.push({ t: "w", text: word });
+      i2 += word.length;
+      continue;
+    }
+    if (c === "/" && termPos()) {
+      const e = delimited(src, i2 + 1, "/");
+      if (e < 0) return void 0;
+      if (runsCode(perl, src.slice(i2 + 1, e))) return void 0;
+      const flags2 = /^[A-Za-z]*/.exec(src.slice(e + 1))[0];
+      out2.push({ t: "lit", text: src.slice(i2, e + 1 + flags2.length) });
+      i2 = e + 1 + flags2.length;
+      continue;
+    }
+    if (perl && c === "<" && termPos()) {
+      const m = /^<(\$?[A-Za-z_][A-Za-z0-9_]*)?>/.exec(rest);
+      if (m) {
+        out2.push({ t: "lit", text: m[0] });
+        i2 += m[0].length;
+        continue;
+      }
+    }
+    const op = /^(&&|&\.|->|=>|::|\|\||==|=~|!~|\.\(|.)/s.exec(rest)[0];
+    out2.push({ t: "p", text: op });
+    i2 += op.length;
+  }
+  return out2;
+}
+var member = (t) => t?.t === "p" && (t.text === "." || t.text === "::");
+function proveScript(lang, src) {
+  const perl = lang === "perl";
+  const fail = { ok: false, judged: false };
+  const toks = lexScript(perl, src);
+  if (!toks) return fail;
+  let judged = false;
+  const locals = /* @__PURE__ */ new Set();
+  if (!perl) {
+    toks.forEach((tk, k) => {
+      const next = toks[k + 1];
+      if (tk.t === "w" && next?.t === "p" && next.text === "=" && toks[k - 1]?.text !== ".") locals.add(tk.text);
+    });
+    let inPipes = false;
+    toks.forEach((tk, k) => {
+      if (tk.t === "p" && tk.text === "|" && (inPipes || toks[k - 1]?.text === "{" || toks[k - 1]?.text === "do")) inPipes = !inPipes;
+      else if (inPipes && tk.t === "w") locals.add(tk.text);
+    });
+  }
+  for (let k = 0; k < toks.length; k++) {
+    const tk = toks[k];
+    const prev = toks[k - 1];
+    const next = toks[k + 1];
+    if (tk.t === "p") {
+      if (tk.text === "&" && !(!perl && next?.t === "sym")) return fail;
+      if (tk.text === ".(" || tk.text === "&." || tk.text === "->" && (!perl || next?.text === "(" || next?.t === "v")) return fail;
+      continue;
+    }
+    if (tk.t === "v") {
+      if (/^[$@]ARGV$/.test(tk.text)) {
+        let j = k + 1;
+        if (toks[j]?.text === "[" || toks[j]?.text === "{") {
+          let depth = 0;
+          for (; j < toks.length; j++) {
+            if (toks[j].text === "[" || toks[j].text === "{") depth++;
+            else if ((toks[j].text === "]" || toks[j].text === "}") && --depth === 0) break;
+          }
+          j++;
+        }
+        if (toks[j]?.text === "=" || toks[j]?.t === "p" && /^[.+\-*/x|&^]$/.test(toks[j].text) && toks[j + 1]?.text === "=") return fail;
+      }
+      continue;
+    }
+    if (tk.t === "lit" || tk.t === "sym" && prev?.text !== "&") continue;
+    const name3 = tk.text;
+    if (tk.t === "w" && next?.text === "=>") continue;
+    if (tk.t === "w" && prev?.text === "{" && next?.text === "}") continue;
+    if (!perl && tk.t === "w" && next?.text === ":") continue;
+    if (!perl && tk.t === "w" && locals.has(name3) && !member(prev)) continue;
+    if (!perl && tk.t === "w" && /^[A-Z]/.test(name3) && member(next) && toks[k + 2]?.t === "w") continue;
+    if (!perl && name3 === "ARGV" && next?.text === "[") {
+      let j = k + 1;
+      let depth = 0;
+      for (; j < toks.length; j++) {
+        if (toks[j].text === "[") depth++;
+        else if (toks[j].text === "]" && --depth === 0) break;
+      }
+      if (toks[j + 1]?.text === "=") return fail;
+    }
+    if (SCRIPT_WORDS.has(name3)) continue;
+    let dotted = name3;
+    for (let j = k; !perl && member(toks[j - 1]) && toks[j - 2]?.t === "w"; j -= 2) dotted = `${toks[j - 2].text}.${dotted}`;
+    if (!judgedCall(lang, dotted.replace(/::/g, "."))) return fail;
+    judged = true;
+  }
+  return { ok: true, judged };
+}
+function proveProgram(lang, program, scanned) {
+  if (lang === "perl" || lang === "ruby") {
+    const proof = proveScript(lang, program);
+    return proof.ok && (!proof.judged || scanned.includes("W"));
+  }
+  const parser2 = programParser(lang === "py" ? "python" : "javascript");
+  if (!parser2) return false;
+  const tree = parser2.parse(program);
+  if (!tree) return false;
+  try {
+    const root = tree.rootNode;
+    if (root.hasError) return false;
+    const proof = lang === "py" ? new PyProof() : new JsProof();
+    proof.collect(root);
+    if (proof.ok) proof.visit(root);
+    if (proof.judged && !scanned.includes("W")) return false;
+    return proof.ok;
+  } finally {
+    tree.delete();
+  }
+}
 
 // src/hooks/cmd-analysis/programs.ts
 var COMPUTED = "$(computed):";
 var PARSE = "$(parse):";
+var UNPROVEN = "$(unproven):";
 function dquoteEnd(s, from) {
   for (let k = from; k < s.length; k++) {
     if (s[k] === "\\") k++;
@@ -8245,7 +9640,13 @@ function heldLiterals(lx, name3) {
   return lits;
 }
 function progWrites(lang, program, operands, procWrites) {
-  const scan = chomp(progScan(lang, program).join("\n"));
+  const scanned = progScan(lang, program);
+  const unproven = !proveProgram(lang, program, scanned);
+  const found = progFound(lang, program, scanned, operands, procWrites);
+  return { ...found, unproven };
+}
+function progFound(lang, program, scanned, operands, procWrites) {
+  const scan = chomp(scanned.join("\n"));
   const has = (line) => `
 ${scan}
 `.includes(`
@@ -8293,57 +9694,66 @@ ${lit}`;
   if (lines.length > 0) return { lines, computed: unread };
   return { lines: operands ? ["-"] : [], computed: fail };
 }
-function interpWrites(words, procWrites) {
+var PROGRAM_FLAG = {
+  py: /^-[bBdEhiIOPqRsSuvx]*c(.*)$/s,
+  node: /^(?:-e|-p|-pe|--eval|--print)(?:=(.*))?$/s,
+  perl: /^-[nlpaswWtTUcX]*[eE](.*)$/s,
+  ruby: /^-[nlpaswWdv]*e(.*)$/s
+};
+function interpWrites(words, procWrites, held = () => false) {
   const argv0 = basename3(words[0] ?? "");
-  let flags2;
   let lang;
   let pyopt = false;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
-    flags2 = ["-c"];
     lang = "py";
     pyopt = true;
-  } else if (argv0 === "node" || argv0 === "nodejs") {
-    flags2 = ["-e", "--eval", "-p", "--print"];
-    lang = "node";
-  } else if (argv0 === "perl") {
-    flags2 = ["-e", "-E"];
-    lang = "perl";
-  } else if (argv0 === "ruby") {
-    flags2 = ["-e"];
-    lang = "ruby";
-  } else return [];
+  } else if (argv0 === "node" || argv0 === "nodejs") lang = "node";
+  else if (argv0 === "perl") lang = "perl";
+  else if (argv0 === "ruby") lang = "ruby";
+  else return [];
   const n = words.length;
   let k = 1;
   let optarg = false;
-  let program = "";
-  let encoded = "";
+  const encoded = [];
+  const carriers = [];
+  const take = (flagWord, attached, next) => {
+    encoded.push(attached ? attached : next ?? "");
+    carriers.push(attached ? flagWord : next ?? "");
+  };
   while (k < n) {
     const w = words[k++];
     if (pyopt) {
-      const m = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
-      if (m) {
+      const m2 = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
+      if (m2) {
         pyopt = false;
-        if (PY_RUNNERS.test(chomp(decode(m[1] || (words[k] ?? ""))))) return ["$(proc)"];
+        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words[k] ?? ""))))) return ["$(proc)"];
       } else if (optarg) optarg = false;
       else if (w === "-W" || w === "-X") optarg = true;
       else if (!w.startsWith("-")) pyopt = false;
     }
-    if (flags2.includes(w)) {
-      encoded = words[k] ?? "";
-      program = chomp(decode(encoded));
-      k++;
+    const m = PROGRAM_FLAG[lang].exec(w);
+    if (m) {
+      take(w, m[1], m[1] ? void 0 : words[k++]);
       break;
     }
   }
+  if (lang === "perl" || lang === "ruby") {
+    for (let j = k; j < n; j++) {
+      const m = PROGRAM_FLAG[lang].exec(words[j]);
+      if (m) take(words[j], m[1], m[1] ? void 0 : words[++j]);
+    }
+  }
+  const program = encoded.map((e) => chomp(decode(e))).join("\n");
   if (program === "") return [];
-  if (heldProgram(encoded)) return [COMPUTED + shown(`${argv0} ${program}`)];
+  if (heldProgram(encoded[0])) return [COMPUTED + shown(`${argv0} ${program}`)];
   const found = progWrites(lang, program, true, procWrites);
-  if (found.lines.length === 0) return [];
+  const unproven = found.unproven || carriers.some(held) ? [UNPROVEN + shown(program)] : [];
+  if (found.lines.length === 0) return unproven;
   const literal = !(found.lines[0] === "-" && found.lines.length === 1);
   const out2 = literal ? [...found.lines] : [];
   for (; k < n; k++) if (!words[k].startsWith("-")) out2.push(...decode(words[k]).split("\n"));
   if (found.computed) out2.push(COMPUTED + argv0);
-  return out2;
+  return [...out2, ...unproven];
 }
 
 // src/hooks/cmd-analysis/unwrap.ts
@@ -8725,6 +10135,15 @@ function statementsEnc(buf, base, home, assign) {
         aw.push(w[first]);
         first++;
         continue;
+      }
+      if (w[first] === "time") {
+        let k = first + 1;
+        while (k < n && w[k].startsWith("-")) k++;
+        if (k < n && ASSIGNMENT.test(w[k])) {
+          first = k;
+          plain = false;
+          continue;
+        }
       }
       if (WRAPPER.test(w[first])) {
         const u = unwrap(w, first);
@@ -9232,7 +10651,7 @@ function inplaceFiles(tool, args2) {
   if (!hasprog) ops = ops.slice(1);
   return ops;
 }
-function gitTree(chain, words) {
+function gitTree(chain2, words) {
   const n = words.length;
   let cdir = "";
   let tree = "";
@@ -9317,9 +10736,9 @@ function gitTree(chain, words) {
     if (outs.length === 0 && sub !== "archive") outs.push(".");
   } else return [];
   if (usetree) outs = [tree || ".", ...outs];
-  return outs.filter((w) => w !== "").map((w) => chain ? under(cdir, w) : w);
+  return outs.filter((w) => w !== "").map((w) => chain2 ? under(cdir, w) : w);
 }
-function extraWrites(chain, words, interp) {
+function extraWrites(chain2, words, interp) {
   const out2 = [];
   let ops = [];
   const tool = basename4(words[0]);
@@ -9333,18 +10752,18 @@ function extraWrites(chain, words, interp) {
       else break;
     }
     if (words[k] === "mv") ops = words.slice(k + 1);
-    out2.push(...gitTree(chain, words));
+    out2.push(...gitTree(chain2, words));
   }
   const srcs = ops.filter((w) => !w.startsWith("-"));
   if (srcs.length >= 2) out2.push(...srcs.slice(0, -1));
   out2.push(...interp(words));
   return out2;
 }
-function stmtWritePaths(stmt, chain, interp) {
+function stmtWritePaths(stmt, chain2, interp) {
   const paths = writeTargets(stmt);
   const { pre, words } = unwrapStatement(stmt);
   if (words.length <= 1) return { paths, words };
-  if (pre === "") paths.push(...extraWrites(chain, words, interp));
+  if (pre === "") paths.push(...extraWrites(chain2, words, interp));
   else for (const p of extraWrites(true, words, interp)) if (p !== "") paths.push(under(pre, p));
   return { paths, words };
 }
@@ -9401,6 +10820,10 @@ function computedLine(text) {
   return `UNRESOLVED:${COMPUTED}${shown(text)}
 `;
 }
+function unprovenLine(text) {
+  return `UNRESOLVED:${UNPROVEN}${shown(text)}
+`;
+}
 function parseLine(cmd) {
   return `UNRESOLVED:${PARSE}${[...cmd].slice(0, 80).join("").replace(/[\r\n]/g, " ")}
 `;
@@ -9426,7 +10849,20 @@ function inner(stmt) {
     return "";
   }
   if (argv0 === "eval") return stmt.slice(4).replace(/^ /, "");
-  return "";
+  const builtin = /^(builtin|command)[ \t]+eval(?:[ \t]+|$)/.exec(stmt);
+  return builtin ? stmt.slice(builtin[0].length) : "";
+}
+function evalArgs(words) {
+  if (words[0] === "eval") return words.slice(1);
+  if ((words[0] === "builtin" || words[0] === "command") && words[1] === "eval") return words.slice(2);
+  return void 0;
+}
+var SET_IN_TEXT = /(?<![A-Za-z0-9_$-])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?[ \t]*(?:[-+*/%&^|]|<<|>>)?=(?!=)/g;
+var STEPPED = /(?:\+\+|--)[ \t]*([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\+\+|--)/g;
+function setInText(text) {
+  const names = [...text.matchAll(SET_IN_TEXT)].map((m) => m[1]);
+  if (/\(\(|\$\[|\[|^let\b/.test(text)) for (const m of text.matchAll(STEPPED)) names.push(m[1] ?? m[2]);
+  return names;
 }
 function stdinProgram(words) {
   const argv0 = basename5(words[0]);
@@ -9587,8 +11023,16 @@ var WritePaths = class _WritePaths {
     }
     return { ok: true, values: acc };
   }
+  poison(level, name3) {
+    if (VAR_NAME.test(name3)) level.vars += `${name3}	${BAD2}
+`;
+  }
   varSet(level, name3, value) {
-    if (!VAR_NAME.test(name3)) return;
+    for (const set of setInText(value)) this.poison(level, set);
+    if (!VAR_NAME.test(name3)) {
+      this.poison(level, /^[A-Za-z_][A-Za-z0-9_]*/.exec(name3)?.[0] ?? "");
+      return;
+    }
     const e = this.expand(value, level);
     if (e.ok) for (const v of e.values) level.vars += `${name3}	${v}
 `;
@@ -9625,6 +11069,10 @@ var WritePaths = class _WritePaths {
     }
     if (p.startsWith(PARSE)) {
       this.out += parseLine(p.slice(PARSE.length));
+      return;
+    }
+    if (p.startsWith(UNPROVEN)) {
+      this.out += unprovenLine(p.slice(UNPROVEN.length));
       return;
     }
     if (dir === "-" && why !== "" && !/^[/~$`]/.test(p)) {
@@ -9799,7 +11247,7 @@ var WritePaths = class _WritePaths {
     const lines = nested.out.split("\n");
     lines.pop();
     for (let p of lines) {
-      if (p.startsWith(`UNRESOLVED:${COMPUTED}`) || p.startsWith(`UNRESOLVED:${PARSE}`)) {
+      if (p.startsWith(`UNRESOLVED:${COMPUTED}`) || p.startsWith(`UNRESOLVED:${PARSE}`) || p.startsWith(`UNRESOLVED:${UNPROVEN}`)) {
         out2.push(p.slice("UNRESOLVED:".length));
         continue;
       }
@@ -9826,18 +11274,46 @@ var WritePaths = class _WritePaths {
     }
     return out2;
   }
-  interp = (words) => interpWrites(words, (cmd) => this.procWrites(cmd));
-  /** _tmb_cmd_track_vars */
+  /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
+  held = /* @__PURE__ */ new Set();
+  isHeld(word) {
+    return this.held.has(heldKey(word));
+  }
+  interp = (words) => interpWrites(
+    words,
+    (cmd) => this.procWrites(cmd),
+    (w) => this.isHeld(w)
+  );
+  /**
+   * _tmb_cmd_track_vars. The TS poisons the names a declare-like builtin sets
+   * with an option other than -x / -r / -g / -t (`declare -n`, `-a`, `-i`,
+   * ...), and those mapfile / readarray, getopts and unset set (GH 1739).
+   */
   trackVars(level, words) {
     switch (basename5(words[0])) {
       case "export":
       case "declare":
       case "typeset":
       case "local":
-      case "readonly":
+      case "readonly": {
+        const plain = words.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
         for (const w of words.slice(1)) {
-          if (/^[A-Za-z_].*=/s.test(w)) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          if (!/^[A-Za-z_].*=/s.test(w)) continue;
+          if (plain) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          else this.poison(level, before(w, "="));
         }
+        if (!plain) for (const w of words.slice(1)) this.poison(level, w);
+        return;
+      }
+      case "mapfile":
+      case "readarray":
+        for (const w of [...words.slice(1), "MAPFILE"]) this.poison(level, w);
+        return;
+      case "unset":
+        for (const w of words.slice(1)) this.poison(level, w);
+        return;
+      case "getopts":
+        this.poison(level, words[2] ?? "");
         return;
       case "for": {
         if (words[2] !== "in") {
@@ -9888,10 +11364,27 @@ var WritePaths = class _WritePaths {
       this.out += parseLine(cmd);
       return;
     }
+    const outer = this.held;
+    this.held = encoded.held;
+    try {
+      this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
+    } finally {
+      this.held = outer;
+    }
+  }
+  /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
+  poisonSet(level, words) {
+    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words[0]));
+    for (const w of words) {
+      if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
+      for (const name3 of setInText(dec(w))) this.poison(level, name3);
+    }
+  }
+  runEncoded(text, heredocs2, base, depth, vars) {
     const level = { vars, oldtok: "-", why: "" };
     const { cwd } = this.opts;
-    const records = statementsEnc(encoded.text, base, this.opts.env.HOME ?? "", true).filter((r) => !/^\t*$/.test(r.stmt));
-    const bodies = heredocAlign(encoded.heredocs, records);
+    const records = statementsEnc(text, base, this.opts.env.HOME ?? "", true).filter((r) => !/^\t*$/.test(r.stmt));
+    const bodies = heredocAlign(heredocs2, records);
     let idx = 0;
     for (const record of records) {
       idx++;
@@ -9913,13 +11406,20 @@ var WritePaths = class _WritePaths {
         continue;
       }
       const tok = dir + SEP + old + (why === "" ? "" : SEP + why);
-      const chain = dir === "-" && why === "";
+      const chain2 = dir === "-" && why === "";
       const body2 = inner(record.stmt);
-      const ownWords = body2 !== "" && words[0] !== "eval" && basename5(words[0]) !== "watch";
+      const evaluated = evalArgs(words);
+      this.poisonSet(level, words);
+      for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
+      const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
+      if (/[$`\x07]/.test(decode(argv0))) this.out += unprovenLine(dec(record.stmt));
+      if (evaluated?.some((w) => this.isHeld(w))) this.out += unprovenLine(dec(record.stmt));
+      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.out += unprovenLine(`${basename5(dec(words[0]))} ${dec(body2)}`);
+      const ownWords = body2 !== "" && !evaluated && basename5(words[0]) !== "watch";
       if (ownWords) {
-        for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
+        for (const p of stmtWritePaths(record.stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
       }
-      if (body2 !== "" && words[0] !== "eval" && heldProgram(body2)) {
+      if (body2 !== "" && !evaluated && heldProgram(body2)) {
         this.out += computedLine(`${basename5(dec(words[0]))} ${dec(body2)}`);
         continue;
       }
@@ -9936,30 +11436,33 @@ var WritePaths = class _WritePaths {
         stmt = words.join(" ");
       }
       if (!ownWords) {
-        for (const p of stmtWritePaths(stmt, chain, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
+        for (const p of stmtWritePaths(stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
       }
       if (/^(find|fd|fdfind|xargs)$/.test(basename5(words[0]))) this.execWrites(level, dir, mark, words, tok, depth);
       const { kind, info: info2 } = stdinProgram(words);
       if (kind !== "") {
         const progs = [];
         const herestring = (w) => {
-          progs.push({ prog: dec(w), held: heldProgram(w) });
+          progs.push({ prog: dec(w), held: heldProgram(w), partly: this.isHeld(w) });
         };
         for (let w = 0; w < words.length; w++) {
           if (words[w] === "<<<") herestring(words[w + 1] ?? "");
           else if (words[w].startsWith("<<<")) herestring(words[w].slice(3));
         }
-        for (const body3 of bodies.get(idx) ?? []) progs.push({ prog: body3, held: heldProgram(body3) });
+        for (const h of bodies.get(idx) ?? []) progs.push({ prog: h.body, held: heldProgram(h.body), partly: h.expands });
         if (progs.length === 0 && !info2) this.out += computedLine(basename5(dec(words[0])));
-        for (const { prog, held } of progs) {
-          if (held) this.out += computedLine(`${basename5(dec(words[0]))} ${prog}`);
+        const shownArgv0 = basename5(dec(words[0]));
+        for (const { prog, held, partly } of progs) {
+          if (held) this.out += computedLine(`${shownArgv0} ${prog}`);
           else if (kind === "sh") {
+            if (partly) this.out += unprovenLine(`${shownArgv0} ${prog}`);
             if (depth < MAX_DEPTH) this.run(prog, tok, depth + 1, level.vars);
             else this.out += computedLine(prog);
           } else {
             const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
             for (const p of found.lines) if (p !== "") this.emit(level, dir, p);
-            if (found.computed) this.out += computedLine(basename5(dec(words[0])));
+            if (found.computed) this.out += computedLine(shownArgv0);
+            if (partly || found.unproven) this.out += unprovenLine(`${shownArgv0} ${prog}`);
           }
         }
       }
@@ -9981,7 +11484,7 @@ function heredocAlign(heredocs2, records) {
       if (j >= heredocs2.length) continue;
       used.add(j);
       p = j;
-      out2.set(i2 + 1, [...out2.get(i2 + 1) ?? [], heredocs2[j].body]);
+      out2.set(i2 + 1, [...out2.get(i2 + 1) ?? [], heredocs2[j]]);
     }
   });
   return out2;
@@ -9998,12 +11501,15 @@ function writePathsWith(parser2, command, opts) {
 async function writePaths(command, options = {}) {
   if (command.trim() === "") return [];
   const parser2 = await bashParser();
-  return writePathsWith(parser2, command, {
+  const opts = {
     cwd: options.cwd ?? "",
     raw: options.raw ?? false,
     root: options.root ?? "",
     env: options.env ?? process.env
-  });
+  };
+  let lines = writePathsWith(parser2, command, opts);
+  while (await loadWanted()) lines = writePathsWith(parser2, command, opts);
+  return lines;
 }
 
 // src/hooks/containment-guard.ts
@@ -10015,7 +11521,8 @@ var GLOB_CHAR = /[*?[]/;
 var UNJUDGED_PHRASE = "cannot be judged:";
 var NEVER_JUDGED = {
   "$(parse)": "the command could not be parsed, so its write targets are unknown; split it or fix its quoting.",
-  "$(computed)": "the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path."
+  "$(computed)": "the program builds the path at run time (a computed or argv path, a program held in a variable, a substitution or stdin, or an exec placeholder under `sh -c`), so the guard cannot tell where it writes; use Edit or Write on the literal path, or a Bash command whose write target is a literal path.",
+  "$(unproven)": "the inline program is unproven: it calls something the guard can neither prove read-only nor judge as a write (an unlisted call, a callable held in a name, dynamic attribute access), or the shell fills in part of its text or command word, so the guard cannot tell what it writes; use Edit or Write, a plain read-only one-liner, or a script file."
 };
 function capture(text) {
   return stripTrailingNewlines(text.replace(/\0/g, ""));

@@ -33,8 +33,70 @@ const PY_BUILTINS = new Set([
 ]);
 const PY_READ_MODES = new Set(['r', 'rb', 'rt']);
 const PY_SAFE_CALLS = new Set(['json.load', 'json.loads', 'json.dumps', 'os.listdir', 'os.getcwd']);
-const PY_SAFE_MODULE = /^(re|os\.path|collections|itertools|math|datetime)\./;
-const PY_SAFE_VALUES = new Set(['json', 're', 'os.path', 'collections', 'itertools', 'math', 'datetime', 'sys.argv', 'sys.stdin', 'sys.stdout', 'sys.stderr', 'os.environ']);
+/**
+ * The safe modules and the one name past each a program may reach, a closed
+ * list so a module a safe module imports (`os.path.os`, `re.enum`) is never
+ * reached; `'*'` is any public name of a C module that holds no modules.
+ * A `deep` name allows one more public attribute (`datetime.datetime.now`).
+ */
+const PY_SAFE_MODULES: Record<string, { names: ReadonlySet<string> | '*'; deep?: ReadonlySet<string> }> = {
+  re: {
+    names: new Set([
+      'compile', 'search', 'match', 'fullmatch', 'split', 'findall', 'finditer', 'sub', 'subn', 'escape', 'purge', 'error',
+      'PatternError', 'Pattern', 'Match', 'RegexFlag', 'NOFLAG', 'ASCII', 'A', 'IGNORECASE', 'I', 'LOCALE', 'L', 'MULTILINE',
+      'M', 'DOTALL', 'S', 'VERBOSE', 'X', 'UNICODE', 'U', 'DEBUG',
+    ]),
+  },
+  'os.path': {
+    names: new Set([
+      'abspath', 'basename', 'commonpath', 'commonprefix', 'dirname', 'exists', 'lexists', 'expanduser', 'expandvars',
+      'getatime', 'getctime', 'getmtime', 'getsize', 'isabs', 'isdir', 'isfile', 'islink', 'ismount', 'isjunction',
+      'isdevdrive', 'isreserved', 'join', 'normcase', 'normpath', 'realpath', 'relpath', 'samefile', 'sameopenfile',
+      'samestat', 'split', 'splitdrive', 'splitext', 'splitroot', 'curdir', 'pardir', 'sep', 'altsep', 'extsep', 'pathsep',
+      'defpath', 'devnull', 'supports_unicode_filenames',
+    ]),
+  },
+  collections: {
+    names: new Set(['ChainMap', 'Counter', 'OrderedDict', 'UserDict', 'UserList', 'UserString', 'defaultdict', 'deque', 'namedtuple']),
+    deep: new Set(['ChainMap', 'Counter', 'OrderedDict', 'defaultdict', 'deque']),
+  },
+  itertools: {
+    names: new Set([
+      'accumulate', 'batched', 'chain', 'combinations', 'combinations_with_replacement', 'compress', 'count', 'cycle',
+      'dropwhile', 'filterfalse', 'groupby', 'islice', 'pairwise', 'permutations', 'product', 'repeat', 'starmap',
+      'takewhile', 'tee', 'zip_longest',
+    ]),
+    deep: new Set(['chain']),
+  },
+  math: { names: '*' },
+  datetime: {
+    names: new Set(['date', 'datetime', 'time', 'timedelta', 'timezone', 'tzinfo', 'MINYEAR', 'MAXYEAR', 'UTC']),
+    deep: new Set(['date', 'datetime', 'time', 'timedelta', 'timezone']),
+  },
+};
+const PY_JSON_NAMES = new Set(['load', 'loads', 'dump', 'dumps', 'JSONDecoder', 'JSONEncoder', 'JSONDecodeError']);
+const PY_SAFE_STREAMS = new Set(['sys.argv', 'sys.stdin', 'sys.stdout', 'sys.stderr', 'os.environ']);
+const publicName = (p: string): boolean => /^[A-Za-z][A-Za-z0-9_]*$/.test(p);
+
+/** Whether `q` is a name the table lets past a safe module (`re.sub`, `datetime.datetime.now`). */
+function safeModuleMember(q: string): boolean {
+  for (const [mod, { names, deep }] of Object.entries(PY_SAFE_MODULES)) {
+    if (!q.startsWith(`${mod}.`)) continue;
+    const [name, attr, ...more] = q.slice(mod.length + 1).split('.');
+    if (more.length > 0 || !publicName(name) || (names !== '*' && !names.has(name))) return false;
+    return attr === undefined || (deep?.has(name) === true && publicName(attr));
+  }
+  return false;
+}
+
+/** Whether `q` names a safe module, a member the table allows, a json name, or a public attribute of a stream, argv or the environment. */
+function pySafeValue(q: string): boolean {
+  if (Object.hasOwn(PY_SAFE_MODULES, q) || q === 'json' || safeModuleMember(q)) return true;
+  const parts = q.split('.');
+  if (parts[0] === 'json') return parts.length === 2 && PY_JSON_NAMES.has(parts[1]);
+  const stream = parts.slice(0, 2).join('.');
+  return PY_SAFE_STREAMS.has(stream) && parts.slice(2).every(publicName);
+}
 const PY_PATH = new Set(['pathlib.Path', 'pathlib.PurePath']);
 const PY_METHODS = new Set([
   'strip', 'split', 'rsplit', 'join', 'get', 'items', 'keys', 'values', 'lower', 'upper', 'startswith', 'endswith', 'read',
@@ -254,13 +316,11 @@ class PyProof extends Proof {
   }
 
   private safeValue(q: string): boolean {
-    const parts = q.split('.');
-    for (let n = parts.length; n >= 1; n--) if (PY_SAFE_VALUES.has(parts.slice(0, n).join('.'))) return true;
-    return PY_SAFE_MODULE.test(q);
+    return pySafeValue(q);
   }
 
   private safeCall(q: string): boolean {
-    if (PY_SAFE_CALLS.has(q) || PY_SAFE_MODULE.test(q)) return true;
+    if (PY_SAFE_CALLS.has(q) || safeModuleMember(q)) return true;
     const at = q.lastIndexOf('.');
     const last = q.slice(at + 1);
     return at > 0 && last !== 'replace' && PY_METHODS.has(last) && this.safeValue(q.slice(0, at)) && q.slice(0, at).includes('.');
@@ -901,7 +961,7 @@ function lexScript(perl: boolean, src: string): Token[] | undefined {
       }
     }
     if (/[0-9]/.test(c)) {
-      i += /^[0-9][A-Za-z0-9_.]*/.exec(rest)![0].length;
+      i += /^[0-9][A-Za-z0-9_]*(\.[0-9][A-Za-z0-9_]*)*/.exec(rest)![0].length;
       out.push({ t: 'lit', text: '0' });
       continue;
     }
