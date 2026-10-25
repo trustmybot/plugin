@@ -875,7 +875,7 @@ out=$(run_in "$WT_PLAIN" "D=skills/tmb_audit; echo x > \"\$D/SKILL.md\"")
 assert_contains "$out" "prompt-surface" "a resolved variable reaches the prompt-surface rule"
 out=$(run_in "$WT_PLAIN" 'cat > "$UNKNOWN/f" < /dev/null')
 assert_contains "$out" '"permissionDecision":"deny"' "an unresolvable target is denied"
-assert_contains "$out" 'write target \"$UNKNOWN/f\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.' "the deny names the variable"
+assert_contains "$out" 'write target \"$UNKNOWN/f\" cannot be judged: depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.' "the deny names the variable"
 out=$(run_in "$WT_PLAIN" 'F=$(mktemp); echo x > "$F"')
 assert_contains "$out" 'write target \"$F\"' "a value built by \$( ) is unresolvable"
 out=$(run_in "$WT_PB" 'cat > "$UNKNOWN/f" < /dev/null')
@@ -902,7 +902,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "find src | while read;
 
 test_case "GH 1324 swe loops over a source outside the worktree: DENIED"
 out=$(run_in "$WT_PLAIN" "for f in \$(find / -name x); do rm \"\$f\"; done")
-assert_contains "$out" 'write target \"$f\" depends on a variable the guard cannot resolve' "for f in \$(find / …); rm"
+assert_contains "$out" 'write target \"$f\" cannot be judged: depends on a variable the guard cannot resolve' "for f in \$(find / …); rm"
 out=$(run_in "$WT_PLAIN" "for f in \$(cat list.txt); do rm \"\$f\"; done")
 assert_contains "$out" '"permissionDecision":"deny"' "\$(cat list.txt)"
 out=$(run_in "$WT_PLAIN" "for f in skills/*/SKILL.md; do sed -i 's/a/b/' \"\$f\"; done")
@@ -956,7 +956,7 @@ done
 
 test_case "GH 1324 swe loop shapes that leave the worktree: DENIED"
 out=$(run_event "$WT_PLAIN" "for f in \$(find -- /etc -name x); do rm \"\$f\"; done")
-assert_contains "$out" 'write target \"$f\" depends on a variable the guard cannot resolve' "find -- /etc"
+assert_contains "$out" 'write target \"$f\" cannot be judged: depends on a variable the guard cannot resolve' "find -- /etc"
 out=$(run_event "$WT_PLAIN" "for d in \$(find $WT_PLAIN -type d); do echo x > \"\$d/../f\"; done")
 assert_contains "$out" '"permissionDecision":"deny"' "\$d/../f: find lists the worktree itself"
 out=$(run_event "$WT_PLAIN" "echo x > $WT_PLAIN/*/../../../etc/f")
@@ -985,9 +985,9 @@ assert_contains "$out" "/etc/tmb-1324 is outside this run's root" "OUT=/etc/x; c
 
 test_case "GH 1338 swe find / fd / xargs writes outside the worktree: DENIED"
 out=$(run_in "$WT_PLAIN" "find $CLAUDE_PROJECT_DIR -exec rm {} \\;")
-assert_contains "$out" 'write target \"${find_path}\" depends on a variable the guard cannot resolve' "find <project-root> -exec rm from the worktree"
+assert_contains "$out" 'write target \"${find_path}\" cannot be judged: depends on a variable the guard cannot resolve' "find <project-root> -exec rm from the worktree"
 out=$(run_in "$WT_PLAIN" "find $CLAUDE_PROJECT_DIR -print0 | xargs -0 rm")
-assert_contains "$out" 'write target \"${xargs_arg}\" depends on a variable the guard cannot resolve' "find <project-root> | xargs rm"
+assert_contains "$out" 'write target \"${xargs_arg}\" cannot be judged: depends on a variable the guard cannot resolve' "find <project-root> | xargs rm"
 out=$(run_in "$WT_PLAIN" 'find $HOME -delete')
 assert_contains "$out" '"permissionDecision":"deny"' "find \$HOME -delete"
 

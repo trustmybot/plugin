@@ -13,10 +13,11 @@
  * Deny messages, audit rows and the allow/deny decision are the .sh's, with
  * one exception: a target the analyzer reports as `$(parse)` (the command did
  * not parse) or `$(computed)` (a path built at run time) is always denied,
- * never through the literal-dir allowance. That deny reads
- * `BLOCKED: write target "<target>" cannot be judged: <why>`; dispatch.sh
- * matches the phrase (its UNJUDGED_PHRASE) and keeps no boundary-deny record
- * for it, since no path was judged (GH 1750).
+ * never through the literal-dir allowance. That deny, and the deny of a
+ * target behind a variable, substitution or cd the guard cannot resolve,
+ * reads `BLOCKED: write target "<target>" cannot be judged: <why>`;
+ * dispatch.sh matches the phrase (its UNJUDGED_PHRASE) and keeps no
+ * boundary-deny record for it, since no path was judged (GH 1750, GH 1772).
  */
 import { lstatSync, statSync } from 'node:fs';
 import { ALLOW, type Gate, type GateResult } from './gate.js';
@@ -221,7 +222,7 @@ class Guard {
       const expanded = this.expand(dir);
       if (expanded !== null && this.allowed(expanded)) return;
     }
-    this.deny(raw, `BLOCKED: write target "${raw}" ${unresolvedWhy(variable)}.`);
+    this.deny(raw, `BLOCKED: write target "${raw}" ${UNJUDGED_PHRASE} ${unresolvedWhy(variable)}.`);
   }
 
   /** A .. leaves the root and a later name enters it again: the write lands on the root from outside. */

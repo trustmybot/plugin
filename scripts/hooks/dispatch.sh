@@ -77,9 +77,10 @@
 #    <state>/locks/boundary-denies/<session_id>/<sha256 of the canonical path>
 #    (gate name, epoch seconds), for swe-boundary.sh to match against a later
 #    Edit/Write (audit hook_block_bypassed). A deny that judged no path, the
-#    containment-guard "cannot be judged" deny of a $(parse) or $(computed)
-#    target, writes none: the literal-path write it prescribes is not a
-#    workaround (GH 1750). Records older than
+#    "cannot be judged" deny of a $(parse) or $(computed) target or of one
+#    behind a variable, substitution or cd the guard cannot resolve
+#    (containment-guard, swe-boundary), writes none: the literal-path write it
+#    prescribes is not a workaround (GH 1750, GH 1772). Records older than
 #    TMB_BYPASS_WINDOW_MIN minutes (default 10) are pruned on every write. It
 #    observes only: the gate's stdout, exit code and timing are unchanged.
 # 7. Deny audit. Every deny the dispatcher returns — a gate's exit 2,
@@ -138,7 +139,7 @@ DENY_PATTERN='"permissionDecision"[[:space:]]*:[[:space:]]*"deny"|"decision"[[:s
 # Exit code of a chain gate whose duplicate waiter gave up on the holder: the
 # chain ends without a decision of its own (the holder's chain decides).
 CHAIN_YIELD=75
-# The phrase of containment-guard's deny of a target it cannot judge
+# The phrase of containment-guard's and swe-boundary's deny of a target they cannot judge
 # (UNJUDGED_PHRASE in mcp/trajectory-server/src/hooks/containment-guard.ts):
 #   BLOCKED: write target "<target>" cannot be judged: <why>
 UNJUDGED_PHRASE='cannot be judged:'

@@ -2,8 +2,9 @@
 # L3 tests: scripts/hooks/containment-guard.sh denies writes outside the run's
 # root (the swe row's worktree, else the project), audits every denial, and
 # leaves reads, the model cache and un-onboarded projects alone. Through the
-# real dispatcher, a "cannot be judged" Bash deny records no boundary-deny path,
-# so the literal-path Edit it prescribes is no bypass; a judged deny records one.
+# real dispatcher, a "cannot be judged" Bash deny, an unresolved target's
+# included, records no boundary-deny path, so the literal-path Edit it
+# prescribes is no bypass; a judged deny records one.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -232,7 +233,7 @@ assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import s
 test_case "GH 1279: variable-held write targets"
 OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$UNKNOWN/f"')")
 assert_eq "deny" "$(decision "$OUT")" "bro \$UNKNOWN/f"
-assert_contains "$OUT" 'write target \"$UNKNOWN/f\" depends on a variable the guard cannot resolve in this command' "the reason names the variable"
+assert_contains "$OUT" 'write target \"$UNKNOWN/f\" cannot be judged: depends on a variable the guard cannot resolve in this command' "the reason names the variable"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'OUT=/etc/tmb-cg; cat > "$OUT"')")")" "a variable set to a path outside the root"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "OUT=$PROJECT/notes.txt; cat > \"\$OUT\"")")")" "a variable set to a path inside the root"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'D=build; mkdir -p "$D/out"')")")" "a relative variable resolves against the cwd"
@@ -495,7 +496,7 @@ dispatched() {
     NODE_OPTIONS="--import $PLUGIN_ROOT/tests/lib/fake-uid.mjs" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$1" 2>/dev/null)
 }
 DENIES="$PROJECT/.claude/tmb/locks/boundary-denies"
-bypasses() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='hook_block_bypassed';"; }
+bypasses() { sqlite3 -cmd ".timeout 5000" "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='hook_block_bypassed';"; }
 UJ_FILE="$WT/src/uj.md"
 UJ_COMPUTED=$(printf "python3 - <<'EOF'\nimport os\nopen(os.path.join('%s'), 'w').write('x')\nEOF" "$UJ_FILE")
 UJ_PARSE=$(printf 'echo hi > %s; echo "unterminated' "$UJ_FILE")
@@ -531,6 +532,41 @@ recs=("$DENIES/s-1/"*)
 shopt -u nullglob
 assert_eq "1" "${#recs[@]}" "one record for the judged path"
 assert_eq "containment-guard" "$(sed -n 1p "${recs[0]:-/dev/null}")" "the record names the gate"
+rm -rf "$DENIES"
+
+UJ_EDIT=$(jq -nc --arg p "$UJ_FILE" '{file_path:$p, old_string:"a", new_string:"b"}')
+test_case "GH 1772: an unresolved-target Bash deny records no path, so the literal Edit it prescribes is no bypass"
+for case in 'deny|$UNKNOWN/f' "allow|$WT/src/\$1.yml"; do
+  cg="${case%%|*}" target="${case#*|}"
+  rm -rf "$DENIES"
+  cmd="echo x > $UJ_FILE; cat > \"$target\" < /dev/null"
+  before=$(bypasses)
+  OUT=$(dispatched containment-guard Bash "$(bash_cmd "$cmd")" "tu-ur-cg-${#target}")
+  assert_eq "$cg" "$(decision "$OUT")" "$target: containment-guard"
+  [ "$cg" = allow ] || assert_contains "$OUT" "cannot be judged: " "$target: containment-guard's cannot-be-judged reason"
+  OUT=$(dispatched swe-boundary Bash "$(bash_cmd "$cmd")" "tu-ur-sb-${#target}")
+  assert_eq "deny" "$(decision "$OUT")" "$target: swe-boundary"
+  assert_contains "$OUT" "cannot be judged: " "$target: swe-boundary's cannot-be-judged reason"
+  [ ! -e "$DENIES" ] && _pass || _fail "$target: a boundary-denies record was written"
+  OUT=$(dispatched swe-boundary Edit "$UJ_EDIT" "tu-ur-edit-${#target}")
+  assert_not_contains "$OUT" '"permissionDecision":"deny"' "$target: the literal-path Edit is allowed"
+  assert_not_contains "$OUT" "hook_block_bypassed" "$target: no bypass context"
+  assert_eq "$before" "$(bypasses)" "$target: no hook_block_bypassed row"
+done
+rm -rf "$DENIES"
+OUT=$(TMB_HOOKS_IMPL=bash dispatched containment-guard Bash "$(bash_cmd "echo x > $UJ_FILE; cat > \"\$UNKNOWN/f\" < /dev/null")" tu-ur-bash)
+assert_contains "$OUT" "cannot be judged: " "TMB_HOOKS_IMPL=bash: the .sh's reason is unjudged too"
+[ ! -e "$DENIES" ] && _pass || _fail "TMB_HOOKS_IMPL=bash: a boundary-denies record was written"
+
+test_case "GH 1772: a judged deny of a literal target outside still records, and the later Edit is flagged"
+rm -rf "$DENIES"
+before=$(bypasses)
+OUT=$(dispatched containment-guard Bash "$(bash_cmd "echo x > $UJ_FILE; touch $SANDBOX/judged.txt")" tu-ur-judged)
+assert_eq "deny" "$(decision "$OUT")" "outside the worktree"
+assert_not_contains "$OUT" "cannot be judged" "a judged reason"
+OUT=$(dispatched swe-boundary Edit "$UJ_EDIT" tu-ur-judged-edit)
+assert_contains "$OUT" "hook_block_bypassed" "the Edit after a judged deny is flagged"
+assert_eq "$((before + 1))" "$(bypasses)" "one hook_block_bypassed row"
 rm -rf "$DENIES"
 
 test_case "un-onboarded project → allow"
