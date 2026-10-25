@@ -39,7 +39,7 @@ import {
 import { createRequire } from 'node:module';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ALLOW, type Gate, type GateResult } from './gate.js';
+import { ALLOW, type SyncGate, type GateResult } from './gate.js';
 import {
   TRANSFORMERS_PACKAGE,
   TRANSFORMERS_VERSION,
@@ -386,7 +386,7 @@ function ensureDeps(env: NodeJS.ProcessEnv): GateResult {
 }
 
 /** Every path exits 0, as the .sh does: a filesystem error leaves the session to start degraded. */
-export const ensureMcpDepsInstalled: Gate = (_payload, env) => {
+export const ensureMcpDepsInstalled: SyncGate = (_payload, env) => {
   try {
     return ensureDeps(env);
   } catch {

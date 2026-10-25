@@ -1,7 +1,7 @@
 // Shared tree-sitter runtime (ADR 0001): web-tree-sitter plus the TS, TSX, JS
 // and bash grammars, shipped as .wasm files in dist/parsing/. Nothing loads at
-// server start; the first loadParsers() call imports the runtime and compiles
-// the grammars, and every later call reuses them.
+// server start; the first loadParser(name) / loadParsers() call imports the
+// runtime and compiles what it asks for, and every later call reuses them.
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,16 +29,41 @@ export function wasmDir() {
     }
     throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join(here, 'parsing')} or ${here}`);
 }
-async function load() {
-    const dir = wasmDir();
-    const { Parser, Language } = await import('web-tree-sitter');
-    await Parser.init({ locateFile: (file) => join(dir, file) });
-    const parsers = {};
-    for (const [name, file] of Object.entries(GRAMMAR_WASM)) {
-        const parser = new Parser();
-        parser.setLanguage(await Language.load(join(dir, file)));
-        parsers[name] = parser;
+let runtime = null;
+const grammars = new Map();
+function memo(promise, forget) {
+    promise.catch(forget);
+    return promise;
+}
+function loadRuntime() {
+    runtime ??= memo((async () => {
+        const dir = wasmDir();
+        const mod = await import('web-tree-sitter');
+        await mod.Parser.init({ locateFile: (file) => join(dir, file) });
+        return mod;
+    })(), () => {
+        runtime = null;
+    });
+    return runtime;
+}
+// One grammar's parser, compiled once per process.
+export function loadParser(name) {
+    let parser = grammars.get(name);
+    if (!parser) {
+        parser = memo((async () => {
+            const { Parser, Language } = await loadRuntime();
+            const p = new Parser();
+            p.setLanguage(await Language.load(join(wasmDir(), GRAMMAR_WASM[name])));
+            return p;
+        })(), () => grammars.delete(name));
+        grammars.set(name, parser);
     }
+    return parser;
+}
+async function load() {
+    const parsers = {};
+    for (const name of Object.keys(GRAMMAR_WASM))
+        parsers[name] = await loadParser(name);
     loads++;
     return parsers;
 }

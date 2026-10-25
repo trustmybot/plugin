@@ -1,0 +1,1319 @@
+{"cmd":"echo x >| a.md","cwd":"/w"}
+{"cmd":"exec 3> a.md","cwd":"/w"}
+{"cmd":"cat > a.md <<'EOF'\nx > /w/no.md\nEOF","cwd":"/w"}
+{"cmd":"echo x | tee -a a.md b.md","cwd":"/w"}
+{"cmd":"sed -i -e 's/a/b/' x.md y.md","cwd":"/w"}
+{"cmd":"sed -i '/x/r skills/a/SKILL.md' f.md","cwd":"/w"}
+{"cmd":"dd if=/w/if.md of=of.md","cwd":"/w"}
+{"cmd":"truncate --size 0 t.md","cwd":"/w"}
+{"cmd":"install -m 644 s.md d.md","cwd":"/w"}
+{"cmd":"rsync -av src/ dst/","cwd":"/w"}
+{"cmd":"mv s.md d.md","cwd":"/w"}
+{"cmd":"git -C r mv s.md d.md","cwd":"/w"}
+{"cmd":"cd skills && echo x > a.md","cwd":"/w"}
+{"cmd":"cd src && echo x > ../skills/a.md","cwd":"/w"}
+{"cmd":"(cd sub && true) ; echo > a.md; echo > b.md","cwd":"/w"}
+{"cmd":"bash -c 'echo x > s/a.md'","cwd":"/w"}
+{"cmd":"cd \"$X\" && echo x > skills/a.md","cwd":"/w"}
+{"cmd":"cd skills && echo x > a.md"}
+{"cmd":"cat skills/a.md; grep -r x skills/","cwd":"/w"}
+{"cmd":"python3 - <<A 3<<B\nopen('a.txt','w')\nA\nopen('b.txt','w')\nB","cwd":"/w"}
+{"cmd":"cat <<'X' && python3 <<'Y'\nopen('/no','w')\nX\nopen('/yes','w')\nY","cwd":"/w"}
+{"cmd":"cat > f <<'EOF'\nopen('/etc/passwd','w')\nEOF","cwd":"/w"}
+{"cmd":"python3 script.py <<'EOF'\nopen('/etc/passwd','w')\nEOF","cwd":"/w"}
+{"cmd":"bash script.sh <<'EOF'\necho x > /etc/passwd\nEOF","cwd":"/w"}
+{"cmd":"git -C /b commit -am x","cwd":"/w"}
+{"cmd":"git -C /b checkout main","cwd":"/w"}
+{"cmd":"git -C /b stash","cwd":"/w"}
+{"cmd":"tar -xzf a.tgz -C /b","cwd":"/w"}
+{"cmd":"tar --directory=/b -xf a.tar","cwd":"/w"}
+{"cmd":"make -C /b test","cwd":"/w"}
+{"cmd":"env -C /b make","cwd":"/w"}
+{"cmd":"npm --prefix /b install","cwd":"/w"}
+{"cmd":"npm --prefix=/b ci","cwd":"/w"}
+{"cmd":"git commit -am x","cwd":"/w"}
+{"cmd":"git reset --hard","cwd":"/w"}
+{"cmd":"git clean -fd","cwd":"/w"}
+{"cmd":"git checkout -- f","cwd":"/w"}
+{"cmd":"git stash","cwd":"/w"}
+{"cmd":"cd sub && git add -A","cwd":"/w"}
+{"cmd":"git -C sub restore f","cwd":"/w"}
+{"cmd":"git -C /b --work-tree=t checkout .","cwd":"/w"}
+{"cmd":"tar -C a -C b -xf t.tar","cwd":"/w"}
+{"cmd":"env -C /b sed -i 's/a/b/' f","cwd":"/w"}
+{"cmd":"env -C /b git -C x commit","cwd":"/w"}
+{"cmd":"git worktree remove /b","cwd":"/w"}
+{"cmd":"git -C \"$Y\" commit -m x","cwd":"/w"}
+{"cmd":"git -C /a status && git -C /b log && git -C /b diff","cwd":"/w"}
+{"cmd":"git stash list; git fetch; git push; git rev-parse HEAD; git ls-files; git branch --list; git worktree list","cwd":"/w"}
+{"cmd":"git -C /b apply --check p.diff","cwd":"/w"}
+{"cmd":"git -C /b apply p.diff","cwd":"/w"}
+{"cmd":"echo x > /outside/f","cwd":"/w"}
+{"cmd":"OUT=/etc/x; cat > \"$OUT\"","cwd":"/w"}
+{"cmd":"D=o && touch \"${D}/f\"","cwd":"/w"}
+{"cmd":"export OUT=/e/y && tee \"$OUT\"","cwd":"/w"}
+{"cmd":"A=/x; B=\"$A/y\"; cat > \"$B/z\"","cwd":"/w"}
+{"cmd":"cat > \"${NOPE:-/tmp}/d\"","cwd":"/w"}
+{"cmd":"V=/k; cat > \"${V:-/tmp}/d\"","cwd":"/w"}
+{"cmd":"for f in a.txt b.txt; do sed -i s/x/y/ \"$f\"; done","cwd":"/w"}
+{"cmd":"P=/a; true || P=/b; touch \"$P\"","cwd":"/w"}
+{"cmd":"touch $HOME/f","cwd":"/w"}
+{"cmd":"HOME=/inside cat > \"$HOME/.bashrc\"","cwd":"/w"}
+{"cmd":"echo x > \"$PWD/out\"","cwd":"/w"}
+{"cmd":"cd x && echo y > \"$PWD/f\"","cwd":"/w"}
+{"cmd":"cd s; D=\"$PWD/f\"; cd /; echo y > \"$D\"","cwd":"/w"}
+{"cmd":"cd \"$X\" && echo y > \"$PWD/f\"","cwd":"/w"}
+{"cmd":"OUT=/etc/x cat > \"$OUT\"","cwd":"/w"}
+{"cmd":"OUT=\"$(mktemp \"$TMPDIR/f.XXXXXX\")\"; cat > \"$OUT\"","cwd":"/w"}
+{"cmd":"OUT=`mktemp \"$TMPDIR/f.XXXXXX\"`; cat > $OUT","cwd":"/w"}
+{"cmd":"cat > \"$UNKNOWN/f\"","cwd":"/w"}
+{"cmd":"cat > sub/$UNKNOWN","cwd":"/w"}
+{"cmd":"cat > \"$(mktemp \"$TMPDIR/f.XXXXXX\")\"","cwd":"/w"}
+{"cmd":"while read -r f; do touch \"$f\"; done < list","cwd":"/w"}
+{"cmd":"echo $(date) > out","cwd":"/w"}
+{"cmd":"cd x && echo y > \"$OLDPWD/f\"","cwd":"/w"}
+{"cmd":"cd x; cd /r && echo y > \"${OLDPWD}/f\"","cwd":"/w"}
+{"cmd":"cd x && D=\"$OLDPWD/f\" && cd / && echo y > \"$D\"","cwd":"/w"}
+{"cmd":"echo y > \"$OLDPWD/f\"","cwd":"/w"}
+{"cmd":"cd x && cd /r && cd - && echo y > \"$PWD/a\" && echo z > \"$OLDPWD/b\"","cwd":"/w"}
+{"cmd":"cd x; echo y > \"$OLDPWD/f\"","cwd":"/w"}
+{"cmd":"cd x && true; echo y > \"$OLDPWD/f\"","cwd":"/w"}
+{"cmd":"(cd x; cd y); cd z && echo y > \"$OLDPWD/f\"","cwd":"/w"}
+{"cmd":"for f in $TMP/tests/*.sh; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"for f in tests/*.sh; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"for f in $(cat list.txt); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"for f in $(curl -s https://x); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"for f in $(find . | grep x); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"for f in $(find .) /etc/x; do rm \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"while read -r f; do touch \"$f\"; done < list","cwd":"$TMP","root":"$TMP"}
+{"cmd":"cat list | while read f; do rm \"$f\"; done","cwd":"$TMP","root":"$TMP"}
+{"cmd":"for f in $(find $TMP); do rm \"$f\"; done","cwd":"$TMP"}
+{"cmd":"find $TMP -name '*.sh' -print","cwd":"$TMP","root":"$TMP"}
+{"cmd":"find a -type f -newer x -ls","cwd":"$TMP","root":"$TMP"}
+{"cmd":"find a -printf '%p'","cwd":"$TMP","root":"$TMP"}
+{"cmd":"find /etc -name x","cwd":"$TMP","root":"$TMP"}
+{"cmd":"fd -e md . a","cwd":"$TMP","root":"$TMP"}
+{"cmd":"find a -executable -print","cwd":"$TMP","root":"$TMP"}
+{"cmd":"git -C /p bisect start","cwd":"/w"}
+{"cmd":"git bisect log; git bisect view; git bisect","cwd":"/w"}
+{"cmd":"git submodule --quiet update --init","cwd":"/w"}
+{"cmd":"git submodule status","cwd":"/w"}
+{"cmd":"git sparse-checkout set a","cwd":"/w"}
+{"cmd":"git sparse-checkout list","cwd":"/w"}
+{"cmd":"git read-tree -m -u HEAD","cwd":"/w"}
+{"cmd":"git read-tree HEAD","cwd":"/w"}
+{"cmd":"git checkout-index -a --prefix=/etc/o/","cwd":"/w"}
+{"cmd":"git checkout-index -a","cwd":"/w"}
+{"cmd":"git mergetool","cwd":"/w"}
+{"cmd":"git init /etc/r","cwd":"/w"}
+{"cmd":"git init","cwd":"/w"}
+{"cmd":"git init --separate-git-dir=/etc/g -b main r","cwd":"/w"}
+{"cmd":"git format-patch -o /etc/p HEAD~1","cwd":"/w"}
+{"cmd":"git format-patch --output-directory=/etc/q -1","cwd":"/w"}
+{"cmd":"git format-patch -1","cwd":"/w"}
+{"cmd":"git format-patch --stdout -1","cwd":"/w"}
+{"cmd":"git archive -o /etc/x.tar HEAD","cwd":"/w"}
+{"cmd":"git archive --output=/etc/y.tar HEAD","cwd":"/w"}
+{"cmd":"git archive HEAD","cwd":"/w"}
+{"cmd":"sudo -S rm /etc/x","cwd":"/w"}
+{"cmd":"sudo -C 5 rm ../x","cwd":"/w/a"}
+{"cmd":"sudo -u root -D /b touch f","cwd":"/w"}
+{"cmd":"sudo --user=root -iS rm /etc/y","cwd":"/w"}
+{"cmd":"env -u FOO -i X=1 rm /etc/z","cwd":"/w"}
+{"cmd":"env --chdir=/b touch f","cwd":"/w"}
+{"cmd":"time -p rm /etc/t","cwd":"/w"}
+{"cmd":"exec -a n rm /etc/e","cwd":"/w"}
+{"cmd":"python3 -m json.tool x.json","cwd":"/w/wt"}
+{"cmd":"python3 -m pytest -q","cwd":"/w/wt"}
+{"cmd":"python3 -m pytest -m pdb","cwd":"/w/wt"}
+{"cmd":"python3 x.py -m pdb","cwd":"/w/wt"}
+{"cmd":"cd $UNSET && touch f","cwd":"/w"}
+{"cmd":"cd - && touch f","cwd":"/w"}
+{"cmd":"git -C $U add f","cwd":"/w"}
+{"cmd":"D=/b; cd $D && touch f","cwd":"/w"}
+{"cmd":"echo hi > ~/.claude/y","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cat ~/.claude.json","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cat <<'EOF' > notes.txt\necho \"> /tmp/z\"\nwrite > /tmp/z\nEOF\necho \"see > /tmp/z\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"ls","cwd":"$TMP","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"touch notes.txt","cwd":"$TMP","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"touch $TMP/project/.claude/worktrees/cg-task/notes.txt","cwd":"$TMP","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"ls","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true}
+{"cmd":"mkdir \"$TMB_MODEL_CACHE_DIR\"/x","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cp a.txt /tmp/b.txt","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo x | tee -a /tmp/log","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"rm -rf /tmp/foo*","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"git worktree add /tmp/wt feat/x","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"git clone https://example.test/r.git /tmp/clone","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"touch $HOME/f","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"mkdir -p ${HOME}/d","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"mv x ../../outside","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"touch \"$UNRESOLVED/x\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cp a.txt b.txt","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"ls 2>/dev/null >> out.log","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo x 2>&1 | tee out","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"rm -rf build/","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo x > $TMP/host-tmp/out.txt","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo hi > $TMP/project/.claude/worktrees/cg-task/link/../x","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo hi > $TMP/project/.claude/worktrees/cg-task/src/../b.txt","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"ln -s /outside $TMP/project/.claude/worktrees/cg-task/link2","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"link /etc/hosts h","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cp -s /etc/hosts h","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cp -l /etc/hosts h","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"ln -s a.ts src/alias.ts","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo x > ~/.claude/plans/p.md","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cat > notes.py <<'EOF'\nopen('/etc/passwd', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cat > \"$UNKNOWN/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"OUT=/etc/tmb-cg; cat > \"$OUT\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"OUT=$TMP/project/notes.txt; cat > \"$OUT\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"D=build; mkdir -p \"$D/out\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"touch \"build/$UNKNOWN\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"touch \"/tmp/tmb-cg/$UNKNOWN\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"OUT=$(mktemp \"$TMPDIR/f.XXXXXX\"); cat > \"$OUT\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo x > \"$PWD/out\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"echo x > \"$PWD/out\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cd $TMP/project/x && echo y > \"$PWD/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cd /tmp/tmb-cg-pwd && echo y > \"$PWD/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"echo x > \"$PWD/out\"","cwd":"$TMP/outside-cwd","raw":true,"root":"$TMP/project"}
+{"cmd":"HOME=/inside cat > \"$HOME/.bashrc\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"for f in $TMP/project/tests/*.sh; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"for f in $(cat list.txt); do rm \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"echo x > $TMP/project/*/../../../etc/f","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cd /tmp/tmb-cg-z; echo x > \"$OLDPWD/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cd $TMP/project/a && echo x > \"$OLDPWD/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cd $TMP/project/.claude/worktrees/cg-task/src && echo x > \"$OLDPWD/f\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cd $TMP/project/a && echo x > \"$OLDPWD/f\"","cwd":"$TMP/outside-cwd","raw":true,"root":"$TMP/project"}
+{"cmd":"cd /tmp/tmb-cg-old && cd $TMP/project/a && echo x > \"$OLDPWD/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"echo x > \"$OLDPWD/f\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cat > \"$(mktemp \"$TMPDIR/f.XXXXXX\")\"","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"find $TMP/project -name '*.sh' -print","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"find / -name x -print","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"git -C $TMP/project bisect start","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"git archive -o /etc/tmb-cg.tar HEAD","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"sudo -S rm /etc/tmb-cg","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"sudo -C 5 rm ../tmb-cg-x","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"cd .. && rm -rf cg-task","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"mkdir -p src && cd src/.. && touch x","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"python3 -m json.tool x.json","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"python3 -m pytest -q","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task"}
+{"cmd":"echo x > /tmp/claude-4242424/y","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"git -C $TMP/project status","cwd":"$TMP/other-repo","raw":true,"root":"$TMP/project"}
+{"cmd":"ls $TMP/project","cwd":"$TMP/other-repo","raw":true,"root":"$TMP/project"}
+{"cmd":"touch f","cwd":"$TMP/other-repo","raw":true,"root":"$TMP/project"}
+{"cmd":"cd $UNSET && touch f","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"D=$TMP/project/src; cd $D && touch f","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"D=/etc; cd $D && touch f","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"cd - && touch f","cwd":"$TMP/project","raw":true,"root":"$TMP/project"}
+{"cmd":"","cwd":"/private/tmp/claude-501/-Users-Zax-Git-GitHub-TMB/f49748a4-1960-4252-9138-cef251843bf0/scratchpad/corp"}
+{"cmd":"cat agents/swe.md","cwd":"$TMP"}
+{"cmd":"echo \"content\" > agents/swe.md","cwd":"$TMP"}
+{"cmd":"echo \"extra\" >> CLAUDE.md","cwd":"$TMP"}
+{"cmd":"cat /tmp/x | tee commands/scan.md","cwd":"$TMP"}
+{"cmd":"sed -i 's/old/new/' skills/tmb_planning/SKILL.md","cwd":"$TMP"}
+{"cmd":"perl -i -pe 's/x/y/' agents/bro.md","cwd":"$TMP"}
+{"cmd":"cp /tmp/foo.md templates/agents/foo.md","cwd":"$TMP"}
+{"cmd":"mv /tmp/foo.md commands/foo.md","cwd":"$TMP"}
+{"cmd":"rsync -av /tmp/agent.md agents/foo.md","cwd":"$TMP"}
+{"cmd":"echo x > $TMP/user-repo/src/templates/a.md","cwd":"$TMP"}
+{"cmd":"echo x > $TMP/user-repo/templates/a.md","cwd":"$TMP"}
+{"cmd":"echo \"hello\" > src/index.ts","cwd":"$TMP"}
+{"cmd":"sed -n '1,5p' agents/swe.md","cwd":"$TMP"}
+{"cmd":"grep \"pattern\" agents/swe.md","cwd":"$TMP"}
+{"cmd":"echo \"x\" > .claude/worktrees/task-99/agents/swe.md","cwd":"$TMP"}
+{"cmd":"sed 's/x/y/' .claude/worktrees/task-99/agents/swe.md > agents/swe.md","cwd":"$TMP"}
+{"cmd":"cp .claude/worktrees/task-99/agents/swe.md agents/swe.md","cwd":"$TMP"}
+{"cmd":"cat agents/swe.md > .claude/worktrees/task-99/agents/swe.md","cwd":"$TMP"}
+{"cmd":"echo \"x\" > CODEX.md","cwd":"$TMP"}
+{"cmd":"echo \"x\" > CURSOR.md","cwd":"$TMP"}
+{"cmd":"echo \"x\" > agents/swe.md","cwd":"$TMP"}
+{"cmd":"grep \">\" agents/swe.md","cwd":"$TMP"}
+{"cmd":"awk '$1 > 5' agents/swe.md","cwd":"$TMP"}
+{"cmd":"echo \"see agents/swe.md for details\" > /tmp/notes.txt","cwd":"$TMP"}
+{"cmd":"git commit -m \"touch agents/swe.md\"","cwd":"$TMP"}
+{"cmd":"cat > /tmp/notes.md <<'EOF'\necho x > agents/swe.md\nEOF","cwd":"$TMP"}
+{"cmd":"cat > agents/swe.md <<'EOF'\ntext\nEOF","cwd":"$TMP"}
+{"cmd":"git push --force origin feat/my-feature","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"git status","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"git log --oneline -5","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh issue view 42","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh issue list --state open","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh pr view 42","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"content\" > agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"extra\" >> CLAUDE.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cat template | tee commands/scan.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"sed -i 's/old/new/' skills/tmb_planning/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"perl -i -pe 's/old/new/' agents/bro.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cp /tmp/foo.md templates/agents/foo.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"mv /tmp/foo.md commands/foo.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"rsync -av /tmp/agent.md agents/agent.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cat agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"grep \"pattern\" agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"sed -n '1,5p' agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"content\" > src/index.ts","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"content\" > agents/swe.md","cwd":"$TMP/non-worktree","root":"$TMP/repo/.claude/worktrees/prompt-task"}
+{"cmd":"sed -i 's/old/new/' CLAUDE.md","cwd":"$TMP/repo/.claude/worktrees/prompt-task","root":"$TMP/repo/.claude/worktrees/prompt-task"}
+{"cmd":"echo x > agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"grep \">\" agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"awk '$1 > 5' agents/swe.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"see agents/swe.md for details\" > /tmp/notes.txt","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"git commit -m \"touch agents/swe.md\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cat > notes.md <<'EOF'\ngh pr merge 12 --merge\ngit push origin dev\nEOF","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh api repos/o/r","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh api -X GET x","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh release view v1","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"gh api -X GET repos/o/r -f per_page=5","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"gh api repos/o/r/issues -f title=x\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cat > notes.md <<'EOF'\ngh api -X POST x\ngh api --method=PATCH x\nEOF","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"gh api -X POST x\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"grep -n 'gh api --method DELETE x' notes.md","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"timeout 5 gh pr view 3","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo \"timeout 5 gh pr merge 3\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"git log --grep=\"gh pr merge\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cat > x.test.ts <<'EOF'\nit('closes', () => {\n  run('gh', ['issue', 'close', '1'])\n  // gh issue close 1\n})\nEOF","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"printf 'gh pr merge' > notes.txt","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo gh pr merge 1","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"cat > notes.md <<-EOF\n\tgh issue close 1\n\tEOF","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"x=$(cat <<'EOF'\ngh pr merge 1\nEOF\n)","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo x > skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"echo x > scripts/hooks/x-2756883337.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat skills/tmb_audit/SKILL.md > src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x >> skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x >> skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"echo x >> scripts/hooks/x-2241348330.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x >> src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat skills/tmb_audit/SKILL.md >> src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > skills/tmb_audit/SKILL.md <<'EOF'\nbody\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > skills/tmb_audit/SKILL.md <<'EOF'\nbody\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"cat > scripts/hooks/x-3098737477.sh <<'EOF'\nbody\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > src/index.ts <<'EOF'\nbody\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat - skills/tmb_audit/SKILL.md > src/index.ts <<'EOF'\nbody\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x | tee skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x | tee skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"echo x | tee scripts/hooks/x-4294671232.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x | tee src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat skills/tmb_audit/SKILL.md | tee src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x | tee -a skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x | tee -a skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"echo x | tee -a scripts/hooks/x-2942140604.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x | tee -a src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat skills/tmb_audit/SKILL.md | tee -a src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"sed -i 's/a/b/' skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"sed -i 's/a/b/' skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"sed -i 's/a/b/' scripts/hooks/x-2222825891.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"sed -i 's/a/b/' src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"sed -i '/x/r skills/tmb_audit/SKILL.md' src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"perl -i -pe 's/a/b/' skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"perl -i -pe 's/a/b/' skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"perl -i -pe 's/a/b/' scripts/hooks/x-1002739960.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"perl -i -pe 's/a/b/' src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"perl -i -pe 'BEGIN{open(F,\"skills/tmb_audit/SKILL.md\")}' src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cp /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cp /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"cp /tmp/src.md scripts/hooks/x-3365814593.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cp /tmp/src.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cp skills/tmb_audit/SKILL.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"mv /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"mv /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"mv /tmp/src.md scripts/hooks/x-660500941.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"mv /tmp/src.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"install -m 644 /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"install -m 644 /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"install -m 644 /tmp/src.md scripts/hooks/x-2404556464.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"install -m 644 /tmp/src.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"install -m 644 skills/tmb_audit/SKILL.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"rsync -a /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"rsync -a /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"rsync -a /tmp/src.md scripts/hooks/x-818526299.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"rsync -a /tmp/src.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"rsync -a skills/tmb_audit/SKILL.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"dd if=/tmp/src.md of=skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"dd if=/tmp/src.md of=skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"dd if=/tmp/src.md of=scripts/hooks/x-2564865134.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"dd if=/tmp/src.md of=src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"dd if=skills/tmb_audit/SKILL.md of=src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x >| skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x >| skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"echo x >| scripts/hooks/x-1680650409.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x >| src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"exec 3> skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"exec 3> skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"exec 3> scripts/hooks/x-543677807.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"exec 3> src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"truncate -s 0 skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"truncate -s 0 skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"truncate -s 0 scripts/hooks/x-3240449628.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"truncate -s 0 src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"git mv /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"git mv /tmp/src.md skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"git mv /tmp/src.md scripts/hooks/x-3059498059.sh","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"git mv /tmp/src.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"grep -n x skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"sed -n '1,5p' skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"head -3 skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"grep -rn x skills/ > /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"mv skills/tmb_audit/SKILL.md src/index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > myskills/notes.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > rules/style.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > .claude/agents/local.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd skills && echo x > tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd src && echo x > ../skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd src && echo x > index.ts","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"bash -c 'echo x > skills/tmb_audit/SKILL.md'","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo ok > src/index.ts && echo x > docs/second-statement.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"ls 2>/dev/null > /tmp/swe-boundary-out.txt","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > scripts/hooks/empty-files.sh","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature"}
+{"cmd":"echo x > docs/once.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo y >> docs/once.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > CLAUDE.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > notes/fixture.py <<'EOF'\nopen('skills/tmb_audit/SKILL.md', 'w')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"python3 notes/run.py <<'EOF'\nopen('skills/tmb_audit/SKILL.md', 'w')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"OUT=/etc/tmb-1279-var; cat > \"$OUT\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"OUT=/etc/tmb-1279-var; cat > \"$OUT\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"OUT=$TMP/repo/.claude/worktrees/shape-plain/src/index.ts; cat > \"$OUT\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"OUT=$TMP/repo/.claude/worktrees/shape-plain/src/index.ts; cat > \"$OUT\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"D=skills/tmb_audit; echo x > \"$D/SKILL.md\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > \"$UNKNOWN/f\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"F=$(mktemp); echo x > \"$F\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > \"$UNKNOWN/f\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt"}
+{"cmd":"for f in $TMP/repo/.claude/worktrees/shape-plain/tests/*.sh; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"for f in $TMP/repo/.claude/worktrees/shape-plain/tests/*.sh; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"for f in $(cat list.txt); do rm \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"for f in skills/*/SKILL.md; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > $TMP/repo/.claude/worktrees/shape-plain/*/../../../etc/f","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > $TMP/repo/.claude/worktrees/shape-plain/*/../../../etc/f","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd $TMP/repo/.claude/worktrees/shape-plain/src/a && echo x > \"$OLDPWD/src/index.ts\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd $TMP/repo/.claude/worktrees/shape-plain/src/a && echo x > \"$OLDPWD/src/index.ts\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd /tmp/tmb-1324 && cd $TMP/repo/.claude/worktrees/shape-plain/src && echo x > \"$OLDPWD/f\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cd /tmp/tmb-1324 && cd $TMP/repo/.claude/worktrees/shape-plain/src && echo x > \"$OLDPWD/f\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo x > \"$OLDPWD/f\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"cat > \"$(mktemp)\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"OUT=/etc/tmb-1324; cat > \"$OUT\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"OUT=/etc/tmb-1324; cat > \"$OUT\" < /dev/null","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"find agents -name '*.md' -print","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain"}
+{"cmd":"echo hi > out.txt","cwd":"/w/repo"}
+{"cmd":"echo hi >> logs/out.log","cwd":"/w/repo"}
+{"cmd":"echo hi >| clobber.txt","cwd":"/w/repo"}
+{"cmd":"echo hi &> both.log","cwd":"/w/repo"}
+{"cmd":"echo hi &>> both-append.log","cwd":"/w/repo"}
+{"cmd":"echo hi 2> err.log 1>&2","cwd":"/w/repo"}
+{"cmd":"echo hi 3> fd3.txt","cwd":"/w/repo"}
+{"cmd":"echo hi > \"a file.txt\"","cwd":"/w/repo"}
+{"cmd":"echo hi > 'single q.txt'","cwd":"/w/repo"}
+{"cmd":"echo hi > a\\ b.txt","cwd":"/w/repo"}
+{"cmd":"echo hi > $\"translated.txt\"","cwd":"/w/repo"}
+{"cmd":"echo hi > $'ansi\\tname.txt'","cwd":"/w/repo"}
+{"cmd":"echo \"> not-a-target\" > real.txt","cwd":"/w/repo"}
+{"cmd":"echo '> nope' | tee -a t1.txt t2.txt","cwd":"/w/repo"}
+{"cmd":"printf x | tee >(cat) side.txt","cwd":"/w/repo"}
+{"cmd":"cat <(ls) > merged.txt","cwd":"/w/repo"}
+{"cmd":"echo é > ünïcode/naïve.txt","cwd":"/w/repo"}
+{"cmd":"echo 日本 > 日本語.md","cwd":"/w/repo"}
+{"cmd":"mkdir -p a/b/c d","cwd":"/w/repo"}
+{"cmd":"mkdir -m 755 perms","cwd":"/w/repo"}
+{"cmd":"rm -rf build dist","cwd":"/w/repo"}
+{"cmd":"rm -- -dash-file","cwd":"/w/repo"}
+{"cmd":"rmdir empty1 empty2","cwd":"/w/repo"}
+{"cmd":"touch -t 202401010000 stamp","cwd":"/w/repo"}
+{"cmd":"cp src.txt dst.txt","cwd":"/w/repo"}
+{"cmd":"cp -r srcdir destdir","cwd":"/w/repo"}
+{"cmd":"cp a b c targetdir/","cwd":"/w/repo"}
+{"cmd":"cp -t into/ a b","cwd":"/w/repo"}
+{"cmd":"cp --target-directory=into2 a","cwd":"/w/repo"}
+{"cmd":"cp -s orig linkcopy","cwd":"/w/repo"}
+{"cmd":"mv old.txt new.txt","cwd":"/w/repo"}
+{"cmd":"mv a b c dir/","cwd":"/w/repo"}
+{"cmd":"mv -f x y","cwd":"/w/repo"}
+{"cmd":"install -d d1 d2","cwd":"/w/repo"}
+{"cmd":"install -m 644 file /usr/local/share/x","cwd":"/w/repo"}
+{"cmd":"rsync -av src/ dst/","cwd":"/w/repo"}
+{"cmd":"rsync -av src host:dest","cwd":"/w/repo"}
+{"cmd":"ln -s target linkname","cwd":"/w/repo"}
+{"cmd":"ln -s ../shared/lib.sh bin/lib.sh","cwd":"/w/repo"}
+{"cmd":"ln -s /abs/target abslink","cwd":"/w/repo"}
+{"cmd":"ln hard1 hard2","cwd":"/w/repo"}
+{"cmd":"ln -sf t -t linkdir","cwd":"/w/repo"}
+{"cmd":"link a b","cwd":"/w/repo"}
+{"cmd":"dd if=/dev/zero of=disk.img bs=1M count=1","cwd":"/w/repo"}
+{"cmd":"truncate -s 0 a.log b.log","cwd":"/w/repo"}
+{"cmd":"truncate --reference ref.txt c.log","cwd":"/w/repo"}
+{"cmd":"tar -C out -xf archive.tar","cwd":"/w/repo"}
+{"cmd":"tar -xzf a.tgz --directory=extract","cwd":"/w/repo"}
+{"cmd":"make -C sub install","cwd":"/w/repo"}
+{"cmd":"gmake -C a -C b","cwd":"/w/repo"}
+{"cmd":"npm --prefix pkg install","cwd":"/w/repo"}
+{"cmd":"npm -C other run build","cwd":"/w/repo"}
+{"cmd":"sed -i s/a/b/ f1 f2","cwd":"/w/repo"}
+{"cmd":"sed -i.bak -e 's/x/y/' f3","cwd":"/w/repo"}
+{"cmd":"sed -n p f4","cwd":"/w/repo"}
+{"cmd":"sed -ni p f5 f6","cwd":"/w/repo"}
+{"cmd":"sed --in-place=.orig 's/a/b/' f7","cwd":"/w/repo"}
+{"cmd":"perl -i.bak -pe 1 p3","cwd":"/w/repo"}
+{"cmd":"git add .","cwd":"/w/repo"}
+{"cmd":"git commit -m msg","cwd":"/w/repo"}
+{"cmd":"git -C sub commit -am msg","cwd":"/w/repo"}
+{"cmd":"git --work-tree=/tree checkout -- f","cwd":"/w/repo"}
+{"cmd":"git --work-tree tree2 reset --hard","cwd":"/w/repo"}
+{"cmd":"git status","cwd":"/w/repo"}
+{"cmd":"git log --oneline","cwd":"/w/repo"}
+{"cmd":"git stash","cwd":"/w/repo"}
+{"cmd":"git stash list","cwd":"/w/repo"}
+{"cmd":"git apply --check p.diff","cwd":"/w/repo"}
+{"cmd":"git apply p.diff","cwd":"/w/repo"}
+{"cmd":"git bisect start","cwd":"/w/repo"}
+{"cmd":"git bisect log","cwd":"/w/repo"}
+{"cmd":"git submodule update --init","cwd":"/w/repo"}
+{"cmd":"git submodule status","cwd":"/w/repo"}
+{"cmd":"git read-tree -u -m HEAD","cwd":"/w/repo"}
+{"cmd":"git read-tree HEAD","cwd":"/w/repo"}
+{"cmd":"git checkout-index --prefix=export/ -a","cwd":"/w/repo"}
+{"cmd":"git init newrepo","cwd":"/w/repo"}
+{"cmd":"git init --separate-git-dir=/gd wt","cwd":"/w/repo"}
+{"cmd":"git init","cwd":"/w/repo"}
+{"cmd":"git format-patch -o patches HEAD~2","cwd":"/w/repo"}
+{"cmd":"git format-patch --stdout HEAD~1","cwd":"/w/repo"}
+{"cmd":"git format-patch HEAD~1","cwd":"/w/repo"}
+{"cmd":"git archive -o out.zip HEAD","cwd":"/w/repo"}
+{"cmd":"git archive HEAD","cwd":"/w/repo"}
+{"cmd":"git mv a.txt b.txt","cwd":"/w/repo"}
+{"cmd":"git mv x y z dir","cwd":"/w/repo"}
+{"cmd":"git worktree add ../wt-b -b feat","cwd":"/w/repo"}
+{"cmd":"git worktree remove ../wt-old","cwd":"/w/repo"}
+{"cmd":"git worktree move wt1 wt2","cwd":"/w/repo"}
+{"cmd":"git clone https://example.com/r.git cloned","cwd":"/w/repo"}
+{"cmd":"git clone --depth 1 -b main url target2","cwd":"/w/repo"}
+{"cmd":"git push origin main","cwd":"/w/repo"}
+{"cmd":"git sparse-checkout set docs","cwd":"/w/repo"}
+{"cmd":"git sparse-checkout list","cwd":"/w/repo"}
+{"cmd":"cd sub && echo x > in-sub.txt","cwd":"/w/repo"}
+{"cmd":"cd /abs && touch here","cwd":"/w/repo"}
+{"cmd":"cd .. && touch up","cwd":"/w/repo"}
+{"cmd":"cd ../.. && touch up2","cwd":"/w/repo"}
+{"cmd":"cd - && touch back","cwd":"/w/repo"}
+{"cmd":"cd && touch home-file","cwd":"/w/repo"}
+{"cmd":"cd ~ && touch tilde-home","cwd":"/w/repo"}
+{"cmd":"cd ~/proj && touch p","cwd":"/w/repo"}
+{"cmd":"pushd d1 && touch a && popd && touch b","cwd":"/w/repo"}
+{"cmd":"cd a; cd b; touch ab","cwd":"/w/repo"}
+{"cmd":"(cd sub && touch inner) && touch outer","cwd":"/w/repo"}
+{"cmd":"{ cd brace; touch b1; }; touch b2","cwd":"/w/repo"}
+{"cmd":"cd \"$HOME\" && touch h1","cwd":"/w/repo"}
+{"cmd":"cd $TMPDIR && touch t1","cwd":"/w/repo"}
+{"cmd":"cd \"$CLAUDE_PROJECT_DIR\" && touch c1","cwd":"/w/repo"}
+{"cmd":"cd $UNKNOWN_DIR && touch u1","cwd":"/w/repo"}
+{"cmd":"cd $(pwd) && touch s1","cwd":"/w/repo"}
+{"cmd":"if true; then echo x > then.txt; fi","cwd":"/w/repo"}
+{"cmd":"while false; do echo y > loop.txt; done","cwd":"/w/repo"}
+{"cmd":"case x in x) echo z > case.txt ;; esac","cwd":"/w/repo"}
+{"cmd":"f() { echo q > fn.txt; }; f","cwd":"/w/repo"}
+{"cmd":"[[ -f a ]] && echo a > cond.txt || echo b > alt.txt","cwd":"/w/repo"}
+{"cmd":"echo a | tee pipe1.txt | cat > pipe2.txt","cwd":"/w/repo"}
+{"cmd":"echo a & echo b > bg.txt","cwd":"/w/repo"}
+{"cmd":"true && false || echo c > or.txt","cwd":"/w/repo"}
+{"cmd":"echo $((1 + 2)) > arith.txt","cwd":"/w/repo"}
+{"cmd":"echo \"$(date)\" > when.txt","cwd":"/w/repo"}
+{"cmd":"echo `date` > bq.txt","cwd":"/w/repo"}
+{"cmd":"echo \"x $(echo \"> inner.txt\") y\" > outer2.txt","cwd":"/w/repo"}
+{"cmd":"echo hi # > commented.txt","cwd":"/w/repo"}
+{"cmd":"echo hi > out1.txt # trailing comment","cwd":"/w/repo"}
+{"cmd":"cat <<EOF > hd.txt\nbody > not.txt\nEOF","cwd":"/w/repo"}
+{"cmd":"cat <<'EOF' >> hd2.txt\n$x > nope\nEOF\necho after > after.txt","cwd":"/w/repo"}
+{"cmd":"cat <<-EOF > hd3.txt\n\tbody\n\tEOF","cwd":"/w/repo"}
+{"cmd":"cat > lines.txt <<EOF\na\nb\nEOF","cwd":"/w/repo"}
+{"cmd":"echo one \\\n two > cont.txt","cwd":"/w/repo"}
+{"cmd":"echo \"multi\nline\" > ml.txt","cwd":"/w/repo"}
+{"cmd":"D=out; echo x > $D/f.txt","cwd":"/w/repo"}
+{"cmd":"D=out E=log; echo x > $D/$E.txt","cwd":"/w/repo"}
+{"cmd":"export OUT=/abs/dir; echo x > $OUT/f","cwd":"/w/repo"}
+{"cmd":"declare -x Z=zz; echo > $Z","cwd":"/w/repo"}
+{"cmd":"local L=loc; echo > $L.txt","cwd":"/w/repo"}
+{"cmd":"readonly R=ro; touch \"$R\"","cwd":"/w/repo"}
+{"cmd":"typeset T=ty; touch ${T}","cwd":"/w/repo"}
+{"cmd":"X=a; X=b; touch $X","cwd":"/w/repo"}
+{"cmd":"touch ${MISSING:-default.txt}","cwd":"/w/repo"}
+{"cmd":"touch ${MISSING-dash.txt}","cwd":"/w/repo"}
+{"cmd":"touch ${MISSING:=assign.txt}","cwd":"/w/repo"}
+{"cmd":"N=name.tar.gz; touch ${N%.gz}","cwd":"/w/repo"}
+{"cmd":"N=name.tar.gz; touch ${N%%.tar.gz}","cwd":"/w/repo"}
+{"cmd":"N=x; touch ${N%*}","cwd":"/w/repo"}
+{"cmd":"N=x; touch ${N/a/b}","cwd":"/w/repo"}
+{"cmd":"touch ${1}","cwd":"/w/repo"}
+{"cmd":"touch $1 $@ $#","cwd":"/w/repo"}
+{"cmd":"touch ${}","cwd":"/w/repo"}
+{"cmd":"touch ${unclosed","cwd":"/w/repo"}
+{"cmd":"touch $HOME/h.txt","cwd":"/w/repo"}
+{"cmd":"touch ~/t.txt","cwd":"/w/repo"}
+{"cmd":"touch ~other/t.txt","cwd":"/w/repo"}
+{"cmd":"touch $TMPDIR/tmp.txt","cwd":"/w/repo"}
+{"cmd":"touch $CLAUDE_PROJECT_DIR/p.txt","cwd":"/w/repo"}
+{"cmd":"touch $TMB_MODEL_CACHE_DIR/m.bin","cwd":"/w/repo"}
+{"cmd":"touch $PWD/pwd.txt","cwd":"/w/repo"}
+{"cmd":"cd sub && touch $PWD/pwd2.txt","cwd":"/w/repo"}
+{"cmd":"cd sub && cd - && touch $OLDPWD/old.txt","cwd":"/w/repo"}
+{"cmd":"touch $OLDPWD/no-old.txt","cwd":"/w/repo"}
+{"cmd":"for f in a b c; do touch $f; done","cwd":"/w/repo"}
+{"cmd":"for f in x/*; do touch $f.bak; done","cwd":"/w/repo"}
+{"cmd":"for f; do touch $f; done","cwd":"/w/repo"}
+{"cmd":"read v; touch $v","cwd":"/w/repo"}
+{"cmd":"printf -v pv %s x; touch $pv","cwd":"/w/repo"}
+{"cmd":"sudo touch /etc/sudo-file","cwd":"/w/repo"}
+{"cmd":"sudo -u bob touch bob-file","cwd":"/w/repo"}
+{"cmd":"sudo -D /srv touch srv-file","cwd":"/w/repo"}
+{"cmd":"sudo --chdir=/opt touch opt-file","cwd":"/w/repo"}
+{"cmd":"env -C envdir touch e1","cwd":"/w/repo"}
+{"cmd":"env --chdir envdir2 touch e2","cwd":"/w/repo"}
+{"cmd":"env A=1 B=2 touch e3","cwd":"/w/repo"}
+{"cmd":"nohup touch nohup-file &","cwd":"/w/repo"}
+{"cmd":"time touch timed","cwd":"/w/repo"}
+{"cmd":"time -o time.out touch t2","cwd":"/w/repo"}
+{"cmd":"command touch cmd-file","cwd":"/w/repo"}
+{"cmd":"exec > exec-out.log","cwd":"/w/repo"}
+{"cmd":"exec 3> exec-fd.log","cwd":"/w/repo"}
+{"cmd":"A=1 touch assigned-prefix","cwd":"/w/repo"}
+{"cmd":"bash -c \"touch inner-c.txt\"","cwd":"/w/repo"}
+{"cmd":"sh -c 'cd sub && touch sc.txt'","cwd":"/w/repo"}
+{"cmd":"bash -ec \"echo > ec.txt\"","cwd":"/w/repo"}
+{"cmd":"bash -c","cwd":"/w/repo"}
+{"cmd":"eval 'touch evald.txt'","cwd":"/w/repo"}
+{"cmd":"eval \"cd e && touch e2.txt\"","cwd":"/w/repo"}
+{"cmd":"bash -c \"bash -c 'touch deep.txt'\"","cwd":"/w/repo"}
+{"cmd":"bash -c \"bash -c \\\"bash -c 'bash -c touch\\\\ d4'\\\"\"","cwd":"/w/repo"}
+{"cmd":"cd sub && bash -c \"touch rel.txt\"","cwd":"/w/repo"}
+{"cmd":"find . -name x","cwd":"/w/repo"}
+{"cmd":"fd pattern","cwd":"/w/repo"}
+{"cmd":"ls -la > listing.txt","cwd":"/w/repo"}
+{"cmd":"cat a b > cat.txt 2>/dev/null","cwd":"/w/repo"}
+{"cmd":"grep -r x . > grep.txt","cwd":"/w/repo"}
+{"cmd":"jq . in.json > out.json","cwd":"/w/repo"}
+{"cmd":"curl -o dl.bin https://x","cwd":"/w/repo"}
+{"cmd":"wget -O w.bin https://x","cwd":"/w/repo"}
+{"cmd":"echo x > /dev/null","cwd":"/w/repo"}
+{"cmd":"echo x > /dev/stderr","cwd":"/w/repo"}
+{"cmd":"echo > ./dot/./slash//f","cwd":"/w/repo"}
+{"cmd":"echo > a/../b","cwd":"/w/repo"}
+{"cmd":"echo > ../../../../escape","cwd":"/w/repo"}
+{"cmd":"echo > /abs/../root-up","cwd":"/w/repo"}
+{"cmd":"echo > /../../top","cwd":"/w/repo"}
+{"cmd":"","cwd":"/w/repo"}
+{"cmd":"   ","cwd":"/w/repo"}
+{"cmd":";;","cwd":"/w/repo"}
+{"cmd":"echo \"abc","cwd":"/w/repo"}
+{"cmd":"echo $(ls","cwd":"/w/repo"}
+{"cmd":"echo 'unterminated","cwd":"/w/repo"}
+{"cmd":"echo `ls","cwd":"/w/repo"}
+{"cmd":"echo ${x","cwd":"/w/repo"}
+{"cmd":"if true; then echo","cwd":"/w/repo"}
+{"cmd":"cat <<EOF\nbody without end","cwd":"/w/repo"}
+{"cmd":"cat <<A <<B\na\nA\nb\nB","cwd":"/w/repo"}
+{"cmd":"echo > ./a/../b.txt","cwd":"/w/repo","raw":true}
+{"cmd":"echo > ./a/../b.txt","cwd":"/w/repo/","raw":true}
+{"cmd":"cd sub/ && touch ./x","cwd":"/w/repo","raw":true}
+{"cmd":"cd sub/ && touch ./x","cwd":"/w/repo/","raw":true}
+{"cmd":"touch .","cwd":"/w/repo","raw":true}
+{"cmd":"touch .","cwd":"/w/repo/","raw":true}
+{"cmd":"cp a .","cwd":"/w/repo","raw":true}
+{"cmd":"cp a .","cwd":"/w/repo/","raw":true}
+{"cmd":"cd .. && touch ../y","cwd":"/w/repo","raw":true}
+{"cmd":"cd .. && touch ../y","cwd":"/w/repo/","raw":true}
+{"cmd":"mkdir -p d/ e//f","cwd":"/w/repo","raw":true}
+{"cmd":"mkdir -p d/ e//f","cwd":"/w/repo/","raw":true}
+{"cmd":"touch rel.txt"}
+{"cmd":"cd sub && touch x"}
+{"cmd":"echo > /abs.txt"}
+{"cmd":"cd /a && cd - && touch $OLDPWD/o"}
+{"cmd":"echo x > $TMP/repo/out.txt","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"cd $TMP/repo && touch t.txt","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"touch $TMP/link/through-link.txt","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"touch $TMP/link/../escape.txt","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"touch $TMP/wt/missing/deep/file","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"echo > /tmp/tmpfile","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"echo > /private/tmp/ptmpfile","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"cd $TMP/wt && git commit -am x","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"git -C $TMP/link add .","cwd":"$TMP/repo","root":"$TMP/repo","layout":"repo-worktree-symlink"}
+{"cmd":"echo x > $TMP/repo/out.txt","cwd":"$TMP/link","layout":"repo-worktree-symlink"}
+{"cmd":"cd $TMP/repo && touch t.txt","cwd":"$TMP/link","layout":"repo-worktree-symlink"}
+{"cmd":"touch $TMP/link/through-link.txt","cwd":"$TMP/link","layout":"repo-worktree-symlink"}
+{"cmd":"touch $TMP/link/../escape.txt","cwd":"$TMP/link","layout":"repo-worktree-symlink"}
+{"cmd":"perl -pi -e 's/a/b/' a.md b.md","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"open('a.md','w').write('x')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"open('a.md', mode='x')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"from pathlib import Path; Path('s/a.md').write_text('x')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"import sys; open(sys.argv[1],'w')\" s/a.md","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"open('o.md','w').write(open('s/a.md').read())\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"print(open('s/a.md').read())\"","cwd":"/w","tag":"deferred"}
+{"cmd":"node -e \"require('fs').writeFileSync('s/a.md','x')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"node -e \"require('fs').appendFileSync('s/a.md','x')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"node -e \"const f=require('fs'); f.writeFileSync('o.md', f.readFileSync('s/a.md'))\"","cwd":"/w","tag":"deferred"}
+{"cmd":"node -e \"require('fs').readFileSync('s/a.md')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"perl -e 'open(my $f, \">\", \"s/a.md\")'","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/etc/x','w').write('y')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python <<'EOF'\nfrom pathlib import Path; Path('o.txt').write_text('y')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node <<'EOF'\nrequire('fs').writeFileSync('/tmp/x','y')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('fs').mkdirSync('d/', {recursive: true})\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nopen(my $f, \">\", \"p.txt\");\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"ruby - <<'EOF'\nFile.write('r.txt', 'x')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"sh <<'EOF'\necho x > /tmp/s\ncd sub && touch t\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"cd sub && bash -s <<'EOF'\necho x > a\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<-EOF\n\topen(\"t.txt\",\"w\")\n\tEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"x=$(python3 - <<\"EOF\"\nopen('/o/sub','w')\nEOF\n)","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<< \"open(\\\"/hs\\\",\\\"w\\\")\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nprint(open('/etc/hosts').read())\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c pass <<'EOF'\nopen('/etc/passwd','w')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"find . -name '*.md' -exec git -C /b add {} +","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport json\ncfg = json.load(open('/etc/tmb-cg/config.json', encoding='utf-8'))\nopen('out.txt','w').write(str(cfg))\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os; open('out.txt','w').write(str(os.listdir('/usr/share/doc')))\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys; sys.path.insert(0, '/opt/tmb-cg/lib'); open('out.txt','w')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"open('out.txt','w').write(open('/etc/hosts').read())\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ns = open('scripts/x.sh').read()\ns = s.replace('/^[\\\\/~$]/', '/x/')\nopen('scripts/x.sh','w').write(s)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/etc/tmb-cg/x', 'w')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = '/etc/tmb-cg/x'\nopen(p, 'w').write('y')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil; shutil.copy('in.txt', '/etc/tmb-cg/')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os; os.rename('a.txt', 'b.txt'); os.makedirs('d', exist_ok=True)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path; p = Path('/etc/x'); p.write_text(open('/etc/y').read()); print('/etc/z')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path; p = Path('/etc/x'); p.write_text(open('/etc/y').read()); q = '/etc/z'\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ns = open('notes.txt').read()\ns = s.replace('x', '/user/own')\nopen('notes.txt', 'w').write(s)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport re\ns = re.sub('a', '/user/own', open('notes.txt').read())\nopen('notes.txt', 'w').write(s)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst fs = require('fs'); fs.writeFileSync('notes.txt', fs.readFileSync('notes.txt', 'utf8').replace('a', '/user/own'));\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'notes.txt'\ns = open(p).read()\ns = s.replace('x', '/user/own')\nopen(p, 'w').write(s)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport re\np = 'notes.txt'\ns = re.sub('a', '/user/own', open(p).read())\nopen(p, 'w').write(s)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst fs = require('fs'); const p = 'notes.txt'; const s = fs.readFileSync(p, 'utf8').replace('a', '/user/own'); fs.writeFileSync(p, s);\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np='a.sh'\nnew='''\nx \"$P\" \"/onboard\"\n'''\nopen(p,'w').write(new)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst fs = require('fs'); const p = 'a.txt';\nconst s = `x \"/abs\" y`;\nfs.writeFileSync(p, s);\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nmy $p = \"a.txt\";\nmy $s = 'one\ntwo \"/abs\" three\n';\nopen(my $f, \">\", $p); print $f $s;\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'a.txt'\nq = \"/abs/x\"\nopen(p, 'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'a.txt'\nopen(p, 'w').write('1')\ns = 'see \"/abs/y\" here\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"import cProfile; p='notes.txt'; cProfile.run('p=%r' % '/etc/evil'); open(p,'w').write('1')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\np = 'notes.txt'\ncProfile.run('p=%r' % '/etc/evil')\nopen(p, 'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport trace\np = 'notes.txt'\ntrace.Trace(count=0, trace=0).run('p=%r' % '/etc/evil')\nopen(p, 'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\np = 'notes.txt'\npdb.run('p=%r' % '/etc/evil')\nopen(p, 'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport gc\np = 'notes.txt'\nfor o in gc.get_objects():\n    if isinstance(o, dict) and o.get('p') == 'notes.txt': o['p'] = '/etc/evil'\nopen(p, 'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pickle\np = 'notes.txt'\nglobals().update(pickle.loads(pickle.dumps({'p': '/etc/evil'})))\nopen(p, 'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"p='x'.replace('x','/etc/evil'); open(p,'w').write('1')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np='x'.replace('x','/etc/evil'); open(p,'w').write('1')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 -c \"open('x'.replace('x','/etc/evil'),'w')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"node -e \"const p='x'.replace('x','/etc/evil'); require('fs').writeFileSync(p,'1')\"","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'notes.txt'\np = p.replace('notes.txt', '/etc/evil')\nopen(p, 'w')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'notes.txt'\nfor p in ['/etc/evil']: open(p, 'w')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'notes.txt'\ndef f(p): open(p, 'w')\nf('/etc/evil')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'notes.txt'\nglobals()['p'] = '/etc/evil'\nopen(p, 'w')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst p = 'notes.txt'; try { throw '/etc/evil' } catch (p) { require('fs').writeFileSync(p, '1') }\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst p = 'notes.txt'; ({ m(p) { require('fs').writeFileSync(p, '1') } }).m('/etc/evil');\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst fs = require('fs'); fs.writeFileSync('o.txt', fs.readFileSync('/etc/hosts'))\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('fs').copyFileSync('/etc/hosts', 'h.txt')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nopen(my $i, \"<\", \"/etc/hosts\"); open my $o, \">\", \"p.txt\" or die; print $o <$i>;\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nopen(F, \">>q.txt\"); print F \"/etc/hosts\";\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.sh'); do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git -C $TMP ls-files); do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git diff --name-only HEAD~1); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(rg --files $TMP/tests); do printf x >> \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(fd -e sh . a); do printf x >> \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"while read f; do sed -i s/a/b/ \"$f\"; done < <(find $TMP -name '*.md')","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find . -name '*.md' | while IFS= read -r f; do cp \"$f\" \"$f.bak\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find tests -name '*.sh'); do echo > \"${f%.sh}.out\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find a -type d 2>/dev/null); do echo > \"$f/x\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for d in $TMP/tests/*; do for f in $(find \"$d\" -name x); do rm \"$f\"; done; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find . -name x); do (cd /etc && rm \"$f\"); done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for d in $(find $TMP -type d); do echo x > \"$d/../f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -maxdepth 0); do cp x \"$f.bak\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*'); do rm -rf \"$f/..\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/agents -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find agents -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP/agents -name '*.md' | while read f; do printf x >> \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git ls-files skills); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find . -name CLAUDE.md); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.sh'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/tests -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md' -not -path '*/agents/*' -not -path '*/skills/*' -not -path '*/commands/*' -not -path '*/templates/*' -not -name CLAUDE.md); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find . -path ./agents -prune -o -path ./skills -prune -o -path ./CLAUDE.md -prune -o -name '*.md' -print); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md' -o -not -path '*/agents/*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git ls-files); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git ls-files tests); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git ls-files ':!agents' ':!skills' ':!CLAUDE.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(rg --files --glob '!agents/**' --glob '!skills/**' -g '!CLAUDE.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -iname '*.MD'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -iname 'skill.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(rg --files $TMP --iglob '*.MD'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(rg --files $TMP -g '*.MD' --glob-case-insensitive); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md' ! -path '*/agents'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md' -not -name 'agents*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md' -not -path '*/agents/zzz/*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -path '*/agents/zzz' -prune -o -name '*.md' -print); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git ls-files ':!agents/zzz'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(fd -E agents/zzz md $TMP); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -name '*.md' -not -path '*/agents/*' -not -path '*/skills/**' -not -path '*/commands/*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $TMP -path '*/agents' -prune -o -path $TMP/skills -prune -o -path '*/commands' -prune -o -name '*.md' -print); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git ls-files ':!agents' ':^skills' ':(exclude)commands'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(fd -E agents -E skills -E commands md $TMP); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(rg --files $TMP --glob '!agents/**' --glob '!skills' --glob '!commands/**'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find /etc -name x); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find -- /etc -name x); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find .. -name x); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find . -printf '/etc/%f'); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(git -C /etc ls-files); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"for f in $(find $SRC); do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find /etc | while read f; do rm \"$f\"; done","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -name x -exec rm {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -delete","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -print0 | xargs -0 rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"fd -e md -x sed -i s/a/b/ {}","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -exec sed -i s/a/b/ {} +","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -execdir rm {} ';'","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -ok rm {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"fd . $TMP -X rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a -name x -exec mv {} {}.bak \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a | xargs -I X cp X X.bak","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"fd x a -x rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a -fprint out.txt -fprintf f2 '%p' -fls f3","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find agents -name '*.md' -exec sed -i s/a/b/ {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -name '*.sh' -o -exec sed -i s/a/b/ {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a -exec grep -l x {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a | xargs grep x","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find / -exec rm {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $HOME -delete","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find .. -delete","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $SRC -exec rm {} +","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find -L $TMP -exec rm {} \\;","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"fd x /etc -x rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find / -print0 | xargs -0 rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"cat list | xargs rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"xargs rm < list","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a -print0 | xargs -0 -a list rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find a | grep x | xargs rm","cwd":"$TMP","root":"$TMP","tag":"deferred"}
+{"cmd":"find $TMP -delete","cwd":"$TMP","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os; os.truncate('/etc/x', 0)\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport zipfile; zipfile.ZipFile('/etc/x.zip', 'w').writestr('a', 'b')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport zipfile; zipfile.ZipFile('/etc/x.zip', mode='a')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport zipfile; print(zipfile.ZipFile('/etc/x.zip').namelist())\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport tarfile; tarfile.open('/etc/x.tgz', 'w:gz')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess; subprocess.run(['cp', 'a', '/etc/x'])\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess; subprocess.run('cp a /etc/x', shell=True, check=True, env={'HOME': '/root'})\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\ndst = '/etc/x'\nsubprocess.check_call(['cp', 'a', dst])\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os; os.system('rm -rf /etc/x')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('child_process').execSync('cp a /etc/x')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst { spawnSync } = require('child_process'); spawnSync('cp', ['a', '/etc/x'])\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nsystem(\"cp\", \"a\", \"/etc/x\");\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nsystem \"cp a /etc/x\"\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nout = `cp a /etc/x`\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', '..'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', 'x'], cwd='..')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf ~')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('cd .. && rm -rf cg-task')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['bash', '-c', 'cd .. && touch q'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['python3', '-c', \"open('/etc/q', 'w')\"])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['touch', 'a b'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nr = subprocess.run(['git', 'status'], stdout=subprocess.PIPE, check=True)\nprint(r.stdout)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess, sys\nsubprocess.run([sys.executable, '-m', 'pytest'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('child_process').spawnSync('touch', ['x'], { cwd: '..', stdio: 'inherit' })\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('child_process').spawn('touch ../x', { shell: true })\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nsystem(\"touch\", \"x\", chdir: \"..\")\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nd = '..'\nsubprocess.run(['rm', '-rf', d])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', 'x'], cwd=d)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(' '.join(['rm', '-rf', '..']), shell=True)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('child_process').execSync(`rm -rf ${d}`)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess as sp\nsp.run(['rm', '-rf', '/etc/x'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os, subprocess as sp\nsp.check_output(['cp', 'a', '/etc/x'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom subprocess import run as r\nr(['rm', '-rf', '/etc/x'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom subprocess import (\n    run,\n    PIPE,\n)\nrun(['touch', '/etc/x'], stdout=PIPE)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom os import system\nsystem('rm -rf /etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst {execSync: x} = require('child_process'); x('rm -rf /etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst cp = require('child_process'); cp.execSync('rm -rf /etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nimport { execSync as run } from 'child_process'; run('rm -rf /etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nf = subprocess.run\nf(['touch', 'x'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\ngetattr(os, 'system')('touch x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('subprocess').run(['touch', 'x'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst m = require('child_process'); const f = m.execSync; f('touch x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst cp = await import('child_process'); cp.execSync('touch x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\ntry:\n    subprocess.check_call(['make', 'test'])\nexcept subprocess.CalledProcessError as e:\n    print(e)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom os import path\nprint(path.join('a', 'b'))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf %s' % '..')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run('rm -rf %s' % '..', shell=True)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf {}'.format('..'))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', '..'.strip()])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf ' + '..')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nd = '..'\nos.system(f'rm -rf {d}')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nkw = {'cwd': '..'}\nsubprocess.run(['rm', '-rf', 'x'], **kw)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\na = ['rm', '-rf', '..']\nsubprocess.run(*a)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['ls', '..'], executable='/bin/rm')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['touch', 'x'], cwd=Path('..'))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst { execSync } = require('child_process'); const o = { cwd: '..' }; execSync('rm -rf x', o)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst { execSync } = require('child_process'); execSync('rm -rf x', { ...{ cwd: '..' } })\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst { execSync } = require('child_process'); execSync('rm -rf x', { cwd })\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst cp = require('child_process'); cp.exec('ls', () => cp.execSync('rm -rf ..'))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nmy $d = \"..\"; system(\"rm\", \"-rf\", $d);\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nsystem(\"rm\", \"-rf\", \"x\", chdir: d)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nsystem(\"rm -rf x\", :chdir => d)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nsystem(\"touch x\", :chdir => \"..\")\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['touch', 'x'], cwd='sub', check=True, capture_output=True, text=True, env=dict(A='1'))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst cp = require('child_process'); cp.exec('touch x', { stdio: 'inherit', encoding: 'utf8' }, (err, out) => { console.log(out) })\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nsystem({'A' => '1'}, 'touch', 'x', out: :close)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nprint('%s/%s' % ('a', 'b'.strip()))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.chdir('..')\nos.system('rm -rf cg-task')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom os import chdir\nimport subprocess\nchdir('..')\nsubprocess.run(['rm', '-rf', 'cg-task'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nprocess.chdir('..'); require('child_process').execSync('rm -rf cg-task')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nchdir '..'; system('rm', '-rf', 'cg-task');\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\nDir.chdir('..')\nsystem('rm -rf cg-task')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.chdir('..')\nopen('a.txt', 'w').write('x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.chdir('..')\nopen('/etc/x', 'w').write('x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nmy $o = qx(rm -rf /etc/x);\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nmy $o = qx'rm /etc/y';\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nmy $o = qx{rm -rf $d};\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\no = %x(rm -rf /etc/x)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"ruby <<'EOF'\no = %x{rm -rf #{d}}\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nexec(\"import os; os.system('rm -rf ..')\")\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\neval(compile('1', 'f', 'eval'))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\neval(\"require('child_process').execSync('rm -rf ..')\")\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nnew Function(\"require('child_process').execSync('rm -rf ..')\")()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\neval \"system(q(rm -rf ..))\";\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\neval { print \"x\" };\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/w/a.ts', 'w').write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\np = Path('/w/a.ts')\np.write_text(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = '/w/a.ts'\nwith open(p, 'w') as f:\n    f.write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\np = Path('/w/a.ts')\np.write_text(p.read_text().replace('/work/proj', 'fix/sess-a'))\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = '/etc/x'\nwith open(p, 'w') as f:\n    f.write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('fs').writeFileSync('o.txt', \"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nd = '/etc'; open(d + '/x', 'w').write('hi')\nEOF","cwd":"/w","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('p = \"/etc/evil\"')\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('open(\"/etc/evil\", \"w\")')\nopen('out.txt', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('import os\\nos.system(\"rm -rf /etc/evil\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('import os; os.chdir(\"..\")')\nopen('a.txt', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport trace\ntrace.Trace(count=0, trace=0).run('open(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.Timer('x = 1', setup='open(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.timeit('x = 1', setup='open(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom timeit import timeit\ntimeit('open(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile as cp\ncp.run('open(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom cProfile import run\nrun('open(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess as q, pdb\npdb.run(\"q.run(['rm', '-rf', '/etc/evil'])\")\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.timeit(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.timeit(stmt='x = 1', setup=s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('p=%r' % '/etc/evil')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ncompile(s, 'f', 'exec')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom timeit import timeit\ntimeit(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile as cp\ncp.run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport trace\nt = trace.Trace()\nt.run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('\\x6fpen(\"/etc/evil\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('import subprocess as q')\nq.run(['rm', '-rf', '..'])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\nf = cProfile.run\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins\ngetattr(builtins, 'ex' + 'ec')(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ngetattr(__builtins__, name)(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins\nvars(builtins)['exec'](s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins\nbuiltins.__dict__['exec'](s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nglobals()['__builtins__']['exec'](s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('builtins')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ne = exec\ne(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom builtins import exec as e\ne(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins as b\nb.exec(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ncompile('compile(\\'compile(\\\\\\'open(\\\\\\\\\\\\\\'/etc/evil\\\\\\\\\\\\\\', \\\\\\\\\\\\\\'w\\\\\\\\\\\\\\')\\\\\\', \\\\\\'f\\\\\\', \\\\\\'exec\\\\\\')\\', \\'f\\', \\'exec\\')', 'f', 'exec')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ncompile('compile(\\'compile(\\\\\\'compile(\\\\\\\\\\\\\\'open(\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\'/etc/evil\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\', \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\'w\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\')\\\\\\\\\\\\\\', \\\\\\\\\\\\\\'f\\\\\\\\\\\\\\', \\\\\\\\\\\\\\'exec\\\\\\\\\\\\\\')\\\\\\', \\\\\\'f\\\\\\', \\\\\\'exec\\\\\\')\\', \\'f\\', \\'exec\\')', 'f', 'exec')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('sum(range(9))')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.timeit('sum(range(9))', number=10)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.timeit(lambda: 1)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ndef f(): pass\ntimeit.timeit(lambda: f(), number=10)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('main()')\nopen('out.txt', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.repeat('sum(range(9))', repeat=3, number=10)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\npdb.run('sum(range(9))')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, sys\ns = sys.argv[1]\ncProfile.Profile().run('pass').run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.Profile().run('pass').run('o' + 'pen(\"/et\" + \"c/x\", \"w\")')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, sys\npr = cProfile.Profile().run('pass')\npr.runctx(sys.argv[1], globals(), None)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport profile, sys\ns = sys.argv[1]\nprofile.Profile().run('pass').run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport profile, sys\npr = profile.Profile().run('pass')\npr.runctx(sys.argv[1], globals(), None)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.Profile().run('pass')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\npdb.Pdb().run('pass')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport bdb\nbdb.Bdb().run('pass')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit, sys\nt = timeit.Timer('pass'); type(t)(sys.argv[1]).timeit(1)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntype(timeit.Timer('pass'))(s).timeit()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\nt = timeit.Timer('pass'); t.__class__(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom timeit import Timer as T\nT('pass').timeit()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom timeit import *\nTimer('pass')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport re\nre.compile(r'x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins\nbuiltins.print(1)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\nwith cProfile.Profile() as pr:\n    sum(range(9))\npr.print_stats()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile(); pr.enable(); sum(range(9)); pr.disable()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ndef f(): pass\ntimeit.timeit(f, number=10)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.timeit(f, number=10)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile(); pr.run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\ngetattr(pr, 'run')(code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\nm = pr.run\nm(code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, inspect\npr = cProfile.Profile()\ninspect.getattr_static(pr, 'run')(pr, code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, inspect\npr = cProfile.Profile()\ndict(inspect.getmembers(pr))['run'](code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\n(pr.\n run)(code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\npr.\\\nrun(code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, inspect\ndict(inspect.getmembers(cProfile.Profile()))['run'](code)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\npr.enable()\nprint(pr)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('sum(range(9))', '/etc/evil')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('main()', 'out.prof')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport profile\nprofile.run('main()', filename='/etc/evil')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.runctx('main()', {}, {}, '/etc/evil')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('main()', fn)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\np = 'out.txt'\ncProfile.Profile.runctx(o, 'p = \"/etc/evil\"', globals(), None)\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom cProfile import Profile\np = 'out.txt'\nProfile.runctx(o, 'p = \"/etc/evil\"', globals(), None)\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom cProfile import Profile as P\np = 'out.txt'\nP.runctx(o, 'p = \"/etc/evil\"', globals(), None)\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile as c\np = 'out.txt'\nc.Profile.runctx(o, 'p = \"/etc/evil\"', globals(), None)\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\npdb.Pdb.run(o, s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.Timer.timeit(o)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\nf = cProfile.Profile.run\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\nglobals()['p' + 'r'].run('p = \"/etc/evil\"')\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, sys\npr = cProfile.Profile()\ngetattr(sys, 'mod' + 'ules')['__ma' + 'in__'].pr.run('p = \"/etc/evil\"')\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, sys\npr = cProfile.Profile()\ngetattr(getattr(sys, 'mod' + 'ules')['__ma' + 'in__'], 'p' + 'r').run('p = \"/etc/evil\"')\nopen(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ndef main(): pass\nif __name__ == \"__main__\":\n    with cProfile.Profile() as pr:\n        main()\n    pr.print_stats()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys\nsys.modules.get('builtins')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys\nb = sys.modules['builtins']\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ngetattr(len.__self__, 'ex' + 'ec')(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ndef f(): pass\nf = 'open(p, \"w\")'\ntimeit.timeit(f)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ndef f(): pass\nfor f in ['x = 1']:\n    timeit.timeit(f)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ndef d(fn): return 'open(p, \"w\")'\n@d\ndef f(): pass\ntimeit.timeit(f)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ndef f(): pass\nf()\ntimeit.timeit(f)\ntimeit.repeat(f)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\npr.dump_stats('/etc/evil')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\nopen('out.txt', 'w')\npr = cProfile.Profile()\npr.dump_stats('/etc/evil')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\npr = cProfile.Profile()\npr.dump_stats('out.prof')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport runpy\nrunpy.run_path(sys.argv[1])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport code\ncode.interact(local=globals())\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport doctest\ndoctest.run_docstring_examples(f, {})\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport codeop, types\nc = codeop.compile_command(s)\ntypes.FunctionType(c, {})()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pickle\npickle.loads(b)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport marshal\nmarshal.loads(b)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shelve\nshelve.open('x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nbreakpoint()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\npdb.main()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport timeit\ntimeit.main()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.main()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys\nsys.modules['built' + 'ins'].exec(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys\nsys.modules.get(n).run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nglobals()['__buil' + 'tins__']['exec'](s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pydoc\npydoc.locate(n)(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport importlib\nimportlib.import_module(n).run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ni = __import__\ni('os').system(c)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n().__class__.__bases__[0].__subclasses__()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nf.__globals__['open'](p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ngetattr(obj, n)(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nvars(obj)[n](s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('\\x2fetc\\x2fevil', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport inspect\ninspect.getattr_static(o, n)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nif 1: import runpy; runpy.run_path(p)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__(n).run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom sys import *\nmodules[n].run(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pdb import main as m\nm()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\npdb.set_trace()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ngetattr(o, '__globals__')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('\\057etc', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport json\njson.dumps({})\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('out.txt', 'w').write('a\\\\n')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nclass A: pass\ngetattr(A(), 'x', None)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport re\nre.compile(r'\\x41')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 -m timeit -s \"open('/etc/evil','w')\" pass","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 -m cProfile -o out.prof x.py","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 -m pdb x.py","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 -Im runpy x","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 -mpickle x.pkl","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\no = open\no(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pdb\npdb.runeval('open')(p, 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom builtins import open as o\no('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins\no = builtins.open\no('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nx = [open]\nx[0]('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nf = open.__call__\nf('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ne = eval\ne(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ng = getattr\ng(o, 'x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nf = subprocess.run\nf(c)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('a.txt', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport io\nf = io.open\nf('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\no = os.open\no('/etc/x', 1)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = shutil.move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = shutil.copy\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil as s\nm = s.move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom shutil import move as mv\nm = mv\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom shutil import move\nm = move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom io import open as op\nf = op\nf('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nops = [os.remove]\nops[0]('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.move.__call__('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pathlib\nw = pathlib.Path.write_text\nw(pathlib.Path('/etc/x'), 's')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\nw = Path.write_text\nw(Path('/etc/x'), 's')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nr = os.rename\nr('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nr = os.replace\nr('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nr = os.unlink\nr('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nr = os.makedirs\nr('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nr = shutil.rmtree\nr('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nr = shutil.copyfile\nr('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nr = shutil.copy2\nr('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil as sh\nm = sh.move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = (shutil.move)\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nf(shutil.move)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nd = {'m': shutil.move}\nd['m']('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil, functools\np = functools.partial(shutil.move, 'a')\np('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport zipfile\nz = zipfile.ZipFile\nz('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom shutil import *\nm = move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom os import *\nr = remove\nr('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = shutil . move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil as sh\nm = sh . move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = getattr(shutil, 'move')\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport io\nf = getattr(io, 'open')\nf('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom shutil import *\nmove('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.move('a', 'b')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.copy('a', 'out')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil as s\ns.move('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom os import remove\nremove('/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.copytree('a', 'b', copy_function=shutil.copy2)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.copytree('/etc', 'b', copy_function=shutil.rmtree)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys\nw = sys.stdout.write\nw(s)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport copy\nc = copy.copy\nc(x)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nd = {}\nc = d.copy\nc()\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nj = os.path.join\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.move = f\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport csv\nfor row in rows: print(row.open, row.close)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport feedparser\nfor e in feedparser.parse('feed.xml').entries: print(e.link)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport argparse\nargs = argparse.ArgumentParser().parse_args()\nprint(args.rm)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pandas as pd\ndf = pd.read_csv('prices.csv')\nprint(df.open.mean())\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\nprint(isinstance(p, Path))\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nm = shutil.move\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nm = __import__('shutil').move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\no = __import__('io').open\no('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ns = __import__('shutil')\nm = s.move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nm = __import__('shutil', fromlist=['move']).move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ngetattr(__import__('shutil'), 'move')('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nm = __import__('shutil') . move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('shutil').move.__call__('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nz = __import__('zipfile').ZipFile\nz('/etc/x', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport importlib\nm = importlib.import_module('shutil').move\nm('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('shutil').move('a', '/etc/x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('shutil').move('a', 'b')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('io').open('o.txt', 'w')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('pathlib').Path('/etc/x').write_text('s')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('io').StringIO('x')\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nj = __import__('json')\nj.dumps(1)\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nfor n in range(3):\n    subprocess.run(['true', str(n)])\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system(\"cd $X && touch x\")\nEOF","cwd":"/w/wt","tag":"deferred"}
+{"cmd":"node <<'EOF'\nrequire('fs').writeFileSync('/tmp/tmb-cg-x', 'y')\nEOF","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"node <<'EOF'\nrequire('fs').writeFileSync('src/x.js', 'y')\nEOF","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/etc/tmb-cg', 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"sh <<'EOF'\necho x > /tmp/tmb-cg-sh\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'src/x.sh'\ns = open(p).read()\nold = '''x'''\nnew = old + '''\nassert_not_contains \"$PREAMBLE\" \"/onboard\" \"preamble /onboard token\"\nIf you run `/onboard`, answer No\n'''\nopen(p, 'w').write(s.replace(old, new))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'src/x.sh'\ns = open(p).read()\nold = '''x'''\nnew = old + '''\nassert_not_contains \"$PREAMBLE\" \"/onboard\" \"preamble /onboard token\"\nIf you run `/onboard`, answer No\n'''\nopen(p, 'w').write(s.replace(old, new))\nopen(\"/onboard/x\", \"w\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'src/x.sh'\ns = open(p).read()\nold = '''x'''\nnew = old + '''\nassert_not_contains \"$PREAMBLE\" \"/onboard\" \"preamble /onboard token\"\nIf you run `/onboard`, answer No\n'''\nq = \"/onboard\"\nopen(p, 'w').write(s.replace(old, new))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport json\ncfg = json.load(open('/etc/tmb-cg/config.json', encoding='utf-8'))\nopen('out.txt','w').write(str(cfg))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nopen('out.txt','w').write(str(os.listdir('/usr/share/doc')))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport sys\nsys.path.insert(0, '/opt/tmb-cg/lib')\nopen('out.txt','w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ns = open('src/x.sh').read().replace('/^[\\\\/~$]/', '/x/')\nopen('src/x.sh','w').write(s)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ns = open('src/x.sh').read().replace('/^[\\\\/~$]/', '/x/')\nopen('/etc/tmb-cg/x.sh','w').write(s)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/etc/tmb-cg/x', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = '/etc/tmb-cg/x'\nopen(p, 'w').write('y')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.copy('in.txt', '/etc/tmb-cg/')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/project -name '*.md'); do printf x >> \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find . -name '*.sh' | while read -r f; do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(git ls-files); do sed -i 's/a/b/' \"$f\"; done","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"for f in $(find / -name x); do rm \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/project -name x); do rm \"$f\"; done","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/project -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(git ls-files); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(find -- /etc -name x); do rm \"$f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(find -- /etc -name x); do rm \"$f\"; done","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"for d in $(find $TMP/project -type d); do echo x > \"$d/../f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/project -maxdepth 0); do cp x \"$f.bak\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/project -name '*'); do rm -rf \"$f/..\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"for d in $(find $TMP/project/.claude/worktrees/cg-task -type d); do echo x > \"$d/../f\"; done","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/project/.claude/worktrees/cg-task -maxdepth 0); do cp x \"$f.bak\"; done","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"for d in $(find $TMP/project/a -type d); do echo x > \"$d/../../../etc/f\"; done","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find / -exec rm {} \\;","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find $HOME -delete","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find / -print0 | xargs -0 rm","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"cat list | xargs rm","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"fd x /etc -x rm","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find $TMP/project -fprint /tmp/tmb-cg-list","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find $TMP/project -name '*.md' -exec sed -i s/a/b/ {} \\;","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find $TMP/project -name '*.tmp' -delete","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find src -print0 | xargs -0 sed -i s/a/b/","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"fd -e md -x sed -i s/a/b/ {}","cwd":"$TMP/project","raw":true,"root":"$TMP/project","tag":"deferred"}
+{"cmd":"find $TMP/project -exec rm {} \\;","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"find $TMP/project/.claude/worktrees/cg-task/src -exec rm {} \\;","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.truncate('/etc/tmb-cg', 0)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['cp', 'a', '/etc/tmb-cg'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport zipfile\nzipfile.ZipFile('/etc/tmb-cg.zip', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', '..'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', 'x'], cwd='..')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf ~')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('cd .. && rm -rf cg-task')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess as sp\nsp.run(['rm', '-rf', '..'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom subprocess import run as r\nr(['rm', '-rf', '..'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', d])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nf = subprocess.run; f(['touch', 'x'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst {execSync: x} = require('child_process'); x('rm -rf ..')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst cp = require('child_process'); cp.execSync('rm -rf ..')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nrequire('child_process').spawnSync('rm', ['-rf', 'x'], { cwd: '..' })\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', 'build'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['touch', 'x'], cwd='src')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('cd src && touch x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess as sp\nsp.run(['git', 'status'], check=True)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf %s' % '..')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run('rm -rf %s' % '..', shell=True)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.system('rm -rf {}'.format('..'))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['rm', '-rf', '..'.strip()])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nkw = {'cwd': '..'}; subprocess.run(['rm', '-rf', 'x'], **kw)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nos.chdir('..'); os.system('rm -rf cg-task')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\nexec(\"os.system('rm -rf ..')\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst { execSync } = require('child_process'); const o = { cwd: '..' }; execSync('rm -rf x', o)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nconst { execSync } = require('child_process'); execSync('rm -rf x', { ...{ cwd: '..' } })\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nprocess.chdir('..'); require('child_process').execSync('rm -rf cg-task')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nimport cp from 'child_process'; cp.execSync('rm -rf ..')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\neval(\"require('child_process').execSync('rm -rf ..')\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"perl - <<'EOF'\nchdir '..'; system('rm', '-rf', 'cg-task');\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"ruby - <<'EOF'\nDir.chdir('..')\nsystem('rm -rf cg-task')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"perl - <<'EOF'\nmy $o = qx(rm -rf ..);\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"ruby - <<'EOF'\no = %x(rm -rf ..)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['touch', 'x'], cwd='src', check=True, capture_output=True, text=True)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"node - <<'EOF'\nimport cp from 'child_process'; cp.execSync('touch x', { stdio: 'inherit' })\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nprint('%s' % 'x'.strip())\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = '$TMP/project/.claude/worktrees/cg-task/a.ts'\nwith open(p, 'w') as f:\n    f.write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom pathlib import Path\np = Path('$TMP/project/.claude/worktrees/cg-task/a.ts')\np.write_text(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = '/etc/tmb-cg-a.ts'\nwith open(p, 'w') as f:\n    f.write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nd = '/etc'\nopen(d + '/tmb-cg', 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\np = 'out.txt'\ncProfile.run('p = \"/etc/tmb-cg\"')\nopen(p, 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -c \"import cProfile; p = 'out.txt'; cProfile.run('p = %r' % 'x'); open(p, 'w')\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\ncProfile.run('open(\"/etc/tmb-cg\", \"w\")')\nopen('out.txt', 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport builtins\ngetattr(builtins, 'ex' + 'ec')(\"open('/etc/tmb-cg', 'w')\")\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -c \"import builtins; getattr(builtins, 'ex' + 'ec')(s)\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, timeit\ncProfile.run('sum(range(9))')\nprint(timeit.timeit('sum(range(9))', number=10))\nopen('out.txt', 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile\nwith cProfile.Profile() as pr:\n    sum(range(9))\npr.dump_stats('out.prof')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, timeit\ncProfile.run('main()', 'out.prof')\nprint(timeit.timeit(lambda: 1, number=10))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, sys\np = 'out.txt'\npr = cProfile.Profile()\ngetattr(pr, 'run')(sys.argv[1])\nopen(p, 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, inspect, sys\np = 'out.txt'\npr = cProfile.Profile()\ninspect.getattr_static(pr, 'run')(pr, sys.argv[1])\nopen(p, 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom cProfile import Profile as P\np = 'out.txt'\nP.runctx(o, sys.argv[1], globals(), None)\nopen(p, 'w').write('x')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport cProfile, sys\ncProfile.Profile().run(\"pass\").run(sys.argv[1])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -m timeit -s \"open('/etc/tmb-cg','w')\" pass","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -m cProfile -o out.prof x.py","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -m pdb x.py","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport runpy\nopen('out.txt','w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\no = open\no('/etc/tmb-cg', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport json; open('out.txt','w').write(json.dumps({}))\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nfor n in range(3):\n    subprocess.run(['true', str(n)])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -c \"o=open; o('/etc/tmb-cg','w')\"","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nwriters = [open]\nwriters[0]('/etc/tmb-cg', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport subprocess\nf = subprocess.run\nf(['touch', '/etc/tmb-cg'])\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport io\nf = io.open\nf('/etc/tmb-cg', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport os\no = os.open\no('/etc/tmb-cg', os.O_WRONLY)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = shutil.move\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = shutil.copy\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil as s\nm = s.move\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nfrom shutil import *\nm = move\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = shutil . move\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nm = getattr(shutil, 'move')\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nm = __import__('shutil').move\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\no = __import__('io').open\no('/etc/tmb-cg', 'w')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\ns = __import__('shutil')\nm = s.move\nm('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.move('a.txt', 'b.txt')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport shutil\nshutil.copy('a.txt', 'b.txt')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('shutil').move('a', '/etc/tmb-cg')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\n__import__('shutil').move('a.txt', 'b.txt')\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport csv\nfor row in rows: print(row.open, row.close)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport feedparser\nfor e in feedparser.parse('feed.xml').entries: print(e.link)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport argparse\nargs = argparse.ArgumentParser().parse_args()\nprint(args.rm)\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nimport pandas as pd\ndf = pd.read_csv('prices.csv')\nprint(df.open.mean())\nEOF","cwd":"$TMP/project/.claude/worktrees/cg-task","raw":true,"root":"$TMP/project/.claude/worktrees/cg-task","tag":"deferred"}
+{"cmd":"python3 -c \"open('agents/swe.md','w').write('x')\"","cwd":"$TMP","tag":"deferred"}
+{"cmd":"python -c \"open('GEMINI.md','a').write('x')\"","cwd":"$TMP","tag":"deferred"}
+{"cmd":"python3 -c \"open('agents/swe.md','w').write('x')\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature","tag":"deferred"}
+{"cmd":"python -c \"open('GEMINI.md','a').write('x')\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature","tag":"deferred"}
+{"cmd":"python3 -c \"open('t.txt','w').write('then gh pr merge 3 --merge')\"","cwd":"$TMP/repo/.claude/worktrees/my-feature","root":"$TMP/repo/.claude/worktrees/my-feature","tag":"deferred"}
+{"cmd":"python3 -c \"open('skills/tmb_audit/SKILL.md','w').write('x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 -c \"open('skills/tmb_audit/SKILL.md','w').write('x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"python3 -c \"open('scripts/hooks/x-3598912973.sh','w').write('x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 -c \"open('src/index.ts','w').write('x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 -c \"open('src/index.ts','w').write(open('skills/tmb_audit/SKILL.md').read())\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node -e \"require('fs').writeFileSync('skills/tmb_audit/SKILL.md','x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node -e \"require('fs').writeFileSync('skills/tmb_audit/SKILL.md','x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"node -e \"require('fs').writeFileSync('scripts/hooks/x-2017839531.sh','x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node -e \"require('fs').writeFileSync('src/index.ts','x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node -e \"const fs=require('fs'); fs.writeFileSync('src/index.ts', fs.readFileSync('skills/tmb_audit/SKILL.md'))\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"perl -e 'open(my $f, \">\", \"skills/tmb_audit/SKILL.md\")'","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"perl -e 'open(my $f, \">\", \"skills/tmb_audit/SKILL.md\")'","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"perl -e 'open(my $f, \">\", \"scripts/hooks/x-4104714755.sh\")'","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"perl -e 'open(my $f, \">\", \"src/index.ts\")'","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 -c \"print(open('skills/tmb_audit/SKILL.md').read())\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node -e \"process.stdout.write(require('fs').readFileSync('skills/tmb_audit/SKILL.md'))\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 -c \"import sys; open(sys.argv[1],'w').write('x')\" skills/tmb_audit/SKILL.md","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 -c \"from pathlib import Path; Path('skills/tmb_audit/SKILL.md').write_text('x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node -e \"require('fs').appendFileSync('skills/tmb_audit/SKILL.md','x')\"","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\np = 'src/a.ts'\nwith open(p, 'w') as f:\n    f.write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/etc/tmb-1279', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('/etc/tmb-1279', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('src/index.ts', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('src/index.ts', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('skills/tmb_audit/SKILL.md', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 - <<'EOF'\nopen('skills/tmb_audit/SKILL.md', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"python3 <<'EOF'\nopen('skills/tmb_audit/SKILL.md', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"python3 <<'EOF'\nopen('skills/tmb_audit/SKILL.md', 'w').write('x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"node <<'EOF'\nrequire('fs').writeFileSync('skills/tmb_audit/SKILL.md', 'x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"node <<'EOF'\nrequire('fs').writeFileSync('skills/tmb_audit/SKILL.md', 'x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"ruby - <<'EOF'\nFile.write('skills/tmb_audit/SKILL.md', 'x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"ruby - <<'EOF'\nFile.write('skills/tmb_audit/SKILL.md', 'x')\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nopen(my $f, '>', 'skills/tmb_audit/SKILL.md');\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"perl <<'EOF'\nopen(my $f, '>', 'skills/tmb_audit/SKILL.md');\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"bash -s <<'EOF'\necho x > skills/tmb_audit/SKILL.md\nEOF","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md'); do printf x >> \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md'); do printf x >> \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"while read -r f; do sed -i 's/a/b/' \"$f\"; done < <(git ls-files src)","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"while read -r f; do sed -i 's/a/b/' \"$f\"; done < <(git ls-files src)","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find src -name '*.ts' | while read -r f; do cp \"$f\" \"${f%.ts}.bak\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find src -name '*.ts' | while read -r f; do cp \"$f\" \"${f%.ts}.bak\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find / -name x); do rm \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain/agents -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find agents -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find $TMP/repo/.claude/worktrees/shape-plain/agents -name '*.md' | while read f; do printf x >> \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(git ls-files skills); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find . -name CLAUDE.md); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find agents -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain/tests -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md' -not -path '*/agents/*' -not -path '*/skills/*' -not -path '*/commands/*' -not -path '*/templates/*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(git ls-files); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(git ls-files tests); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-prompt -name '*.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -iname '*.MD'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -iname 'skill.md'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(rg --files $TMP/repo/.claude/worktrees/shape-plain --iglob '*.MD'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md' ! -path '*/agents'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md' -not -path '*/agents/zzz/*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -path '*/agents/zzz' -prune -o -name '*.md' -print); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(git ls-files ':!agents/zzz'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(fd -E agents/zzz md $TMP/repo/.claude/worktrees/shape-plain); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -name '*.md' -not -path '*/agents/*' -not -path '*/skills/**' -not -path '*/commands/*'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find $TMP/repo/.claude/worktrees/shape-plain -path '*/agents' -prune -o -path '*/skills' -prune -o -path '*/commands' -prune -o -name '*.md' -print); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(git ls-files ':!agents' ':!skills' ':!commands'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(fd -E agents -E skills -E commands md $TMP/repo/.claude/worktrees/shape-plain); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(rg --files $TMP/repo/.claude/worktrees/shape-plain --glob '!agents/**' --glob '!skills/**' --glob '!commands'); do sed -i s/a/b/ \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find -- /etc -name x); do rm \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for f in $(find -- /etc -name x); do rm \"$f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for d in $(find $TMP/repo/.claude/worktrees/shape-plain -type d); do echo x > \"$d/../f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"for d in $(find $TMP/repo/.claude/worktrees/shape-plain -type d); do echo x > \"$d/../f\"; done","cwd":"$TMP/repo/.claude/worktrees/shape-plain","raw":true,"root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find $TMP/repo -exec rm {} \\;","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find $TMP/repo -print0 | xargs -0 rm","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find $HOME -delete","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find agents -name '*.md' -exec sed -i s/a/b/ {} \\;","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find agents -name '*.md' -delete","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find agents -name '*.md' -print0 | xargs -0 sed -i s/a/b/","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"fd -e md . agents -x sed -i s/a/b/","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find agents -name '*.md' -exec sed -i s/a/b/ {} \\;","cwd":"$TMP/repo/.claude/worktrees/shape-prompt","root":"$TMP/repo/.claude/worktrees/shape-prompt","tag":"deferred"}
+{"cmd":"find $TMP/repo/.claude/worktrees/shape-plain/src -exec rm {} \\;","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find src -name '*.md' -exec sed -i s/a/b/ {} \\;","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find src -name '*.tmp' -delete","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"find src -name '*.ts' -print0 | xargs -0 sed -i s/a/b/","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"fd -e ts . src -x sed -i s/a/b/ {}","cwd":"$TMP/repo/.claude/worktrees/shape-plain","root":"$TMP/repo/.claude/worktrees/shape-plain","tag":"deferred"}
+{"cmd":"perl -pi -e 's/a/b/' p1 p2","cwd":"/w/repo","tag":"deferred"}
+{"cmd":"xargs -0 echo < list.txt","cwd":"/w/repo","tag":"deferred"}
+{"cmd":"python -c \"open('py.txt','w')\"","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"python3 -c \"open('/abs/py3.txt','w')\"","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"node -e \"require('fs').writeFileSync('n.txt','x')\"","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"perl -e 'open(F, \">p.txt\")'","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"ruby -e 'File.write(\"r.txt\", 1)'","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"python3 <<'EOF'\nopen('hd.txt','w')\nEOF","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"python3 - <<EOF\nopen('hd2.txt','w')\nEOF","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"bash <<'EOF'\ntouch from-stdin\nEOF","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"python3 <<< \"open('hs.txt','w')\"","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"python3 -m timeit pass","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"find . -name \"*.tmp\" -exec rm {} \\;","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"find . -type f -delete","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"find . -fprint list.txt","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"fd -e log -x rm","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"ls | xargs rm","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"find . -name x | xargs -I{} cp {} /backup/{}","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"for f in $(find . -name \"*.md\"); do rm \"$f\"; done","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"for f in $(ls); do touch \"$f.bak\"; done","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"find . -name \"*.sh\" | while read f; do chmod +x \"$f\"; echo > \"$f.done\"; done","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
+{"cmd":"git ls-files | while read -r f; do touch \"$f\"; done","cwd":"/w/repo","root":"/w/repo","tag":"deferred"}
