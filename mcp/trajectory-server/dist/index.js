@@ -36826,6 +36826,13 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now2) {
   }
   return written;
 }
+var BRIEF_SECTIONS = ["core", "verification", "scope", "history", "all"];
+var isBriefSection = (v) => BRIEF_SECTIONS.includes(v);
+var BRIEF_SECTION_HINTS = {
+  verification: "verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure",
+  scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
+  history: "task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open"
+};
 function closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, bypassClosedBy = null, scope = null) {
   insertAudit(db2, {
     issue_id: task.issue_id,
@@ -37309,12 +37316,17 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). A swe call opens the task's swe agent_runs row when none is open.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          task_id: { type: "number", description: "Task id to assemble the brief for." }
+          task_id: { type: "number", description: "Task id to assemble the brief for." },
+          section: {
+            type: "string",
+            enum: [...BRIEF_SECTIONS],
+            description: "Part of the brief to return. Default 'core' for swe, 'all' for every other caller."
+          }
         },
         required: ["agent", "task_id"]
       }
@@ -37819,6 +37831,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
       wrap3(async (args2) => {
         const taskId = args2["task_id"];
         if (taskId === void 0 || taskId === null) return err16("task_id is required");
+        const isSwe = normalizeAgent(args2["agent"]) === "swe";
+        const section = args2["section"] ?? (isSwe ? "core" : "all");
+        if (!isBriefSection(section)) {
+          return err16(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(", ")}`);
+        }
+        const want = (s) => section === "all" || section === s;
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
                   t.effort, t.completion_report, t.spawn_note, i.objective
@@ -37827,7 +37845,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           [taskId]
         );
         if (!task) return err16(`No task with id=${taskId}`);
-        if (normalizeAgent(args2["agent"]) === "swe") {
+        if (isSwe) {
           const repoPath = resolveRepoPath(db2, task.repo);
           openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null);
           const sentinel = db2.get(
@@ -37852,110 +37870,118 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (!repo) {
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
-        const dirs = filesToDirs(parseTaskFiles(task.files));
-        let scope_world_model = [];
-        let world_model_warning;
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        if (!graph) {
-          world_model_warning = "world-model-unavailable";
-        } else {
-          const nodes = graph.allDirectoriesForRepo(repo);
-          if (nodes.length === 0) {
-            world_model_warning = "world-model-empty";
-          } else {
-            const byPath = new Map(nodes.map((n) => [n.path, n]));
-            const childrenByParent = /* @__PURE__ */ new Map();
-            for (const n of nodes) {
-              const key = n.parent_path ?? "";
-              if (key === n.path) continue;
-              if (!childrenByParent.has(key)) childrenByParent.set(key, []);
-              childrenByParent.get(key).push(n);
-            }
-            scope_world_model = dirs.map((d) => ({
-              dir: d,
-              summary: byPath.get(d)?.summary ?? null,
-              children: (childrenByParent.get(d) ?? []).map((c) => ({
-                path: c.path,
-                summary: c.summary
-              }))
-            }));
-          }
-        }
-        const NOTE_CAP = 500;
-        const OTHER_ROW_CAP = 8;
-        const historyHint = `discussion_search(issue_id=${task.issue_id}) returns the full history`;
-        const taskRows = db2.all(
-          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
-            WHERE d.issue_id = ? AND d.task_id = ? AND d.kind IN ('decision', 'intent')
-              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)`,
-          [task.issue_id, task.id]
-        );
-        const issueDecision = db2.get(
-          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
-            WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
-              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
-            ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
-          [task.issue_id]
-        );
-        const otherRows = db2.all(
-          `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
-            WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
-              AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
-            ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
-          [task.issue_id, OTHER_ROW_CAP]
-        );
-        const task_discussions = [...taskRows, ...issueDecision ? [issueDecision] : [], ...otherRows].sort((a, b) => a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1).map((d) => {
-          if (d.kind === "decision" || d.kind === "intent" || d.body.length <= NOTE_CAP) return d;
+        const coreSection = () => {
+          const open_findings = db2.all(
+            `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
+              WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
+            [task.id]
+          ).map((f) => ({ ...f }));
           return {
-            ...d,
-            body: d.body.slice(0, NOTE_CAP) + `
-\u2026 [truncated; ${historyHint}]`,
-            truncated: true
+            task_id: task.id,
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            title: task.title,
+            objective: task.objective,
+            status: task.status,
+            commit_sha: task.commit_sha,
+            repo,
+            effort: task.effort,
+            spec_body: task.spec_body,
+            files: parseTaskFiles(task.files),
+            open_findings,
+            completion_report: parseStoredReport(task.completion_report),
+            spawn_note: task.spawn_note
           };
-        });
-        const issueRowCount = db2.get("SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?", [task.issue_id])?.n ?? 0;
-        const omittedCount = issueRowCount - task_discussions.length;
-        const task_discussions_omitted = omittedCount > 0 ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` } : void 0;
-        const closeRow = db2.get(
-          `SELECT content_json FROM audit
-            WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
-              AND json_extract(content_json, '$.task_id') = ?
-            ORDER BY created_at DESC, id DESC LIMIT 1`,
-          [task.id]
-        );
-        const closeScope = closeRow?.content_json ? JSON.parse(closeRow.content_json).scope ?? null : null;
-        const scope = {
-          files: parseTaskFiles(task.files),
-          extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
-          base_moved: closeScope ? closeScope.base_moved === true : null
         };
-        const open_findings = db2.all(
-          `SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
-            WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
-          [task.id]
-        ).map((f) => ({ ...f }));
+        const scopeSection = () => {
+          const dirs = filesToDirs(parseTaskFiles(task.files));
+          let scope_world_model = [];
+          let world_model_warning;
+          const graph = graphHolder2?.ensureGraph() ?? null;
+          if (!graph) {
+            world_model_warning = "world-model-unavailable";
+          } else {
+            const nodes = graph.allDirectoriesForRepo(repo);
+            if (nodes.length === 0) {
+              world_model_warning = "world-model-empty";
+            } else {
+              const byPath = new Map(nodes.map((n) => [n.path, n]));
+              const childrenByParent = /* @__PURE__ */ new Map();
+              for (const n of nodes) {
+                const key = n.parent_path ?? "";
+                if (key === n.path) continue;
+                if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+                childrenByParent.get(key).push(n);
+              }
+              scope_world_model = dirs.map((d) => ({
+                dir: d,
+                summary: byPath.get(d)?.summary ?? null,
+                children: (childrenByParent.get(d) ?? []).map((c) => ({
+                  path: c.path,
+                  summary: c.summary
+                }))
+              }));
+            }
+          }
+          const closeRow = db2.get(
+            `SELECT content_json FROM audit
+              WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
+                AND json_extract(content_json, '$.task_id') = ?
+              ORDER BY created_at DESC, id DESC LIMIT 1`,
+            [task.id]
+          );
+          const closeScope = closeRow?.content_json ? JSON.parse(closeRow.content_json).scope ?? null : null;
+          const scope = {
+            files: parseTaskFiles(task.files),
+            extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
+            base_moved: closeScope ? closeScope.base_moved === true : null
+          };
+          return { scope, scope_world_model, ...world_model_warning ? { world_model_warning } : {} };
+        };
+        const historySection = () => {
+          const NOTE_CAP = 500;
+          const OTHER_ROW_CAP = 8;
+          const historyHint = `discussion_search(issue_id=${task.issue_id}) returns the full history`;
+          const taskRows = db2.all(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.task_id = ? AND d.kind IN ('decision', 'intent')
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)`,
+            [task.issue_id, task.id]
+          );
+          const issueDecision = db2.get(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.task_id IS NULL AND d.kind = 'decision'
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+              ORDER BY d.created_at DESC, d.id DESC LIMIT 1`,
+            [task.issue_id]
+          );
+          const otherRows = db2.all(
+            `SELECT d.id, d.author, d.kind, d.body, d.created_at FROM discussions d
+              WHERE d.issue_id = ? AND d.kind NOT IN ('decision', 'intent')
+                AND NOT EXISTS (SELECT 1 FROM discussions s WHERE s.supersedes = d.id)
+              ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
+            [task.issue_id, OTHER_ROW_CAP]
+          );
+          const task_discussions = [...taskRows, ...issueDecision ? [issueDecision] : [], ...otherRows].sort((a, b) => a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1).map((d) => {
+            if (d.kind === "decision" || d.kind === "intent" || d.body.length <= NOTE_CAP) return d;
+            return {
+              ...d,
+              body: d.body.slice(0, NOTE_CAP) + `
+\u2026 [truncated; ${historyHint}]`,
+              truncated: true
+            };
+          });
+          const issueRowCount = db2.get("SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?", [task.issue_id])?.n ?? 0;
+          const omittedCount = issueRowCount - task_discussions.length;
+          const task_discussions_omitted = omittedCount > 0 ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` } : void 0;
+          return { task_discussions, ...task_discussions_omitted ? { task_discussions_omitted } : {} };
+        };
         return ok15({
-          task_id: task.id,
-          issue_id: task.issue_id,
-          branch_id: task.branch_id,
-          title: task.title,
-          objective: task.objective,
-          status: task.status,
-          commit_sha: task.commit_sha,
-          repo,
-          effort: task.effort,
-          spec_body: task.spec_body,
-          files: parseTaskFiles(task.files),
-          verification: parseTaskFiles(task.verification),
-          scope,
-          verification_run: latestVerificationRun(db2, task.id),
-          open_findings,
-          completion_report: parseStoredReport(task.completion_report),
-          spawn_note: task.spawn_note,
-          scope_world_model,
-          ...world_model_warning ? { world_model_warning } : {},
-          task_discussions,
-          ...task_discussions_omitted ? { task_discussions_omitted } : {}
+          ...want("core") ? coreSection() : {},
+          ...section === "core" ? { sections: BRIEF_SECTION_HINTS } : {},
+          ...want("verification") ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db2, task.id) } : {},
+          ...want("scope") ? scopeSection() : {},
+          ...want("history") ? historySection() : {}
         });
       })
     ),

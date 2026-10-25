@@ -1772,7 +1772,7 @@ describe('task_brief (#300)', () => {
         const db = tempDB();
         const id = seedTask(db, { repo: 'app', spec: SPEC });
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id }));
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id, section: 'all' }));
         const out = parse(r);
         assert.equal(out['task_id'], id);
         assert.equal(out['branch_id'], 'fix/1-brief');
@@ -1794,7 +1794,7 @@ describe('task_brief (#300)', () => {
             ],
         };
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', GraphHolder.fixed(stubGraph));
-        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id }));
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id, section: 'scope' }));
         const out = parse(r);
         assert.equal(out['world_model_warning'], undefined);
         const scope = out['scope_world_model'];
@@ -1810,7 +1810,7 @@ describe('task_brief (#300)', () => {
         const verification = ['bun test', 'bash tests/l1-lint/dist-fresh.sh'];
         const id = seedTask(db, { repo: 'app', spec: SPEC, files, verification });
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id }));
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id, section: 'all' }));
         const out = parse(r);
         assert.deepEqual(out['files'], files, 'typed files[] round-trips');
         assert.deepEqual(out['verification'], verification, 'typed verification[] round-trips');
@@ -1819,7 +1819,7 @@ describe('task_brief (#300)', () => {
         const db2 = tempDB();
         const legacyId = seedTask(db2, { repo: 'app', spec: SPEC, files });
         const tools2 = compositeTools(db2, '/tmp/.claude/tmb/trajectory.db', null);
-        const lr = (await tools2.handlers['task_brief']({ agent: 'swe', task_id: legacyId }));
+        const lr = (await tools2.handlers['task_brief']({ agent: 'swe', task_id: legacyId, section: 'verification' }));
         const lout = parse(lr);
         assert.deepEqual(lout['verification'], [], 'unset verification yields []');
         db2.close();
@@ -1891,7 +1891,7 @@ describe('task_brief (#300)', () => {
         db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
        VALUES (1, 'swe', 'note', ?, datetime('now', '+30 seconds'))`, [longBody]);
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id }));
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id, section: 'history' }));
         const out = parse(r);
         const disc = out['task_discussions'];
         const longDecision = disc.find((d) => d.kind === 'decision' && d.body.length > 1000);
@@ -1904,6 +1904,103 @@ describe('task_brief (#300)', () => {
         assert.match(truncatedNote.body, /truncated; discussion_search\(issue_id=1\)/);
         const noteCount = disc.filter((d) => d.kind === 'note').length;
         assert.ok(noteCount <= 8, `non-full kinds capped to last 8 (got ${noteCount})`);
+        db.close();
+    });
+});
+describe('task_brief sections (GH 1743)', () => {
+    const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
+    const CORE_KEYS = [
+        'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'effort',
+        'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note',
+    ];
+    const ALL_KEYS = [
+        ...CORE_KEYS, 'verification', 'verification_run', 'scope', 'scope_world_model', 'world_model_warning', 'task_discussions',
+    ];
+    let seq = 0;
+    const seed = (db) => {
+        const id = seedTask(db, { repo: 'app', spec: SPEC, files: ['src/a.ts'], verification: ['true'] });
+        db.run('UPDATE tasks SET branch_id = ? WHERE id = ?', [`fix/sections-${++seq}`, id]);
+        return id;
+    };
+    const brief = async (db, args) => (await compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null).handlers['task_brief'](args));
+    const keys = (r) => Object.keys(parse(r)).sort();
+    it('a swe call with no section returns the core fields plus sections; each other section returns exactly its fields', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        const core = parse(await brief(db, { agent: 'swe', task_id: id }));
+        assert.deepEqual(Object.keys(core).sort(), [...CORE_KEYS, 'sections'].sort());
+        assert.deepEqual(Object.keys(core['sections']).sort(), ['history', 'scope', 'verification']);
+        assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'core' })), [...CORE_KEYS, 'sections'].sort());
+        assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'verification' })), ['verification', 'verification_run']);
+        assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'scope' })), ['scope', 'scope_world_model', 'world_model_warning']);
+        assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'history' })), ['task_discussions']);
+        assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'all' })), [...ALL_KEYS].sort(), 'all carries no sections hint');
+        db.close();
+    });
+    it('bro and pr-reviewer calls with no section return the full brief', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        for (const agent of ['bro', 'pr-reviewer']) {
+            assert.deepEqual(keys(await brief(db, { agent, task_id: id })), [...ALL_KEYS].sort(), agent);
+        }
+        db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (1, 'swe', 'note', 'n', datetime('now'))`);
+        db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, supersedes)
+            VALUES (1, 'bro', 'decision', 'B2', datetime('now', '+1 second'), (SELECT MIN(id) FROM discussions))`);
+        assert.ok(keys(await brief(db, { agent: 'bro', task_id: id })).includes('task_discussions_omitted'));
+        db.close();
+    });
+    it('the swe core brief minus spec_body stays under 4000 characters for a heavy task', async () => {
+        const db = tempDB();
+        const files = ['src/a/', 'src/b/', 'src/c/', 'src/d/', 'src/e/', 'src/f/'];
+        const verification = Array.from({ length: 10 }, (_, i) => `cd pkg${i} && bun run build && node --test dist/test/*.test.js`);
+        const id = seedTask(db, { repo: 'app', spec: SPEC.repeat(20), files, verification });
+        for (let i = 0; i < 29; i++) {
+            db.run(`INSERT INTO discussions (issue_id, task_id, author, kind, body, created_at) VALUES (1, ?, 'bro', ?, ?, datetime('now', ?))`, [i % 2 ? id : null, i % 3 ? 'decision' : 'note', `row ${i} `.repeat(120), `+${i} seconds`]);
+        }
+        assert.equal(db.get('SELECT COUNT(*) AS n FROM discussions').n, 30);
+        const stubGraph = {
+            allDirectoriesForRepo: () => files.flatMap((f) => {
+                const dir = f.slice(0, -1);
+                return [
+                    { path: dir, parent_path: 'src', summary: `${dir} — `.repeat(40) },
+                    ...[1, 2, 3, 4].map((n) => ({ path: `${dir}/sub${n}`, parent_path: dir, summary: `${dir}/sub${n} `.repeat(30) })),
+                ];
+            }),
+        };
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', GraphHolder.fixed(stubGraph));
+        const run = async (section) => parse((await tools.handlers['task_brief']({ agent: 'swe', task_id: id, ...(section ? { section } : {}) })));
+        const core = await run();
+        delete core['spec_body'];
+        const coreLen = JSON.stringify(core).length;
+        assert.ok(coreLen < 4000, `core brief minus spec_body is ${coreLen} chars`);
+        const all = await run('all');
+        assert.equal(all['scope_world_model'].length, 6);
+        assert.equal(all['verification'].length, 10);
+        delete all['spec_body'];
+        assert.ok(JSON.stringify(all).length > coreLen * 4, 'the full brief is several times the core one');
+        db.close();
+    });
+    it('an unknown section is an error naming the valid values, with no side effects', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        const r = await brief(db, { agent: 'swe', task_id: id, section: 'nope' });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /unknown section "nope"; valid values: core, verification, scope, history, all/);
+        assert.equal(db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched'`).n, 0);
+        assert.equal(db.get('SELECT COUNT(*) AS n FROM agent_runs WHERE task_id = ?', [id]).n, 0);
+        db.close();
+    });
+    it('every swe section call records swe_brief_fetched once per task and opens the swe agent_runs row', async () => {
+        const db = tempDB();
+        for (const section of ['core', 'verification', 'scope', 'history', 'all']) {
+            const id = seed(db);
+            await brief(db, { agent: 'swe', task_id: id, section });
+            await brief(db, { agent: 'swe', task_id: id, section });
+            const sentinels = db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`, [id]).n;
+            assert.equal(sentinels, 1, `${section}: one sentinel`);
+            const runs = db.all('SELECT agent_type, completed_at FROM agent_runs WHERE task_id = ?', [id]);
+            assert.deepEqual(runs.map((r) => ({ ...r })), [{ agent_type: 'swe', completed_at: null }], `${section}: one open swe row`);
+        }
         db.close();
     });
 });
