@@ -1,2 +1,5 @@
-export const BUTTON = 'rounded border border-zinc-300 px-2 py-0.5 text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900';
-export const FIELD = 'w-full rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700';
+import { buttonClass } from '../ui/Button.tsx';
+
+export const BUTTON = buttonClass('default', 'small');
+export const FIELD =
+  'w-full rounded-md border border-(--control-borderColor-rest) bg-(--control-bgColor-rest) px-2 py-1 text-sm text-(--control-fgColor-rest) placeholder:text-(--control-fgColor-placeholder) hover:bg-(--control-bgColor-hover) focus-visible:border-(--borderColor-accent-emphasis) focus-visible:outline-(length:--focus-outline-width) focus-visible:outline-(--focus-outline-color) focus-visible:-outline-offset-1 disabled:border-(--control-borderColor-disabled) disabled:bg-(--control-bgColor-disabled) disabled:text-(--control-fgColor-disabled)';

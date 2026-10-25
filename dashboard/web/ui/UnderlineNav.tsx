@@ -6,7 +6,7 @@ export type NavTab = readonly [key: string, label: string, icon: Icon];
 export function UnderlineNav({ tabs, active }: { tabs: readonly NavTab[]; active: string }) {
   return (
     <nav aria-label="Dashboard" className="border-b border-border-muted bg-canvas">
-      <ul className="mx-auto flex w-full max-w-[120rem] gap-2 overflow-x-auto px-4 sm:px-6 2xl:px-10 [scrollbar-width:none]">
+      <ul className="mx-auto flex w-full max-w-[120rem] gap-2 overflow-x-auto px-4 sm:px-6 2xl:px-10 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:[mask-image:none]">
         {tabs.map(([key, label, TabIcon]) => {
           const current = key === active;
           return (

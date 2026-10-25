@@ -1,0 +1,2 @@
+### Changed
+- **Dashboard status badges, buttons, form fields and error notices look like GitHub's** (GH 1790): status badges are now GitHub-style pill labels coloured by status, buttons and inputs use GitHub's control styles with visible keyboard focus, and a failed load shows a red notice that screen readers announce. A saved light or dark colour mode now applies before the page paints, so there is no flash of the other theme on load, and on a narrow screen the tab bar fades at its right edge to show it scrolls. Every view, route and action works as before.

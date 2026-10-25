@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>TMB dashboard</title>
+    <script>
+      try {
+        var mode = localStorage.getItem('tmb-color-mode');
+        if (mode === 'auto' || mode === 'light' || mode === 'dark') document.documentElement.setAttribute('data-color-mode', mode);
+      } catch (e) {}
+    </script>
     <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
