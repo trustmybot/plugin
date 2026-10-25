@@ -25,8 +25,9 @@ These files are generated and committed; nobody edits them by hand:
 | `scripts/hooks/lib/audit-events.txt` | `npm run build` (`gen-enums-doc.mjs --txt`) |
 | the `audit.event_type` section of `docs/contributing/ENUMS.md` | `gen-enums-doc.mjs --doc` |
 | `scripts/hooks/lib/data-contracts.json` | `emit-data-contracts.mjs` |
+| `dashboard/dist/**` | `bun run build` in `dashboard` |
 
-`.gitattributes` routes `dist/**`, `audit-events.txt` and `data-contracts.json` to the `tmb-regen` merge driver. When a merge, rebase or cherry-pick finds both sides changed one of them, the driver keeps ours, exits 0 and prints `tmb-regen: kept ours for <path>`, so git never stops on a conflict there. `ENUMS.md` stays text-merged because only one section of it is generated.
+`.gitattributes` routes both `dist/**` trees, `audit-events.txt` and `data-contracts.json` to the `tmb-regen` merge driver. When a merge, rebase or cherry-pick finds both sides changed one of them, the driver keeps ours, exits 0 and prints `tmb-regen: kept ours for <path>`, so git never stops on a conflict there. `ENUMS.md` stays text-merged because only one section of it is generated.
 
 The driver lives in the repo's own `.git/config` (shared by its worktrees, never the global config). The WorktreeCreate hook installs it for every swe worktree; anywhere else run it once:
 
@@ -41,4 +42,4 @@ bash scripts/maintenance/regen-generated.sh          # rebuild, list what change
 bash scripts/maintenance/regen-generated.sh --check  # exit 1 naming each stale file; changes nothing
 ```
 
-`regen-generated.sh` runs `npm run build`, `gen-enums-doc.mjs --doc`, `emit-data-contracts.mjs`, and `gen-erd-doc.mjs` / `gen-config-keys-doc.mjs` when present. It needs the build toolchain (`bun install` in `mcp/trajectory-server`).
+`regen-generated.sh` runs `npm run build`, `gen-enums-doc.mjs --doc`, `emit-data-contracts.mjs`, `gen-erd-doc.mjs` / `gen-config-keys-doc.mjs` when present, then `bun run build` in `dashboard` (it bundles trajectory-server sources, so it runs last). It needs the build toolchain: `bun install --frozen-lockfile` at the plugin root and in `dashboard/`; without it the script exits 2.

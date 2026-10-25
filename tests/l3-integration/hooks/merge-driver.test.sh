@@ -2,7 +2,7 @@
 # Tests for the tmb-regen merge driver (GH 1277): .gitattributes routes the
 # generated artefacts to it, scripts/maintenance/install-merge-driver.sh puts it
 # in the repo's .git/config, a merge where both sides changed dist/index.js
-# completes with ours and no conflict markers, and
+# completes with ours and no conflict markers (likewise dashboard/dist/web/app.js), and
 # scripts/maintenance/regen-generated.sh --check then reports the file stale.
 set -euo pipefail
 
@@ -32,11 +32,14 @@ DIST="mcp/trajectory-server/dist/index.js"
 # dependency paths match this location and only the merge makes a file stale.
 HAVE_TSC=0
 REGEN_ENV=(env HOME="$TMPDIR/home" npm_config_cache="$TMPDIR/home/.npm")
-if [ -x "$PLUGIN_ROOT/mcp/trajectory-server/node_modules/.bin/tsc" ]; then
+if [ -x "$PLUGIN_ROOT/mcp/trajectory-server/node_modules/.bin/tsc" ] \
+   && [ -x "$PLUGIN_ROOT/dashboard/node_modules/.bin/esbuild" ] \
+   && [ -x "$PLUGIN_ROOT/dashboard/node_modules/.bin/tailwindcss" ]; then
   HAVE_TSC=1
   mkdir -p "$TMPDIR/home"
   ln -s "$PLUGIN_ROOT/mcp/trajectory-server/node_modules" "$REPO/mcp/trajectory-server/node_modules"
-  printf 'mcp/trajectory-server/node_modules\n' >> "$REPO/.git/info/exclude"
+  ln -s "$PLUGIN_ROOT/dashboard/node_modules" "$REPO/dashboard/node_modules"
+  printf 'mcp/trajectory-server/node_modules\ndashboard/node_modules\n' >> "$REPO/.git/info/exclude"
   "${REGEN_ENV[@]}" bash "$REPO/scripts/maintenance/regen-generated.sh" >/dev/null
   git -C "$REPO" add -A && git -C "$REPO" commit -qm "regen at this location" --allow-empty
 fi
@@ -47,9 +50,16 @@ git -C "$REPO" commit -qam "a"
 git -C "$REPO" checkout -q -b side-b dev
 printf '// side b\n' >> "$REPO/$DIST"
 git -C "$REPO" commit -qam "b"
+DASH="dashboard/dist/web/app.js"
+git -C "$REPO" checkout -q -b dash-a dev
+printf '// dash a\n' >> "$REPO/$DASH"
+git -C "$REPO" commit -qam "dash a"
+git -C "$REPO" checkout -q -b dash-b dev
+printf '// dash b\n' >> "$REPO/$DASH"
+git -C "$REPO" commit -qam "dash b"
 
 test_case ".gitattributes routes the generated artefacts to tmb-regen"
-for p in "$DIST" mcp/trajectory-server/dist/tools/index.js scripts/hooks/lib/audit-events.txt scripts/hooks/lib/data-contracts.json; do
+for p in "$DIST" mcp/trajectory-server/dist/tools/index.js scripts/hooks/lib/audit-events.txt scripts/hooks/lib/data-contracts.json "$DASH" dashboard/dist/server.mjs; do
   assert_contains "$(git -C "$REPO" check-attr merge -- "$p")" "merge: tmb-regen" "$p"
 done
 assert_contains "$(git -C "$REPO" check-attr merge -- docs/contributing/ENUMS.md)" "merge: unspecified" "ENUMS.md stays text-merged"
@@ -88,9 +98,19 @@ assert_eq "// side a" "$(tail -n 1 "$REPO/$DIST")" "ours kept"
 assert_contains "$(cat "$TMPDIR/merge.out")" "tmb-regen: kept ours for $DIST" "driver names the file"
 assert_eq "" "$(git -C "$REPO" status --porcelain --untracked-files=no)" "merge committed cleanly"
 
+test_case "with the driver, both sides changing dashboard/dist/web/app.js merge with ours and no conflict markers"
+git -C "$REPO" checkout -q dash-a
+rc=0; git -C "$REPO" merge --no-edit dash-b >"$TMPDIR/dash-merge.out" 2>&1 || rc=$?
+assert_eq 0 "$rc" "merge exits 0"
+if grep -q '^<<<<<<<\|^>>>>>>>' "$REPO/$DASH"; then _fail "conflict markers in $DASH"; else _pass; fi
+assert_eq "// dash a" "$(tail -n 1 "$REPO/$DASH")" "ours kept"
+assert_contains "$(cat "$TMPDIR/dash-merge.out")" "tmb-regen: kept ours for $DASH" "driver names the file"
+assert_eq "" "$(git -C "$REPO" status --porcelain --untracked-files=no)" "merge committed cleanly"
+git -C "$REPO" checkout -q side-a
+
 test_case "regen-generated.sh --check reports the merged file stale; one regen makes it current"
 if [ "$HAVE_TSC" -eq 0 ]; then
-  echo "  ⊘ tsc not installed in mcp/trajectory-server — regen half skipped (run 'bun install' first)"
+  echo "  ⊘ build toolchain not installed — regen half skipped (run 'bun install --frozen-lockfile' at the plugin root and in dashboard/ first)"
   _pass
 else
   rc=0; "${REGEN_ENV[@]}" bash "$REPO/scripts/maintenance/regen-generated.sh" --check >/dev/null 2>"$TMPDIR/check.err" || rc=$?
