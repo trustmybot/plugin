@@ -12,11 +12,11 @@ pr-reviewer judges each diff against its own spec; you judge the change at the s
 
 The verdict row is always authored by pr-reviewer itself — via `validation_record` when MCP is available, via the fallback script otherwise (pr-reviewer's `tmb_review` owns that fallback). <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
 
+The spawn prompt carries the anchors only; the reviewer reads the spec, discussions, completion report and open findings from `task_brief`. Context it cannot read there goes in `bro_atomic_close`'s `spawn_note` (300 characters max), which `task_brief` returns; a spawn gate denies a prompt carrying more than 300 characters of prose beyond the anchors.
+
 **Clean spawn prompt example:**
 ```
 task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin repo_path=<repo path> attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>
-
-Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```
 
 No-MCP fallback (Bash-only spawn, no `mcp__...` tools in the reviewer's tool list): just spawn pr-reviewer as above. The reviewer writes its own verdict through `tmb_review`'s fallback script, which records `mcp_available = 0` on the row; you do not hand it a DB-access pointer.

@@ -103,7 +103,7 @@ sequenceDiagram
     end
     S->>S: implement per spec; run ## Verification commands
     S->>S: git commit (## Commit message from spec)
-    S->>DB: task_update_status(status='completed', commit_sha)
+    S->>DB: task_update_status(status='completed', commit_sha, report)
 
     B->>B: V1/V2/V3 verify (files, verification commands, success criteria)
     B->>DB: bro_atomic_close (audit + summaries + status='closed' + optional issue close)

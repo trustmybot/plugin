@@ -69,11 +69,13 @@ swe executes a spec bro already pinned, so medium is the executor default; high 
 The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
 - `## Description` — ≤3 sentences, file paths with line refs, Assumptions bullets
-- `## Success Criteria` — 2–5 testable assertions
+- `## Success Criteria` — 2–5 testable assertions, each a top-level bullet opening with a unique id (`- SC1: …`, `- SC2: …`); nested `Writer:` / `Populated:` lines carry none. The swe reports against these ids, and pr-reviewer findings cite them.
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
 When the task adds a column, field, enum value, tool-result key or file output, `## Success Criteria` names each one with its own `Writer: <tool, hook or function that sets it>` line and a `Populated: <verification[] command proving a non-null sample or a count above zero>` line, or a `Nullable: <reason>` line when empty is correct. The spawn gate checks schema-touching specs for these lines.
+
+A spec for a guard or gate (a hook, permission check or validator) states in `## Description` whether it is allowlist-based: it admits what it can prove safe and denies the rest. A denylist design, which blocks known-bad input and admits everything else, fails open on whatever it did not foresee, so it needs a recorded decision (in `decision_body`) naming why an allowlist does not fit.
 
 A dry run or smoke test is a `verification[]` command that exits non-zero when its expectation fails, run against a `cp` of reference data so the live DB stays untouched. The one-line form is `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/assert-sql.sh" <db-copy> "<sql>" <expected>`. The swe report then cites that command's pass/fail rather than the numbers it saw.
 
@@ -114,10 +116,10 @@ After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C
 
 1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
 2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
-3. Each `## Success Criteria` bullet is visibly met by the diff, and the changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
+3. `task_brief.completion_report` covers every `SC<n>` id, and the diff bears out each claim: a `met` shows in the diff, a `not_applicable` carries a reason you accept, and a `not_met` fails this check. The changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, hold the push, and rework the task (below).
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate with the anchors only — the spawn-shape hook enforces them. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
 
@@ -133,8 +135,11 @@ When pr-reviewer passes the task and the base has not moved, push the reviewed c
 ### Rework and spec changes
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
-- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`.
+- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, spawn_note?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`. After a FAIL, the `spawn_note` names the finding ids to fix (`F<task>-<n>`); the swe reads them, with their probes, from `task_brief.open_findings`.
+- **Two FAILs since the last pass:** a third rework of the same approach is unlikely to land. Choose one: `task_retry` with a redesigned spec, split the task into smaller ones, or escalate to the Human. A third swe spawn on the task needs a new `kind='decision'` row naming the change of approach; the spawn gate denies it until one exists, or until the Human comments on the issue.
 - **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
+
+When the hook alerts that a task has run past 60 minutes, relay it to the Human once, with its attempt count and its current blocker, and decide together whether to continue, redesign the spec or split the task.
 
 The worktree stays in place through `bro_atomic_close` and is removed once pr-reviewer passes the task, so rework continues where SWE left off.
