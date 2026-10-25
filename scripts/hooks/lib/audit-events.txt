@@ -14,6 +14,8 @@ cheatcode_installed	bro
 cheatcode_search	bro
 cheatcode_uninstalled	bro
 cheatcode_vet	bro
+concept_proposal_applied	bro
+concept_proposal_rejected	bro
 config_changed	bro
 consultant_spawn_nudged	hook
 containment_denied	hook

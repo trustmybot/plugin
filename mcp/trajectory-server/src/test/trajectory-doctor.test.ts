@@ -140,6 +140,33 @@ function seedLegacyBroRun(db: TrajectoryDB, taskId: number): void {
   seedRun(db, { agentType: 'bro', taskId, tokens: 0, sessionId: null, model: null, rootDir: null, usageSource: 'unmeasured', effort: null });
 }
 
+function seedConcept(db: TrajectoryDB, repo: string, name: string, status: string): void {
+  db.run(`INSERT INTO wm_concepts (repo, kind, name, status, created_at, updated_at) VALUES (?, 'flow', ?, ?, ?, ?)`, [repo, name, status, iso(), iso()]);
+}
+
+function seedSymbols(db: TrajectoryDB, repo: string, n: number): void {
+  for (let i = 0; i < n; i++) {
+    db.run(`INSERT INTO wm_symbols (repo, path, kind, qualified_name, body_hash) VALUES (?, 'src/a.ts', 'function', ?, 'h')`, [repo, `f${i}`]);
+  }
+}
+
+function seedProposingTask(db: TrajectoryDB, closedAt: string, opts: { reviewed: boolean; report: string }): number {
+  const id = seedTask(db, seedIssue(db), 'closed', closedAt);
+  db.run('UPDATE tasks SET commit_sha = ?, completion_report = ? WHERE id = ?', ['abc1234', opts.report, id]);
+  if (opts.reviewed) {
+    const closed = Date.parse(closedAt);
+    seedAudit(db, 'bro_verification_pass', { task_id: id, commit_sha: 'abc1234' }, new Date(closed - 2 * HOUR).toISOString());
+    db.run(`INSERT INTO validation_attempts (task_id, attempt_n, verdict, mcp_available, created_at) VALUES (?, 1, 'pass', 1, ?)`, [
+      id,
+      new Date(closed - HOUR).toISOString(),
+    ]);
+  }
+  return id;
+}
+
+const proposalReport = (...names: string[]): string =>
+  JSON.stringify({ criteria: [], concepts: names.map((name) => ({ name, steps: [{ path: 'src/a.ts', description: 'd' }] })) });
+
 // One violating and one passing fixture per contract id.
 // populated_tasks_prompt_bearing has no violating row: the column is NOT NULL,
 // so its violation is shown through a reader that reports a drifted DB.
@@ -384,6 +411,43 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedTask(db, seedIssue(db, 'closed'), 'closed');
       seedTask(db, seedIssue(db, 'closed'), 'escalated');
       seedTask(db, seedIssue(db, 'open'), 'running');
+    },
+  },
+  concepts_trusted: {
+    violate: (db) => seedConcept(db, 'r', 'drifted flow', 'suspect'),
+    pass: (db) => {
+      seedConcept(db, 'r', 'live flow', 'verified');
+      seedConcept(db, 'r', 'old flow', 'retired');
+    },
+  },
+  concept_proposals_not_stale: {
+    violate: (db) => {
+      seedProposingTask(db, iso(-8 * DAY), { reviewed: true, report: proposalReport('run flow') });
+    },
+    pass: (db) => {
+      const applied = seedProposingTask(db, iso(-8 * DAY), { reviewed: true, report: proposalReport('run flow') });
+      seedAudit(db, 'concept_proposal_applied', { task_id: applied, concept_id: 1, name: 'run flow' });
+      const rejected = seedProposingTask(db, iso(-20 * DAY), { reviewed: true, report: proposalReport('bad flow') });
+      seedAudit(db, 'concept_proposal_rejected', { task_id: rejected, name: 'bad flow', error: 'anchor not found' });
+      seedProposingTask(db, iso(-2 * DAY), { reviewed: true, report: proposalReport('fresh flow') });
+      seedProposingTask(db, iso(-8 * DAY), { reviewed: false, report: proposalReport('unreviewed flow') });
+      seedProposingTask(db, iso(-8 * DAY), { reviewed: true, report: JSON.stringify({ criteria: [] }) });
+      seedProposingTask(db, iso(-8 * DAY), { reviewed: true, report: 'not json' });
+    },
+  },
+  concept_proposals_not_rejected: {
+    violate: (db) => seedAudit(db, 'concept_proposal_rejected', { task_id: 1, name: 'bad flow', error: 'anchor not found' }),
+    pass: (db) => {
+      seedAudit(db, 'concept_proposal_rejected', { task_id: 1, name: 'bad flow', error: 'anchor not found' }, iso(-31 * DAY));
+      seedAudit(db, 'concept_proposal_applied', { task_id: 2, concept_id: 1, name: 'run flow' });
+    },
+  },
+  concepts_cover_indexed_repos: {
+    violate: (db) => seedSymbols(db, 'r', 100),
+    pass: (db) => {
+      seedSymbols(db, 'r', 100);
+      seedConcept(db, 'r', 'run flow', 'verified');
+      seedSymbols(db, 's', 99);
     },
   },
 };

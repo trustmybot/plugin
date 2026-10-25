@@ -12,7 +12,7 @@ import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
 import { indexRepoSymbols } from '../symbol-index.js';
-import { refreshConcepts } from '../world-model/concepts.js';
+import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import { projectRootFromDbPath } from './containment.js';
@@ -706,6 +706,12 @@ async function persistScan(db, graph, out, sessionDir) {
             }
             catch (e) {
                 serverLog({ event: 'concept_refresh_error', repo: r.name, error: e.message });
+            }
+            try {
+                applyConceptProposals(db, r.name, r.path);
+            }
+            catch (e) {
+                serverLog({ event: 'concept_proposals_error', repo: r.name, error: e.message });
             }
         }
     }

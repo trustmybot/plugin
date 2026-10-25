@@ -17034,13 +17034,13 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     }
     return propValues;
   });
-  const isObject4 = isObject;
+  const isObject5 = isObject;
   const catchall = def.catchall;
   let value;
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject4(input)) {
+    if (!isObject5(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -17138,7 +17138,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     return (payload, ctx) => fn(shape, payload, ctx);
   };
   let fastpass;
-  const isObject4 = isObject;
+  const isObject5 = isObject;
   const jit = !globalConfig.jitless;
   const allowsEval2 = allowsEval;
   const fastEnabled = jit && allowsEval2.value;
@@ -17147,7 +17147,7 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject4(input)) {
+    if (!isObject5(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -25210,6 +25210,8 @@ var AUDIT_EVENT_TYPES = [
   { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
   { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
   { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
+  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
+  { type: "concept_proposal_rejected", writers: ["bro"], description: "`scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error`" },
   { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
   { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
   { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
@@ -33101,6 +33103,10 @@ function configTools(db2) {
 }
 
 // src/success-criteria.ts
+var CONCEPT_KINDS = ["flow", "subsystem", "invariant"];
+var HANDOFFS = ["calls", "sources", "runs", "hook_fires"];
+var CLAIMS = ["exists", "calls", "only_writers_of", "tested_by"];
+var MAX_CONCEPT_PROPOSALS = 5;
 var CRITERION_STATUSES = ["met", "not_met", "not_applicable"];
 var SPAWN_NOTE_MAX_CHARS = 300;
 var SECTION_RE = /^## Success Criteria\s*$/i;
@@ -33247,7 +33253,73 @@ function parseCompletionReport(raw, ids) {
     }
     report.findings_fixed = fixed;
   }
+  if (r["concepts"] !== void 0 && r["concepts"] !== null) {
+    report.concepts = parseConceptProposals(r["concepts"], ids);
+  }
   return report;
+}
+var isObject3 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var nonEmpty = (v) => typeof v === "string" && v.trim() !== "";
+var CONCEPT_SHAPE = "{name, steps, kind?, body?, claims?, repo?}";
+function parseConceptProposals(raw, ids) {
+  if (!Array.isArray(raw)) throw shapeError(ids, `report.concepts must be an array of concepts ${CONCEPT_SHAPE}.`);
+  if (raw.length > MAX_CONCEPT_PROPOSALS) {
+    throw shapeError(ids, `report.concepts holds ${raw.length} concepts (max ${MAX_CONCEPT_PROPOSALS}).`);
+  }
+  const names = /* @__PURE__ */ new Set();
+  return raw.map((item, i2) => {
+    const at = `report.concepts[${i2}]`;
+    if (!isObject3(item)) throw shapeError(ids, `${at} must be an object ${CONCEPT_SHAPE}.`);
+    if (!nonEmpty(item["name"])) throw shapeError(ids, `${at}.name must be a non-empty string.`);
+    const name2 = item["name"].trim();
+    if (names.has(name2)) throw shapeError(ids, `${at}.name '${name2}' repeats an earlier concept in this report.`);
+    names.add(name2);
+    const repo = optionalString(item["repo"], `${at}.repo`);
+    const body2 = optionalString(item["body"], `${at}.body`);
+    const kind = item["kind"] ?? void 0;
+    if (kind !== void 0 && !CONCEPT_KINDS.includes(kind)) {
+      throw shapeError(ids, `${at}.kind must be one of ${CONCEPT_KINDS.join(", ")}.`);
+    }
+    const steps = item["steps"];
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw shapeError(ids, `${at}.steps must be a non-empty array of {path, description, kind?, qualified_name?, handoff?}.`);
+    }
+    const claims = item["claims"] ?? void 0;
+    if (claims !== void 0 && !Array.isArray(claims)) throw shapeError(ids, `${at}.claims must be an array of {claim, args}.`);
+    return {
+      name: name2,
+      ...kind !== void 0 ? { kind } : {},
+      ...body2 !== void 0 ? { body: body2 } : {},
+      ...repo !== void 0 && repo.trim() !== "" ? { repo: repo.trim() } : {},
+      steps: steps.map((s, j) => parseProposalStep(s, `${at}.steps[${j}]`, ids)),
+      ...Array.isArray(claims) ? { claims: claims.map((c, j) => parseProposalClaim(c, `${at}.claims[${j}]`, ids)) } : {}
+    };
+  });
+}
+function parseProposalStep(raw, at, ids) {
+  if (!isObject3(raw)) throw shapeError(ids, `${at} must be an object {path, description, kind?, qualified_name?, handoff?}.`);
+  if (!nonEmpty(raw["path"])) throw shapeError(ids, `${at}.path must be a non-empty string.`);
+  if (!nonEmpty(raw["description"])) throw shapeError(ids, `${at}.description must be a non-empty string.`);
+  const kind = optionalString(raw["kind"], `${at}.kind`);
+  const qualifiedName = optionalString(raw["qualified_name"], `${at}.qualified_name`);
+  const handoff = raw["handoff"] ?? void 0;
+  if (handoff !== void 0 && !HANDOFFS.includes(handoff)) {
+    throw shapeError(ids, `${at}.handoff must be one of ${HANDOFFS.join(", ")}.`);
+  }
+  return {
+    path: raw["path"],
+    description: raw["description"],
+    ...kind !== void 0 ? { kind } : {},
+    ...qualifiedName !== void 0 ? { qualified_name: qualifiedName } : {},
+    ...handoff !== void 0 ? { handoff } : {}
+  };
+}
+function parseProposalClaim(raw, at, ids) {
+  if (!isObject3(raw) || !CLAIMS.includes(raw["claim"])) {
+    throw shapeError(ids, `${at}.claim must be one of ${CLAIMS.join(", ")}.`);
+  }
+  if (!isObject3(raw["args"])) throw shapeError(ids, `${at}.args must be an object.`);
+  return { claim: raw["claim"], args: raw["args"] };
 }
 function reportMissingIds(stored, ids) {
   if (ids.length === 0) return [];
@@ -33589,7 +33661,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing pr-reviewer verdict and their anchors are in the index. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -33633,6 +33705,43 @@ function taskTools(db2) {
                 type: "array",
                 items: { type: "string" },
                 description: "Review finding ids (F<task_id>-<n>) this attempt fixes."
+              },
+              concepts: {
+                type: "array",
+                maxItems: MAX_CONCEPT_PROPOSALS,
+                description: "L2 concepts this work establishes, applied by scan_run after review once every step anchors a current symbol (kind omitted anchors the file) and every claim passes.",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    repo: { type: "string", description: "Defaults to the task's repo." },
+                    kind: { type: "string", enum: [...CONCEPT_KINDS] },
+                    body: { type: "string" },
+                    steps: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          path: { type: "string" },
+                          kind: { type: "string" },
+                          qualified_name: { type: "string" },
+                          description: { type: "string" },
+                          handoff: { type: "string", enum: [...HANDOFFS] }
+                        },
+                        required: ["path", "description"]
+                      }
+                    },
+                    claims: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: { claim: { type: "string", enum: [...CLAIMS] }, args: { type: "object" } },
+                        required: ["claim", "args"]
+                      }
+                    }
+                  },
+                  required: ["name", "steps"]
+                }
               }
             },
             required: ["criteria"]
@@ -34196,6 +34305,10 @@ function taskTools(db2) {
         throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
       }
       const report = status === "completed" ? parseCompletionReport(args2["report"], specCriterionIds(task.spec_body)) : null;
+      const taskRepo = task.repo;
+      if (report?.concepts && taskRepo) {
+        report.concepts = report.concepts.map((c) => ({ ...c, repo: c.repo ?? taskRepo }));
+      }
       const now2 = nowISO();
       const completedAt = status === "completed" ? now2 : status === "closed" ? task.completed_at : null;
       const completionReport = status === "completed" ? report ? JSON.stringify(report) : null : status === "closed" ? task.completion_report : null;
@@ -38733,7 +38846,7 @@ import { dirname as dirname6, join as join10 } from "node:path";
 function settingsPath(projectRoot) {
   return join10(projectRoot, ".claude", "settings.local.json");
 }
-function isObject3(v) {
+function isObject4(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 function readSettings(path2) {
@@ -38741,7 +38854,7 @@ function readSettings(path2) {
   try {
     const raw = readFileSync5(path2, "utf8").trim();
     const parsed = raw.length > 0 ? JSON.parse(raw) : {};
-    return isObject3(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
+    return isObject4(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
   } catch {
     return { reason: "existing settings.local.json is not valid JSON" };
   }
@@ -38841,26 +38954,26 @@ function writeProjectSandbox(opts) {
     return { written: false, reason: read.reason };
   }
   const settings = read.settings;
-  if (settings["env"] !== void 0 && !isObject3(settings["env"])) {
+  if (settings["env"] !== void 0 && !isObject4(settings["env"])) {
     const reason = "existing settings.local.json env is not a JSON object";
     serverLog({ event: "onboard_sandbox_skip", reason });
     return { written: false, reason };
   }
-  const sandbox = isObject3(settings["sandbox"]) ? settings["sandbox"] : {};
-  const filesystem = isObject3(sandbox["filesystem"]) ? sandbox["filesystem"] : {};
+  const sandbox = isObject4(settings["sandbox"]) ? settings["sandbox"] : {};
+  const filesystem = isObject4(sandbox["filesystem"]) ? sandbox["filesystem"] : {};
   const existing = stringList(filesystem["allowWrite"]);
   const wanted = sandboxAllowWrite(opts.projectRoot, opts.cacheDir);
   const ownedBefore = new Set(opts.previous?.allow_write ?? []);
   const added = wanted.filter((p) => !existing.includes(p) || ownedBefore.has(p));
   const enabledSet = sandbox["enabled"] === void 0 || opts.previous?.enabled_set === true;
-  const network = isObject3(sandbox["network"]) ? sandbox["network"] : {};
+  const network = isObject4(sandbox["network"]) ? sandbox["network"] : {};
   const wantedDomains = sandboxAllowedDomains(opts.remoteUrls ?? []);
   const ownedDomainsBefore = new Set(opts.previous?.allowed_domains ?? []);
   const existingDomains = stringList(network["allowedDomains"]).filter(
     (d) => !ownedDomainsBefore.has(d) || wantedDomains.includes(d)
   );
   const addedDomains = wantedDomains.filter((d) => !existingDomains.includes(d) || ownedDomainsBefore.has(d));
-  const env = isObject3(settings["env"]) ? settings["env"] : {};
+  const env = isObject4(settings["env"]) ? settings["env"] : {};
   const wantedEnv = sandboxToolEnv(opts.toolCacheDir ?? sandboxToolCacheDir(opts.projectRoot));
   const ownedEnvBefore = opts.previous?.env ?? {};
   for (const [name2, value] of Object.entries(ownedEnvBefore)) {
@@ -38916,10 +39029,10 @@ function removeProjectSandbox(opts) {
   const read = readSettings(path2);
   if ("reason" in read) return { removed: false, reason: read.reason };
   const settings = read.settings;
-  if (!isObject3(settings["sandbox"])) return { removed: false, settings_path: path2 };
+  if (!isObject4(settings["sandbox"])) return { removed: false, settings_path: path2 };
   const sandbox = settings["sandbox"];
   const owned = new Set(opts.record.allow_write);
-  if (isObject3(sandbox["filesystem"])) {
+  if (isObject4(sandbox["filesystem"])) {
     const filesystem = sandbox["filesystem"];
     if (Array.isArray(filesystem["allowWrite"])) {
       const kept = filesystem["allowWrite"].filter((p) => !(typeof p === "string" && owned.has(p)));
@@ -38929,7 +39042,7 @@ function removeProjectSandbox(opts) {
     if (Object.keys(filesystem).length === 0) delete sandbox["filesystem"];
   }
   const ownedDomains = new Set(opts.record.allowed_domains ?? []);
-  if (isObject3(sandbox["network"])) {
+  if (isObject4(sandbox["network"])) {
     const network = sandbox["network"];
     if (Array.isArray(network["allowedDomains"])) {
       const kept = network["allowedDomains"].filter((d) => !(typeof d === "string" && ownedDomains.has(d)));
@@ -38941,7 +39054,7 @@ function removeProjectSandbox(opts) {
   if (opts.record.enabled_set) delete sandbox["enabled"];
   if (opts.record.weaker_network_isolation_set) delete sandbox["enableWeakerNetworkIsolation"];
   if (Object.keys(sandbox).length === 0) delete settings["sandbox"];
-  if (isObject3(settings["env"])) {
+  if (isObject4(settings["env"])) {
     const env = settings["env"];
     for (const [name2, value] of Object.entries(opts.record.env ?? {})) {
       if (env[name2] === value) delete env[name2];
@@ -42026,9 +42139,6 @@ function symbolCard(db2, symbol2) {
 
 // src/world-model/concepts.ts
 import { spawnSync as spawnSync11 } from "node:child_process";
-var CONCEPT_KINDS = ["flow", "subsystem", "invariant"];
-var HANDOFFS = ["calls", "sources", "runs", "hook_fires"];
-var CLAIMS = ["exists", "calls", "only_writers_of", "tested_by"];
 var DERIVED_LABEL = "derived, unverified";
 var DERIVED_MAX_DEPTH = 4;
 var DERIVED_MAX_STEPS = 8;
@@ -42231,6 +42341,61 @@ function refreshConcepts(db2, repo) {
     }
   });
   return { checked: concepts.length, changed };
+}
+var PROPOSAL_REJECT_AFTER_DAYS = 14;
+var DAY_MS = 864e5;
+var PROPOSAL_EVENTS = ["concept_proposal_applied", "concept_proposal_rejected"];
+function applyConceptProposals(db2, repo, repoPath, now2 = /* @__PURE__ */ new Date()) {
+  const stats = { applied: 0, rejected: 0, pending: 0 };
+  const repos = db2.get(`SELECT COUNT(*) AS n, MAX(name) AS name FROM repos`);
+  const soleRepo = Number(repos?.n) === 1 ? repos?.name ?? null : null;
+  const tasks = db2.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.repo, t.updated_at, t.completion_report FROM tasks t
+      WHERE t.status = 'closed'
+        AND CASE WHEN json_valid(t.completion_report) THEN json_type(t.completion_report, '$.concepts') END = 'array'
+        AND ${HAS_PASS_SQL}
+      ORDER BY t.id`
+  );
+  if (tasks.length === 0) return stats;
+  const settled = new Set(
+    db2.all(
+      `SELECT json_extract(content_json, '$.task_id') AS task_id, json_extract(content_json, '$.name') AS name
+           FROM audit WHERE event_type IN (${PROPOSAL_EVENTS.map((e) => `'${e}'`).join(", ")}) AND json_valid(content_json)`
+    ).map((r) => `${Number(r.task_id)}\0${r.name}`)
+  );
+  const at = now2.toISOString();
+  for (const t of tasks) {
+    const expired = (now2.getTime() - Date.parse(t.updated_at)) / DAY_MS >= PROPOSAL_REJECT_AFTER_DAYS;
+    for (const c of parseStoredReport(t.completion_report)?.concepts ?? []) {
+      if ((c.repo ?? t.repo ?? soleRepo) !== repo) continue;
+      const taskId = Number(t.id);
+      if (settled.has(`${taskId}\0${c.name}`)) continue;
+      const audit = { issue_id: Number(t.issue_id), branch_id: t.branch_id, from_node: "bro", repo, created_at: at };
+      try {
+        const out2 = upsertConcept(db2, { ...c, repo }, { repoPath, agent: "swe" });
+        insertAudit(db2, {
+          ...audit,
+          event_type: "concept_proposal_applied",
+          summary: `Concept '${c.name}' proposed by task ${taskId} applied`,
+          content_json: JSON.stringify({ task_id: taskId, concept_id: out2.id, name: c.name })
+        });
+        stats.applied++;
+      } catch (e) {
+        if (!expired) {
+          stats.pending++;
+          continue;
+        }
+        insertAudit(db2, {
+          ...audit,
+          event_type: "concept_proposal_rejected",
+          summary: `Concept '${c.name}' proposed by task ${taskId} rejected`,
+          content_json: JSON.stringify({ task_id: taskId, name: c.name, error: e.message })
+        });
+        stats.rejected++;
+      }
+    }
+  }
+  return stats;
 }
 function queryWords2(query) {
   return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
@@ -42938,6 +43103,11 @@ async function persistScan(db2, graph, out2, sessionDir) {
         refreshConcepts(db2, r.name);
       } catch (e) {
         serverLog({ event: "concept_refresh_error", repo: r.name, error: e.message });
+      }
+      try {
+        applyConceptProposals(db2, r.name, r.path);
+      } catch (e) {
+        serverLog({ event: "concept_proposals_error", repo: r.name, error: e.message });
       }
     }
   }
@@ -45776,6 +45946,21 @@ var UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer_i
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
 var LIVE_TASK_STATUSES2 = "'pending','running','needs_validation','completed'";
+var CONCEPTS_SCHEMA = 45;
+var COMPLETION_REPORT_SCHEMA = 48;
+var PENDING_PROPOSAL_DAYS = 7;
+var CONCEPTS_MIN_SYMBOLS = 100;
+var auditField = (alias, field2) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.${field2}') END`;
+var PENDING_PROPOSALS = `tasks t,
+               json_each(CASE WHEN json_valid(t.completion_report) THEN t.completion_report ELSE '{}' END, '$.concepts') c
+             WHERE t.status = 'closed' AND ${ts("t.updated_at")} < ${daysAgo(PENDING_PROPOSAL_DAYS)}
+               AND ${HAS_PASS_SQL}
+               AND NOT EXISTS (SELECT 1 FROM audit p
+                                WHERE p.event_type IN ('concept_proposal_applied','concept_proposal_rejected')
+                                  AND ${auditField("p", "task_id")} = t.id
+                                  AND ${auditField("p", "name")} = json_extract(c.value, '$.name'))`;
+var UNCONCEPTUALIZED_REPOS = `(SELECT repo, COUNT(*) AS symbols FROM wm_symbols GROUP BY repo HAVING COUNT(*) >= ${CONCEPTS_MIN_SYMBOLS}) s
+             WHERE NOT EXISTS (SELECT 1 FROM wm_concepts k WHERE k.repo = s.repo AND k.status <> 'retired')`;
 var FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
                AND (${alias}.name IN ('alpha','beta','alpha-server')
                     OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
@@ -46035,6 +46220,43 @@ function buildDataContracts(documentedEventTypes) {
       expect: { op: "=", value: 0 },
       sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2}) ORDER BY i.id DESC, t.id LIMIT 5`
+    },
+    {
+      id: "concepts_trusted",
+      severity: "warn",
+      min_schema: CONCEPTS_SCHEMA,
+      description: "no L2 concept is suspect or broken (a scan found an anchored step changed or gone, or a claim failing): re-verify it with world_model_concept_upsert or retire it",
+      sql: `SELECT COUNT(*) FROM wm_concepts WHERE status IN ('suspect','broken')`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, repo, name, status, status_reason FROM wm_concepts WHERE status IN ('suspect','broken') ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "concept_proposals_not_stale",
+      severity: "warn",
+      min_schema: COMPLETION_REPORT_SCHEMA,
+      description: `no concept a closed, reviewed task proposed in its completion report (report.concepts) is still pending \u2014 no concept_proposal_applied or concept_proposal_rejected row for its task and name \u2014 ${PENDING_PROPOSAL_DAYS} days after the close (tasks has no closed_at, so the close time is updated_at): scan_run applies a proposal once its anchors are in the scanned checkout's index`,
+      sql: `SELECT COUNT(*) FROM ${PENDING_PROPOSALS}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id AS task_id, json_extract(c.value, '$.name') AS name, t.updated_at FROM ${PENDING_PROPOSALS} ORDER BY t.id DESC LIMIT 5`
+    },
+    {
+      id: "concept_proposals_not_rejected",
+      severity: "warn",
+      description: "no concept_proposal_rejected row from the last 30 days (a reviewed task's concept proposal still failed to upsert 14 days after its close; content_json.error names why)",
+      sql: `SELECT COUNT(*) FROM audit a WHERE a.event_type = 'concept_proposal_rejected' AND ${ts("a.created_at")} >= ${daysAgo(30)}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT a.id, a.issue_id, a.created_at, a.content_json FROM audit a
+             WHERE a.event_type = 'concept_proposal_rejected' AND ${ts("a.created_at")} >= ${daysAgo(30)}
+             ORDER BY a.id DESC LIMIT 5`
+    },
+    {
+      id: "concepts_cover_indexed_repos",
+      severity: "warn",
+      min_schema: CONCEPTS_SCHEMA,
+      description: `no repo with ${CONCEPTS_MIN_SYMBOLS} or more wm_symbols rows has no live (non-retired) wm_concepts row: the L1 index is there but nobody has written its L2 concepts`,
+      sql: `SELECT COUNT(*) FROM ${UNCONCEPTUALIZED_REPOS}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT s.repo, s.symbols FROM ${UNCONCEPTUALIZED_REPOS} ORDER BY s.symbols DESC LIMIT 5`
     },
     {
       source: "files",
