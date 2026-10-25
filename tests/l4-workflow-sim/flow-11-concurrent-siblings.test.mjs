@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
-const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
 
 function git(cwd, ...args) {
   return execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
@@ -91,7 +91,7 @@ test('Flow 11 — sibling tasks: distinct branches and worktrees; closing one le
   }
 
   const swe = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: a.data.task_id, status: 'completed', commit_sha: project.sha,
+    agent: 'swe', task_id: a.data.task_id, status: 'completed', commit_sha: project.sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(swe.ok, true, `swe completes a: ${JSON.stringify(swe)}`);
   seedPassingVerificationRun(dbPath, a.data.task_id, project.sha);

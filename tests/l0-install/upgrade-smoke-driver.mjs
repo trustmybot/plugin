@@ -108,7 +108,7 @@ if (mode === 'seed') {
         title: 'Upgrade smoke task',
         description: 'Task written by the v1.0.2 server.',
         spec_body:
-          '## Description\nUpgrade smoke task.\n\n## Success Criteria\n- The DB upgrades.\n\n## Commit\ntest: upgrade smoke',
+          '## Description\nUpgrade smoke task.\n\n## Success Criteria\n- SC1: The DB upgrades.\n\n## Commit\ntest: upgrade smoke',
         files: ['README.md'],
         verification: ['true'],
       },

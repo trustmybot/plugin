@@ -2,5 +2,6 @@ askuserquestion-length-lint
 containment-guard
 ensure-mcp-deps-installed
 pr-reviewer-preflight
+pr-reviewer-spawn-note
 rework-limit
 task-overrun-alert

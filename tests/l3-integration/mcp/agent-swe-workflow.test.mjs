@@ -10,7 +10,7 @@ const SPEC_BODY = [
   '# Task: swe-test handler',
   '',
   '## Success Criteria',
-  '- handler returns 200 with body "ok"',
+  '- SC1: handler returns 200 with body "ok"',
 ].join('\n');
 
 async function seedIssueAndTask(client) {
@@ -69,7 +69,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
 
   // 4. Atomic close — status → completed
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed',
+    agent: 'swe', task_id: taskId, status: 'completed', report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `status completed: ${JSON.stringify(completed)}`);
 

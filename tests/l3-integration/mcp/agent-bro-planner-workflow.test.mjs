@@ -47,7 +47,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
         'Add handler, test, commit.',
         '',
         '## Success Criteria',
-        '- GET /hello returns 200 with {msg:"hello"}',
+        '- SC1: GET /hello returns 200 with {msg:"hello"}',
       ].join('\n'),
     }],
   });

@@ -26,7 +26,7 @@ async function provisionClosedTask(client, project, dbPath, issueId, branchId, s
     task: {
       title: branchId,
       description: 'd',
-      spec_body: '## Success Criteria\n- change lands',
+      spec_body: '## Success Criteria\n- SC1: change lands',
       files: ['change.txt'],
       verification: ['test -f change.txt'],
       repo: project.name,
@@ -41,7 +41,7 @@ async function provisionClosedTask(client, project, dbPath, issueId, branchId, s
 
   const sha = project.commitIn(provisioned.data.worktree_path, 'change.txt', `${branchId}\n`, `change ${branchId}`);
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `swe→completed ${branchId}: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);

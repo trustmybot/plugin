@@ -51,7 +51,7 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
     task: {
       title: 'Add /hello endpoint',
       description: 'Wire /hello → 200 OK {msg:"hello"}.',
-      spec_body: '## Success Criteria\n- 200 OK',
+      spec_body: '## Success Criteria\n- SC1: 200 OK',
       files: ['hello.txt'],
       verification: ['test -f hello.txt'],
       repo: project.name,
@@ -74,7 +74,7 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   // 5. SWE commits in the worktree and completes with that commit_sha
   const sha = project.commitIn(worktreePath, 'hello.txt', 'hello\n', 'feat: add /hello');
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha, report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);

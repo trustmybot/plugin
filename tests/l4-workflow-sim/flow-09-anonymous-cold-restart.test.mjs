@@ -58,7 +58,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
       branch_id: 'feat/role-test',
       title: 'role test',
       description: 'fixture',
-      spec_body: '## Description\nfixture\n## Success Criteria\n- none',
+      spec_body: '## Description\nfixture\n## Success Criteria\n- SC1: none',
     }],
   });
   assert.equal(task.ok, true);
@@ -113,7 +113,7 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
       branch_id: 'feat/audit-event-test',
       title: 'audit event test',
       description: 'fixture',
-      spec_body: '## Description\nfixture\n## Success Criteria\n- none',
+      spec_body: '## Description\nfixture\n## Success Criteria\n- SC1: none',
     }],
   });
   const createdTask = Array.isArray(task.data) ? task.data[0] : task.data.tasks?.[0];
@@ -122,7 +122,7 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
   // SWE finishes the work first — bro can only close verified ('completed')
   // work, never jump a pending task straight to closed (#278).
   await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234', report: { criteria: [{ id: 'SC1', status: 'met' }] },
   });
 
   // Bro's correct task-gate close: bro_atomic_close writes the single

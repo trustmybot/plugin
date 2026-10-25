@@ -337,7 +337,7 @@ describe('composite audit writers populate audit.repo', () => {
         task: {
           title: 'X',
           description: 'implement X',
-          spec_body: ['## Description', 'x', '', '## Success Criteria', '- works'].join('\n'),
+          spec_body: ['## Description', 'x', '', '## Success Criteria', '- SC1: works'].join('\n'),
           files: ['a.txt'],
           verification: ['true'],
           repo: 'app',

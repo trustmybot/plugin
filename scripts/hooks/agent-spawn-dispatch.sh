@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PreToolUse hook — dispatcher for all Agent-matcher checks.
 #
-# Runs the eight Agent-spawn gates IN ORDER, short-circuiting on the
+# Runs the nine Agent-spawn gates IN ORDER, short-circuiting on the
 # first deny (emits that deny verbatim and exits). On a clean pass from
-# all eight, emits the union of any additionalContext outputs (currently
-# none of the eight produce context, but the union logic is future-proof).
+# all nine, emits the union of any additionalContext outputs (currently
+# none of the nine produce context, but the union logic is future-proof).
 #
 # Hook order:
 #   1. require-task-spec              — swe must cite a valid task_id
@@ -13,9 +13,12 @@
 #   4. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
 #   5. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have seven anchors
 #   6. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
-#   7. pr-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
+#   7. pr-reviewer-spawn-note         — TypeScript gate (dist/hooks.js): at most
+#      300 chars of prose beyond the anchors; more goes into spawn_note via
+#      bro_atomic_close (GH 1744)
+#   8. pr-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
 #      task commit's five deterministic checks; denies {check, expected, actual}
-#   8. rework-limit                   — TypeScript gate (dist/hooks.js): a swe
+#   9. rework-limit                   — TypeScript gate (dist/hooks.js): a swe
 #      spawn after two review FAILs since the last pass needs a newer decision
 #      row or a Human comment (GH 1738)
 #
@@ -42,6 +45,7 @@ HOOKS=(
   "$SCRIPT_DIR/pr-reviewer-no-worktree.sh"
   "$SCRIPT_DIR/pr-reviewer-spawn-prompt-shape.sh"
   "$SCRIPT_DIR/pr-reviewer-after-atomic-close.sh"
+  pr-reviewer-spawn-note
   pr-reviewer-preflight
   rework-limit
 )

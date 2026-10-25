@@ -79,6 +79,10 @@ export interface Task {
   completed_at: string | null;
   /** Reasoning effort swe runs this task at: low | medium | high. */
   effort: string;
+  /** GH 1744: swe's typed completion report (JSON), stored with the move to completed. */
+  completion_report: string | null;
+  /** GH 1744: ≤300 chars of context for the next spawn, set by bro_atomic_close / task_reopen. */
+  spawn_note: string | null;
 }
 
 export interface Discussion {
