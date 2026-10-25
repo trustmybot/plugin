@@ -1,0 +1,2 @@
+### Changed
+- **Rebasing a dashboard branch no longer stops on a `dashboard/dist` conflict** (GH 1790): `dashboard/dist/**` now goes through the `tmb-regen` merge driver like the trajectory-server bundle, and `scripts/maintenance/regen-generated.sh` rebuilds the dashboard after the server build, so parallel dashboard branches integrate without hand-resolving build output. The script now exits 2 unless `bun install --frozen-lockfile` has run at the plugin root and in `dashboard/`.

@@ -4,6 +4,7 @@
 #   2. gen-enums-doc.mjs --doc                → the generated section of docs/contributing/ENUMS.md
 #   3. emit-data-contracts.mjs                → scripts/hooks/lib/data-contracts.json
 #   4. gen-erd-doc.mjs, gen-config-keys-doc.mjs (when present)
+#   5. bun run build (dashboard)               → dashboard/dist/** (bundles trajectory-server sources)
 #
 # Usage: bash scripts/maintenance/regen-generated.sh [--check]
 #
@@ -12,8 +13,8 @@
 # --check rebuilds, lists every file whose regenerated content differs from the
 # checked-out one (the committed one on a clean tree), puts the checked-out
 # content back and exits 1 when any differ.
-# Exit 2: usage error or the build toolchain is missing (run `bun install` in
-# mcp/trajectory-server).
+# Exit 2: usage error or the build toolchain is missing (run
+# `bun install --frozen-lockfile` at the plugin root and in dashboard/).
 
 set -euo pipefail
 
@@ -27,9 +28,15 @@ esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 SERVER="$ROOT/mcp/trajectory-server"
+DASHBOARD="$ROOT/dashboard"
+INSTALL_HINT="run 'bun install --frozen-lockfile' at the plugin root and in dashboard/ first"
 
 if [ ! -x "$SERVER/node_modules/.bin/tsc" ] || [ ! -x "$SERVER/node_modules/.bin/esbuild" ]; then
-  echo "regen-generated: tsc/esbuild not installed in mcp/trajectory-server — run 'bun install' there first" >&2
+  echo "regen-generated: tsc/esbuild not installed in mcp/trajectory-server — $INSTALL_HINT" >&2
+  exit 2
+fi
+if [ ! -x "$DASHBOARD/node_modules/.bin/esbuild" ] || [ ! -x "$DASHBOARD/node_modules/.bin/tailwindcss" ]; then
+  echo "regen-generated: esbuild/tailwindcss not installed in dashboard — $INSTALL_HINT" >&2
   exit 2
 fi
 
@@ -82,6 +89,8 @@ run "emit-data-contracts.mjs" node scripts/maintenance/emit-data-contracts.mjs
 for gen in gen-erd-doc.mjs gen-config-keys-doc.mjs; do
   [ -f "scripts/maintenance/$gen" ] && run "$gen" node "scripts/maintenance/$gen"
 done
+build_dashboard() { (cd "$DASHBOARD" && bun run build); }
+run "bun run build (dashboard)" build_dashboard
 
 STALE="$(changed_paths)"
 if [ "$CHECK" -eq 1 ]; then
