@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { formArea, loadCatalog, renderDoc, triage } from '../../scripts/maintenance/labels.mjs';
+import { formArea, loadCatalog, renderDoc, renderSection, triage } from '../../scripts/maintenance/labels.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const catalog = loadCatalog(ROOT);
@@ -52,4 +52,29 @@ test('every required group has labels and every area form value maps to a label'
 test('LABELS.md tables match .github/labels.json', () => {
   const doc = readFileSync(join(ROOT, 'docs/contributing/LABELS.md'), 'utf8');
   assert.equal(doc, renderDoc(doc, catalog), 'run: node scripts/maintenance/labels.mjs --doc');
+});
+
+function cells(row) {
+  const out = [];
+  let current = '';
+  for (let i = 0; i < row.length; i++) {
+    if (row[i] === '\\') {
+      current += row.slice(i, i + 2);
+      i++;
+    } else if (row[i] === '|') {
+      out.push(current);
+      current = '';
+    } else {
+      current += row[i];
+    }
+  }
+  out.push(current);
+  return out.slice(1, -1).map((c) => c.trim());
+}
+
+test('a backslash cannot undo the pipe escape in a table cell', () => {
+  const entry = { name: 'Area: X', color: '000000', description: 'ends in \\| then more', group: 'area' };
+  const row = renderSection([entry]).split('\n').find((line) => line.startsWith('| **Area: X**'));
+  assert.equal(row, '| **Area: X** | ends in \\\\\\| then more |');
+  assert.deepEqual(cells(row), ['**Area: X**', 'ends in \\\\\\| then more']);
 });

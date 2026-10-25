@@ -71,7 +71,7 @@ export function triage({ labels, body, catalog }) {
 }
 
 function cell(text) {
-  return text.replace(/\|/g, '\\|');
+  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 }
 
 export function renderSection(catalog) {
