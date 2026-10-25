@@ -1,0 +1,2 @@
+### Changed
+- **The dashboard Overview now looks like a GitHub dashboard home, and every part of it links somewhere** (GH 1790): the totals sit in one row of cells that open the Issues, Runs or Tasks tab; tasks by status show as a sorted list with a coloured proportion bar per status; your five most recently updated open issues are listed with a link to each; and recent agent runs sit below with a link to the full list. It follows the light or dark colour mode and stacks to a single column on a phone.
