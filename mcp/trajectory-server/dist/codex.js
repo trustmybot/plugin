@@ -3599,49 +3599,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative4, options, skipNormalization) {
+    function resolveComponent(base, relative5, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative4 = parse4(serialize(relative4, options), options);
+        relative5 = parse4(serialize(relative5, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative4.scheme) {
-        target.scheme = relative4.scheme;
-        target.userinfo = relative4.userinfo;
-        target.host = relative4.host;
-        target.port = relative4.port;
-        target.path = removeDotSegments(relative4.path || "");
-        target.query = relative4.query;
+      if (!options.tolerant && relative5.scheme) {
+        target.scheme = relative5.scheme;
+        target.userinfo = relative5.userinfo;
+        target.host = relative5.host;
+        target.port = relative5.port;
+        target.path = removeDotSegments(relative5.path || "");
+        target.query = relative5.query;
       } else {
-        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
-          target.userinfo = relative4.userinfo;
-          target.host = relative4.host;
-          target.port = relative4.port;
-          target.path = removeDotSegments(relative4.path || "");
-          target.query = relative4.query;
+        if (relative5.userinfo !== void 0 || relative5.host !== void 0 || relative5.port !== void 0) {
+          target.userinfo = relative5.userinfo;
+          target.host = relative5.host;
+          target.port = relative5.port;
+          target.path = removeDotSegments(relative5.path || "");
+          target.query = relative5.query;
         } else {
-          if (!relative4.path) {
+          if (!relative5.path) {
             target.path = base.path;
-            if (relative4.query !== void 0) {
-              target.query = relative4.query;
+            if (relative5.query !== void 0) {
+              target.query = relative5.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative4.path[0] === "/") {
-              target.path = removeDotSegments(relative4.path);
+            if (relative5.path[0] === "/") {
+              target.path = removeDotSegments(relative5.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative4.path;
+                target.path = "/" + relative5.path;
               } else if (!base.path) {
-                target.path = relative4.path;
+                target.path = relative5.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative5.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative4.query;
+            target.query = relative5.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3649,7 +3649,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative4.fragment;
+      target.fragment = relative5.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -33606,6 +33606,7 @@ ${UNTRUSTED_CLOSE}`;
 }
 
 // src/symbol-index.ts
+import { createHash as createHash3 } from "node:crypto";
 import { readFileSync as readFileSync6 } from "node:fs";
 import { basename as basename5, join as join12, posix as posix2 } from "node:path";
 
@@ -34152,8 +34153,11 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
+var EXTRACTOR_VERSION = 1;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
+var IMPACT_REF_CAP = 200;
+var IMPACT_MAX_DEPTH = 5;
 var OR_FALLBACK_MIN_HITS = 3;
 var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order";
 var CALLABLE = /* @__PURE__ */ new Set(["function", "method", "class", "sh_function"]);
@@ -34374,10 +34378,11 @@ function reresolveEdges(db, repo, names, skip) {
   }
   return resolved;
 }
-async function indexRepoSymbols(db, repo, repoPath) {
+async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
   const stale = db.all(
-    `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND symbols_md5 IS NOT content_md5 ORDER BY path`,
-    [repo]
+    `SELECT id, path, content_md5, size_bytes FROM wm_files
+        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ? ORDER BY path`,
+    [repo, String(extractorVersion)]
   ).filter((f) => inSymbolScope(f.path));
   if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get(
@@ -34420,7 +34425,7 @@ async function indexRepoSymbols(db, repo, repoPath) {
       } else {
         deleteFileSymbols(db, repo, file2.path);
       }
-      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 WHERE id = ?`, [file2.id]);
+      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [String(extractorVersion), file2.id]);
     }
     let resolved = 0;
     if (pending2.length > 0) {
@@ -34526,8 +34531,9 @@ function symbolCard(db, symbol2) {
   const isTable = symbol2.kind === "sql_table";
   const tableSide = isTable ? inbound : outbound;
   const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
+  const stale = staleFiles(db, [symbol2]);
   const card = {
-    symbol: symbol2,
+    symbol: { ...symbol2, stale: stale.has(fileRefKey(symbol2)) },
     callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
     callees: refList(of(outbound, CALL_EDGES)),
     imports: refList(of(symbol2.kind === "module" ? outbound : inbound, ["imports"])),
@@ -34537,6 +34543,86 @@ function symbolCard(db, symbol2) {
   };
   if ([...inbound, ...outbound].some((r) => r.resolution !== "exact")) card.note = "found by name; not all callers";
   return card;
+}
+function symbolImpact(db, symbol2, depth) {
+  const visited = /* @__PURE__ */ new Set([symbol2.id]);
+  const levels = [];
+  const tests = [];
+  let total = 0;
+  let truncated = false;
+  let frontier = [symbol2.id];
+  for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
+    const rows = db.all(
+      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind IN (SELECT value FROM json_each(?))
+        ORDER BY o.path, o.start_line, o.id`,
+      [JSON.stringify(frontier), JSON.stringify(CALL_EDGES)]
+    );
+    const refs = [];
+    const next = [];
+    for (const r of rows) {
+      const id = Number(r.id);
+      if (visited.has(id)) continue;
+      if (total >= IMPACT_REF_CAP) {
+        truncated = true;
+        break;
+      }
+      visited.add(id);
+      total++;
+      const ref2 = {
+        id,
+        qualified_name: r.qualified_name,
+        kind: r.kind,
+        repo: r.repo,
+        path: r.path,
+        line_start: Number(r.start_line)
+      };
+      if (isTestPath(ref2.path)) {
+        tests.push(ref2);
+      } else {
+        refs.push(ref2);
+        next.push(id);
+      }
+    }
+    if (refs.length > 0) levels.push({ depth: d, refs });
+    frontier = next;
+  }
+  return { depth, levels, tests, truncated };
+}
+function symbolsStamp(contentMd5, extractorVersion = EXTRACTOR_VERSION) {
+  return `${contentMd5}:${extractorVersion}`;
+}
+function fileRefKey(f) {
+  return `${f.repo}\0${f.path}`;
+}
+function fileMd5(absPath) {
+  try {
+    return createHash3("md5").update(readFileSync6(absPath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+function staleFiles(db, files) {
+  const roots = /* @__PURE__ */ new Map();
+  const checked = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    const key = fileRefKey(f);
+    if (checked.has(key)) continue;
+    if (!roots.has(f.repo)) roots.set(f.repo, resolveSoleRepo(db, f.repo)?.path ?? null);
+    const root = roots.get(f.repo);
+    if (root === null) {
+      checked.set(key, false);
+      continue;
+    }
+    const row = db.get(
+      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
+      [f.repo, f.path]
+    );
+    const disk = fileMd5(join12(root, f.path));
+    checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
+  }
+  return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
 }
 
 // src/world-model/concepts.ts
@@ -35402,7 +35488,7 @@ function deriveDirectoryEntries(out2) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename6(dirPath);
-  const join15 = (names) => {
+  const join16 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -35413,10 +35499,10 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join15(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join16(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join15(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join16(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
@@ -36038,6 +36124,8 @@ function resolveRepoDefaultBranch(repoPath) {
 }
 
 // src/tools/world_model.ts
+import { readFileSync as readFileSync9, realpathSync as realpathSync6 } from "node:fs";
+import { isAbsolute as isAbsolute6, join as join15, relative as relative4 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -36045,6 +36133,8 @@ var UNMERGED_WORK_MAX_BRANCHES = 10;
 var SYMBOL_POOL = 40;
 var FILE_RANK_POOL = 20;
 var PATH_RANK_K = 10;
+var DEFAULT_IMPACT_DEPTH = 2;
+var SOURCE_MAX_LINES = 200;
 function git2(repoPath, args2) {
   return spawnSync8("git", ["-C", repoPath, ...args2], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
 }
@@ -36176,7 +36266,33 @@ function framedSymbol(s) {
     doc: s.doc ? frameUntrusted("symbol-doc", s.doc) : ""
   };
 }
-function symbolResult(symbol2, score) {
+function symbolSource(db, symbol2) {
+  const rootArg = resolveSoleRepo(db, symbol2.repo)?.path;
+  if (!rootArg) return { source: null, source_reason: "repo-path-unknown" };
+  let root;
+  let file2;
+  try {
+    root = realpathSync6(rootArg);
+    file2 = realpathSync6(join15(root, symbol2.path));
+  } catch {
+    return { source: null, source_reason: "file-missing" };
+  }
+  const rel = relative4(root, file2);
+  if (rel === "" || rel.startsWith("..") || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
+  let lines2;
+  try {
+    lines2 = readFileSync9(file2, "utf8").split("\n");
+  } catch {
+    return { source: null, source_reason: "file-unreadable" };
+  }
+  const start2 = Math.max(1, symbol2.start_line);
+  const end = Math.min(symbol2.end_line, lines2.length);
+  const truncated = end - start2 + 1 > SOURCE_MAX_LINES;
+  const last = truncated ? start2 + SOURCE_MAX_LINES - 1 : end;
+  const text = frameUntrusted("symbol-source", lines2.slice(start2 - 1, last).join("\n"));
+  return { source: { start_line: start2, end_line: last, text, truncated } };
+}
+function symbolResult(symbol2, score, stale) {
   const s = framedSymbol(symbol2);
   return {
     kind: "symbol",
@@ -36189,6 +36305,7 @@ function symbolResult(symbol2, score) {
     line_end: s.end_line,
     signature: s.signature,
     doc: s.doc,
+    stale,
     score
   };
 }
@@ -36201,10 +36318,10 @@ function fileHit(node) {
 function symbolHit(node) {
   return { kind: "symbol", key: `symbol:${node.id}`, node };
 }
-function hitResult(hit, score) {
+function hitResult(hit, score, stale) {
   if (hit.kind === "dir") return dirResult({ ...hit.node, score });
   if (hit.kind === "file") return fileResult({ ...hit.node, score });
-  return symbolResult(hit.node, score);
+  return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)));
 }
 function isBuildOutput(path) {
   return /(^|\/)dist\//.test(path) || path.endsWith(".map");
@@ -36368,7 +36485,7 @@ function worldModelTools(db, graphHolder) {
     },
     {
       name: "world_model_search",
-      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'; without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
+      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'|'symbol'; a symbol hit carries stale: true when its file changed on disk since the last scan. Without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36396,7 +36513,7 @@ function worldModelTools(db, graphHolder) {
     },
     {
       name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete.",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36407,7 +36524,15 @@ function worldModelTools(db, graphHolder) {
             description: "Repo name. Defaults to the sole registered repo; required in multi-repo projects without id."
           },
           path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
-          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." }
+          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+          impact: {
+            type: ["boolean", "integer"],
+            description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`
+          },
+          source: {
+            type: "boolean",
+            description: "Add source {start_line, end_line, text, truncated}: the body read from disk, capped at 200 lines, text framed as untrusted content."
+          }
         },
         required: ["agent"]
       }
@@ -36549,7 +36674,12 @@ function worldModelTools(db, graphHolder) {
         const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
         const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
         const respond = (ranked, extra = {}) => {
-          const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
+          const top = ranked.slice(0, k);
+          const stale = staleFiles(
+            db,
+            top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
+          );
+          const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
           return ok4({ results, total_matched: results.length, ...extra, mode, match });
         };
         if (mode === "keyword") return respond(keywordRanked);
@@ -36605,8 +36735,24 @@ function worldModelTools(db, graphHolder) {
           }
           symbol2 = matches[0];
         }
+        const impactArg = args2["impact"];
+        let impactDepth = null;
+        if (impactArg === true) impactDepth = DEFAULT_IMPACT_DEPTH;
+        else if (typeof impactArg === "number") {
+          if (!Number.isInteger(impactArg) || impactArg < 1 || impactArg > IMPACT_MAX_DEPTH) {
+            return err5(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+          }
+          impactDepth = impactArg;
+        } else if (impactArg !== void 0 && impactArg !== false && impactArg !== null) {
+          return err5(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+        }
         const card = symbolCard(db, symbol2);
-        return ok4({ ...card, symbol: framedSymbol(card.symbol) });
+        return ok4({
+          ...card,
+          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
+          ...impactDepth !== null ? { impact: symbolImpact(db, symbol2, impactDepth) } : {},
+          ...args2["source"] === true ? symbolSource(db, symbol2) : {}
+        });
       })
     ),
     world_model_concepts: requireRoles(

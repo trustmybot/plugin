@@ -7,7 +7,9 @@ import { spawnSync } from 'node:child_process';
 import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
-import { isTestPath, keywordSearchSymbols, symbolById, symbolCard, symbolsByName, } from '../symbol-index.js';
+import { readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, relative } from 'node:path';
+import { fileRefKey, IMPACT_MAX_DEPTH, isTestPath, keywordSearchSymbols, staleFiles, symbolById, symbolCard, symbolImpact, symbolsByName, } from '../symbol-index.js';
 import { CLAIMS, CONCEPT_KINDS, HANDOFFS, derivedChain, getConcept, searchConcepts, upsertConcept, } from '../world-model/concepts.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
 const RRF_K = 60;
@@ -16,6 +18,8 @@ const UNMERGED_WORK_MAX_BRANCHES = 10;
 const SYMBOL_POOL = 40;
 const FILE_RANK_POOL = 20;
 const PATH_RANK_K = 10;
+const DEFAULT_IMPACT_DEPTH = 2;
+const SOURCE_MAX_LINES = 200;
 function git(repoPath, args) {
     return spawnSync('git', ['-C', repoPath, ...args], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
 }
@@ -182,7 +186,40 @@ function framedSymbol(s) {
         doc: s.doc ? frameUntrusted('symbol-doc', s.doc) : '',
     };
 }
-function symbolResult(symbol, score) {
+// The symbol's lines read from the repo root on disk, framed as untrusted
+// content, refusing a path that resolves (through .. or a symlink) outside
+// that root.
+function symbolSource(db, symbol) {
+    const rootArg = resolveSoleRepo(db, symbol.repo)?.path;
+    if (!rootArg)
+        return { source: null, source_reason: 'repo-path-unknown' };
+    let root;
+    let file;
+    try {
+        root = realpathSync(rootArg);
+        file = realpathSync(join(root, symbol.path));
+    }
+    catch {
+        return { source: null, source_reason: 'file-missing' };
+    }
+    const rel = relative(root, file);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+        return { source: null, source_reason: 'outside-repo-root' };
+    let lines;
+    try {
+        lines = readFileSync(file, 'utf8').split('\n');
+    }
+    catch {
+        return { source: null, source_reason: 'file-unreadable' };
+    }
+    const start = Math.max(1, symbol.start_line);
+    const end = Math.min(symbol.end_line, lines.length);
+    const truncated = end - start + 1 > SOURCE_MAX_LINES;
+    const last = truncated ? start + SOURCE_MAX_LINES - 1 : end;
+    const text = frameUntrusted('symbol-source', lines.slice(start - 1, last).join('\n'));
+    return { source: { start_line: start, end_line: last, text, truncated } };
+}
+function symbolResult(symbol, score, stale) {
     const s = framedSymbol(symbol);
     return {
         kind: 'symbol',
@@ -195,6 +232,7 @@ function symbolResult(symbol, score) {
         line_end: s.end_line,
         signature: s.signature,
         doc: s.doc,
+        stale,
         score,
     };
 }
@@ -207,12 +245,12 @@ function fileHit(node) {
 function symbolHit(node) {
     return { kind: 'symbol', key: `symbol:${node.id}`, node };
 }
-function hitResult(hit, score) {
+function hitResult(hit, score, stale) {
     if (hit.kind === 'dir')
         return dirResult({ ...hit.node, score });
     if (hit.kind === 'file')
         return fileResult({ ...hit.node, score });
-    return symbolResult(hit.node, score);
+    return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)));
 }
 function isBuildOutput(path) {
     return /(^|\/)dist\//.test(path) || path.endsWith('.map');
@@ -415,7 +453,7 @@ export function worldModelTools(db, graphHolder) {
         },
         {
             name: 'world_model_search',
-            description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'; without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' — cheaper than world_model_get.",
+            description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'|'symbol'; a symbol hit carries stale: true when its file changed on disk since the last scan. Without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' — cheaper than world_model_get.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -443,7 +481,7 @@ export function worldModelTools(db, graphHolder) {
         },
         {
             name: 'world_model_symbol',
-            description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete.",
+            description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -455,6 +493,14 @@ export function worldModelTools(db, graphHolder) {
                     },
                     path: { type: 'string', description: 'Repo-relative file path, to pick one of several same-named symbols.' },
                     qualified_name: { type: 'string', description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+                    impact: {
+                        type: ['boolean', 'integer'],
+                        description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`,
+                    },
+                    source: {
+                        type: 'boolean',
+                        description: 'Add source {start_line, end_line, text, truncated}: the body read from disk, capped at 200 lines, text framed as untrusted content.',
+                    },
                 },
                 required: ['agent'],
             },
@@ -606,7 +652,9 @@ export function worldModelTools(db, graphHolder) {
             const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
             const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
             const respond = (ranked, extra = {}) => {
-                const results = ranked.slice(0, k).map(({ hit, score }) => hitResult(hit, score));
+                const top = ranked.slice(0, k);
+                const stale = staleFiles(db, top.flatMap(({ hit }) => (hit.kind === 'symbol' ? [hit.node] : [])));
+                const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
                 return ok({ results, total_matched: results.length, ...extra, mode, match });
             };
             if (mode === 'keyword')
@@ -664,8 +712,26 @@ export function worldModelTools(db, graphHolder) {
                 }
                 symbol = matches[0];
             }
+            const impactArg = args['impact'];
+            let impactDepth = null;
+            if (impactArg === true)
+                impactDepth = DEFAULT_IMPACT_DEPTH;
+            else if (typeof impactArg === 'number') {
+                if (!Number.isInteger(impactArg) || impactArg < 1 || impactArg > IMPACT_MAX_DEPTH) {
+                    return err(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+                }
+                impactDepth = impactArg;
+            }
+            else if (impactArg !== undefined && impactArg !== false && impactArg !== null) {
+                return err(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+            }
             const card = symbolCard(db, symbol);
-            return ok({ ...card, symbol: framedSymbol(card.symbol) });
+            return ok({
+                ...card,
+                symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
+                ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
+                ...(args['source'] === true ? symbolSource(db, symbol) : {}),
+            });
         })),
         world_model_concepts: requireRoles('world_model_concepts', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
             const query = args['query'];
