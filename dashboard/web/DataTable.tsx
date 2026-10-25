@@ -14,6 +14,7 @@ export interface Column {
   key: string;
   header: string;
   cell?: (row: Row) => ReactNode;
+  truncate?: boolean;
 }
 
 export function DataTable({
@@ -39,6 +40,7 @@ export function DataTable({
       })),
     [columns],
   );
+  const byKey = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
   const table = useReactTable({
     data: rows,
     columns: defs,
@@ -85,11 +87,19 @@ export function DataTable({
                 className={`border-t border-zinc-200 dark:border-zinc-800 ${onRowClick ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900' : ''}`}
                 onClick={onRowClick ? () => onRowClick(r.original) : undefined}
               >
-                {r.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-3 py-1.5 align-top">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+                {r.getVisibleCells().map((cell) => {
+                  const col = byKey.get(cell.column.id);
+                  const value = cell.getValue();
+                  return (
+                    <td
+                      key={cell.id}
+                      className={`whitespace-nowrap px-3 py-1.5 align-top ${col?.truncate ? 'max-w-[32rem] truncate' : ''}`}
+                      title={col?.truncate && value !== '' ? String(value) : undefined}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
             {table.getRowModel().rows.length === 0 && (

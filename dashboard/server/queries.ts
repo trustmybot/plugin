@@ -193,6 +193,31 @@ export function clampHits(raw: string | null): number {
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
 }
 
+const SUMMARY_MAX = 160;
+
+// One plain line from a world-model summary: the `<untrusted-content>` framing
+// and markdown syntax removed, the first non-empty line, at most SUMMARY_MAX
+// characters.
+export function summaryLine(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const line = raw
+    .replace(/<\/?untrusted-content[^>]*>/g, ' ')
+    .split('\n')
+    .map((l) =>
+      l
+        .replace(/^\s{0,3}#{1,6}\s+/, '')
+        .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/(\*\*|__)(.+?)\1/g, '$2')
+        .replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, '$1$2')
+        .replace(/`+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .find((l) => l !== '');
+  if (line === undefined) return '';
+  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1).trimEnd()}…` : line;
+}
+
 // The directory at `path` (default: the repo root) plus its descendants down to
 // `depth` levels below it. `repo` defaults to the first repo by name.
 export function worldModel(db: DatabaseSync, repo: string | null, path: string, depth: number): Row {
@@ -218,7 +243,7 @@ export function worldModel(db: DatabaseSync, repo: string | null, path: string, 
     target,
     depth,
   );
-  return { available: true, repos, nodes };
+  return { available: true, repos, nodes: nodes.map((n) => ({ ...n, summary: summaryLine(n['summary']) })) };
 }
 
 export function ftsPhrase(raw: string): string {
@@ -249,5 +274,5 @@ export function worldModelSearch(db: DatabaseSync, query: string, limit: number)
     phrase,
     limit,
   );
-  return { available: true, hits };
+  return { available: true, hits: hits.map((h) => ({ ...h, text: summaryLine(h['text']) })) };
 }

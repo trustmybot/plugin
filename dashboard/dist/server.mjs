@@ -1,40 +1,8 @@
-var __defProp = Object.defineProperty;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __esm = (fn, res, err3) => function __init() {
-  if (err3) throw err3[0];
-  try {
-    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-  } catch (e) {
-    throw err3 = [e], e;
-  }
-};
-var __export = (target, all2) => {
-  for (var name in all2)
-    __defProp(target, name, { get: all2[name], enumerable: true });
-};
-
-// server/no-embeddings.ts
-var no_embeddings_exports = {};
-__export(no_embeddings_exports, {
-  env: () => env,
-  pipeline: () => pipeline
-});
-function pipeline() {
-  return Promise.reject(new Error("embeddings are not loaded in the dashboard"));
-}
-var env;
-var init_no_embeddings = __esm({
-  "server/no-embeddings.ts"() {
-    "use strict";
-    env = {};
-  }
-});
-
 // server/main.ts
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync as existsSync2, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
-import { extname, join as join7, normalize, sep as sep3 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { extname, join as join8, normalize, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
@@ -63,8 +31,8 @@ var UnsafeProjectWritePathError = class extends Error {
     this.name = "UnsafeProjectWritePathError";
   }
 };
-function readClaudePluginMetadata(env2 = process.env) {
-  const root = env2["CLAUDE_PLUGIN_ROOT"] ?? null;
+function readClaudePluginMetadata(env = process.env) {
+  const root = env["CLAUDE_PLUGIN_ROOT"] ?? null;
   if (!root) {
     return freezePlugin({ root: null, name: "tmb", version: null });
   }
@@ -79,29 +47,29 @@ function readClaudePluginMetadata(env2 = process.env) {
     return freezePlugin({ root, name: "tmb", version: null });
   }
 }
-function resolveClaudePluginName(env2 = process.env) {
-  return readClaudePluginMetadata(env2).name;
+function resolveClaudePluginName(env = process.env) {
+  return readClaudePluginMetadata(env).name;
 }
-function resolveClaudePluginVersion(env2 = process.env) {
-  return readClaudePluginMetadata(env2).version;
+function resolveClaudePluginVersion(env = process.env) {
+  return readClaudePluginMetadata(env).version;
 }
-function resolveClaudeProjectRoot(env2 = process.env) {
-  const root = env2["CLAUDE_PROJECT_DIR"];
+function resolveClaudeProjectRoot(env = process.env) {
+  const root = env["CLAUDE_PROJECT_DIR"];
   return root && root.trim().length > 0 ? root : null;
 }
 function resolveClaudeDbPath(opts) {
-  const env2 = opts?.env ?? process.env;
+  const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
   const home = opts?.home ?? homedir();
-  const pluginName = resolveClaudePluginName(env2);
-  return resolveClaudeDbPathForPlugin(pluginName, { env: env2, cwd, home });
+  const pluginName = resolveClaudePluginName(env);
+  return resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home });
 }
 function resolveClaudeDbPathForPlugin(pluginName, opts) {
-  const { env: env2, cwd, home } = opts;
-  const override = env2["TRAJECTORY_DB_PATH"];
+  const { env, cwd, home } = opts;
+  const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) return override;
-  const projectRoot = resolveClaudeProjectRoot(env2);
-  const found = findExistingClaudeDbUp(cwd, pluginName, { home, env: env2, projectRoot });
+  const projectRoot = resolveClaudeProjectRoot(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName, { home, env, projectRoot });
   if (found) return found;
   return claudeDbLocation(projectRoot ?? cwd, pluginName);
 }
@@ -114,11 +82,11 @@ function claudeLogDirFor(trajectoryDb, pluginName) {
   return join(dirname(trajectoryDb), "logs");
 }
 function resolveClaudeLogDir(opts) {
-  const env2 = opts?.env ?? process.env;
+  const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
   const home = opts?.home ?? homedir();
-  const pluginName = resolveClaudePluginName(env2);
-  return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env: env2, cwd, home }), pluginName);
+  const pluginName = resolveClaudePluginName(env);
+  return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home }), pluginName);
 }
 function assertSafeProjectWritePath(projectRoot, path, label = "Codex writable path", expectedKind = "either") {
   if (!isAbsolute(projectRoot)) {
@@ -189,12 +157,12 @@ function walkClaudeDbs(start, pluginName, opts) {
   return { resolved: found.length === 0 ? null : found[found.length - 1], candidates: found };
 }
 function findExistingClaudeDbUp(startDir, pluginName, opts) {
-  const env2 = opts?.env ?? process.env;
-  const override = env2["TRAJECTORY_DB_PATH"];
+  const env = opts?.env ?? process.env;
+  const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) {
     return existsSync(override) ? override : null;
   }
-  const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env2);
+  const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
   return walkClaudeDbs(projectRoot ?? startDir, pluginName, opts).resolved;
 }
 function assertPathContained(root, path, label) {
@@ -525,11 +493,11 @@ function syncRemotes(db, repo) {
 // ../mcp/trajectory-server/src/db.ts
 var TARGET_SCHEMA_VERSION = 45;
 var BUSY_TIMEOUT_MS = 5e3;
-function resolvePluginName(env2 = process.env) {
-  return resolveClaudePluginName(env2);
+function resolvePluginName(env = process.env) {
+  return resolveClaudePluginName(env);
 }
-function resolvePluginVersion(env2 = process.env) {
-  return resolveClaudePluginVersion(env2);
+function resolvePluginVersion(env = process.env) {
+  return resolveClaudePluginVersion(env);
 }
 var TrajectoryDB = class {
   db;
@@ -3966,6 +3934,15 @@ function clampHits(raw) {
   const n = Number(raw);
   return Number.isInteger(n) ? Math.min(Math.max(n, 1), WM_MAX_HITS) : WM_DEFAULT_HITS;
 }
+var SUMMARY_MAX = 160;
+function summaryLine(raw) {
+  if (typeof raw !== "string") return null;
+  const line = raw.replace(/<\/?untrusted-content[^>]*>/g, " ").split("\n").map(
+    (l) => l.replace(/^\s{0,3}#{1,6}\s+/, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/(\*\*|__)(.+?)\1/g, "$2").replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, "$1$2").replace(/`+/g, "").replace(/\s+/g, " ").trim()
+  ).find((l) => l !== "");
+  if (line === void 0) return "";
+  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1).trimEnd()}\u2026` : line;
+}
 function worldModel(db, repo, path, depth) {
   if (!worldModelAvailable(db)) return { available: false, repos: [], nodes: [] };
   const repos = all(db, `SELECT DISTINCT repo FROM wm_directories ORDER BY repo`).map((r) => String(r["repo"]));
@@ -3989,7 +3966,7 @@ function worldModel(db, repo, path, depth) {
     target,
     depth
   );
-  return { available: true, repos, nodes };
+  return { available: true, repos, nodes: nodes.map((n) => ({ ...n, summary: summaryLine(n["summary"]) })) };
 }
 function ftsPhrase(raw) {
   return `"${raw.replace(/"/g, '""')}"`;
@@ -4016,7 +3993,7 @@ function worldModelSearch(db, query, limit) {
     phrase,
     limit
   );
-  return { available: true, hits };
+  return { available: true, hits: hits.map((h) => ({ ...h, text: summaryLine(h["text"]) })) };
 }
 
 // server/concepts.ts
@@ -4277,9 +4254,9 @@ function redactIssue(issue, agent, opts) {
 import { spawnSync } from "node:child_process";
 
 // ../mcp/trajectory-server/src/utils/live-cli-guard.ts
-function liveCliBlockReason(env2 = process.env) {
-  if (env2.TMB_FORBID_LIVE_SYNC === "1") return "TMB_FORBID_LIVE_SYNC=1";
-  if (env2.NODE_TEST_CONTEXT) return `NODE_TEST_CONTEXT=${env2.NODE_TEST_CONTEXT}`;
+function liveCliBlockReason(env = process.env) {
+  if (env.TMB_FORBID_LIVE_SYNC === "1") return "TMB_FORBID_LIVE_SYNC=1";
+  if (env.NODE_TEST_CONTEXT) return `NODE_TEST_CONTEXT=${env.NODE_TEST_CONTEXT}`;
   return null;
 }
 function liveCliBlockedMessage(reason, cmd, args) {
@@ -4845,17 +4822,86 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
 
 // ../mcp/trajectory-server/src/embeddings/model.ts
 import { homedir as homedir2 } from "node:os";
-import { join as join6 } from "node:path";
-var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join6(homedir2(), ".cache", "huggingface");
+import { join as join7 } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// ../mcp/trajectory-server/src/runtime-deps.ts
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { join as join6, resolve as resolve2 } from "node:path";
+var TRANSFORMERS_VERSION = "3.8.1";
+var TRANSFORMERS_PACKAGE = "@huggingface/transformers";
+function runtimeDepsKey(platform = process.platform, arch = process.arch) {
+  return `${TRANSFORMERS_VERSION}-${platform}-${arch}`;
+}
+function runtimeDepsRoot(dataDir = process.env.CLAUDE_PLUGIN_DATA, key = runtimeDepsKey()) {
+  return dataDir ? join6(dataDir, "deps", key) : void 0;
+}
+function isObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function readPackageJson(pkgDir) {
+  try {
+    const parsed = JSON.parse(readFileSync3(join6(pkgDir, "package.json"), "utf8"));
+    return isObject(parsed) ? parsed : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function rootExport(exportsField) {
+  if (!isObject(exportsField)) return exportsField;
+  const subpaths = Object.keys(exportsField).some((k) => k.startsWith("."));
+  return subpaths ? exportsField["."] : exportsField;
+}
+function nodeImportDefault(entry) {
+  if (!isObject(entry)) return void 0;
+  const node = entry["node"];
+  if (!isObject(node)) return void 0;
+  const imp = node["import"];
+  if (typeof imp === "string") return imp;
+  if (!isObject(imp)) return void 0;
+  const target = imp["default"];
+  return typeof target === "string" ? target : void 0;
+}
+function transformersPackageDir(root) {
+  return join6(root, "node_modules", TRANSFORMERS_PACKAGE);
+}
+function transformersEsmEntry(root) {
+  const pkgDir = transformersPackageDir(root);
+  const target = nodeImportDefault(rootExport(readPackageJson(pkgDir)?.["exports"]));
+  if (!target) return void 0;
+  const entry = resolve2(pkgDir, target);
+  return existsSync2(entry) ? entry : void 0;
+}
+
+// ../mcp/trajectory-server/src/embeddings/model.ts
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join7(homedir2(), ".cache", "huggingface");
 var MODEL_REPO = "Xenova/bge-small-en-v1.5";
 var MODEL_DTYPE = "q8";
 var MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
 var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
 var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
+function transformersSources(dataDir = process.env["CLAUDE_PLUGIN_DATA"]) {
+  const root = runtimeDepsRoot(dataDir);
+  if (!root) return { specifiers: [TRANSFORMERS_PACKAGE], misses: ["CLAUDE_PLUGIN_DATA is unset"] };
+  const entry = transformersEsmEntry(root);
+  if (!entry) return { specifiers: [TRANSFORMERS_PACKAGE], misses: [`no ${TRANSFORMERS_PACKAGE} at ${transformersPackageDir(root)}`] };
+  return { specifiers: [pathToFileURL(entry).href, TRANSFORMERS_PACKAGE], misses: [] };
+}
+async function importTransformers(sources = transformersSources(), importer = (s) => import(s)) {
+  const failures = [...sources.misses];
+  for (const specifier of sources.specifiers) {
+    try {
+      return await importer(specifier);
+    } catch (e) {
+      failures.push(`${specifier}: ${message(e)}`);
+    }
+  }
+  throw new Error(`${TRANSFORMERS_PACKAGE} did not load (${failures.join("; ")})`);
+}
 async function defaultLoader() {
-  const { pipeline: pipeline2, env: env2 } = await Promise.resolve().then(() => (init_no_embeddings(), no_embeddings_exports));
-  env2.cacheDir = TMB_MODEL_CACHE_DIR;
-  return await pipeline2("feature-extraction", MODEL_REPO, { dtype: MODEL_DTYPE });
+  const { pipeline, env } = await importTransformers();
+  env.cacheDir = TMB_MODEL_CACHE_DIR;
+  return await pipeline("feature-extraction", MODEL_REPO, { dtype: MODEL_DTYPE });
 }
 var now = Date.now;
 var loader = defaultLoader;
@@ -4866,14 +4912,14 @@ var consecutiveFailures = 0;
 var degraded = null;
 var retrying = false;
 var listeners = /* @__PURE__ */ new Set();
-function embedRetryDelayMs(retries, env2 = process.env) {
-  const raw = env2["TMB_EMBED_RETRY_MS"];
+function embedRetryDelayMs(retries, env = process.env) {
+  const raw = env["TMB_EMBED_RETRY_MS"];
   const override = raw === void 0 || raw === "" ? NaN : Number(raw);
   if (Number.isFinite(override) && override >= 0) return override;
   return EMBED_RETRY_SCHEDULE_MS[Math.min(retries, EMBED_RETRY_SCHEDULE_MS.length - 1)];
 }
-function embedFailThreshold(env2 = process.env) {
-  const raw = Number(env2["TMB_EMBED_FAIL_THRESHOLD"]);
+function embedFailThreshold(env = process.env) {
+  const raw = Number(env["TMB_EMBED_FAIL_THRESHOLD"]);
   return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
 }
 function emit(t) {
@@ -7269,7 +7315,7 @@ function parsePort(raw) {
   return port;
 }
 function openDb(path) {
-  if (path === ":memory:" || !existsSync2(path)) {
+  if (path === ":memory:" || !existsSync3(path)) {
     throw new Error(
       `No trajectory DB at ${path}. Run from an onboarded project or set TRAJECTORY_DB_PATH.`
     );
@@ -7323,18 +7369,18 @@ function handleApi(db, url, res) {
 }
 function serveStatic(ctx, pathname, res) {
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, "");
-  let file = join7(WEB_ROOT, rel);
+  let file = join8(WEB_ROOT, rel);
   if (!file.startsWith(WEB_ROOT) || rel.split(sep3).includes("..")) {
     res.writeHead(403).end();
     return;
   }
-  if (!existsSync2(file) || !statSync2(file).isFile()) file = join7(WEB_ROOT, "index.html");
-  if (!existsSync2(file)) {
+  if (!existsSync3(file) || !statSync2(file).isFile()) file = join8(WEB_ROOT, "index.html");
+  if (!existsSync3(file)) {
     res.writeHead(500, { "content-type": "text/plain" }).end("dashboard web bundle missing; run `bun run build` in dashboard/");
     return;
   }
   if (file.endsWith("index.html")) {
-    const html = readFileSync3(file, "utf8").replace(
+    const html = readFileSync4(file, "utf8").replace(
       "</head>",
       `<meta name="tmb-token" content="${ctx.token}" />
   </head>`
@@ -7344,7 +7390,7 @@ function serveStatic(ctx, pathname, res) {
     return;
   }
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
-  res.end(readFileSync3(file));
+  res.end(readFileSync4(file));
 }
 function tokenMatches(expected, given) {
   if (typeof given !== "string") return false;
@@ -7353,7 +7399,7 @@ function tokenMatches(expected, given) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 function readBody(req) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const chunks = [];
     let size = 0;
     const onData = (chunk) => {
@@ -7361,13 +7407,13 @@ function readBody(req) {
       if (size > MAX_BODY_BYTES2) {
         req.off("data", onData);
         req.resume();
-        resolve2(null);
+        resolve3(null);
         return;
       }
       chunks.push(chunk);
     };
     req.on("data", onData);
-    req.on("end", () => resolve2(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve3(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }
