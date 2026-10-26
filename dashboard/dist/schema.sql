@@ -609,9 +609,10 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --     root ('') and the parent directory's path otherwise. summary comes from
 --     the directory README (summary_source='readme') or a structural fallback.
 --     For a README dir in a git repo (GH 1680): summary_sha is the last commit
---     touching the README, commits_behind counts later commits touching the
---     dir outside the README, dead_refs is a JSON array of repo-relative paths
---     the README names that no longer exist. All three NULL otherwise.
+--     touching the README, commits_behind (GH 1833) counts later commits that
+--     change, other than by adding, a file the README references, dead_refs
+--     is a JSON array of repo-relative paths the README names that no longer
+--     exist. All three NULL otherwise.
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.

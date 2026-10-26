@@ -1,7 +1,8 @@
-// README drift for the world model (GH 1680): how many commits a directory has
-// taken since its README last changed, and which paths the README names that
-// git has since deleted. Every git call is bounded; any failure yields null so
-// the scan stores NULL instead of failing.
+// README drift for the world model (GH 1680, GH 1833): how many commits since
+// a directory's README last changed edited, deleted or renamed a file the
+// README names, and which paths the README names that git has since deleted.
+// Every git call is bounded; any failure yields null so the scan stores NULL
+// instead of failing.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, posix } from 'node:path';
@@ -17,8 +18,10 @@ export interface RepoHistory {
   root: string;
   deleted: Set<string>;
   deletedByBasename: Map<string, string[]>;
+  renamedAway: Set<string>;
   trackedBasenames: Set<string>;
   trackedDirs: Set<string>;
+  trackedFiles: Set<string>;
 }
 
 const HISTORY_TIMEOUT_MS = 30_000;
@@ -45,15 +48,23 @@ function lines(out: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-// One `git log --diff-filter=D` per repo per scan for every path ever deleted,
-// and one `git ls-files` for the basenames tracked today.
+// One `git log --diff-filter=DR` per repo per scan for every path ever deleted
+// and every path ever renamed away, and one `git ls-files` for the files
+// tracked today and their basenames.
 export function readRepoHistory(root: string, trackedDirs: Set<string>): RepoHistory | null {
-  const out = git(root, ['log', '--diff-filter=D', '--name-only', '--format='], HISTORY_TIMEOUT_MS);
+  const out = git(root, ['log', '--diff-filter=DR', '--name-status', '--format='], HISTORY_TIMEOUT_MS);
   if (out === null) return null;
   const tracked = git(root, ['-c', 'core.quotePath=false', 'ls-files'], HISTORY_TIMEOUT_MS);
   if (tracked === null) return null;
-  const deleted = new Set(lines(out));
-  const trackedBasenames = new Set(lines(tracked).map(basename));
+  const deleted = new Set<string>();
+  const renamedAway = new Set<string>();
+  for (const [status, path] of lines(out).map((l) => l.split('\t'))) {
+    if (!path) continue;
+    if (status === 'D') deleted.add(path);
+    else if (status?.startsWith('R')) renamedAway.add(path);
+  }
+  const trackedFiles = new Set(lines(tracked));
+  const trackedBasenames = new Set([...trackedFiles].map(basename));
   const deletedByBasename = new Map<string, string[]>();
   for (const p of [...deleted].sort()) {
     const name = basename(p);
@@ -61,7 +72,7 @@ export function readRepoHistory(root: string, trackedDirs: Set<string>): RepoHis
     if (list) list.push(p);
     else deletedByBasename.set(name, [p]);
   }
-  return { root, deleted, deletedByBasename, trackedBasenames, trackedDirs };
+  return { root, deleted, deletedByBasename, renamedAway, trackedBasenames, trackedDirs, trackedFiles };
 }
 
 function stripUntrustedFraming(text: string): string {
@@ -151,8 +162,30 @@ export function deadRefs(readme: string, dir: string, history: RepoHistory): str
   return [...dead].sort();
 }
 
-// summary_sha: the last commit touching the README. commits_behind: commits
-// since then touching the directory outside the README.
+const MAX_REFERENCED_PATHSPECS = 200;
+
+// The README's candidates that resolve to a file tracked today, deleted or
+// renamed away, relative to its directory or else to the repo root, without
+// the README itself. A directory ref resolves to no file, so it feeds only
+// dead_refs.
+export function referencedFiles(readme: string, dir: string, readmePath: string, history: RepoHistory): string[] {
+  const isFile = (p: string): boolean =>
+    history.trackedFiles.has(p) || history.deleted.has(p) || history.renamedAway.has(p);
+  const files = new Set<string>();
+  for (const { ref } of readmeCandidates(readme, dir, history.trackedDirs)) {
+    const fromDir = relativeToDir(dir, ref);
+    const fromRoot = posix.normalize(ref);
+    const hit = isFile(fromDir) ? fromDir : isFile(fromRoot) ? fromRoot : undefined;
+    if (hit && hit !== readmePath) files.add(hit);
+  }
+  return [...files].sort();
+}
+
+// summary_sha: the last commit touching the README. commits_behind: the
+// distinct commits since then that change a file the README references (the
+// first 200 of them) other than by adding it. Adds, and changes to files the
+// README does not name, never count, so a directory that grows by design
+// stays current.
 export function readmeDrift(
   history: RepoHistory,
   dir: string,
@@ -162,16 +195,12 @@ export function readmeDrift(
   const readmePath = dir === '' ? readmeName : `${dir}/${readmeName}`;
   const sha = git(history.root, ['log', '-1', '--format=%H', '--', `:(literal)${readmePath}`])?.trim();
   if (!sha) return null;
-  const dirSpec = dir === '' ? ':(literal).' : `:(literal)${dir}`;
-  const count = git(history.root, [
-    'rev-list',
-    '--count',
-    `${sha}..HEAD`,
-    '--',
-    dirSpec,
-    `:(exclude,literal)${readmePath}`,
-  ]);
-  const commits_behind = count === null ? NaN : Number.parseInt(count.trim(), 10);
-  if (!Number.isFinite(commits_behind)) return null;
+  const range = `${sha}..HEAD`;
+  const refs = referencedFiles(readme, dir, readmePath, history).slice(0, MAX_REFERENCED_PATHSPECS);
+  const pathspecs = refs.map((r) => `:(literal)${r}`);
+  const touched =
+    refs.length === 0 ? '' : git(history.root, ['log', '--diff-filter=a', '--format=%H', range, '--', ...pathspecs]);
+  if (touched === null) return null;
+  const commits_behind = new Set(lines(touched)).size;
   return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
 }

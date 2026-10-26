@@ -45,7 +45,8 @@ function commit(root: string, message: string): string {
   return git(root, 'rev-parse', 'HEAD');
 }
 
-// app/: docs/README.md committed, then two commits under docs/; the root
+// app/: docs/README.md committed, then an add of docs/b.md and an edit of the
+// docs/a.md it references; the root
 // README, committed last, names a deleted script, an existing file, a ${VAR}
 // template and `swe.md`, whose old/ copy was deleted while agents/ keeps one.
 function fixture(): { ws: string; root: string; docsReadmeSha: string; rootReadmeSha: string } {
@@ -106,12 +107,12 @@ describe('scan_run writes README drift onto wm_directories (GH 1680)', () => {
     rmSync(f.ws, { recursive: true, force: true });
   });
 
-  it('summary_sha is the README commit and commits_behind counts later commits under the dir', async () => {
+  it('summary_sha is the README commit and commits_behind counts the later edit to the referenced docs/a.md, not the add of docs/b.md', async () => {
     await scan(db, holder, f.ws);
     assert.deepEqual(rawDir(db, 'docs'), {
       summary_source: 'readme',
       summary_sha: f.docsReadmeSha,
-      commits_behind: 2,
+      commits_behind: 1,
       dead_refs: '[]',
     });
   });
@@ -142,8 +143,8 @@ describe('scan_run writes README drift onto wm_directories (GH 1680)', () => {
     assert.equal(out.root.summary_sha, f.rootReadmeSha);
     const byPath = new Map(out.root.children!.map((c) => [c.path, c]));
     const docs = byPath.get('docs')!;
-    assert.equal(docs.trust, 'drifting(2)');
-    assert.equal(docs.commits_behind, 2);
+    assert.equal(docs.trust, 'drifting(1)');
+    assert.equal(docs.commits_behind, 1);
     assert.deepEqual(docs.dead_refs, []);
     const src = byPath.get('src')!;
     for (const key of ['trust', 'summary_sha', 'commits_behind', 'dead_refs'] as const) {
@@ -160,9 +161,9 @@ describe('scan_run writes README drift onto wm_directories (GH 1680)', () => {
     assert.equal(out.match, 'all_terms');
     const docs = out.results.find((r) => r.kind === 'dir' && r.path === 'docs');
     assert.ok(docs, JSON.stringify(out.results));
-    assert.equal(docs.trust, 'drifting(2)');
+    assert.equal(docs.trust, 'drifting(1)');
     assert.equal(docs.summary_sha, f.docsReadmeSha);
-    assert.equal(docs.commits_behind, 2);
+    assert.equal(docs.commits_behind, 1);
     assert.deepEqual(docs.dead_refs, []);
   });
 
@@ -207,8 +208,10 @@ describe('README drift helpers (GH 1680)', () => {
       root,
       deleted: new Set(deleted),
       deletedByBasename,
+      renamedAway: new Set(),
       trackedBasenames: new Set(trackedBasenames),
       trackedDirs: new Set(trackedDirs),
+      trackedFiles: new Set(),
     };
   }
 
@@ -265,6 +268,132 @@ describe('README drift helpers (GH 1680)', () => {
     assert.equal(trustOf({ commits_behind: 3, dead_refs: ['a', 'b'] }), 'drifting(3), dead_refs(2)');
     assert.equal(trustOf({ commits_behind: 0, dead_refs: ['a'] }), 'dead_refs(1)');
     assert.equal(trustOf({ commits_behind: null, dead_refs: null }), null);
+  });
+});
+
+describe('commits_behind counts only commits that edit, delete or rename a file the README names (GH 1833)', () => {
+  function repo(): { ws: string; root: string } {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-drift-scope-'));
+    const root = join(ws, 'app');
+    mkdirSync(root, { recursive: true });
+    git(root, 'init', '-q', '-b', 'main');
+    git(root, 'config', 'user.email', 't@t.io');
+    git(root, 'config', 'user.name', 't');
+    return { ws, root };
+  }
+
+  function driftOf(root: string, dir: string, trackedDirs: string[]) {
+    const readme = git(root, 'show', `HEAD:${dir}/README.md`);
+    return readmeDrift(readRepoHistory(root, new Set(trackedDirs))!, dir, 'README.md', readme);
+  }
+
+  it('five commits that only add fragments under changelog.d/ leave commits_behind at 0', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'changelog.d/README.md', '# changelog.d/\n\nOne file per change; see `CHANGELOG.md`.\n');
+      write(root, 'CHANGELOG.md', '# Changelog\n');
+      commit(root, 'readme');
+      for (let i = 1; i <= 5; i++) {
+        write(root, `changelog.d/${i}-fragment.md`, '### Fixed\n- x\n');
+        commit(root, `fragment ${i}`);
+      }
+      assert.equal(driftOf(root, 'changelog.d', ['changelog.d'])!.commits_behind, 0);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('counts the edit of a linked file and the delete of another, not the add of an unreferenced one', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'pkg/README.md', '# pkg\n\nSee [a](a.ts) and [b](b.ts).\n');
+      write(root, 'pkg/a.ts', 'a\n');
+      write(root, 'pkg/b.ts', 'b\n');
+      commit(root, 'readme');
+      write(root, 'pkg/b.ts', 'b2\n');
+      commit(root, 'edit b');
+      git(root, 'rm', '-q', 'pkg/a.ts');
+      commit(root, 'delete a');
+      write(root, 'pkg/c.ts', 'c\n');
+      commit(root, 'add c');
+      const drift = driftOf(root, 'pkg', ['pkg']);
+      assert.equal(drift!.commits_behind, 2);
+      assert.deepEqual(drift!.dead_refs, ['pkg/a.ts']);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a README naming the directory changelog.d/ reads 0 after three fragment adds and one fragment delete', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'docs/README.md', '# docs\n\nFragments live in `changelog.d/`.\n');
+      write(root, 'changelog.d/README.md', 'x\n');
+      write(root, 'changelog.d/0-old.md', 'old\n');
+      commit(root, 'readme');
+      for (let i = 1; i <= 3; i++) {
+        write(root, `changelog.d/${i}-frag.md`, 'f\n');
+        commit(root, `frag ${i}`);
+      }
+      git(root, 'rm', '-q', 'changelog.d/0-old.md');
+      commit(root, 'release drops a fragment');
+      const drift = driftOf(root, 'docs', ['docs', 'changelog.d']);
+      assert.equal(drift!.commits_behind, 0);
+      assert.deepEqual(drift!.dead_refs, []);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('counts the rename of a file the README names, not the rename of one it does not', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'pkg/README.md', '# pkg\n\nSee [named](named.ts).\n');
+      write(root, 'pkg/named.ts', 'export const x = 1;\n');
+      write(root, 'pkg/other.ts', 'export const y = 1;\n');
+      commit(root, 'readme');
+      git(root, 'mv', 'pkg/other.ts', 'pkg/other2.ts');
+      commit(root, 'rename other');
+      git(root, 'mv', 'pkg/named.ts', 'pkg/named2.ts');
+      commit(root, 'rename named');
+      assert.equal(driftOf(root, 'pkg', ['pkg'])!.commits_behind, 1);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('counts an edit to a repo-root path a subdir README references', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'docs/README.md', '# docs\n\nThe entry point is `src/x.ts`.\n');
+      write(root, 'src/x.ts', 'export const x = 1;\n');
+      commit(root, 'readme');
+      write(root, 'src/x.ts', 'export const x = 2;\n');
+      commit(root, 'edit src/x.ts');
+      write(root, 'src/y.ts', 'export const y = 1;\n');
+      commit(root, 'add src/y.ts');
+      assert.equal(driftOf(root, 'docs', ['docs', 'src'])!.commits_behind, 1);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a README with no file refs counts no edits, adds or deletes under the dir', () => {
+    const { ws, root } = repo();
+    try {
+      write(root, 'pkg/README.md', '# pkg\n\nNothing named here.\n');
+      write(root, 'pkg/a.ts', 'a\n');
+      commit(root, 'readme');
+      write(root, 'pkg/a.ts', 'a2\n');
+      commit(root, 'edit a');
+      write(root, 'pkg/b.ts', 'b\n');
+      commit(root, 'add b');
+      git(root, 'rm', '-q', 'pkg/a.ts');
+      commit(root, 'delete a');
+      assert.equal(driftOf(root, 'pkg', ['pkg'])!.commits_behind, 0);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 });
 
