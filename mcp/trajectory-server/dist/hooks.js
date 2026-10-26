@@ -4102,8 +4102,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 var TRANSFORMERS_VERSION = "3.8.1";
 var TRANSFORMERS_PACKAGE = "@huggingface/transformers";
-function runtimeDepsKey(platform = process.platform, arch = process.arch) {
-  return `${TRANSFORMERS_VERSION}-${platform}-${arch}`;
+var EXACT_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+function runtimeDepsKey(platform = process.platform, arch = process.arch, version = TRANSFORMERS_VERSION) {
+  return `${version}-${platform}-${arch}`;
 }
 function runtimeDepsRoot(dataDir = process.env.CLAUDE_PLUGIN_DATA, key2 = runtimeDepsKey()) {
   return dataDir ? join(dataDir, "deps", key2) : void 0;
@@ -4118,6 +4119,11 @@ function readPackageJson(pkgDir) {
   } catch {
     return void 0;
   }
+}
+function pinnedTransformersVersion(manifestDir) {
+  const deps = readPackageJson(manifestDir)?.["dependencies"];
+  const pin = isObject(deps) ? deps[TRANSFORMERS_PACKAGE] : void 0;
+  return typeof pin === "string" && EXACT_VERSION.test(pin) ? pin : void 0;
 }
 function rootExport(exportsField) {
   if (!isObject(exportsField)) return exportsField;
@@ -4239,8 +4245,8 @@ function bareSpecifierVersion(mcpDir) {
   }
   return void 0;
 }
-function isValidInstall(dir) {
-  return isFile(join2(dir, INSTALLED_AT)) && transformersVersion(dir) === TRANSFORMERS_VERSION && transformersEsmEntry(dir) !== void 0;
+function isValidInstall(dir, version = TRANSFORMERS_VERSION) {
+  return isFile(join2(dir, INSTALLED_AT)) && transformersVersion(dir) === version && transformersEsmEntry(dir) !== void 0;
 }
 function depsDir(dataDir) {
   return join2(dataDir, "deps");
@@ -4261,9 +4267,9 @@ function pointCurrent(dataDir, key2) {
   }
   if (existing !== key2) swapSymlink(key2, link);
 }
-function ensureBridge(root, dataDir, rule = "any-symlink") {
+function ensureBridge(root, dataDir, rule = "any-symlink", key2 = runtimeDepsKey()) {
   const link = join2(root, "node_modules", TRANSFORMERS_PACKAGE);
-  const target = join2(depsDir(dataDir), "current", "node_modules", TRANSFORMERS_PACKAGE);
+  const target = join2(depsDir(dataDir), key2, "node_modules", TRANSFORMERS_PACKAGE);
   let existing;
   try {
     const st = lstatSync(link);
@@ -4391,12 +4397,12 @@ function ensureDeps(env) {
   const key2 = runtimeDepsKey();
   const installDir = ctx.legacy ? void 0 : runtimeDepsRoot(ctx.dataDir, key2);
   if (bareSpecifierVersion(ctx.mcpDir) === TRANSFORMERS_VERSION) {
-    if (installDir && isValidInstall(installDir)) ensureBridge(ctx.root, ctx.dataDir, "own-symlink");
+    if (installDir && isValidInstall(installDir)) ensureBridge(ctx.root, ctx.dataDir, "own-symlink", key2);
     return ALLOW;
   }
   if (installDir && isValidInstall(installDir)) {
     pointCurrent(ctx.dataDir, key2);
-    ensureBridge(ctx.root, ctx.dataDir);
+    ensureBridge(ctx.root, ctx.dataDir, "any-symlink", key2);
     return ALLOW;
   }
   const hooksEntry = resolve2(process.argv[1] ?? "");
@@ -4514,10 +4520,39 @@ function promote(staging, final) {
   }
   if (hadFinal) rmSync(aside, { recursive: true, force: true });
 }
-function collectGarbage(deps, key2, log) {
+function cacheParent(root) {
+  const parent = dirname(resolve2(root));
+  const cache = dirname(dirname(parent));
+  return basename(cache) === "cache" && basename(dirname(cache)) === "plugins" ? parent : void 0;
+}
+function versionDirs(root) {
+  const parent = cacheParent(root);
+  if (!parent) return [];
+  return readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => join2(parent, e.name));
+}
+function referencedKeys(deps, root) {
+  const keys = /* @__PURE__ */ new Set();
+  const realDeps = realpathSync(deps);
+  const links = [join2(deps, "current"), ...versionDirs(root).map((v) => join2(v, "node_modules", TRANSFORMERS_PACKAGE))];
+  for (const link of links) {
+    let real;
+    try {
+      real = realpathSync(link);
+    } catch {
+      continue;
+    }
+    if (!isWithin(realDeps, real)) continue;
+    const first = relative(realDeps, real).split(sep)[0];
+    if (first) keys.add(first);
+  }
+  return keys;
+}
+function collectGarbage(deps, key2, root, log) {
   const entries = readdirSync(deps, { withFileTypes: true });
+  const referenced = referencedKeys(deps, root);
   const others = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== key2).map((e) => ({ name: e.name, at: installedAtMs(join2(deps, e.name)) })).sort((a, b) => b.at - a.at);
   for (const old of others.slice(1)) {
+    if (referenced.has(old.name)) continue;
     rmSync(join2(deps, old.name), { recursive: true, force: true });
     log(`removed old key ${old.name}`);
   }
@@ -4533,18 +4568,10 @@ function collectGarbage(deps, key2, log) {
     log(`removed stale ${e.name}`);
   }
 }
-function cacheParent(root) {
-  const parent = dirname(resolve2(root));
-  const cache = dirname(dirname(parent));
-  return basename(cache) === "cache" && basename(dirname(cache)) === "plugins" ? parent : void 0;
-}
-function cleanupSiblings(root, dataDir, log) {
-  const parent = cacheParent(root);
-  if (!parent) return;
-  const self2 = basename(resolve2(root));
-  for (const entry of readdirSync(parent, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === self2) continue;
-    const version = join2(parent, entry.name);
+function cleanupSiblings(root, dataDir, platform, arch, log) {
+  const self2 = resolve2(root);
+  for (const version of versionDirs(root)) {
+    if (version === self2) continue;
     let replaced = false;
     for (const nodeModules of [join2(version, "node_modules"), join2(version, MCP_REL, "node_modules")]) {
       if (!isRealDir(nodeModules)) continue;
@@ -4552,7 +4579,14 @@ function cleanupSiblings(root, dataDir, log) {
       log(`removed ${nodeModules}`);
       replaced = true;
     }
-    if (replaced && ensureBridge(version, dataDir)) log(`bridged ${version}`);
+    if (!replaced) continue;
+    const pin = pinnedTransformersVersion(join2(version, MCP_REL, "runtime-deps"));
+    const key2 = pin === void 0 ? "" : runtimeDepsKey(platform, arch, pin);
+    if (pin === void 0 || !isValidInstall(join2(depsDir(dataDir), key2), pin)) {
+      log(`left ${version} unbridged: no valid install for its pin ${pin ?? "(unreadable)"}`);
+      continue;
+    }
+    if (ensureBridge(version, dataDir, "any-symlink", key2)) log(`bridged ${version} \u2192 ${key2}`);
   }
 }
 function installRuntimeDeps(opts) {
@@ -4589,9 +4623,9 @@ function installRuntimeDeps(opts) {
     log(`installed ${join2(deps, key2)}`);
     pointCurrent(opts.dataDir, key2);
     log(`current \u2192 ${key2}`);
-    collectGarbage(deps, key2, log);
-    if (ensureBridge(opts.root, opts.dataDir)) log(`bridged ${opts.root}`);
-    cleanupSiblings(opts.root, opts.dataDir, log);
+    if (ensureBridge(opts.root, opts.dataDir, "any-symlink", key2)) log(`bridged ${opts.root} \u2192 ${key2}`);
+    cleanupSiblings(opts.root, opts.dataDir, platform, arch, log);
+    collectGarbage(deps, key2, opts.root, log);
     rc = 0;
   } catch (err2) {
     log(`failed: ${err2 instanceof Error ? err2.message : String(err2)}`);

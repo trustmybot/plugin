@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureBridge, installRuntimeDeps, isValidInstall, } from '../hooks/ensure-mcp-deps-installed.js';
-import { TRANSFORMERS_VERSION, runtimeDepsKey, runtimeDepsRoot, transformersEsmEntry, } from '../runtime-deps.js';
+import { TRANSFORMERS_VERSION, pinnedTransformersVersion, runtimeDepsKey, runtimeDepsRoot, transformersEsmEntry, } from '../runtime-deps.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SERVER_DIR = join(PLUGIN_ROOT, 'mcp/trajectory-server');
 const RUNTIME_DEPS = join(SERVER_DIR, 'runtime-deps');
@@ -69,13 +69,38 @@ function dir(...parts) {
     mkdirSync(path, { recursive: true });
     return path;
 }
-/** A plugin root holding the MCP package.json and the committed runtime-deps manifest. */
-function fakeRoot(path) {
+/** A plugin root holding the MCP package.json and the committed runtime-deps manifest, or one pinning `pin`. */
+function fakeRoot(path, pin) {
     const mcp = join(path, 'mcp/trajectory-server');
     mkdirSync(mcp, { recursive: true });
     writeFileSync(join(mcp, 'package.json'), JSON.stringify({ name: 'traj', type: 'module' }));
     cpSync(RUNTIME_DEPS, join(mcp, 'runtime-deps'), { recursive: true });
+    if (pin !== undefined) {
+        const manifest = join(mcp, 'runtime-deps/package.json');
+        const parsed = JSON.parse(readFileSync(manifest, 'utf8'));
+        parsed.dependencies[PKG] = pin;
+        writeFileSync(manifest, JSON.stringify(parsed));
+    }
     return path;
+}
+/** A valid install of transformers `version` for this host under `<data>/deps/<key>`, without any package manager. */
+function fakeKey(dataDir, version, at) {
+    const key = runtimeDepsKey(process.platform, process.arch, version);
+    const pkg = join(dataDir, 'deps', key, 'node_modules', PKG);
+    mkdirSync(join(pkg, 'dist'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({
+        name: PKG,
+        version,
+        exports: { node: { import: { default: './dist/transformers.node.mjs' } } },
+    }));
+    writeFileSync(join(pkg, 'dist/transformers.node.mjs'), "export const pipeline = () => 'stub';\n");
+    writeFileSync(join(dataDir, 'deps', key, '.installed-at'), `${at}\n`);
+    return key;
+}
+/** The transformers version a root's bridge resolves to, read through its realpath. */
+function resolvedVersion(root) {
+    const real = realpathSync(join(root, 'node_modules', PKG));
+    return JSON.parse(readFileSync(join(real, 'package.json'), 'utf8')).version;
 }
 function records(file) {
     if (!existsSync(file))
@@ -155,8 +180,8 @@ function runBash(env) {
 function context(stdout) {
     return JSON.parse(stdout).hookSpecificOutput.additionalContext;
 }
-function bridgeTarget(dataDir) {
-    return join(dataDir, 'deps/current/node_modules', PKG);
+function bridgeTarget(dataDir, key = runtimeDepsKey()) {
+    return join(dataDir, 'deps', key, 'node_modules', PKG);
 }
 /** A PATH of symlinks to the tools the .sh needs, plus the stub dir: no real bun or npm. */
 function toolPath(stubDir) {
@@ -218,6 +243,15 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
             assert.equal(runtimeDepsRoot('/d', 'k'), '/d/deps/k');
             assert.equal(runtimeDepsRoot(''), undefined);
         });
+        it('a manifest\'s pin is read only when it is one exact version, so it never escapes <data>/deps as a key', () => {
+            assert.equal(pinnedTransformersVersion(RUNTIME_DEPS), TRANSFORMERS_VERSION);
+            assert.equal(runtimeDepsKey('linux', 'x64', '3.0.0'), '3.0.0-linux-x64');
+            for (const [i, pin] of ['^3.0.0', '../../x', '3.0.0/..', 'latest'].entries()) {
+                const root = fakeRoot(dir('pin', `p${i}`), pin);
+                assert.equal(pinnedTransformersVersion(join(root, 'mcp/trajectory-server/runtime-deps')), undefined, pin);
+            }
+            assert.equal(pinnedTransformersVersion(dir('pin/no-manifest')), undefined);
+        });
         it('the root defaults to CLAUDE_PLUGIN_DATA and is undefined when it is unset', () => {
             const saved = process.env.CLAUDE_PLUGIN_DATA;
             try {
@@ -269,7 +303,7 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
             assert.ok(isValidInstall(join(data, 'deps', newest)));
             assert.equal(transformersEsmEntry(join(data, 'deps', newest)), join(nm, PKG, 'dist/transformers.node.mjs'));
             assert.match(readFileSync(join(data, 'deps', newest, '.installed-at'), 'utf8'), /^2026-01-03T00:00:00\.000Z$/m);
-            assert.equal(readlinkSync(join(root, 'node_modules', PKG)), bridgeTarget(data));
+            assert.equal(readlinkSync(join(root, 'node_modules', PKG)), bridgeTarget(data, newest));
             assert.equal(existsSync(join(data, 'deps/.install.lock')), false, 'the in-process worker takes no lock');
         });
         it('a failed install leaves the existing dirs and current byte-identical and removes its staging', () => {
@@ -364,23 +398,97 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
             assert.equal(out.stdout, '');
             assert.equal(readlinkSync(join(root, 'node_modules', PKG)), elsewhere);
         });
+        it('a bridge to deps/current is re-pointed to the root\'s own key, by the gate and by ensureBridge under own-symlink (GH 1717)', () => {
+            const toCurrent = (name) => {
+                const root = fakeRoot(dir('reuse', name));
+                mkdirSync(join(root, 'node_modules/@huggingface'), { recursive: true });
+                spawnSync('/bin/ln', ['-s', join(data, 'deps/current/node_modules', PKG), join(root, 'node_modules', PKG)]);
+                return root;
+            };
+            const viaGate = toCurrent('current-gate');
+            assert.equal(runNode({ PATH: bunDir, CLAUDE_PLUGIN_ROOT: viaGate, CLAUDE_PLUGIN_DATA: data }).stdout, '');
+            assert.equal(readlinkSync(join(viaGate, 'node_modules', PKG)), bridgeTarget(data));
+            const direct = toCurrent('current-direct');
+            assert.equal(ensureBridge(direct, data, 'own-symlink'), true);
+            assert.equal(readlinkSync(join(direct, 'node_modules', PKG)), bridgeTarget(data));
+        });
+        it('under own-symlink a link outside <data>/deps is refused and a real dir is untouched (GH 1717)', () => {
+            const foreign = fakeRoot(dir('reuse/own-foreign'));
+            const elsewhere = dir('reuse/own-elsewhere', PKG);
+            mkdirSync(join(foreign, 'node_modules/@huggingface'), { recursive: true });
+            spawnSync('/bin/ln', ['-s', elsewhere, join(foreign, 'node_modules', PKG)]);
+            assert.equal(ensureBridge(foreign, data, 'own-symlink'), false);
+            assert.equal(readlinkSync(join(foreign, 'node_modules', PKG)), elsewhere);
+            const real = fakeRoot(dir('reuse/own-real'));
+            writeFileSync(join(dir('reuse/own-real/node_modules', PKG), 'package.json'), JSON.stringify({ name: PKG, version: '3.0.0' }));
+            const before = snapshot(join(real, 'node_modules'));
+            assert.equal(ensureBridge(real, data, 'own-symlink'), false);
+            assert.deepEqual(snapshot(join(real, 'node_modules')), before);
+        });
+    });
+    describe('versions pinning different transformers (GH 1717)', () => {
+        it('each root bridges to its own key, and installing for one leaves the other\'s bridge and version unchanged', () => {
+            const cache = dir('pins/plugins/cache/m/p');
+            const data = dir('pins/data');
+            const oldKey = fakeKey(data, '3.0.0', '2026-01-01T00:00:00.000Z');
+            const oldRoot = fakeRoot(join(cache, '1.0.0'), '3.0.0');
+            assert.equal(ensureBridge(oldRoot, data, 'any-symlink', oldKey), true);
+            const newRoot = fakeRoot(join(cache, '2.0.0'));
+            assert.equal(install(newRoot, data, { PATH: bunDir }).rc, 0);
+            assert.equal(readlinkSync(join(data, 'deps/current')), runtimeDepsKey());
+            assert.equal(readlinkSync(join(newRoot, 'node_modules', PKG)), bridgeTarget(data));
+            assert.equal(resolvedVersion(newRoot), TRANSFORMERS_VERSION);
+            assert.equal(readlinkSync(join(oldRoot, 'node_modules', PKG)), bridgeTarget(data, oldKey));
+            assert.equal(resolvedVersion(oldRoot), '3.0.0');
+            const before = readlinkSync(join(oldRoot, 'node_modules', PKG));
+            assert.equal(ensureBridge(newRoot, data, 'own-symlink'), true);
+            assert.equal(runNode({ PATH: bunDir, CLAUDE_PLUGIN_ROOT: newRoot, CLAUDE_PLUGIN_DATA: data }).stdout, '');
+            assert.equal(readlinkSync(join(oldRoot, 'node_modules', PKG)), before);
+            assert.equal(resolvedVersion(oldRoot), '3.0.0');
+            assert.equal(resolvedVersion(newRoot), TRANSFORMERS_VERSION);
+        });
+        it('garbage collection keeps a key a sibling bridge resolves into and drops an unreferenced one beyond the newest other', () => {
+            const cache = dir('gc/plugins/cache/m/p');
+            const data = dir('gc/data');
+            const referenced = fakeKey(data, '1.0.0', '2026-01-01T00:00:00.000Z');
+            const unreferenced = fakeKey(data, '2.0.0', '2026-01-02T00:00:00.000Z');
+            const newestOther = fakeKey(data, '3.0.0', '2026-01-03T00:00:00.000Z');
+            const sibling = fakeRoot(join(cache, '1.0.0'), '1.0.0');
+            assert.equal(ensureBridge(sibling, data, 'any-symlink', referenced), true);
+            const root = fakeRoot(join(cache, '2.0.0'));
+            const run = install(root, data, { PATH: bunDir, STUB_RECORD: join(base, 'gc.rec') }, { at: '2026-01-04T00:00:00.000Z' });
+            assert.equal(run.rc, 0, run.log.join('\n'));
+            assert.deepEqual(keyDirs(data), [referenced, newestOther, runtimeDepsKey()].sort());
+            assert.equal(existsSync(join(data, 'deps', unreferenced)), false);
+            assert.equal(resolvedVersion(sibling), '1.0.0');
+        });
     });
     describe('sibling cleanup', () => {
-        it('replaces hook-installed node_modules in other version dirs under plugins/cache/<m>/<p>/ only', () => {
+        it('replaces hook-installed node_modules in other version dirs under plugins/cache/<m>/<p>/ only, bridging each to its own pinned key', () => {
             const cache = dir('siblings/plugins/cache');
             const data = dir('siblings/data');
             const root = fakeRoot(dir('siblings/plugins/cache/m/p/2.0.0'));
+            const pinnedKey = fakeKey(data, '3.0.0', '2026-01-01T00:00:00.000Z');
+            fakeRoot(join(cache, 'm/p/1.0.0'));
             dir('siblings/plugins/cache/m/p/1.0.0/node_modules', PKG, 'dist');
+            fakeRoot(join(cache, 'm/p/1.1.0'), '3.0.0');
             dir('siblings/plugins/cache/m/p/1.1.0/mcp/trajectory-server/node_modules/onnxruntime-node');
             dir('siblings/plugins/cache/m/p/1.2.0/node_modules', PKG);
             writeFileSync(join(cache, 'm/p/1.2.0/node_modules/keep-me'), 'x');
+            fakeRoot(join(cache, 'm/p/1.3.0'), '3.1.0');
+            dir('siblings/plugins/cache/m/p/1.3.0/node_modules', PKG);
             const outside = [dir('siblings/plugins/cache/m/other/0.9.0/node_modules/x'), dir('siblings/plugins/cache/m2/p/0.9.0/node_modules/x')];
-            assert.equal(install(root, data, { PATH: bunDir }).rc, 0);
-            for (const version of ['1.0.0', '1.1.0', '1.2.0']) {
-                assert.equal(readlinkSync(join(cache, 'm/p', version, 'node_modules', PKG)), bridgeTarget(data), version);
-            }
-            assert.equal(existsSync(join(cache, 'm/p/1.2.0/node_modules/keep-me')), false);
+            const run = install(root, data, { PATH: bunDir });
+            assert.equal(run.rc, 0, run.log.join('\n'));
+            assert.equal(readlinkSync(join(cache, 'm/p/1.0.0/node_modules', PKG)), bridgeTarget(data));
+            assert.equal(readlinkSync(join(cache, 'm/p/1.1.0/node_modules', PKG)), bridgeTarget(data, pinnedKey));
+            assert.equal(resolvedVersion(join(cache, 'm/p/1.1.0')), '3.0.0');
             assert.equal(existsSync(join(cache, 'm/p/1.1.0/mcp/trajectory-server/node_modules')), false);
+            for (const unbridged of ['1.2.0', '1.3.0']) {
+                assert.equal(existsSync(join(cache, 'm/p', unbridged, 'node_modules')), false, `${unbridged} has no valid key to bridge to`);
+            }
+            assert.ok(run.log.some((l) => l.includes('left') && l.includes('1.2.0') && l.includes('(unreadable)')), run.log.join('\n'));
+            assert.ok(run.log.some((l) => l.includes('left') && l.includes('1.3.0') && l.includes('3.1.0')), run.log.join('\n'));
             for (const path of outside)
                 assert.ok(lstatSync(path).isDirectory(), path);
         });
