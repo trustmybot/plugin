@@ -76,6 +76,10 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
       case 'gates': return sendJson(res, 200, q.gates(db));
       case 'audit': return sendJson(res, 200, q.audit(db, clampLimit(url.searchParams.get('limit'))));
       case 'version': return sendJson(res, 200, { data_version: q.dataVersion(db) });
+      case 'insights': {
+        const filter = q.insightFilter(url.searchParams);
+        return 'error' in filter ? sendJson(res, 400, filter) : sendJson(res, 200, q.insights(db, filter));
+      }
       case 'world-model': {
         const p = url.searchParams;
         return sendJson(res, 200, q.worldModel(db, p.get('repo') || null, p.get('path') ?? '', q.clampDepth(p.get('depth'))));
