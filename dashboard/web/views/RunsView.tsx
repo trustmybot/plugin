@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useApi, type Gates, type Row } from '../api.ts';
 import { DataTable, type Column } from '../DataTable.tsx';
-import { badge, exitBadge, RUN_COLUMNS, TASK_ID_COLUMN, TASK_TITLE_COLUMN, time } from '../shared/columns.tsx';
+import { agentCell, badge, exitBadge, RUN_COLUMNS, TASK_ID_COLUMN, TASK_TITLE_COLUMN, time } from '../shared/columns.tsx';
 import { Loading } from '../shared/Loading.tsx';
 
 const mono = (key: string, length?: number) => (r: Row) => <span className="font-mono text-xs">{String(r[key] ?? '').slice(0, length)}</span>;
@@ -18,7 +18,7 @@ const VALIDATION_COLUMNS: Column[] = [
   { ...TASK_ID_COLUMN, hideBelow: 'sm' },
   TASK_TITLE_COLUMN,
   { key: 'attempt_n', header: 'Attempt', hideBelow: 'sm' },
-  { key: 'agent', header: 'Agent', hideBelow: 'md' },
+  { key: 'agent', header: 'Agent', cell: agentCell('agent'), hideBelow: 'md' },
   { key: 'verdict', header: 'Verdict', cell: badge('verdict') },
   { key: 'created_at', header: 'At', cell: time('created_at') },
 ];

@@ -1,12 +1,15 @@
 import { GitBranchIcon, IssueOpenedIcon } from '@primer/octicons-react';
 import type { TaskDetail } from '../../api.ts';
-import { Badge } from '../../shared/Badge.tsx';
+import { statusVariant } from '../../shared/Badge.tsx';
+import { taskState } from '../../shared/taskState.ts';
+import { Label } from '../../ui/Label.tsx';
 import { TaskSidebar } from './TaskSidebar.tsx';
 import { AgentRunsSection, CriteriaSection, ReviewsSection, SpecSection, VerificationSection } from './sections.tsx';
 
 export function TaskPage({ detail }: { detail: TaskDetail }) {
   const { task, issue, validations, findings, verifications, agent_runs } = detail;
   const issueId = String(task['issue_id']);
+  const StateIcon = taskState(task['status']).icon;
   return (
     <div className="space-y-6">
       <div className="space-y-2 border-b border-(--borderColor-default) pb-4">
@@ -14,7 +17,10 @@ export function TaskPage({ detail }: { detail: TaskDetail }) {
           {String(task['title'] || task['branch_id'] || '')} <span className="font-light text-fg-muted">#{String(task['id'])}</span>
         </h2>
         <div className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-          <Badge value={task['status']} />
+          <Label variant={statusVariant(String(task['status'] ?? ''))}>
+            <StateIcon size={12} aria-hidden="true" />
+            {String(task['status'] ?? '—')}
+          </Label>
           {task['branch_id'] ? (
             <span className="inline-flex items-center gap-1 font-mono text-xs">
               <GitBranchIcon size={16} aria-hidden="true" />

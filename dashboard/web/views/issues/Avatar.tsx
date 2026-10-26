@@ -14,8 +14,11 @@ const FALLBACK_BG = [
   'bg-(--bgColor-upsell-emphasis)',
 ];
 
+const AUTHOR_ALIAS: Record<string, string> = { 'code-reviewer': 'pr-reviewer' };
+
 const authorBg = (author: string) => {
-  const key = author.toLowerCase();
+  const name = author.toLowerCase();
+  const key = AUTHOR_ALIAS[name] ?? name;
   if (AUTHOR_BG[key]) return AUTHOR_BG[key];
   const hash = [...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
   return FALLBACK_BG[hash % FALLBACK_BG.length]!;
