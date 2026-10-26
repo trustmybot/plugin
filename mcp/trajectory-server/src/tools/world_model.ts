@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
 import type { DirectoryNode, FileNode, GraphHolder, KeywordMatch, Scored } from '../graph.js';
 import { topKByCosine, type WorldModelEmbeddableTable } from '../embeddings/store.js';
@@ -569,6 +570,85 @@ function wrap(fn: Fn): Fn {
   };
 }
 
+type Payload = Record<string, unknown>;
+
+const LOGGED_ARGS = ['query', 'path', 'id', 'qualified_name', 'name', 'mode', 'depth', 'repo', 'k'] as const;
+
+function treeNodeCount(node: Payload): number {
+  const children = Array.isArray(node['children']) ? (node['children'] as Payload[]) : [];
+  const files = Array.isArray(node['files']) ? node['files'].length : 0;
+  return 1 + files + children.reduce((n, c) => n + treeNodeCount(c), 0);
+}
+
+const RESULT_COUNTS: Record<string, (p: Payload) => number> = {
+  world_model_get: (p) => (p['root'] && typeof p['root'] === 'object' ? treeNodeCount(p['root'] as Payload) : 0),
+  world_model_search: (p) => (Array.isArray(p['results']) ? p['results'].length : 0),
+  world_model_symbol: (p) => (p['symbol'] && typeof p['symbol'] === 'object' ? 1 : 0),
+  world_model_concepts: (p) => (Array.isArray(p['concepts']) ? p['concepts'].length : 0) + (p['derived'] != null ? 1 : 0),
+  world_model_concept_get: () => 1,
+  world_model_concept_upsert: (p) => (typeof p['id'] === 'number' ? 1 : 0),
+};
+
+function attributedTask(
+  db: TrajectoryDB,
+  agent: string,
+): { task_id: number; issue_id: number; branch_id: string; repo: string | null } | null {
+  const runs = db.all<{ task_id: number | null }>(
+    `SELECT task_id FROM agent_runs WHERE completed_at IS NULL AND agent_type = ? LIMIT 2`,
+    [normalizeAgent(agent)],
+  );
+  const taskId = runs.length === 1 ? runs[0]!.task_id : null;
+  if (taskId === null) return null;
+  const task = db.get<{ issue_id: number; branch_id: string; repo: string | null }>(
+    `SELECT issue_id, branch_id, repo FROM tasks WHERE id = ?`,
+    [taskId],
+  );
+  return task ? { task_id: taskId, ...task } : null;
+}
+
+function recordToolCall(db: TrajectoryDB, tool: string, args: Payload, result: CallToolResult, latencyMs: number): void {
+  const agent = String(args['agent']);
+  const error = result.isError === true;
+  const first = result.content[0];
+  const payload: Payload = error || first?.type !== 'text' ? {} : (JSON.parse(first.text) as Payload);
+  const resultCount = error ? 0 : RESULT_COUNTS[tool]!(payload);
+  const task = attributedTask(db, agent);
+  insertAudit(db, {
+    issue_id: task?.issue_id ?? -1,
+    branch_id: task?.branch_id ?? null,
+    repo: task?.repo ?? null,
+    from_node: agent,
+    event_type: 'wm_tool_called',
+    summary: `${tool} by ${agent}: ${resultCount} result(s)`,
+    content_json: JSON.stringify({
+      tool,
+      agent,
+      task_id: task?.task_id ?? null,
+      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args[k] !== undefined).map((k) => [k, args[k]])),
+      result_count: resultCount,
+      empty: error || resultCount === 0,
+      error,
+      warning: typeof payload['warning'] === 'string' ? payload['warning'] : null,
+      match: payload['match'] ?? null,
+      derived: payload['derived'] != null,
+      latency_ms: latencyMs,
+    }),
+  });
+}
+
+function logged(db: TrajectoryDB, tool: string, fn: Fn): Fn {
+  return async (args) => {
+    const started = performance.now();
+    const result = await fn(args);
+    try {
+      recordToolCall(db, tool, args, result, Math.round(performance.now() - started));
+    } catch (e) {
+      console.error(`[world-model] ${tool} call log failed: ${(e as Error).message}`);
+    }
+    return result;
+  };
+}
+
 // Build the tree by indexing rows by parent_path, then descending from the
 // requested root. Sorting children alphabetically gives stable output.
 // depthForSummary is the root's logical depth (0 = root itself). Summaries
@@ -814,7 +894,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
     world_model_get: requireRoles(
       'world_model_get',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
-      wrap(async (args) => {
+      logged(db, 'world_model_get', wrap(async (args) => {
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
           const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
@@ -864,13 +944,13 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
           ...(unmerged.warning ? { warning: unmerged.warning } : {}),
           unmerged_work: unmerged.unmerged_work,
         });
-      }),
+      })),
     ),
 
     world_model_search: requireRoles(
       'world_model_search',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
-      wrap(async (args) => {
+      logged(db, 'world_model_search', wrap(async (args) => {
         const query = args['query'] as string;
         if (!query || typeof query !== 'string') return err('query is required');
         const mode = (args['mode'] as string | undefined) ?? 'hybrid';
@@ -902,13 +982,13 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
         );
         const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
         return ok({ results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match });
-      }),
+      })),
     ),
 
     world_model_symbol: requireRoles(
       'world_model_symbol',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
-      wrap(async (args) => {
+      logged(db, 'world_model_symbol', wrap(async (args) => {
         const id = args['id'];
         let symbol: SymbolRow | null = null;
         if (typeof id === 'number') {
@@ -961,13 +1041,13 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
           ...(impactDepth !== null ? { impact: symbolImpact(db, symbol, impactDepth) } : {}),
           ...(args['source'] === true ? symbolSource(db, symbol) : {}),
         });
-      }),
+      })),
     ),
 
     world_model_concepts: requireRoles(
       'world_model_concepts',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
-      wrap(async (args) => {
+      logged(db, 'world_model_concepts', wrap(async (args) => {
         const query = args['query'];
         if (typeof query !== 'string' || !query.trim()) return err('query is required');
         const repo = conceptRepo(args['repo']);
@@ -984,31 +1064,31 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
           concepts,
           derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null,
         });
-      }),
+      })),
     ),
 
     world_model_concept_get: requireRoles(
       'world_model_concept_get',
       ['bro', 'swe', 'code-reviewer', 'consultant'],
-      wrap(async (args) => {
+      logged(db, 'world_model_concept_get', wrap(async (args) => {
         const id = args['id'];
         if (typeof id !== 'number') return err('id is required');
         const concept = getConcept(db, id);
         if (!concept) return err(`concept ${id} not found`);
         return ok({ ...concept, steps: concept.steps.map((st) => framedStep(st, false)) });
-      }),
+      })),
     ),
 
     world_model_concept_upsert: requireRoles(
       'world_model_concept_upsert',
       ['bro', 'consultant'],
-      wrap(async (args) => {
+      logged(db, 'world_model_concept_upsert', wrap(async (args) => {
         const repo = conceptRepo(args['repo']);
         if (repo.warning) return ok({ concept: null, ...repo });
         const input = { ...args, repo: repo.name } as unknown as ConceptInput;
         const repoPath = resolveSoleRepo(db, repo.name)?.path ?? null;
         return ok(upsertConcept(db, input, { repoPath, agent: String(args['agent']) }));
-      }),
+      })),
     ),
   };
 

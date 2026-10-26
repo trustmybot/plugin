@@ -25278,7 +25278,8 @@ var AUDIT_EVENT_TYPES = [
   { type: "tmb_skill_created", writers: ["bro"], description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
-  { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
+  { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
 var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
@@ -46558,6 +46559,74 @@ function wrap6(fn) {
     }
   };
 }
+var LOGGED_ARGS = ["query", "path", "id", "qualified_name", "name", "mode", "depth", "repo", "k"];
+function treeNodeCount(node) {
+  const children = Array.isArray(node["children"]) ? node["children"] : [];
+  const files = Array.isArray(node["files"]) ? node["files"].length : 0;
+  return 1 + files + children.reduce((n, c) => n + treeNodeCount(c), 0);
+}
+var RESULT_COUNTS = {
+  world_model_get: (p) => p["root"] && typeof p["root"] === "object" ? treeNodeCount(p["root"]) : 0,
+  world_model_search: (p) => Array.isArray(p["results"]) ? p["results"].length : 0,
+  world_model_symbol: (p) => p["symbol"] && typeof p["symbol"] === "object" ? 1 : 0,
+  world_model_concepts: (p) => (Array.isArray(p["concepts"]) ? p["concepts"].length : 0) + (p["derived"] != null ? 1 : 0),
+  world_model_concept_get: () => 1,
+  world_model_concept_upsert: (p) => typeof p["id"] === "number" ? 1 : 0
+};
+function attributedTask(db2, agent) {
+  const runs = db2.all(
+    `SELECT task_id FROM agent_runs WHERE completed_at IS NULL AND agent_type = ? LIMIT 2`,
+    [normalizeAgent(agent)]
+  );
+  const taskId = runs.length === 1 ? runs[0].task_id : null;
+  if (taskId === null) return null;
+  const task = db2.get(
+    `SELECT issue_id, branch_id, repo FROM tasks WHERE id = ?`,
+    [taskId]
+  );
+  return task ? { task_id: taskId, ...task } : null;
+}
+function recordToolCall(db2, tool, args2, result2, latencyMs) {
+  const agent = String(args2["agent"]);
+  const error2 = result2.isError === true;
+  const first = result2.content[0];
+  const payload = error2 || first?.type !== "text" ? {} : JSON.parse(first.text);
+  const resultCount = error2 ? 0 : RESULT_COUNTS[tool](payload);
+  const task = attributedTask(db2, agent);
+  insertAudit(db2, {
+    issue_id: task?.issue_id ?? -1,
+    branch_id: task?.branch_id ?? null,
+    repo: task?.repo ?? null,
+    from_node: agent,
+    event_type: "wm_tool_called",
+    summary: `${tool} by ${agent}: ${resultCount} result(s)`,
+    content_json: JSON.stringify({
+      tool,
+      agent,
+      task_id: task?.task_id ?? null,
+      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])),
+      result_count: resultCount,
+      empty: error2 || resultCount === 0,
+      error: error2,
+      warning: typeof payload["warning"] === "string" ? payload["warning"] : null,
+      match: payload["match"] ?? null,
+      derived: payload["derived"] != null,
+      latency_ms: latencyMs
+    })
+  });
+}
+function logged(db2, tool, fn) {
+  return async (args2) => {
+    const started = performance.now();
+    const result2 = await fn(args2);
+    try {
+      recordToolCall(db2, tool, args2, result2, Math.round(performance.now() - started));
+    } catch (e) {
+      console.error(`[world-model] ${tool} call log failed: ${e.message}`);
+    }
+    return result2;
+  };
+}
 function buildTree(rows, rootPath, depth, opts) {
   const byParent = /* @__PURE__ */ new Map();
   for (const r of rows) {
@@ -46757,7 +46826,7 @@ function worldModelTools(db2, graphHolder2) {
     world_model_get: requireRoles(
       "world_model_get",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap6(async (args2) => {
+      logged(db2, "world_model_get", wrap6(async (args2) => {
         let repo = args2["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
@@ -46793,12 +46862,12 @@ function worldModelTools(db2, graphHolder2) {
           ...unmerged.warning ? { warning: unmerged.warning } : {},
           unmerged_work: unmerged.unmerged_work
         });
-      })
+      }))
     ),
     world_model_search: requireRoles(
       "world_model_search",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap6(async (args2) => {
+      logged(db2, "world_model_search", wrap6(async (args2) => {
         const query = args2["query"];
         if (!query || typeof query !== "string") return err19("query is required");
         const mode = args2["mode"] ?? "hybrid";
@@ -46823,12 +46892,12 @@ function worldModelTools(db2, graphHolder2) {
         );
         const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
         return ok20({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match });
-      })
+      }))
     ),
     world_model_symbol: requireRoles(
       "world_model_symbol",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap6(async (args2) => {
+      logged(db2, "world_model_symbol", wrap6(async (args2) => {
         const id = args2["id"];
         let symbol2 = null;
         if (typeof id === "number") {
@@ -46881,12 +46950,12 @@ function worldModelTools(db2, graphHolder2) {
           ...impactDepth !== null ? { impact: symbolImpact(db2, symbol2, impactDepth) } : {},
           ...args2["source"] === true ? symbolSource(db2, symbol2) : {}
         });
-      })
+      }))
     ),
     world_model_concepts: requireRoles(
       "world_model_concepts",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap6(async (args2) => {
+      logged(db2, "world_model_concepts", wrap6(async (args2) => {
         const query = args2["query"];
         if (typeof query !== "string" || !query.trim()) return err19("query is required");
         const repo = conceptRepo(args2["repo"]);
@@ -46901,29 +46970,29 @@ function worldModelTools(db2, graphHolder2) {
           concepts,
           derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null
         });
-      })
+      }))
     ),
     world_model_concept_get: requireRoles(
       "world_model_concept_get",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap6(async (args2) => {
+      logged(db2, "world_model_concept_get", wrap6(async (args2) => {
         const id = args2["id"];
         if (typeof id !== "number") return err19("id is required");
         const concept = getConcept(db2, id);
         if (!concept) return err19(`concept ${id} not found`);
         return ok20({ ...concept, steps: concept.steps.map((st) => framedStep(st, false)) });
-      })
+      }))
     ),
     world_model_concept_upsert: requireRoles(
       "world_model_concept_upsert",
       ["bro", "consultant"],
-      wrap6(async (args2) => {
+      logged(db2, "world_model_concept_upsert", wrap6(async (args2) => {
         const repo = conceptRepo(args2["repo"]);
         if (repo.warning) return ok20({ concept: null, ...repo });
         const input = { ...args2, repo: repo.name };
         const repoPath = resolveSoleRepo(db2, repo.name)?.path ?? null;
         return ok20(upsertConcept(db2, input, { repoPath, agent: String(args2["agent"]) }));
-      })
+      }))
     )
   };
   return { definitions, handlers };
