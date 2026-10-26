@@ -37232,7 +37232,7 @@ function prMonitorTools(db2, _spawnFn) {
 
 // src/tools/composites.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync5, realpathSync as realpathSync4 } from "node:fs";
+import { existsSync as existsSync6, realpathSync as realpathSync4 } from "node:fs";
 
 // src/utils/worktree-deps.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
@@ -37311,6 +37311,1167 @@ if (isMainModule()) {
     }
   }
   process.exit(0);
+}
+
+// src/symbol-index.ts
+import { createHash as createHash2 } from "node:crypto";
+import { readFileSync as readFileSync5 } from "node:fs";
+import { basename as basename5, join as join12, posix } from "node:path";
+
+// src/parsing/loader.ts
+import { existsSync as existsSync5 } from "node:fs";
+import { dirname as dirname7, join as join11 } from "node:path";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+var RUNTIME_WASM = "tree-sitter.wasm";
+var GRAMMAR_WASM = {
+  typescript: "tree-sitter-typescript.wasm",
+  tsx: "tree-sitter-tsx.wasm",
+  javascript: "tree-sitter-javascript.wasm",
+  bash: "tree-sitter-bash.wasm",
+  python: "tree-sitter-python.wasm"
+};
+var INDEXED = ["typescript", "tsx", "javascript", "bash"];
+var pending = null;
+var loads = 0;
+function wasmDir() {
+  const here = dirname7(fileURLToPath4(import.meta.url));
+  for (const dir of [join11(here, "parsing"), here]) {
+    if (existsSync5(join11(dir, RUNTIME_WASM))) return dir;
+  }
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join11(here, "parsing")} or ${here}`);
+}
+var runtime = null;
+var grammars = /* @__PURE__ */ new Map();
+function memo(promise2, forget) {
+  promise2.catch(forget);
+  return promise2;
+}
+function loadRuntime() {
+  runtime ??= memo(
+    (async () => {
+      const dir = wasmDir();
+      const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
+      await mod.Parser.init({ locateFile: (file2) => join11(dir, file2) });
+      return mod;
+    })(),
+    () => {
+      runtime = null;
+    }
+  );
+  return runtime;
+}
+function loadParser(name2) {
+  let parser = grammars.get(name2);
+  if (!parser) {
+    parser = memo(
+      (async () => {
+        const { Parser: Parser2, Language: Language2 } = await loadRuntime();
+        const p = new Parser2();
+        p.setLanguage(await Language2.load(join11(wasmDir(), GRAMMAR_WASM[name2])));
+        return p;
+      })(),
+      () => grammars.delete(name2)
+    );
+    grammars.set(name2, parser);
+  }
+  return parser;
+}
+async function load() {
+  const parsers = {};
+  for (const name2 of INDEXED) parsers[name2] = await loadParser(name2);
+  loads++;
+  return parsers;
+}
+function loadParsers() {
+  if (!pending) {
+    pending = load();
+    pending.catch(() => {
+      pending = null;
+    });
+  }
+  return pending;
+}
+
+// src/parsing/extract.ts
+import { createHash } from "node:crypto";
+import { basename as basename4 } from "node:path";
+var GENERATED_PATH = [
+  /(^|\/)dist\//,
+  /(^|\/)build\//,
+  /(^|\/)node_modules\//,
+  /(^|\/)vendor\//,
+  /\.map$/,
+  /\.min\.js$/
+];
+var LOCKFILE_PATH = [/(^|\/)package-lock\.json$/, /\.lock(b)?$/];
+var EXTENSION_LANGUAGE = {
+  ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  tsx: "tsx",
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  jsx: "javascript",
+  sh: "bash",
+  bash: "bash",
+  sql: "sql"
+};
+var SH_BUILTINS = new Set(
+  "echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh".split(
+    " "
+  )
+);
+var STOPWORDS2 = new Set(
+  "a an the and or of to in on for with by is are was were be been when where what which who how why does do did it its this that these those from as at into per not no than then there their them our we you i set get".split(
+    " "
+  )
+);
+var md5 = (s) => createHash("md5").update(s).digest("hex");
+var DOC_MAX = 1e3;
+function splitWords(s) {
+  return s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").toLowerCase().trim();
+}
+var clip = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
+var oneLine = (s) => s.replace(/\s+/g, " ").trim();
+function isGeneratedPath(relPath) {
+  return GENERATED_PATH.some((re) => re.test(relPath));
+}
+function inSymbolScope(relPath) {
+  return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
+}
+function languageOf(relPath, head) {
+  const name2 = basename4(relPath);
+  const dot = name2.lastIndexOf(".");
+  if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
+  return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
+}
+function symbolTerms(kind, qualifiedName, relPath) {
+  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename4(relPath))}`;
+}
+function normalizedHash(node) {
+  const base = node.startIndex;
+  let text = node.text;
+  const comments = node.descendantsOfType("comment").filter((c) => c !== null).sort((a, b) => b.startIndex - a.startIndex);
+  for (const c of comments) text = text.slice(0, c.startIndex - base) + text.slice(c.endIndex - base);
+  return md5(oneLine(text));
+}
+function isRuleLine(line) {
+  const rest = line.replace(/^\s*(\/\*\*?|\/\/|#|\*)/, "").replace(/\*\/\s*$/, "").trim();
+  return rest.length >= 3 && /^[-=#*_~/ ]+$/.test(rest);
+}
+function docOf(node) {
+  const anchor = node.parent?.type === "export_statement" ? node.parent : node;
+  const lines2 = [];
+  let edge = anchor.startPosition.row;
+  let prev = anchor.previousNamedSibling;
+  while (prev && prev.type === "comment" && prev.endPosition.row === edge - 1) {
+    lines2.unshift(prev.text);
+    edge = prev.startPosition.row;
+    prev = prev.previousNamedSibling;
+  }
+  if (lines2.some((block) => block.split("\n").some(isRuleLine))) return "";
+  const raw = lines2.map(
+    (l) => l.replace(/\*\//g, " ").replace(/^\s*(\/\*\*?|\*|\/\/+|#+)/gm, " ")
+  ).join(" ");
+  return clip(oneLine(raw), DOC_MAX);
+}
+var STRING_PARTS = /* @__PURE__ */ new Set(["string_fragment", "escape_sequence"]);
+function descriptionText(pair) {
+  if (pair.childForFieldName("key")?.text.replace(/['"]/g, "") !== "description") return null;
+  const value = pair.childForFieldName("value");
+  if (!value || !["string", "template_string", "binary_expression", "parenthesized_expression"].includes(value.type)) {
+    return null;
+  }
+  const parts2 = value.descendantsOfType([...STRING_PARTS]).filter((n) => n !== null).map((n) => n.text);
+  const text = oneLine(parts2.join(""));
+  return /[a-z]{3}/i.test(text) ? text : null;
+}
+function signatureOf(node, src) {
+  const body2 = node.childForFieldName("body");
+  const end = body2 ? body2.startIndex : Math.min(node.endIndex, node.startIndex + 160);
+  return clip(oneLine(src.slice(node.startIndex, end)), 200);
+}
+var SQL_HINT = /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|REPLACE)\b/;
+function sqlRefs(text) {
+  if (!SQL_HINT.test(text)) return [];
+  const out2 = [];
+  for (const m of text.matchAll(
+    /\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?([A-Za-z_]\w*)/g
+  )) {
+    out2.push(["writes_table", m[1]]);
+  }
+  for (const m of text.matchAll(/\b(?:FROM|JOIN)\s+["`]?([A-Za-z_]\w*)/g)) out2.push(["reads_table", m[1]]);
+  for (const m of text.matchAll(/\bALTER\s+TABLE\s+["`]?([A-Za-z_]\w*)/g)) out2.push(["writes_table", m[1]]);
+  return out2;
+}
+var Collector = class {
+  symbols = [];
+  edges = [];
+  byKey = /* @__PURE__ */ new Map();
+  symbol(s) {
+    const key = `${s.kind}\0${s.qualified_name}`;
+    const known = this.byKey.get(key);
+    if (known !== void 0) return known;
+    this.symbols.push(s);
+    this.byKey.set(key, this.symbols.length - 1);
+    return this.symbols.length - 1;
+  }
+  edge(src, kind, dstName, line, hint = null) {
+    this.edges.push({ src, kind, dst_name: dstName, line, hint });
+  }
+};
+function lineCounter(text, lineBase) {
+  const starts = [0];
+  for (let i2 = text.indexOf("\n"); i2 >= 0; i2 = text.indexOf("\n", i2 + 1)) starts.push(i2 + 1);
+  return (index) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = lo + hi + 1 >> 1;
+      if (starts[mid] <= index) lo = mid;
+      else hi = mid - 1;
+    }
+    return lineBase + lo + 1;
+  };
+}
+function statementEnd(text, start2, virtual) {
+  if (virtual) return text.indexOf(";", start2);
+  let depth = 0;
+  let i2 = text.indexOf("(", start2);
+  for (; i2 >= 0 && i2 < text.length; i2++) {
+    if (text[i2] === "(") depth++;
+    else if (text[i2] === ")" && --depth === 0) break;
+  }
+  return i2;
+}
+function columnNames(stmt) {
+  const inner = stmt.slice(stmt.indexOf("(") + 1, stmt.lastIndexOf(")"));
+  const cols = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of inner) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      cols.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  cols.push(cur);
+  return cols.map((c) => c.trim().split(/\s+/)[0] ?? "").filter((c) => c && !/^(PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT|content|content_rowid|tokenize|--)/i.test(c));
+}
+function extractSqlDdl(text, out2, moduleSymbol, lineBase = 0) {
+  const lineAt = lineCounter(text, lineBase);
+  for (const m of text.matchAll(/CREATE\s+(VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?/gi)) {
+    const start2 = m.index;
+    let end = statementEnd(text, start2, Boolean(m[1]));
+    if (end < 0) end = Math.min(text.length, start2 + 400);
+    const stmt = text.slice(start2, end + 1);
+    const name2 = m[2];
+    out2.symbol({
+      kind: "sql_table",
+      qualified_name: name2,
+      signature: clip(`${name2}(${columnNames(stmt).join(", ")})`, 240),
+      doc: "",
+      start_line: lineAt(start2),
+      end_line: lineAt(end),
+      body_hash: md5(oneLine(stmt)),
+      exported: 0
+    });
+  }
+  for (const m of text.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/gi)) {
+    const line = lineAt(m.index);
+    const id = out2.symbol({
+      kind: "sql_index",
+      qualified_name: m[1],
+      signature: oneLine(m[0]),
+      doc: "",
+      start_line: line,
+      end_line: line,
+      body_hash: md5(m[0]),
+      exported: 0
+    });
+    out2.edge(id, "indexes", m[2], line);
+  }
+  for (const m of text.matchAll(/CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+([\s\S]*?)\bON\s+(\w+)([\s\S]*?)\bEND\b/gi)) {
+    const line = lineAt(m.index);
+    const id = out2.symbol({
+      kind: "sql_trigger",
+      qualified_name: m[1],
+      signature: clip(oneLine(`${m[1]} ${m[2]} ON ${m[3]}`), 200),
+      doc: "",
+      start_line: line,
+      end_line: lineAt(m.index + m[0].length),
+      body_hash: md5(oneLine(m[0])),
+      exported: 0
+    });
+    out2.edge(id, "triggers_on", m[3], line);
+    for (const [kind, table] of sqlRefs(m[4])) out2.edge(id, kind, table, line);
+  }
+  if (moduleSymbol !== null) {
+    for (const m of text.matchAll(/\bALTER\s+TABLE\s+(\w+)/gi)) out2.edge(moduleSymbol, "writes_table", m[1], lineAt(m.index));
+  }
+}
+function named(node) {
+  return node.namedChildren.filter((c) => c !== null);
+}
+var FUNCTION_VALUES = /* @__PURE__ */ new Set(["arrow_function", "function_expression", "function"]);
+function extractTs(root, src, out2, moduleSymbol) {
+  const definition = (node, kind, qualifiedName) => out2.symbol({
+    kind,
+    qualified_name: qualifiedName,
+    signature: signatureOf(node, src),
+    doc: docOf(node),
+    start_line: node.startPosition.row + 1,
+    end_line: node.endPosition.row + 1,
+    body_hash: normalizedHash(node),
+    exported: node.parent?.type === "export_statement" ? 1 : 0
+  });
+  const visit = (node, scope, cls) => {
+    let inner = scope;
+    let innerCls = cls;
+    const t = node.type;
+    const name2 = () => node.childForFieldName("name")?.text;
+    if (t === "function_declaration" || t === "generator_function_declaration") {
+      const n = name2();
+      if (n) inner = definition(node, "function", n);
+    } else if (t === "class_declaration" || t === "abstract_class_declaration") {
+      const n = name2();
+      if (n) {
+        inner = definition(node, "class", n);
+        innerCls = n;
+      }
+    } else if (t === "method_definition" && cls) {
+      const n = name2();
+      if (n) inner = definition(node, "method", `${cls}.${n}`);
+    } else if (t === "interface_declaration") {
+      const n = name2();
+      if (n) definition(node, "interface", n);
+    } else if (t === "type_alias_declaration" || t === "enum_declaration") {
+      const n = name2();
+      if (n) definition(node, "type", n);
+    } else if (t === "variable_declarator" && scope === moduleSymbol) {
+      const decl = node.parent;
+      const holder = decl?.parent?.type;
+      const n = node.childForFieldName("name");
+      if (decl && (holder === "program" || holder === "export_statement") && n?.type === "identifier") {
+        const value = node.childForFieldName("value");
+        const isFn = value !== null && FUNCTION_VALUES.has(value.type);
+        const bodyStart = value?.type === "arrow_function" ? value.childForFieldName("body")?.startIndex : void 0;
+        inner = out2.symbol({
+          kind: isFn ? "function" : "const",
+          qualified_name: n.text,
+          signature: clip(oneLine(src.slice(decl.startIndex, bodyStart ?? Math.min(decl.endIndex, decl.startIndex + 140))), 200),
+          doc: docOf(decl),
+          start_line: decl.startPosition.row + 1,
+          end_line: decl.endPosition.row + 1,
+          body_hash: normalizedHash(node),
+          exported: holder === "export_statement" ? 1 : 0
+        });
+      }
+    } else if (t === "call_expression" || t === "new_expression") {
+      const fn = node.childForFieldName(t === "call_expression" ? "function" : "constructor");
+      let callee;
+      let receiver;
+      if (fn?.type === "identifier") callee = fn.text;
+      else if (fn?.type === "member_expression") {
+        callee = fn.childForFieldName("property")?.text;
+        receiver = fn.childForFieldName("object")?.text;
+      }
+      if (callee) {
+        out2.edge(
+          scope,
+          t === "call_expression" ? "calls" : "instantiates",
+          callee,
+          node.startPosition.row + 1,
+          receiver && receiver.length < 40 ? receiver : null
+        );
+      }
+    } else if (t === "import_statement") {
+      const spec = node.childForFieldName("source")?.text.slice(1, -1) ?? null;
+      for (const s of node.descendantsOfType("import_specifier")) {
+        const n = s?.childForFieldName("name")?.text;
+        if (n) out2.edge(moduleSymbol, "imports", n, node.startPosition.row + 1, spec);
+      }
+      return;
+    } else if (t === "pair" && scope !== moduleSymbol) {
+      const text = descriptionText(node);
+      const owner = out2.symbols[scope];
+      if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
+    } else if (t === "string" || t === "template_string") {
+      const text = node.text;
+      for (const [kind, table] of sqlRefs(text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
+      if (/CREATE\s+(VIRTUAL\s+)?TABLE/i.test(text)) extractSqlDdl(text, out2, null, node.startPosition.row);
+    }
+    for (const c of named(node)) visit(c, inner, innerCls);
+  };
+  visit(root, moduleSymbol, null);
+}
+function stripQuotes(s) {
+  return s.replace(/^["']|["']$/g, "");
+}
+function extractBash(root, out2, moduleSymbol) {
+  const visit = (node, scope) => {
+    let inner = scope;
+    const t = node.type;
+    if (t === "function_definition") {
+      const n = node.childForFieldName("name")?.text;
+      if (n) {
+        inner = out2.symbol({
+          kind: "sh_function",
+          qualified_name: n,
+          signature: `${n}()`,
+          doc: docOf(node),
+          start_line: node.startPosition.row + 1,
+          end_line: node.endPosition.row + 1,
+          body_hash: normalizedHash(node),
+          exported: 1
+        });
+      }
+    } else if (t === "command") {
+      const name2 = node.childForFieldName("name")?.text;
+      const args2 = named(node).filter((c) => c.type !== "command_name").map((c) => stripQuotes(c.text));
+      const line = node.startPosition.row + 1;
+      if (name2 === "source" || name2 === ".") {
+        if (args2[0]) out2.edge(scope, "sources", basename4(args2[0]), line);
+      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename4(name2), line);
+      else if ((name2 === "bash" || name2 === "sh") && args2[0] && /\.sh$/.test(args2[0])) {
+        out2.edge(scope, "runs", basename4(args2[0]), line);
+      } else if (name2 && /^[A-Za-z_][\w-]*$/.test(name2) && !SH_BUILTINS.has(name2)) out2.edge(scope, "calls", name2, line);
+    } else if (t === "string" || t === "raw_string" || t === "heredoc_body") {
+      for (const [kind, table] of sqlRefs(node.text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
+    }
+    for (const c of named(node)) visit(c, inner);
+  };
+  visit(root, moduleSymbol);
+}
+function moduleDoc(lang, src) {
+  const out2 = [];
+  const comment = lang === "bash" || lang === "sql" ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
+  for (const l of src.split("\n")) {
+    if (/^#!/.test(l)) continue;
+    const m = l.match(comment);
+    if (m) {
+      if (m[1].trim()) out2.push(m[1].trim());
+    } else if (out2.length || l.trim()) break;
+  }
+  return clip(out2.join(" "), DOC_MAX);
+}
+function extractFile(parsers, relPath, lang, src) {
+  const out2 = new Collector();
+  const moduleSymbol = out2.symbol({
+    kind: "module",
+    qualified_name: relPath,
+    signature: relPath,
+    doc: moduleDoc(lang, src),
+    start_line: 1,
+    end_line: src.split("\n").length,
+    body_hash: md5(src),
+    exported: 0
+  });
+  if (lang === "sql") {
+    extractSqlDdl(src, out2, moduleSymbol);
+    return out2;
+  }
+  if (!parsers) throw new Error(`no parser loaded for ${lang}`);
+  const tree = parsers[lang].parse(src);
+  if (!tree) throw new Error(`tree-sitter returned no tree for ${relPath}`);
+  try {
+    if (lang === "bash") extractBash(tree.rootNode, out2, moduleSymbol);
+    else extractTs(tree.rootNode, src, out2, moduleSymbol);
+  } finally {
+    tree.delete();
+  }
+  return out2;
+}
+
+// src/parsing/hooks.ts
+var HOOKS_PATH = "hooks/hooks.json";
+var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
+var EVENT_ORDER = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "Notification",
+  "SubagentStart",
+  "SubagentStop",
+  "Stop",
+  "PreCompact",
+  "WorktreeCreate",
+  "WorktreeRemove",
+  "SessionEnd"
+];
+function dispatchChains(registrations) {
+  const chains = /* @__PURE__ */ new Map();
+  for (const m of registrations.matchAll(/^\s*([\w-]+)\)\s*\n\s*printf '%s\\n' \\\n((?:\s*'[^']*'\s*\\?\n)+)/gm)) {
+    chains.set(m[1], [...m[2].matchAll(/'([\w-]+)\s/g)].map((x) => x[1]));
+  }
+  return chains;
+}
+function eventRanks(events) {
+  const unknown2 = events.filter((e) => !EVENT_ORDER.includes(e));
+  const stop2 = EVENT_ORDER.indexOf("Stop");
+  const order = [...EVENT_ORDER.slice(0, stop2 + 1), ...unknown2, ...EVENT_ORDER.slice(stop2 + 1)];
+  return new Map(order.map((e, i2) => [e, i2 + 1]));
+}
+var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
+function extractHooks(src, chains) {
+  const out2 = { symbols: [], edges: [] };
+  const parsed = JSON.parse(src);
+  const hooks = parsed.hooks ?? {};
+  const ranks = eventRanks(Object.keys(hooks));
+  const lines2 = src.split("\n");
+  const lineOf = (needle, from) => {
+    for (let i2 = from; i2 < lines2.length; i2++) if (lines2[i2].includes(needle)) return i2 + 1;
+    return 0;
+  };
+  let cursor = 0;
+  for (const [event, groups] of Object.entries(hooks)) {
+    const rank = ranks.get(event);
+    let pos = 0;
+    for (const group of Array.isArray(groups) ? groups : []) {
+      const matcher = group.matcher ?? "";
+      for (const hook of group.hooks ?? []) {
+        pos++;
+        const cmd = hook.command ?? "";
+        const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
+        const direct = gate ? null : cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null;
+        const name2 = gate ?? direct?.split("/").pop() ?? `hook${pos}`;
+        const line = lineOf(gate ?? direct ?? cmd, cursor);
+        cursor = line || cursor;
+        const members = gate ? chains.get(gate) : void 0;
+        const target = members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
+        const qualifiedName = `${event}#${pos}:${name2}`;
+        out2.symbols.push({
+          kind: "hook",
+          qualified_name: qualifiedName,
+          signature: clip(oneLine(cmd), 200),
+          doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ""} runs ${target}`,
+          start_line: line,
+          end_line: line,
+          body_hash: md5(`${matcher}\0${cmd}`),
+          exported: 1,
+          run_order: rank * 100 + pos
+        });
+        const at = out2.symbols.length - 1;
+        if (members) {
+          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: scriptOf(m), line: i2 + 1, hint: null }));
+        } else if (gate || direct) {
+          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? scriptOf(gate) : direct, line, hint: null });
+        }
+      }
+    }
+  }
+  return out2;
+}
+
+// src/symbol-index.ts
+var EXTRACTOR_VERSION = 2;
+var MAX_PARSE_BYTES = 1e6;
+var CARD_LIST_CAP = 50;
+var IMPACT_REF_CAP = 200;
+var IMPACT_MAX_DEPTH = 5;
+var OR_FALLBACK_MIN_HITS = 3;
+var FAILED_SUFFIX = ":failed";
+var FAILED_PATHS_CAP = 20;
+var FAILED_ERROR_MAX = 200;
+var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order";
+var CALLABLE = /* @__PURE__ */ new Set(["function", "method", "class", "sh_function"]);
+var TABLE_EDGES = /* @__PURE__ */ new Set(["reads_table", "writes_table", "indexes", "triggers_on"]);
+var CALL_EDGES = ["calls", "instantiates", "runs", "sources"];
+function isTestPath(path2) {
+  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path2);
+}
+function outsideConceptLane(path2) {
+  return isTestPath(path2) || /(^|\/)(__)?fixtures(__)?\//.test(path2);
+}
+function shortName(kind, qualifiedName) {
+  return kind === "method" ? qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1) : qualifiedName;
+}
+function namesOf(kind, qualifiedName, path2) {
+  return kind === "module" ? [basename5(path2), path2] : [shortName(kind, qualifiedName)];
+}
+function readSource(repoPath, relPath) {
+  return readFileSync5(join12(repoPath, relPath), "utf8");
+}
+function sourceLanguage(repoPath, relPath, sizeBytes) {
+  if (sizeBytes > MAX_PARSE_BYTES) return null;
+  return languageOf(relPath, () => {
+    try {
+      return readSource(repoPath, relPath).slice(0, 120);
+    } catch {
+      return "";
+    }
+  });
+}
+function resolveImport(fromFile, spec, fileSet) {
+  if (!spec || !spec.startsWith(".")) return null;
+  const base = posix.normalize(posix.join(posix.dirname(fromFile), spec));
+  const stem2 = base.replace(/\.(m?js|ts)$/, "");
+  for (const c of [base, `${stem2}.ts`, `${stem2}.tsx`, `${stem2}.js`, `${stem2}.mjs`, `${stem2}/index.ts`, `${stem2}/index.js`]) {
+    if (fileSet.has(c)) return c;
+  }
+  return null;
+}
+var SymbolWriter = class {
+  constructor(db2, repo) {
+    this.db = db2;
+    this.repo = repo;
+  }
+  db;
+  repo;
+  inserted = /* @__PURE__ */ new Set();
+  // Upsert one file's symbols by (kind, qualified_name) so unchanged symbols
+  // keep their ids, drop the ones that disappeared, and replace its edges.
+  writeFile(path2, extraction) {
+    const existing = new Map(
+      this.db.all(
+        `SELECT ${SYMBOL_COLUMNS}, s.terms FROM wm_symbols s WHERE s.repo = ? AND s.path = ?`,
+        [this.repo, path2]
+      ).map((r) => [`${r.kind}\0${r.qualified_name}`, r])
+    );
+    this.db.run(
+      `DELETE FROM wm_edges WHERE src_id IN (SELECT id FROM wm_symbols WHERE repo = ? AND path = ?)`,
+      [this.repo, path2]
+    );
+    const ids = extraction.symbols.map((s) => {
+      const terms = symbolTerms(s.kind, s.qualified_name, path2);
+      const key = `${s.kind}\0${s.qualified_name}`;
+      const row = existing.get(key);
+      const runOrder = s.run_order ?? null;
+      if (!row) {
+        for (const n of namesOf(s.kind, s.qualified_name, path2)) this.inserted.add(n);
+        return Number(
+          this.db.run(
+            `INSERT INTO wm_symbols (repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms, run_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [this.repo, path2, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder]
+          ).lastInsertRowid
+        );
+      }
+      existing.delete(key);
+      const changed = row.signature !== s.signature || row.doc !== s.doc || Number(row.start_line) !== s.start_line || Number(row.end_line) !== s.end_line || row.body_hash !== s.body_hash || Number(row.exported) !== s.exported || row.terms !== terms || (row.run_order === null ? null : Number(row.run_order)) !== runOrder;
+      if (changed) {
+        this.db.run(
+          `UPDATE wm_symbols SET signature = ?, doc = ?, start_line = ?, end_line = ?, body_hash = ?, exported = ?, terms = ?, run_order = ? WHERE id = ?`,
+          [s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder, row.id]
+        );
+      }
+      return Number(row.id);
+    });
+    for (const gone of existing.values()) this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
+    return extraction.edges.map((edge) => ({
+      rowid: Number(
+        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, 'unresolved', ?, ?)`, [
+          ids[edge.src],
+          edge.dst_name,
+          edge.kind,
+          edge.line,
+          edge.hint
+        ]).lastInsertRowid
+      ),
+      from: path2,
+      edge
+    }));
+  }
+};
+var Resolver = class {
+  byName = /* @__PURE__ */ new Map();
+  modules = /* @__PURE__ */ new Map();
+  byBase = /* @__PURE__ */ new Map();
+  fileSet = /* @__PURE__ */ new Set();
+  importMap = /* @__PURE__ */ new Map();
+  sourced = /* @__PURE__ */ new Map();
+  constructor(db2, repo, pending2) {
+    for (const s of db2.all(
+      `SELECT id, path, kind, qualified_name FROM wm_symbols WHERE repo = ?`,
+      [repo]
+    )) {
+      const c = { id: Number(s.id), path: s.path, kind: s.kind };
+      if (s.kind === "module") {
+        this.modules.set(s.path, c.id);
+        this.fileSet.add(s.path);
+        push(this.byBase, basename5(s.path), c);
+      } else {
+        push(this.byName, shortName(s.kind, s.qualified_name), c);
+      }
+    }
+    for (const { from, edge } of pending2) {
+      if (edge.kind === "imports") {
+        const target = resolveImport(from, edge.hint, this.fileSet);
+        if (target) {
+          const m = this.importMap.get(from) ?? /* @__PURE__ */ new Map();
+          m.set(edge.dst_name, target);
+          this.importMap.set(from, m);
+        }
+      } else if (edge.kind === "sources") {
+        const cands = this.byBase.get(edge.dst_name) ?? [];
+        const pick3 = cands.find((c) => posix.dirname(c.path) === posix.dirname(from)) ?? cands[0];
+        if (pick3) push(this.sourced, from, pick3.path);
+      }
+    }
+  }
+  resolve(from, edge) {
+    if (edge.kind === "imports") {
+      const target = resolveImport(from, edge.hint, this.fileSet);
+      if (!target) return null;
+      const hit = (this.byName.get(edge.dst_name) ?? []).find((c) => c.path === target);
+      const dst = hit?.id ?? this.modules.get(target);
+      return dst === void 0 ? null : { dst, how: "exact" };
+    }
+    if (edge.kind === "runs" || edge.kind === "sources") {
+      const byPath = edge.dst_name.includes("/") ? this.modules.get(edge.dst_name) : void 0;
+      if (byPath !== void 0) return { dst: byPath, how: "exact" };
+      const cands2 = this.byBase.get(edge.dst_name) ?? [];
+      const pick3 = cands2.find((c) => posix.dirname(c.path) === posix.dirname(from)) ?? (cands2.length === 1 ? cands2[0] : void 0);
+      return pick3 ? { dst: pick3.id, how: cands2.length === 1 ? "exact" : "name" } : null;
+    }
+    if (TABLE_EDGES.has(edge.kind)) {
+      const cands2 = (this.byName.get(edge.dst_name) ?? []).filter((c) => c.kind === "sql_table");
+      const pick3 = cands2.find((c) => c.path.endsWith(".sql") && !isTestPath(c.path)) ?? cands2.find((c) => !isTestPath(c.path)) ?? cands2[0];
+      return pick3 ? { dst: pick3.id, how: "name" } : null;
+    }
+    const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => CALLABLE.has(c.kind));
+    const member = edge.hint !== null && edge.hint !== "this";
+    const same = cands.find((c) => c.path === from);
+    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
+    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
+    if (same && !member) return { dst: same.id, how: "exact" };
+    if (viaImport) {
+      const hit = cands.find((c) => c.path === viaImport);
+      if (hit) return { dst: hit.id, how: "exact" };
+    } else if (viaSource) return { dst: viaSource.id, how: "exact" };
+    const unique = cands.filter((c) => !isTestPath(c.path) && (!member || c.kind === "method"));
+    return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0].id, how: "name" } : null;
+  }
+};
+function push(map2, key, value) {
+  const list = map2.get(key);
+  if (list) list.push(value);
+  else map2.set(key, [value]);
+}
+function markOrphanedEdges(db2) {
+  db2.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+}
+function deleteFileSymbols(db2, repo, path2) {
+  db2.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path2]);
+}
+function registrationChains(repoPath) {
+  try {
+    return dispatchChains(readSource(repoPath, REGISTRATIONS_PATH));
+  } catch {
+    return /* @__PURE__ */ new Map();
+  }
+}
+var toPending = (r) => ({
+  from: r.path,
+  edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint }
+});
+function reresolveEdges(db2, repo, names, skip2) {
+  const candidates = db2.all(
+    `SELECT e.rowid AS rowid, s.path, e.kind, e.dst_name, e.line, e.hint, e.resolution, e.dst_id
+         FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+        WHERE s.repo = ?
+          AND ((e.dst_id IS NULL AND e.resolution <> 'unresolved')
+            OR ((e.resolution <> 'exact' OR e.dst_id IS NULL) AND e.dst_name IN (SELECT value FROM json_each(?))))`,
+    [repo, JSON.stringify([...names])]
+  ).filter((r) => !skip2.has(Number(r.rowid)));
+  if (candidates.length === 0) return 0;
+  const context = db2.all(
+    `SELECT e.rowid AS rowid, s.path, e.kind, e.dst_name, e.line, e.hint, e.resolution, e.dst_id
+       FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
+      WHERE s.repo = ? AND e.kind IN ('imports', 'sources') AND s.path IN (SELECT value FROM json_each(?))`,
+    [repo, JSON.stringify([...new Set(candidates.map((c) => c.path))])]
+  );
+  const resolver = new Resolver(db2, repo, context.map(toPending));
+  let resolved = 0;
+  for (const c of candidates) {
+    const { from, edge } = toPending(c);
+    const hit = resolver.resolve(from, edge);
+    if (!hit || hit.how === c.resolution && hit.dst === (c.dst_id === null ? null : Number(c.dst_id))) continue;
+    db2.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [hit.dst, hit.how, c.rowid]);
+    resolved++;
+  }
+  return resolved;
+}
+async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
+  const version2 = String(extractorVersion);
+  const stale = db2.all(
+    `SELECT id, path, content_md5, size_bytes FROM wm_files
+        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
+          AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
+    [repo, version2, version2, FAILED_SUFFIX]
+  ).filter((f) => inSymbolScope(f.path));
+  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
+    const hooksFile = db2.get(
+      `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
+      [repo, HOOKS_PATH]
+    );
+    if (hooksFile) stale.push(hooksFile);
+  }
+  const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
+  const parsers = jobs.some((j) => j.lang !== null && j.lang !== "sql") ? await loadParsers() : null;
+  const failed = [];
+  const parsed = [];
+  for (const { file: file2, lang } of jobs) {
+    const isHooks = file2.path === HOOKS_PATH;
+    if (lang === null && !isHooks) {
+      parsed.push({ file: file2, extraction: null });
+      continue;
+    }
+    try {
+      const src = readSource(repoPath, file2.path);
+      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      parsed.push({ file: file2, extraction });
+    } catch (e) {
+      failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
+    }
+  }
+  return db2.transaction(() => {
+    const writer = new SymbolWriter(db2, repo);
+    const pending2 = [];
+    let symbols = 0;
+    for (const { file: file2, extraction } of parsed) {
+      if (extraction) {
+        pending2.push(...writer.writeFile(file2.path, extraction));
+        symbols += extraction.symbols.length;
+      } else {
+        deleteFileSymbols(db2, repo, file2.path);
+      }
+      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [version2, file2.id]);
+    }
+    for (const { file: file2 } of failed) {
+      deleteFileSymbols(db2, repo, file2.path);
+      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version2, FAILED_SUFFIX, file2.id]);
+    }
+    let resolved = 0;
+    if (pending2.length > 0) {
+      const resolver = new Resolver(db2, repo, pending2);
+      for (const p of pending2) {
+        const hit = resolver.resolve(p.from, p.edge);
+        if (!hit) continue;
+        db2.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [hit.dst, hit.how, p.rowid]);
+        resolved++;
+      }
+    }
+    resolved += reresolveEdges(db2, repo, writer.inserted, new Set(pending2.map((p) => p.rowid)));
+    markOrphanedEdges(db2);
+    return {
+      files_parsed: parsed.filter((p) => p.extraction !== null).length,
+      files_failed: failed.length,
+      symbols,
+      edges: pending2.length,
+      edges_resolved: resolved,
+      failed_paths: failed.slice(0, FAILED_PATHS_CAP).map(({ file: file2, error: error2 }) => ({ path: file2.path, error: error2 }))
+    };
+  });
+}
+function queryWords(query) {
+  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
+}
+function keywordSearchSymbols(db2, repo, query, limit) {
+  const words = queryWords(query);
+  if (words.length === 0) return { hits: [], match: "all_terms" };
+  const search = (op) => db2.all(
+    `SELECT ${SYMBOL_COLUMNS}, bm25(wm_symbols_fts, 10.0, 3.0, 4.0) AS rank
+         FROM wm_symbols_fts CROSS JOIN wm_symbols s ON s.id = wm_symbols_fts.rowid
+        WHERE wm_symbols_fts MATCH ? AND s.repo = ? AND s.kind <> 'module'
+        ORDER BY rank, s.id
+        LIMIT ?`,
+    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
+  );
+  const all = search("AND");
+  const toHit = (r) => ({ ...normalizeRow(r), score: -r.rank });
+  if (all.length >= OR_FALLBACK_MIN_HITS || words.length < 2) return { hits: all.map(toHit), match: "all_terms" };
+  const seen = new Set(all.map((r) => r.id));
+  const any2 = search("OR").filter((r) => !seen.has(r.id));
+  return { hits: [...all, ...any2].slice(0, limit).map(toHit), match: any2.length > 0 ? "any_term" : "all_terms" };
+}
+function normalizeRow(r) {
+  return {
+    id: Number(r.id),
+    repo: r.repo,
+    path: r.path,
+    kind: r.kind,
+    qualified_name: r.qualified_name,
+    signature: r.signature,
+    doc: r.doc,
+    start_line: Number(r.start_line),
+    end_line: Number(r.end_line),
+    body_hash: r.body_hash,
+    exported: Number(r.exported),
+    run_order: r.run_order === null || r.run_order === void 0 ? null : Number(r.run_order)
+  };
+}
+function symbolById(db2, id) {
+  const row = db2.get(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.id = ?`, [id]);
+  return row ? normalizeRow(row) : null;
+}
+function symbolsByName(db2, repo, qualifiedName, path2) {
+  return db2.all(
+    `SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s
+        WHERE s.repo = ? AND s.qualified_name = ? AND (? IS NULL OR s.path = ?)
+        ORDER BY s.kind = 'module', s.path, s.kind`,
+    [repo, qualifiedName, path2 ?? null, path2 ?? null]
+  ).map(normalizeRow);
+}
+function refList(rows) {
+  const unique = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    if (r.id === null || unique.has(Number(r.id))) continue;
+    unique.set(Number(r.id), {
+      id: Number(r.id),
+      qualified_name: r.qualified_name,
+      kind: r.kind,
+      repo: r.repo,
+      path: r.path,
+      line_start: Number(r.start_line)
+    });
+  }
+  const refs = [...unique.values()];
+  return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
+}
+function symbolCard(db2, symbol2) {
+  const inbound = db2.all(
+    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+       FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+      WHERE e.dst_id = ?
+      ORDER BY o.path, o.start_line`,
+    [symbol2.id]
+  );
+  const outbound = db2.all(
+    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+       FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
+      WHERE e.src_id = ?
+      ORDER BY e.line`,
+    [symbol2.id]
+  );
+  const isTable = symbol2.kind === "sql_table";
+  const tableSide = isTable ? inbound : outbound;
+  const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
+  const stale = staleFiles(db2, [symbol2]);
+  const card = {
+    symbol: { ...symbol2, stale: stale.has(fileRefKey(symbol2)) },
+    callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
+    callees: refList(of(outbound, CALL_EDGES)),
+    imports: refList(of(symbol2.kind === "module" ? outbound : inbound, ["imports"])),
+    reads_table: refList(of(tableSide, ["reads_table"])),
+    writes_table: refList(of(tableSide, ["writes_table"])),
+    tests: refList(inbound.filter((r) => r.path !== null && isTestPath(r.path)))
+  };
+  if ([...inbound, ...outbound].some((r) => r.resolution !== "exact")) card.note = "found by name; not all callers";
+  return card;
+}
+function symbolImpact(db2, symbol2, depth) {
+  const visited = /* @__PURE__ */ new Set([symbol2.id]);
+  const levels = [];
+  const tests = [];
+  let total = 0;
+  let truncated = false;
+  let frontier = [symbol2.id];
+  for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
+    const rows = db2.all(
+      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
+         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
+        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind IN (SELECT value FROM json_each(?))
+        ORDER BY o.path, o.start_line, o.id`,
+      [JSON.stringify(frontier), JSON.stringify(CALL_EDGES)]
+    );
+    const refs = [];
+    const next = [];
+    for (const r of rows) {
+      const id = Number(r.id);
+      if (visited.has(id)) continue;
+      if (total >= IMPACT_REF_CAP) {
+        truncated = true;
+        break;
+      }
+      visited.add(id);
+      total++;
+      const ref2 = {
+        id,
+        qualified_name: r.qualified_name,
+        kind: r.kind,
+        repo: r.repo,
+        path: r.path,
+        line_start: Number(r.start_line)
+      };
+      if (isTestPath(ref2.path)) {
+        tests.push(ref2);
+      } else {
+        refs.push(ref2);
+        next.push(id);
+      }
+    }
+    if (refs.length > 0) levels.push({ depth: d, refs });
+    frontier = next;
+  }
+  return { depth, levels, tests, truncated };
+}
+function symbolsStamp(contentMd5, extractorVersion = EXTRACTOR_VERSION) {
+  return `${contentMd5}:${extractorVersion}`;
+}
+function fileRefKey(f) {
+  return `${f.repo}\0${f.path}`;
+}
+function fileMd5(absPath) {
+  try {
+    return createHash2("md5").update(readFileSync5(absPath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+function staleFiles(db2, files) {
+  const roots = /* @__PURE__ */ new Map();
+  const checked = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    const key = fileRefKey(f);
+    if (checked.has(key)) continue;
+    if (!roots.has(f.repo)) roots.set(f.repo, resolveSoleRepo(db2, f.repo)?.path ?? null);
+    const root = roots.get(f.repo);
+    if (root === null) {
+      checked.set(key, false);
+      continue;
+    }
+    const row = db2.get(
+      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
+      [f.repo, f.path]
+    );
+    const disk = fileMd5(join12(root, f.path));
+    checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
+  }
+  return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
+}
+
+// src/brief-locations.ts
+var LOCATIONS_MAX_CHARS = 6e3;
+var MAX_FILES = 10;
+var MAX_FILE_SYMBOLS = 12;
+var MAX_SYMBOLS = 25;
+var MAX_MATCHES_PER_NAME = 3;
+var MAX_NEIGHBOURS = 3;
+var SPAN_RE = /`([^`\n]+)`/g;
+var PATH_RE = /^((?:[\w.@$-]+\/)*[\w.@$-]*[\w@$-]\.[A-Za-z0-9]+)(?::(\d+)(?:-(\d+))?)?$/;
+var IDENT_RE = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\(\))?$/;
+function extractSpecRefs(spec) {
+  const paths = [];
+  const identifiers = [];
+  const seenPaths = /* @__PURE__ */ new Set();
+  const seenIdents = /* @__PURE__ */ new Set();
+  for (const m of spec.matchAll(SPAN_RE)) {
+    const span = m[1].trim();
+    const p = PATH_RE.exec(span);
+    if (p) {
+      const start2 = p[2] ? Number(p[2]) : void 0;
+      const end = p[3] ? Number(p[3]) : start2;
+      const key = `${p[1]}:${start2 ?? ""}-${end ?? ""}`;
+      if (!seenPaths.has(key)) {
+        seenPaths.add(key);
+        paths.push({ path: p[1], ...start2 !== void 0 ? { start: start2, end } : {} });
+      }
+    }
+    const id = IDENT_RE.exec(span);
+    if (id && !seenIdents.has(id[1])) {
+      seenIdents.add(id[1]);
+      identifiers.push(id[1]);
+    }
+  }
+  return { paths, identifiers };
+}
+function underFiles(path2, files) {
+  return files.some((f) => {
+    const entry = f.replace(/^\.\//, "");
+    if (entry === "" || entry === ".") return true;
+    if (entry.endsWith("/")) return path2.startsWith(entry);
+    return path2 === entry || path2.startsWith(`${entry}/`);
+  });
+}
+function neighbours(list) {
+  return list.refs.slice(0, MAX_NEIGHBOURS).map((r) => ({ qualified_name: r.qualified_name, path: r.path, line_start: r.line_start }));
+}
+function fileSymbols(db2, repo, path2, ref2) {
+  const rows = db2.all(
+    `SELECT qualified_name, kind, start_line, end_line FROM wm_symbols
+        WHERE repo = ? AND path = ? AND kind <> 'module'
+        ORDER BY start_line, id`,
+    [repo, path2]
+  ).map((r) => ({ qualified_name: r.qualified_name, kind: r.kind, start_line: Number(r.start_line), end_line: Number(r.end_line) }));
+  if (rows.length <= MAX_FILE_SYMBOLS || ref2.start === void 0) return rows.slice(0, MAX_FILE_SYMBOLS);
+  const lo = ref2.start;
+  const hi = ref2.end ?? ref2.start;
+  const distance = (s) => s.end_line < lo ? lo - s.end_line : s.start_line > hi ? s.start_line - hi : 0;
+  const nearest = new Set(
+    rows.map((s, i2) => ({ i: i2, d: distance(s) })).sort((a, b) => a.d - b.d || a.i - b.i).slice(0, MAX_FILE_SYMBOLS).map((x) => x.i)
+  );
+  return rows.filter((_, i2) => nearest.has(i2));
+}
+function resolvePath(db2, repo, path2) {
+  const exact = db2.get("SELECT path, purpose FROM wm_files WHERE repo = ? AND path = ?", [repo, path2]);
+  if (exact) return { path: exact.path, purpose: exact.purpose };
+  const suffix = db2.all(
+    `SELECT path, purpose FROM wm_files WHERE repo = ? AND substr(path, -length(?)) = ? LIMIT 2`,
+    [repo, `/${path2}`, `/${path2}`]
+  );
+  return suffix.length === 1 ? { path: suffix[0].path, purpose: suffix[0].purpose } : null;
+}
+function capToSize(loc, maxChars) {
+  const fits = () => JSON.stringify(loc).length <= maxChars;
+  if (fits()) return loc;
+  loc.truncated = true;
+  for (let i2 = loc.files.length - 1; i2 >= 0 && !fits(); i2--) loc.files[i2].symbols = [];
+  while (!fits() && loc.symbols.length > 0) loc.symbols.pop();
+  while (!fits() && loc.files.length > 0) loc.files.pop();
+  return loc;
+}
+function briefLocations(db2, repo, spec, taskFiles, maxChars = LOCATIONS_MAX_CHARS) {
+  if (!repo) return null;
+  const any2 = db2.get(
+    `SELECT (SELECT COUNT(*) FROM (SELECT 1 FROM wm_files WHERE repo = ? LIMIT 1))
+          + (SELECT COUNT(*) FROM (SELECT 1 FROM wm_symbols WHERE repo = ? LIMIT 1)) AS n`,
+    [repo, repo]
+  );
+  if (!any2 || Number(any2.n) === 0) return null;
+  const refs = extractSpecRefs(spec);
+  let truncated = false;
+  const files = [];
+  const named2 = /* @__PURE__ */ new Set();
+  for (const ref2 of refs.paths) {
+    const hit = resolvePath(db2, repo, ref2.path);
+    if (!hit || named2.has(hit.path)) continue;
+    named2.add(hit.path);
+    if (files.length >= MAX_FILES) {
+      truncated = true;
+      continue;
+    }
+    files.push({ path: hit.path, purpose: hit.purpose ? frameUntrusted("file-purpose", hit.purpose) : "", symbols: fileSymbols(db2, repo, hit.path, ref2) });
+  }
+  const rank = (s) => named2.has(s.path) ? 0 : underFiles(s.path, taskFiles) ? 1 : 2;
+  const picked = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const name2 of refs.identifiers) {
+    const matches = symbolsByName(db2, repo, name2).filter((s) => s.kind !== "module" && !seen.has(s.id)).map((s, i2) => ({ s, i: i2 })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).slice(0, MAX_MATCHES_PER_NAME).map((x) => x.s);
+    for (const s of matches) {
+      seen.add(s.id);
+      picked.push(s);
+    }
+  }
+  if (picked.length > MAX_SYMBOLS) truncated = true;
+  const symbols = picked.slice(0, MAX_SYMBOLS).map((s) => {
+    const card = symbolCard(db2, s);
+    return {
+      qualified_name: s.qualified_name,
+      kind: s.kind,
+      path: s.path,
+      start_line: s.start_line,
+      end_line: s.end_line,
+      callers: neighbours(card.callers),
+      callees: neighbours(card.callees)
+    };
+  });
+  return capToSize({ files, symbols, truncated }, maxChars);
 }
 
 // src/tools/composites.ts
@@ -37489,6 +38650,7 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now2) {
 var BRIEF_SECTIONS = ["core", "verification", "scope", "history", "all"];
 var isBriefSection = (v) => BRIEF_SECTIONS.includes(v);
 var BRIEF_SECTION_HINTS = {
+  core: "locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model: read by range from it",
   verification: "verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure",
   scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: "task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open"
@@ -37596,7 +38758,7 @@ function worktreeOfBranch(repoPath, branchId) {
 function ensureTaskWorktree(repoPath, branchId) {
   const worktreePath = taskWorktreePath(repoPath, branchId);
   let reused = false;
-  if (existsSync5(worktreePath)) {
+  if (existsSync6(worktreePath)) {
     const canonicalWt = realpathSync4(worktreePath);
     try {
       reused = git(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
@@ -38088,7 +39250,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
         type: "object",
         properties: {
@@ -38663,7 +39825,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             files: parseTaskFiles(task.files),
             open_findings,
             completion_report: parseStoredReport(task.completion_report),
-            spawn_note: task.spawn_note
+            spawn_note: task.spawn_note,
+            locations: briefLocations(db2, repo, task.spec_body ?? "", parseTaskFiles(task.files))
           };
         };
         const scopeSection = () => {
@@ -39473,28 +40636,28 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 
 // src/tools/onboard.ts
 import { spawnSync as spawnSync9 } from "node:child_process";
-import { existsSync as existsSync9, lstatSync as lstatSync5, mkdirSync as mkdirSync6, realpathSync as realpathSync5, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename as basename5, dirname as dirname9, isAbsolute as isAbsolute4, join as join14 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { existsSync as existsSync10, lstatSync as lstatSync5, mkdirSync as mkdirSync6, realpathSync as realpathSync5, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename as basename7, dirname as dirname10, isAbsolute as isAbsolute4, join as join16 } from "node:path";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync7, chmodSync, rmSync } from "node:fs";
-import { dirname as dirname8, join as join12 } from "node:path";
+import { readFileSync as readFileSync7, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync8, chmodSync, rmSync } from "node:fs";
+import { dirname as dirname9, join as join14 } from "node:path";
 
 // src/tools/onboard-sandbox.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { appendFileSync as appendFileSync3, existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync5, statSync as statSync3, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname7, join as join11 } from "node:path";
+import { appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync6, statSync as statSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname8, join as join13 } from "node:path";
 function settingsPath(projectRoot) {
-  return join11(projectRoot, ".claude", "settings.local.json");
+  return join13(projectRoot, ".claude", "settings.local.json");
 }
 function isObject4(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 function readSettings(path2) {
-  if (!existsSync6(path2)) return { settings: {} };
+  if (!existsSync7(path2)) return { settings: {} };
   try {
-    const raw = readFileSync5(path2, "utf8").trim();
+    const raw = readFileSync6(path2, "utf8").trim();
     const parsed = raw.length > 0 ? JSON.parse(raw) : {};
     return isObject4(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
   } catch {
@@ -39508,9 +40671,9 @@ function ensureLocalSettingsIgnored(projectRoot) {
   if (inTree.status !== 0 || (inTree.stdout ?? "").trim() !== "true") return { appended: false };
   const ignored = spawnSync7("git", ["-C", projectRoot, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
   if (ignored.status !== 1) return { appended: false };
-  const gitignore = join11(projectRoot, ".gitignore");
+  const gitignore = join13(projectRoot, ".gitignore");
   try {
-    const current = existsSync6(gitignore) ? readFileSync5(gitignore, "utf8") : "";
+    const current = existsSync7(gitignore) ? readFileSync6(gitignore, "utf8") : "";
     const lead = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
     appendFileSync3(gitignore, `${lead}${LOCAL_SETTINGS_REL}
 `);
@@ -39522,14 +40685,14 @@ function ensureLocalSettingsIgnored(projectRoot) {
   return { appended: true };
 }
 function writeSettings(path2, settings) {
-  const created = !existsSync6(path2);
+  const created = !existsSync7(path2);
   try {
-    mkdirSync4(dirname7(path2), { recursive: true });
+    mkdirSync4(dirname8(path2), { recursive: true });
     writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
   } catch (e) {
     return { failure: `settings.local.json write failed: ${e.message}` };
   }
-  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname7(dirname7(path2))).appended };
+  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname8(dirname8(path2))).appended };
 }
 function projectUsable(projectRoot) {
   if (!projectRoot) return false;
@@ -39574,10 +40737,10 @@ function sandboxRecommended(remoteUrls, platform = process.platform, probes = SA
   return probe !== void 0 && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
 function sandboxToolCacheDir(projectRoot) {
-  return join11(projectRoot, ".claude", resolveClaudePluginName(), "cache");
+  return join13(projectRoot, ".claude", resolveClaudePluginName(), "cache");
 }
 function sandboxToolEnv(toolCacheDir) {
-  return { npm_config_cache: join11(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join11(toolCacheDir, "bun") };
+  return { npm_config_cache: join13(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join13(toolCacheDir, "bun") };
 }
 function stringList(v) {
   return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
@@ -39667,7 +40830,7 @@ function writeProjectSandbox(opts) {
 function removeProjectSandbox(opts) {
   if (!projectUsable(opts.projectRoot)) return { removed: false, reason: "no project directory" };
   const path2 = settingsPath(opts.projectRoot);
-  if (!existsSync6(path2) || opts.record === null) return { removed: false, settings_path: path2 };
+  if (!existsSync7(path2) || opts.record === null) return { removed: false, settings_path: path2 };
   const read = readSettings(path2);
   if ("reason" in read) return { removed: false, reason: read.reason };
   const settings = read.settings;
@@ -39738,18 +40901,18 @@ function installedMarketplace(pluginRoot) {
 }
 function pluginNameOf(pluginRoot) {
   try {
-    const parsed = JSON.parse(readFileSync6(join12(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync7(join14(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
     if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
   } catch {
   }
   return "tmb";
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join12(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync7(hooksJsonPath)) return null;
+  const hooksJsonPath = join14(pluginRoot, "hooks", "hooks.json");
+  if (!existsSync8(hooksJsonPath)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync6(hooksJsonPath, "utf8"));
+    parsed = JSON.parse(readFileSync7(hooksJsonPath, "utf8"));
   } catch {
     return null;
   }
@@ -39779,13 +40942,13 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
   return groups;
 }
 function resolverPathFor(projectRoot, pluginName2) {
-  return join12(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
+  return join14(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
 }
 function materializeResolver(pluginRoot, resolverPath) {
-  const canonical = join12(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync7(canonical)) return null;
-  mkdirSync5(dirname8(resolverPath), { recursive: true });
-  writeFileSync3(resolverPath, readFileSync6(canonical, "utf8"));
+  const canonical = join14(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync8(canonical)) return null;
+  mkdirSync5(dirname9(resolverPath), { recursive: true });
+  writeFileSync3(resolverPath, readFileSync7(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
@@ -39814,12 +40977,12 @@ function installedPluginGuard(pluginRoot) {
   return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 function settingsFile(projectRoot) {
-  return join12(projectRoot, ...SETTINGS_REL);
+  return join14(projectRoot, ...SETTINGS_REL);
 }
 function readSettings2(path2) {
-  if (!existsSync7(path2)) return { settings: {}, exists: false };
+  if (!existsSync8(path2)) return { settings: {}, exists: false };
   try {
-    const raw = readFileSync6(path2, "utf8").trim();
+    const raw = readFileSync7(path2, "utf8").trim();
     return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
   } catch {
     return { reason: "existing settings.local.json is not valid JSON" };
@@ -39831,14 +40994,14 @@ function preToolUseOf(settings) {
   return { hooks, pre };
 }
 function writeSettings2(path2, settings) {
-  const created = !existsSync7(path2);
+  const created = !existsSync8(path2);
   try {
-    mkdirSync5(dirname8(path2), { recursive: true });
+    mkdirSync5(dirname9(path2), { recursive: true });
     writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
   } catch (e) {
     return `settings.local.json write failed: ${e.message}`;
   }
-  if (created) ensureLocalSettingsIgnored(dirname8(dirname8(path2)));
+  if (created) ensureLocalSettingsIgnored(dirname9(dirname9(path2)));
   return null;
 }
 function skip(event, reason, result2) {
@@ -39900,7 +41063,7 @@ function removeProjectEnforcementShim(opts) {
   }
   const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
   let resolver_removed = false;
-  if (existsSync7(resolverPath)) {
+  if (existsSync8(resolverPath)) {
     rmSync(resolverPath, { force: true });
     resolver_removed = true;
   }
@@ -39912,8 +41075,8 @@ function removeProjectEnforcementShim(opts) {
 
 // src/tools/onboard-scan.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { existsSync as existsSync8, readdirSync as readdirSync3, statSync as statSync4 } from "node:fs";
-import { basename as basename4, join as join13 } from "node:path";
+import { existsSync as existsSync9, readdirSync as readdirSync3, statSync as statSync4 } from "node:fs";
+import { basename as basename6, join as join15 } from "node:path";
 var GIT_TIMEOUT_MS = 3e3;
 var MAX_GIT_CALLS = 6;
 var MERGE_WINDOW = 50;
@@ -39945,7 +41108,7 @@ function isDirectory2(path2) {
 }
 function hasWorkflows(repoPath) {
   try {
-    return readdirSync3(join13(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
+    return readdirSync3(join15(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
   } catch {
     return false;
   }
@@ -39953,7 +41116,7 @@ function hasWorkflows(repoPath) {
 function ciFiles(repoPath) {
   const found = [];
   if (hasWorkflows(repoPath)) found.push(".github/workflows");
-  if (existsSync8(join13(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
+  if (existsSync9(join15(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
   return found;
 }
 function parseRemotes(stdout) {
@@ -39972,7 +41135,7 @@ function pick2(types, longLived, originHead) {
 function scanRepoEvidence(repoPath, opts = {}) {
   const started = Date.now();
   const evidence = {
-    name: opts.name ?? basename4(repoPath),
+    name: opts.name ?? basename6(repoPath),
     path: repoPath,
     in_git: false,
     branches: [],
@@ -40031,7 +41194,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
     evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
   }
   evidence.ci_files = ciFiles(repoPath);
-  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync8(join13(repoPath, p)));
+  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync9(join15(repoPath, p)));
   return done();
 }
 function contextLines(e) {
@@ -40132,11 +41295,11 @@ function scanWorkspace(db2) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync9(join14(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname9(fileURLToPath4(import.meta.url));
+  if (env && existsSync10(join16(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname10(fileURLToPath5(import.meta.url));
   for (; ; ) {
-    if (existsSync9(join14(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname9(dir);
+    if (existsSync10(join16(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname10(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -40711,13 +41874,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         `standalone needs a session directory below the project root (session ${where.session_dir}, project ${where.project_root})`
       );
     }
-    const stateDir = claudeStateDir(where.session_dir, basename5(dirname9(dbPath2)));
-    const newDb = join14(stateDir, "trajectory.db");
+    const stateDir = claudeStateDir(where.session_dir, basename7(dirname10(dbPath2)));
+    const newDb = join16(stateDir, "trajectory.db");
     mkdirSync6(stateDir, { recursive: true });
     new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => {
     }, sqlLog: () => {
     } }).close();
-    const marker = join14(stateDir, CLAUDE_STANDALONE_MARKER);
+    const marker = join16(stateDir, CLAUDE_STANDALONE_MARKER);
     writeFileSync4(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
     insertAudit(db2, {
       issue_id: -1,
@@ -40737,12 +41900,12 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     if (root === null) throw new Error("remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)");
     const project = canonicalExisting(root);
     const self2 = canonicalExisting(dbPath2);
-    const pluginName2 = basename5(dirname9(dbPath2));
+    const pluginName2 = basename7(dirname10(dbPath2));
     const removed = [];
     const refused = [];
     const outside = `not below the project root ${root}`;
     const linkOrOutside = (path2) => {
-      for (let p = path2; dirname9(p) !== p; p = dirname9(p)) {
+      for (let p = path2; dirname10(p) !== p; p = dirname10(p)) {
         if (canonicalExisting(p) === project) return null;
         if (lstatSync5(p).isSymbolicLink()) return `${p} is a symlink`;
       }
@@ -40750,15 +41913,15 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     };
     const check2 = (path2) => {
       if (!isAbsolute4(path2)) return { reason: "not an absolute path" };
-      if (!existsSync9(path2)) return { reason: "no such file" };
-      if (claudeProjectRootOfDb(path2) === null || basename5(path2) !== "trajectory.db" || basename5(dirname9(path2)) !== pluginName2) {
+      if (!existsSync10(path2)) return { reason: "no such file" };
+      if (claudeProjectRootOfDb(path2) === null || basename7(path2) !== "trajectory.db" || basename7(dirname10(path2)) !== pluginName2) {
         return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
       }
       if (canonicalExisting(path2) === self2) return { reason: "the current trajectory DB" };
       const link = linkOrOutside(path2);
       if (link !== null) return { reason: link };
-      const stateDir = realpathSync5(dirname9(path2));
-      const strayProject = dirname9(dirname9(stateDir));
+      const stateDir = realpathSync5(dirname10(path2));
+      const strayProject = dirname10(dirname10(stateDir));
       if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
       if (isStandaloneClaudeDb(path2)) return { reason: "a standalone TMB project" };
       const { issues, tasks } = claudeDbCounts(path2);
@@ -40772,7 +41935,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         continue;
       }
       const { stateDir } = verdict;
-      const file2 = join14(stateDir, basename5(path2));
+      const file2 = join16(stateDir, basename7(path2));
       for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
       rmSync2(stateDir, { recursive: true, force: true });
       insertAudit(db2, {
@@ -41122,7 +42285,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             const result2 = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
               remoteUrls: knownRemoteUrls(managedRemotes.map((r) => r.url)),
-              toolCacheDir: join14(dirname9(dbPath2), "cache"),
+              toolCacheDir: join16(dirname10(dbPath2), "cache"),
               platform: shimEnv.platform ?? process.platform,
               previous: record2
             });
@@ -41956,7 +43119,7 @@ function purposeFromSymbols(path2, symbols, head = "") {
 
 // src/symbol-purpose.ts
 import { closeSync as closeSync2, openSync as openSync2, readSync } from "node:fs";
-import { join as join15 } from "node:path";
+import { join as join17 } from "node:path";
 function readFileHead(absPath) {
   let fd = null;
   try {
@@ -42002,7 +43165,7 @@ function refreshSymbolPurposes(db2, repo) {
   let updated = 0;
   db2.transaction(() => {
     for (const f of files) {
-      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join15(repoPath, f.path)) : "";
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join17(repoPath, f.path)) : "";
       const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
       const purpose = next?.purpose ?? "";
       const source = next ? "symbols" : "none";
@@ -42016,8 +43179,8 @@ function refreshSymbolPurposes(db2, repo) {
 
 // src/readme-drift.ts
 import { spawnSync as spawnSync10 } from "node:child_process";
-import { existsSync as existsSync10 } from "node:fs";
-import { join as join16, posix } from "node:path";
+import { existsSync as existsSync11 } from "node:fs";
+import { join as join18, posix as posix2 } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
 function git2(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
@@ -42028,7 +43191,7 @@ function git2(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
     return null;
   }
 }
-function basename6(p) {
+function basename8(p) {
   const i2 = p.lastIndexOf("/");
   return i2 >= 0 ? p.slice(i2 + 1) : p;
 }
@@ -42048,10 +43211,10 @@ function readRepoHistory(root, trackedDirs) {
     else if (status?.startsWith("R")) renamedAway.add(path2);
   }
   const trackedFiles = new Set(lines(tracked));
-  const trackedBasenames = new Set([...trackedFiles].map(basename6));
+  const trackedBasenames = new Set([...trackedFiles].map(basename8));
   const deletedByBasename = /* @__PURE__ */ new Map();
   for (const p of [...deleted].sort()) {
-    const name2 = basename6(p);
+    const name2 = basename8(p);
     const list = deletedByBasename.get(name2);
     if (list) list.push(p);
     else deletedByBasename.set(name2, [p]);
@@ -42097,7 +43260,7 @@ function readmeCandidates(readme, dir, trackedDirs) {
   return [...seen.values()];
 }
 function relativeToDir(dir, ref2) {
-  return dir === "" ? posix.normalize(ref2) : posix.normalize(`${dir}/${ref2}`);
+  return dir === "" ? posix2.normalize(ref2) : posix2.normalize(`${dir}/${ref2}`);
 }
 function deletedBareName(ref2, history) {
   if (ref2.includes("/") || history.trackedBasenames.has(ref2)) return void 0;
@@ -42107,7 +43270,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync10(join16(history.root, fromDir)) || existsSync10(join16(history.root, ref2))) continue;
+    if (existsSync11(join18(history.root, fromDir)) || existsSync11(join18(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -42120,7 +43283,7 @@ function referencedFiles(readme, dir, readmePath, history) {
   const files = /* @__PURE__ */ new Set();
   for (const { ref: ref2 } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    const fromRoot = posix.normalize(ref2);
+    const fromRoot = posix2.normalize(ref2);
     const hit = isFile(fromDir) ? fromDir : isFile(fromRoot) ? fromRoot : void 0;
     if (hit && hit !== readmePath) files.add(hit);
   }
@@ -42196,1039 +43359,6 @@ function cleanReadme(raw) {
   flush();
   return changed ? `${kept.join("\n")}
 ` : text;
-}
-
-// src/symbol-index.ts
-import { createHash as createHash2 } from "node:crypto";
-import { readFileSync as readFileSync7 } from "node:fs";
-import { basename as basename8, join as join18, posix as posix2 } from "node:path";
-
-// src/parsing/loader.ts
-import { existsSync as existsSync11 } from "node:fs";
-import { dirname as dirname10, join as join17 } from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
-var RUNTIME_WASM = "tree-sitter.wasm";
-var GRAMMAR_WASM = {
-  typescript: "tree-sitter-typescript.wasm",
-  tsx: "tree-sitter-tsx.wasm",
-  javascript: "tree-sitter-javascript.wasm",
-  bash: "tree-sitter-bash.wasm",
-  python: "tree-sitter-python.wasm"
-};
-var INDEXED = ["typescript", "tsx", "javascript", "bash"];
-var pending = null;
-var loads = 0;
-function wasmDir() {
-  const here = dirname10(fileURLToPath5(import.meta.url));
-  for (const dir of [join17(here, "parsing"), here]) {
-    if (existsSync11(join17(dir, RUNTIME_WASM))) return dir;
-  }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join17(here, "parsing")} or ${here}`);
-}
-var runtime = null;
-var grammars = /* @__PURE__ */ new Map();
-function memo(promise2, forget) {
-  promise2.catch(forget);
-  return promise2;
-}
-function loadRuntime() {
-  runtime ??= memo(
-    (async () => {
-      const dir = wasmDir();
-      const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file2) => join17(dir, file2) });
-      return mod;
-    })(),
-    () => {
-      runtime = null;
-    }
-  );
-  return runtime;
-}
-function loadParser(name2) {
-  let parser = grammars.get(name2);
-  if (!parser) {
-    parser = memo(
-      (async () => {
-        const { Parser: Parser2, Language: Language2 } = await loadRuntime();
-        const p = new Parser2();
-        p.setLanguage(await Language2.load(join17(wasmDir(), GRAMMAR_WASM[name2])));
-        return p;
-      })(),
-      () => grammars.delete(name2)
-    );
-    grammars.set(name2, parser);
-  }
-  return parser;
-}
-async function load() {
-  const parsers = {};
-  for (const name2 of INDEXED) parsers[name2] = await loadParser(name2);
-  loads++;
-  return parsers;
-}
-function loadParsers() {
-  if (!pending) {
-    pending = load();
-    pending.catch(() => {
-      pending = null;
-    });
-  }
-  return pending;
-}
-
-// src/parsing/extract.ts
-import { createHash } from "node:crypto";
-import { basename as basename7 } from "node:path";
-var GENERATED_PATH = [
-  /(^|\/)dist\//,
-  /(^|\/)build\//,
-  /(^|\/)node_modules\//,
-  /(^|\/)vendor\//,
-  /\.map$/,
-  /\.min\.js$/
-];
-var LOCKFILE_PATH = [/(^|\/)package-lock\.json$/, /\.lock(b)?$/];
-var EXTENSION_LANGUAGE = {
-  ts: "typescript",
-  mts: "typescript",
-  cts: "typescript",
-  tsx: "tsx",
-  js: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  jsx: "javascript",
-  sh: "bash",
-  bash: "bash",
-  sql: "sql"
-};
-var SH_BUILTINS = new Set(
-  "echo printf local export declare readonly return exit set unset shift cd test [ [[ true false read eval exec trap wait source . if then else fi for do done while case esac cat grep sed awk tr cut head tail sort uniq wc mkdir rm cp mv ln chmod touch date sleep command type jq git basename dirname xargs find tee env mktemp pwd kill ps sqlite3 node bash sh python3 curl gh".split(
-    " "
-  )
-);
-var STOPWORDS2 = new Set(
-  "a an the and or of to in on for with by is are was were be been when where what which who how why does do did it its this that these those from as at into per not no than then there their them our we you i set get".split(
-    " "
-  )
-);
-var md5 = (s) => createHash("md5").update(s).digest("hex");
-var DOC_MAX = 1e3;
-function splitWords(s) {
-  return s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").toLowerCase().trim();
-}
-var clip = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
-var oneLine = (s) => s.replace(/\s+/g, " ").trim();
-function isGeneratedPath(relPath) {
-  return GENERATED_PATH.some((re) => re.test(relPath));
-}
-function inSymbolScope(relPath) {
-  return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
-}
-function languageOf(relPath, head) {
-  const name2 = basename7(relPath);
-  const dot = name2.lastIndexOf(".");
-  if (dot > 0) return EXTENSION_LANGUAGE[name2.slice(dot + 1).toLowerCase()] ?? null;
-  return /^#!.*\b(bash|sh)\b/.test(head().slice(0, 120)) ? "bash" : null;
-}
-function symbolTerms(kind, qualifiedName, relPath) {
-  return `${splitWords(qualifiedName)} ${kind.replace("_", " ")} ${splitWords(basename7(relPath))}`;
-}
-function normalizedHash(node) {
-  const base = node.startIndex;
-  let text = node.text;
-  const comments = node.descendantsOfType("comment").filter((c) => c !== null).sort((a, b) => b.startIndex - a.startIndex);
-  for (const c of comments) text = text.slice(0, c.startIndex - base) + text.slice(c.endIndex - base);
-  return md5(oneLine(text));
-}
-function isRuleLine(line) {
-  const rest = line.replace(/^\s*(\/\*\*?|\/\/|#|\*)/, "").replace(/\*\/\s*$/, "").trim();
-  return rest.length >= 3 && /^[-=#*_~/ ]+$/.test(rest);
-}
-function docOf(node) {
-  const anchor = node.parent?.type === "export_statement" ? node.parent : node;
-  const lines2 = [];
-  let edge = anchor.startPosition.row;
-  let prev = anchor.previousNamedSibling;
-  while (prev && prev.type === "comment" && prev.endPosition.row === edge - 1) {
-    lines2.unshift(prev.text);
-    edge = prev.startPosition.row;
-    prev = prev.previousNamedSibling;
-  }
-  if (lines2.some((block) => block.split("\n").some(isRuleLine))) return "";
-  const raw = lines2.map(
-    (l) => l.replace(/\*\//g, " ").replace(/^\s*(\/\*\*?|\*|\/\/+|#+)/gm, " ")
-  ).join(" ");
-  return clip(oneLine(raw), DOC_MAX);
-}
-var STRING_PARTS = /* @__PURE__ */ new Set(["string_fragment", "escape_sequence"]);
-function descriptionText(pair) {
-  if (pair.childForFieldName("key")?.text.replace(/['"]/g, "") !== "description") return null;
-  const value = pair.childForFieldName("value");
-  if (!value || !["string", "template_string", "binary_expression", "parenthesized_expression"].includes(value.type)) {
-    return null;
-  }
-  const parts2 = value.descendantsOfType([...STRING_PARTS]).filter((n) => n !== null).map((n) => n.text);
-  const text = oneLine(parts2.join(""));
-  return /[a-z]{3}/i.test(text) ? text : null;
-}
-function signatureOf(node, src) {
-  const body2 = node.childForFieldName("body");
-  const end = body2 ? body2.startIndex : Math.min(node.endIndex, node.startIndex + 160);
-  return clip(oneLine(src.slice(node.startIndex, end)), 200);
-}
-var SQL_HINT = /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|REPLACE)\b/;
-function sqlRefs(text) {
-  if (!SQL_HINT.test(text)) return [];
-  const out2 = [];
-  for (const m of text.matchAll(
-    /\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?([A-Za-z_]\w*)/g
-  )) {
-    out2.push(["writes_table", m[1]]);
-  }
-  for (const m of text.matchAll(/\b(?:FROM|JOIN)\s+["`]?([A-Za-z_]\w*)/g)) out2.push(["reads_table", m[1]]);
-  for (const m of text.matchAll(/\bALTER\s+TABLE\s+["`]?([A-Za-z_]\w*)/g)) out2.push(["writes_table", m[1]]);
-  return out2;
-}
-var Collector = class {
-  symbols = [];
-  edges = [];
-  byKey = /* @__PURE__ */ new Map();
-  symbol(s) {
-    const key = `${s.kind}\0${s.qualified_name}`;
-    const known = this.byKey.get(key);
-    if (known !== void 0) return known;
-    this.symbols.push(s);
-    this.byKey.set(key, this.symbols.length - 1);
-    return this.symbols.length - 1;
-  }
-  edge(src, kind, dstName, line, hint = null) {
-    this.edges.push({ src, kind, dst_name: dstName, line, hint });
-  }
-};
-function lineCounter(text, lineBase) {
-  const starts = [0];
-  for (let i2 = text.indexOf("\n"); i2 >= 0; i2 = text.indexOf("\n", i2 + 1)) starts.push(i2 + 1);
-  return (index) => {
-    let lo = 0;
-    let hi = starts.length - 1;
-    while (lo < hi) {
-      const mid = lo + hi + 1 >> 1;
-      if (starts[mid] <= index) lo = mid;
-      else hi = mid - 1;
-    }
-    return lineBase + lo + 1;
-  };
-}
-function statementEnd(text, start2, virtual) {
-  if (virtual) return text.indexOf(";", start2);
-  let depth = 0;
-  let i2 = text.indexOf("(", start2);
-  for (; i2 >= 0 && i2 < text.length; i2++) {
-    if (text[i2] === "(") depth++;
-    else if (text[i2] === ")" && --depth === 0) break;
-  }
-  return i2;
-}
-function columnNames(stmt) {
-  const inner = stmt.slice(stmt.indexOf("(") + 1, stmt.lastIndexOf(")"));
-  const cols = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of inner) {
-    if (ch === "(") depth++;
-    if (ch === ")") depth--;
-    if (ch === "," && depth === 0) {
-      cols.push(cur);
-      cur = "";
-    } else cur += ch;
-  }
-  cols.push(cur);
-  return cols.map((c) => c.trim().split(/\s+/)[0] ?? "").filter((c) => c && !/^(PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT|content|content_rowid|tokenize|--)/i.test(c));
-}
-function extractSqlDdl(text, out2, moduleSymbol, lineBase = 0) {
-  const lineAt = lineCounter(text, lineBase);
-  for (const m of text.matchAll(/CREATE\s+(VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?/gi)) {
-    const start2 = m.index;
-    let end = statementEnd(text, start2, Boolean(m[1]));
-    if (end < 0) end = Math.min(text.length, start2 + 400);
-    const stmt = text.slice(start2, end + 1);
-    const name2 = m[2];
-    out2.symbol({
-      kind: "sql_table",
-      qualified_name: name2,
-      signature: clip(`${name2}(${columnNames(stmt).join(", ")})`, 240),
-      doc: "",
-      start_line: lineAt(start2),
-      end_line: lineAt(end),
-      body_hash: md5(oneLine(stmt)),
-      exported: 0
-    });
-  }
-  for (const m of text.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)/gi)) {
-    const line = lineAt(m.index);
-    const id = out2.symbol({
-      kind: "sql_index",
-      qualified_name: m[1],
-      signature: oneLine(m[0]),
-      doc: "",
-      start_line: line,
-      end_line: line,
-      body_hash: md5(m[0]),
-      exported: 0
-    });
-    out2.edge(id, "indexes", m[2], line);
-  }
-  for (const m of text.matchAll(/CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+([\s\S]*?)\bON\s+(\w+)([\s\S]*?)\bEND\b/gi)) {
-    const line = lineAt(m.index);
-    const id = out2.symbol({
-      kind: "sql_trigger",
-      qualified_name: m[1],
-      signature: clip(oneLine(`${m[1]} ${m[2]} ON ${m[3]}`), 200),
-      doc: "",
-      start_line: line,
-      end_line: lineAt(m.index + m[0].length),
-      body_hash: md5(oneLine(m[0])),
-      exported: 0
-    });
-    out2.edge(id, "triggers_on", m[3], line);
-    for (const [kind, table] of sqlRefs(m[4])) out2.edge(id, kind, table, line);
-  }
-  if (moduleSymbol !== null) {
-    for (const m of text.matchAll(/\bALTER\s+TABLE\s+(\w+)/gi)) out2.edge(moduleSymbol, "writes_table", m[1], lineAt(m.index));
-  }
-}
-function named(node) {
-  return node.namedChildren.filter((c) => c !== null);
-}
-var FUNCTION_VALUES = /* @__PURE__ */ new Set(["arrow_function", "function_expression", "function"]);
-function extractTs(root, src, out2, moduleSymbol) {
-  const definition = (node, kind, qualifiedName) => out2.symbol({
-    kind,
-    qualified_name: qualifiedName,
-    signature: signatureOf(node, src),
-    doc: docOf(node),
-    start_line: node.startPosition.row + 1,
-    end_line: node.endPosition.row + 1,
-    body_hash: normalizedHash(node),
-    exported: node.parent?.type === "export_statement" ? 1 : 0
-  });
-  const visit = (node, scope, cls) => {
-    let inner = scope;
-    let innerCls = cls;
-    const t = node.type;
-    const name2 = () => node.childForFieldName("name")?.text;
-    if (t === "function_declaration" || t === "generator_function_declaration") {
-      const n = name2();
-      if (n) inner = definition(node, "function", n);
-    } else if (t === "class_declaration" || t === "abstract_class_declaration") {
-      const n = name2();
-      if (n) {
-        inner = definition(node, "class", n);
-        innerCls = n;
-      }
-    } else if (t === "method_definition" && cls) {
-      const n = name2();
-      if (n) inner = definition(node, "method", `${cls}.${n}`);
-    } else if (t === "interface_declaration") {
-      const n = name2();
-      if (n) definition(node, "interface", n);
-    } else if (t === "type_alias_declaration" || t === "enum_declaration") {
-      const n = name2();
-      if (n) definition(node, "type", n);
-    } else if (t === "variable_declarator" && scope === moduleSymbol) {
-      const decl = node.parent;
-      const holder = decl?.parent?.type;
-      const n = node.childForFieldName("name");
-      if (decl && (holder === "program" || holder === "export_statement") && n?.type === "identifier") {
-        const value = node.childForFieldName("value");
-        const isFn = value !== null && FUNCTION_VALUES.has(value.type);
-        const bodyStart = value?.type === "arrow_function" ? value.childForFieldName("body")?.startIndex : void 0;
-        inner = out2.symbol({
-          kind: isFn ? "function" : "const",
-          qualified_name: n.text,
-          signature: clip(oneLine(src.slice(decl.startIndex, bodyStart ?? Math.min(decl.endIndex, decl.startIndex + 140))), 200),
-          doc: docOf(decl),
-          start_line: decl.startPosition.row + 1,
-          end_line: decl.endPosition.row + 1,
-          body_hash: normalizedHash(node),
-          exported: holder === "export_statement" ? 1 : 0
-        });
-      }
-    } else if (t === "call_expression" || t === "new_expression") {
-      const fn = node.childForFieldName(t === "call_expression" ? "function" : "constructor");
-      let callee;
-      let receiver;
-      if (fn?.type === "identifier") callee = fn.text;
-      else if (fn?.type === "member_expression") {
-        callee = fn.childForFieldName("property")?.text;
-        receiver = fn.childForFieldName("object")?.text;
-      }
-      if (callee) {
-        out2.edge(
-          scope,
-          t === "call_expression" ? "calls" : "instantiates",
-          callee,
-          node.startPosition.row + 1,
-          receiver && receiver.length < 40 ? receiver : null
-        );
-      }
-    } else if (t === "import_statement") {
-      const spec = node.childForFieldName("source")?.text.slice(1, -1) ?? null;
-      for (const s of node.descendantsOfType("import_specifier")) {
-        const n = s?.childForFieldName("name")?.text;
-        if (n) out2.edge(moduleSymbol, "imports", n, node.startPosition.row + 1, spec);
-      }
-      return;
-    } else if (t === "pair" && scope !== moduleSymbol) {
-      const text = descriptionText(node);
-      const owner = out2.symbols[scope];
-      if (text && owner) owner.doc = clip(owner.doc ? `${owner.doc} ${text}` : text, DOC_MAX);
-    } else if (t === "string" || t === "template_string") {
-      const text = node.text;
-      for (const [kind, table] of sqlRefs(text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
-      if (/CREATE\s+(VIRTUAL\s+)?TABLE/i.test(text)) extractSqlDdl(text, out2, null, node.startPosition.row);
-    }
-    for (const c of named(node)) visit(c, inner, innerCls);
-  };
-  visit(root, moduleSymbol, null);
-}
-function stripQuotes(s) {
-  return s.replace(/^["']|["']$/g, "");
-}
-function extractBash(root, out2, moduleSymbol) {
-  const visit = (node, scope) => {
-    let inner = scope;
-    const t = node.type;
-    if (t === "function_definition") {
-      const n = node.childForFieldName("name")?.text;
-      if (n) {
-        inner = out2.symbol({
-          kind: "sh_function",
-          qualified_name: n,
-          signature: `${n}()`,
-          doc: docOf(node),
-          start_line: node.startPosition.row + 1,
-          end_line: node.endPosition.row + 1,
-          body_hash: normalizedHash(node),
-          exported: 1
-        });
-      }
-    } else if (t === "command") {
-      const name2 = node.childForFieldName("name")?.text;
-      const args2 = named(node).filter((c) => c.type !== "command_name").map((c) => stripQuotes(c.text));
-      const line = node.startPosition.row + 1;
-      if (name2 === "source" || name2 === ".") {
-        if (args2[0]) out2.edge(scope, "sources", basename7(args2[0]), line);
-      } else if (name2 && /\.sh$/.test(name2)) out2.edge(scope, "runs", basename7(name2), line);
-      else if ((name2 === "bash" || name2 === "sh") && args2[0] && /\.sh$/.test(args2[0])) {
-        out2.edge(scope, "runs", basename7(args2[0]), line);
-      } else if (name2 && /^[A-Za-z_][\w-]*$/.test(name2) && !SH_BUILTINS.has(name2)) out2.edge(scope, "calls", name2, line);
-    } else if (t === "string" || t === "raw_string" || t === "heredoc_body") {
-      for (const [kind, table] of sqlRefs(node.text)) out2.edge(scope, kind, table, node.startPosition.row + 1);
-    }
-    for (const c of named(node)) visit(c, inner);
-  };
-  visit(root, moduleSymbol);
-}
-function moduleDoc(lang, src) {
-  const out2 = [];
-  const comment = lang === "bash" || lang === "sql" ? /^\s*(?:#|--)\s?(.*)$/ : /^\s*(?:\/\/|\/\*\*?|\*)\s?(.*?)(\*\/)?$/;
-  for (const l of src.split("\n")) {
-    if (/^#!/.test(l)) continue;
-    const m = l.match(comment);
-    if (m) {
-      if (m[1].trim()) out2.push(m[1].trim());
-    } else if (out2.length || l.trim()) break;
-  }
-  return clip(out2.join(" "), DOC_MAX);
-}
-function extractFile(parsers, relPath, lang, src) {
-  const out2 = new Collector();
-  const moduleSymbol = out2.symbol({
-    kind: "module",
-    qualified_name: relPath,
-    signature: relPath,
-    doc: moduleDoc(lang, src),
-    start_line: 1,
-    end_line: src.split("\n").length,
-    body_hash: md5(src),
-    exported: 0
-  });
-  if (lang === "sql") {
-    extractSqlDdl(src, out2, moduleSymbol);
-    return out2;
-  }
-  if (!parsers) throw new Error(`no parser loaded for ${lang}`);
-  const tree = parsers[lang].parse(src);
-  if (!tree) throw new Error(`tree-sitter returned no tree for ${relPath}`);
-  try {
-    if (lang === "bash") extractBash(tree.rootNode, out2, moduleSymbol);
-    else extractTs(tree.rootNode, src, out2, moduleSymbol);
-  } finally {
-    tree.delete();
-  }
-  return out2;
-}
-
-// src/parsing/hooks.ts
-var HOOKS_PATH = "hooks/hooks.json";
-var REGISTRATIONS_PATH = "scripts/hooks/lib/registrations.sh";
-var EVENT_ORDER = [
-  "SessionStart",
-  "UserPromptSubmit",
-  "PreToolUse",
-  "PermissionRequest",
-  "PostToolUse",
-  "Notification",
-  "SubagentStart",
-  "SubagentStop",
-  "Stop",
-  "PreCompact",
-  "WorktreeCreate",
-  "WorktreeRemove",
-  "SessionEnd"
-];
-function dispatchChains(registrations) {
-  const chains = /* @__PURE__ */ new Map();
-  for (const m of registrations.matchAll(/^\s*([\w-]+)\)\s*\n\s*printf '%s\\n' \\\n((?:\s*'[^']*'\s*\\?\n)+)/gm)) {
-    chains.set(m[1], [...m[2].matchAll(/'([\w-]+)\s/g)].map((x) => x[1]));
-  }
-  return chains;
-}
-function eventRanks(events) {
-  const unknown2 = events.filter((e) => !EVENT_ORDER.includes(e));
-  const stop2 = EVENT_ORDER.indexOf("Stop");
-  const order = [...EVENT_ORDER.slice(0, stop2 + 1), ...unknown2, ...EVENT_ORDER.slice(stop2 + 1)];
-  return new Map(order.map((e, i2) => [e, i2 + 1]));
-}
-var scriptOf = (gate) => `scripts/hooks/${gate}.sh`;
-function extractHooks(src, chains) {
-  const out2 = { symbols: [], edges: [] };
-  const parsed = JSON.parse(src);
-  const hooks = parsed.hooks ?? {};
-  const ranks = eventRanks(Object.keys(hooks));
-  const lines2 = src.split("\n");
-  const lineOf = (needle, from) => {
-    for (let i2 = from; i2 < lines2.length; i2++) if (lines2[i2].includes(needle)) return i2 + 1;
-    return 0;
-  };
-  let cursor = 0;
-  for (const [event, groups] of Object.entries(hooks)) {
-    const rank = ranks.get(event);
-    let pos = 0;
-    for (const group of Array.isArray(groups) ? groups : []) {
-      const matcher = group.matcher ?? "";
-      for (const hook of group.hooks ?? []) {
-        pos++;
-        const cmd = hook.command ?? "";
-        const gate = cmd.match(/dispatch\.sh"?\s+([\w.-]+)/)?.[1];
-        const direct = gate ? null : cmd.match(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+\.sh)/)?.[1] ?? null;
-        const name2 = gate ?? direct?.split("/").pop() ?? `hook${pos}`;
-        const line = lineOf(gate ?? direct ?? cmd, cursor);
-        cursor = line || cursor;
-        const members = gate ? chains.get(gate) : void 0;
-        const target = members ? `chain ${members.join(", ")}` : gate ? scriptOf(gate) : direct ?? cmd;
-        const qualifiedName = `${event}#${pos}:${name2}`;
-        out2.symbols.push({
-          kind: "hook",
-          qualified_name: qualifiedName,
-          signature: clip(oneLine(cmd), 200),
-          doc: `${event} hook #${pos}${matcher ? ` (matcher ${matcher})` : ""} runs ${target}`,
-          start_line: line,
-          end_line: line,
-          body_hash: md5(`${matcher}\0${cmd}`),
-          exported: 1,
-          run_order: rank * 100 + pos
-        });
-        const at = out2.symbols.length - 1;
-        if (members) {
-          members.forEach((m, i2) => out2.edges.push({ src: at, kind: "runs", dst_name: scriptOf(m), line: i2 + 1, hint: null }));
-        } else if (gate || direct) {
-          out2.edges.push({ src: at, kind: "runs", dst_name: gate ? scriptOf(gate) : direct, line, hint: null });
-        }
-      }
-    }
-  }
-  return out2;
-}
-
-// src/symbol-index.ts
-var EXTRACTOR_VERSION = 2;
-var MAX_PARSE_BYTES = 1e6;
-var CARD_LIST_CAP = 50;
-var IMPACT_REF_CAP = 200;
-var IMPACT_MAX_DEPTH = 5;
-var OR_FALLBACK_MIN_HITS = 3;
-var FAILED_SUFFIX = ":failed";
-var FAILED_PATHS_CAP = 20;
-var FAILED_ERROR_MAX = 200;
-var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order";
-var CALLABLE = /* @__PURE__ */ new Set(["function", "method", "class", "sh_function"]);
-var TABLE_EDGES = /* @__PURE__ */ new Set(["reads_table", "writes_table", "indexes", "triggers_on"]);
-var CALL_EDGES = ["calls", "instantiates", "runs", "sources"];
-function isTestPath(path2) {
-  return /(^|\/)(tests?|__tests__)\/|\.test\.[a-z]+$/.test(path2);
-}
-function outsideConceptLane(path2) {
-  return isTestPath(path2) || /(^|\/)(__)?fixtures(__)?\//.test(path2);
-}
-function shortName(kind, qualifiedName) {
-  return kind === "method" ? qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1) : qualifiedName;
-}
-function namesOf(kind, qualifiedName, path2) {
-  return kind === "module" ? [basename8(path2), path2] : [shortName(kind, qualifiedName)];
-}
-function readSource(repoPath, relPath) {
-  return readFileSync7(join18(repoPath, relPath), "utf8");
-}
-function sourceLanguage(repoPath, relPath, sizeBytes) {
-  if (sizeBytes > MAX_PARSE_BYTES) return null;
-  return languageOf(relPath, () => {
-    try {
-      return readSource(repoPath, relPath).slice(0, 120);
-    } catch {
-      return "";
-    }
-  });
-}
-function resolveImport(fromFile, spec, fileSet) {
-  if (!spec || !spec.startsWith(".")) return null;
-  const base = posix2.normalize(posix2.join(posix2.dirname(fromFile), spec));
-  const stem2 = base.replace(/\.(m?js|ts)$/, "");
-  for (const c of [base, `${stem2}.ts`, `${stem2}.tsx`, `${stem2}.js`, `${stem2}.mjs`, `${stem2}/index.ts`, `${stem2}/index.js`]) {
-    if (fileSet.has(c)) return c;
-  }
-  return null;
-}
-var SymbolWriter = class {
-  constructor(db2, repo) {
-    this.db = db2;
-    this.repo = repo;
-  }
-  db;
-  repo;
-  inserted = /* @__PURE__ */ new Set();
-  // Upsert one file's symbols by (kind, qualified_name) so unchanged symbols
-  // keep their ids, drop the ones that disappeared, and replace its edges.
-  writeFile(path2, extraction) {
-    const existing = new Map(
-      this.db.all(
-        `SELECT ${SYMBOL_COLUMNS}, s.terms FROM wm_symbols s WHERE s.repo = ? AND s.path = ?`,
-        [this.repo, path2]
-      ).map((r) => [`${r.kind}\0${r.qualified_name}`, r])
-    );
-    this.db.run(
-      `DELETE FROM wm_edges WHERE src_id IN (SELECT id FROM wm_symbols WHERE repo = ? AND path = ?)`,
-      [this.repo, path2]
-    );
-    const ids = extraction.symbols.map((s) => {
-      const terms = symbolTerms(s.kind, s.qualified_name, path2);
-      const key = `${s.kind}\0${s.qualified_name}`;
-      const row = existing.get(key);
-      const runOrder = s.run_order ?? null;
-      if (!row) {
-        for (const n of namesOf(s.kind, s.qualified_name, path2)) this.inserted.add(n);
-        return Number(
-          this.db.run(
-            `INSERT INTO wm_symbols (repo, path, kind, qualified_name, signature, doc, start_line, end_line, body_hash, exported, terms, run_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [this.repo, path2, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder]
-          ).lastInsertRowid
-        );
-      }
-      existing.delete(key);
-      const changed = row.signature !== s.signature || row.doc !== s.doc || Number(row.start_line) !== s.start_line || Number(row.end_line) !== s.end_line || row.body_hash !== s.body_hash || Number(row.exported) !== s.exported || row.terms !== terms || (row.run_order === null ? null : Number(row.run_order)) !== runOrder;
-      if (changed) {
-        this.db.run(
-          `UPDATE wm_symbols SET signature = ?, doc = ?, start_line = ?, end_line = ?, body_hash = ?, exported = ?, terms = ?, run_order = ? WHERE id = ?`,
-          [s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, terms, runOrder, row.id]
-        );
-      }
-      return Number(row.id);
-    });
-    for (const gone of existing.values()) this.db.run(`DELETE FROM wm_symbols WHERE id = ?`, [gone.id]);
-    return extraction.edges.map((edge) => ({
-      rowid: Number(
-        this.db.run(`INSERT INTO wm_edges (src_id, dst_name, kind, resolution, line, hint) VALUES (?, ?, ?, 'unresolved', ?, ?)`, [
-          ids[edge.src],
-          edge.dst_name,
-          edge.kind,
-          edge.line,
-          edge.hint
-        ]).lastInsertRowid
-      ),
-      from: path2,
-      edge
-    }));
-  }
-};
-var Resolver = class {
-  byName = /* @__PURE__ */ new Map();
-  modules = /* @__PURE__ */ new Map();
-  byBase = /* @__PURE__ */ new Map();
-  fileSet = /* @__PURE__ */ new Set();
-  importMap = /* @__PURE__ */ new Map();
-  sourced = /* @__PURE__ */ new Map();
-  constructor(db2, repo, pending2) {
-    for (const s of db2.all(
-      `SELECT id, path, kind, qualified_name FROM wm_symbols WHERE repo = ?`,
-      [repo]
-    )) {
-      const c = { id: Number(s.id), path: s.path, kind: s.kind };
-      if (s.kind === "module") {
-        this.modules.set(s.path, c.id);
-        this.fileSet.add(s.path);
-        push(this.byBase, basename8(s.path), c);
-      } else {
-        push(this.byName, shortName(s.kind, s.qualified_name), c);
-      }
-    }
-    for (const { from, edge } of pending2) {
-      if (edge.kind === "imports") {
-        const target = resolveImport(from, edge.hint, this.fileSet);
-        if (target) {
-          const m = this.importMap.get(from) ?? /* @__PURE__ */ new Map();
-          m.set(edge.dst_name, target);
-          this.importMap.set(from, m);
-        }
-      } else if (edge.kind === "sources") {
-        const cands = this.byBase.get(edge.dst_name) ?? [];
-        const pick3 = cands.find((c) => posix2.dirname(c.path) === posix2.dirname(from)) ?? cands[0];
-        if (pick3) push(this.sourced, from, pick3.path);
-      }
-    }
-  }
-  resolve(from, edge) {
-    if (edge.kind === "imports") {
-      const target = resolveImport(from, edge.hint, this.fileSet);
-      if (!target) return null;
-      const hit = (this.byName.get(edge.dst_name) ?? []).find((c) => c.path === target);
-      const dst = hit?.id ?? this.modules.get(target);
-      return dst === void 0 ? null : { dst, how: "exact" };
-    }
-    if (edge.kind === "runs" || edge.kind === "sources") {
-      const byPath = edge.dst_name.includes("/") ? this.modules.get(edge.dst_name) : void 0;
-      if (byPath !== void 0) return { dst: byPath, how: "exact" };
-      const cands2 = this.byBase.get(edge.dst_name) ?? [];
-      const pick3 = cands2.find((c) => posix2.dirname(c.path) === posix2.dirname(from)) ?? (cands2.length === 1 ? cands2[0] : void 0);
-      return pick3 ? { dst: pick3.id, how: cands2.length === 1 ? "exact" : "name" } : null;
-    }
-    if (TABLE_EDGES.has(edge.kind)) {
-      const cands2 = (this.byName.get(edge.dst_name) ?? []).filter((c) => c.kind === "sql_table");
-      const pick3 = cands2.find((c) => c.path.endsWith(".sql") && !isTestPath(c.path)) ?? cands2.find((c) => !isTestPath(c.path)) ?? cands2[0];
-      return pick3 ? { dst: pick3.id, how: "name" } : null;
-    }
-    const cands = (this.byName.get(edge.dst_name) ?? []).filter((c) => CALLABLE.has(c.kind));
-    const member = edge.hint !== null && edge.hint !== "this";
-    const same = cands.find((c) => c.path === from);
-    const viaImport = this.importMap.get(from)?.get(edge.dst_name);
-    const viaSource = (this.sourced.get(from) ?? []).map((p) => cands.find((c) => c.path === p)).find(Boolean);
-    if (same && !member) return { dst: same.id, how: "exact" };
-    if (viaImport) {
-      const hit = cands.find((c) => c.path === viaImport);
-      if (hit) return { dst: hit.id, how: "exact" };
-    } else if (viaSource) return { dst: viaSource.id, how: "exact" };
-    const unique = cands.filter((c) => !isTestPath(c.path) && (!member || c.kind === "method"));
-    return unique.length === 1 && edge.dst_name.length >= 4 ? { dst: unique[0].id, how: "name" } : null;
-  }
-};
-function push(map2, key, value) {
-  const list = map2.get(key);
-  if (list) list.push(value);
-  else map2.set(key, [value]);
-}
-function markOrphanedEdges(db2) {
-  db2.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
-}
-function deleteFileSymbols(db2, repo, path2) {
-  db2.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, path2]);
-}
-function registrationChains(repoPath) {
-  try {
-    return dispatchChains(readSource(repoPath, REGISTRATIONS_PATH));
-  } catch {
-    return /* @__PURE__ */ new Map();
-  }
-}
-var toPending = (r) => ({
-  from: r.path,
-  edge: { src: 0, kind: r.kind, dst_name: r.dst_name, line: Number(r.line), hint: r.hint }
-});
-function reresolveEdges(db2, repo, names, skip2) {
-  const candidates = db2.all(
-    `SELECT e.rowid AS rowid, s.path, e.kind, e.dst_name, e.line, e.hint, e.resolution, e.dst_id
-         FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
-        WHERE s.repo = ?
-          AND ((e.dst_id IS NULL AND e.resolution <> 'unresolved')
-            OR ((e.resolution <> 'exact' OR e.dst_id IS NULL) AND e.dst_name IN (SELECT value FROM json_each(?))))`,
-    [repo, JSON.stringify([...names])]
-  ).filter((r) => !skip2.has(Number(r.rowid)));
-  if (candidates.length === 0) return 0;
-  const context = db2.all(
-    `SELECT e.rowid AS rowid, s.path, e.kind, e.dst_name, e.line, e.hint, e.resolution, e.dst_id
-       FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id
-      WHERE s.repo = ? AND e.kind IN ('imports', 'sources') AND s.path IN (SELECT value FROM json_each(?))`,
-    [repo, JSON.stringify([...new Set(candidates.map((c) => c.path))])]
-  );
-  const resolver = new Resolver(db2, repo, context.map(toPending));
-  let resolved = 0;
-  for (const c of candidates) {
-    const { from, edge } = toPending(c);
-    const hit = resolver.resolve(from, edge);
-    if (!hit || hit.how === c.resolution && hit.dst === (c.dst_id === null ? null : Number(c.dst_id))) continue;
-    db2.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [hit.dst, hit.how, c.rowid]);
-    resolved++;
-  }
-  return resolved;
-}
-async function indexRepoSymbols(db2, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
-  const version2 = String(extractorVersion);
-  const stale = db2.all(
-    `SELECT id, path, content_md5, size_bytes FROM wm_files
-        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
-          AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
-    [repo, version2, version2, FAILED_SUFFIX]
-  ).filter((f) => inSymbolScope(f.path));
-  if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
-    const hooksFile = db2.get(
-      `SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`,
-      [repo, HOOKS_PATH]
-    );
-    if (hooksFile) stale.push(hooksFile);
-  }
-  const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
-  const parsers = jobs.some((j) => j.lang !== null && j.lang !== "sql") ? await loadParsers() : null;
-  const failed = [];
-  const parsed = [];
-  for (const { file: file2, lang } of jobs) {
-    const isHooks = file2.path === HOOKS_PATH;
-    if (lang === null && !isHooks) {
-      parsed.push({ file: file2, extraction: null });
-      continue;
-    }
-    try {
-      const src = readSource(repoPath, file2.path);
-      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file2.path, lang, src);
-      parsed.push({ file: file2, extraction });
-    } catch (e) {
-      failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
-    }
-  }
-  return db2.transaction(() => {
-    const writer = new SymbolWriter(db2, repo);
-    const pending2 = [];
-    let symbols = 0;
-    for (const { file: file2, extraction } of parsed) {
-      if (extraction) {
-        pending2.push(...writer.writeFile(file2.path, extraction));
-        symbols += extraction.symbols.length;
-      } else {
-        deleteFileSymbols(db2, repo, file2.path);
-      }
-      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [version2, file2.id]);
-    }
-    for (const { file: file2 } of failed) {
-      deleteFileSymbols(db2, repo, file2.path);
-      db2.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version2, FAILED_SUFFIX, file2.id]);
-    }
-    let resolved = 0;
-    if (pending2.length > 0) {
-      const resolver = new Resolver(db2, repo, pending2);
-      for (const p of pending2) {
-        const hit = resolver.resolve(p.from, p.edge);
-        if (!hit) continue;
-        db2.run(`UPDATE wm_edges SET dst_id = ?, resolution = ? WHERE rowid = ?`, [hit.dst, hit.how, p.rowid]);
-        resolved++;
-      }
-    }
-    resolved += reresolveEdges(db2, repo, writer.inserted, new Set(pending2.map((p) => p.rowid)));
-    markOrphanedEdges(db2);
-    return {
-      files_parsed: parsed.filter((p) => p.extraction !== null).length,
-      files_failed: failed.length,
-      symbols,
-      edges: pending2.length,
-      edges_resolved: resolved,
-      failed_paths: failed.slice(0, FAILED_PATHS_CAP).map(({ file: file2, error: error2 }) => ({ path: file2.path, error: error2 }))
-    };
-  });
-}
-function queryWords(query) {
-  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
-}
-function keywordSearchSymbols(db2, repo, query, limit) {
-  const words = queryWords(query);
-  if (words.length === 0) return { hits: [], match: "all_terms" };
-  const search = (op) => db2.all(
-    `SELECT ${SYMBOL_COLUMNS}, bm25(wm_symbols_fts, 10.0, 3.0, 4.0) AS rank
-         FROM wm_symbols_fts CROSS JOIN wm_symbols s ON s.id = wm_symbols_fts.rowid
-        WHERE wm_symbols_fts MATCH ? AND s.repo = ? AND s.kind <> 'module'
-        ORDER BY rank, s.id
-        LIMIT ?`,
-    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
-  );
-  const all = search("AND");
-  const toHit = (r) => ({ ...normalizeRow(r), score: -r.rank });
-  if (all.length >= OR_FALLBACK_MIN_HITS || words.length < 2) return { hits: all.map(toHit), match: "all_terms" };
-  const seen = new Set(all.map((r) => r.id));
-  const any2 = search("OR").filter((r) => !seen.has(r.id));
-  return { hits: [...all, ...any2].slice(0, limit).map(toHit), match: any2.length > 0 ? "any_term" : "all_terms" };
-}
-function normalizeRow(r) {
-  return {
-    id: Number(r.id),
-    repo: r.repo,
-    path: r.path,
-    kind: r.kind,
-    qualified_name: r.qualified_name,
-    signature: r.signature,
-    doc: r.doc,
-    start_line: Number(r.start_line),
-    end_line: Number(r.end_line),
-    body_hash: r.body_hash,
-    exported: Number(r.exported),
-    run_order: r.run_order === null || r.run_order === void 0 ? null : Number(r.run_order)
-  };
-}
-function symbolById(db2, id) {
-  const row = db2.get(`SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s WHERE s.id = ?`, [id]);
-  return row ? normalizeRow(row) : null;
-}
-function symbolsByName(db2, repo, qualifiedName, path2) {
-  return db2.all(
-    `SELECT ${SYMBOL_COLUMNS} FROM wm_symbols s
-        WHERE s.repo = ? AND s.qualified_name = ? AND (? IS NULL OR s.path = ?)
-        ORDER BY s.kind = 'module', s.path, s.kind`,
-    [repo, qualifiedName, path2 ?? null, path2 ?? null]
-  ).map(normalizeRow);
-}
-function refList(rows) {
-  const unique = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    if (r.id === null || unique.has(Number(r.id))) continue;
-    unique.set(Number(r.id), {
-      id: Number(r.id),
-      qualified_name: r.qualified_name,
-      kind: r.kind,
-      repo: r.repo,
-      path: r.path,
-      line_start: Number(r.start_line)
-    });
-  }
-  const refs = [...unique.values()];
-  return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
-}
-function symbolCard(db2, symbol2) {
-  const inbound = db2.all(
-    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
-       FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
-      WHERE e.dst_id = ?
-      ORDER BY o.path, o.start_line`,
-    [symbol2.id]
-  );
-  const outbound = db2.all(
-    `SELECT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
-       FROM wm_edges e LEFT JOIN wm_symbols o ON o.id = e.dst_id
-      WHERE e.src_id = ?
-      ORDER BY e.line`,
-    [symbol2.id]
-  );
-  const isTable = symbol2.kind === "sql_table";
-  const tableSide = isTable ? inbound : outbound;
-  const of = (rows, kinds) => rows.filter((r) => kinds.includes(r.edge_kind));
-  const stale = staleFiles(db2, [symbol2]);
-  const card = {
-    symbol: { ...symbol2, stale: stale.has(fileRefKey(symbol2)) },
-    callers: refList(of(inbound, CALL_EDGES).filter((r) => r.path !== null && !isTestPath(r.path))),
-    callees: refList(of(outbound, CALL_EDGES)),
-    imports: refList(of(symbol2.kind === "module" ? outbound : inbound, ["imports"])),
-    reads_table: refList(of(tableSide, ["reads_table"])),
-    writes_table: refList(of(tableSide, ["writes_table"])),
-    tests: refList(inbound.filter((r) => r.path !== null && isTestPath(r.path)))
-  };
-  if ([...inbound, ...outbound].some((r) => r.resolution !== "exact")) card.note = "found by name; not all callers";
-  return card;
-}
-function symbolImpact(db2, symbol2, depth) {
-  const visited = /* @__PURE__ */ new Set([symbol2.id]);
-  const levels = [];
-  const tests = [];
-  let total = 0;
-  let truncated = false;
-  let frontier = [symbol2.id];
-  for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
-    const rows = db2.all(
-      `SELECT DISTINCT e.kind AS edge_kind, e.resolution, o.id, o.qualified_name, o.kind, o.repo, o.path, o.start_line
-         FROM wm_edges e JOIN wm_symbols o ON o.id = e.src_id
-        WHERE e.dst_id IN (SELECT value FROM json_each(?)) AND e.kind IN (SELECT value FROM json_each(?))
-        ORDER BY o.path, o.start_line, o.id`,
-      [JSON.stringify(frontier), JSON.stringify(CALL_EDGES)]
-    );
-    const refs = [];
-    const next = [];
-    for (const r of rows) {
-      const id = Number(r.id);
-      if (visited.has(id)) continue;
-      if (total >= IMPACT_REF_CAP) {
-        truncated = true;
-        break;
-      }
-      visited.add(id);
-      total++;
-      const ref2 = {
-        id,
-        qualified_name: r.qualified_name,
-        kind: r.kind,
-        repo: r.repo,
-        path: r.path,
-        line_start: Number(r.start_line)
-      };
-      if (isTestPath(ref2.path)) {
-        tests.push(ref2);
-      } else {
-        refs.push(ref2);
-        next.push(id);
-      }
-    }
-    if (refs.length > 0) levels.push({ depth: d, refs });
-    frontier = next;
-  }
-  return { depth, levels, tests, truncated };
-}
-function symbolsStamp(contentMd5, extractorVersion = EXTRACTOR_VERSION) {
-  return `${contentMd5}:${extractorVersion}`;
-}
-function fileRefKey(f) {
-  return `${f.repo}\0${f.path}`;
-}
-function fileMd5(absPath) {
-  try {
-    return createHash2("md5").update(readFileSync7(absPath)).digest("hex");
-  } catch {
-    return null;
-  }
-}
-function staleFiles(db2, files) {
-  const roots = /* @__PURE__ */ new Map();
-  const checked = /* @__PURE__ */ new Map();
-  for (const f of files) {
-    const key = fileRefKey(f);
-    if (checked.has(key)) continue;
-    if (!roots.has(f.repo)) roots.set(f.repo, resolveSoleRepo(db2, f.repo)?.path ?? null);
-    const root = roots.get(f.repo);
-    if (root === null) {
-      checked.set(key, false);
-      continue;
-    }
-    const row = db2.get(
-      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
-      [f.repo, f.path]
-    );
-    const disk = fileMd5(join18(root, f.path));
-    checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
-  }
-  return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
 }
 
 // src/world-model/concepts.ts

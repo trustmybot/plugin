@@ -1,0 +1,2 @@
+### Changed
+- **`task_brief` hands swe the locations its spec names** (GH 1906): the `core` section now carries `locations`. For each file the spec names in backticks it gives the file's purpose and its symbols with line ranges. For each function, class or `Class.method` it names, it gives the definition's line range and up to three callers and callees from the world model. A swe can read the lines it needs instead of whole files. The block stays under 6000 characters and is `null` when the repo has no world model.

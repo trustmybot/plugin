@@ -54,6 +54,7 @@ import {
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
+import { briefLocations } from '../brief-locations.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -339,6 +340,7 @@ export const BRIEF_SECTIONS = ['core', 'verification', 'scope', 'history', 'all'
 export type BriefSection = (typeof BRIEF_SECTIONS)[number];
 const isBriefSection = (v: unknown): v is BriefSection => (BRIEF_SECTIONS as readonly unknown[]).includes(v);
 const BRIEF_SECTION_HINTS = {
+  core: 'locations {files, symbols, truncated}: the files and symbols spec_body names in backticks, with line ranges, file purpose and up to 3 callers/callees from the world model: read by range from it',
   verification: 'verification[] the close gate runs and verification_run, its latest recorded run: load before closing or after a gate failure',
   scope: "scope {files, extras_accepted, base_moved} and scope_world_model, the world model of files[]' dirs: load to orient in unfamiliar directories",
   history: 'task_discussions, the decisions and notes behind the spec: load when the spec leaves a choice open',
@@ -1117,7 +1119,9 @@ export function compositeTools(
       name: 'task_brief',
       description:
         "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none). " +
-        "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, plus a `sections` map of what the others hold), " +
+        "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, " +
+        "locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; " +
+        "plus a `sections` map of what the others hold), " +
         "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
         "Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
@@ -1831,6 +1835,7 @@ export function compositeTools(
             open_findings,
             completion_report: parseStoredReport(task.completion_report),
             spawn_note: task.spawn_note,
+            locations: briefLocations(db, repo, task.spec_body ?? '', parseTaskFiles(task.files)),
           };
         };
 
