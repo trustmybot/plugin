@@ -40,6 +40,8 @@ const BAR_MAX = 24;
 const BAR_GAP = 2;
 const RADIUS = 4;
 const CAP = 2;
+const LEADER_GAP = 4;
+const TICK_LEN = 4;
 const CHAR_PX = 6.6;
 const LABEL_PAD = 4;
 const BASELINE = 'var(--borderColor-default)';
@@ -105,6 +107,21 @@ export function placeMarkerLabels(markers: Array<{ x: number; label: string }>, 
 
 export const labelBox = (p: PlacedLabel) => ({ left: p.left, right: p.right, top: p.baseline - LABEL_ASCENT, bottom: p.baseline + LABEL_DESCENT });
 
+export interface BarTop {
+  left: number;
+  right: number;
+  top: number;
+}
+
+// A marker's leader drops from just under its label to 4px above the tallest bar it touches;
+// the window is padded by half the bar gap so a marker in a gap clears both neighbours.
+export function markerLeader({ x, labelBottom, bars, innerH }: { x: number; labelBottom: number; bars: readonly BarTop[]; innerH: number }) {
+  const reach = 0.5 + BAR_GAP / 2;
+  const y1 = labelBottom + 2;
+  const barTop = Math.min(innerH, ...bars.filter((b) => b.left <= x + reach && b.right >= x - reach).map((b) => b.top));
+  return { x: Math.round(x) + 0.5, y1, y2: Math.max(y1, barTop - LEADER_GAP) };
+}
+
 export function thinEdgeTicks(ticks: Tick[], innerW: number): EdgeTick[] {
   if (ticks.length === 0) return [];
   const room = Math.max(2, Math.floor(innerW / MIN_TICK_GAP));
@@ -155,6 +172,12 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contigu
   const labels = new Map(shown.map((t) => [t.at, t]));
   const markerX = (markers ?? []).map((m) => ({ x: x(m.at), label: m.label }));
   const placed = placeMarkerLabels(markerX, innerW);
+  const bars = columns.flatMap((c, i) => {
+    if (c.value <= 0) return [];
+    const h = Math.max(CAP, innerH - y(c.value));
+    const left = x(i) + (band - bar) / 2;
+    return [{ c, left, right: left + bar, top: innerH - h, h }];
+  });
   const show = (c: Column, i: number) => () =>
     showTooltip({ tooltipData: { title: c.tip }, tooltipLeft: MARGIN.left + x(i + 0.5), tooltipTop: marginTop + y(c.value) - 8 });
   return (
@@ -162,16 +185,16 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contigu
       <svg width={width} height={HEIGHT} role="img" aria-label={label} className="block max-w-full overflow-visible tabular-nums">
         <Group left={MARGIN.left} top={marginTop}>
           <GridRows scale={y} width={innerW} numTicks={4} stroke={GRID} strokeWidth={1} />
-          {columns.map((c, i) => {
-            if (c.value <= 0) return null;
-            const h = Math.max(CAP, innerH - y(c.value));
-            return <Mark key={c.key} x={x(i) + (band - bar) / 2} y={innerH - h} width={bar} height={h} color={c.color} horizontal={false} />;
-          })}
+          {bars.map((b) => (
+            <Mark key={b.c.key} x={b.left} y={b.top} width={bar} height={b.h} color={b.c.color} horizontal={false} />
+          ))}
           {markerX.map((m, i) => {
             const p = placed[i]!;
+            const l = markerLeader({ x: m.x, labelBottom: labelBox(p).bottom, bars, innerH });
             return (
               <g key={m.label} data-marker="">
-                <Line from={{ x: m.x, y: 0 }} to={{ x: m.x, y: innerH }} stroke={MUTED} strokeWidth={1} />
+                <Line from={{ x: l.x, y: l.y1 }} to={{ x: l.x, y: l.y2 }} stroke={MUTED} strokeWidth={1} strokeLinecap="butt" data-marker-leader="" />
+                <line x1={l.x} y1={innerH} x2={l.x} y2={innerH + TICK_LEN} stroke={MUTED} strokeWidth={1} strokeLinecap="butt" data-marker-tick="" />
                 <text x={p.x} y={p.baseline} textAnchor={p.anchor} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }} data-marker-label="">
                   {m.label}
                 </text>
