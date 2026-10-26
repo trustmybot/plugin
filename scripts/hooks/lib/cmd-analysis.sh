@@ -18,7 +18,10 @@
 #     - `# comments` are dropped.
 #   A quoted string spanning lines joins them with `_`. With `keep`, those
 #   characters (and backslash-escaped ones) become reversible control bytes
-#   instead of `_` (see tmb_cmd_decode), so a quoted word can be recovered.
+#   instead of `_` (see tmb_cmd_decode), so a quoted word can be recovered,
+#   and each opening quote or unquoted backslash leaves a \027 mark that
+#   _tmb_cmd_statements_enc reads (a word holding one is never a reserved
+#   word, POSIX 2.4) and drops; a literal \027 becomes `$()` (encoded).
 #   With `bodies`, prints instead each heredoc body the same scan drops, in
 #   order: `<delimiter><TAB><body>`, its lines joined by \037.
 #
@@ -326,6 +329,7 @@ tmb_cmd_strip_literals() {
   [ "${2:-}" = "bodies" ] && bodies=1
   printf '%s\n' "${1:-}" | awk -v sq="'" -v keep="$keep" -v bodies="$bodies" '
     function neutral(c,   k) {
+      if (keep && c == qm) return qlit
       if (keep) { k = index(" \t<>|;&()`", c); return k ? enc[k] : c }
       return (c ~ /[ \t<>|;&()`]/) ? "_" : c
     }
@@ -346,6 +350,7 @@ tmb_cmd_strip_literals() {
       state = ""; nh = 0; cur = 0; inbody = 0; sp = 0; nc = 0; hg = 0
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
       hdata = sprintf("%c", 30); hexp = sprintf("%c", 26)
+      qm = sprintf("%c", 23); qlit = "$" enc[8] enc[9]
     }
     {
       line = $0
@@ -389,10 +394,10 @@ tmb_cmd_strip_literals() {
             pd[sp]--
           }
         }
-        if (c == "$" && substr(line, i + 1, 1) == sq) { state = "a"; i += 2; continue }
-        if (c == "\\") { out = out (keep ? neutral(substr(line, i + 1, 1)) : substr(line, i + 1, 1)); i += 2; continue }
-        if (c == sq) { state = "s"; i++; continue }
-        if (c == "\"") { state = "d"; i++; continue }
+        if (c == "$" && substr(line, i + 1, 1) == sq) { state = "a"; if (keep) out = out qm; i += 2; continue }
+        if (c == "\\") { out = out (keep ? qm neutral(substr(line, i + 1, 1)) : substr(line, i + 1, 1)); i += 2; continue }
+        if (c == sq) { state = "s"; if (keep) out = out qm; i++; continue }
+        if (c == "\"") { state = "d"; if (keep) out = out qm; i++; continue }
         if (c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[ \t;&|(]/)) break
         if (substr(line, i, 3) == "<<<") { out = out "<<<"; i += 3; continue }
         if (substr(line, i, 2) == "<<") {
@@ -414,7 +419,7 @@ tmb_cmd_strip_literals() {
           out = out "<<" w
           i = j; continue
         }
-        out = out c; i++
+        out = out ((keep && c == qm) ? qlit : c); i++
       }
       if (keep) chunk[++nc] = out ((state != "") ? joiner() : "\n")
       else if (!bodies) { if (state != "") { printf "%s%s", out, joiner() } else { print out } }
@@ -640,7 +645,14 @@ tmb_cmd_decode() {
 # \022<word>… — to `for VAR in $(cmd …)` (after its `$()`) and to the `read` of
 # `src | while read VAR` / `while read VAR; do …; done < <(src)`, and to the
 # `xargs` of `src | xargs …` — when that source is one simple command (see
-# _tmb_cmd_loop_source).
+# _tmb_cmd_loop_source). Also with `assign`, a loop's statements are framed by
+# a `{<TAB>do` and a `}<TAB>done` line: from its `while` / `until` (the
+# condition runs on every pass), or from the `do` or `{` that ends a `for` /
+# `select` header (the header's own statement when it holds that word right
+# after NAME), to the `done` or `}` closing it. A `do` no header waits for, a
+# `done` or `}` that does not close the innermost frame, or a frame still open
+# at the end appends a last `!<TAB>unbalanced` line. A quoted or escaped word
+# (one holding a \027 mark) is never one of those reserved words (POSIX 2.4).
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -655,7 +667,7 @@ _tmb_cmd_statements_enc() {
       return 0
     }
     function srcmark(body, dir) {
-      body = unmark(body)
+      body = unmark(body); gsub(qm, "", body)
       if (body ~ /[;&|()`\n]/ || index(body, qo) || index(body, qc)) return ""
       gsub(/[ \t]+/, sep, body)
       sub("^" sep, "", body); sub(sep "$", "", body)
@@ -785,17 +797,19 @@ _tmb_cmd_statements_enc() {
     function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained, cdw, plain, csure, dw, na, aw, ok) {
       chained = (fsep == "&&"); fsep = ""
       vtop = (sp == 0 && qsp == 0 && !bt)
-      if (!vplainexp(stmt)) vok = 0
+      t = stmt; gsub(qm, "", t)
+      if (!vplainexp(t)) vok = 0
       stmt = unmark(stmt)
       csure = !cond; cond = 0
       n = split(stmt, w, /[ \t]+/)
+      for (k = 1; k <= n; k++) { wq[k] = (index(w[k], qm) > 0); gsub(qm, "", w[k]) }
       stmt = ""
       first = 1; asg = ""; cdw = ""; na = 0; plain = 1
       waspiped = piped; piped = 0; lastout = ""; lastdir = cur; sawwhile = 0
       while (first <= n) {
         if (w[first] == "") { first++; continue }
         if (w[first] == "while") sawwhile = 1
-        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { plain = 0; first++; continue }
+        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { if (assign && !wq[first]) loopkw(w[first]); plain = 0; first++; continue }
         if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { asg = asg (asg == "" ? "" : " ") w[first]; aw[++na] = w[first]; first++; continue }
         if (w[first] ~ /^(sudo|env|command|nohup|time|exec)$/) {
           first = unwrap(w, n, first); plain = 0
@@ -812,6 +826,8 @@ _tmb_cmd_statements_enc() {
         return
       }
       a0 = w[first]
+      if (assign && !wq[first] && (a0 == "for" || a0 == "select")) forhead(w, n, first)
+      else if (assign && !wq[first] && (a0 == "coproc" || a0 == "function")) loopprefix(w, n, first)
       ok = plain && na == 0
       if (ok && a0 == "export") {
         for (k = first + 1; k <= n; k++) {
@@ -858,6 +874,41 @@ _tmb_cmd_statements_enc() {
       if (!chained) { old = "-"; owhy = "" }
       vend(ok)
     }
+    function loopkw(k,   t) {
+      t = (lsp > 0) ? ls[lsp] : ""
+      if (k == "while" || k == "until") { ls[++lsp] = "w"; printf "{\tdo\n" }
+      else if (k == "do") {
+        if (t == "w") ls[lsp] = "o"
+        else if (t == "f") { ls[lsp] = "o"; printf "{\tdo\n" }
+        else { unbal = 1; ls[++lsp] = "o"; printf "{\tdo\n" }
+      } else if (k == "{") {
+        if (t == "f") { ls[lsp] = "b"; printf "{\tdo\n" }
+        else ls[++lsp] = "g"
+      } else if (k == "done") {
+        if (t == "o") { lsp--; printf "}\tdone\n" }
+        else unbal = 1
+      } else if (k == "}") {
+        if (t == "b") { lsp--; printf "}\tdone\n" }
+        else if (t == "g") lsp--
+        else unbal = 1
+      }
+    }
+    function forhead(w, n, k,   c) {
+      ls[++lsp] = "f"
+      for (k++; k <= n && c < 2; k++) {
+        if (w[k] == "") continue
+        if (++c == 2 && !wq[k] && w[k] ~ /^(do|\{)$/) loopkw(w[k])
+      }
+    }
+    function loopprefix(w, n, first,   k, c) {
+      for (k = first + 1; k <= n && c < 2; k++) {
+        if (w[k] == "") continue
+        c++
+        if (wq[k]) continue
+        if (w[k] == "for" || w[k] == "select") { forhead(w, n, k); return }
+        if (w[k] ~ /^(while|until|\{)$/) { loopkw(w[k]); return }
+      }
+    }
     function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; stack[++sp] = cur }
     function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; cur = stack[sp--] } }
     function rawword(t,   k, m, ch, out, x) {
@@ -882,11 +933,11 @@ _tmb_cmd_statements_enc() {
       vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
       if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
-      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""
-      qo = sprintf("%c", 7); qc = sprintf("%c", 8)
+      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0; unbal = 0
+      qo = sprintf("%c", 7); qc = sprintf("%c", 8); qm = sprintf("%c", 23)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }
-    { buf = (NR == 1) ? $0 : buf "\n" $0 }
+    { buf =(NR == 1) ? $0 : buf "\n" $0 }
     END {
       n = length(buf)
       for (i = 1; i <= n; i++) {
@@ -938,6 +989,7 @@ _tmb_cmd_statements_enc() {
         stmt = stmt c
       }
       flush()
+      if (assign && (unbal || lsp > 0)) printf "!\tunbalanced\n"
     }
   ' | while IFS="$(printf '\t')" read -r dir stmt; do
     [ -n "$stmt" ] || continue
@@ -2083,7 +2135,7 @@ _tmb_cmd_prog_calls() {
 # literal, or an interpreter reading a program from stdin it is not given.
 _tmb_cmd_proc_writes() {
   local cmd="${1:-}" base=/.tmb-prog-dir dir stmt p rest
-  local _TMB_CMD_VARS="" _TMB_CMD_RAWJOIN=1 _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
+  local _TMB_CMD_VARS="" _TMB_CMD_UNBAL="" _TMB_CMD_RAWJOIN=1 _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
   local _TMB_CMD_CWD=/.tmb-prog-dir _TMB_CMD_ROOT="" _TMB_CMD_ROOTC=""
   local -a words
   while IFS="$(printf '\t')" read -r dir stmt; do
@@ -2423,7 +2475,7 @@ _tmb_cmd_join() {
 }
 
 tmb_cmd_write_paths() {
-  local _TMB_CMD_VARS="" _TMB_CMD_RAWJOIN="" _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
+  local _TMB_CMD_VARS="" _TMB_CMD_UNBAL="" _TMB_CMD_RAWJOIN="" _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
   local _TMB_CMD_CWD="${2:-}" _TMB_CMD_ROOT="${4:-}" _TMB_CMD_ROOTC=""
   [ "${3:-}" = "raw" ] && _TMB_CMD_RAWJOIN=1
   _tmb_cmd_write_paths_in "${1:-}" "${2:-}" "@" 0
@@ -2462,16 +2514,26 @@ _tmb_cmd_heredoc_align() {
 # _tmb_cmd_write_paths_in <command> <cwd> <base-dir-token> <depth>
 # tmb_cmd_write_paths for one command level; bash -c / eval bodies and sh
 # programs fed through a heredoc recurse with their statement's dir. Variable
-# assignments accumulate in the caller-scoped _TMB_CMD_VARS.
+# assignments accumulate in the caller-scoped _TMB_CMD_VARS. A level whose
+# loop frames do not balance (the listing's `!` line) sets _TMB_CMD_UNBAL, so
+# every variable use in it and in the levels it runs is unresolved.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
   local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old why mark chain
   local -a words progs
-  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-" _TMB_CMD_WHY=""
+  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-" _TMB_CMD_WHY="" _TMB_CMD_UNBAL="${_TMB_CMD_UNBAL:-}"
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
+  case $'\n'"$listing" in *$'\n!\t'*) _TMB_CMD_UNBAL=1 ;; esac
   case "$cmd" in *'<<'*) bodies=$(_tmb_cmd_heredoc_align "$cmd" "$listing") ;; esac
   while IFS="$(printf '\t')" read -r dir stmt; do
     idx=$((idx + 1))
+    case "$dir" in
+      '{')
+        _tmb_cmd_loop_vars "$(printf '%s\n' "$listing" | awk -F'\t' -v s="$idx" 'NR <= s { next } $1 == "{" { d++ } $1 == "}" { if (!d) exit; d-- } { print }')" "$cwd" "$depth"
+        continue
+        ;;
+      '}'|'!') continue ;;
+    esac
     old="${dir#*$'\022'}"
     [ "$old" != "$dir" ] || old="-"
     dir="${dir%%$'\022'*}"
@@ -2534,6 +2596,54 @@ _tmb_cmd_write_paths_in() {
     _tmb_cmd_track_vars "${words[@]}"
   done <<< "$listing"
   return 0
+}
+
+# _tmb_cmd_loop_vars <loop-listing> <cwd> <depth>
+# At a loop's `{` line: adds to _TMB_CMD_VARS every value the loop's
+# statements (<loop-listing>, up to its `}`, nested loops included) assign,
+# pass after pass until one adds none, so a use that precedes an in-body
+# assignment also sees what a later pass assigns (GH 1944). A name still
+# gaining values after 8 passes holds \001.
+_tmb_cmd_loop_vars() {
+  local loop="${1:-}" cwd="${2:-}" depth="${3:-0}" seed prev dir stmt w line pass
+  local _TMB_CMD_PWD="${_TMB_CMD_PWD:-}" _TMB_CMD_OLDTOK="${_TMB_CMD_OLDTOK:--}"
+  local -a words
+  _tmb_cmd_vars_uniq
+  seed="$_TMB_CMD_VARS"
+  for pass in 1 2 3 4 5 6 7 8; do
+    prev="$_TMB_CMD_VARS"
+    while IFS="$(printf '\t')" read -r dir stmt; do
+      case "$dir" in '{'|'}'|'!') continue ;; esac
+      _TMB_CMD_OLDTOK="${dir#*$'\022'}"
+      [ "$_TMB_CMD_OLDTOK" != "$dir" ] || _TMB_CMD_OLDTOK="-"
+      _TMB_CMD_OLDTOK="${_TMB_CMD_OLDTOK%%$'\022'*}"
+      dir="${dir%%$'\022'*}"
+      read -r -a words <<< "$stmt"
+      [ "${#words[@]}" -gt 0 ] || continue
+      if [ "${dir#=}" != "$dir" ]; then
+        _TMB_CMD_PWD=$(_tmb_cmd_dir_path "${dir#=}" "$cwd")
+        for w in "${words[@]}"; do _tmb_cmd_var_set "${w%%=*}" "$(tmb_cmd_decode "${w#*=}")"; done
+        continue
+      fi
+      [ "$depth" -ge 3 ] || [ -z "$(_tmb_cmd_inner "$stmt")" ] || continue
+      _TMB_CMD_PWD=$(_tmb_cmd_dir_path "$dir" "$cwd")
+      _tmb_cmd_track_vars "${words[@]}"
+    done <<< "$loop"
+    _tmb_cmd_vars_uniq
+    [ "$_TMB_CMD_VARS" != "$prev" ] || return 0
+  done
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case $'\n'"$seed" in *$'\n'"$line"$'\n'*) continue ;; esac
+    _TMB_CMD_VARS="${_TMB_CMD_VARS}${line%%$'\t'*}"$'\t\001\n'
+  done <<< "$_TMB_CMD_VARS"
+  return 0
+}
+
+# _tmb_cmd_vars_uniq: _TMB_CMD_VARS with each line kept once, in first-seen order.
+_tmb_cmd_vars_uniq() {
+  _TMB_CMD_VARS=$(printf '%s' "${_TMB_CMD_VARS:-}" | awk '!seen[$0]++')
+  [ -z "$_TMB_CMD_VARS" ] || _TMB_CMD_VARS="${_TMB_CMD_VARS}"$'\n'
 }
 
 # _tmb_cmd_exec_writes <dir-token> <cwd> <xargs-source-mark> <encoded-statement-words…>
@@ -3112,12 +3222,20 @@ _tmb_cmd_excl_covers() {
 }
 
 # _tmb_cmd_var_get <name>
-# The recorded values of <name>, one per line; non-zero when never assigned.
+# The recorded values of <name>, each once, one per line; non-zero when never
+# assigned.
 _tmb_cmd_var_get() {
-  local line found=1 tab
+  local line found=1 tab seen=$'\n'
   tab="$(printf '\t')"
   while IFS= read -r line; do
-    case "$line" in "${1:-}${tab}"*) printf '%s\n' "${line#*"$tab"}"; found=0 ;; esac
+    case "$line" in
+      "${1:-}${tab}"*)
+        found=0
+        case "$seen" in *$'\n'"$line"$'\n'*) continue ;; esac
+        seen="${seen}${line}"$'\n'
+        printf '%s\n' "${line#*"$tab"}"
+        ;;
+    esac
   done <<< "${_TMB_CMD_VARS:-}"
   return "$found"
 }
@@ -3157,7 +3275,8 @@ _tmb_cmd_env_var() {
 # and ${VAR%suffix} / ${VAR%%suffix} (a literal suffix: letters, digits, . _ -)
 # from _TMB_CMD_VARS (else the default, else _tmb_cmd_env_var) into the
 # array _TMB_CMD_EXP (every combination of values, at most 16). Non-zero,
-# with the variable in _TMB_CMD_UNRES, when one cannot be resolved; a $( ) or
+# with the variable in _TMB_CMD_UNRES, when one cannot be resolved (any one
+# while _TMB_CMD_UNBAL is set); a $( ) or
 # backtick is `$()`, an inline program's `$(proc)` / `$(alias-write)` marker
 # itself.
 _tmb_cmd_expand() {
@@ -3209,6 +3328,7 @@ _tmb_cmd_expand() {
         continue
         ;;
     esac
+    if [ -n "${_TMB_CMD_UNBAL:-}" ]; then _TMB_CMD_UNRES="$name"; return 1; fi
     if vals=$(_tmb_cmd_var_get "$name"); then
       case "$vals" in *$'\001'*) _TMB_CMD_UNRES="$name"; return 1 ;; esac
     elif [ "$op" = "def" ]; then

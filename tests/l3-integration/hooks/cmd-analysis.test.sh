@@ -877,6 +877,46 @@ assert_eq 'UNRESOLVED:PWD:$PWD/f' "$(wpaths 'cd - && touch f' /w)" "cd - && touc
 assert_eq 'UNRESOLVED:U:$U' "$(wpaths 'git -C $U add f' /w)" "git -C \$U add"
 assert_eq '/b/f' "$(wpaths 'D=/b; cd $D && touch f' /w)" "a literal-set variable resolves"
 
+test_case "GH 1944: a loop body's later assignment reaches an earlier use"
+for head in 'while :' 'until false' 'for i in 1 2'; do
+  assert_eq '/w/a,/etc/p1944' "$(wpaths "x=/w/a; $head; do echo > \$x; x=/etc/p1944; done" /w)" "$head"
+done
+assert_eq '/w/a,/etc/p1944' "$(wpaths 'x=/w/a; while :; do while :; do echo > $x; done; x=/etc/p1944; done' /w)" "a nested loop"
+assert_eq 'UNRESOLVED:x:$x' "$(wpaths 'x=/w/a; while :; do echo > $x; read -r x; done' /w)" "an in-body read"
+assert_eq 'UNRESOLVED:x:$x' "$(wpaths 'x=/w; while :; do echo > $x; x=$x/a; done' /w)" "a value that keeps growing"
+assert_eq '/w/a,/w/b' "$(wpaths 'for f in a b; do x=/w/$f; echo > $x; done' /w)" "a for loop over in-root targets"
+assert_eq '/w/a' "$(wpaths 'x=/w/a; while :; do echo > $x; done' /w)" "a loop that never reassigns"
+for c in 'x=/w/a; for ((i=0;i<2;i++)) { echo > $x; x=/etc/p1944; }' 'x=/w/a; for i in 1 2; { echo > $x; x=/etc/p1944; }' 'x=/w/a; select i in 1 2; { echo > $x; x=/etc/p1944; }'; do
+  assert_eq '/w/a,/etc/p1944' "$(wpaths "$c" /w)" "a braced body: $c"
+done
+assert_eq '/w/a,/etc/p1944' "$(wpaths 'x=/w/a; while :; do coproc for i in 1; do :; done; echo > $x; x=/etc/p1944; done' /w)" "a nested coproc for keeps the outer frame"
+assert_eq '/w/a,/etc/p1944' "$(wpaths 'x=/w/a; coproc while echo > $x; do x=/etc/p1944; done' /w)" "a coproc while frames its condition"
+assert_eq '/w/a,/etc/p1944' "$(wpaths 'x=/w/a; for i in 1 2; { coproc { :; }; echo > $x; x=/etc/p1944; }' /w)" "a coproc group closes no braced body"
+assert_eq '/w/a,/etc/p1944' "$(wpaths 'x=/w/a; while for i in 1; do :; done; do echo > $x; x=/etc/p1944; done' /w)" "a for in a while condition"
+assert_eq '/w/a,/w/b' "$(wpaths 'for f in a b; { x=/w/$f; echo > $x; }' /w)" "a braced for over in-root targets"
+for c in 'x=/w/a; for i do echo > $x; x=/etc/p1944; done' 'x=/w/a; select i do echo > $x; x=/etc/p1944; done' \
+  'x=/w/a; while :; do for i do :; done; echo > $x; x=/etc/p1944; done' 'x=/w/a; while :; do select i do :; done; echo > $x; x=/etc/p1944; done' \
+  'x=/w/a; coproc for i do echo > $x; x=/etc/p1944; done'; do
+  assert_eq '/w/a,/etc/p1944' "$(tmb_cmd_write_paths "$c" /w "" /w | paste -sd',' -)" "a do inside the header: $c"
+done
+assert_eq '/w/a' "$(wpaths 'x=/w/a; for i in $(for j in 1; do echo; done); do echo > $x; done' /w)" "a loop in the for list keeps the header waiting"
+for c in 'x=/w/a; echo > $x; done' 'x=/w/a; echo > $x; }' 'x=/w/a; do echo > $x' 'x=/w/a; while :; do echo > $x' 'x=/w/a; { echo > $x; done; }'; do
+  assert_eq 'UNRESOLVED:x:$x' "$(wpaths "$c" /w)" "unbalanced loop frames fail closed: $c"
+done
+assert_eq 'UNRESOLVED:HOME:$HOME/f1944' "$(wpaths 'echo > $HOME/f1944; done' /w)" "an unbalanced command resolves no variable"
+assert_eq 'UNRESOLVED:x:$x' "$(wpaths 'x=/w/a; bash -c "echo > \$x; done"' /w)" "an unbalanced bash -c body"
+for c in 'x=/w/a; while :; do echo > $x; "done"; x=/etc/p1944; "while" :; "do" :; done' \
+  'x=/w/a; while :; do echo > $x; \done; x=/etc/p1944; \while :; \do :; done' \
+  "x=/w/a; until false; do echo > \$x; d''one; x=/etc/p1944; w''hile :; d''o :; done" \
+  "x=/w/a; while :; do echo > \$x; \$'done'; x=/etc/p1944; \$'while' :; \$'do' :; done" \
+  'x=/w/a; for i in 1 2; do echo > $x; "done"; x=/etc/p1944; "while" :; "do" :; done' \
+  'x=/w/a; for i in 1 2; { echo > $x; "}"; x=/etc/p1944; "{"; }' \
+  "x=/w/a; for i in 1 2; { echo > \$x; \\}; x=/etc/p1944; '{'; }"; do
+  assert_eq '/w/a,/etc/p1944' "$(wpaths "$c" /w)" "a quoted or escaped reserved word is a command word: $c"
+done
+assert_eq '/w/a,/w/b' "$(wpaths 'for f in a b; do x=/w/$f; echo "done" > $x; done' /w)" "a quoted done argument keeps the for-loop exact"
+assert_eq 'UNRESOLVED:$():/w$()/p' "$(wpaths "$(printf 'echo > /w\027/p')" /w)" "a literal \\027 byte reads as computed text"
+
 test_case "GH 1602: an inline program's non-literal process call is \$(proc), not \$()"
 assert_eq 'UNRESOLVED:$(proc):$(proc)' "$(pyw 'import subprocess' 'for n in range(3):' "    subprocess.run(['true', str(n)])")" "subprocess.run(['true', str(n)])"
 assert_eq 'UNRESOLVED:X:$X/x' "$(pyw 'import os' 'os.system("cd $X && touch x")')" "a literal shell string still names its variable"

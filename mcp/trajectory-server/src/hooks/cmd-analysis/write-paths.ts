@@ -29,7 +29,7 @@ import { type ListerHost, listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
 import { COMPUTED, PARSE, UNPROVEN, heldProgram, interpWrites, progWrites, shown } from './programs.js';
-import { type Record as Statement, SEP, WSEP, statementsEnc } from './statements.js';
+import { LOOP_CLOSE, LOOP_OPEN, type Record as Statement, SEP, UNBALANCED, WSEP, statementsEnc } from './statements.js';
 import { type Interp, stmtWritePaths, unwrapStatement } from './targets.js';
 
 const BAD = '\x01';
@@ -265,18 +265,14 @@ class WritePaths {
     return v === '' ? null : chomp(v);
   }
 
+  /** _tmb_cmd_var_get: every recorded value of <name>, each once, or null when never assigned. */
   private varGet(vars: string, name: string): string | null {
-    let found = false;
-    let out = '';
-    for (const line of vars.split('\n')) {
-      if (!line.startsWith(name + '\t')) continue;
-      out += after(line, '\t') + '\n';
-      found = true;
-    }
-    return found ? chomp(out) : null;
+    const values = new Set<string>();
+    for (const line of vars.split('\n')) if (line.startsWith(name + '\t')) values.add(after(line, '\t'));
+    return values.size > 0 ? chomp([...values].join('\n') + '\n') : null;
   }
 
-  /** _tmb_cmd_expand: every value a word expands to (at most 16), or the variable that stops it. */
+  /** _tmb_cmd_expand: every value a word expands to (at most 16), or the variable that stops it (any one in an unbalanced level). */
   expand(word: string, level: Level): Expansion {
     let rest = word;
     let acc = [''];
@@ -322,6 +318,7 @@ class WritePaths {
         rest = rest.slice(1);
         continue;
       }
+      if (this.unbalanced) return fail(name);
       let vals = this.varGet(level.vars, name);
       if (vals !== null) {
         if (vals.includes(BAD)) return fail(name);
@@ -599,6 +596,9 @@ class WritePaths {
   /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
   private held = new Set<string>();
 
+  /** _TMB_CMD_UNBAL: the level running, or one it runs within, has loop frames that do not balance. */
+  private unbalanced = false;
+
   private isHeld(word: string): boolean {
     return this.held.has(heldKey(word));
   }
@@ -688,11 +688,13 @@ class WritePaths {
       return;
     }
     const outer = this.held;
+    const unbalanced = this.unbalanced;
     this.held = encoded.held;
     try {
       this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
     } finally {
       this.held = outer;
+      this.unbalanced = unbalanced;
     }
   }
 
@@ -705,14 +707,70 @@ class WritePaths {
     }
   }
 
+  /**
+   * _tmb_cmd_loop_vars: at a loop's `{`, adds to the level every value its
+   * records (`loop`, the first at 1-based index `from + 1`) assign, nested
+   * loops included, pass after pass until one adds none, so a use that
+   * precedes an in-body assignment also sees what a later pass assigns
+   * (GH 1944). A name still gaining values after 8 passes is poisoned.
+   */
+  private loopVars(level: Level, loop: readonly Statement[], from: number, bodies: Map<number, Heredoc[]>, depth: number): void {
+    const { cwd } = this.opts;
+    const saved = { pwd: this.pwd, oldtok: level.oldtok, why: level.why };
+    level.vars = varsUniq(level.vars);
+    const seed = new Set(level.vars.split('\n'));
+    let converged = false;
+    for (let pass = 0; pass < 8 && !converged; pass++) {
+      const prev = level.vars;
+      loop.forEach((record, k) => {
+        if (record.dir === LOOP_OPEN || record.dir === LOOP_CLOSE || record.dir === UNBALANCED) return;
+        let dir = record.dir;
+        let old = dir.includes(SEP) ? after(dir, SEP) : '-';
+        dir = before(dir, SEP);
+        let why = '';
+        if (old.includes(SEP)) {
+          why = after(old, SEP);
+          old = before(old, SEP);
+        }
+        level.oldtok = old;
+        level.why = why;
+        const words = shellWords(record.stmt);
+        if (words.length === 0) return;
+        if (dir.startsWith('=')) {
+          this.pwd = dirPath(dir.slice(1), cwd);
+          for (const w of words) this.varSet(level, before(w, '='), dec(after(w, '=')));
+          return;
+        }
+        this.poisonSet(level, words);
+        for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name of setInText(h.body)) this.poison(level, name);
+        const body = inner(record.stmt);
+        if (body !== '' && ((!evalArgs(words) && heldProgram(body)) || depth < MAX_DEPTH)) return;
+        this.pwd = dirPath(dir, cwd);
+        this.trackVars(level, words);
+      });
+      level.vars = varsUniq(level.vars);
+      converged = level.vars === prev;
+    }
+    if (!converged) for (const line of level.vars.split('\n')) if (line !== '' && !seed.has(line)) this.poison(level, before(line, '\t'));
+    this.pwd = saved.pwd;
+    level.oldtok = saved.oldtok;
+    level.why = saved.why;
+  }
+
   private runEncoded(text: string, heredocs: readonly Heredoc[], base: string, depth: number, vars: string): void {
     const level: Level = { vars, oldtok: '-', why: '' };
     const { cwd } = this.opts;
     const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true).filter((r) => !/^\t*$/.test(r.stmt));
     const bodies = heredocAlign(heredocs, records);
+    if (records.some((r) => r.dir === UNBALANCED)) this.unbalanced = true;
     let idx = 0;
     for (const record of records) {
       idx++;
+      if (record.dir === LOOP_OPEN) {
+        this.loopVars(level, loopBody(records, idx), idx, bodies, depth);
+        continue;
+      }
+      if (record.dir === LOOP_CLOSE || record.dir === UNBALANCED) continue;
       let dir = record.dir;
       let old = dir.includes(SEP) ? after(dir, SEP) : '-';
       dir = before(dir, SEP);
@@ -795,6 +853,23 @@ class WritePaths {
       this.trackVars(level, words);
     }
   }
+}
+
+/** The records of the loop whose `{` is records[from - 1], up to its `}`, nested loops included. */
+function loopBody(records: readonly Statement[], from: number): Statement[] {
+  let depth = 0;
+  let k = from;
+  for (; k < records.length; k++) {
+    if (records[k].dir === LOOP_OPEN) depth++;
+    else if (records[k].dir === LOOP_CLOSE && depth-- === 0) break;
+  }
+  return records.slice(from, k);
+}
+
+/** Each line of `vars` once, in first-seen order. */
+function varsUniq(vars: string): string {
+  const lines = [...new Set(vars.split('\n').filter((l) => l !== ''))];
+  return lines.length === 0 ? '' : lines.join('\n') + '\n';
 }
 
 /** _tmb_cmd_heredoc_align: each heredoc body under the 1-based index of the statement whose `<<WORD` names its delimiter, in order. */
