@@ -572,15 +572,15 @@ function noSyncRemoteWarnings(db, repos) {
     }));
 }
 const SYMBOL_STAT_KEYS = ['files_parsed', 'files_failed', 'symbols', 'edges', 'edges_resolved'];
+export function persistedFiles(files, renamedTo) {
+    return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
+}
 // Persist repos[] and the world model (wm_directories + wm_files), each in its
 // own transaction, then bring each scanned repo's symbol index up to date.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired,
 // unless a task or another row still references them; those are kept and
 // reported in repos_stale_kept (GH 1551).
-export function persistedFiles(files, renamedTo) {
-    return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
-}
 async function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
     const normSession = sessionDir.replace(/\/+$/, '');

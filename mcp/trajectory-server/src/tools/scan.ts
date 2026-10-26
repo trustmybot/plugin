@@ -674,16 +674,16 @@ function noSyncRemoteWarnings(db: TrajectoryDB, repos: ReadonlyArray<string>): S
 
 const SYMBOL_STAT_KEYS = ['files_parsed', 'files_failed', 'symbols', 'edges', 'edges_resolved'] as const;
 
+export function persistedFiles<F extends { repo: string; path: string }>(files: F[], renamedTo: Set<string>): F[] {
+  return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
+}
+
 // Persist repos[] and the world model (wm_directories + wm_files), each in its
 // own transaction, then bring each scanned repo's symbol index up to date.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired,
 // unless a task or another row still references them; those are kept and
 // reported in repos_stale_kept (GH 1551).
-export function persistedFiles<F extends { repo: string; path: string }>(files: F[], renamedTo: Set<string>): F[] {
-  return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
-}
-
 async function persistScan(
   db: TrajectoryDB,
   graph: WorldModelGraph | null,

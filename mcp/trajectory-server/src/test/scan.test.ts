@@ -377,6 +377,13 @@ describe('scan_run — workspace discovery + persistence', () => {
         rmSync(ws, { recursive: true, force: true });
       }
     });
+
+    it("keeps persistScan's doc comment directly above persistScan", () => {
+      const src = readFileSync(new URL('../../src/tools/scan.ts', import.meta.url), 'utf8').split('\n');
+      const i = src.findIndex((s) => s.startsWith('async function persistScan('));
+      assert.ok(i > 0, 'persistScan not found');
+      assert.ok(src[i - 1]!.includes('reported in repos_stale_kept (GH 1551).'), `line above persistScan: ${src[i - 1]}`);
+    });
   });
 });
 
