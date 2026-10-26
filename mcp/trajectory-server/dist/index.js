@@ -41911,12 +41911,19 @@ function lines(out2) {
   return out2.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
 }
 function readRepoHistory(root, trackedDirs) {
-  const out2 = git2(root, ["log", "--diff-filter=D", "--name-only", "--format="], HISTORY_TIMEOUT_MS);
+  const out2 = git2(root, ["log", "--diff-filter=DR", "--name-status", "--format="], HISTORY_TIMEOUT_MS);
   if (out2 === null) return null;
   const tracked = git2(root, ["-c", "core.quotePath=false", "ls-files"], HISTORY_TIMEOUT_MS);
   if (tracked === null) return null;
-  const deleted = new Set(lines(out2));
-  const trackedBasenames = new Set(lines(tracked).map(basename6));
+  const deleted = /* @__PURE__ */ new Set();
+  const renamedAway = /* @__PURE__ */ new Set();
+  for (const [status, path2] of lines(out2).map((l) => l.split("	"))) {
+    if (!path2) continue;
+    if (status === "D") deleted.add(path2);
+    else if (status?.startsWith("R")) renamedAway.add(path2);
+  }
+  const trackedFiles = new Set(lines(tracked));
+  const trackedBasenames = new Set([...trackedFiles].map(basename6));
   const deletedByBasename = /* @__PURE__ */ new Map();
   for (const p of [...deleted].sort()) {
     const name2 = basename6(p);
@@ -41924,7 +41931,7 @@ function readRepoHistory(root, trackedDirs) {
     if (list) list.push(p);
     else deletedByBasename.set(name2, [p]);
   }
-  return { root, deleted, deletedByBasename, trackedBasenames, trackedDirs };
+  return { root, deleted, deletedByBasename, renamedAway, trackedBasenames, trackedDirs, trackedFiles };
 }
 function stripUntrustedFraming(text) {
   return text.replace(/<\/?untrusted-content\b[^>]*>/g, "");
@@ -41982,21 +41989,28 @@ function deadRefs(readme, dir, history) {
   }
   return [...dead].sort();
 }
+var MAX_REFERENCED_PATHSPECS = 200;
+function referencedFiles(readme, dir, readmePath, history) {
+  const isFile = (p) => history.trackedFiles.has(p) || history.deleted.has(p) || history.renamedAway.has(p);
+  const files = /* @__PURE__ */ new Set();
+  for (const { ref: ref2 } of readmeCandidates(readme, dir, history.trackedDirs)) {
+    const fromDir = relativeToDir(dir, ref2);
+    const fromRoot = posix.normalize(ref2);
+    const hit = isFile(fromDir) ? fromDir : isFile(fromRoot) ? fromRoot : void 0;
+    if (hit && hit !== readmePath) files.add(hit);
+  }
+  return [...files].sort();
+}
 function readmeDrift(history, dir, readmeName, readme) {
   const readmePath = dir === "" ? readmeName : `${dir}/${readmeName}`;
   const sha = git2(history.root, ["log", "-1", "--format=%H", "--", `:(literal)${readmePath}`])?.trim();
   if (!sha) return null;
-  const dirSpec = dir === "" ? ":(literal)." : `:(literal)${dir}`;
-  const count = git2(history.root, [
-    "rev-list",
-    "--count",
-    `${sha}..HEAD`,
-    "--",
-    dirSpec,
-    `:(exclude,literal)${readmePath}`
-  ]);
-  const commits_behind = count === null ? NaN : Number.parseInt(count.trim(), 10);
-  if (!Number.isFinite(commits_behind)) return null;
+  const range = `${sha}..HEAD`;
+  const refs = referencedFiles(readme, dir, readmePath, history).slice(0, MAX_REFERENCED_PATHSPECS);
+  const pathspecs = refs.map((r) => `:(literal)${r}`);
+  const touched = refs.length === 0 ? "" : git2(history.root, ["log", "--diff-filter=a", "--format=%H", range, "--", ...pathspecs]);
+  if (touched === null) return null;
+  const commits_behind = new Set(lines(touched)).size;
   return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
 }
 
