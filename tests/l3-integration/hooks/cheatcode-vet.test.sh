@@ -241,7 +241,7 @@ PLAIN_REQS=$(cat "$STUB_GH_DIR/requests.log")
 OUT_TOOLY=$(run_vet_live --candidate '{"name":"tooly","kind":"plugin","source_url":"https://github.com/someorg/mono/tree/main/skills/tooly/"}')
 
 test_case "folder URL: a /tree/<ref>/<path> URL requests git/trees/<ref>?recursive=1 (GH 1617)"
-if printf '%s\n' "$PLAIN_REQS" | grep -qx 'https://api.github.com/repos/someorg/mono/git/trees/main?recursive=1'; then _pass
+if printf '%s\n' "$PLAIN_REQS" | grep -x 'https://api.github.com/repos/someorg/mono/git/trees/main?recursive=1' >/dev/null; then _pass
 else _fail "requests: $(printf '%s' "$PLAIN_REQS" | tr '\n' ' ')"; fi
 
 test_case "folder URL: two folders of one repo get different capability sets (GH 1617)"
