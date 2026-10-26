@@ -30,7 +30,8 @@
 #   Chain trajectory-gates: fixed order, first deny ends it (a later gate's
 #     marker is never written), allows pass through, routing by tool name,
 #     context joined into one output, one lock per gate, a dying gate denies,
-#     a gate past its chain-table timeout is killed and denies (also without
+#     a gate past its chain-table timeout is killed and denies with a
+#     "timed out after <N> s … not a policy decision" reason (also without
 #     pgrep, leaving no process behind), a watchdog whose chain subshell is
 #     gone or whose pid no longer leads a group kills nothing, two trivial
 #     gates stay within a latency budget of one, a duplicate
@@ -47,7 +48,8 @@
 #     target that only spells that phrase still leaves one
 #   Deny audit: one hook_denied row per deny (hook, rule, tool, agent_type,
 #     cwd), none for an allow or a replayed duplicate; an exit-2 block and a
-#     fail-closed deny count; a task's deny lands on its issue with the rule
+#     fail-closed deny count; a chain overrun's rule is its timeout reason
+#     and its Stop shape a valid block; a task's deny lands on its issue with the rule
 #     capped at 200 characters; a failed write leaves the decision unchanged;
 #     a fail-open gate's exit 1 writes none; on a write-locked DB a chain
 #     member denying near its budget returns one deny JSON and nothing on
@@ -656,7 +658,8 @@ test_case "chain: a dying gate denies and ends the chain"
 reset_runs
 out=$(FX_DIE=swe-brief-gate chain task_update_status tu-c11 2>/dev/null)
 is_deny "$out" && _pass || _fail "no deny: $out"
-assert_contains "$out" "swe-brief-gate exited 1" "reason names the gate"
+assert_contains "$out" "swe-brief-gate exited 1 without a decision" "reason names the gate and its exit code"
+assert_not_contains "$out" "timed out" "an exit within the budget is no timeout"
 assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "swe-verification-gate never ran"
 
 test_case "chain: a gate past its chain-table timeout is killed and denies; later gates never run"
@@ -665,7 +668,10 @@ rm -f "$TMP/slow-done"
 out=$(FX_SLOW=swe-brief-gate FX_SLOW_S=9 chain task_update_status tu-c13 2>/dev/null)
 [ ! -e "$TMP/slow-done" ] && _pass || _fail "the chain waited for the slow gate to finish"
 is_deny "$out" && _pass || _fail "no deny: $out"
-assert_contains "$out" "swe-brief-gate ran past its 6 s budget" "reason names the gate and its budget"
+assert_contains "$out" "swe-brief-gate timed out after 6 s" "reason names the gate and its budget"
+assert_contains "$out" "not a policy decision" "reason says the timeout is no policy decision"
+assert_contains "$out" "retry the same call" "reason tells the caller to retry"
+assert_not_contains "$out" "fix the gate" "reason no longer sends the caller to fix the gate"
 assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "swe-verification-gate never ran"
 sleep 4
 [ ! -e "$TMP/slow-done" ] && _pass || _fail "the slow gate kept running after the deny"
@@ -676,7 +682,7 @@ NOPG=$(no_cmd_path "$TMP/nopgrep" pgrep)
 survivors() { ps -A -o args= 2>/dev/null | grep -cE "^sleep $1\$" || true; }
 reset_runs
 out=$(tpayload task_update_status tu-c17 | PATH="$NOPG" FX_SLOW=agent-arg-matches-caller FX_SLOW_S="12.3$$" CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
-assert_contains "$out" "agent-arg-matches-caller ran past its 6 s budget" "overrun denies"
+assert_contains "$out" "agent-arg-matches-caller timed out after 6 s" "overrun denies"
 assert_eq "0" "$(survivors "12.3$$")" "the gate's sleep was killed with it"
 reset_runs
 before=$(survivors 1830)
@@ -921,6 +927,22 @@ out=$(CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-gate-dies "$(apayload "ls a5" tu
 is_deny "$out" && _pass || _fail "no deny: $out"
 assert_eq "$((before + 2))" "$(rows_after $((before + 2)))" "one row for the fail-closed deny"
 assert_contains "$(last_denied "content_json" | jq -r '.hook + " " + .rule')" "fx-gate-dies BLOCKED: TMB gate fx-gate-dies exited 1" "hook and rule name the dead gate"
+
+test_case "deny audit: a chain overrun writes the timeout reason as its rule; the Stop shape is a valid block"
+reset_runs
+before=$(denied_rows)
+out=$(FX_SLOW=agent-arg-matches-caller FX_SLOW_S=9 CLAUDE_PROJECT_DIR="$AP" \
+  dispatch "$C" trajectory-gates "$(tpayload task_update_status tu-a5t)" 2>/dev/null)
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "$((before + 1))" "$(rows_after $((before + 1)))" "one row for the overrun"
+rule=$(last_denied "content_json" | jq -r '.hook + " " + .rule')
+assert_contains "$rule" "agent-arg-matches-caller BLOCKED: TMB gate agent-arg-matches-caller timed out after 6 s" "hook and rule name the gate and its budget"
+assert_contains "$rule" "not a policy decision" "the rule carries the timeout reason"
+reset_runs
+out=$(FX_SLOW=agent-arg-matches-caller FX_SLOW_S=9 dispatch "$C" trajectory-gates \
+  "$(tpayload task_update_status tu-a5s | jq -c '.hook_event_name = "Stop"')" 2>/dev/null)
+assert_eq "block" "$(printf '%s' "$out" | jq -r '.decision' 2>/dev/null)" "a Stop event gets a valid decision block"
+assert_contains "$(printf '%s' "$out" | jq -r '.reason' 2>/dev/null)" "agent-arg-matches-caller timed out after 6 s" "the block carries the timeout reason"
 
 test_case "deny audit: the task's issue carries the row; the rule is capped at 200 characters"
 long=$(printf 'x%.0s' $(seq 1 300))
