@@ -394,7 +394,9 @@ run_chain() {
         ;;
       *)
         if [ $((SECONDS - started)) -ge "$budget" ]; then
-          fail_closed_decision "ran past its ${budget} s budget" "" "$gate"
+          fail_closed_decision "ran past its ${budget} s budget" \
+            "BLOCKED: TMB gate $gate timed out after ${budget} s (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it." \
+            "$gate"
         else
           fail_closed_decision "exited $rc" "" "$gate"
         fi

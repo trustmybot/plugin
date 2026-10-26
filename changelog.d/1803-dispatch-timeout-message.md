@@ -1,0 +1,2 @@
+### Fixed
+- **A slow gate's deny now says it timed out** (GH 1803): a trajectory-server gate that ran past its budget was denied with "ran past its 6 s budget without a decision … fix the gate, then retry", which read as a policy decision and sent the agent off to fix a gate that was only slow under load. The deny now reads "timed out after <N> s (infrastructure load, not a policy decision)" and tells the caller to retry the same call and report it if it keeps timing out. It is still a fail-closed deny, and a gate that exits non-zero keeps its `exited <rc>` reason.
