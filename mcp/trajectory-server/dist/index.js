@@ -38300,7 +38300,7 @@ function refList(rows) {
     });
   }
   const refs = [...unique.values()];
-  return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
+  return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
 }
 function symbolCard(db2, symbol2) {
   const inbound = db2.all(
@@ -38529,13 +38529,19 @@ function briefLocations(db2, repo, spec, taskFiles, maxChars = LOCATIONS_MAX_CHA
   if (picked.length > MAX_SYMBOLS) truncated = true;
   const symbols = picked.slice(0, MAX_SYMBOLS).map((s) => {
     const card = symbolCard(db2, s);
+    const callers = neighbours(card.callers);
+    const callersTruncated = card.callers.total > callers.length;
     return {
+      id: s.id,
       qualified_name: s.qualified_name,
       kind: s.kind,
       path: s.path,
       start_line: s.start_line,
       end_line: s.end_line,
-      callers: neighbours(card.callers),
+      caller_count: card.callers.total,
+      callers_truncated: callersTruncated,
+      ...callersTruncated ? { callers_hint: `world_model_symbol(id=${s.id}, impact=1) lists every caller` } : {},
+      callers,
       callees: neighbours(card.callees)
     };
   });

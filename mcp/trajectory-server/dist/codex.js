@@ -35183,7 +35183,7 @@ function refList(rows) {
     });
   }
   const refs = [...unique.values()];
-  return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
+  return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
 }
 function symbolCard(db, symbol2) {
   const inbound = db.all(

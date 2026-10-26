@@ -409,7 +409,7 @@ function refList(rows) {
         });
     }
     const refs = [...unique.values()];
-    return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
+    return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
 }
 // A symbol card: who calls it, what it calls and imports, the tables it reads
 // and writes (for a table, who reads and writes it) and the tests that

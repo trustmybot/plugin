@@ -47,11 +47,15 @@ export interface Neighbour {
 }
 
 export interface SymbolLocation {
+  id: number;
   qualified_name: string;
   kind: string;
   path: string;
   start_line: number;
   end_line: number;
+  caller_count: number;
+  callers_truncated: boolean;
+  callers_hint?: string;
   callers: Neighbour[];
   callees: Neighbour[];
 }
@@ -200,13 +204,19 @@ export function briefLocations(
   if (picked.length > MAX_SYMBOLS) truncated = true;
   const symbols = picked.slice(0, MAX_SYMBOLS).map((s): SymbolLocation => {
     const card = symbolCard(db, s);
+    const callers = neighbours(card.callers);
+    const callersTruncated = card.callers.total > callers.length;
     return {
+      id: s.id,
       qualified_name: s.qualified_name,
       kind: s.kind,
       path: s.path,
       start_line: s.start_line,
       end_line: s.end_line,
-      callers: neighbours(card.callers),
+      caller_count: card.callers.total,
+      callers_truncated: callersTruncated,
+      ...(callersTruncated ? { callers_hint: `world_model_symbol(id=${s.id}, impact=1) lists every caller` } : {}),
+      callers,
       callees: neighbours(card.callees),
     };
   });

@@ -84,6 +84,7 @@ export interface SymbolRef {
 
 export interface RefList {
   refs: SymbolRef[];
+  total: number;
   truncated: boolean;
 }
 
@@ -594,7 +595,7 @@ function refList(rows: EdgeEnd[]): RefList {
     });
   }
   const refs = [...unique.values()];
-  return { refs: refs.slice(0, CARD_LIST_CAP), truncated: refs.length > CARD_LIST_CAP };
+  return { refs: refs.slice(0, CARD_LIST_CAP), total: refs.length, truncated: refs.length > CARD_LIST_CAP };
 }
 
 // A symbol card: who calls it, what it calls and imports, the tables it reads
