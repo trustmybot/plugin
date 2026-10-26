@@ -1,8 +1,10 @@
 import { FileDirectoryFillIcon, FileIcon, SearchIcon } from '@primer/octicons-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { query, useApi, type WorldModelSearch } from '../../api.ts';
 import { FIELD } from '../../shared/classes.ts';
 import { Loading } from '../../shared/Loading.tsx';
+import { mapHash, mapSearch, parseMapQuery, routeQuery, subscribeHash, type MapScope } from '../../shared/route.ts';
+import { CONCEPT_COPY, CONCEPTS_HELP_ID } from '../concepts/copy.ts';
 import { Box, BoxHeader, BoxRow } from '../../ui/Box.tsx';
 import { CounterLabel } from '../../ui/CounterLabel.tsx';
 import { Label } from '../../ui/Label.tsx';
@@ -10,21 +12,52 @@ import { Label } from '../../ui/Label.tsx';
 type OpenDir = (repo: string, path: string) => void;
 
 export function useDebouncedTerm() {
-  const [input, setInput] = useState('');
-  const [term, setTerm] = useState('');
+  const [input, setInput] = useState(routeQuery);
+  const [term, setTerm] = useState(() => input.trim());
+  const termRef = useRef(term);
+  useEffect(
+    () =>
+      subscribeHash(() => {
+        const q = routeQuery();
+        if (q === termRef.current) return;
+        termRef.current = q;
+        setInput(q);
+        setTerm(q);
+      }),
+    [],
+  );
   useEffect(() => {
-    const t = setTimeout(() => setTerm(input.trim()), 250);
+    const t = setTimeout(() => {
+      const next = input.trim();
+      if (next === termRef.current) return;
+      termRef.current = next;
+      setTerm(next);
+      if (routeQuery() !== next) window.history.replaceState(null, '', mapHash({ ...parseMapQuery(mapSearch()), q: next }));
+    }, 250);
     return () => clearTimeout(t);
   }, [input]);
   return { input, setInput, term };
 }
 
-export function SearchField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+const FIELD_COPY: Record<MapScope, { label: string; placeholder: string }> = {
+  files: { label: 'Search folders and files', placeholder: 'Search folders and files…' },
+  concepts: { label: 'Search concepts', placeholder: CONCEPT_COPY.placeholder },
+};
+
+export function SearchField({ scope = 'files', value, onChange }: { scope?: MapScope; value: string; onChange: (v: string) => void }) {
+  const copy = FIELD_COPY[scope];
   return (
-    <label className="relative block w-full sm:max-w-xs">
-      <span className="sr-only">Search directories and files</span>
+    <label className="relative block min-w-0 flex-1 sm:w-80 sm:flex-none">
+      <span className="sr-only">{copy.label}</span>
       <SearchIcon size={16} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-fg-muted" aria-hidden="true" />
-      <input type="search" className={`${FIELD} min-h-(--control-medium-size) pl-8`} placeholder="Search directories and files…" value={value} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type="search"
+        className={`${FIELD} min-h-(--control-medium-size) pl-8`}
+        placeholder={copy.placeholder}
+        aria-describedby={scope === 'concepts' ? CONCEPTS_HELP_ID : undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </label>
   );
 }
