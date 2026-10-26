@@ -12576,6 +12576,7 @@ var DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
 var TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 var TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 var CHANGELOG_DIR = "changelog.d";
+var REGEN_DRIVER = "tmb-regen";
 function git(repo, args2, env) {
   const r = spawnSync5("git", ["-C", repo, ...args2], {
     encoding: "utf8",
@@ -12727,6 +12728,17 @@ function hasChangelogDir(repo, rev, env) {
   const r = git(repo, ["ls-tree", "-d", "--name-only", rev, "--", CHANGELOG_DIR], env);
   return r.code === 0 && r.stdout.trim() !== "";
 }
+function nonRegenPaths(repo, rev, paths, env) {
+  const r = git(repo, ["check-attr", `--source=${rev}`, "-z", "merge", "--", ...paths], env);
+  if (r.code !== 0) return null;
+  const fields = nulFields(r.stdout);
+  if (fields.length % 3 !== 0) return null;
+  const regen = /* @__PURE__ */ new Set();
+  for (let i2 = 0; i2 < fields.length; i2 += 3) {
+    if (fields[i2 + 1] === "merge" && fields[i2 + 2] === REGEN_DRIVER) regen.add(fields[i2]);
+  }
+  return paths.filter((p) => !regen.has(p));
+}
 function readTask(db, taskId, env) {
   const row = gateRead(
     db,
@@ -12802,14 +12814,17 @@ function preflight(db, taskId, env) {
       actual: `no PR target ref resolves in ${repo}`
     });
   }
-  const merge = git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", targetTip, commit], env);
+  const merge = git(repo, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", targetTip, commit], env);
   if (merge.code !== 0) {
-    const conflicted = merge.stdout.split("\n").slice(1).filter((l) => l !== "");
-    return deny2({
-      check: "base_conflict",
-      expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
-      actual: merge.code === 1 && conflicted.length > 0 ? `conflicts in ${listed(conflicted)}` : `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}`
-    });
+    const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ""))];
+    const blocking = merge.code === 1 && conflicted.length > 0 ? nonRegenPaths(repo, commit, conflicted, env) : null;
+    if (blocking === null || blocking.length > 0) {
+      return deny2({
+        check: "base_conflict",
+        expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
+        actual: merge.code !== 1 || conflicted.length === 0 ? `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}` : blocking === null ? `conflicts in ${listed(conflicted)}; git check-attr of their merge attribute failed` : `conflicts in ${listed(blocking)}`
+      });
+    }
   }
   const mergeBase = git(repo, ["merge-base", targetTip, commit], env).stdout.trim();
   if (mergeBase === "") {
