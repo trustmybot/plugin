@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 51;
+export const TARGET_SCHEMA_VERSION = 52;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -665,6 +665,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 51 && toVersion >= 51) {
         migrateV50toV51(db);
+    }
+    if (fromVersion < 52 && toVersion >= 52) {
+        migrateV51toV52(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2649,6 +2652,36 @@ function migrateV50toV51(db) {
             SET description = replace(replace(description, ?, ?), ?, ?)
           WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
             AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, 'Code-reviewer', OLD_REVIEWER, OLD_REVIEWER_TITLE);
+        }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v51→v52: the swe checkpoint handback and why a run stopped short (GH 1905).
+// agent_runs gains stop_cause and stop_detail and tasks gains checkpoint; a
+// separate stop_cause column is used because widening exit_reason's CHECK
+// needs a table rebuild. Existing rows keep all three NULL.
+function migrateV51toV52(db) {
+    beginImmediate(db);
+    try {
+        if (tableExists(db, 'agent_runs')) {
+            if (!hasColumn(db, 'agent_runs', 'stop_cause')) {
+                db.exec("ALTER TABLE agent_runs ADD COLUMN stop_cause TEXT CHECK (stop_cause IN ('budget','hook_block'))");
+            }
+            if (!hasColumn(db, 'agent_runs', 'stop_detail')) {
+                db.exec('ALTER TABLE agent_runs ADD COLUMN stop_detail TEXT');
+            }
+        }
+        if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'checkpoint')) {
+            db.exec('ALTER TABLE tasks ADD COLUMN checkpoint TEXT');
         }
         commitTransaction(db);
     }

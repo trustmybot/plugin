@@ -12,6 +12,7 @@ import { EFFORT_LEVELS, computeEffort, isEffort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { recordEffortInputs } from '../effort-inputs.js';
 import { CLAIMS, CONCEPT_KINDS, CRITERION_STATUSES, HANDOFFS, MAX_CONCEPT_PROPOSALS, parseCompletionReport, specCriteriaProblem, specCriterionIds, } from '../success-criteria.js';
+import { CHECKPOINT_MAX_FILES, CHECKPOINT_TEXT_MAX_CHARS, parseCheckpoint } from '../checkpoint.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
 // BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
@@ -362,7 +363,7 @@ export function taskTools(db) {
         },
         {
             name: 'task_update_status',
-            description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+            description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -446,6 +447,22 @@ export function taskTools(db) {
                             },
                         },
                         required: ['criteria'],
+                    },
+                    checkpoint: {
+                        type: 'object',
+                        description: "A handback instead of running on; only with status='running'. Stored with `at` (now) and returned by task_brief so the next spawn resumes from it. A move to completed clears it; every other move keeps it.",
+                        properties: {
+                            done: { type: 'string', description: `What is done, at most ${CHECKPOINT_TEXT_MAX_CHARS} chars.` },
+                            left: { type: 'string', description: `What is left, at most ${CHECKPOINT_TEXT_MAX_CHARS} chars.` },
+                            files: {
+                                type: 'array',
+                                items: { type: 'string' },
+                                maxItems: CHECKPOINT_MAX_FILES,
+                                description: 'The files in play.',
+                            },
+                            commit_sha: { type: 'string', description: 'The commit the work so far is at (7-40 hex chars).' },
+                        },
+                        required: ['done', 'left', 'files'],
                     },
                 },
                 required: ['agent', 'task_id', 'status'],
@@ -1100,6 +1117,10 @@ export function taskTools(db) {
             if (args['report'] !== undefined && args['report'] !== null && status !== 'completed') {
                 throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
             }
+            const hasCheckpoint = args['checkpoint'] !== undefined && args['checkpoint'] !== null;
+            if (hasCheckpoint && status !== 'running') {
+                throw new Error(`task_update_status: checkpoint is accepted only with status='running' (got '${status}').`);
+            }
             const report = status === 'completed' ? parseCompletionReport(args['report'], specCriterionIds(task.spec_body)) : null;
             const taskRepo = task.repo;
             if (report?.concepts && taskRepo) {
@@ -1113,15 +1134,20 @@ export function taskTools(db) {
             // completion_report follows the same rule (GH 1744).
             const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
             const completionReport = status === 'completed' ? (report ? JSON.stringify(report) : null) : status === 'closed' ? task.completion_report : null;
+            const checkpoint = hasCheckpoint
+                ? JSON.stringify(parseCheckpoint(args['checkpoint'], now))
+                : status === 'completed'
+                    ? null
+                    : task.checkpoint;
             db.transaction(() => {
                 if (status === 'closed' && task.status !== 'closed') {
                     recordReviewBypassIfUnreviewed(db, { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null }, 'task_update_status', agent, now);
                 }
                 if (rawCommitSha !== undefined) {
-                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, completionReport, rawCommitSha, taskId]);
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, completionReport, checkpoint, rawCommitSha, taskId]);
                 }
                 else {
-                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ? WHERE id = ?`, [status, now, completedAt, completionReport, taskId]);
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ? WHERE id = ?`, [status, now, completedAt, completionReport, checkpoint, taskId]);
                 }
                 if (TERMINAL_TASK_STATUSES.has(status)) {
                     closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));

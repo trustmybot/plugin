@@ -18,6 +18,10 @@
 #   7. Plugin version — an inserted swe or code-reviewer row carries the
 #      manifest version, a later UPDATE leaves it, and with CLAUDE_PLUGIN_ROOT
 #      unset the insert writes NULL (GH 1884).
+#   8. Checkpoint (GH 1905) — a checkpoint written in the run keeps a committed
+#      running task running and the swe-stop-cause recorder writes stop_cause
+#      budget; an older checkpoint auto-completes and is cleared; without
+#      dist/hooks.js the hook still completes.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -325,5 +329,53 @@ transcript 148 "$T148"
 assert_eq "1|40|1" \
   "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), MAX(plugin_version IS NULL) FROM agent_runs WHERE task_id=148;")" \
   "one metered row, plugin_version NULL"
+
+# ---- checkpoint handback and stop_cause (GH 1905) -----------------------------
+# committed_task <task_id>: a running task whose worktree carries one commit.
+committed_task() {
+  sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES ($1, 1, 'fix/task-$1', 'dev', 'd', 'running', '$NOW', '$NOW');"
+  git -C "$REPO" branch "fix/task-$1" dev
+  git -C "$REPO" worktree add -q "$REPO/.claude/worktrees/task-$1" "fix/task-$1"
+  (cd "$REPO/.claude/worktrees/task-$1" && echo "c$1" > "c$1.txt" && git add "c$1.txt" && git commit -qm "feat: c$1")
+}
+
+test_case "a checkpoint from this run plus commits keeps the task running and records stop_cause budget"
+committed_task 160
+sqlite3 "$DB" "UPDATE tasks SET checkpoint = json_object('done', 'half', 'left', 'rest', 'files', json_array('a.ts'), 'at', '2026-06-16T19:30:02.000Z') WHERE id=160;"
+T160="$TMPDIR/t160.jsonl"
+transcript 160 "$T160"
+OUT=$(run_hook "$(stop_input "$T160" agent-160)")
+assert_contains "$OUT" "handed back a checkpoint" "checkpoint context for bro"
+assert_contains "$OUT" "task_brief.checkpoint" "context points at task_brief.checkpoint"
+assert_eq "running|1" "$(sqlite3 "$DB" "SELECT status, checkpoint IS NOT NULL FROM tasks WHERE id=160;")" "still running, checkpoint kept"
+assert_eq "budget||failed" "$(sqlite3 "$DB" "SELECT stop_cause, COALESCE(stop_detail, ''), exit_reason FROM agent_runs WHERE task_id=160;")" "the spawn row records budget"
+
+test_case "an older checkpoint plus commits auto-completes and clears the checkpoint"
+committed_task 161
+sqlite3 "$DB" "UPDATE tasks SET checkpoint = json_object('done', 'half', 'left', 'rest', 'files', json_array(), 'at', '2026-06-16T19:00:00.000Z') WHERE id=161;"
+T161="$TMPDIR/t161.jsonl"
+transcript 161 "$T161"
+OUT=$(run_hook "$(stop_input "$T161" agent-161)")
+assert_eq "" "$OUT" "no additionalContext"
+assert_eq "completed|$(git -C "$REPO/.claude/worktrees/task-161" rev-parse HEAD)|1" \
+  "$(sqlite3 "$DB" "SELECT status, COALESCE(commit_sha, ''), checkpoint IS NULL FROM tasks WHERE id=161;")" \
+  "completed at the worktree HEAD, checkpoint NULL"
+assert_eq "|completed" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, ''), exit_reason FROM agent_runs WHERE task_id=161;")" "no stop_cause"
+
+test_case "with dist/hooks.js absent the hook still completes"
+BARE_ROOT="$TMPDIR/bare-plugin"
+mkdir -p "$BARE_ROOT"
+cp -R "$PLUGIN_ROOT/scripts" "$BARE_ROOT/scripts"
+assert_eq "absent" "$([ -e "$BARE_ROOT/mcp/trajectory-server/dist/hooks.js" ] && echo present || echo absent)" "no dist/hooks.js beside the copied hook"
+committed_task 162
+T162="$TMPDIR/t162.jsonl"
+transcript 162 "$T162"
+set +e
+(cd "$REPO" && stop_input "$T162" agent-162 | bash "$BARE_ROOT/scripts/hooks/swe-atomic-close.sh" >/dev/null 2>&1)
+BARE_RC=$?
+set -e
+assert_eq "0" "$BARE_RC" "the hook exits 0"
+assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=162;")" "the task auto-completes"
+assert_eq "1|40|" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), COALESCE(MAX(stop_cause), '') FROM agent_runs WHERE task_id=162;")" "the row is metered, no stop_cause written"
 
 summarize
