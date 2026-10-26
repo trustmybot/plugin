@@ -169,9 +169,10 @@ describe('README drift helpers (GH 1680)', () => {
             root,
             deleted: new Set(deleted),
             deletedByBasename,
+            renamedAway: new Set(),
             trackedBasenames: new Set(trackedBasenames),
             trackedDirs: new Set(trackedDirs),
-            trackedPaths: new Set(),
+            trackedFiles: new Set(),
         };
     }
     it('flags a missing markdown link without a deletion, skips .., dist/, * and untracked first segments', () => {
@@ -229,7 +230,7 @@ describe('README drift helpers (GH 1680)', () => {
         assert.equal(trustOf({ commits_behind: null, dead_refs: null }), null);
     });
 });
-describe('commits_behind counts only commits that touch referenced paths or remove files (GH 1833)', () => {
+describe('commits_behind counts only commits that edit, delete or rename a file the README names (GH 1833)', () => {
     function repo() {
         const ws = mkdtempSync(join(tmpdir(), 'wm-drift-scope-'));
         const root = join(ws, 'app');
@@ -280,14 +281,38 @@ describe('commits_behind counts only commits that touch referenced paths or remo
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('counts a rename of a file under the dir the README does not name', () => {
+    it('a README naming the directory changelog.d/ reads 0 after three fragment adds and one fragment delete', () => {
         const { ws, root } = repo();
         try {
-            write(root, 'pkg/README.md', '# pkg\n');
-            write(root, 'pkg/old.ts', 'export const x = 1;\n');
+            write(root, 'docs/README.md', '# docs\n\nFragments live in `changelog.d/`.\n');
+            write(root, 'changelog.d/README.md', 'x\n');
+            write(root, 'changelog.d/0-old.md', 'old\n');
             commit(root, 'readme');
-            git(root, 'mv', 'pkg/old.ts', 'pkg/new.ts');
-            commit(root, 'rename');
+            for (let i = 1; i <= 3; i++) {
+                write(root, `changelog.d/${i}-frag.md`, 'f\n');
+                commit(root, `frag ${i}`);
+            }
+            git(root, 'rm', '-q', 'changelog.d/0-old.md');
+            commit(root, 'release drops a fragment');
+            const drift = driftOf(root, 'docs', ['docs', 'changelog.d']);
+            assert.equal(drift.commits_behind, 0);
+            assert.deepEqual(drift.dead_refs, []);
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('counts the rename of a file the README names, not the rename of one it does not', () => {
+        const { ws, root } = repo();
+        try {
+            write(root, 'pkg/README.md', '# pkg\n\nSee [named](named.ts).\n');
+            write(root, 'pkg/named.ts', 'export const x = 1;\n');
+            write(root, 'pkg/other.ts', 'export const y = 1;\n');
+            commit(root, 'readme');
+            git(root, 'mv', 'pkg/other.ts', 'pkg/other2.ts');
+            commit(root, 'rename other');
+            git(root, 'mv', 'pkg/named.ts', 'pkg/named2.ts');
+            commit(root, 'rename named');
             assert.equal(driftOf(root, 'pkg', ['pkg']).commits_behind, 1);
         }
         finally {
@@ -310,7 +335,7 @@ describe('commits_behind counts only commits that touch referenced paths or remo
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('a README with no resolvable refs counts no edits or adds under the dir', () => {
+    it('a README with no file refs counts no edits, adds or deletes under the dir', () => {
         const { ws, root } = repo();
         try {
             write(root, 'pkg/README.md', '# pkg\n\nNothing named here.\n');
@@ -320,6 +345,8 @@ describe('commits_behind counts only commits that touch referenced paths or remo
             commit(root, 'edit a');
             write(root, 'pkg/b.ts', 'b\n');
             commit(root, 'add b');
+            git(root, 'rm', '-q', 'pkg/a.ts');
+            commit(root, 'delete a');
             assert.equal(driftOf(root, 'pkg', ['pkg']).commits_behind, 0);
         }
         finally {
