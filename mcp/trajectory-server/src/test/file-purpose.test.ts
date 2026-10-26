@@ -218,6 +218,13 @@ describe('extractPurpose — structural fallback for data files', () => {
     expectPurpose('docs/after.md', '<!-- start\nhidden -->  Text after the comment.\n', 'structural', 'Text after the comment.');
     expectPurpose('docs/empty.md', '<!-->\nReal line.\n', 'structural', 'Real line.');
     expectPurpose('docs/empty-dash.md', '<!--->\nReal line.\n', 'structural', 'Real line.');
+    expectPurpose('docs/fenced.md', '```\n<!-- not a comment\n```\nReal line.\n', 'structural', 'Real line.');
+  });
+
+  it('markdown with no heading: every HTML comment on a line is skipped (GH 1934)', () => {
+    expectPurpose('docs/second.md', '<!-- a --> <!-- b\nhidden\n-->\nReal line.\n', 'structural', 'Real line.');
+    expectPurpose('docs/between.md', '<!-- a --> text <!-- b -->\n', 'structural', 'text');
+    expectPurpose('docs/prose-open.md', 'Prose <!-- open\nhidden\n-->\n', 'structural', 'Prose');
   });
 
   it('markdown with no heading: arrows and comparisons keep their angle brackets', () => {

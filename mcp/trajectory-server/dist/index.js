@@ -43015,26 +43015,38 @@ function plainMarkdown(s) {
     stripInlineMarkdown(s).replace(/`([^`]*)`/g, "$1").replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2")
   ).trim();
 }
+function withoutComments(line, inComment) {
+  let rest = "";
+  let i2 = 0;
+  for (; ; ) {
+    if (inComment) {
+      const end = line.indexOf("-->", i2);
+      if (end < 0) return { rest, inComment: true };
+      i2 = end + 3;
+      inComment = false;
+    }
+    const start2 = line.indexOf("<!--", i2);
+    if (start2 < 0) return { rest: rest + line.slice(i2), inComment: false };
+    rest += line.slice(i2, start2);
+    i2 = start2 + 2;
+    inComment = true;
+  }
+}
 function fromFirstLine(body2) {
   let fenced = false;
   let inComment = false;
   for (const raw of body2) {
     let l = raw.trim();
-    if (inComment) {
-      const end = l.indexOf("-->");
-      if (end < 0) continue;
-      inComment = false;
-      l = l.slice(end + 3).trim();
-      if (l === "") continue;
-    } else if (!fenced && l.startsWith("<!--") && !l.includes("-->", 2)) {
-      inComment = true;
-      continue;
+    if (!fenced) {
+      const scan = withoutComments(l, inComment);
+      inComment = scan.inComment;
+      l = scan.rest.trim();
     }
     if (/^(```|~~~)/.test(l)) {
       fenced = !fenced;
       continue;
     }
-    if (fenced || l === "" || l.startsWith("<!--") || l.startsWith("|") || /^-{3,}$/.test(l)) continue;
+    if (fenced || l === "" || l.startsWith("|") || /^-{3,}$/.test(l)) continue;
     const text = plainMarkdown(l.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, ""));
     if (/[A-Za-z0-9]/.test(text)) return result(text, "structural");
   }
