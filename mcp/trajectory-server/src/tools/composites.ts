@@ -44,6 +44,7 @@ import {
   verificationWaivedForCommit,
 } from './verification-runs.js';
 import type { TaskProvisionInput } from '../types.js';
+import { parseStoredCheckpoint } from '../checkpoint.js';
 import {
   parseSpawnNote,
   parseStoredReport,
@@ -1120,8 +1121,8 @@ export function compositeTools(
     {
       name: 'task_brief',
       description:
-        "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none). " +
-        "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, " +
+        "Context bundle for one task — swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's ≤300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). " +
+        "`section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, " +
         "locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; " +
         "plus a `sections` map of what the others hold), " +
         "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
@@ -1773,10 +1774,11 @@ export function compositeTools(
           effort: Effort;
           completion_report: string | null;
           spawn_note: string | null;
+          checkpoint: string | null;
           objective: string;
         }>(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, t.completion_report, t.spawn_note, i.objective
+                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId],
@@ -1824,6 +1826,16 @@ export function compositeTools(
               WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
             [task.id],
           ).map((f) => ({ ...f }));
+          const stop = db.get<{ stop_cause: string | null; stop_detail: string | null; completed_at: string | null }>(
+            `SELECT stop_cause, stop_detail, completed_at FROM agent_runs
+              WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NOT NULL
+              ORDER BY id DESC LIMIT 1`,
+            [task.id],
+          );
+          const last_stop =
+            stop && stop.stop_cause !== null
+              ? { cause: stop.stop_cause, detail: stop.stop_detail, at: stop.completed_at }
+              : null;
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -1839,6 +1851,8 @@ export function compositeTools(
             open_findings,
             completion_report: parseStoredReport(task.completion_report),
             spawn_note: task.spawn_note,
+            checkpoint: parseStoredCheckpoint(task.checkpoint),
+            last_stop,
             locations: briefLocations(db, repo, task.spec_body ?? '', parseTaskFiles(task.files)),
           };
         };

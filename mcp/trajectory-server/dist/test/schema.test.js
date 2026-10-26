@@ -172,20 +172,37 @@ describe('schema — current table set, default values, constraints', () => {
         assert.throws(() => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`), /UNIQUE/, 'one row per (task_id, spawn_id)');
         db.close();
     });
-    it('fresh DB: agent_runs.plugin_version is the nullable last column and defaults to NULL (v50)', () => {
+    it('fresh DB: agent_runs.plugin_version is nullable and defaults to NULL (v50)', () => {
         const db = tempDB();
-        const columns = db.all('PRAGMA table_info(agent_runs)');
-        const last = columns[columns.length - 1];
-        assert.deepEqual({ name: last.name, type: last.type, notnull: last.notnull, dflt_value: last.dflt_value }, { name: 'plugin_version', type: 'TEXT', notnull: 0, dflt_value: null });
+        const column = db
+            .all('PRAGMA table_info(agent_runs)')
+            .find((c) => c.name === 'plugin_version');
+        assert.deepEqual(column && { type: column.type, notnull: column.notnull, dflt_value: column.dflt_value }, { type: 'TEXT', notnull: 0, dflt_value: null });
         db.run(`INSERT INTO agent_runs (agent_type) VALUES ('bro')`);
         assert.equal(db.get('SELECT plugin_version FROM agent_runs')?.plugin_version, null);
         db.close();
     });
-    it('fresh DB has schema_version = 51 in plugin_meta', () => {
+    it('fresh DB: agent_runs ends with nullable stop_cause and stop_detail and tasks with checkpoint (v52)', () => {
+        const db = tempDB();
+        const tail = (table, n) => db
+            .all(`PRAGMA table_info(${table})`)
+            .slice(-n)
+            .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }));
+        assert.deepEqual(tail('agent_runs', 3), [
+            { name: 'plugin_version', type: 'TEXT', notnull: 0, dflt_value: null },
+            { name: 'stop_cause', type: 'TEXT', notnull: 0, dflt_value: null },
+            { name: 'stop_detail', type: 'TEXT', notnull: 0, dflt_value: null },
+        ]);
+        assert.deepEqual(tail('tasks', 1), [{ name: 'checkpoint', type: 'TEXT', notnull: 0, dflt_value: null }]);
+        db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'budget'), ('swe', 'hook_block'), ('swe', NULL)`);
+        assert.throws(() => db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'timeout')`), /CHECK/);
+        db.close();
+    });
+    it('fresh DB has schema_version = 52 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 51);
+        assert.equal(meta.schema_version, 52);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });

@@ -6,4 +6,5 @@ ensure-mcp-deps-installed
 git-push-guard
 rework-limit
 swe-resume-gate
+swe-stop-cause
 task-overrun-alert

@@ -223,6 +223,7 @@ export function hooksParityShard(k: number, n: number): void {
           'code-reviewer-spawn-note',
           'rework-limit',
           'swe-resume-gate',
+          'swe-stop-cause',
           'task-overrun-alert',
         ]);
       });

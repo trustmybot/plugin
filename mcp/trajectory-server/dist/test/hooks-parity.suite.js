@@ -186,6 +186,7 @@ export function hooksParityShard(k, n) {
                     'code-reviewer-spawn-note',
                     'rework-limit',
                     'swe-resume-gate',
+                    'swe-stop-cause',
                     'task-overrun-alert',
                 ]);
             });

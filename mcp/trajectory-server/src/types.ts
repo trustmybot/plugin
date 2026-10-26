@@ -83,6 +83,8 @@ export interface Task {
   completion_report: string | null;
   /** GH 1744: ≤300 chars of context for the next spawn, set by bro_atomic_close / task_reopen. */
   spawn_note: string | null;
+  /** GH 1905: swe's checkpoint handback (JSON {done, left, files, commit_sha?, at}), set with status running. */
+  checkpoint: string | null;
 }
 
 export interface Discussion {

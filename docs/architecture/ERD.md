@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 51`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 52`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 51`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 52`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -131,6 +131,7 @@ erDiagram
         TEXT effort "NOT NULL; CHECK low|medium|high"
         TEXT completion_report
         TEXT spawn_note
+        TEXT checkpoint
     }
 
     audit {
@@ -271,6 +272,8 @@ erDiagram
         TEXT effort "CHECK low|medium|high"
         INTEGER resumed_from FK "→ agent_runs.id NO ACTION"
         TEXT plugin_version
+        TEXT stop_cause "CHECK budget|hook_block"
+        TEXT stop_detail
     }
 
     pr_review_runs {
@@ -516,6 +519,7 @@ Table constraints:
 | `effort` | TEXT | NOT NULL | `'medium'` | CHECK `effort IN ('low','medium','high')` |
 | `completion_report` | TEXT | nullable |  |  |
 | `spawn_note` | TEXT | nullable |  |  |
+| `checkpoint` | TEXT | nullable |  |  |
 
 ### `audit`
 
@@ -688,6 +692,8 @@ Table constraints:
 | `effort` | TEXT | nullable |  | CHECK `effort IN ('low','medium','high')` |
 | `resumed_from` | INTEGER | nullable |  | FK → `agent_runs.id` ON DELETE NO ACTION |
 | `plugin_version` | TEXT | nullable |  |  |
+| `stop_cause` | TEXT | nullable |  | CHECK `stop_cause IN ('budget','hook_block')` |
+| `stop_detail` | TEXT | nullable |  |  |
 
 ### `pr_review_runs`
 
