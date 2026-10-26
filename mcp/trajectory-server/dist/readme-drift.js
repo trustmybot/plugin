@@ -1,6 +1,7 @@
-// README drift for the world model (GH 1680): how many commits a directory has
-// taken since its README last changed, and which paths the README names that
-// git has since deleted. Every git call is bounded; any failure yields null so
+// README drift for the world model (GH 1680, GH 1833): how many commits since
+// a directory's README last changed touched a path the README names or removed
+// a file under the directory, and which paths the README names that git has
+// since deleted. Every git call is bounded; any failure yields null so
 // the scan stores NULL instead of failing.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -28,7 +29,8 @@ function lines(out) {
         .filter((l) => l.length > 0);
 }
 // One `git log --diff-filter=D` per repo per scan for every path ever deleted,
-// and one `git ls-files` for the basenames tracked today.
+// and one `git ls-files` for the files tracked today, their basenames and
+// every directory above them.
 export function readRepoHistory(root, trackedDirs) {
     const out = git(root, ['log', '--diff-filter=D', '--name-only', '--format='], HISTORY_TIMEOUT_MS);
     if (out === null)
@@ -37,7 +39,13 @@ export function readRepoHistory(root, trackedDirs) {
     if (tracked === null)
         return null;
     const deleted = new Set(lines(out));
-    const trackedBasenames = new Set(lines(tracked).map(basename));
+    const trackedFiles = lines(tracked);
+    const trackedBasenames = new Set(trackedFiles.map(basename));
+    const trackedPaths = new Set();
+    for (const file of trackedFiles) {
+        for (let p = file; p !== '.' && !trackedPaths.has(p); p = posix.dirname(p))
+            trackedPaths.add(p);
+    }
     const deletedByBasename = new Map();
     for (const p of [...deleted].sort()) {
         const name = basename(p);
@@ -47,7 +55,7 @@ export function readRepoHistory(root, trackedDirs) {
         else
             deletedByBasename.set(name, [p]);
     }
-    return { root, deleted, deletedByBasename, trackedBasenames, trackedDirs };
+    return { root, deleted, deletedByBasename, trackedBasenames, trackedDirs, trackedPaths };
 }
 function stripUntrustedFraming(text) {
     return text.replace(/<\/?untrusted-content\b[^>]*>/g, '');
@@ -129,25 +137,39 @@ export function deadRefs(readme, dir, history) {
     }
     return [...dead].sort();
 }
-// summary_sha: the last commit touching the README. commits_behind: commits
-// since then touching the directory outside the README.
+const MAX_REFERENCED_PATHSPECS = 200;
+// The README's candidates that resolve to a path tracked today, relative to
+// its directory or else to the repo root, without the README itself.
+export function referencedPaths(readme, dir, readmePath, history) {
+    const paths = new Set();
+    for (const { ref } of readmeCandidates(readme, dir, history.trackedDirs)) {
+        const fromDir = relativeToDir(dir, ref);
+        const fromRoot = posix.normalize(ref);
+        const hit = history.trackedPaths.has(fromDir) ? fromDir : history.trackedPaths.has(fromRoot) ? fromRoot : undefined;
+        if (hit && hit !== readmePath)
+            paths.add(hit);
+    }
+    return [...paths].sort();
+}
+// summary_sha: the last commit touching the README. commits_behind: the
+// distinct commits since then that modify a path the README references (the
+// first 200 of them) or delete or rename a file under the directory. Adds
+// alone never count, so a directory that grows by design stays current.
 export function readmeDrift(history, dir, readmeName, readme) {
     const readmePath = dir === '' ? readmeName : `${dir}/${readmeName}`;
     const sha = git(history.root, ['log', '-1', '--format=%H', '--', `:(literal)${readmePath}`])?.trim();
     if (!sha)
         return null;
-    const dirSpec = dir === '' ? ':(literal).' : `:(literal)${dir}`;
-    const count = git(history.root, [
-        'rev-list',
-        '--count',
-        `${sha}..HEAD`,
-        '--',
-        dirSpec,
-        `:(exclude,literal)${readmePath}`,
-    ]);
-    const commits_behind = count === null ? NaN : Number.parseInt(count.trim(), 10);
-    if (!Number.isFinite(commits_behind))
+    const range = `${sha}..HEAD`;
+    const refs = referencedPaths(readme, dir, readmePath, history).slice(0, MAX_REFERENCED_PATHSPECS);
+    const touched = refs.length === 0 ? '' : git(history.root, ['log', '--format=%H', range, '--', ...refs.map((r) => `:(literal)${r}`)]);
+    if (touched === null)
         return null;
+    const dirSpec = dir === '' ? ':(literal).' : `:(literal)${dir}`;
+    const removed = git(history.root, ['log', '--diff-filter=DR', '--format=%H', range, '--', dirSpec]);
+    if (removed === null)
+        return null;
+    const commits_behind = new Set([...lines(touched), ...lines(removed)]).size;
     return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
 }
 //# sourceMappingURL=readme-drift.js.map
