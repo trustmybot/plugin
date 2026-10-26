@@ -132,6 +132,49 @@ else
   fail "release.sh missing the step-6 re-pin invocation (publish-rc-channel.sh --stable-repin)"
 fi
 
+# ---------- runtime payload (GH 1699) ----------
+
+# P1: the catalog pins payload/<tag>, the runtime-only build, never the bare tag.
+if grep -qF 'PAYLOAD_REF="payload/${TAG}"' "$RC_SCRIPT" \
+   && grep -qF 'jq --arg ref "$PAYLOAD_REF"' "$RC_SCRIPT" \
+   && grep -qF '[ "$CURRENT_REF" = "$PAYLOAD_REF" ]' "$RC_SCRIPT" \
+   && ! grep -qF 'jq --arg ref "$TAG"' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: pins and checks idempotency against payload/\$TAG"
+else
+  fail "publish-rc-channel: source.ref must be payload/\$TAG (PAYLOAD_REF) in the jq rewrite and the idempotency check"
+fi
+
+# P2: it waits for payload/<tag> on origin, failing when the helper fails, after
+# the release-gate await and before the catalog clone (so --dry-run waits too).
+HELPER_CALL='node --experimental-strip-types "$PLUGIN_ROOT/scripts/await-payload-tag.ts" "$TAG" --remote "$PLUGIN_REPO"'
+if awk -v call="$HELPER_CALL" '
+  index($0, "await_release_gate \"$TAG\"") && !gate { gate = NR }
+  index($0, call) && !helper { helper = NR; exits = ($0 ~ /\|\| exit \$\?/) }
+  /git clone/ && !clone { clone = NR }
+  END { exit !(gate && helper && clone && gate < helper && helper < clone && exits) }
+' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: awaits payload/\$TAG (await-payload-tag.ts) after the gate, before the clone, exiting on failure"
+else
+  fail "publish-rc-channel: missing '$HELPER_CALL || exit \$?' between the release-gate await and the catalog clone"
+fi
+
+# P3: the helper exists.
+if [ -f "$ROOT/scripts/await-payload-tag.ts" ]; then
+  pass "scripts/await-payload-tag.ts exists"
+else
+  fail "scripts/await-payload-tag.ts missing"
+fi
+
+# P4: release.sh step 6 names payload/$NEW_TAG, and the summary verifies the
+# payload tag and stable-build.
+if grep -qF 'Re-pin the rc channel to payload/$NEW_TAG?' "$SCRIPT" \
+   && grep -qF 'refs/tags/payload/%s' "$SCRIPT" \
+   && grep -qF 'refs/heads/stable-build' "$SCRIPT"; then
+  pass "release.sh step 6 names payload/\$NEW_TAG; the summary verifies it and stable-build"
+else
+  fail "release.sh: step 6 must prompt for payload/\$NEW_TAG and the summary must list refs/tags/payload/ and refs/heads/stable-build"
+fi
+
 echo ""
 if [ $failed -ne 0 ]; then
   echo "Release-script-safety: FAIL" >&2

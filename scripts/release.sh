@@ -14,7 +14,7 @@
 #   3. Await the tag's release-gate run; refuse unless it concluded success
 #   4. Create the GitHub release with notes extracted from CHANGELOG.md
 #   5. Run the L5 release canary (re-clone the tag in Docker, run install-smoke)
-#   6. Re-pin the rc channel to the new stable tag
+#   6. Re-pin the rc channel to the new stable tag's payload/<tag>
 #      (publish-rc-channel.sh --stable-repin — CONTRIBUTING Phase-D step 14)
 #
 # Idempotent + safety-checked:
@@ -277,15 +277,17 @@ fi
 # CONTRIBUTING Phase-D step 14. The rc channel (trustmybot/marketplace-rc) pins
 # the rc under validation; after a stable cut it must converge on the released
 # build so rc-channel installs stop serving the old rc between cycles.
-# publish-rc-channel.sh --stable-repin reuses the same temp-clone/verify/commit/
-# push machinery and is idempotent (skips if the ref already points at the tag).
+# publish-rc-channel.sh --stable-repin pins payload/$NEW_TAG, the runtime-only
+# build release-payload.yml pushes on the tag push of step 2, after waiting for
+# it on origin. It reuses the same temp-clone/verify/commit/push machinery and
+# is idempotent (skips if the ref already points at payload/$NEW_TAG).
 #
 # Fail-forward like the canary: the release is already public, so a failure warns
 # loudly and prints the manual re-pin command — it never deletes the release.
 
-if confirm "Step 6: Re-pin the rc channel to $NEW_TAG?"; then
+if confirm "Step 6: Re-pin the rc channel to payload/$NEW_TAG?"; then
   if bash "$PLUGIN_ROOT/scripts/publish-rc-channel.sh" --stable-repin --yes "$NEW_VERSION"; then
-    printf "  ✓ rc channel re-pinned to %s\n\n" "$NEW_TAG"
+    printf "  ✓ rc channel re-pinned to payload/%s\n\n" "$NEW_TAG"
   else
     printf "\n  ⚠️  rc-channel re-pin FAILED — %s is already public.\n" "$NEW_TAG" >&2
     printf "     rc-channel installs may still serve the previous rc. Re-pin manually:\n" >&2
@@ -301,3 +303,5 @@ fi
 printf "Done. Verify:\n"
 printf "  - https://github.com/trustmybot/plugin/releases/tag/%s\n" "$NEW_TAG"
 printf "  - git ls-remote --tags origin | grep %s\n" "$NEW_TAG"
+printf "  - git ls-remote origin refs/tags/payload/%s   (the runtime payload, pushed by release-payload.yml)\n" "$NEW_TAG"
+printf "  - git ls-remote origin refs/heads/stable-build   (should match refs/tags/payload/%s)\n" "$NEW_TAG"
