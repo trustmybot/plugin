@@ -5,5 +5,6 @@ containment-guard
 ensure-mcp-deps-installed
 git-push-guard
 rework-limit
+swe-boundary
 swe-resume-gate
 task-overrun-alert
