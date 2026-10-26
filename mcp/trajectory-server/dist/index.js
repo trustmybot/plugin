@@ -32963,12 +32963,18 @@ function refResolves(repoPath, ref2) {
     return false;
   }
 }
-function resolveBaseRef(repoPath, base) {
+function normalizeBase(repoPath, base) {
+  if (!base.startsWith("origin/") || refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return base.slice("origin/".length);
+}
+function resolveBaseRef(repoPath, rawBase) {
+  const base = normalizeBase(repoPath, rawBase);
   if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
   if (refResolves(repoPath, `refs/heads/${base}`)) return base;
   return null;
 }
-function resolveCutBase(repoPath, base) {
+function resolveCutBase(repoPath, rawBase) {
+  const base = normalizeBase(repoPath, rawBase);
   const remoteRef = `origin/${base}`;
   const remoteSha = gitOut(repoPath, ["rev-parse", "--verify", "--quiet", `refs/remotes/${remoteRef}^{commit}`]);
   const localSha = gitOut(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${base}^{commit}`]);
@@ -37841,7 +37847,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           base: {
             type: "string",
-            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch, else its default branch (origin/HEAD)."
+            description: "Optional start-point for the branch ref; 'dev' and 'origin/dev' are both accepted. Defaults to the repo's target_branch, else its default branch (origin/HEAD)."
           },
           reuse_existing: {
             type: "boolean",
@@ -37869,10 +37875,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             description: "The single task spec.",
             properties: {
               title: { type: "string" },
-              description: { type: "string" },
+              description: { type: "string", description: "Required, non-empty." },
               spec_body: {
                 type: "string",
-                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2 whose top-level bullets each start with a unique id: \`- SC1: ...\`.`
+                description: `Required, non-empty. Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2 whose top-level bullets each start with a unique id: \`- SC1: ...\`.`
               },
               files: {
                 type: "array",
@@ -37886,7 +37892,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               },
               repo: {
                 type: "string",
-                description: `Optional relative path to this task's git repo (no ".." or leading "/"); omit for single-repo CC.`
+                description: `Optional relative path to this task's git repo (no ".." or leading "/"); defaults to the issue's repo, else the sole repo.`
               },
               prompt_bearing: {
                 type: "number",
@@ -38040,11 +38046,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const files = validateStrArray(task.files, "files");
         const verification = validateStrArray(task.verification, "verification");
         let repoValue = null;
-        if (task.repo !== void 0 && task.repo !== null && task.repo !== "") {
-          if (typeof task.repo !== "string") return err16("task.repo must be a string");
-          if (task.repo.includes("..")) return err16(`Invalid repo "${task.repo}": must not contain "..".`);
-          if (task.repo.startsWith("/")) return err16(`Invalid repo "${task.repo}": must not start with "/".`);
-          repoValue = task.repo;
+        const hasTaskRepo = task.repo !== void 0 && task.repo !== null && task.repo !== "";
+        if (hasTaskRepo && typeof task.repo !== "string") return err16("task.repo must be a string");
+        const namedRepo = hasTaskRepo ? task.repo : db2.get(`SELECT repo FROM issues WHERE id = ?`, [issueId])?.repo || null;
+        if (namedRepo) {
+          if (namedRepo.includes("..")) return err16(`Invalid repo "${namedRepo}": must not contain "..".`);
+          if (namedRepo.startsWith("/")) return err16(`Invalid repo "${namedRepo}": must not start with "/".`);
+          repoValue = namedRepo;
         } else {
           repoValue = resolveSoleRepo(db2)?.name ?? null;
         }
@@ -38114,7 +38122,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
           if (refusal2) return outsideProjectResult(refusal2);
         }
-        const base = args2["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? resolveRepoDefaultBranch(repoPath));
+        const base = normalizeBase(
+          repoPath,
+          args2["base"] ?? readRepoTargetBranch(db2, repoValue) ?? resolveRepoDefaultBranch(repoPath)
+        );
         const reuseExisting = args2["reuse_existing"] === true;
         const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
         if (branch.kind === "base_unresolved") {
@@ -38753,7 +38764,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             const refusal2 = outsideProject("task_retry", runContext.projectRoot, path2);
             if (refusal2) return outsideProjectResult(refusal2);
           }
-          const base = reworkBase(db2, repoPath, repoValue, failed.parent_branch_id);
+          const base = normalizeBase(repoPath, reworkBase(db2, repoPath, repoValue, failed.parent_branch_id));
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
           if (branch.kind === "base_unresolved") {
             return err16(

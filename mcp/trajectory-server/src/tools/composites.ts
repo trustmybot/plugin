@@ -31,7 +31,7 @@ import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
+import { normalizeBase, resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import {
@@ -982,7 +982,7 @@ export function compositeTools(
           },
           base: {
             type: 'string',
-            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch, else its default branch (origin/HEAD).",
+            description: "Optional start-point for the branch ref; 'dev' and 'origin/dev' are both accepted. Defaults to the repo's target_branch, else its default branch (origin/HEAD).",
           },
           reuse_existing: {
             type: 'boolean',
@@ -1014,10 +1014,10 @@ export function compositeTools(
             description: 'The single task spec.',
             properties: {
               title: { type: 'string' },
-              description: { type: 'string' },
+              description: { type: 'string', description: 'Required, non-empty.' },
               spec_body: {
                 type: 'string',
-                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2 whose top-level bullets each start with a unique id: \`- SC1: ...\`.`,
+                description: `Required, non-empty. Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2 whose top-level bullets each start with a unique id: \`- SC1: ...\`.`,
               },
               files: {
                 type: 'array',
@@ -1031,7 +1031,7 @@ export function compositeTools(
               },
               repo: {
                 type: 'string',
-                description: 'Optional relative path to this task\'s git repo (no ".." or leading "/"); omit for single-repo CC.',
+                description: 'Optional relative path to this task\'s git repo (no ".." or leading "/"); defaults to the issue\'s repo, else the sole repo.',
               },
               prompt_bearing: {
                 type: 'number',
@@ -1195,11 +1195,15 @@ export function compositeTools(
         const verification = validateStrArray(task.verification, 'verification');
 
         let repoValue: string | null = null;
-        if (task.repo !== undefined && task.repo !== null && task.repo !== '') {
-          if (typeof task.repo !== 'string') return err('task.repo must be a string');
-          if (task.repo.includes('..')) return err(`Invalid repo "${task.repo}": must not contain "..".`);
-          if (task.repo.startsWith('/')) return err(`Invalid repo "${task.repo}": must not start with "/".`);
-          repoValue = task.repo;
+        const hasTaskRepo = task.repo !== undefined && task.repo !== null && task.repo !== '';
+        if (hasTaskRepo && typeof task.repo !== 'string') return err('task.repo must be a string');
+        const namedRepo = hasTaskRepo
+          ? (task.repo as string)
+          : db.get<{ repo: string | null }>(`SELECT repo FROM issues WHERE id = ?`, [issueId])?.repo || null;
+        if (namedRepo) {
+          if (namedRepo.includes('..')) return err(`Invalid repo "${namedRepo}": must not contain "..".`);
+          if (namedRepo.startsWith('/')) return err(`Invalid repo "${namedRepo}": must not start with "/".`);
+          repoValue = namedRepo;
         } else {
           repoValue = resolveSoleRepo(db)?.name ?? null;
         }
@@ -1304,9 +1308,10 @@ export function compositeTools(
           if (refusal) return outsideProjectResult(refusal);
         }
 
-        const base =
-          (args['base'] as string | undefined) ??
-          (readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath));
+        const base = normalizeBase(
+          repoPath,
+          (args['base'] as string | undefined) ?? readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath),
+        );
 
         // Branch policy (ensureTaskBranch): a new ref is created from the base
         // ('created'); an existing ref at or behind the base tip is reused; a
@@ -2105,7 +2110,7 @@ export function compositeTools(
             const refusal = outsideProject('task_retry', runContext.projectRoot, path);
             if (refusal) return outsideProjectResult(refusal);
           }
-          const base = reworkBase(db, repoPath, repoValue, failed.parent_branch_id);
+          const base = normalizeBase(repoPath, reworkBase(db, repoPath, repoValue, failed.parent_branch_id));
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
           if (branch.kind === 'base_unresolved') {
             return err(

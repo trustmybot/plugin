@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveCutBase } from '../utils/git-refs.js';
+import { normalizeBase, resolveBaseRef, resolveCutBase } from '../utils/git-refs.js';
 const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
 function commit(repo, name) {
     writeFileSync(join(repo, name), `${name}\n`);
@@ -80,6 +80,33 @@ describe('resolveCutBase (GH 1713)', () => {
             git(repo, 'branch', '-q', '-D', 'dev');
             assert.deepEqual(resolveCutBase(repo, 'dev'), { ref: 'origin/dev' });
             assert.equal(resolveCutBase(repo, 'nope'), null);
+        });
+    });
+});
+describe("base given as 'origin/<branch>' (GH 1855)", () => {
+    it('origin/dev resolves the same as dev, for both resolvers', () => {
+        withRepo((repo) => {
+            assert.deepEqual(resolveCutBase(repo, 'origin/dev'), resolveCutBase(repo, 'dev'));
+            assert.deepEqual(resolveCutBase(repo, 'origin/dev'), { ref: 'origin/dev' });
+            commit(repo, 'unpushed.txt');
+            assert.deepEqual(resolveCutBase(repo, 'origin/dev'), { ref: 'dev' });
+            assert.equal(resolveBaseRef(repo, 'origin/dev'), resolveBaseRef(repo, 'dev'));
+            assert.equal(resolveBaseRef(repo, 'origin/dev'), 'origin/dev');
+        });
+    });
+    it("a local branch literally named 'origin/x' still resolves as that local branch", () => {
+        withRepo((repo) => {
+            git(repo, 'branch', 'origin/x');
+            assert.equal(normalizeBase(repo, 'origin/x'), 'origin/x');
+            assert.deepEqual(resolveCutBase(repo, 'origin/x'), { ref: 'origin/x' });
+            assert.equal(resolveBaseRef(repo, 'origin/x'), 'origin/x');
+            assert.equal(normalizeBase(repo, 'origin/dev'), 'dev');
+        });
+    });
+    it('an unknown origin/<branch> still resolves to null', () => {
+        withRepo((repo) => {
+            assert.equal(resolveCutBase(repo, 'origin/nope'), null);
+            assert.equal(resolveBaseRef(repo, 'origin/nope'), null);
         });
     });
 });

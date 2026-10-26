@@ -12,12 +12,20 @@ function refResolves(repoPath, ref) {
         return false;
     }
 }
+// A base passed as 'origin/<branch>' names <branch>, unless a local branch is
+// literally called 'origin/<branch>' (GH 1855).
+export function normalizeBase(repoPath, base) {
+    if (!base.startsWith('origin/') || refResolves(repoPath, `refs/heads/${base}`))
+        return base;
+    return base.slice('origin/'.length);
+}
 // Resolve a base branch name to a concrete git ref, preferring the freshest
 // remote-tracking ref. Returns `origin/<base>` when it resolves (remote-present
 // repos — freshest-origin doctrine unchanged), else the local `<base>` when
 // refs/heads/<base> resolves (remoteless repos: L6 sandboxes, fresh local
 // projects, local-only stacked bases), else null when neither exists.
-export function resolveBaseRef(repoPath, base) {
+export function resolveBaseRef(repoPath, rawBase) {
+    const base = normalizeBase(repoPath, rawBase);
     if (refResolves(repoPath, `origin/${base}`))
         return `origin/${base}`;
     if (refResolves(repoPath, `refs/heads/${base}`))
@@ -30,7 +38,8 @@ export function resolveBaseRef(repoPath, base) {
 // the cut stays on origin and `diverged` carries both SHAs and the distance
 // (`ahead`/`behind` of local relative to origin). Only one side existing
 // returns that side; neither returns null.
-export function resolveCutBase(repoPath, base) {
+export function resolveCutBase(repoPath, rawBase) {
+    const base = normalizeBase(repoPath, rawBase);
     const remoteRef = `origin/${base}`;
     const remoteSha = gitOut(repoPath, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remoteRef}^{commit}`]);
     const localSha = gitOut(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${base}^{commit}`]);
