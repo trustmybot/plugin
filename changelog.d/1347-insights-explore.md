@@ -1,0 +1,5 @@
+### Added
+- **Insights gains an Explore pivot for asking your own questions of the run data** (GH 1347): pick an aggregate (average, p50, p95, max, sum or count), a measure (output tokens, context, cache-hit %, cost, duration or tool uses) and one or two groupings, such as agent, model, effort, repo, exit reason, resumed or fresh, prompt-bearing, task status, day, week, review round or plugin version. One grouping draws up to 10 bars, and two draw small panels on a shared scale, with the rest folded into Other. Each bar shows its run count, and a p50 or p95 with fewer than 20 runs says "needs 20 runs" rather than drawing a bar. Runs recorded before the plugin stamped its version are grouped by the release that was current on their date, marked "≈ (by date)". Cache-hit % only offers the average, and cost stays off until model prices are set; the menus say why.
+
+### Changed
+- **Insights polish** (GH 1347): bro's token histogram counts sessions, not runs. The slowest verification commands list ranks commands with at least 20 runs by p95 first, then the rest by their slowest run, so a rare slow command is no longer hidden.

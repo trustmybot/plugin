@@ -17,6 +17,7 @@ export interface Column {
   color: string;
   aria: string;
   tip: string;
+  note?: string;
 }
 
 export interface Marker {
@@ -239,13 +240,15 @@ export interface BarListProps {
   rows: Column[];
   format: (v: number) => string;
   axis: (max: number) => { top: number; ticks: Tick[] };
+  max?: number;
 }
 
-function BarListPlot({ width, label, rows, format, axis }: BarListProps & { width: number }) {
+function BarListPlot({ width, label, rows, format, axis, max }: BarListProps & { width: number }) {
+  const valueText = (r: Column) => r.note ?? format(r.value);
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
-  const reserve = Math.max(0, ...rows.map((r) => textWidth(format(r.value)))) + 2 * LABEL_PAD + 4;
+  const reserve = Math.max(0, ...rows.map((r) => textWidth(valueText(r)))) + 2 * LABEL_PAD + 4;
   const innerW = Math.max(0, width - 1 - reserve);
-  const { top, ticks } = axis(Math.max(0, ...rows.map((r) => r.value)));
+  const { top, ticks } = axis(Math.max(0, max ?? 0, ...rows.map((r) => r.value)));
   const x = scaleLinear<number>({ domain: [0, Math.max(top, Number.EPSILON)], range: [0, innerW] });
   const shown = thinEdgeTicks(ticks, innerW);
   const labels = new Map(shown.map((t) => [t.at, t]));
@@ -259,7 +262,7 @@ function BarListPlot({ width, label, rows, format, axis }: BarListProps & { widt
         <Group left={1}>
           {rows.map((r, i) => {
             const rowY = i * ROW;
-            const end = r.value > 0 ? Math.max(CAP, x(r.value)) : 0;
+            const end = r.note === undefined && r.value > 0 ? Math.max(CAP, x(r.value)) : 0;
             return (
               <g key={r.key}>
                 <text x={0} y={rowY + 12} fill={TEXT} fontSize={12}>
@@ -268,7 +271,7 @@ function BarListPlot({ width, label, rows, format, axis }: BarListProps & { widt
                 <Line from={{ x: 0, y: rowY + BAR_TOP - 2 }} to={{ x: 0, y: rowY + BAR_TOP + BAR_THICK + 2 }} stroke={BASELINE} strokeWidth={1} />
                 <Mark x={0} y={rowY + BAR_TOP} width={end} height={BAR_THICK} color={r.color} horizontal />
                 <text x={end + LABEL_PAD} y={rowY + BAR_TOP + 10} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {format(r.value)}
+                  {valueText(r)}
                 </text>
               </g>
             );
@@ -340,16 +343,17 @@ export interface HistogramProps {
   buckets: Bucket[];
   color: string;
   who: string;
+  noun: (n: number) => string;
   yMax?: number;
   p50: number | null;
   p95: number | null;
   format: (v: number) => string;
 }
 
-export function Histogram({ label, buckets, color, who, yMax, p50, p95, format }: HistogramProps) {
+export function Histogram({ label, buckets, color, who, noun, yMax, p50, p95, format }: HistogramProps) {
   const columns: Column[] = buckets.map((b) => {
     const range = `${format(b.from)}–${format(b.to)}`;
-    return { key: `${b.from}`, label: format(b.from), value: b.count, color, aria: `${who}, ${range} output tokens: ${b.count} ${b.count === 1 ? 'run' : 'runs'}`, tip: `${range}: ${b.count}` };
+    return { key: `${b.from}`, label: format(b.from), value: b.count, color, aria: `${who}, ${range} output tokens: ${b.count} ${noun(b.count)}`, tip: `${range}: ${b.count} ${noun(b.count)}` };
   });
   const markers: Marker[] = [];
   if (p50 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p50), label: `p50 ${format(p50)}` });

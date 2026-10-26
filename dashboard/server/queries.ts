@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { releaseAt, type Release } from './releases.ts';
 
 type Row = Record<string, unknown>;
 
@@ -698,6 +699,16 @@ export function normalizeCommand(command: string): string {
   return s.replace(/\s+/g, ' ');
 }
 
+type SlowCommand = Metric & { command: string; n: number };
+
+// Commands with a p95 (n ≥ EARLY_DATA_MIN) first by p95, then the rest by max.
+export function bySlowest(a: SlowCommand, b: SlowCommand): number {
+  const ranked = (c: SlowCommand) => c.n >= EARLY_DATA_MIN;
+  if (ranked(a) !== ranked(b)) return ranked(a) ? -1 : 1;
+  const key = (c: SlowCommand) => (ranked(c) ? c.p95 : c.max) ?? 0;
+  return key(b) - key(a) || a.command.localeCompare(b.command);
+}
+
 function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Row {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
@@ -747,13 +758,9 @@ function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Ro
     commands.set(command, list);
   }
   const slowest = [...commands]
-    .map(([command, values]) => {
-      const sorted = [...values].sort((a, b) => a - b);
-      return { command, n: sorted.length, ...metric(sorted), rank: nearestRank(sorted, 0.95)! };
-    })
-    .sort((a, b) => b.rank - a.rank || a.command.localeCompare(b.command))
-    .slice(0, TOP_N)
-    .map(({ rank: _rank, ...c }) => c);
+    .map(([command, values]) => ({ command, n: values.length, ...metric(values) }))
+    .sort(bySlowest)
+    .slice(0, TOP_N);
   return {
     first_pass: { passed: [...perTask.values()].filter((t) => t.first === 'pass').length, total: perTask.size },
     attempts: [...attemptCounts].sort((a, b) => a[0] - b[0]).map(([attempts, tasks]) => ({ attempts, tasks })),
@@ -851,5 +858,221 @@ export function insights(db: DatabaseSync, f: InsightFilter, now: Date = new Dat
     quality: qualityOf(db, f, since),
     throughput: throughputOf(db, f, since),
     outliers: outliersOf(rows),
+  };
+}
+
+export const EXPLORE_MEASURES = ['tokens_out', 'context', 'cache_hit', 'cost', 'duration_ms', 'tool_uses'] as const;
+export type ExploreMeasure = (typeof EXPLORE_MEASURES)[number];
+export const EXPLORE_AGGS = ['avg', 'p50', 'p95', 'max', 'sum', 'count'] as const;
+export type ExploreAgg = (typeof EXPLORE_AGGS)[number];
+export const EXPLORE_DIMS = [
+  'agent', 'model', 'effort', 'repo', 'exit_reason', 'usage_source', 'resumed',
+  'prompt_bearing', 'task_status', 'day', 'week', 'review_round', 'plugin_version',
+] as const;
+export type ExploreDim = (typeof EXPLORE_DIMS)[number];
+
+const TOKEN_MEASURES: ReadonlySet<ExploreMeasure> = new Set(['tokens_out', 'context', 'cache_hit', 'cost']);
+const ONE_DIM_MAX = 10;
+const PANELS_NAMED = 3;
+const PANEL_BARS_NAMED = 6;
+export const OTHER = 'Other';
+export const NOT_A_REVIEW = 'Not a review';
+export const NO_TASK = 'No task';
+export const UNKNOWN_VERSION = 'unknown';
+export const estimatedVersion = (version: string) => `≈ v${version} (by date)`;
+
+export interface ExploreQuery {
+  measure: ExploreMeasure;
+  agg: ExploreAgg;
+  dims: ExploreDim[];
+}
+
+const oneOf = <T extends string>(list: readonly T[], v: string): v is T => (list as readonly string[]).includes(v);
+
+export function exploreQuery(p: URLSearchParams): ExploreQuery | { error: string } {
+  const measure = p.get('m') || 'tokens_out';
+  if (!oneOf(EXPLORE_MEASURES, measure)) return { error: `m must be one of ${EXPLORE_MEASURES.join(', ')}` };
+  const agg = p.get('a') || 'p50';
+  if (!oneOf(EXPLORE_AGGS, agg)) return { error: `a must be one of ${EXPLORE_AGGS.join(', ')}` };
+  const dims = (p.get('g') || 'agent').split(',');
+  if (dims.length > 2) return { error: 'g takes at most two dimensions' };
+  for (const d of dims) if (!oneOf(EXPLORE_DIMS, d)) return { error: `g must be one or two of ${EXPLORE_DIMS.join(', ')}` };
+  if (new Set(dims).size !== dims.length) return { error: 'g names the same dimension twice' };
+  if (measure === 'cache_hit' && agg !== 'avg') return { error: 'cache_hit is a ratio of sums: a must be avg' };
+  return { measure, agg, dims: dims as ExploreDim[] };
+}
+
+interface ExploreRow extends RunRow {
+  effort: string | null;
+  repo: string | null;
+  exit_reason: string | null;
+  usage_source: string | null;
+  resumed: number;
+  prompt_bearing: number | null;
+  task_status: string | null;
+  at: string | null;
+  plugin_version: string | null;
+  round: number | null;
+}
+
+const columnsOf = (db: DatabaseSync, table: string) => new Set(all(db, `PRAGMA table_info(${table})`).map((c) => String(c['name'])));
+
+function exploreRows(db: DatabaseSync, f: InsightFilter, since: string | null): ExploreRow[] {
+  const cols = columnsOf(db, 'agent_runs');
+  const version = cols.has('plugin_version') ? 'r.plugin_version' : 'NULL';
+  const resumed = cols.has('resumed_from') ? 'r.resumed_from IS NOT NULL' : '0';
+  return all(
+    db,
+    `WITH rounds AS (
+       SELECT id, row_number() OVER (PARTITION BY task_id ORDER BY started_at, id) AS round
+         FROM agent_runs WHERE agent_type = 'code-reviewer' AND task_id IS NOT NULL
+     )
+     SELECT * FROM (
+       SELECT r.id, ${AGENT_OF_RUN} AS agent, r.task_id, t.title AS task_title, r.model, r.effort, r.repo,
+              r.exit_reason, r.usage_source, ${resumed} AS resumed, t.prompt_bearing, t.status AS task_status,
+              COALESCE(r.started_at, r.completed_at) AS at, ${version} AS plugin_version, w.round,
+              (r.usage_source IS NOT NULL AND r.usage_source <> 'unmeasured') AS measured,
+              COALESCE(r.tokens_in, 0) AS tokens_in, COALESCE(r.tokens_out, 0) AS tokens_out,
+              COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
+              r.duration_ms, r.tool_uses
+         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id LEFT JOIN rounds w ON w.id = r.id
+        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+          AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
+     ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
+     ORDER BY id`,
+    since,
+    since,
+    f.repo,
+    f.repo,
+    f.model,
+    f.model,
+    f.effort,
+    f.effort,
+    f.agent,
+    f.agent,
+  ) as unknown as ExploreRow[];
+}
+
+function mondayOf(at: string | null): string {
+  const t = at ? Date.parse(`${at.slice(0, 10)}T00:00:00Z`) : NaN;
+  if (Number.isNaN(t)) return UNKNOWN_VERSION;
+  const back = (new Date(t).getUTCDay() + 6) % 7;
+  return new Date(t - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+function labelOf(dim: ExploreDim, r: ExploreRow, releases: readonly Release[]): string {
+  switch (dim) {
+    case 'agent': return r.agent;
+    case 'model': return r.model ?? 'none';
+    case 'effort': return r.effort ?? 'none';
+    case 'repo': return r.repo ?? 'none';
+    case 'exit_reason': return r.exit_reason ?? 'open';
+    case 'usage_source': return r.usage_source ?? 'none';
+    case 'resumed': return r.resumed ? 'resumed' : 'fresh';
+    case 'prompt_bearing': return r.prompt_bearing === null ? NO_TASK : r.prompt_bearing ? 'prompt-bearing' : 'not prompt-bearing';
+    case 'task_status': return r.task_status ?? NO_TASK;
+    case 'day': return r.at?.slice(0, 10) ?? UNKNOWN_VERSION;
+    case 'week': return mondayOf(r.at);
+    case 'review_round': return r.round === null ? NOT_A_REVIEW : r.round >= 3 ? '3+' : String(r.round);
+    case 'plugin_version': {
+      if (r.plugin_version !== null) return r.plugin_version;
+      const release = releaseAt(releases, r.at);
+      return release ? estimatedVersion(release.version) : UNKNOWN_VERSION;
+    }
+  }
+}
+
+interface Bin {
+  key: string;
+  runs: ExploreRow[];
+  n: number;
+  value: number | null;
+}
+
+type Measure = (r: ExploreRow) => number | null;
+
+function measureOf(measure: ExploreMeasure, prices: ReadonlyMap<string, ModelPrice>): Measure {
+  switch (measure) {
+    case 'tokens_out': return (r) => r.tokens_out;
+    case 'context': case 'cache_hit': return context;
+    case 'cost': return (r) => priceOf(prices, r);
+    case 'duration_ms': return (r) => r.duration_ms;
+    case 'tool_uses': return (r) => r.tool_uses;
+  }
+}
+
+function aggregate(runs: ExploreRow[], q: ExploreQuery, value: Measure): number | null {
+  if (q.measure === 'cache_hit') {
+    const ctx = runs.reduce((s, r) => s + context(r), 0);
+    return ctx > 0 ? runs.reduce((s, r) => s + r.cache_read, 0) / ctx : null;
+  }
+  const values = runs.map((r) => value(r)!);
+  if (q.agg === 'count') return values.length;
+  if (q.agg === 'sum') return values.reduce((s, v) => s + v, 0);
+  return metric(values)[q.agg];
+}
+
+const byValue = (a: Bin, b: Bin) => (b.value ?? -Infinity) - (a.value ?? -Infinity) || b.n - a.n || a.key.localeCompare(b.key);
+
+// Bins of `runs` by `label`, sorted by value descending (nulls last). Past
+// `keep` bins, the first `named` stay and the rest fold into one Other bin
+// aggregated over their runs, placed last.
+function binsOf(runs: ExploreRow[], label: (r: ExploreRow) => string, keep: number, named: number, total: (runs: ExploreRow[]) => number | null): Bin[] {
+  const byKey = new Map<string, ExploreRow[]>();
+  for (const r of runs) {
+    const key = label(r);
+    const list = byKey.get(key);
+    if (list) list.push(r);
+    else byKey.set(key, [r]);
+  }
+  const bins = [...byKey].map(([key, list]) => ({ key, runs: list, n: list.length, value: total(list) })).sort(byValue);
+  if (bins.length <= keep) return bins;
+  const rest = bins.slice(named).flatMap((b) => b.runs);
+  return [...bins.slice(0, named), { key: OTHER, runs: rest, n: rest.length, value: total(rest) }];
+}
+
+// Tasks among `taskIds` whose code-reviewer run count differs from their highest
+// validation attempt_n, so review_round may not match the recorded attempt.
+function reviewRoundMismatch(db: DatabaseSync, taskIds: ReadonlySet<number>): number {
+  if (taskIds.size === 0) return 0;
+  return all(
+    db,
+    `SELECT c.task_id, c.runs, (SELECT MAX(v.attempt_n) FROM validation_attempts v WHERE v.task_id = c.task_id) AS attempts
+       FROM (SELECT task_id, COUNT(*) AS runs FROM agent_runs
+              WHERE agent_type = 'code-reviewer' AND task_id IS NOT NULL GROUP BY task_id) c`,
+  ).filter((t) => taskIds.has(Number(t['task_id'])) && Number(t['runs']) !== Number(t['attempts'] ?? 0)).length;
+}
+
+// GET /api/insights/explore: one measure aggregated over the runs in the
+// filter, grouped by one or two dimensions. Token measures count measured runs
+// only; cost counts priced runs only.
+export function explore(db: DatabaseSync, f: InsightFilter, p: URLSearchParams, releases: readonly Release[] = [], now: Date = new Date()): Row | { error: string } {
+  const q = exploreQuery(p);
+  if ('error' in q) return q;
+  const prices = modelPrices(db);
+  if (q.measure === 'cost' && prices.size === 0) return { error: 'cost needs model prices; none are set' };
+  const since = sinceOf(f.range, now);
+  const rows = exploreRows(db, f, since);
+  const value = measureOf(q.measure, prices);
+  const runs = rows.filter((r) => (!TOKEN_MEASURES.has(q.measure) || r.measured === 1) && value(r) !== null);
+  const total = (list: ExploreRow[]) => aggregate(list, q, value);
+  const label = (dim: ExploreDim) => (r: ExploreRow) => labelOf(dim, r, releases);
+  const [first, second] = q.dims as [ExploreDim, ExploreDim | undefined];
+  const groups = second === undefined
+    ? binsOf(runs, label(first), ONE_DIM_MAX, ONE_DIM_MAX - 1, total).map((b) => ({ key: [b.key], n: b.n, value: b.value }))
+    : binsOf(runs, label(first), PANELS_NAMED, PANELS_NAMED, total).flatMap((panel) =>
+        binsOf(panel.runs, label(second), PANEL_BARS_NAMED, PANEL_BARS_NAMED, total).map((b) => ({ key: [panel.key, b.key], n: b.n, value: b.value })),
+      );
+  const reviewed = new Set(rows.filter((r) => r.agent === 'code-reviewer' && r.task_id !== null).map((r) => r.task_id!));
+  const earliest = rows.reduce<string | null>((min, r) => (r.at !== null && (min === null || r.at < min) ? r.at : min), null);
+  const rangeDays = INSIGHT_RANGES[f.range];
+  return {
+    measure: q.measure,
+    agg: q.agg,
+    dims: q.dims,
+    groups,
+    review_round_mismatch: reviewRoundMismatch(db, reviewed),
+    days: rangeDays ?? (earliest === null ? 0 : Math.max(1, Math.ceil((now.getTime() - Date.parse(earliest)) / 86_400_000))),
+    options: { measures: EXPLORE_MEASURES, aggs: EXPLORE_AGGS, dims: EXPLORE_DIMS, priced: prices.size > 0 },
   };
 }

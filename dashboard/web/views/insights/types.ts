@@ -66,3 +66,19 @@ export interface Insights {
   throughput: Array<{ day: string; closed: number }>;
   outliers: { tokens_out: Outlier[]; context: Outlier[]; duration_ms: DurationOutlier[] };
 }
+
+export interface ExploreGroup {
+  key: string[];
+  n: number;
+  value: number | null;
+}
+
+export interface Explore {
+  measure: string;
+  agg: string;
+  dims: string[];
+  groups: ExploreGroup[];
+  review_round_mismatch: number;
+  days: number;
+  options: { measures: string[]; aggs: string[]; dims: string[]; priced: boolean };
+}

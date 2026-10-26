@@ -82,6 +82,7 @@ function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: Insi
         <Histogram
           label={`${s.agent} output tokens ${per.toLowerCase()}: ${s.n} measured, ${s.histogram.length} buckets${early ? '' : `, p50 ${compact(s.tokens_out.p50)}, p95 ${compact(s.tokens_out.p95)}`}`}
           who={s.agent}
+          noun={(n) => noun(s, n)}
           buckets={s.histogram}
           color={AGENT_COLOR[s.agent]}
           yMax={yMax}
@@ -379,7 +380,7 @@ export function QualitySection({ data, params }: SectionProps) {
         </ChartCard>
       </Grid>
       <section className="space-y-2" aria-label="Slowest verification commands">
-        <h3 className="text-sm font-semibold text-fg">Slowest verification commands (by p95)</h3>
+        <h3 className="text-sm font-semibold text-fg">Slowest verification commands</h3>
         <DataTable rows={q.slowest_commands as unknown as Row[]} columns={slowColumns} filter={false} />
       </section>
     </div>

@@ -6,7 +6,12 @@
 // unpriced. Then bundle the Insights view with esbuild, render every section to
 // static HTML from that data and check the hash round-trip, ChartCard parts,
 // cost honesty, the CSV/table match, the marks and the chart accessibility, and
-// on a second seed the GH 1948 idle runs and command grouping. Last, check
+// on a second seed the GH 1948 idle runs and command grouping. On a third
+// seed (resumed runs, a prompt-bearing task, plugin versions, a CHANGELOG
+// fixture) check GET /api/insights/explore and explore() (groups, folding,
+// review rounds, version labels, an unmigrated DB, the 400s), render the
+// Explore pivot and charts, and check the histogram nouns and the
+// slowest-command order. Last, check
 // the build output (lazy chunk, its size, the size budget, devDependencies),
 // the agent palette and the contrast and CVD separation of its colours.
 import { after, before, describe, test } from 'node:test';
@@ -82,10 +87,10 @@ function seed(path, prices = '{}') {
   return { db, ids };
 }
 
-function startServer(dbPath) {
+function startServer(dbPath, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, TRAJECTORY_DB_PATH: dbPath, TMB_DASHBOARD_PORT: '0' },
+      env: { ...process.env, TRAJECTORY_DB_PATH: dbPath, TMB_DASHBOARD_PORT: '0', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -106,7 +111,9 @@ before(async () => {
     stdin: {
       contents: `import { renderToStaticMarkup } from 'react-dom/server';
         import { createElement } from 'react';
-        import { insights, insightFilter, nearestRank, metric, logEdges, histogram, likelyIdle, normalizeCommand } from './server/queries.ts';
+        import { insights, insightFilter, nearestRank, metric, logEdges, histogram, likelyIdle, normalizeCommand, explore } from './server/queries.ts';
+        import { parseChangelog, loadReleases, releaseAt } from './server/releases.ts';
+        import { exploreTable, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote } from './web/views/insights/explore.tsx';
         import { InsightsLayout } from './web/views/insights/InsightsView.tsx';
         import { parseInsightParams, insightHash } from './web/views/insights/params.ts';
         import { ChartCard, DataTableView } from './web/views/insights/ChartCard.tsx';
@@ -118,14 +125,17 @@ before(async () => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
           try { return fn(); } finally { delete globalThis.window; }
         };
-        export const page = (hash, data) => withHash(hash, () => {
+        const paramsOf = (hash) => {
           const [path, query = ''] = hash.replace(/^#\\/?/, '').split('?');
-          return renderToStaticMarkup(createElement(InsightsLayout, { params: parseInsightParams(path, new URLSearchParams(query)), q: { data, error: null } }));
-        });
+          return parseInsightParams(path, new URLSearchParams(query));
+        };
+        export const page = (hash, data, ex) => withHash(hash, () =>
+          renderToStaticMarkup(createElement(InsightsLayout, { params: paramsOf(hash), q: { data, error: null }, explore: ex === undefined ? undefined : { data: ex, error: null } })));
+        export const exploreRows = (hash, ex) => exploreTable(ex, paramsOf(hash));
         export const histogramSvg = (props) => renderToStaticMarkup(createElement(Histogram, props));
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -372,6 +382,339 @@ describe('GH 1948: idle runs and subshell command variants', () => {
   });
 });
 
+const CHANGELOG = `# Changelog\n\n## v2.0.0 — ${ago(10 * DAY).slice(0, 10)}\n\n- two\n\n## v1.0.0 — ${ago(150 * DAY).slice(0, 10)}\n\n- one\n`;
+const ESTIMATE_2 = '≈ v2.0.0 (by date)';
+const ESTIMATE_1 = '≈ v1.0.0 (by date)';
+
+// seed() plus: swe runs 1-4 resumed, task a prompt-bearing, a measured swe run
+// 200 days ago, and plugin_version on swe runs (by `version(i)`) and on every
+// code-reviewer run ('1.5.0').
+function seedExplore(path, { prices = '{}', version = (i) => (i < 10 ? '1.4.0' : null) } = {}) {
+  const { db, ids } = seed(path, prices);
+  db.prepare(`INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+              VALUES (?, 'swe', 10, 3000, 100, 10, 2, 1000, ?, ?, 'subagent_stop', 'claude-opus')`).run(ids[0], ago(200 * DAY), ago(200 * DAY));
+  const swe = db.prepare("SELECT id FROM agent_runs WHERE agent_type = 'swe' AND usage_source = 'subagent_stop' ORDER BY id").all().map((r) => Number(r.id));
+  for (let k = 1; k <= 4; k++) db.prepare('UPDATE agent_runs SET resumed_from = ? WHERE id = ?').run(swe[k - 1], swe[k]);
+  SWE.forEach((_, i) => db.prepare('UPDATE agent_runs SET plugin_version = ? WHERE id = ?').run(version(i), swe[i]));
+  db.prepare("UPDATE agent_runs SET plugin_version = '1.5.0' WHERE agent_type = 'code-reviewer'").run();
+  db.prepare('UPDATE tasks SET prompt_bearing = 1 WHERE id = ?').run(ids[0]);
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  return { db, ids };
+}
+
+const byKey = (ex) => Object.fromEntries(ex.groups.map((g) => [g.key.join(' / '), g.n]));
+
+describe('GET /api/insights/explore', () => {
+  const dbPath = join(tmp, 'explore.db');
+  seedExplore(dbPath).db.close();
+  const bare = join(tmp, 'explore-unmigrated.db');
+  const copy = seedExplore(bare).db;
+  copy.exec('ALTER TABLE agent_runs DROP COLUMN plugin_version');
+  copy.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  copy.close();
+  const changelog = join(tmp, 'CHANGELOG.md');
+  writeFileSync(changelog, CHANGELOG);
+  let server;
+  let unmigrated;
+  before(async () => {
+    server = await startServer(dbPath, { TMB_DASHBOARD_CHANGELOG: changelog });
+    unmigrated = await startServer(bare, { TMB_DASHBOARD_CHANGELOG: changelog });
+  });
+  after(async () => {
+    await server?.stop();
+    await unmigrated?.stop();
+  });
+  const get = async (query, s = server) => {
+    const res = await fetch(`${s.url}api/insights/explore?${query}`);
+    return { status: res.status, body: await res.json() };
+  };
+
+  test('returns measure, agg, dims, groups, review_round_mismatch, days and options; defaults m=tokens_out a=p50 g=agent', async () => {
+    const { status, body } = await get('range=30d');
+    assert.equal(status, 200);
+    assert.deepEqual(Object.keys(body).sort(), ['agg', 'days', 'dims', 'groups', 'measure', 'options', 'review_round_mismatch']);
+    assert.deepEqual([body.measure, body.agg, body.dims, body.days], ['tokens_out', 'p50', ['agent'], 30]);
+    for (const g of body.groups) assert.deepEqual(Object.keys(g).sort(), ['key', 'n', 'value']);
+    assert.deepEqual(body.options.dims.length, 13);
+    assert.equal(body.options.priced, false);
+  });
+
+  test('every bad query is 400 with {error}', async () => {
+    for (const query of ['m=bogus', 'a=bogus', 'g=bogus', 'g=agent,model,effort', 'g=agent,agent', 'm=cache_hit&a=sum', 'm=cache_hit&a=p95', 'm=cost', 'range=bogus']) {
+      const { status, body } = await get(query);
+      assert.equal(status, 400, query);
+      assert.equal(typeof body.error, 'string', query);
+    }
+    assert.equal((await get('m=cache_hit&a=avg')).status, 200);
+  });
+
+  test('SC2: exact plugin_version, ≈ v<X> (by date) from the CHANGELOG, unknown before the first release', async () => {
+    const { body } = await get('range=all&m=tokens_out&a=count&g=plugin_version');
+    assert.deepEqual(byKey(body), { '1.5.0': 23, [ESTIMATE_2]: 18, '1.4.0': 10, [ESTIMATE_1]: 1, unknown: 1 });
+  });
+
+  test('SC2: a DB without agent_runs.plugin_version serves, with every row estimated by date', async () => {
+    const { status, body } = await get('range=all&m=tokens_out&a=count&g=plugin_version', unmigrated);
+    assert.equal(status, 200);
+    assert.deepEqual(byKey(body), { [ESTIMATE_2]: 51, [ESTIMATE_1]: 1, unknown: 1 });
+  });
+});
+
+describe('explore()', () => {
+  const { db } = seedExplore(join(tmp, 'explore-direct.db'));
+  const { db: folded } = seedExplore(join(tmp, 'explore-fold.db'), { version: (i) => (i < 24 ? `1.0.${i % 12}` : null) });
+  after(() => {
+    db.close();
+    folded.close();
+  });
+  const releases = () => mod.parseChangelog(CHANGELOG);
+  const ex = (query, d = db, range = 'range=30d') => mod.explore(d, filter(range), new URLSearchParams(query), releases(), NOW);
+
+  test('g=agent&a=count: swe 25, code-reviewer 23, bro 3', () => {
+    assert.deepEqual(byKey(ex('a=count&g=agent')), { swe: 25, 'code-reviewer': 23, bro: 3 });
+    assert.equal(ex('a=count&g=agent').groups.find((g) => g.key[0] === 'code-reviewer').value, 23);
+  });
+
+  test('g=review_round: 1, 2 and 3+ per task, Not a review for the rest', () => {
+    assert.deepEqual(byKey(ex('a=count&g=review_round')), { '1': 3, '2': 3, '3+': 17, 'Not a review': 28 });
+  });
+
+  test('g=resumed, g=prompt_bearing and g=task_status', () => {
+    assert.deepEqual(byKey(ex('a=count&g=resumed')), { resumed: 4, fresh: 47 });
+    assert.deepEqual(byKey(ex('a=count&g=prompt_bearing')), { 'prompt-bearing': 17, 'not prompt-bearing': 31, 'No task': 3 });
+    assert.deepEqual(byKey(ex('a=count&g=task_status')), { closed: 48, 'No task': 3 });
+  });
+
+  test('cache_hit by agent is Σcache_read ÷ Σcontext over measured runs', () => {
+    const ratio = (list) => sum(list, (r) => r.cr) / sum(list, (r) => r.in + r.cr + r.cc);
+    const got = Object.fromEntries(ex('m=cache_hit&a=avg&g=agent').groups.map((g) => [g.key[0], g.value]));
+    for (const [agent, list] of [['swe', SWE], ['code-reviewer', REVIEWER], ['bro', BRO]]) assert.ok(Math.abs(got[agent] - ratio(list)) < 1e-12, agent);
+  });
+
+  test('p50 and p95 are nearest-rank, null under 20 runs', () => {
+    const groups = Object.fromEntries(ex('a=p95&g=agent').groups.map((g) => [g.key[0], g.value]));
+    assert.equal(groups.swe, mod.nearestRank(SWE.map((r) => r.out).sort((a, b) => a - b), 0.95));
+    assert.equal(groups.bro, null);
+    assert.equal(ex('a=p95&g=agent').groups.at(-1).key[0], 'bro');
+  });
+
+  test('review_round_mismatch counts tasks whose reviewer run count differs from their highest attempt', () => {
+    assert.equal(ex('g=review_round').review_round_mismatch, 3);
+  });
+
+  test('one dimension: at most 10 groups, sorted descending, the rest folded into Other last', () => {
+    const { groups } = ex('a=count&g=plugin_version', folded);
+    assert.equal(groups.length, 10);
+    assert.deepEqual(groups.at(-1).key, ['Other']);
+    for (let i = 1; i < 9; i++) assert.ok(groups[i - 1].value >= groups[i].value);
+    assert.equal(sum(groups, (g) => g.n), 51);
+    assert.equal(groups.at(-1).value, groups.at(-1).n);
+  });
+
+  test('two dimensions: at most 4 first-level values with at most 7 groups each', () => {
+    for (const query of ['a=count&g=plugin_version,agent', 'a=count&g=agent,plugin_version', 'a=p95&g=agent,review_round']) {
+      const { groups } = ex(query, folded);
+      const panels = [...new Set(groups.map((g) => g.key[0]))];
+      assert.ok(panels.length <= 4, query);
+      for (const p of panels) assert.ok(groups.filter((g) => g.key[0] === p).length <= 7, `${query}: ${p}`);
+    }
+    const panels = [...new Set(ex('a=count&g=plugin_version,agent', folded).groups.map((g) => g.key[0]))];
+    assert.deepEqual([panels.length, panels.at(-1)], [4, 'Other']);
+    const bars = ex('a=count&g=agent,plugin_version', folded).groups.filter((g) => g.key[0] === 'swe');
+    assert.deepEqual([bars.length, bars.at(-1).key], [7, ['swe', 'Other']]);
+  });
+
+  test('day, week, model, exit_reason and usage_source labels', () => {
+    const days = Object.keys(byKey(ex('a=count&g=day')));
+    assert.ok(days.every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)), days.join());
+    for (const w of Object.keys(byKey(ex('a=count&g=week')))) assert.equal(new Date(`${w}T00:00:00Z`).getUTCDay(), 1, w);
+    assert.deepEqual(byKey(ex('a=count&g=model')), { 'claude-opus': 28, 'claude-sonnet': 23 });
+    assert.deepEqual(byKey(ex('a=count&g=exit_reason')), { open: 51 });
+    assert.deepEqual(byKey(ex('a=count&g=usage_source')), { subagent_stop: 48, transcript: 3 });
+  });
+
+  test('cost: 400 unpriced; priced runs only when prices are set', () => {
+    assert.ok('error' in ex('m=cost&a=sum'));
+    const { db: priced } = seedExplore(join(tmp, 'explore-priced.db'), { prices: JSON.stringify({ 'claude-opus': OPUS }) });
+    try {
+      const got = byKey(mod.explore(priced, filter('range=30d'), new URLSearchParams('m=cost&a=count&g=agent'), [], NOW));
+      assert.deepEqual(got, { swe: 25, bro: 3 });
+    } finally {
+      priced.close();
+    }
+  });
+
+  test('parseChangelog reads ## v<X> — YYYY-MM-DD headings; releaseAt picks the last at or before the run', () => {
+    const r = releases();
+    assert.deepEqual(r.map((x) => x.version), ['2.0.0', '1.0.0']);
+    assert.equal(mod.releaseAt(r, ago(50 * DAY)).version, '1.0.0');
+    assert.equal(mod.releaseAt(r, ago(DAY)).version, '2.0.0');
+    assert.equal(mod.releaseAt(r, ago(200 * DAY)), null);
+    assert.deepEqual(mod.loadReleases(join(tmp, 'no-such-CHANGELOG.md')), []);
+    assert.ok(mod.loadReleases(join(DASH, '../CHANGELOG.md')).length > 0);
+  });
+});
+
+describe('Explore view', () => {
+  const { db } = seedExplore(join(tmp, 'explore-view.db'));
+  const { db: folded } = seedExplore(join(tmp, 'explore-view-fold.db'), { version: (i) => (i < 24 ? `1.0.${i % 12}` : null) });
+  const { db: pricedDb } = seedExplore(join(tmp, 'explore-view-priced.db'), { prices: JSON.stringify({ 'claude-opus': OPUS }) });
+  after(() => {
+    db.close();
+    folded.close();
+    pricedDb.close();
+  });
+  const releases = () => mod.parseChangelog(CHANGELOG);
+  const view = (query, d = db) => {
+    const hash = `#/insights/explore?range=30d&${query}`;
+    const params = new URLSearchParams(query);
+    if (params.get('m') === 'cache_hit') params.set('a', 'avg');
+    const ex = mod.explore(d, filter('range=30d'), params, releases(), NOW);
+    assert.ok(!('error' in ex), ex.error);
+    return { hash, ex, html: mod.page(hash, mod.insights(d, filter('range=30d'), NOW), ex) };
+  };
+
+  test('#/insights/explore?m=tokens_out&a=p95&g=agent,review_round&range=30d round-trips', () => {
+    const hash = '#/insights/explore?m=tokens_out&a=p95&g=agent,review_round&range=30d';
+    const [path, query] = hash.slice(2).split('?');
+    const params = mod.parseInsightParams(path, new URLSearchParams(query));
+    assert.deepEqual([params.section, params.range, params.measure, params.agg, params.dims], ['explore', '30d', 'tokens_out', 'p95', ['agent', 'review_round']]);
+    const again = mod.insightHash(params);
+    assert.match(again, /&m=tokens_out&a=p95&g=agent,review_round$/);
+    const [path2, query2] = again.slice(2).split('?');
+    assert.deepEqual(mod.parseInsightParams(path2, new URLSearchParams(query2)), params);
+    assert.equal(mod.parseInsightParams('insights/explore', new URLSearchParams('g=agent,agent,model,bogus')).dims.join(), 'agent,model');
+  });
+
+  test('the pivot: four labelled selects in one group, stacking under sm', () => {
+    const { html } = view('m=tokens_out&a=p50&g=agent');
+    const pivot = /<div role="group" aria-label="Pivot" class="([^"]+)">(.*?)<\/div>/s.exec(html);
+    assert.ok(pivot);
+    assert.match(pivot[1], /max-sm:flex-col/);
+    const labels = [...pivot[2].matchAll(/<label[^>]*>(.*?)<\/label>/gs)];
+    assert.equal(labels.length, 4);
+    assert.deepEqual(labels.map((l) => /<span class="sr-only">([^<]+)<\/span>/.exec(l[1])[1]), ['Aggregate', 'Measure', 'Dimension', 'Then by']);
+    for (const l of labels) assert.match(l[1], /<select/);
+  });
+
+  test('sum is disabled for cache-hit %, cost when unpriced; both show helper text', () => {
+    const cache = view('m=cache_hit&a=avg&g=agent').html;
+    assert.match(cache, /<option value="sum" disabled="">Sum<\/option>/);
+    assert.match(cache, /<option value="avg" selected="">Average<\/option>/);
+    assert.ok(cache.includes(mod.CACHE_HIT_HELP.replace("'", '&#x27;')));
+    assert.match(cache, /<option value="cost" disabled="">Cost<\/option>/);
+    assert.ok(cache.includes(mod.COST_HELP));
+    const plain = view('m=tokens_out&a=sum&g=agent').html;
+    assert.doesNotMatch(plain, /<option value="sum" disabled/);
+    assert.ok(!plain.includes(mod.CACHE_HIT_HELP.replace("'", '&#x27;')));
+    const priced = view('m=cost&a=sum&g=agent', pricedDb).html;
+    assert.doesNotMatch(priced, /<option value="cost" disabled/);
+    assert.ok(!priced.includes(mod.COST_HELP));
+    assert.match(priced, /\$/);
+  });
+
+  test('one dimension: bars labelled with the run count, each focusable with an aria-label', () => {
+    const { html, ex } = view('m=tokens_out&a=count&g=agent');
+    for (const label of ['swe · 25 runs', 'code-reviewer · 23 runs', 'bro · 3 runs']) assert.ok(html.includes(`>${label}</text>`), label);
+    const hits = [...html.matchAll(/data-hit="" tabindex="0"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(hits.length, ex.groups.length);
+    assert.match(hits[0], /^swe, 25 runs: Count output tokens 25$/);
+    assert.ok(html.includes(`>${mod.NEEDS_RUNS}<`) === false);
+    assert.match(view('m=tokens_out&a=p50&g=resumed').html, />resumed · 4 runs<\/text>/);
+  });
+
+  test('a null p50 or p95 under 20 runs reads "needs 20 runs", with no bar', () => {
+    const { html, ex } = view('m=tokens_out&a=p50&g=agent');
+    assert.ok(html.includes(`>${mod.NEEDS_RUNS}</text>`));
+    assert.equal((html.match(/data-mark=""/g) ?? []).length, ex.groups.filter((g) => g.value !== null).length);
+  });
+
+  test('two dimensions: at most 4 panels on a shared x scale, n<20 p95 shows "needs 20 runs"', () => {
+    const { html } = view('m=tokens_out&a=p95&g=agent,review_round');
+    const panels = html.split('data-panel=""').slice(1);
+    assert.ok(panels.length >= 2 && panels.length <= 4, String(panels.length));
+    assert.ok(html.includes(`>${mod.NEEDS_RUNS}</text>`));
+    const axisTop = (p) => [...p.matchAll(/<tspan[^>]*>([^<]+)<\/tspan>/g)].map((m) => m[1]).at(-1);
+    assert.equal(new Set(panels.map(axisTop)).size, 1);
+    const fold = view('m=tokens_out&a=count&g=plugin_version,agent', folded).html;
+    assert.equal(fold.split('data-panel=""').length - 1, 4);
+  });
+
+  test('Other is --fgColor-muted; estimated versions carry the tooltip text', () => {
+    const { html } = view('m=tokens_out&a=count&g=plugin_version', folded);
+    assert.ok(html.includes('>Other · '));
+    assert.match(html, /stroke="var\(--fgColor-muted\)" stroke-width="2" data-cap=""/);
+    assert.ok(html.includes(mod.ESTIMATED_TIP));
+  });
+
+  test('the CSV equals the table rows', () => {
+    const { hash, ex } = view('m=tokens_out&a=p95&g=agent,review_round');
+    const t = mod.exploreRows(hash, ex);
+    assert.deepEqual(t.columns, ['Agent', 'Review round', 'Runs', 'p95 output tokens']);
+    assert.equal(t.rows.length, ex.groups.length);
+    assert.ok(t.rows.some((r) => r[3] === mod.NEEDS_RUNS));
+    const html = mod.table('cap', t);
+    const decode = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+    const head = [...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => decode(m[1]));
+    const cells = [...html.matchAll(/<tr[^>]*>((?:<td[^>]*>[^<]*<\/td>)+)<\/tr>/g)].map((r) => [...r[1].matchAll(/<td[^>]*>([^<]*)<\/td>/g)].map((m) => decode(m[1])));
+    assert.deepEqual(mod.toCsv(t).split('\r\n').map((line) => line.split(',')), [head, ...cells]);
+  });
+
+  test('the review-round footnote shows the mismatch count only when grouping by review round', () => {
+    assert.equal(mod.mismatchNote(1), '1 task has a different review count than their recorded attempts, so round numbers may be off.');
+    assert.ok(view('m=tokens_out&a=count&g=review_round').html.includes(mod.mismatchNote(3)));
+    assert.ok(!view('m=tokens_out&a=count&g=agent').html.includes('different review count'));
+  });
+
+  test('cost unpriced: the Flash instead of a chart', () => {
+    const html = mod.page('#/insights/explore?range=30d&m=cost&a=sum', mod.insights(db, filter('range=30d'), NOW), undefined);
+    assert.ok(html.includes(mod.COST_HELP));
+    assert.doesNotMatch(html, /data-chart-card/);
+  });
+});
+
+describe('GH 1347 polish: histogram nouns and slowest-command order', () => {
+  const { db, ids } = seed(join(tmp, 'polish.db'));
+  const vrun = db.prepare("INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s) VALUES (?, 'abc1234', 'gate', ?, ?, 0, 600)");
+  const cmd = db.prepare('INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s) VALUES (?, 1, ?, 0, ?)');
+  const now = NOW.toISOString();
+  const add = (command, elapsed) => elapsed.forEach((s, i) => cmd.run(Number(vrun.run(ids[i % 3], now, now).lastInsertRowid), command, s));
+  add('slow suite', Array.from({ length: 20 }, (_, i) => 30 + i));
+  add('fast suite', Array.from({ length: 25 }, (_, i) => 1 + i));
+  add('rare outlier', [5, 6, 7, 8, 500]);
+  after(() => db.close());
+  const data = () => mod.insights(db, filter('range=30d'), NOW);
+
+  test('slowest commands: n ≥ 20 by p95 first, then n < 20 by max', () => {
+    const rows = data().quality.slowest_commands;
+    assert.deepEqual(rows.map((c) => [c.command, c.n]), [['slow suite', 20], ['fast suite', 25], ['rare outlier', 5], ['node --test', 3], ['bun run build', 3]]);
+    assert.ok(rows[2].max > rows[0].p95 && rows[1].p95 < rows[0].p95);
+    assert.equal(rows[2].p95, null);
+  });
+
+  test('the heading reads "Slowest verification commands"; the n<20 p95 cell is —', () => {
+    const html = mod.page('#/insights/quality?range=30d', data());
+    assert.match(html, /<h3[^>]*>Slowest verification commands<\/h3>/);
+    assert.ok(!html.includes('(by p95)'));
+    const slow = html.slice(html.indexOf('aria-label="Slowest verification commands"'));
+    const row = slow.slice(slow.indexOf('title="rare outlier"'), slow.indexOf('</tr>', slow.indexOf('title="rare outlier"')));
+    assert.match(row, />—</);
+  });
+
+  test('histogram aria text: bro counts sessions, swe counts runs', () => {
+    const html = mod.page('#/insights/tokens?range=30d', data());
+    const bro = html.slice(html.indexOf('data-agent="bro"'));
+    const broHits = [...bro.matchAll(/aria-label="(bro, [^"]+)"/g)].map((m) => m[1]);
+    assert.ok(broHits.length > 0);
+    for (const a of broHits) {
+      assert.match(a, /: \d+ sessions?$/);
+      assert.doesNotMatch(a, /\bruns?\b/);
+    }
+    const swe = [...html.matchAll(/aria-label="(swe, [^"]+ output tokens: \d+ [a-z]+)"/g)].map((m) => m[1]);
+    assert.ok(swe.length > 0 && swe.every((a) => /: \d+ runs?$/.test(a)));
+  });
+});
+
 describe('Insights view', () => {
   const { db } = seed(join(tmp, 'view.db'));
   const { db: pricedDb } = seed(join(tmp, 'view-priced.db'), JSON.stringify({ 'claude-opus': OPUS }));
@@ -385,13 +728,13 @@ describe('Insights view', () => {
   const at = (section, query = 'range=30d') => mod.page(`#/insights/${section}?${query}`, data);
 
   test('the hash round-trips every param; an unknown section falls back to Tokens', () => {
-    const params = { section: 'quality', range: '90d', metric: 'cache_hit', filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
+    const params = { section: 'quality', range: '90d', metric: 'cache_hit', measure: 'cache_hit', agg: 'p50', dims: ['agent'], filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
     const hash = mod.insightHash(params);
     assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=code-reviewer&model=claude-opus&effort=high&m=cache_hit');
     const [path, query] = hash.slice(2).split('?');
     assert.deepEqual(mod.parseInsightParams(path, new URLSearchParams(query)), params);
     assert.equal(mod.parseInsightParams('insights/bogus', new URLSearchParams('range=nope&m=nope')).section, 'tokens');
-    assert.deepEqual(mod.parseInsightParams('insights', new URLSearchParams()), { section: 'tokens', range: '30d', metric: 'tokens_out', filters: { repo: '', agent: '', model: '', effort: '' } });
+    assert.deepEqual(mod.parseInsightParams('insights', new URLSearchParams()), { section: 'tokens', range: '30d', metric: 'tokens_out', measure: 'tokens_out', agg: 'p50', dims: ['agent'], filters: { repo: '', agent: '', model: '', effort: '' } });
     assert.match(at('bogus'), /<h2[^>]*>Tokens<\/h2>/);
   });
 
@@ -399,7 +742,7 @@ describe('Insights view', () => {
     const html = at('time', 'range=7d&agent=swe&effort=low');
     const nav = html.match(/<nav aria-label="Insights sections"[^>]*>(.*?)<\/nav>/)[1];
     const links = [...nav.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
-    assert.deepEqual(links.map((l) => l[2]), ['Tokens', 'Cost', 'Time', 'Quality', 'Throughput']);
+    assert.deepEqual(links.map((l) => l[2]), ['Tokens', 'Cost', 'Time', 'Quality', 'Throughput', 'Explore']);
     assert.match(links[2][0], /aria-current="page"/);
     assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out$/);
     assert.match(html, /class="max-md:hidden"/);
@@ -563,7 +906,7 @@ describe('Insights view', () => {
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
     const p50 = Math.sqrt(edges[8] * edges[9]);
     const p95 = 746_200;
-    const svg = mod.histogramSvg({ label: 'bro', who: 'bro', buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+    const svg = mod.histogramSvg({ label: 'bro', who: 'bro', noun: (n) => (n === 1 ? 'session' : 'sessions'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
     const innerW = 480 - 8 - 40;
     const [, gx, gy] = /<g class="visx-group" transform="translate\(([\d.]+), ([\d.]+)\)"/.exec(svg);
     assert.deepEqual([Number(gx), Number(gy)], [8, 36]);
@@ -857,9 +1200,10 @@ describe('build and bundle', () => {
     });
   });
 
-  test('the InsightsView chunk is at most 56,320 bytes gzipped', () => {
-    const chunk = readdirSync(join(WEB, 'chunks')).find((f) => /^InsightsView-[A-Z0-9]+\.js$/.test(f));
-    assert.ok(chunk);
+  test('the chunk holding Insights-only code is at most 55 KiB gzipped', () => {
+    const chunks = readdirSync(join(WEB, 'chunks')).filter((f) => readFileSync(join(WEB, 'chunks', f), 'utf8').includes(mod.COST_HELP));
+    assert.equal(chunks.length, 1, chunks.join());
+    const [chunk] = chunks;
     const size = gzipSync(readFileSync(join(WEB, 'chunks', chunk)), { level: 9 }).length;
     assert.ok(size <= 56_320, `${chunk} is ${size} B gzipped`);
   });
