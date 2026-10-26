@@ -48,6 +48,10 @@ function payloadOf(result: unknown): Record<string, unknown> {
   return JSON.parse(content.text) as Record<string, unknown>;
 }
 
+function treeOf(dir: string): string[] | null {
+  return existsSync(dir) ? readdirSync(dir, { recursive: true }).map(String).sort() : null;
+}
+
 it('cold-boots from an installed-cache copy without source node_modules', async () => {
   const fixture = mkdtempSync(join(tmpdir(), 'tmb-codex-cache-'));
   let client: Client | undefined;
@@ -56,6 +60,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     const testFile = fileURLToPath(import.meta.url);
     const sourceDist = dirname(dirname(testFile));
     const sourceRoot = dirname(dirname(dirname(sourceDist)));
+    const sourceTmbBefore = treeOf(join(sourceRoot, '.tmb'));
     const manifest = JSON.parse(
       readFileSync(join(sourceRoot, '.codex-plugin', 'plugin.json'), 'utf8'),
     ) as {
@@ -511,7 +516,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     assert.equal(existsSync(join(cacheRoot, 'node_modules')), false);
     assert.equal(existsSync(join(cacheRoot, '.tmb')), false);
     assert.equal(existsSync(join(cacheRoot, 'must-not-be-used.db')), false);
-    assert.equal(existsSync(join(sourceRoot, '.tmb')), false);
+    assert.deepEqual(treeOf(join(sourceRoot, '.tmb')), sourceTmbBefore);
+    assert.equal(existsSync(join(sourceRoot, '.tmb', 'tmb')), false);
   } finally {
     await client?.close();
     rmSync(fixture, { recursive: true, force: true });

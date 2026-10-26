@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "commands": [
+    {
+      "match": "bash tests/l3-integration/hooks/dispatch.test.sh",
+      "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
+    },
+    {
+      "match": "bash tests/l3-integration/hooks/containment-guard.test.sh",
+      "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
+    },
+    {
+      "match": "bash tests/l3-integration/hooks/swe-boundary.test.sh",
+      "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
+    },
+    {
+      "match": "bash tests/l3-integration/hooks/cmd-analysis.test.sh",
+      "inputs": ["scripts/**", "hooks/**", "tests/**", "mcp/**", "skills/*/scripts/**", "CLAUDE.md", "package.json", "bun.lock", "**/.*", "**/.*/**"]
+    },
+    {
+      "match": "bash tests/l1-lint/shellcheck-hooks.sh",
+      "inputs": ["scripts/**", "tests/**", "**/*.sh", "**/.*", "**/.*/**"]
+    },
+    {
+      "match": "bash tests/l1-lint/changelog-current.sh",
+      "inputs": ["CHANGELOG.md", "changelog.d/**", "scripts/maintenance/**", "tests/l1-lint/changelog-current.sh", "**/.*", "**/.*/**"]
+    },
+    {
+      "match": "bash tests/l1-lint/dist-fresh.sh",
+      "inputs": ["mcp/trajectory-server/**", "tests/l1-lint/dist-fresh.sh", "tests/l1-lint/fixtures/dist-fresh/**", "package.json", "bun.lock", "**/.*", "**/.*/**"]
+    }
+  ]
+}

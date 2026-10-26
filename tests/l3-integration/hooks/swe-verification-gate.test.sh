@@ -777,6 +777,166 @@ assert_contains "$(reason_of "$out")" "Finding F97-1 (probe 1/1): exit 4" "the o
 assert_not_contains "$(reason_of "$out")" "REGRESSION" "an open finding is not a regression"
 assert_eq "open|" "$(sqlite3 "$DB" "SELECT status || '|' || COALESCE(resolved_at, '') FROM review_findings WHERE id = 'F97-1';")" "a failing open finding stays open"
 
+# ---- Verification carry-forward (GH 1950) ------------------------------------
+# verification[] is A (declares src/**), B (declares lib/**) and U (undeclared
+# in .tmb/verification-inputs.json), plus one open finding probe P; each
+# appends its letter to $TMPDIR/<slug>.ran, outside the worktree.
+carry_cmd() { printf 'echo %s >> %s/%s.ran' "$2" "$TMPDIR" "$1"; }
+carry_map() {
+  jq -n --argjson v "${2:-1}" --arg a "$(carry_cmd "$1" A)" --arg b "$(carry_cmd "$1" B)" --arg c "$(carry_cmd "$1" C)" \
+    '{version: $v, commands: [{match: $a, inputs: ["src/**"]}, {match: $b, inputs: ["lib/**"]}, {match: $c, inputs: ["src/**"]}]}'
+}
+wt_commit() {
+  git -C "$WT_ROOT/$1" add -A
+  git -C "$WT_ROOT/$1" -c user.email=t@example.com -c user.name=t commit --quiet -m "$2"
+  git -C "$WT_ROOT/$1" rev-parse HEAD
+}
+ran_take() {
+  local f="$TMPDIR/$1.ran" got=""
+  [ ! -f "$f" ] || got=$(tr -d '\n' < "$f")
+  rm -f "$f"
+  printf '%s' "$got"
+}
+last_run() { sqlite3 "$DB" "SELECT max(id) FROM verification_runs WHERE task_id = $1;"; }
+carried_of() {
+  sqlite3 "$DB" "SELECT COALESCE(group_concat(ordinal, ','), '') FROM (SELECT ordinal FROM verification_run_commands
+    WHERE run_id = $(last_run "$1") AND output_tail LIKE 'carried from run #%' ORDER BY ordinal);"
+}
+docs_edit() { echo "$2" >> "$WT_ROOT/$1/docs/x.md"; }
+# carry_setup <task_id> <slug> [map version] — the task, its finding and its
+# worktree, then the first close: it runs every command and is the source run.
+carry_setup() {
+  local id="$1" slug="$2" wt="$WT_ROOT/$2"
+  sqlite3 "$DB" "
+    INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification)
+      VALUES ($id, 1, 'feat/$slug', 'plugin', 'pending', '', '$(jq -nc --arg a "$(carry_cmd "$slug" A)" --arg b "$(carry_cmd "$slug" B)" --arg u "$(carry_cmd "$slug" U)" '[$a, $b, $u]')');
+    INSERT INTO review_findings VALUES ('F$id-1', $id, 1, NULL, '$(carry_cmd "$slug" P)', 'exit 0', 'exit 1', 'open', '2026-01-01T00:00:00.000Z', NULL);
+  "
+  mkdir -p "$wt/src" "$wt/lib" "$wt/docs" "$wt/.tmb"
+  git -C "$wt" init --quiet
+  carry_map "$slug" "${3:-1}" > "$wt/.tmb/verification-inputs.json"
+  echo app > "$wt/src/app.txt"
+  echo lib > "$wt/lib/lib.txt"
+  echo doc > "$wt/docs/x.md"
+  wt_commit "$slug" init >/dev/null
+  out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed "$id")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "the first close passes"
+  assert_eq "ABUP" "$(ran_take "$slug")" "the first close runs every command"
+}
+# carry_none <task_id> <slug> <why> — the close runs every command, carries none.
+carry_none() {
+  out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed "$1")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "$3: the close passes"
+  assert_eq "ABUP" "$(ran_take "$2")" "$3: every command runs"
+  assert_eq "" "$(carried_of "$1")" "$3: no command row is carried"
+  assert_not_contains "$out" "carried forward" "$3: no carry-forward context"
+}
+
+test_case "carry-forward: a docs-only rework carries the declared commands; the undeclared one and the probe run"
+carry_setup 100 carry-docs
+SRC_RUN=$(last_run 100)
+SRC_SHA=$(git -C "$WT_ROOT/carry-docs" rev-parse HEAD)
+docs_edit carry-docs more
+wt_commit carry-docs "docs only" >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 100)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the rework close passes"
+assert_eq "UP" "$(ran_take carry-docs)" "only the undeclared command and the probe ran"
+assert_eq "1,2" "$(carried_of 100)" "A and B are recorded as carried"
+assert_eq "0|1|carried from run #$SRC_RUN at ${SRC_SHA:0:12}" \
+  "$(sqlite3 "$DB" "SELECT exit_code || '|' || (elapsed_s = 0) || '|' || output_tail FROM verification_run_commands WHERE run_id = $(last_run 100) AND ordinal = 1;")" \
+  "a carried row has exit 0, elapsed 0 and names the source run"
+CTX=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty')
+assert_contains "$CTX" "carried forward from run #$SRC_RUN at ${SRC_SHA:0:12}" "the context names the source run"
+assert_contains "$CTX" "$(carry_cmd carry-docs A)" "the context names carried command A"
+assert_contains "$CTX" "$(carry_cmd carry-docs B)" "the context names carried command B"
+assert_not_contains "$CTX" "$(carry_cmd carry-docs U)" "the context does not name the command that ran"
+
+test_case "carry-forward: a run with carried commands keeps exit_code 0 and is accepted as passing"
+assert_eq "0|0|4" "$(sqlite3 "$DB" "SELECT r.exit_code || '|' || r.timed_out || '|' || (SELECT COUNT(*) FROM verification_run_commands WHERE run_id = r.id) FROM verification_runs r WHERE r.id = $(last_run 100);")" \
+  "the run finished exit 0, not timed out, with a row per command"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 100)")
+assert_contains "$out" "verification reused run #$(last_run 100)" "the next close on the same HEAD reuses it"
+assert_eq "" "$(ran_take carry-docs)" "nothing ran again"
+
+test_case "carry-forward: a change matching one command's inputs runs that command and carries the other"
+docs_edit carry-docs again
+echo changed >> "$WT_ROOT/carry-docs/src/app.txt"
+wt_commit carry-docs "src change" >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 100)")
+assert_eq "AUP" "$(ran_take carry-docs)" "A (src/**) ran again"
+assert_eq "2" "$(carried_of 100)" "B (lib/**) is carried"
+
+test_case "carry-forward: after an amend the source commit is no ancestor of HEAD"
+carry_setup 101 carry-amend
+docs_edit carry-amend more
+git -C "$WT_ROOT/carry-amend" add -A
+git -C "$WT_ROOT/carry-amend" -c user.email=t@example.com -c user.name=t commit --quiet --amend -m amended
+carry_none 101 carry-amend "amend"
+
+test_case "carry-forward: a merge commit in the range carries nothing"
+carry_setup 102 carry-merge
+git -C "$WT_ROOT/carry-merge" checkout --quiet -b side
+docs_edit carry-merge side
+wt_commit carry-merge side >/dev/null
+git -C "$WT_ROOT/carry-merge" checkout --quiet -
+echo other > "$WT_ROOT/carry-merge/docs/y.md"
+wt_commit carry-merge main >/dev/null
+git -C "$WT_ROOT/carry-merge" -c user.email=t@example.com -c user.name=t merge --quiet --no-edit side
+carry_none 102 carry-merge "merge"
+
+test_case "carry-forward: a dirty worktree carries nothing"
+carry_setup 103 carry-dirty
+docs_edit carry-dirty more
+wt_commit carry-dirty "docs only" >/dev/null
+echo untracked > "$WT_ROOT/carry-dirty/docs/new.md"
+carry_none 103 carry-dirty "dirty"
+
+test_case "carry-forward: a commit that changes the inputs map carries nothing"
+carry_setup 104 carry-map
+docs_edit carry-map more
+jq '.commands += [{match: "true", inputs: ["x"]}]' "$WT_ROOT/carry-map/.tmb/verification-inputs.json" > "$TMPDIR/map.json"
+mv "$TMPDIR/map.json" "$WT_ROOT/carry-map/.tmb/verification-inputs.json"
+wt_commit carry-map "map change" >/dev/null
+carry_none 104 carry-map "map change"
+
+test_case "carry-forward: a command that failed in the source run is not carried"
+carry_setup 105 carry-failed
+sqlite3 "$DB" "UPDATE verification_run_commands SET exit_code = 1 WHERE run_id = $(last_run 105) AND ordinal = 1;"
+docs_edit carry-failed more
+wt_commit carry-failed "docs only" >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 105)")
+assert_eq "AUP" "$(ran_take carry-failed)" "A runs again"
+assert_eq "2" "$(carried_of 105)" "only B is carried"
+
+test_case "carry-forward: a declared command the source run never ran is not carried"
+carry_setup 106 carry-new
+sqlite3 "$DB" "UPDATE tasks SET verification = '$(jq -nc --arg a "$(carry_cmd carry-new A)" --arg b "$(carry_cmd carry-new B)" --arg c "$(carry_cmd carry-new C)" --arg u "$(carry_cmd carry-new U)" '[$a, $b, $c, $u]')' WHERE id = 106;"
+docs_edit carry-new more
+wt_commit carry-new "docs only" >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 106)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the close passes"
+assert_eq "CUP" "$(ran_take carry-new)" "the new declared command C runs"
+assert_eq "1,2" "$(carried_of 106)" "A and B are carried"
+
+test_case "carry-forward: an unknown map version carries nothing"
+carry_setup 107 carry-version 2
+docs_edit carry-version more
+wt_commit carry-version "docs only" >/dev/null
+carry_none 107 carry-version "map version 2"
+
+test_case "carry-forward: without the dist helper the gate runs every command"
+carry_setup 108 carry-nohelper
+docs_edit carry-nohelper more
+wt_commit carry-nohelper "docs only" >/dev/null
+FAKE_ROOT="$TMPDIR/fake-plugin"
+mkdir -p "$FAKE_ROOT/scripts"
+cp -R "$PLUGIN_ROOT/scripts/hooks" "$FAKE_ROOT/scripts/hooks"
+assert_eq "no" "$([ -e "$FAKE_ROOT/mcp" ] && echo yes || echo no)" "the fake plugin root has no dist"
+out=$(cd "$REPO_DIR" && make_input swe completed 108 | bash "$FAKE_ROOT/scripts/hooks/swe-verification-gate.sh" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "missing helper: the close passes"
+assert_eq "ABUP" "$(ran_take carry-nohelper)" "missing helper: every command runs"
+assert_eq "" "$(carried_of 108)" "missing helper: no command row is carried"
+
 # ---- Chain: a call agent-arg-matches-caller denies never runs verification ---
 test_case "chain: main-loop task_update_status(agent='swe') is denied and records no verification run"
 sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (95, 1, 'feat/chain-close', 'plugin', 'pending', '', '[\"echo ok\"]');"

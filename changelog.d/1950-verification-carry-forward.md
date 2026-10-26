@@ -1,0 +1,2 @@
+### Changed
+- **A rework close no longer re-runs verification commands whose inputs it did not touch** (GH 1950): when a task's commit follows its last passing verification run on the same line of history, the gate records each command whose inputs, declared in `.tmb/verification-inputs.json`, no commit since has changed as carried from that run instead of running it again, and says which commands it carried and from which run. Commands without a declaration, finding probes and any commit range with a merge, a rewrite, a dirty worktree or a changed map still run in full.
