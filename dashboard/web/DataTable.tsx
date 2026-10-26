@@ -19,7 +19,7 @@ export interface Column {
   key: string;
   header: string;
   cell?: (row: Row) => ReactNode;
-  truncate?: boolean;
+  truncate?: boolean | 'fill';
   hideBelow?: 'sm' | 'md';
 }
 
@@ -140,7 +140,7 @@ export function DataTable({
                       key={cell.id}
                       className={cx(
                         'whitespace-nowrap border-t border-(--borderColor-muted) px-4 py-2 align-top group-first/row:border-t-0 group-hover/row:bg-canvas-muted max-sm:px-2',
-                        col?.truncate && 'max-w-[32rem] truncate',
+                        col?.truncate === 'fill' ? 'w-full min-w-32 max-w-0 truncate' : col?.truncate && 'max-w-[32rem] truncate',
                         hideClass(col),
                       )}
                       title={col?.truncate && value !== '' && value !== null && value !== undefined ? String(value) : undefined}

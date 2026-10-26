@@ -7,7 +7,6 @@ import { csvName, downloadCsv, type TableData } from './csv.ts';
 export interface LegendItem {
   label: string;
   color: string;
-  dashed?: boolean;
 }
 
 const MENU_ITEM =
@@ -101,7 +100,7 @@ export function Legend({ items }: { items: LegendItem[] }) {
       {items.map((item) => (
         <li key={item.label} className="inline-flex items-center gap-1.5">
           <svg width="16" height="8" aria-hidden="true">
-            <line x1="0" x2="16" y1="4" y2="4" stroke={item.color} strokeWidth="2" strokeDasharray={item.dashed ? '4 2' : undefined} />
+            <line x1="0" x2="16" y1="4" y2="4" stroke={item.color} strokeWidth="2" />
           </svg>
           {item.label}
         </li>

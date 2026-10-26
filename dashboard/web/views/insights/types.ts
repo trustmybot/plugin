@@ -1,4 +1,4 @@
-export type AgentKey = 'swe' | 'reviewer' | 'bro';
+export type AgentKey = 'swe' | 'code-reviewer' | 'bro';
 
 export interface Metric {
   p50: number | null;
@@ -34,6 +34,12 @@ export interface Outlier {
   value: number;
 }
 
+export interface DurationOutlier extends Outlier {
+  tool_uses: number;
+  tokens_out: number;
+  idle: boolean;
+}
+
 export interface SlowCommand extends Metric {
   command: string;
   n: number;
@@ -58,5 +64,5 @@ export interface Insights {
     slowest_commands: SlowCommand[];
   };
   throughput: Array<{ day: string; closed: number }>;
-  outliers: { tokens_out: Outlier[]; context: Outlier[]; duration_ms: Outlier[] };
+  outliers: { tokens_out: Outlier[]; context: Outlier[]; duration_ms: DurationOutlier[] };
 }
