@@ -1,0 +1,2 @@
+### Fixed
+- **File purposes read cleaner text** (GH 1900): a heading-less Markdown file that opened with a multi-line HTML comment took the comment's inner text as its purpose; the comment is now skipped through its `-->`. Arrows and comparisons such as `a -> b` and `x > y` keep their angle brackets, and test-file purposes no longer show backslash escapes from their test titles. The world-model doc now credits the scan's content re-extract with moving a file that gains a header to a `comment` / `jsdoc` purpose.
