@@ -917,6 +917,38 @@ done
 assert_eq '/w/a,/w/b' "$(wpaths 'for f in a b; do x=/w/$f; echo "done" > $x; done' /w)" "a quoted done argument keeps the for-loop exact"
 assert_eq 'UNRESOLVED:$():/w$()/p' "$(wpaths "$(printf 'echo > /w\027/p')" /w)" "a literal \\027 byte reads as computed text"
 
+test_case "GH 1977: a loop body's cd reaches an earlier relative write"
+for head in 'while :' 'until false' 'for i in 1 2'; do
+  assert_eq '/w/f,/etc/f' "$(wpaths "$head; do echo > f; cd /etc; done" /w)" "$head"
+done
+assert_eq '/w/f,/etc/f' "$(wpaths 'while :; do echo > f; pushd /etc; done' /w)" "a pushd"
+assert_eq '/w/f,/etc/f' "$(wpaths 'for i in 1 2; { echo > f; cd /etc; }' /w)" "a braced body"
+for c in 'cd "$d"' 'cd -' 'cd' 'popd'; do
+  assert_eq '/w/f,UNRESOLVED:PWD:$PWD/f' "$(wpaths "while :; do echo > f; $c; done" /w)" "a cd it cannot name fails closed: $c"
+done
+assert_eq '/w/f,/etc/f' "$(wpaths 'while false; do cd /etc; done; echo > f' /w)" "after the loop, the entry dir and the body's"
+assert_eq '/w/f,/etc/f,/w/g,/etc/g' "$(wpaths 'while :; do echo > f; cd /etc; done; echo > g' /w)" "inside and after the loop"
+assert_eq '/w/f' "$(wpaths 'while :; do echo > f; done' /w)" "a loop with no cd"
+assert_eq '/w/f' "$(wpaths 'while :; do echo > f; ( cd /etc ); done' /w)" "a subshell cd stays inside it"
+assert_eq '/w/f,/etc/f' "$(wpaths 'while :; do echo > f; while :; do cd /etc; done; done' /w)" "a cd in a nested loop"
+assert_eq '/w/f,/etc/f' "$(wpaths 'while :; do while :; do echo > f; done; cd /etc; done' /w)" "a write in a nested loop"
+assert_eq '/w/f,/tmp/f' "$(wpaths 'while :; do echo > f; cd /etc; cd /tmp; done' /w)" "the dir a pass ends in"
+assert_eq '/w/a,/w/b,/etc/a,/etc/b' "$(wpaths 'for f in a b; do echo > $f; cd /etc; done' /w)" "a loop variable in each dir"
+assert_eq '/w/f,/etc/f' "$(wpaths 'while :; do bash -c "echo > f"; cd /etc; done' /w)" "a bash -c body"
+assert_eq '/w/f,/etc/f' "$(wpaths "while :; do python3 -c \"open('f','w')\"; cd /etc; done" /w)" "an inline program"
+assert_eq 'UNRESOLVED:PWD:$PWD/f' "$(wpaths 'while :; do echo > f; cd sub; done' /w | tr ',' '\n' | tail -1)" "a dir that keeps growing fails closed"
+assert_eq '/w/f,/f' "$(wpaths 'cd /w; while :; do echo > f; cd ..; done' /w)" "cd .. stops at the root, so the dirs stop growing"
+
+test_case "GH 1977 (F210-1): a drifting loop-body cd stays bounded and fails closed"
+for c in "while :; do echo > f1; cd d1; done; while :; do echo > f2; cd d2; done; while :; do echo > f3; cd d3; done; while :; do echo > f4; cd d4; done; echo > g" "while :; do cd n1; while :; do cd n2; echo > g; done; done"; do
+  assert_eq 0 "$(perl -e 'alarm 10; exec @ARGV' bash -c '. "$1"; out=$(tmb_cmd_write_paths "$2" /w "" /w); grep -q "^UNRESOLVED:" <<<"$out"' _ "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh" "$c"; echo $?)" "within 10 s and UNRESOLVED: $c"
+done
+assert_eq 'UNRESOLVED:PWD:$PWD/f1,UNRESOLVED:PWD:$PWD/f2,UNRESOLVED:PWD:$PWD/f3,UNRESOLVED:PWD:$PWD/f4,UNRESOLVED:PWD:$PWD/g' "$(wpaths 'while :; do echo > f1; cd d1; done; while :; do echo > f2; cd d2; done; while :; do echo > f3; cd d3; done; while :; do echo > f4; cd d4; done; echo > g' /w)" "4 sequential drifting loops"
+assert_eq 'UNRESOLVED:PWD:$PWD/g' "$(wpaths 'while :; do cd n1; while :; do cd n2; while :; do cd n3; echo > g; done; done; done' /w)" "3 nested drifting loops"
+abs_loops() { local i s=""; for ((i = 1; i <= $1; i++)); do s="${s}while false; do cd /a$i; done; "; done; printf '%secho > f' "$s"; }
+assert_eq '/w/f,/a1/f,/a2/f,/a3/f,/a4/f,/a5/f,/a6/f,/a7/f' "$(wpaths "$(abs_loops 7)" /w)" "8 dirs resolve exactly"
+assert_eq 'UNRESOLVED:PWD:$PWD/f,/a8/f' "$(wpaths "$(abs_loops 8)" /w)" "a 9th dir collapses the set to unresolved"
+
 test_case "GH 1602: an inline program's non-literal process call is \$(proc), not \$()"
 assert_eq 'UNRESOLVED:$(proc):$(proc)' "$(pyw 'import subprocess' 'for n in range(3):' "    subprocess.run(['true', str(n)])")" "subprocess.run(['true', str(n)])"
 assert_eq 'UNRESOLVED:X:$X/x' "$(pyw 'import os' 'os.system("cd $X && touch x")')" "a literal shell string still names its variable"

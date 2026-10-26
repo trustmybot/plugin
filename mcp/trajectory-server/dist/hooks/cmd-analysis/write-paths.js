@@ -2,7 +2,7 @@ import { decode, encode, heldKey } from './encode.js';
 import { listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import { COMPUTED, PARSE, UNPROVEN, heldProgram, interpWrites, progWrites, shown } from './programs.js';
-import { LOOP_CLOSE, LOOP_OPEN, SEP, UNBALANCED, WSEP, statementsEnc } from './statements.js';
+import { ALT, LOOP_CLOSE, LOOP_OPEN, SEP, UNBALANCED, WSEP, statementsEnc } from './statements.js';
 import { stmtWritePaths, unwrapStatement } from './targets.js';
 const BAD = '\x01';
 const MAX_DEPTH = 3;
@@ -776,9 +776,11 @@ class WritePaths {
                 if (words.length === 0)
                     return;
                 if (dir.startsWith('=')) {
-                    this.pwd = dirPath(dir.slice(1), cwd);
-                    for (const w of words)
-                        this.varSet(level, before(w, '='), dec(after(w, '=')));
+                    this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+                        this.pwd = dirPath(d, cwd);
+                        for (const w of words)
+                            this.varSet(level, before(w, '='), dec(after(w, '=')));
+                    });
                     return;
                 }
                 this.poisonSet(level, words);
@@ -789,8 +791,10 @@ class WritePaths {
                 const body = inner(record.stmt);
                 if (body !== '' && ((!evalArgs(words) && heldProgram(body)) || depth < MAX_DEPTH))
                     return;
-                this.pwd = dirPath(dir, cwd);
-                this.trackVars(level, words);
+                this.eachDir(level, dir.split(ALT), why, (d) => {
+                    this.pwd = dirPath(d, cwd);
+                    this.trackVars(level, words);
+                });
             });
             level.vars = varsUniq(level.vars);
             converged = level.vars === prev;
@@ -802,6 +806,23 @@ class WritePaths {
         this.pwd = saved.pwd;
         level.oldtok = saved.oldtok;
         level.why = saved.why;
+    }
+    /**
+     * Runs `fn` for each dir a statement may run in (a loop's back-edge can
+     * list more than one, GH 1977), with its why on the first only; each run
+     * starts from the variables the statement found and keeps what it adds.
+     */
+    eachDir(level, dirs, why, fn) {
+        const vars = level.vars;
+        let added = '';
+        dirs.forEach((d, n) => {
+            level.vars = vars;
+            level.why = n === 0 ? why : '';
+            fn(d);
+            added += level.vars.slice(vars.length);
+        });
+        level.vars = vars + added;
+        level.why = why;
     }
     runEncoded(text, heredocs, base, depth, vars) {
         const level = { vars, oldtok: '-', why: '' };
@@ -833,13 +854,16 @@ class WritePaths {
             if (words.length === 0)
                 continue;
             if (dir.startsWith('=')) {
-                this.pwd = dirPath(dir.slice(1), cwd);
-                for (const w of words)
-                    this.varSet(level, before(w, '='), dec(after(w, '=')));
+                this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+                    this.pwd = dirPath(d, cwd);
+                    for (const w of words)
+                        this.varSet(level, before(w, '='), dec(after(w, '=')));
+                });
                 continue;
             }
             const tok = dir + SEP + old + (why === '' ? '' : SEP + why);
-            const chain = dir === '-' && why === '';
+            const dirs = dir.split(ALT);
+            const each = (fn) => this.eachDir(level, dirs, why, (d) => fn(d, d === '-' && level.why === '', d + SEP + old + (level.why === '' ? '' : SEP + level.why)));
             const body = inner(record.stmt);
             const evaluated = evalArgs(words);
             this.poisonSet(level, words);
@@ -856,9 +880,11 @@ class WritePaths {
                 this.out += unprovenLine(`${basename(dec(words[0]))} ${dec(body)}`);
             const ownWords = body !== '' && !evaluated && basename(words[0]) !== 'watch';
             if (ownWords) {
-                for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths)
-                    if (p !== '')
-                        this.emit(level, dir, dec(p));
+                each((d, chain) => {
+                    for (const p of stmtWritePaths(record.stmt, chain, this.interp).paths)
+                        if (p !== '')
+                            this.emit(level, d, dec(p));
+                });
             }
             if (body !== '' && !evaluated && heldProgram(body)) {
                 this.out += computedLine(`${basename(dec(words[0]))} ${dec(body)}`);
@@ -878,12 +904,14 @@ class WritePaths {
                 stmt = words.join(' ');
             }
             if (!ownWords) {
-                for (const p of stmtWritePaths(stmt, chain, this.interp).paths)
-                    if (p !== '')
-                        this.emit(level, dir, dec(p));
+                each((d, chain) => {
+                    for (const p of stmtWritePaths(stmt, chain, this.interp).paths)
+                        if (p !== '')
+                            this.emit(level, d, dec(p));
+                });
             }
             if (/^(find|fd|fdfind|xargs)$/.test(basename(words[0])))
-                this.execWrites(level, dir, mark, words, tok, depth);
+                each((d, _, t) => this.execWrites(level, d, mark, words, t, depth));
             const { kind, info } = stdinProgram(words);
             if (kind !== '') {
                 const progs = [];
@@ -914,9 +942,11 @@ class WritePaths {
                     }
                     else {
                         const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
-                        for (const p of found.lines)
-                            if (p !== '')
-                                this.emit(level, dir, p);
+                        each((d) => {
+                            for (const p of found.lines)
+                                if (p !== '')
+                                    this.emit(level, d, p);
+                        });
                         if (found.computed)
                             this.out += computedLine(shownArgv0);
                         if (partly || found.unproven)
@@ -924,8 +954,10 @@ class WritePaths {
                     }
                 }
             }
-            this.pwd = dirPath(dir, cwd);
-            this.trackVars(level, words);
+            each((d) => {
+                this.pwd = dirPath(d, cwd);
+                this.trackVars(level, words);
+            });
         }
     }
 }

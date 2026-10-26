@@ -598,6 +598,22 @@ for body in 'for ((i=0;i<2;i++)) { echo > $x; x=/etc/p1944; }' 'for i in 1 2; { 
   assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; $body")")")" "$body"
 done
 
+test_case "GH 1977: a loop body's later cd reaches its earlier relative write"
+for body in 'echo > f1977; cd /etc' 'echo > f1977; pushd /etc'; do
+  OUT=$(run "$PROJECT" "" Bash "$(bash_cmd "while :; do $body; done")")
+  assert_eq "deny" "$(decision "$OUT")" "$body"
+  assert_contains "$OUT" "/etc/f1977" "$body: the next pass's dir is judged"
+done
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd "while false; do cd /etc; done; echo > f1977")")
+assert_eq "deny" "$(decision "$OUT")" "a write after a loop that may cd"
+for c in 'cd "$d"' 'cd -' 'popd'; do
+  OUT=$(run "$PROJECT" "" Bash "$(bash_cmd "while :; do echo > f1977; $c; done")")
+  assert_eq "deny" "$(decision "$OUT")" "a body cd it cannot name: $c"
+  assert_contains "$OUT" "cannot be judged" "$c: denied as unjudged"
+done
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "while :; do echo > f1977; ( cd /etc ); done")")")" "a subshell cd stays inside it"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "while :; do echo > f1977; cd $PROJECT/src; done")")")" "a body cd that stays in the root"
+
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
 mkdir -p "$BARE"
