@@ -4487,7 +4487,50 @@ function summary(db) {
     )
   };
 }
+var LABEL = "[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?";
+var HOST = `${LABEL}(?:\\.${LABEL})*`;
+var SEGMENT = "(?!\\.+(?:/|$))[A-Za-z0-9_.-]+";
+var REPO_PATH = `${SEGMENT}(?:/${SEGMENT})+`;
+var REMOTE_FORMS = [
+  new RegExp(`^https://(${HOST})/(${REPO_PATH})$`),
+  new RegExp(`^git@(${HOST}):(${REPO_PATH})$`),
+  new RegExp(`^ssh://git@(${HOST})/(${REPO_PATH})$`)
+];
+function remoteWebUrl(url) {
+  if (typeof url !== "string") return null;
+  const trimmed = url.replace(/\/+$/, "").replace(/\.git$/, "");
+  for (const form of REMOTE_FORMS) {
+    const m = form.exec(trimmed);
+    if (m) return `https://${m[1].toLowerCase()}/${m[2]}`;
+  }
+  return null;
+}
+function webRemotes(db) {
+  const byRepo = /* @__PURE__ */ new Map();
+  const rows = all(
+    db,
+    `SELECT repo, provider, url FROM repo_remotes
+      WHERE provider IN ('github', 'gitlab')
+      ORDER BY repo, sync DESC, is_primary DESC, name`
+  );
+  for (const r of rows) {
+    const base = remoteWebUrl(r["url"]);
+    if (!base) continue;
+    const repo = String(r["repo"]);
+    const list = byRepo.get(repo) ?? [];
+    list.push({ provider: r["provider"], base });
+    byRepo.set(repo, list);
+  }
+  return byRepo;
+}
+var present = (v) => v !== null && v !== void 0;
+function issueWebUrl(remotes, issue) {
+  const provider = present(issue["gh_iid"]) ? "github" : present(issue["gl_iid"]) ? "gitlab" : null;
+  if (!provider || !present(issue["repo"])) return null;
+  return remotes.get(String(issue["repo"]))?.find((r) => r.provider === provider)?.base ?? null;
+}
 function issues(db) {
+  const remotes = webRemotes(db);
   return all(
     db,
     `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
@@ -4499,7 +4542,7 @@ function issues(db) {
        FROM issues i
       WHERE i.id > 0
       ORDER BY i.status = 'open' DESC, i.updated_at DESC`
-  );
+  ).map((i) => ({ ...i, remote_web_url: issueWebUrl(remotes, i) }));
 }
 function schemaVersion(db) {
   const row = one(db, `SELECT schema_version FROM plugin_meta WHERE id = 1`);
@@ -4524,7 +4567,7 @@ function issueDetail(db, id) {
   if (!issue) return null;
   const repo = issue["repo"] === null ? null : String(issue["repo"]);
   return {
-    issue,
+    issue: { ...issue, remote_web_url: issueWebUrl(webRemotes(db), issue) },
     label_taxonomy: {
       classification: configStringList(db, "issue_classification_labels"),
       priority: configStringList(db, "issue_priority_labels")
@@ -4537,7 +4580,7 @@ function issueDetail(db, id) {
     ).map((r) => String(r["name"])),
     discussions: all(
       db,
-      `SELECT id, author, kind, body, created_at FROM discussions
+      `SELECT id, author, kind, body, task_id, created_at FROM discussions
         WHERE issue_id = ? ORDER BY created_at, id`,
       id
     ),
@@ -4584,6 +4627,7 @@ function taskDetail(db, id) {
     id
   );
   if (!task) return null;
+  const remote = present(task["repo"]) ? webRemotes(db).get(String(task["repo"]))?.[0] : void 0;
   const commands = db.prepare(
     `SELECT ordinal, command, exit_code, elapsed_s, output_tail
        FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`
@@ -4599,7 +4643,9 @@ function taskDetail(db, id) {
       ...task,
       ...parseJsonColumn(task, "files"),
       ...parseJsonColumn(task, "verification"),
-      ...parseJsonColumn(task, "completion_report")
+      ...parseJsonColumn(task, "completion_report"),
+      remote_web_url: remote?.base ?? null,
+      remote_provider: remote?.provider ?? null
     },
     issue: one(db, `SELECT id, objective FROM issues WHERE id = ?`, Number(task["issue_id"])) ?? null,
     validations: all(
@@ -7898,7 +7944,7 @@ var IssueWriter = class {
 
 // server/main.ts
 setEmbeddingLoader(noEmbeddings);
-var HOST = "127.0.0.1";
+var HOST2 = "127.0.0.1";
 var DEFAULT_PORT = 7477;
 var WEB_ROOT = fileURLToPath2(new URL("./web/", import.meta.url));
 var MAX_BODY_BYTES2 = 2 * 1024 * 1024;
@@ -8060,7 +8106,7 @@ async function handleWrite(ctx, req, url, res) {
   sendJson(res, result.status, result.body);
 }
 async function handle(ctx, req, res) {
-  const url = new URL(req.url ?? "/", `http://${HOST}`);
+  const url = new URL(req.url ?? "/", `http://${HOST2}`);
   try {
     if (req.headers.host !== ctx.host) {
       return sendJson(res, 403, { error: "forbidden_host", message: `requests are accepted only for host ${ctx.host}` });
@@ -8086,12 +8132,12 @@ function main() {
     console.error(`dashboard server failed: ${err3.message}`);
     process.exit(1);
   });
-  server.listen(parsePort(process.env["TMB_DASHBOARD_PORT"]), HOST, () => {
+  server.listen(parsePort(process.env["TMB_DASHBOARD_PORT"]), HOST2, () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr ? addr.port : DEFAULT_PORT;
-    ctx.host = `${HOST}:${port}`;
+    ctx.host = `${HOST2}:${port}`;
     console.log(`TMB dashboard on ${dbPath}`);
-    console.log(`http://${HOST}:${port}/`);
+    console.log(`http://${HOST2}:${port}/`);
   });
   const shutdown = () => {
     server.close();

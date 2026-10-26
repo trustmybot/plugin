@@ -2,6 +2,7 @@ import { CheckIcon, CommentIcon, IssueClosedIcon, IssueOpenedIcon, TasklistIcon 
 import type { Row } from '../../api.ts';
 import { EntityList, type ListSort, type ListTab } from '../../shared/list/EntityList.tsx';
 import { ListRow } from '../../shared/list/ListRow.tsx';
+import { RemoteIssueLink, remoteIssue } from '../../shared/remote.tsx';
 import { RelativeTime } from '../../ui/RelativeTime.tsx';
 import { IssueLabel, parseLabels } from './labels.tsx';
 
@@ -24,7 +25,7 @@ const matches = (issue: Row, needle: string) =>
 function IssueRow({ issue }: { issue: Row }) {
   const open = issue['status'] === 'open';
   const StateIcon = open ? IssueOpenedIcon : IssueClosedIcon;
-  const remote = issue['gh_iid'] ? ` · GH ${String(issue['gh_iid'])}` : issue['gl_iid'] ? ` · GL ${String(issue['gl_iid'])}` : '';
+  const remote = remoteIssue(issue);
   const taskCount = Number(issue['task_count'] ?? 0);
   return (
     <ListRow
@@ -39,7 +40,13 @@ function IssueRow({ issue }: { issue: Row }) {
       meta={
         <span>
           #{String(issue['id'])}
-          {remote} {open ? 'opened' : 'closed'} <RelativeTime value={open ? issue['created_at'] : (issue['closed_at'] ?? issue['updated_at'])} />
+          {remote && (
+            <>
+              {' · '}
+              <RemoteIssueLink issue={issue} />
+            </>
+          )}{' '}
+          {open ? 'opened' : 'closed'} <RelativeTime value={open ? issue['created_at'] : (issue['closed_at'] ?? issue['updated_at'])} />
         </span>
       }
       aside={

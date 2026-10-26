@@ -43,9 +43,22 @@ export interface EntityListProps {
   controls?: ReactNode;
 }
 
+export interface SearchState {
+  text: string;
+  synced: string;
+}
+
+export const typedSearch = (value: string): SearchState => ({ text: value, synced: value.trim() });
+
+export const syncSearch = (state: SearchState, hashQ: string): SearchState => (hashQ === state.synced ? state : { text: hashQ, synced: hashQ });
+
 export function EntityList({ rows, tabs, sorts, matches, renderRow, chips = [], tab, path, noun, emptyIcon, searchPlaceholder, controls }: EntityListProps) {
   const params = useListParams();
-  const [search, setSearch] = useState(() => params.get('q') ?? '');
+  const hashQ = params.get('q') ?? '';
+  const [searchState, setSearchState] = useState<SearchState>(() => ({ text: hashQ, synced: hashQ }));
+  const synced = syncSearch(searchState, hashQ);
+  if (synced !== searchState) setSearchState(synced);
+  const search = synced.text;
   const [sort, setSort] = useState(() => Object.keys(sorts)[0]!);
   const current = tabs.find((t) => t.key === tab) ?? tabs[0]!;
   const needle = search.trim().toLowerCase();
@@ -55,7 +68,7 @@ export function EntityList({ rows, tabs, sorts, matches, renderRow, chips = [], 
   const stateLabel = current.label.toLowerCase();
 
   const onSearch = (value: string) => {
-    setSearch(value);
+    setSearchState(typedSearch(value));
     window.history.replaceState(null, '', hrefWith({ q: value.trim() || null }, path));
   };
 

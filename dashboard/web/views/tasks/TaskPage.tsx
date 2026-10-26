@@ -41,7 +41,7 @@ export function TaskPage({ detail }: { detail: TaskDetail }) {
           <SpecSection body={task['spec_body']} />
           <CriteriaSection report={task.completion_report} raw={task.completion_report_raw} />
           <ReviewsSection validations={validations} findings={findings} />
-          <VerificationSection runs={verifications} />
+          <VerificationSection runs={verifications} web={task['remote_web_url']} provider={task['remote_provider']} />
           <AgentRunsSection runs={agent_runs} />
         </div>
       </div>

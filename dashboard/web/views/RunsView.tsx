@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react';
 import { useApi, type Gates, type Row } from '../api.ts';
 import { DataTable, type Column } from '../DataTable.tsx';
-import { agentCell, badge, exitBadge, RUN_COLUMNS, TASK_ID_COLUMN, TASK_TITLE_COLUMN, time } from '../shared/columns.tsx';
+import { agentCell, badge, entityLink, exitBadge, RUN_COLUMNS, TASK_ID_COLUMN, TASK_TITLE_COLUMN, time } from '../shared/columns.tsx';
 import { Loading } from '../shared/Loading.tsx';
 
 const mono = (key: string, length?: number) => (r: Row) => <span className="font-mono text-xs">{String(r[key] ?? '').slice(0, length)}</span>;
 
-const AGENT_RUN_COLUMNS: Column[] = [
+export const AGENT_RUN_COLUMNS: Column[] = [
   ...RUN_COLUMNS,
+  { key: 'issue_id', header: 'Issue', cell: entityLink('issue', 'issue_id'), hideBelow: 'md' },
   { key: 'model', header: 'Model', hideBelow: 'md' },
   { key: 'tokens_out', header: 'Tokens out', hideBelow: 'md' },
   { key: 'duration_ms', header: 'Duration', cell: (r) => `${Math.round(Number(r['duration_ms'] ?? 0) / 1000)}s`, hideBelow: 'sm' },

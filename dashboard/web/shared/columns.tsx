@@ -35,19 +35,17 @@ export const agentCell = (key: string) => (r: Row) => {
   );
 };
 
-const TASK_LINK = 'text-fg hover:text-accent hover:underline';
-
-export const taskLink = (key: 'task_id' | 'task_title') => (r: Row) =>
-  r['task_id'] === null || r['task_id'] === undefined ? (
+export const entityLink = (kind: EntityKind, idKey: string, labelKey: string = idKey) => (r: Row) =>
+  r[idKey] === null || r[idKey] === undefined || r[idKey] === '' ? (
     <span className="text-fg-muted">—</span>
   ) : (
-    <a href={`#/tasks/${String(r['task_id'])}`} className={TASK_LINK} onClick={(e) => e.stopPropagation()}>
-      {String(r[key] ?? '')}
+    <a href={hrefFor(kind, r[idKey])} className={ENTITY_LINK} onClick={(e) => e.stopPropagation()}>
+      {String(r[labelKey] ?? '')}
     </a>
   );
 
-export const TASK_ID_COLUMN: Column = { key: 'task_id', header: 'Task', cell: taskLink('task_id') };
-export const TASK_TITLE_COLUMN: Column = { key: 'task_title', header: 'Title', cell: taskLink('task_title'), truncate: true, hideBelow: 'md' };
+export const TASK_ID_COLUMN: Column = { key: 'task_id', header: 'Task', cell: entityLink('task', 'task_id') };
+export const TASK_TITLE_COLUMN: Column = { key: 'task_title', header: 'Title', cell: entityLink('task', 'task_id', 'task_title'), truncate: true, hideBelow: 'md' };
 
 export const RUN_COLUMNS: Column[] = [
   { key: 'id', header: 'Run', hideBelow: 'sm' },
