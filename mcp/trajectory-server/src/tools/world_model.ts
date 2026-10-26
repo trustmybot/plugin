@@ -28,12 +28,14 @@ import {
 import {
   CLAIMS,
   CONCEPT_KINDS,
+  DERIVED_SEED_HITS,
   HANDOFFS,
   derivedChain,
   getConcept,
   searchConcepts,
   upsertConcept,
   type ConceptInput,
+  type SeedCandidate,
   type Step,
 } from '../world-model/concepts.js';
 
@@ -334,7 +336,7 @@ function symbolResult(symbol: SymbolRow, score: number, stale: boolean): Record<
   };
 }
 
-type SearchHit =
+export type SearchHit =
   | { kind: 'dir'; key: string; node: DirectoryNode }
   | { kind: 'file'; key: string; node: FileNode }
   | { kind: 'symbol'; key: string; node: SymbolRow };
@@ -448,6 +450,63 @@ function fuse(lists: Array<SearchHit[]>): Array<{ hit: SearchHit; score: number 
     });
   }
   return [...fused.values()].sort((a, b) => b.score - a.score);
+}
+
+export interface WorldModelRanking {
+  ranked: Array<{ hit: SearchHit; score: number }>;
+  match: KeywordMatch;
+  warning?: 'semantic_unavailable';
+}
+
+// The one world-model ranking, shared by world_model_search and the derived
+// concept chain: keyword pools over dirs, files and symbols; in semantic or
+// hybrid mode cosine hits too, fused by RRF in hybrid; keyword ranking alone
+// when no embedding answers.
+export async function rankWorldModel(
+  db: TrajectoryDB,
+  graph: WorldModelGraph,
+  repo: string,
+  query: string,
+  mode: string,
+  k: number,
+): Promise<WorldModelRanking> {
+  const pool = mode === 'keyword' ? k : k * 4;
+  const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
+  const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
+  const symbolSearch = keywordSearchSymbols(db, repo, query, SYMBOL_POOL);
+  const match: KeywordMatch = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === 'any_term')
+    ? 'any_term'
+    : 'all_terms';
+  const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
+  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
+  const hitsOf = (ranked: Array<{ hit: SearchHit }>): SearchHit[] => ranked.map(({ hit }) => hit);
+
+  if (mode === 'keyword') return { ranked: keywordRanked, match };
+
+  await backfillWorldModel(db);
+  const semantic = await cosineHits(db, graph, repo, query, pool);
+  if (semantic.length === 0) return { ranked: keywordRanked, match, warning: 'semantic_unavailable' };
+  if (mode === 'semantic') return { ranked: semantic, match };
+
+  return {
+    ranked: fuse([
+      dirSearch.hits.map(dirHit),
+      hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== 'dir')),
+      hitsOf(semantic.filter(({ hit }) => hit.kind === 'dir')),
+      hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
+    ]),
+    match,
+  };
+}
+
+function derivedSeeds(ranked: Array<{ hit: SearchHit }>): SeedCandidate[] {
+  return ranked
+    .flatMap(({ hit }): SeedCandidate[] => {
+      if (hit.kind === 'symbol') return [{ kind: 'symbol', id: hit.node.id }];
+      if (hit.kind === 'file') return [{ kind: 'file', path: WorldModelGraph.relativeFilePath(hit.node) }];
+      return [];
+    })
+    .slice(0, DERIVED_SEED_HITS);
 }
 
 function ok(data: unknown): CallToolResult {
@@ -796,42 +855,14 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
           return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
         }
 
-        const pool = mode === 'keyword' ? k : k * 4;
-        const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-        const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
-        const symbolSearch = keywordSearchSymbols(db, repo, query, SYMBOL_POOL);
-        const match: KeywordMatch = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === 'any_term')
-          ? 'any_term'
-          : 'all_terms';
-        const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
-        const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
-        const hitsOf = (ranked: Array<{ hit: SearchHit }>): SearchHit[] => ranked.map(({ hit }) => hit);
-
-        const respond = (ranked: Array<{ hit: SearchHit; score: number }>, extra: Record<string, unknown> = {}) => {
-          const top = ranked.slice(0, k);
-          const stale = staleFiles(
-            db,
-            top.flatMap(({ hit }) => (hit.kind === 'symbol' ? [hit.node] : [])),
-          );
-          const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
-          return ok({ results, total_matched: results.length, ...extra, mode, match });
-        };
-
-        if (mode === 'keyword') return respond(keywordRanked);
-
-        await backfillWorldModel(db);
-        const semantic = await cosineHits(db, graph, repo, query, pool);
-        if (semantic.length === 0) return respond(keywordRanked, { warning: 'semantic_unavailable' });
-        if (mode === 'semantic') return respond(semantic);
-
-        return respond(
-          fuse([
-            dirSearch.hits.map(dirHit),
-            hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== 'dir')),
-            hitsOf(semantic.filter(({ hit }) => hit.kind === 'dir')),
-            hitsOf(semantic.filter(({ hit }) => hit.kind === 'file')),
-          ]),
+        const { ranked, match, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
+        const top = ranked.slice(0, k);
+        const stale = staleFiles(
+          db,
+          top.flatMap(({ hit }) => (hit.kind === 'symbol' ? [hit.node] : [])),
         );
+        const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
+        return ok({ results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match });
       }),
     ),
 
@@ -905,7 +936,10 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
         const available = db.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== undefined;
         if (!available) return ok({ available, concepts: [], derived: null });
         const concepts = searchConcepts(db, repo.name, query, CONCEPT_LIMIT);
-        const derived = concepts.length === 0 ? derivedChain(db, repo.name, query) : null;
+        const graph = concepts.length === 0 ? (graphHolder?.ensureGraph() ?? null) : null;
+        const derived = graph
+          ? derivedChain(db, repo.name, query, derivedSeeds((await rankWorldModel(db, graph, repo.name, query, 'hybrid', DERIVED_SEED_HITS)).ranked))
+          : null;
         return ok({
           available,
           concepts,

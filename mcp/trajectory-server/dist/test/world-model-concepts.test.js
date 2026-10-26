@@ -10,9 +10,14 @@ import { scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
 import { insertAudit } from '../tools/audit.js';
 import { applyConceptProposals } from '../world-model/concepts.js';
+import { resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
+resetEmbeddingModelForTests(async () => {
+    throw new Error('no model in tests');
+});
+after(() => resetEmbeddingModelForTests());
 const WORKTREE = fileURLToPath(new URL('../../../../', import.meta.url)).replace(/\/$/, '');
 const LANE = /(^|\/)(tests?|__tests__|(__)?fixtures(__)?)\/|\.test\.[a-z]+$/;
 function text(r) {
@@ -420,6 +425,81 @@ describe('concepts proposed at close, applied by scan once reviewed (GH 1680)', 
         assert.deepEqual(applyConceptProposals(db, repo, root, new Date(now.getTime() + 14 * DAY)), { applied: 0, rejected: 1, pending: 0 });
         assert.deepEqual(rows('concept_proposal_rejected').map((r) => r['task_id']), [old, fresh]);
         assert.equal(rows('concept_proposal_applied').length, 1);
+    });
+});
+describe('derived chains anchor on the search ranking and skip leaf helpers (GH 1832)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'wm-derived-'));
+    const root = join(ws, 'fixture');
+    const db = tempDB();
+    const holder = GraphHolder.fixed(new WorldModelGraph(db));
+    const wm = () => worldModelTools(db, holder).handlers;
+    let repo = '';
+    const write = (path, body) => {
+        mkdirSync(join(root, path, '..'), { recursive: true });
+        writeFileSync(join(root, path), body);
+    };
+    const commit = () => {
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        execFileSync('git', ['commit', '-qm', 'change'], { cwd: root });
+    };
+    const concepts = async (query) => parse((await wm()['world_model_concepts']({ agent: 'bro', repo, query })));
+    const chain = (out) => out.derived?.steps.map((s) => [s.symbol?.path, s.symbol?.qualified_name]) ?? null;
+    before(async () => {
+        write('src/recovery.ts', "import { aidThing } from './aid.js';\n\nexport function toolResume(): number {\n  return aidThing(2);\n}\n");
+        write('src/aid.ts', 'export function aidThing(n: number): number {\n  return n - 1;\n}\n');
+        write('src/widget-resume-gate.ts', "import { checkThing } from './check.js';\n\nexport function run(): number {\n  return checkThing(1);\n}\n");
+        write('src/check.ts', 'export function checkThing(n: number): number {\n  return n + 1;\n}\n');
+        write('src/engine.ts', "// Quokka harbor dispatcher.\n\nimport { checkThing } from './check.js';\n\nexport function idle(): number {\n  return 0;\n}\n\nexport function go(): number {\n  return checkThing(3);\n}\n");
+        write('src/ledger-posting.ts', "import { logLine } from './log.js';\nimport { settleBatch } from './settle.js';\n\nexport function postLedger(): number {\n  logLine('post');\n  return settleBatch(1);\n}\n");
+        write('src/log.ts', 'export function logLine(s: string): void {\n  void s;\n}\n');
+        write('src/settle.ts', 'export function settleBatch(n: number): number {\n  return n * 2;\n}\n');
+        write('src/callers.ts', "import { logLine } from './log.js';\n\n" +
+            ['c1', 'c2', 'c3', 'c4'].map((c) => `export function ${c}(): void {\n  logLine('${c}');\n}\n`).join('\n'));
+        execFileSync('git', ['init', '-q'], { cwd: root });
+        execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+        commit();
+        repo = (await scan(db, holder, ws)).repos[0].name;
+    });
+    after(() => {
+        db.close();
+        rmSync(ws, { recursive: true, force: true });
+    });
+    it('the concept OR fallback admits only concepts that match a majority of the query words', async () => {
+        const step = [{ path: 'src/check.ts', kind: 'function', qualified_name: 'checkThing', description: 'Checks.' }];
+        for (const name of ['alpha thing', 'bravo thing', 'charlie thing']) {
+            parse((await wm()['world_model_concept_upsert']({ agent: 'bro', repo, name, steps: step })));
+        }
+        assert.deepEqual((await concepts('alpha bravo charlie')).concepts, []);
+        parse((await wm()['world_model_concept_upsert']({ agent: 'bro', repo, name: 'alpha bravo thing', steps: step })));
+        assert.deepEqual((await concepts('alpha bravo charlie')).concepts.map((c) => c.name), ['alpha bravo thing']);
+    });
+    it('a file hit on its purpose alone seeds the file symbol with the most outgoing edges', async () => {
+        assert.deepEqual(chain(await concepts('quokka harbor')), [
+            ['src/engine.ts', 'go'],
+            ['src/check.ts', 'checkThing'],
+        ]);
+    });
+    it('the walk skips a leaf helper with five exact callers and keeps a low-fan-in callee', async () => {
+        const callers = db.get(`SELECT COUNT(DISTINCT e.src_id) AS n FROM wm_edges e JOIN wm_symbols d ON d.id = e.dst_id
+        WHERE d.qualified_name = 'logLine' AND e.kind = 'calls' AND e.resolution = 'exact'`).n;
+        assert.equal(Number(callers), 5);
+        assert.deepEqual(chain(await concepts('ledger posting')), [
+            ['src/ledger-posting.ts', 'postLedger'],
+            ['src/settle.ts', 'settleBatch'],
+        ]);
+    });
+    it('the chain starts in the file covering the query, and without it derived is null, not the one-word distractor', async () => {
+        assert.deepEqual(chain(await concepts('widget resume gate')), [
+            ['src/widget-resume-gate.ts', 'run'],
+            ['src/check.ts', 'checkThing'],
+        ]);
+        rmSync(join(root, 'src/widget-resume-gate.ts'));
+        commit();
+        await scan(db, holder, ws);
+        const out = await concepts('widget resume gate');
+        assert.deepEqual(out.concepts, []);
+        assert.equal(out.derived, null);
     });
 });
 //# sourceMappingURL=world-model-concepts.test.js.map
