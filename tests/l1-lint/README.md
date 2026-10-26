@@ -18,6 +18,7 @@ bash tests/l1-lint/link-check.sh
 | [`dist-fresh.sh`](./dist-fresh.sh) | Committed `dist/` out of sync with source; installed esbuild version differing from the one `bun.lock` pins |
 | [`tsc-noemit.sh`](./tsc-noemit.sh) | TypeScript type errors (no emit) |
 | [`release-script-safety.sh`](./release-script-safety.sh) | Unsafe patterns in release scripts |
+| [`release-payload-workflow.sh`](./release-payload-workflow.sh) | `.github/workflows/release-payload.yml` losing its safety shape: tag-only triggers and the ref_name refusal, top-level `permissions: {}`, unpinned actions, the concurrency group, `--check` after the first push, a force push other than `stable-build` (parsed with `ruby -ryaml`; every run self-tests `fixtures/release-payload-workflow/`) |
 | [`ci-workflow-refs-exist.sh`](./ci-workflow-refs-exist.sh) | CI workflow references that don't resolve |
 
 ### Docs & doctrine parity

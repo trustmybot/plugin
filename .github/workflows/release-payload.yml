@@ -1,0 +1,123 @@
+name: release-payload
+on:
+  # Builds the runtime-only payload of each release tag and pushes it as
+  # payload/<tag>, the ref the rc channel pins. A stable tag also force-pushes
+  # the payload to stable-build. Pushes made with GITHUB_TOKEN trigger no
+  # workflows, and payload/<tag> matches neither filter below.
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
+
+permissions: {}
+
+concurrency:
+  group: release-payload-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  payload:
+    name: Build and publish the runtime payload
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Refuse a tag that is not vX.Y.Z or vX.Y.Z-rc.N
+        id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::Refusing tag '$TAG': not vX.Y.Z or vX.Y.Z-rc.N."
+            exit 1
+          fi
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - name: Look for an existing payload tag
+        id: existing
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/payload/$TAG" >/dev/null || status=$?
+          case "$status" in
+            0) echo "exists=true" >> "$GITHUB_OUTPUT"
+               echo "payload/$TAG is already on origin; re-using it, no rebuild." ;;
+            2) echo "exists=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::git ls-remote failed with exit $status."
+               exit "$status" ;;
+          esac
+
+      - name: Build the payload commit
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          TAG_SHA="$(git rev-parse HEAD)"
+          node --experimental-strip-types scripts/maintenance/runtime-payload.ts
+          git commit -q --allow-empty -m "🔖 chore(payload): $TAG" -m "Built from $TAG_SHA."
+          node --experimental-strip-types scripts/maintenance/runtime-payload.ts --check
+
+      - name: Push the payload tag
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git tag "payload/$TAG"
+          git push origin "refs/tags/payload/$TAG"
+
+      - name: Check out the existing payload commit
+        if: steps.existing.outputs.exists == 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags --depth 1 origin "refs/tags/payload/$TAG"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Force-push stable-build
+        if: steps.tag.outputs.stable == 'true'
+        run: |
+          set -euo pipefail
+          git push --force origin HEAD:refs/heads/stable-build
+
+      - name: Write the step summary
+        env:
+          TAG: ${{ github.ref_name }}
+          EXISTED: ${{ steps.existing.outputs.exists }}
+          STABLE: ${{ steps.tag.outputs.stable }}
+        run: |
+          set -euo pipefail
+          PAYLOAD_SHA="$(git rev-parse HEAD)"
+          {
+            echo "### Release payload \`payload/$TAG\`"
+            echo
+            echo "- Tag: \`$TAG\`"
+            echo "- Payload commit: \`$PAYLOAD_SHA\`"
+            if [ "$EXISTED" = "true" ]; then
+              echo "- \`payload/$TAG\` was already on origin; not rebuilt or re-tagged."
+            fi
+            if [ "$STABLE" = "true" ]; then
+              echo "- \`stable-build\` now points at the payload commit."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

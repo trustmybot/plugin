@@ -7,8 +7,9 @@
 # production marketplace-rc main, which the classifier blocks.
 #
 # Run AFTER the vX.Y.Z-rc.N tag is pushed to origin (scripts/release.sh, or a
-# manual rc tag). Points the rc-channel catalog at the tag so installs of
-# `tmb@trustmybot-rc` serve the rc under validation.
+# manual rc tag). Points the rc-channel catalog at payload/<tag>, the tag's
+# runtime-only build that .github/workflows/release-payload.yml pushes, so
+# installs of `tmb@trustmybot-rc` serve the rc under validation.
 #
 # Usage:
 #   bash scripts/publish-rc-channel.sh [version] [--stable-repin] [--yes] [--dry-run]
@@ -19,26 +20,31 @@
 #   3. Verify the tag exists on origin (must be pushed first).
 #   4. Await the tag's release-gate run; refuse unless it concluded success
 #      (read-only — runs in --dry-run too).
-#   5. Clone trustmybot/marketplace-rc into a temp dir (trap cleanup).
-#   6. Set .claude-plugin/marketplace.json plugins[0].source.ref → TAG; validate JSON.
-#   7. Ensure a marketplace-rc README.md exists.
-#   8. Show the diff, confirm y/N (skipped by --yes), then commit + push origin main.
+#   5. Await payload/TAG on origin (scripts/await-payload-tag.ts); refuse when
+#      it does not appear (read-only — runs in --dry-run too).
+#   6. Clone trustmybot/marketplace-rc into a temp dir (trap cleanup).
+#   7. Set .claude-plugin/marketplace.json plugins[0].source.ref → payload/TAG; validate JSON.
+#   8. Ensure a marketplace-rc README.md exists.
+#   9. Show the diff, confirm y/N (skipped by --yes), then commit + push origin main.
 #
 # --stable-repin mode (CONTRIBUTING Phase-D step 14):
 #   Re-pins the rc channel to a STABLE tag (X.Y.Z) after a release so rc-channel
 #   installs converge on the released build between rc cycles. VERSION must match
 #   a stable tag; the rc-only refusal and the release-gate pre-check are bypassed
 #   (stable tags fire no gate — the content was gated at its rc). Every other
-#   step — verify tag on origin, temp clone, rewrite ref, idempotent skip,
-#   confirm, commit + push — is identical. Fired by scripts/release.sh step 6.
+#   step — verify tag on origin, await payload/TAG, temp clone, rewrite ref to
+#   payload/TAG, idempotent skip, confirm, commit + push — is identical. Fired
+#   by scripts/release.sh step 6.
 #
 # Idempotent + safety-checked:
 #   - Refuses any non-rc version (or, in --stable-repin, any non-stable version).
 #   - Refuses if the tag is not on origin.
 #   - Refuses unless the tag's release-gate run concluded success (no bypass flag;
 #     skipped in --stable-repin, where no gate fires).
+#   - Refuses unless payload/TAG reaches origin within the helper's timeout
+#     (TMB_PAYLOAD_TIMEOUT, default 600s).
 #   - Never operates on a hardcoded local catalog path — always a fresh temp clone.
-#   - If the ref already points at TAG AND the README is present → prints
+#   - If the ref already points at payload/TAG AND the README is present → prints
 #     'already published' and exits 0.
 #   - --dry-run prints the intended change and never commits or pushes.
 
@@ -114,6 +120,7 @@ else
 fi
 
 TAG="v${VERSION}"
+PAYLOAD_REF="payload/${TAG}"
 
 # ---------- verify the tag exists on origin ----------
 
@@ -141,6 +148,16 @@ else
   await_release_gate "$TAG" "$PLUGIN_ROOT" || exit $?
 fi
 
+# ---------- await the tag's runtime payload ----------
+#
+# The tag push also fired .github/workflows/release-payload.yml, which pushes
+# payload/TAG — the runtime-only build the catalog pins. Wait for it before
+# pinning. Read-only, so it runs in --dry-run too.
+
+printf "Waiting for %s on origin ...\n" "$PAYLOAD_REF"
+PAYLOAD_SHA="$(node --experimental-strip-types "$PLUGIN_ROOT/scripts/await-payload-tag.ts" "$TAG" --remote "$PLUGIN_REPO")" || exit $?
+printf "✓ %s is on origin at %s.\n" "$PAYLOAD_REF" "$PAYLOAD_SHA"
+
 # ---------- clone the catalog into a temp dir ----------
 
 WORK_DIR="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-rc-catalog-XXXXXX")"
@@ -162,15 +179,15 @@ CURRENT_REF="$(jq -r '.plugins[0].source.ref' "$MARKETPLACE_JSON")"
 
 # ---------- idempotency check ----------
 
-if [ "$CURRENT_REF" = "$TAG" ] && [ -f "$README" ]; then
-  printf "✓ Already published — ref is %s and README.md is present. Nothing to do.\n" "$TAG"
+if [ "$CURRENT_REF" = "$PAYLOAD_REF" ] && [ -f "$README" ]; then
+  printf "✓ Already published — ref is %s and README.md is present. Nothing to do.\n" "$PAYLOAD_REF"
   exit 0
 fi
 
 # ---------- update the ref ----------
 
 UPDATED_JSON="$WORK_DIR/marketplace.json.new"
-jq --arg ref "$TAG" '.plugins[0].source.ref = $ref' "$MARKETPLACE_JSON" > "$UPDATED_JSON"
+jq --arg ref "$PAYLOAD_REF" '.plugins[0].source.ref = $ref' "$MARKETPLACE_JSON" > "$UPDATED_JSON"
 
 # validate JSON before swapping it in
 if ! jq -e . "$UPDATED_JSON" >/dev/null 2>&1; then
@@ -187,7 +204,7 @@ if [ ! -f "$README" ]; then
   cat > "$README" <<'EOF' # cli-config-scope: printed
 # TMB plugin marketplace — RC
 
-Catalog for the **rc channel** of the [TMB plugin](https://github.com/trustmybot/plugin). Pins the latest `vX.Y.Z-rc.N` tag under validation — the release candidate that's passed the local L6 chain and is being re-confirmed by the CI release-gate before it ships as stable. Use this when you want to dogfood a build that's close to release but ahead of the stable channel.
+Catalog for the **rc channel** of the [TMB plugin](https://github.com/trustmybot/plugin). Pins the rc's `payload/vX.Y.Z-rc.N` tag, the runtime-only build of the latest `vX.Y.Z-rc.N` under validation — the release candidate that's passed the local L6 chain and is being re-confirmed by the CI release-gate before it ships as stable. Use this when you want to dogfood a build that's close to release but ahead of the stable channel.
 
 ## Install
 
@@ -214,7 +231,7 @@ The rc channel is a per-developer choice, so every command here installs at loca
 
 ## Pull the latest rc
 
-The marketplace ref is the current `vX.Y.Z-rc.N` tag, but CC caches a clone — when the channel re-pins to a newer rc tag, refresh to pick it up:
+The marketplace ref is the current rc's `payload/vX.Y.Z-rc.N` tag, but CC caches a clone — when the channel re-pins to a newer rc tag, refresh to pick it up:
 
 ```
 claude plugin marketplace update trustmybot-rc
@@ -234,7 +251,7 @@ Then fully quit and relaunch Claude Code.
 
 ## Channel routing
 
-- This catalog: **RC channel** (latest `vX.Y.Z-rc.N` tag — pre-release builds under validation)
+- This catalog: **RC channel** (latest `payload/vX.Y.Z-rc.N` tag — pre-release builds under validation)
 - [trustmybot/marketplace-dev](https://github.com/trustmybot/marketplace-dev) — dev channel (`trustmybot/plugin@dev` — bleeding edge)
 - [trustmybot/marketplace](https://github.com/trustmybot/marketplace) — production (stable tags from main)
 
@@ -248,7 +265,7 @@ fi
 
 printf "\n✓ rc-channel publish plan:\n"
 printf "  Catalog:       %s\n" "$CATALOG_REPO"
-printf "  source.ref:    %s → %s\n" "$CURRENT_REF" "$TAG"
+printf "  source.ref:    %s → %s\n" "$CURRENT_REF" "$PAYLOAD_REF"
 if [ "$README_CREATED" -eq 1 ]; then
   printf "  README.md:     create (was missing)\n"
 else
@@ -263,7 +280,7 @@ printf "\n"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   printf "✓ --dry-run: would set ref to %s%s. No commit, no push.\n" \
-    "$TAG" \
+    "$PAYLOAD_REF" \
     "$([ "$README_CREATED" -eq 1 ] && printf ' and create README.md' || printf '')"
   exit 0
 fi
@@ -293,4 +310,4 @@ git -C "$CLONE" commit -m "🚀 chore(rc): publish $TAG to the rc channel"
 git -C "$CLONE" push origin main
 
 printf "\n✓ Published %s to the rc channel.\n" "$TAG"
-printf "  Installs of tmb@trustmybot-rc now serve %s.\n" "$TAG"
+printf "  Installs of tmb@trustmybot-rc now serve %s (%s).\n" "$TAG" "$PAYLOAD_REF"
