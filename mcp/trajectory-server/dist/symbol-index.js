@@ -1,7 +1,10 @@
 // The L1 symbol index (ADR 0001, GH 1680): wm_symbols and wm_edges, written by
 // scan_run and read by world_model_search and world_model_symbol. A file is
 // re-parsed only when its symbols_md5 differs from content_md5 salted with
-// EXTRACTOR_VERSION, so a version bump re-parses every file once. Calls
+// EXTRACTOR_VERSION, so a version bump re-parses every file once. A file
+// whose read or extraction throws loses its symbols, is stamped with
+// FAILED_SUFFIX and is named in failed_paths; it is retried only when its
+// content or the version changes (GH 1858). Calls
 // resolve by import, same-file definition, sourced file or unique name;
 // resolution is a hint, never a guarantee every caller was found. Resolution
 // passes adapted from the GH 1680 MVP. hooks/hooks.json is indexed as 'hook'
@@ -12,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { basename, join, posix } from 'node:path';
 import { resolveSoleRepo } from './utils/repo-paths.js';
 import { loadParsers } from './parsing/loader.js';
-import { extractFile, inSymbolScope, languageOf, splitWords, STOPWORDS, symbolTerms, } from './parsing/extract.js';
+import { extractFile, inSymbolScope, languageOf, splitWords, STOPWORDS, symbolTerms, clip, oneLine, } from './parsing/extract.js';
 import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH } from './parsing/hooks.js';
 export const EXTRACTOR_VERSION = 1;
 const MAX_PARSE_BYTES = 1_000_000;
@@ -20,6 +23,9 @@ const CARD_LIST_CAP = 50;
 export const IMPACT_REF_CAP = 200;
 export const IMPACT_MAX_DEPTH = 5;
 const OR_FALLBACK_MIN_HITS = 3;
+export const FAILED_SUFFIX = ':failed';
+export const FAILED_PATHS_CAP = 20;
+const FAILED_ERROR_MAX = 200;
 const SYMBOL_COLUMNS = 's.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order';
 const CALLABLE = new Set(['function', 'method', 'class', 'sh_function']);
 const TABLE_EDGES = new Set(['reads_table', 'writes_table', 'indexes', 'triggers_on']);
@@ -261,9 +267,11 @@ function reresolveEdges(db, repo, names, skip) {
 // Bring one repo's symbols up to date with its wm_files rows. The grammars
 // load on the first call that has a stale TS/JS or shell file to parse.
 export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
+    const version = String(extractorVersion);
     const stale = db
         .all(`SELECT id, path, content_md5, size_bytes FROM wm_files
-        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ? ORDER BY path`, [repo, String(extractorVersion)])
+        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
+          AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`, [repo, version, version, FAILED_SUFFIX])
         .filter((f) => inSymbolScope(f.path));
     if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
         const hooksFile = db.get(`SELECT id, path, content_md5, size_bytes FROM wm_files WHERE repo = ? AND path = ?`, [repo, HOOKS_PATH]);
@@ -272,27 +280,23 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
     }
     const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
     const parsers = jobs.some((j) => j.lang !== null && j.lang !== 'sql') ? await loadParsers() : null;
-    let failed = 0;
+    const failed = [];
     const parsed = [];
     for (const { file, lang } of jobs) {
-        if (file.path === HOOKS_PATH) {
-            try {
-                parsed.push({ file, extraction: extractHooks(readSource(repoPath, file.path), registrationChains(repoPath)) });
-            }
-            catch {
-                failed++;
-            }
-            continue;
-        }
-        if (lang === null) {
+        const isHooks = file.path === HOOKS_PATH;
+        if (lang === null && !isHooks) {
             parsed.push({ file, extraction: null });
             continue;
         }
         try {
-            parsed.push({ file, extraction: extractFile(parsers, file.path, lang, readSource(repoPath, file.path)) });
+            const src = readSource(repoPath, file.path);
+            const extraction = isHooks
+                ? extractHooks(src, registrationChains(repoPath))
+                : extractFile(parsers, file.path, lang, src);
+            parsed.push({ file, extraction });
         }
-        catch {
-            failed++;
+        catch (e) {
+            failed.push({ file, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
         }
     }
     return db.transaction(() => {
@@ -307,7 +311,11 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
             else {
                 deleteFileSymbols(db, repo, file.path);
             }
-            db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [String(extractorVersion), file.id]);
+            db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [version, file.id]);
+        }
+        for (const { file } of failed) {
+            deleteFileSymbols(db, repo, file.path);
+            db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version, FAILED_SUFFIX, file.id]);
         }
         let resolved = 0;
         if (pending.length > 0) {
@@ -324,10 +332,11 @@ export async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EX
         markOrphanedEdges(db);
         return {
             files_parsed: parsed.filter((p) => p.extraction !== null).length,
-            files_failed: failed,
+            files_failed: failed.length,
             symbols,
             edges: pending.length,
             edges_resolved: resolved,
+            failed_paths: failed.slice(0, FAILED_PATHS_CAP).map(({ file, error }) => ({ path: file.path, error })),
         };
     });
 }

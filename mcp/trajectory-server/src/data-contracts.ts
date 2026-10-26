@@ -19,6 +19,7 @@ import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { HAS_PASS_SQL, STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
 import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
+import { EXTRACTOR_VERSION, FAILED_SUFFIX } from './symbol-index.js';
 
 export type ContractSeverity = 'error' | 'warn';
 export type ContractOp = '=' | '<=' | '>=';
@@ -161,6 +162,20 @@ const CONCEPTS_SCHEMA = 45;
 const COMPLETION_REPORT_SCHEMA = 48;
 const PENDING_PROPOSAL_DAYS = 7;
 const CONCEPTS_MIN_SYMBOLS = 100;
+const SYMBOLS_SCHEMA = 44;
+export const UNINDEXED_SAMPLE_CAP = 20;
+
+// inSymbolScope (parsing/extract.ts) as a SQL predicate on wm_files.path.
+export const IN_SYMBOL_SCOPE_SQL = `NOT (path GLOB 'dist/*' OR path GLOB '*/dist/*' OR path GLOB '*.map'
+               OR path GLOB 'node_modules/*' OR path GLOB '*/node_modules/*'
+               OR path GLOB 'vendor/*' OR path GLOB '*/vendor/*' OR path GLOB '*.min.js'
+               OR path = 'package-lock.json' OR path GLOB '*/package-lock.json'
+               OR path GLOB '*.lock' OR path GLOB '*.lockb')`;
+
+// In-scope files whose symbols do not describe their content at this
+// EXTRACTOR_VERSION: never stamped, stamped at another version, or failed.
+const UNINDEXED_FILES = `wm_files WHERE ${IN_SYMBOL_SCOPE_SQL}
+               AND symbols_md5 IS NOT content_md5 || ':' || '${EXTRACTOR_VERSION}'`;
 
 const auditField = (alias: string, field: string): string =>
   `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.${field}') END`;
@@ -502,6 +517,17 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       sql: `SELECT COUNT(*) FROM ${UNCONCEPTUALIZED_REPOS}`,
       expect: { op: '=', value: 0 },
       sample_sql: `SELECT s.repo, s.symbols FROM ${UNCONCEPTUALIZED_REPOS} ORDER BY s.symbols DESC LIMIT 5`,
+    },
+    {
+      id: 'wm_files_symbols_indexed',
+      severity: 'warn',
+      min_schema: SYMBOLS_SCHEMA,
+      description: `every in-symbol-scope wm_files row is indexed at this extractor version (symbols_md5 = content_md5:${EXTRACTOR_VERSION}). A row stamped '${FAILED_SUFFIX}' threw on read or extraction and stays out of the symbol index until its content changes (indexRepoSymbols' failed_paths names the error); an unstamped or stale row was skipped because its repo's symbol pass threw (scan_run's symbols.error) — rerun scan_run`,
+      sql: `SELECT COUNT(*) FROM ${UNINDEXED_FILES}`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT repo, path,
+             CASE WHEN symbols_md5 GLOB '*${FAILED_SUFFIX}' THEN 'failed' WHEN symbols_md5 IS NULL THEN 'unstamped' ELSE 'stale' END AS state,
+             updated_at FROM ${UNINDEXED_FILES} ORDER BY updated_at DESC, repo, path LIMIT ${UNINDEXED_SAMPLE_CAP}`,
     },
     {
       source: 'files',

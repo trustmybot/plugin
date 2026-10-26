@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { SCHEMA_V28_SQL } from './fixtures/schema-v28.js';
 import { DATA_CONTRACTS, DATA_CONTRACTS_SCHEMA_VERSION, NULLABLE_COLUMNS, dataContractsJson, isSqlContract } from '../data-contracts.js';
 import { AUDIT_EVENT_TYPES } from '../audit-events.js';
+import { FAILED_SUFFIX, symbolsStamp } from '../symbol-index.js';
 import { embed, resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { recordEmbeddingTransitions } from '../embeddings/health.js';
 import { checkTrajectoryDbFile, runDataContracts, trajectoryDbReader, trajectoryDoctorTools } from '../tools/trajectory-doctor.js';
@@ -96,6 +97,9 @@ function seedSymbols(db, repo, n) {
     for (let i = 0; i < n; i++) {
         db.run(`INSERT INTO wm_symbols (repo, path, kind, qualified_name, body_hash) VALUES (?, 'src/a.ts', 'function', ?, 'h')`, [repo, `f${i}`]);
     }
+}
+function seedWmFile(db, path, symbolsMd5) {
+    db.run(`INSERT INTO wm_files (repo, path, dir, content_md5, updated_at, symbols_md5) VALUES ('r', ?, '', 'abc', ?, ?)`, [path, iso(), symbolsMd5]);
 }
 function seedProposingTask(db, closedAt, opts) {
     const id = seedTask(db, seedIssue(db), 'closed', closedAt);
@@ -391,6 +395,16 @@ const FIXTURES = {
             seedSymbols(db, 'r', 100);
             seedConcept(db, 'r', 'run flow', 'verified');
             seedSymbols(db, 's', 99);
+        },
+    },
+    wm_files_symbols_indexed: {
+        violate: (db) => seedWmFile(db, 'src/a.ts', `${symbolsStamp('abc')}${FAILED_SUFFIX}`),
+        pass: (db) => {
+            seedWmFile(db, 'src/a.ts', symbolsStamp('abc'));
+            seedWmFile(db, 'dist/a.js', null);
+            seedWmFile(db, 'pkg/node_modules/x/index.js', null);
+            seedWmFile(db, 'src/a.js.map', 'abc');
+            seedWmFile(db, 'bun.lockb', null);
         },
     },
 };
