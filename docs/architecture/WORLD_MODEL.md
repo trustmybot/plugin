@@ -41,9 +41,11 @@ At the `WorldModelGraph` interface (`src/graph.ts`) a directory `key` is the JSO
 |---|---|
 | `swe` | the swe that edited the file (typed writer at task close — a later slice) |
 | `docstring`, `comment`, `jsdoc`, `frontmatter`, `heading`, `manifest` | deterministic extraction at scan (see Population) |
+| `structural` | the data-file fallback at scan when the file has no header: JSON/YAML shape, a `.txt` or `changelog.d/` file's directory role, a heading-less Markdown file's first line (GH 1843) |
+| `symbols` | the code-file fallback after symbol indexing when the file has no header: its exports, top-level definitions or test titles (GH 1843) |
 | `none` | nothing extractable: binary, empty, or an unrecognised shape; `purpose` is `''` |
 
-Writer priority is swe > extraction: a scan never replaces an `swe` purpose. Freshness is keyed by `content_md5` — an unchanged hash keeps the row as written, a changed hash makes the scan re-extract (or, for an `swe` row, refresh only the md5/size/sha).
+Writer priority is swe > header extraction > `structural` / `symbols`: a scan never replaces an `swe` purpose, and neither fallback ever overrides a header. Freshness is keyed by `content_md5` — an unchanged hash keeps the row as written, a changed hash makes the scan re-extract (or, for an `swe` row, refresh only the md5/size/sha).
 
 **Symbols (L1, v44, GH 1680).** The structural layer of [ADR 0001](./adr/0001-world-model-structural-layer.md). `src/parsing/` parses TypeScript, TSX, JavaScript and shell with tree-sitter (`web-tree-sitter` plus grammar `.wasm` files shipped in `dist/parsing/`, nothing installed at runtime) and reads SQL DDL with patterns. Each file yields:
 
@@ -73,8 +75,10 @@ Freshness is keyed by `symbols_md5`, stamped `<content_md5>:<EXTRACTOR_VERSION>`
 **Files.** For each tracked file the scan looks up its `wm_files` row:
 
 - absent, or `content_md5` differs → read at most the first 4 KB, run `extractPurpose` (`src/file-purpose.ts`), upsert the row with `updated_at` = scan time;
-- `content_md5` equal → leave the row untouched (purpose and `updated_at` preserved);
+- `content_md5` equal → leave the row untouched (purpose and `updated_at` preserved), except that a `none` row is re-extracted and rewritten only when a purpose now comes out;
 - existing row has `purpose_source='swe'` and the md5 differs → refresh md5/size/sha/`updated_at`, keep `purpose` and `purpose_source`.
+
+After symbol indexing, `refreshSymbolPurposes` (`src/symbol-purpose.ts`) rewrites each `none` or `symbols` row whose symbol-derived purpose changed, so a file's `symbols` purpose follows its definitions and a file that gains a header moves to `comment` / `jsdoc` on the next scan. Directory structural summaries are built before this pass, so they pick up a new `symbols` purpose one scan later.
 
 File rows whose path is gone from the repo's scan are deleted, and so are all rows of a repo that left the workspace; `repo_rename` re-keys them with the directory rows. The 4 KB head is the only file read; file bodies are never stored. The table stores purposes raw; because they come from file contents, every read path wraps them in `<untrusted-content source="file-purpose">` delimiters (the same `frameUntrusted` framing README summaries get), so agents treat them as data.
 
@@ -83,12 +87,16 @@ File rows whose path is gone from the repo's scan are deleted, and so are all ro
 | File | Purpose from | `purpose_source` |
 |---|---|---|
 | `.py` | module docstring (after any shebang / comment lines) | `docstring` |
-| `.ts`, `.js`, `.mjs` | a JSDoc block with `@file` / `@fileoverview`, else the first comment block | `jsdoc` / `comment` |
-| `.ts`, `.js`, `.mjs`, `.sh`, `.pl`, `.sql` | first comment block (`//`, `/* */`, `#`, `--`) after any shebang; license / SPDX / copyright and linter-directive lines are skipped | `comment` |
+| `.ts`, `.tsx`, `.js`, `.mjs` | a JSDoc block with `@file` / `@fileoverview`, else the first comment block | `jsdoc` / `comment` |
+| `.ts`, `.tsx`, `.js`, `.mjs`, `.sh`, `.pl`, `.sql` | first comment block (`//`, `/* */`, `#`, `--`) after any shebang; license / SPDX / copyright and linter-directive lines are skipped | `comment` |
 | `.md` | frontmatter `description:`, else the first H1 plus the first sentence of the paragraph under it | `frontmatter` / `heading` |
 | `package.json`, `plugin.json`, `marketplace.json` | top-level `description` | `manifest` |
+| `.json`, `.yml`, `.yaml` with no header | `name: description`, else `name`, else `schema <$schema>`, else `keys: a, b, c` (`items with keys:` for an array of objects, `items:` for an array of strings) | `structural` |
+| `.txt`, any file under `changelog.d/` | `<directory role>: <file stem>` (`changelog fragment`, `<owner> fixture`, `<parent> text`) | `structural` |
+| `.md` with no frontmatter or heading | its first non-empty line, inline markup stripped | `structural` |
+| a code file with no header (post-pass) | `exports: Name (kind), …` plus the first sentence of the module doc or main export's doc; else `defines: …` of the top-level definitions (`functions: …` for shell); a test file gives `tests for <subject>: <first describe/test titles>` | `symbols` |
 
-A NUL byte in the head (binary), an empty head, or no match yields `{purpose: '', source: 'none'}`.
+Fallback lists end in `+N more` when they would pass 200 characters. A NUL byte in the head (binary), an empty head, or no match yields `{purpose: '', source: 'none'}`.
 
 **Directories.** For each directory the scan checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if present, content (truncated to ~1 KB) becomes the dir's `summary` with `summary_source='readme'`. Otherwise the scanner synthesizes a deterministic **structural** summary (`summary_source='structural'`): `<dir>/ — N files; <untrusted-content source="file-purpose"> <name>: <purpose>; … </untrusted-content>` with up to 5 file purposes sorted by name, framed once on a single line so the depth-2 first-line trim keeps the whole frame, or the immediate file names when no file has a purpose, then `subdirs: …` — so every node is non-empty and reachable by `world_model_search`, never `NULL`.
 

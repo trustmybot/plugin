@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pinScanEnv, runGraphScript, tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
+import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
 import { renameRepo } from '../tools/repos.js';
 import { remotesView, repoRemotes, setRemoteSync } from '../repos/remotes.js';
@@ -1056,19 +1057,20 @@ console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, ro
             assert.equal(first['app/package.json']['purpose_source'], 'manifest');
             assert.equal(first['app/docs/guide.md']['purpose_source'], 'heading');
             assert.equal(first['app/src/blob.ts']['purpose_source'], 'none', 'binary head → none');
-            assert.equal(first['app/src/notes.txt']['purpose_source'], 'none');
+            assert.equal(first['app/src/notes.txt']['purpose'], 'src text: notes');
+            assert.equal(first['app/src/notes.txt']['purpose_source'], 'structural');
             assert.equal(out['stats1']['files_extracted'], tracked.length);
             const srcSummary = out['srcSummary'];
             assert.match(srcSummary, /^src\/ — 4 files; /, 'structural summary leads with the file count');
             assert.ok(srcSummary.includes('a.ts: Parses inbound webhook payloads.'), srcSummary);
             assert.ok(srcSummary.includes('b.py: Retry queue for failed jobs.'), srcSummary);
-            assert.match(srcSummary, /^src\/ — 4 files; <untrusted-content source="file-purpose"> a\.ts: [^\n]*; b\.py: [^\n]* <\/untrusted-content>$/, 'the purpose roll-up is framed once, on one line, after the count prefix');
+            assert.match(srcSummary, /^src\/ — 4 files; <untrusted-content source="file-purpose"> a\.ts: [^\n]*; b\.py: [^\n]*; notes\.txt: [^\n]* <\/untrusted-content>$/, 'the purpose roll-up is framed once, on one line, after the count prefix');
             assert.equal(out['rootSummary'], '(repo root)/ — 1 file; <untrusted-content source="file-purpose"> package.json: Fixture app for the scanner. </untrusted-content>; subdirs: docs, src', 'the subdirs suffix stays outside the frame');
             for (const node of Object.values(first)) {
                 assert.ok(!String(node['purpose']).includes('untrusted-content'), `${String(node['path'])}: stored purpose is unframed`);
             }
             const stats2 = out['stats2'];
-            assert.equal(stats2['files_extracted'], 1, 'only the changed non-swe file is re-extracted');
+            assert.equal(stats2['files_extracted'], 2, 'only the changed non-swe file and the row still none (blob.ts) are re-extracted');
             assert.equal(stats2['files_upserted'], 2, 'a.ts re-extracted + b.py facts refreshed');
             assert.equal(stats2['files_retired'], 1);
             assert.equal(second['app/src/a.ts']['purpose'], 'Validates inbound webhook signatures.');
@@ -1084,6 +1086,66 @@ console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, ro
             assert.equal(second['app/docs/guide.md'], undefined, 'deleted file node removed');
         }
         finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('scan_run — symbols and structural purposes (GH 1843)', () => {
+    it('fills header-less rows, keeps them byte-identical on an unchanged rescan, and lets a new header win', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-derived-'));
+        const db = tempDB();
+        const graph = new WorldModelGraph(db);
+        const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
+        try {
+            const repoRoot = mkRepo(ws, 'app', {
+                'src/util.ts': 'export function parseThing(x: string): string {\n  return x;\n}\nexport const LIMIT = 3;\n',
+                'scripts/lib.sh': 'helper_one() {\n  echo 1\n}\nhelper_two() {\n  echo 2\n}\n',
+                'src/test/util.test.ts': "import { describe, it } from 'node:test';\ndescribe('parseThing', () => {\n  it('returns its input', () => {});\n});\n",
+                'config/settings.json': '{"retries": 3, "mode": "fast"}\n',
+                'src/empty.ts': '\n',
+            });
+            const git = (...a) => execFileSync('git', ['-C', repoRoot, ...a], { encoding: 'utf8' });
+            const scan = async () => {
+                const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+                assert.ok(!r.isError, JSON.stringify(r));
+                return parse(r);
+            };
+            const snapshot = () => Object.fromEntries(graph.allFilesForRepo('app').map((f) => [WorldModelGraph.relativeFilePath(f), { ...f }]));
+            await scan();
+            const first = snapshot();
+            const expected = {
+                'src/util.ts': ['symbols', 'exports: parseThing (function), LIMIT (const)'],
+                'scripts/lib.sh': ['symbols', 'functions: helper_one, helper_two'],
+                'src/test/util.test.ts': ['symbols', 'tests for util: parseThing; returns its input'],
+                'config/settings.json': ['structural', 'keys: retries, mode'],
+                'src/empty.ts': ['none', ''],
+            };
+            for (const [path, [source, purpose]] of Object.entries(expected)) {
+                assert.equal(first[path]['purpose_source'], source, `${path}: source`);
+                assert.equal(first[path]['purpose'], purpose, `${path}: purpose`);
+            }
+            const stats2 = await scan();
+            assert.deepEqual(snapshot(), first, 'an unchanged rescan leaves every row byte-identical, updated_at included');
+            assert.equal(stats2['files_extracted'], 1, 'only the row still none (src/empty.ts) is re-extracted');
+            assert.equal(stats2['files_upserted'], 0);
+            db.run(`UPDATE wm_files SET purpose = '', purpose_source = 'none' WHERE repo = 'app' AND path IN ('src/util.ts', 'config/settings.json')`);
+            await scan();
+            const refilled = snapshot();
+            for (const path of ['src/util.ts', 'config/settings.json']) {
+                assert.equal(refilled[path]['purpose'], first[path]['purpose'], `${path}: a stored none row with unchanged content is refilled`);
+                assert.equal(refilled[path]['purpose_source'], first[path]['purpose_source']);
+            }
+            writeFileSync(join(repoRoot, 'src/util.ts'), '// Parses things.\nexport function parseThing(x: string): string {\n  return x;\n}\n');
+            git('add', '-A');
+            git('commit', '-qm', 'header');
+            await scan();
+            const headed = snapshot()['src/util.ts'];
+            assert.equal(headed['purpose_source'], 'comment', 'a file that gains a header moves from symbols to comment');
+            assert.equal(headed['purpose'], 'Parses things.');
+        }
+        finally {
+            graph.close();
+            db.close();
             rmSync(ws, { recursive: true, force: true });
         }
     });

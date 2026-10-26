@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -9,7 +9,8 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph.js';
 import type { FileNode, GraphHolder } from '../graph.js';
-import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
+import { extractPurpose, isPurposeCandidate } from '../file-purpose.js';
+import { readFileHead, refreshSymbolPurposes } from '../symbol-purpose.js';
 import { readmeDrift, readRepoHistory, type ReadmeDrift, type RepoHistory } from '../readme-drift.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -435,20 +436,6 @@ function persistDirectoriesGraph(
   return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
 
-export function readFileHead(absPath: string): string {
-  let fd: number | null = null;
-  try {
-    fd = openSync(absPath, 'r');
-    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
-    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
-    return buf.subarray(0, n).toString('utf8');
-  } catch {
-    return '';
-  } finally {
-    if (fd !== null) closeSync(fd);
-  }
-}
-
 function fileDir(relPath: string): string {
   const i = relPath.lastIndexOf('/');
   return i >= 0 ? relPath.slice(0, i) : '';
@@ -460,9 +447,11 @@ interface FilePlan {
   extracted: number;
 }
 
-// Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is; a
-// changed or new file is re-extracted from its first PURPOSE_HEAD_BYTES; a
-// purpose an swe wrote (purpose_source='swe') survives a content change.
+// Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is,
+// unless its purpose_source is still 'none' (then it is re-extracted, written
+// only when that finds a purpose); a changed or new file is re-extracted from
+// its first PURPOSE_HEAD_BYTES; a purpose an swe wrote (purpose_source='swe')
+// survives a content change.
 function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePlan {
   const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
   const existing = new Map<string, FileNode>();
@@ -477,6 +466,16 @@ function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePl
     const prev = existing.get(path);
     const md5 = f.content_md5 ?? '';
     if (prev && md5 !== '' && prev.content_md5 === md5) {
+      if (prev.purpose_source === 'none' && isPurposeCandidate(f.path)) {
+        const extracted = extractPurpose(f.path, readFileHead(join(repoPath, f.path)));
+        plan.extracted++;
+        if (extracted.source !== 'none') {
+          const node = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now };
+          plan.nodes.push(node);
+          plan.writes.push(node);
+          continue;
+        }
+      }
       plan.nodes.push(prev);
       continue;
     }
@@ -833,6 +832,11 @@ async function persistScan(
       } catch (e) {
         symbols.error = `${r.name}: ${(e as Error).message}`;
         serverLog({ event: 'symbol_index_error', repo: r.name, error: (e as Error).message });
+      }
+      try {
+        refreshSymbolPurposes(db, r.name);
+      } catch (e) {
+        serverLog({ event: 'symbol_purpose_error', repo: r.name, error: (e as Error).message });
       }
       try {
         refreshConcepts(db, r.name);

@@ -458,7 +458,12 @@ describe('world_model_get/search — File nodes', () => {
                     purpose_source: 'comment',
                     content_md5: zoom.root.files[0]['content_md5'],
                 },
-                { path: 'src/b.ts', purpose: '', purpose_source: 'none', content_md5: zoom.root.files[1]['content_md5'] },
+                {
+                    path: 'src/b.ts',
+                    purpose: '<untrusted-content source="file-purpose">\nexports: b (const)\n</untrusted-content>',
+                    purpose_source: 'symbols',
+                    content_md5: zoom.root.files[1]['content_md5'],
+                },
             ]);
             assert.match(String(zoom.root.files[0]['content_md5']), /^[0-9a-f]{32}$/);
             const root = wmParse((await wm['world_model_get']({ agent: 'bro', repo: 'app' })));
@@ -471,7 +476,7 @@ describe('world_model_get/search — File nodes', () => {
                 with_purpose: all.filter((file) => file.purpose !== '').length,
                 by_source: bySource,
             }, 'coverage matches the graph');
-            assert.deepEqual(bySource, { comment: 2, heading: 2, none: 1 });
+            assert.deepEqual(bySource, { comment: 2, heading: 2, symbols: 1 });
             assert.equal(root.root['files'], undefined, 'the default root call carries no file array');
             assert.ok(root.root.children.length > 0);
             for (const c of root.root.children)
@@ -504,7 +509,7 @@ describe('world_model_get/search — File nodes', () => {
             assert.equal(semantic.warning, undefined);
             assert.deepEqual([semantic.results[0]['kind'], semantic.results[0]['path']], ['file', 'lib/zeta.ts']);
             const embedded = f.db.get('SELECT COUNT(*) AS n FROM wm_files_embeddings').n;
-            assert.equal(embedded, 4, 'every file with a purpose was embedded on demand');
+            assert.equal(embedded, 5, 'every file with a purpose was embedded on demand');
             const hybrid = wmParse((await wm['world_model_search']({ agent: 'bro', repo: 'app', query: 'quokka handshake' })));
             assert.equal(hybrid.warning, undefined);
             assert.deepEqual([hybrid.results[0]['kind'], hybrid.results[0]['path']], ['file', 'lib/zeta.ts']);
