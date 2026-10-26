@@ -11,6 +11,7 @@ import { SCHEMA_V28_SQL } from './fixtures/schema-v28.js';
 import type { TrajectoryDB } from '../db.js';
 import { DATA_CONTRACTS, DATA_CONTRACTS_SCHEMA_VERSION, NULLABLE_COLUMNS, dataContractsJson, isSqlContract, type SqlContract } from '../data-contracts.js';
 import { AUDIT_EVENT_TYPES } from '../audit-events.js';
+import { FAILED_SUFFIX, symbolsStamp } from '../symbol-index.js';
 import { embed, resetEmbeddingModelForTests } from '../embeddings/model.js';
 import { recordEmbeddingTransitions } from '../embeddings/health.js';
 import { checkTrajectoryDbFile, runDataContracts, trajectoryDbReader, trajectoryDoctorTools, type ContractReader } from '../tools/trajectory-doctor.js';
@@ -148,6 +149,10 @@ function seedSymbols(db: TrajectoryDB, repo: string, n: number): void {
   for (let i = 0; i < n; i++) {
     db.run(`INSERT INTO wm_symbols (repo, path, kind, qualified_name, body_hash) VALUES (?, 'src/a.ts', 'function', ?, 'h')`, [repo, `f${i}`]);
   }
+}
+
+function seedWmFile(db: TrajectoryDB, path: string, symbolsMd5: string | null): void {
+  db.run(`INSERT INTO wm_files (repo, path, dir, content_md5, updated_at, symbols_md5) VALUES ('r', ?, '', 'abc', ?, ?)`, [path, iso(), symbolsMd5]);
 }
 
 function seedProposingTask(db: TrajectoryDB, closedAt: string, opts: { reviewed: boolean; report: string }): number {
@@ -448,6 +453,16 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedSymbols(db, 'r', 100);
       seedConcept(db, 'r', 'run flow', 'verified');
       seedSymbols(db, 's', 99);
+    },
+  },
+  wm_files_symbols_indexed: {
+    violate: (db) => seedWmFile(db, 'src/a.ts', `${symbolsStamp('abc')}${FAILED_SUFFIX}`),
+    pass: (db) => {
+      seedWmFile(db, 'src/a.ts', symbolsStamp('abc'));
+      seedWmFile(db, 'dist/a.js', null);
+      seedWmFile(db, 'pkg/node_modules/x/index.js', null);
+      seedWmFile(db, 'src/a.js.map', 'abc');
+      seedWmFile(db, 'bun.lockb', null);
     },
   },
 };

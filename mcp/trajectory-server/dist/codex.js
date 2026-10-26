@@ -34174,6 +34174,9 @@ var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;
 var IMPACT_MAX_DEPTH = 5;
 var OR_FALLBACK_MIN_HITS = 3;
+var FAILED_SUFFIX = ":failed";
+var FAILED_PATHS_CAP = 20;
+var FAILED_ERROR_MAX = 200;
 var SYMBOL_COLUMNS = "s.id, s.repo, s.path, s.kind, s.qualified_name, s.signature, s.doc, s.start_line, s.end_line, s.body_hash, s.exported, s.run_order";
 var CALLABLE = /* @__PURE__ */ new Set(["function", "method", "class", "sh_function"]);
 var TABLE_EDGES = /* @__PURE__ */ new Set(["reads_table", "writes_table", "indexes", "triggers_on"]);
@@ -34394,10 +34397,12 @@ function reresolveEdges(db, repo, names, skip) {
   return resolved;
 }
 async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR_VERSION) {
+  const version2 = String(extractorVersion);
   const stale = db.all(
     `SELECT id, path, content_md5, size_bytes FROM wm_files
-        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ? ORDER BY path`,
-    [repo, String(extractorVersion)]
+        WHERE repo = ? AND symbols_md5 IS NOT content_md5 || ':' || ?
+          AND symbols_md5 IS NOT content_md5 || ':' || ? || ? ORDER BY path`,
+    [repo, version2, version2, FAILED_SUFFIX]
   ).filter((f) => inSymbolScope(f.path));
   if (stale.some((f) => f.path === REGISTRATIONS_PATH) && !stale.some((f) => f.path === HOOKS_PATH)) {
     const hooksFile = db.get(
@@ -34408,25 +34413,20 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
   }
   const jobs = stale.map((f) => ({ file: f, lang: sourceLanguage(repoPath, f.path, Number(f.size_bytes)) }));
   const parsers = jobs.some((j) => j.lang !== null && j.lang !== "sql") ? await loadParsers() : null;
-  let failed = 0;
+  const failed = [];
   const parsed = [];
   for (const { file: file2, lang } of jobs) {
-    if (file2.path === HOOKS_PATH) {
-      try {
-        parsed.push({ file: file2, extraction: extractHooks(readSource(repoPath, file2.path), registrationChains(repoPath)) });
-      } catch {
-        failed++;
-      }
-      continue;
-    }
-    if (lang === null) {
+    const isHooks = file2.path === HOOKS_PATH;
+    if (lang === null && !isHooks) {
       parsed.push({ file: file2, extraction: null });
       continue;
     }
     try {
-      parsed.push({ file: file2, extraction: extractFile(parsers, file2.path, lang, readSource(repoPath, file2.path)) });
-    } catch {
-      failed++;
+      const src = readSource(repoPath, file2.path);
+      const extraction = isHooks ? extractHooks(src, registrationChains(repoPath)) : extractFile(parsers, file2.path, lang, src);
+      parsed.push({ file: file2, extraction });
+    } catch (e) {
+      failed.push({ file: file2, error: clip(oneLine(e instanceof Error ? e.message : String(e)), FAILED_ERROR_MAX) });
     }
   }
   return db.transaction(() => {
@@ -34440,7 +34440,11 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
       } else {
         deleteFileSymbols(db, repo, file2.path);
       }
-      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [String(extractorVersion), file2.id]);
+      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? WHERE id = ?`, [version2, file2.id]);
+    }
+    for (const { file: file2 } of failed) {
+      deleteFileSymbols(db, repo, file2.path);
+      db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':' || ? || ? WHERE id = ?`, [version2, FAILED_SUFFIX, file2.id]);
     }
     let resolved = 0;
     if (pending2.length > 0) {
@@ -34456,10 +34460,11 @@ async function indexRepoSymbols(db, repo, repoPath, extractorVersion = EXTRACTOR
     markOrphanedEdges(db);
     return {
       files_parsed: parsed.filter((p) => p.extraction !== null).length,
-      files_failed: failed,
+      files_failed: failed.length,
       symbols,
       edges: pending2.length,
-      edges_resolved: resolved
+      edges_resolved: resolved,
+      failed_paths: failed.slice(0, FAILED_PATHS_CAP).map(({ file: file2, error: error2 }) => ({ path: file2.path, error: error2 }))
     };
   });
 }

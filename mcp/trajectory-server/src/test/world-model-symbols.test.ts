@@ -7,7 +7,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { parserLoadCount } from '../parsing/loader.js';
-import { EXTRACTOR_VERSION, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
+import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
+import { inSymbolScope } from '../parsing/extract.js';
+import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
@@ -313,6 +316,113 @@ describe('L1 symbol index freshness on a small repo (GH 1680)', () => {
       [idOf('scripts/lib.sh', 'say_hi')],
     )!.n;
     assert.equal(sayHi, 0, 'the removed caller took its edges along');
+  });
+});
+
+describe('a file whose extraction throws is recorded, not left unstamped (GH 1858)', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wm-failed-'));
+  const root = join(ws, 'app');
+  const db = tempDB();
+  const holder = GraphHolder.fixed(new WorldModelGraph(db));
+  const contract = DATA_CONTRACTS.filter(isSqlContract).find((c) => c.id === 'wm_files_symbols_indexed')!;
+
+  const commit = () => {
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'change', '--allow-empty'], { cwd: root });
+  };
+  const row = (path: string) =>
+    db.get<{ content_md5: string; symbols_md5: string | null }>(
+      `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = 'app' AND path = ?`,
+      [path],
+    )!;
+  const symbolCount = (path: string) =>
+    db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_symbols WHERE repo = 'app' AND path = ?`, [path])!.n;
+  const unindexed = () => {
+    const report = runDataContracts(trajectoryDbReader(db), [contract], { env: {} });
+    assert.deepEqual(report.skipped, []);
+    return report.violations.flatMap((v) => v.sample.map((s) => ({ path: s['path'], state: s['state'] })));
+  };
+
+  before(() => {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    writeFileSync(join(root, 'src/ok.ts'), 'export function fine(): number {\n  return 1;\n}\n');
+    writeFileSync(join(root, 'src/bad.ts'), 'export function soon(): number {\n  return 2;\n}\n');
+    commit();
+  });
+
+  after(() => {
+    db.close();
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('stamps a failed file :failed, names it in failed_paths, skips it while unchanged and re-parses it on a content change', async () => {
+    const first = await scan(db, holder, ws);
+    assert.equal(first.symbols.files_failed, 0);
+    assert.deepEqual(unindexed(), [], 'the contract holds on a clean scan');
+    assert.ok(symbolCount('src/bad.ts') > 0);
+
+    rmSync(join(root, 'src/bad.ts'));
+    mkdirSync(join(root, 'src/bad.ts'));
+    db.run(`UPDATE wm_files SET content_md5 = 'edited' WHERE repo = 'app' AND path = 'src/bad.ts'`);
+
+    const failed = await indexRepoSymbols(db, 'app', root);
+    assert.equal(failed.files_failed, 1);
+    assert.equal(failed.failed_paths.length, 1);
+    assert.equal(failed.failed_paths[0]!.path, 'src/bad.ts');
+    assert.match(failed.failed_paths[0]!.error, /EISDIR/);
+    assert.ok(failed.failed_paths[0]!.error.length <= 200);
+    assert.equal(row('src/bad.ts').symbols_md5, `${symbolsStamp('edited')}${FAILED_SUFFIX}`);
+    assert.ok(row('src/bad.ts').symbols_md5!.endsWith(':failed'));
+    assert.equal(symbolCount('src/bad.ts'), 0, 'the stale symbols of the failed file are removed');
+    assert.equal(symbolCount('src/ok.ts') > 0, true);
+    assert.deepEqual(unindexed(), [{ path: 'src/bad.ts', state: 'failed' }]);
+
+    const unchanged = await indexRepoSymbols(db, 'app', root);
+    assert.equal(unchanged.files_failed, 0, 'an unchanged failed file is not re-parsed');
+    assert.equal(unchanged.files_parsed, 0);
+    assert.deepEqual(unchanged.failed_paths, []);
+
+    rmSync(join(root, 'src/bad.ts'), { recursive: true });
+    writeFileSync(join(root, 'src/bad.ts'), 'export function back(): number {\n  return 3;\n}\n');
+    commit();
+    const fixed = await scan(db, holder, ws);
+    assert.equal(fixed.symbols.files_failed, 0);
+    assert.equal(fixed.symbols.files_parsed, 1, 'the changed content is re-parsed');
+    const bad = row('src/bad.ts');
+    assert.equal(bad.symbols_md5, symbolsStamp(bad.content_md5));
+    assert.ok(symbolCount('src/bad.ts') > 0);
+    assert.deepEqual(unindexed(), [], 'the contract holds again after a clean scan');
+
+    db.run(`UPDATE wm_files SET symbols_md5 = NULL WHERE repo = 'app' AND path = 'src/ok.ts'`);
+    assert.deepEqual(unindexed(), [{ path: 'src/ok.ts', state: 'unstamped' }]);
+  });
+
+  it('the contract scopes rows exactly as inSymbolScope does', () => {
+    const paths = [
+      'src/a.ts', 'dist/a.js', 'mcp/x/dist/a.js', 'src/a.js.map', 'node_modules/p/i.js', 'a/node_modules/p/i.js',
+      'vendor/v.go', 'a/vendor/v.go', 'web/app.min.js', 'package-lock.json', 'a/package-lock.json', 'bun.lockb',
+      'Cargo.lock', 'distro/a.ts', 'src/redist/a.ts', 'src/package-lock.json.ts', 'hooks/hooks.json', 'scripts/run',
+    ];
+    for (const p of paths) {
+      const inScope = db.get<{ ok: number }>(`SELECT ${IN_SYMBOL_SCOPE_SQL} AS ok FROM (SELECT ? AS path)`, [p])!.ok === 1;
+      assert.equal(inScope, inSymbolScope(p), p);
+    }
+  });
+
+  it('caps failed_paths at 20 and counts every failure in files_failed', async () => {
+    for (let i = 0; i < 22; i++) {
+      mkdirSync(join(root, `src/dir${i}.ts`));
+      db.run(`INSERT INTO wm_files (repo, path, dir, content_md5, updated_at) VALUES ('app', ?, 'src', ?, '2026-01-01T00:00:00.000Z')`, [
+        `src/dir${i}.ts`,
+        `m${i}`,
+      ]);
+    }
+    const out = await indexRepoSymbols(db, 'app', root);
+    assert.equal(out.files_failed, 22);
+    assert.equal(out.failed_paths.length, 20);
   });
 });
 
