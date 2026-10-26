@@ -12,10 +12,16 @@
 #
 # Decision matrix (status side-effects, swe only; the spawn already moved a
 # pending task to running, record-swe-spawn.sh):
-#   pending|running + HAS_COMMITS=true  → status='completed' + commit_sha
+#   running + checkpoint from this run  → status stays running (a handback,
+#                                         GH 1905); additionalContext tells bro
+#                                         to resume swe from task_brief.checkpoint
+#   pending|running + HAS_COMMITS=true  → status='completed' + commit_sha,
+#                                         checkpoint cleared
 #                                         + swe_atomic_close_auto_completed audit row
 #   pending|running + HAS_COMMITS=false → additionalContext warning to bro
 #   any other status                    → metrics only, status unchanged
+#   any status + stop_cause hook_block  → additionalContext names the block
+#                                         (GH 1914), after any other sentence
 #   subagent_type code-reviewer   → metrics only
 #   any other subagent_type     → silent exit 0
 #
@@ -36,6 +42,10 @@
 # stop ended). A swe resumed through SendMessage stops onto its newest keyed
 # row; when that row is a resumed one (resumed_from set, opened by task_brief,
 # GH 1742) only the transcript entries from its started_at on are metered.
+# After the row is written, the TypeScript recorder swe-stop-cause (node
+# dist/hooks.js, fail-open, skipped without node or dist) sets its stop_cause /
+# stop_detail: budget for a checkpoint from this run, hook_block for a run that
+# ended on a PreToolUse hook deny.
 #
 # Log: <project>/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended);
 # no log when the project has no TMB state dir.
@@ -386,7 +396,20 @@ fi
 DECISION=""
 CONTEXT=""
 
-if [ "$TASK_STATUS" = "pending" ] || [ "$TASK_STATUS" = "running" ]; then
+# A checkpoint swe wrote in this run (tasks.checkpoint.at at or after the
+# run's first entry) is a handback: the task stays running for a resume.
+CHECKPOINTED=""
+if [ "$TASK_STATUS" = "running" ]; then
+  CHECKPOINTED=$(tmb_sqlite_ro "$DB" "
+SELECT 1 FROM tasks
+ WHERE id = ${SAFE_TASK_ID} AND json_valid(checkpoint)
+   AND json_extract(checkpoint, '\$.at') >= '${SAFE_FIRST_TS}';" 2>/dev/null || true)
+fi
+
+if [ "$CHECKPOINTED" = "1" ]; then
+  DECISION="checkpoint"
+  CONTEXT="SWE for task #${TASK_ID} handed back a checkpoint; the task stays running. Resume swe on it: a fresh spawn reads task_brief.checkpoint (done, left, files) and continues from there."
+elif [ "$TASK_STATUS" = "pending" ] || [ "$TASK_STATUS" = "running" ]; then
   if [ "$HAS_COMMITS" = "true" ]; then
     # Auto-close: status='completed' + commit_sha, and one audit row naming the
     # parent tips the commit was judged against, in one transaction.
@@ -403,7 +426,7 @@ if [ "$TASK_STATUS" = "pending" ] || [ "$TASK_STATUS" = "running" ]; then
       "Task #${SAFE_CLOSE_TASK_ID} auto-completed at ${WT_HEAD} on SubagentStop" "$CLOSE_JSON" \
       "(SELECT changes()) > 0") || CLOSE_AUDIT_SQL=""
     tmb_db_write "$DB" \
-      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at='${SAFE_NOW}', completed_at='${SAFE_NOW}' WHERE id=${SAFE_CLOSE_TASK_ID};
+      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at='${SAFE_NOW}', completed_at='${SAFE_NOW}', checkpoint=NULL WHERE id=${SAFE_CLOSE_TASK_ID};
 ${CLOSE_AUDIT_SQL}" \
       || DECISION="auto-complete-failed"
   else
@@ -484,6 +507,29 @@ UPDATE agent_runs
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
     '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid}' \
     >> "$_LOG_FILE" 2>/dev/null || true
+fi
+
+# Why the run stopped short (budget handback or hook block) onto the same row:
+# the TypeScript recorder swe-stop-cause, fail-open, skipped without node or
+# dist/hooks.js.
+HOOKS_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks.js"
+if [ -f "$HOOKS_JS" ] && command -v node >/dev/null 2>&1; then
+  printf '%s' "$INPUT" | TMB_STOP_TASK_ID="$SAFE_TASK_ID" TMB_STOP_SPAWN_ID="$SPAWN_ID" TMB_STOP_SINCE="$SAFE_FIRST_TS" \
+    node "$HOOKS_JS" swe-stop-cause >/dev/null 2>&1 || true
+fi
+
+# A run the recorder flagged hook_block (it ended on a deny with no completion
+# report) is named to bro, so the rework spawn_note can carry the block (GH 1914).
+HOOK_BLOCK=$(tmb_sqlite_ro "$DB" "
+SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_detail, 1, 200), '') END
+  FROM agent_runs
+ WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'swe' AND spawn_id = '${SAFE_SPAWN_ID}'
+ ORDER BY id DESC LIMIT 1;" 2>/dev/null || true)
+if [ "${HOOK_BLOCK:0:1}" = "B" ]; then
+  BLOCK_DETAIL="${HOOK_BLOCK:1}"
+  BLOCK_DETAIL="${BLOCK_DETAIL//$'\n'/ }"
+  BLOCK_CONTEXT="SWE for task #${TASK_ID} ended on a hook block with no completion report (\"${BLOCK_DETAIL}\"), which task_brief.last_stop carries; name the block in the rework spawn_note so the next swe applies the allowed form and continues."
+  CONTEXT="${CONTEXT:+$CONTEXT }${BLOCK_CONTEXT}"
 fi
 
 # Log the decision.

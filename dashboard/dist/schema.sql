@@ -123,7 +123,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- spawn_note (v48 GH 1744): at most 300 chars of context for the next
     -- spawn and returned by task_brief. bro_atomic_close and task_reopen each
     -- overwrite it (NULL when the call passes none).
-    spawn_note        TEXT
+    spawn_note        TEXT,
+    -- checkpoint (v52 GH 1905): swe's handback as JSON {done left files
+    -- commit_sha? at}. task_update_status writes it with status running and
+    -- task_brief returns it so the next spawn resumes from it. A move to
+    -- completed clears it and every other move keeps it. Keep this comment
+    -- comma-free: DROP COLUMN on the last column cuts back to the nearest comma.
+    checkpoint        TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -319,7 +325,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 51, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 52, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -416,7 +422,15 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     -- it. NULL means the row predates v50 or agent_runs_backfill wrote it.
     -- Keep this comment comma-free: SQLite's DROP COLUMN on a last column cuts back to the
     -- nearest comma and would land inside this comment.
-    plugin_version       TEXT
+    plugin_version       TEXT,
+    -- stop_cause (GH 1905; schema v52): why a swe run stopped short. budget
+    -- when swe handed back a checkpoint in the run and hook_block when its last
+    -- tool result was a PreToolUse hook deny. NULL otherwise. The swe-stop-cause
+    -- gate writes it at SubagentStop. Keep this comment comma-free.
+    stop_cause           TEXT CHECK (stop_cause IN ('budget','hook_block')),
+    -- stop_detail (GH 1905; schema v52): the deny text of a hook_block stop
+    -- capped at 500 characters. NULL on every other stop. Keep this comment comma-free.
+    stop_detail          TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);

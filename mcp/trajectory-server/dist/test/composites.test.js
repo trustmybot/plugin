@@ -1916,7 +1916,7 @@ describe('task_brief sections (GH 1743)', () => {
     const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
     const CORE_KEYS = [
         'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'effort',
-        'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'locations',
+        'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'checkpoint', 'last_stop', 'locations',
     ];
     const ALL_KEYS = [
         ...CORE_KEYS, 'verification', 'verification_run', 'scope', 'scope_world_model', 'world_model_warning', 'task_discussions',

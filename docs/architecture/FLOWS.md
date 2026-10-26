@@ -2,7 +2,7 @@
 
 The decision chain is **Human → bro → SWE** with two distinct gates:
 - **bro is the task gate** — closes after SWE returns + verifies.
-- **code-reviewer is the push gate** — fires only at `git push` over a batch of unsigned commits.
+- **code-reviewer is the push gate** — reviews each task after `bro_atomic_close`; `git-push-guard` blocks a push whose task commits lack a passing review.
 
 All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. The full role × tool matrix lives in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
 
@@ -11,13 +11,13 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 | # | Flow | Trigger | Agents | DB tables touched | Distinguishing hooks |
 |---|---|---|---|---|---|
 | 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `repos`, `audit` | `activation-routine` (auto-fire trigger) |
-| 2 | **Code-touching task** (canonical) | Code change ask | bro → swe; code-reviewer at push | `issues`, `tasks`, `discussions`, `audit` (+ `validation_attempts` at push) | `require-task-spec`, `git-push-guard`, `git-guards`, `cleanup-worktree-on-task-close` |
-| 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | universal `decision_gate` on `task_create_batch` |
+| 2 | **Code-touching task** (canonical) | Code change ask | bro → swe (`task_provision` cuts branch + worktree); code-reviewer per task after `bro_atomic_close`; `integrate.sh` when the base moved | `issues`, `tasks`, `discussions`, `audit`, `agent_runs`, `verification_runs`, `validation_attempts`, `review_findings` | `agent-spawn-dispatch`, `containment-guard`, `swe-verification-gate`, `swe-atomic-close`, `git-push-guard`, `close-issue-on-merge` |
+| 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | `task_provision`'s `decision_body` (universal `decision_gate` on `task_create_batch`) |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `cheatcodes` (skill row via `skill_register`) | — |
-| 6 | Push gate / PR review | `git push` to protected branch | bro → code-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
+| 6 | Push gate / PR review | Each task after `bro_atomic_close`; `git push` of a commit with no passing review | bro → code-reviewer (one per closed task, parallel) | `validation_attempts`, `review_findings` | `code-reviewer-after-atomic-close`, `git-push-guard` |
 | 7 | Scan + world-model refresh | First code-touching ask of session when the world model is EMPTY (`source='bro_auto_initial'`), `/scan` (`user_manual`), OR `post-task-close-rescan.sh` after `bro_atomic_close` (`bro_auto_post_close`) | bro (or hook in background) | `repos` (SQLite) + `wm_directories` / `wm_files` (summary preferentially from `<dir>/README.md`) + `cheatcodes` (on-disk resources, `source_url='scan_discovered'`), `audit(event_type='deep_scan_completed'\|'scan_discovered')` | `post-task-close-rescan` |
-| 8 | SWE retry / escalation | Bro verification or code-reviewer verdict='fail' | bro ↔ swe (↔ code-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry` composite |
+| 8 | SWE retry / escalation | A failed check of bro's four, a code-reviewer verdict='fail', or `integrate.sh` exit 2 | bro ↔ swe (↔ code-reviewer per task) | `validation_attempts` (multiple), `review_findings`, `discussions` | `task_reopen` / `task_retry` composites, `rework-limit` |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", OR a proactive reuse-check before building | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `prompt-intent-hints` |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
@@ -72,47 +72,70 @@ sequenceDiagram
 
 ## 2. Code-touching task (canonical chain)
 
-Bro is both planner AND task gate. code-reviewer is the push gate, NOT the task gate. Tasks close as soon as SWE returns + bro verifies.
+This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`) and loop ids (`L1`..`L5`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first.
+
+Bro is both planner AND task gate: a task closes as soon as SWE returns and bro verifies it. code-reviewer then reviews each closed task, and `git-push-guard` holds any push whose task commits lack a passing review. `composites.ts`, `issues.ts`, `tasks.ts`, `validation.ts` and `scan.ts` below live in `mcp/trajectory-server/src/tools/`.
+
+### Steps
+
+| Id | Actor | Tool or hook | Reads → writes | Source |
+|---|---|---|---|---|
+| S1 | <a id="S1"></a>Human → bro | Chat message, then the `UserPromptSubmit` hooks (`user-prompt-persona`, `activation-routine`, `prompt-intent-hints`) | `plugin_config`, the open issue → none (the hooks inject bro's persona and the open issue) | `hooks/hooks.json` (UserPromptSubmit) |
+| S2 | <a id="S2"></a>bro | `world_model_get(depth=2)`, `world_model_search(query, mode='hybrid')`, `world_model_symbol` | `wm_directories`, `wm_files`, `wm_symbols` → none | `skills/tmb_planning/SKILL.md:11-13` |
+| S3 | <a id="S3"></a>bro → Human | `AskUserQuestion`: which base branch; PreToolUse `askuserquestion-length-lint` | none → none (the answer stays in the transcript) | `skills/tmb_planning/SKILL.md:36`; `scripts/hooks/askuserquestion-length-lint.sh` |
+| S4 | <a id="S4"></a>bro → Human | `branch_id_propose`, AUQ "Proceed with branch_id X?", then `intent_start` | the Human's intent → `issues` row, `discussions` kind=intent and the planning note in one transaction; audit `branch_id_proposed` | `skills/tmb_planning/SKILL.md:38`; `composites.ts:746,813` |
+| S4′ | <a id="S4′"></a>bro (GitHub path) | `issue_create` adopts an existing GitHub issue in place of S4's `intent_start` | the GitHub issue → `issues` row with `gh_iid`; audit `issue_adopted` | `issues.ts:614` |
+| S5 | <a id="S5"></a>bro | Triage: is it actionable, reuse or build; the call rides in `task_provision`'s `decision_body` | world model → `discussions` kind=decision (written at S6) | `skills/tmb_planning/SKILL.md:30,84` |
+| S6 | <a id="S6"></a>bro | `task_provision(issue_id, branch_id, decision_body, task, base?)`; the task carries `spec_body` (Description, Success Criteria `SC<n>`, Out of Scope, Commit), typed `files[]`, `verification[]` and `effort` | `issues`, the base branch → `discussions` kind=decision, `tasks` row, git branch and worktree; audit `planning_complete` | `skills/tmb_planning/SKILL.md:100`; `composites.ts:975` |
+| S7 | <a id="S7"></a>bro → swe | `Agent(subagent_type=swe, effort, prompt "task_id=<N>")`; PreToolUse `agent-spawn-dispatch` runs its nine gates (`require-task-spec`, `require-spawn-effort`, …, `rework-limit`), then `ensure-swe-worktree.sh` and `record-swe-spawn.sh` | `tasks` → task pending → running; `agent_runs` row opened | `skills/tmb_planning/SKILL.md:104-111`; `hooks/hooks.json` (PreToolUse Agent); `scripts/hooks/agent-spawn-dispatch.sh` |
+| S8 | <a id="S8"></a>swe | `task_brief(task_id)`; `swe-brief-gate` denies Edit/Write and every other trajectory tool until it is fetched | `tasks`, `discussions`, `review_findings`, `verification_runs` → audit `swe_brief_fetched` | `agents/swe.md`; `scripts/hooks/swe-brief-gate.sh`; `composites.ts:1122` |
+| S9 | <a id="S9"></a>swe | Edits, tests and commits in the worktree; PreToolUse `containment-guard` denies a write outside it (L1) | worktree files → commits on the task branch; audit `containment_denied` + `hook_denied` on a deny | `agents/swe.md`; `scripts/hooks/containment-guard.sh` |
+| S10 | <a id="S10"></a>swe | `task_update_status(completed, commit_sha, report)`; PreToolUse `swe-verification-gate` runs `verification[]` and every open finding's probe in the worktree (L2) | `tasks.verification`, `review_findings` → `verification_runs` + `verification_run_commands`, `tasks.commit_sha`, `tasks.completion_report` | `tasks.ts:453`; `scripts/hooks/swe-verification-gate.sh`; `scripts/hooks/lib/registrations.sh` (trajectory-gates chain) |
+| S11 | <a id="S11"></a>hook | `SubagentStop` → `swe-atomic-close.sh`: auto-completes a still-running task that has commits, and meters the run | the swe transcript → `agent_runs` completed (tokens, duration, `stop_cause`) | `hooks/hooks.json` (SubagentStop); `scripts/hooks/swe-atomic-close.sh` |
+| S12 | <a id="S12"></a>bro | Verify: `task_brief` + `git diff` of the commit, judged on the four checks: scope vs `files[]`, `verification_run` exit 0, the report covers every `SC<n>`, `world_model_get` on the changed directory | `tasks`, `verification_runs`, world model → none (`bro_verification_fail_record` on a failed check) | `skills/tmb_planning/SKILL.md:117-126` |
+| S13 | <a id="S13"></a>bro | `bro_atomic_close(task_id, …, spawn_note?)` | `tasks`, `verification_runs` → task closed; audit `bro_verification_pass` | `composites.ts:895`; `skills/tmb_planning/SKILL.md:124` |
+| S14 | <a id="S14"></a>hook | PostToolUse `bro_atomic_close` → `post-atomic-close-readme.sh` + `post-task-close-rescan.sh` (background `run-scan.mjs`) | the repo tree → `wm_*` rows upserted; audit `readme_staleness_surfaced`, `deep_scan_completed` | `scripts/hooks/post-atomic-close-readme.sh`; `scripts/hooks/post-task-close-rescan.sh`; `scan.ts:1003` |
+| S15 | <a id="S15"></a>bro → code-reviewer | `Agent(subagent_type=code-reviewer, effort=reviewer_effort)`, the prompt carrying anchors only (`task_id= commit_sha= branch_id= repo= repo_path= attempt_n= subagent_session_id=`); the `agent-spawn-dispatch` gates include `code-reviewer-after-atomic-close` (the task must be closed) | `tasks` → `agent_runs` row opened | `skills/tmb_push-gate/SKILL.md:15-19,36`; `scripts/hooks/agent-spawn-dispatch.sh` |
+| S16 | <a id="S16"></a>code-reviewer | `task_brief`, `git show <sha>`, `pr_monitor_worktree` probes, then `validation_record(verdict, findings[], mcp_available)`; PreToolUse `reviewer-identity-observe` stamps the reviewer | spec, diff → `validation_attempts` (+ `review_findings` on FAIL) | `agents/code-reviewer.md`; `skills/tmb_review/SKILL.md`; `validation.ts:168`; `scripts/hooks/reviewer-identity-observe.sh` |
+| S17 | <a id="S17"></a>bro | `validation_history`: the verdict comes from the row, never from the reply text | `validation_attempts` → none | `skills/tmb_push-gate/SKILL.md:38` |
+| S18 | <a id="S18"></a>bro | Base moved → `integrate.sh <task_id> <base>` rebases in a temporary worktree and reruns `verification[]` (L4 on exit 2); an unmoved base skips this step | `tasks`, `validation_attempts` → `verification_runs` source=manual on the rebased SHA; the task branch moved to it | `skills/tmb_planning/SKILL.md:130-136`; `skills/tmb_planning/scripts/integrate.sh:284` |
+| S19 | <a id="S19"></a>bro | `git push origin <feature>`; PreToolUse `git-push-guard` allows it only when each pushed task commit has a passing review (a rebased commit also needs a passing run for its exact SHA) | `validation_attempts`, `verification_runs` → the remote branch | `skills/tmb_push-gate/SKILL.md:46`; `scripts/hooks/git-push-guard.sh` |
+| S20 | <a id="S20"></a>bro | `gh pr create --base <pr_target>` (`glab mr create` on GitLab) | none → the PR | `skills/tmb_push-gate/SKILL.md:46` |
+| S21 | <a id="S21"></a>Human | Merges the PR; once it reports `MERGED`, bro runs the post-merge cleanup. **Planned (GH 2026):** bro asks with an AUQ, merge by bro (CI and the local tests pass) or merge by the Human (the PR meets a human-review condition); not shipped. | GitHub → the merged PR | `skills/tmb_push-gate/SKILL.md:50-52` |
+| S22 | <a id="S22"></a>hook | PostToolUse Bash after a successful in-session `gh pr merge` / `glab mr merge`: `close-issue-on-merge.sh` closes the branch's live tasks and each issue the PR closes by an explicit closing-ref; `clean-merged-branch.sh` removes the merged branch and its worktree. A merge made on GitHub fires neither. | `tasks`, `validation_attempts` → tasks and issue closed; audit `issue_auto_closed_on_merge` (+ `review_gate_bypassed` for a task with no passing review) | `hooks/hooks.json` (PostToolUse Bash); `scripts/hooks/close-issue-on-merge.sh`; `scripts/hooks/clean-merged-branch.sh` |
+
+### Loops
+
+| Id | Loop | Trigger | What happens | Source |
+|---|---|---|---|---|
+| L1 | <a id="L1"></a>Hook block → rerun | A PreToolUse hook denies a swe call, e.g. `containment-guard` on a write outside the worktree | swe reruns in the form the deny names. When the deny names none or says it is policy, swe closes `failed` with no report and quotes the hook. Returns to S9. | `agents/swe.md`; `scripts/hooks/containment-guard.sh` |
+| L2 | <a id="L2"></a>Gate deny → fix | swe calls `task_update_status(completed)` but a `verification[]` command or an open finding's probe fails | `swe-verification-gate` denies the call, naming the command and its timing; swe fixes it and calls again. Returns to S9. | `scripts/hooks/swe-verification-gate.sh` |
+| L3 | <a id="L3"></a>Review FAIL → rework → re-review | code-reviewer records `fail` with findings `F<task>-<n>` | bro surfaces the FAIL and holds the push, then `task_reopen(task_id, reason, effort='high', spawn_note)` naming the finding ids; swe fixes each, commits its probe as a test, the gate re-runs every probe, and code-reviewer reviews the next attempt. Returns to S7. | `skills/tmb_planning/SKILL.md:64,140`; `skills/tmb_push-gate/SKILL.md:47`; `validation.ts:168` |
+| L4 | <a id="L4"></a>Integrate conflict → retry | The base moved and `integrate.sh` exits 2 (conflict or patch drift) | bro records the failure (`bro_verification_fail_record`), then `task_retry` cuts a fresh task, branch and worktree from the current base with a spec that points at the reviewed commit; it goes through verify and review again. Exit 1 (`verification[]` failed on the rebased commit) reworks as L3. Returns to S7. | `skills/tmb_planning/SKILL.md:130-136`; `composites.ts:766,832` |
+| L5 | <a id="L5"></a>Rework limit | Two review FAILs since the last pass | The `rework-limit` spawn gate denies a third swe spawn on the task until a newer `kind='decision'` row names the change of approach, or the Human comments on the issue. bro picks `task_retry` with a redesigned spec, a split, or escalation; `task_retry` itself refuses a fourth retry in one lineage. Returns to S5. | `skills/tmb_planning/SKILL.md:141`; `mcp/trajectory-server/src/hooks/rework-limit.ts`; `composites.ts` (`task_retry` retry cap) |
 
 ```mermaid
-sequenceDiagram
-    participant H as Human
-    participant B as Bro (planner + task gate)
-    participant S as SWE (worktree)
-    participant DB as SQLite
-
-    H->>B: "implement X"
-    B->>B: tmb_planning skill loaded; pick approach; write kind='decision'
-    B->>DB: issue_create + discussion_append(kind='intent') + branch_id_propose
-    B->>B: pre-create branch from origin/<pr_target>; author spec_body
-
-    Note over B,DB: BATCHED — one response, three tool_use blocks
-    par
-        B->>DB: task_create_batch(emit_planning_complete=true)
-    and
-        B->>S: spawn Task(swe, isolation='worktree', task_id=N) [hooks: require-task-spec verifies; worktree-create adds the worktree]
-    and
-        B->>DB: audit_append(event_type='planning_complete')
-    end
-
-    Note over S: arrives already inside the hook-created worktree
-    par
-        S->>DB: task_brief(task_id=N) (records the swe_brief_fetched sentinel)
-    and
-        S->>S: cd <worktree>
-    end
-    S->>S: implement per spec; run ## Verification commands
-    S->>S: git commit (## Commit message from spec)
-    S->>DB: task_update_status(status='completed', commit_sha, report)
-
-    B->>B: V1/V2/V3 verify (files, verification commands, success criteria)
-    B->>DB: bro_atomic_close (audit + summaries + status='closed' + optional issue close)
-    B-->>H: "task closed — push when ready"
+flowchart TD
+    S1["S1 Human ask"] --> S2["S2 world model"] --> S3["S3 base branch AUQ"]
+    S3 --> S4["S4 branch_id_propose + intent_start"] --> S5["S5 triage: reuse or build"]
+    S3 -.->|GitHub issue| S4p["S4′ issue_create adopts it"] --> S5
+    S5 --> S6["S6 task_provision"] --> S7["S7 spawn swe"] --> S8["S8 task_brief"]
+    S8 --> S9["S9 edit + test in worktree"] --> S10["S10 task_update_status + swe-verification-gate"]
+    S10 --> S11["S11 SubagentStop swe-atomic-close"] --> S12["S12 bro: the four checks"] --> S13["S13 bro_atomic_close"]
+    S13 --> S14["S14 rescan + README check"]
+    S13 --> S15["S15 spawn code-reviewer"] --> S16["S16 validation_record"] --> S17["S17 validation_history"]
+    S17 -->|pass| S18["S18 integrate.sh if the base moved"] --> S19["S19 git push"] --> S20["S20 gh pr create"]
+    S20 --> S21["S21 Human merges"] --> S22["S22 close-issue-on-merge"]
+    S9 -.->|L1 hook block| S9
+    S10 -.->|L2 gate deny| S9
+    S17 -.->|L3 FAIL: task_reopen| S7
+    S18 -.->|L4 exit 2: task_retry| S7
+    S17 -.->|L5 second FAIL: new decision| S5
 ```
 
 **Notes**
 - `require-task-spec.sh` blocks SWE spawn unless the `tasks` row is `pending`, or `running` with no open swe `agent_runs` row, AND has a non-empty `spec_body`. A spec that adds a column, field, tool, table or migration also needs `Writer:` + `Populated:` lines or a `Nullable:` line, unless a `spec_shape_gate_waived` row from `bro` names the task (`content_json.task_id`); `task_create_batch` / `task_provision` with `waive_spec_shape` write that row for each task they create, so no second write is needed.
-- `no-worktree-branch-create.sh` blocks `-b/-B/--create-branch/--detach` — bro pre-creates the branch; the worktree attaches to it directly.
+- `no-worktree-branch-create.sh` blocks `-b/-B/--create-branch/--detach` — `task_provision` creates the branch and the worktree; the worktree attaches to the branch directly.
 - `git-push-guard.sh` blocks the eventual push if any pushed commit's task lacks a passing `validation_attempts` row.
 - `swe-verification-gate.sh` fires on SWE's `task_update_status(completed)`: it runs the task's typed `verification[]` commands in the task worktree, records the run in `verification_runs` / `verification_run_commands`, and denies if any fail, naming the command and its timing. A passing run for the same task, worktree HEAD and `verification[]` recorded within the hour is reused instead of re-run, and on a rework commit a command whose declared inputs (`.config/tmb/verification-inputs.json`) the rework did not touch is recorded as carried from the last passing run (GH 1950); bro and code-reviewer read the latest run from `task_brief.verification_run`. When the task worktree does not resolve, it does NOT fail open — it denies, naming the expected `<repoRoot>/.claude/worktrees/<slug>` path (#156). An empty `verification[]` skips the gate with a warning; a `waive_verification_gate_reason` (≥10 chars) waives it with an audit row.
 - `bro_atomic_close` refuses with `verification_run_missing` when the task has a non-empty `verification[]` and neither a passing `verification_runs` row for the closing commit whose commands match the current `verification[]` nor a `verification_gate_waived` row for that commit (GH 1672). This covers the closes the swe gate never saw: a `swe-atomic-close` SubagentStop auto-complete, and a `task_update_spec` that changed `verification[]` after the run. To get a run, the swe calls `task_update_status(completed)` again on the commit; to waive, it adds `waive_verification_gate_reason` to that call.
@@ -121,11 +144,11 @@ sequenceDiagram
 
 ## 3. Architectural change (Δ vs flow 2)
 
-Same chain as flow 2, plus: before `task_create_batch`, bro records a `kind=decision` discussion and applies the blast-radius checklist. The universal decision gate requires a `kind='decision'` row regardless of flow.
+Same chain as flow 2, plus: in `task_provision`'s `decision_body` (S6), bro records a `kind=decision` discussion and applies the blast-radius checklist. The universal decision gate requires a `kind='decision'` row regardless of flow.
 
 - Skills: `tmb_planning` triggers the architectural ceremony when the change introduces a new boundary/module, touches schema or public API, or has external side effects (see SKILL.md §"Architectural changes").
 - For human-driven deliberation, the user enters Claude Code's native plan mode (Shift+Tab) — bro doesn't run a bespoke Q+A loop. The `kind='decision'` row captures the outcome.
-- Bro's V1/V2/V3 verification after SWE returns is unchanged — never skipped, even for architectural changes.
+- Bro's four checks after SWE returns (S12) are unchanged — never skipped, even for architectural changes.
 
 ---
 
@@ -164,24 +187,25 @@ sequenceDiagram
     participant P as code-reviewer (subagents — parallel)
     participant DB as SQLite
 
-    H->>B: git push origin <feature>
-    Note over B: git-push-guard.sh denies if any unsigned commit exists
-    B-->>H: surface deny message
-    B->>B: list unsigned tasks for the push
-    par one code-reviewer per unsigned task
-        B->>P: spawn Task(code-reviewer, task_id=N)
-        P->>DB: task_get(task_id=N) — read spec + commit_sha
-        P->>P: diff against ## Files / ## Success Criteria / ## Verification
-        P->>DB: validation_record(verdict='pass'|'fail', feedback)
+    Note over B,DB: flow 2 S13: bro_atomic_close closes the task
+    par one code-reviewer per closed task (S15)
+        B->>P: Agent(code-reviewer, anchors only: task_id= commit_sha= …)
+        P->>DB: task_brief(task_id=N) — spec, completion report, open findings
+        P->>P: git show <sha>; pr_monitor_worktree probes
+        P->>DB: validation_record(verdict='pass'|'fail', findings[], mcp_available)
     end
+    B->>DB: validation_history — read each verdict off its row (S17)
 
     alt all pass
-        B->>B: re-run git push (push-guard now allows)
-        B-->>H: pushed; MR opened
+        B->>B: integrate.sh <task_id> <base> when the base moved (S18)
+        B->>B: git push (git-push-guard allows the reviewed SHAs, S19)
+        B-->>H: gh pr create → PR URL (S20)
     else any fail
-        B-->>H: surface failures verbatim → AUQ to spawn SWE retry or abort
+        B-->>H: surface failures verbatim → AUQ: spawn SWE to fix (flow 2 L3) or abort the push
     end
 ```
+
+A push made before review (by bro or the Human) hits `git-push-guard.sh`, which denies it while any pushed task commit lacks a passing `validation_attempts` row.
 
 `validation_record` carries a typed `mcp_available` boolean (required for code-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via the sqlite3 fallback path and records `mcp_available: false`). `feedback` is free-prose rationale. The reviewer's identity comes from the newest unconsumed `reviewer_identity_observed` row for `(task_id, attempt_n)` (written by the `reviewer-identity-observe` hook with the call's `tool_use_id` and `observed_at`) observed within the last 600 s; an older row is never consumed — the call fails `subagent_session_unavailable` naming the row's age, and the reviewer calls again so the hook writes a fresh row. When a row is consumed, every older unconsumed row for the same `(task_id, attempt_n)` (left by a failed or retried call) is marked superseded with the consumed row's audit id, so a routine retry leaves no orphan for `trajectory_doctor` to warn on. An honor-system call (`mcp_available: false`) may only fill an attempt with no verified row: it never overwrites an `mcp_available = 1` verdict (`verified_verdict_exists`), while a verified call may still replace a verified row.
 
@@ -214,9 +238,9 @@ Triggered five ways (the `source` value is verified against `scan.ts`):
 
 ## 8. SWE retry / escalation
 
-Triggered when bro V1/V2/V3 fails OR code-reviewer verdict='fail'. Bro uses the `task_retry` MCP composite — one transaction inserts: a `discussion_append(kind='note', body='retry rationale: ...')`, a new `tasks` row keyed off the failed task's branch, and an `audit_append(event_type='swe_retry_spawned')`. Then spawns SWE on the new task.
+Triggered when one of bro's four checks fails (flow 2 S12), code-reviewer records verdict='fail' (L3), or `integrate.sh` exits 2 (L4). More work on the same task goes through `task_reopen`, which moves it back to `running` and recreates its worktree when missing. A wrong approach or an integrate conflict goes through the `task_retry` MCP composite — one transaction appends the retry rationale, creates a new `tasks` row, cuts its branch and worktree like `task_provision`, copies the failed task's open review findings onto it, and writes an `audit(event_type='task_retry_attempted')` row. Then bro spawns SWE on it.
 
-After 3 consecutive retries, bro flips status to `escalated` and surfaces to Human (CLAUDE.md routing — judgment-bound).
+Two FAILs since the last pass trip the rework limit (L5). `task_retry` refuses a fourth retry in one lineage (`retry limit reached (3) — escalate to Human`).
 
 ---
 

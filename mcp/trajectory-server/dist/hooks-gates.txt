@@ -7,4 +7,5 @@ git-push-guard
 rework-limit
 swe-boundary
 swe-resume-gate
+swe-stop-cause
 task-overrun-alert

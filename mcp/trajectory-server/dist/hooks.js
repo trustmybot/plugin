@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync7 } from "node:fs";
+import { readFileSync as readFileSync8 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -13902,12 +13902,105 @@ var sweResumeGate = (payload, env) => {
   return ALLOW;
 };
 
+// src/hooks/swe-stop-cause.ts
+import { readFileSync as readFileSync7 } from "node:fs";
+var GATE_NAME8 = "swe-stop-cause";
+var STOP_DETAIL_MAX_CHARS = 500;
+var HOOK_DENY_RE = /^PreToolUse:\S+ hook error:/;
+var SKIPPED_TOOL_RE = /(^|__)(task_update_status|task_brief)$/;
+var STATUS_TOOL_RE = /(^|__)task_update_status$/;
+function resultText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((c) => c && typeof c === "object" && typeof c.text === "string" ? c.text : "").filter((t) => t !== "").join("\n");
+}
+function isCompletedReport(name3, input) {
+  return STATUS_TOOL_RE.test(name3) && typeof input === "object" && input !== null && input.status === "completed";
+}
+function hookBlockDetail(transcriptText, sinceMs) {
+  const names = /* @__PURE__ */ new Map();
+  const reportUses = /* @__PURE__ */ new Set();
+  let reported = false;
+  let last = null;
+  for (const line of transcriptText.split("\n")) {
+    if (line.trim() === "") continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const content = entry?.message?.content;
+    if (!Array.isArray(content)) continue;
+    const ts = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+    const inWindow = !Number.isNaN(ts) && ts >= sinceMs;
+    for (const raw of content) {
+      if (!raw || typeof raw !== "object") continue;
+      const block = raw;
+      if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+        names.set(block.id, block.name);
+        if (inWindow && isCompletedReport(block.name, block.input)) reportUses.add(block.id);
+      } else if (block.type === "tool_result" && inWindow) {
+        const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+        if (reportUses.has(toolUseId) && block.is_error !== true) reported = true;
+        if (SKIPPED_TOOL_RE.test(names.get(toolUseId) ?? "")) continue;
+        last = { toolUseId, isError: block.is_error === true, text: resultText(block.content) };
+      }
+    }
+  }
+  if (reported || !last || !last.isError || !HOOK_DENY_RE.test(last.text)) return null;
+  return last.text.slice(0, STOP_DETAIL_MAX_CHARS);
+}
+function readTranscript(path) {
+  if (path === "") return "";
+  try {
+    return readFileSync7(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+function stopCause(db, taskId, sinceMs, transcriptPath, env) {
+  const at = gateRead(
+    db,
+    `SELECT json_extract(checkpoint, '$.at') FROM tasks WHERE id = ${taskId} AND json_valid(checkpoint);`,
+    env
+  );
+  if (at === GATE_READ_ERROR) return void 0;
+  const atMs = at === "" ? NaN : Date.parse(at);
+  if (!Number.isNaN(atMs) && atMs >= sinceMs) return { cause: "budget", detail: null };
+  const detail = hookBlockDetail(readTranscript(transcriptPath), sinceMs);
+  return detail === null ? null : { cause: "hook_block", detail };
+}
+var sqlText = (v) => v === null ? "NULL" : `'${sqlQuote(v)}'`;
+function sweStopCause(payload, env) {
+  try {
+    const taskId = sqlInt(env.TMB_STOP_TASK_ID ?? "");
+    const spawnId = env.TMB_STOP_SPAWN_ID ?? "";
+    const sinceMs = Date.parse(env.TMB_STOP_SINCE ?? "");
+    if (taskId === "" || spawnId === "" || Number.isNaN(sinceMs)) return ALLOW;
+    const db = dbPath(env);
+    if (db === null || !haveSqlite(env)) return ALLOW;
+    const stop2 = stopCause(db, taskId, sinceMs, jqAlternatives(payload, [["agent_transcript_path"]]), env);
+    if (stop2 === void 0) return ALLOW;
+    dbWrite(
+      db,
+      `UPDATE agent_runs SET stop_cause = ${sqlText(stop2?.cause ?? null)}, stop_detail = ${sqlText(stop2?.detail ?? null)}
+        WHERE id = (SELECT id FROM agent_runs
+                     WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${sqlQuote(spawnId)}'
+                     ORDER BY id DESC LIMIT 1);`,
+      { caller: GATE_NAME8, env }
+    );
+  } catch {
+  }
+  return ALLOW;
+}
+
 // src/hooks/task-overrun-alert.ts
-var GATE_NAME8 = "task-overrun-alert";
+var GATE_NAME9 = "task-overrun-alert";
 var OVERRUN_ENV = "TMB_TASK_OVERRUN_MIN";
 var DEFAULT_OVERRUN_MIN = 60;
 var EVENT = "task_overrun_alerted";
-var FROM_NODE = `hook:${GATE_NAME8}`;
+var FROM_NODE = `hook:${GATE_NAME9}`;
 var MS_PER_MIN = 6e4;
 function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
@@ -13948,7 +14041,7 @@ function claim(db, found, now, env) {
   const statements = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
-    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME8 });
+    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME9 });
     const row = auditSql(
       {
         issueId: String(o.issueId),
@@ -13959,12 +14052,12 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME8, env, now: nowIso(now) }
+      { caller: GATE_NAME9, env, now: nowIso(now) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
   }
-  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME8, env });
+  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME9, env });
   if (!w.ok) return null;
   return new Set(w.stdout.split("\n").map((l) => sqlInt(l.trim())).filter((id) => id !== "").map(Number));
 }
@@ -14003,7 +14096,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME5, reworkLimit],
   [GATE_NAME6, sweBoundary],
   [GATE_NAME7, sweResumeGate],
-  [GATE_NAME8, taskOverrunAlert]
+  [GATE_NAME8, sweStopCause],
+  [GATE_NAME9, taskOverrunAlert]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -14037,7 +14131,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync7(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync8(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

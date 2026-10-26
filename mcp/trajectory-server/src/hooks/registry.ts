@@ -13,6 +13,7 @@ import { GATE_NAME as SPAWN_NOTE_GATE, codeReviewerSpawnNote } from './code-revi
 import { GATE_NAME as REWORK_GATE, reworkLimit } from './rework-limit.js';
 import { GATE_NAME as SWE_BOUNDARY_GATE, sweBoundary } from './swe-boundary.js';
 import { GATE_NAME as SWE_RESUME_GATE, sweResumeGate } from './swe-resume-gate.js';
+import { GATE_NAME as SWE_STOP_CAUSE_GATE, sweStopCause } from './swe-stop-cause.js';
 import { GATE_NAME as OVERRUN_GATE, taskOverrunAlert } from './task-overrun-alert.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
@@ -25,6 +26,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [REWORK_GATE, reworkLimit],
   [SWE_BOUNDARY_GATE, sweBoundary],
   [SWE_RESUME_GATE, sweResumeGate],
+  [SWE_STOP_CAUSE_GATE, sweStopCause],
   [OVERRUN_GATE, taskOverrunAlert],
 ]);
 

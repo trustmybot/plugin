@@ -7,11 +7,14 @@
 #
 # Scans: docs/, agents/, skills/, commands/, templates/agents/, top-level *.md.
 #
-# Implementation: awk strips backtick spans before matching.
+# Implementation: lines inside fenced code blocks (``` or ~~~, optionally
+# indented, with an info string) are skipped; sed strips inline backtick
+# spans before matching.
 #
-# --self-test:
-#   - fixtures/stale-framing-prose/has-stale-prose.md → exit 1 (caught)
-#   - fixtures/stale-framing-prose/has-enum-literal.md → exit 0 (carve-out)
+# --self-test runs each fixture through check_file:
+#   - fixtures/stale-framing-prose/has-stale-prose.md → caught
+#   - fixtures/stale-framing-prose/has-enum-literal.md → allowed (carve-out)
+#   - fixtures/stale-framing-prose/has-fenced-code.md → fences allowed, prose after caught
 
 set -uo pipefail
 
@@ -25,11 +28,27 @@ FAIL=0
 check_file() {
   local file="$1"
   local rel="${file#"$PLUGIN_ROOT/"}"
-  local lineno=0
+  local lineno=0 fence_char="" fence_len=0 marker rest stripped
+  local fence_re='^[[:space:]]*(```+|~~~+)(.*)$'
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     lineno=$((lineno + 1))
-    # Strip backtick spans: replace `...` with empty string before matching
+    if [[ "$line" =~ $fence_re ]]; then
+      marker="${BASH_REMATCH[1]}"
+      rest="${BASH_REMATCH[2]}"
+      if [[ -z "$fence_char" ]]; then
+        if [[ "${marker:0:1}" == '~' || "$rest" != *'`'* ]]; then
+          fence_char="${marker:0:1}"
+          fence_len=${#marker}
+          continue
+        fi
+      elif [[ "${marker:0:1}" == "$fence_char" && ${#marker} -ge $fence_len && "$rest" =~ ^[[:space:]]*$ ]]; then
+        fence_char=""
+        fence_len=0
+        continue
+      fi
+    fi
+    [[ -n "$fence_char" ]] && continue
     stripped="$(printf '%s' "$line" | sed 's/`[^`]*`//g')"
     if printf '%s' "$stripped" | grep -iE "$STALE_REGEX" >/dev/null; then
       printf '%s:%d: stale framing prose\n' "$rel" "$lineno"
@@ -38,41 +57,29 @@ check_file() {
   done < "$file"
 }
 
+expect_flagged_lines() {
+  local name="$1" want="$2" fixture got
+  fixture="$HERE/fixtures/stale-framing-prose/$name"
+  if [ ! -f "$fixture" ]; then
+    printf 'stale-framing-prose --self-test: FAIL (%s missing)\n' "$name" >&2
+    return 1
+  fi
+  got="$(check_file "$fixture" | sed -n 's/^.*:\([0-9][0-9]*\): stale framing prose$/\1/p' | tr '\n' ' ')"
+  got="${got% }"
+  if [ "$got" == "$want" ]; then
+    printf 'stale-framing-prose --self-test: PASS (%s flags lines [%s])\n' "$name" "$want"
+    return 0
+  fi
+  printf 'stale-framing-prose --self-test: FAIL (%s flags lines [%s], expected [%s])\n' "$name" "$got" "$want" >&2
+  return 1
+}
+
 run_self_test() {
-  local fail_fixture="$HERE/fixtures/stale-framing-prose/has-stale-prose.md"
-  local pass_fixture="$HERE/fixtures/stale-framing-prose/has-enum-literal.md"
   local self_fail=0
-
-  if [ ! -f "$fail_fixture" ] || [ ! -f "$pass_fixture" ]; then
-    printf 'stale-framing-prose --self-test: fixture(s) missing\n' >&2
-    exit 1
-  fi
-
-  # Fail fixture should be caught
-  local found_stale
-  found_stale="$(grep -cE "$(printf '%s' "$STALE_REGEX")" "$fail_fixture" || true)"
-  if [ "$found_stale" -gt 0 ]; then
-    printf 'stale-framing-prose --self-test: PASS (has-stale-prose.md caught)\n'
-  else
-    printf 'stale-framing-prose --self-test: FAIL (has-stale-prose.md not caught)\n' >&2
-    self_fail=1
-  fi
-
-  # Pass fixture: after stripping backtick spans, should have no matches
-  local found_enum
-  found_enum="$(sed 's/`[^`]*`//g' "$pass_fixture" | grep -icE "$STALE_REGEX" || true)"
-  if [ "$found_enum" -eq 0 ]; then
-    printf 'stale-framing-prose --self-test: PASS (has-enum-literal.md correctly allowed)\n'
-  else
-    printf 'stale-framing-prose --self-test: FAIL (has-enum-literal.md incorrectly caught)\n' >&2
-    self_fail=1
-  fi
-
-  if [ "$self_fail" -eq 0 ]; then
-    exit 0
-  else
-    exit 1
-  fi
+  expect_flagged_lines has-stale-prose.md "3 4" || self_fail=1
+  expect_flagged_lines has-enum-literal.md "" || self_fail=1
+  expect_flagged_lines has-fenced-code.md "11" || self_fail=1
+  exit "$self_fail"
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then

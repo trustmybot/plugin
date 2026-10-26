@@ -25247,7 +25247,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
   { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
-  { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate no longer probes it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
+  { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate stops probing it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
   { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
@@ -25446,7 +25446,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 51;
+var TARGET_SCHEMA_VERSION = 52;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26006,6 +26006,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 51 && toVersion >= 51) {
     migrateV50toV51(db2);
+  }
+  if (fromVersion < 52 && toVersion >= 52) {
+    migrateV51toV52(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27818,6 +27821,29 @@ function migrateV50toV51(db2) {
           WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
             AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`
       ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, "Code-reviewer", OLD_REVIEWER, OLD_REVIEWER_TITLE);
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
+function migrateV51toV52(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "agent_runs")) {
+      if (!hasColumn(db2, "agent_runs", "stop_cause")) {
+        db2.exec("ALTER TABLE agent_runs ADD COLUMN stop_cause TEXT CHECK (stop_cause IN ('budget','hook_block'))");
+      }
+      if (!hasColumn(db2, "agent_runs", "stop_detail")) {
+        db2.exec("ALTER TABLE agent_runs ADD COLUMN stop_detail TEXT");
+      }
+    }
+    if (tableExists(db2, "tasks") && !hasColumn(db2, "tasks", "checkpoint")) {
+      db2.exec("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
     }
     commitTransaction(db2);
   } catch (err21) {
@@ -35284,6 +35310,59 @@ function parseSpawnNote(raw, tool) {
   return note === "" ? null : note;
 }
 
+// src/checkpoint.ts
+var CHECKPOINT_TEXT_MAX_CHARS = 2e3;
+var CHECKPOINT_MAX_FILES = 50;
+function requiredText(r, key) {
+  const v = r[key];
+  if (typeof v !== "string" || v.trim() === "") {
+    throw new Error(`task_update_status: checkpoint.${key} must be a non-empty string.`);
+  }
+  if (v.length > CHECKPOINT_TEXT_MAX_CHARS) {
+    throw new Error(
+      `task_update_status: checkpoint.${key} is ${v.length} characters (max ${CHECKPOINT_TEXT_MAX_CHARS}).`
+    );
+  }
+  return v;
+}
+function parseCheckpoint(raw, now2) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("task_update_status: checkpoint must be an object {done, left, files, commit_sha?}.");
+  }
+  const r = raw;
+  const done = requiredText(r, "done");
+  const left = requiredText(r, "left");
+  const files = r["files"];
+  if (!Array.isArray(files) || files.some((f) => typeof f !== "string")) {
+    throw new Error("task_update_status: checkpoint.files must be an array of strings.");
+  }
+  if (files.length > CHECKPOINT_MAX_FILES) {
+    throw new Error(
+      `task_update_status: checkpoint.files holds ${files.length} entries (max ${CHECKPOINT_MAX_FILES}).`
+    );
+  }
+  const sha = r["commit_sha"];
+  if (sha !== void 0 && (typeof sha !== "string" || !/^[0-9a-fA-F]{7,40}$/.test(sha))) {
+    throw new Error("task_update_status: checkpoint.commit_sha must be a hex string of 7 to 40 characters.");
+  }
+  return {
+    done,
+    left,
+    files,
+    ...typeof sha === "string" ? { commit_sha: sha.toLowerCase() } : {},
+    at: now2
+  };
+}
+function parseStoredCheckpoint(stored) {
+  if (!stored) return null;
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === "object" && typeof parsed.at === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // src/tools/tasks.ts
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
@@ -35597,7 +35676,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row. `checkpoint` {done, left, files, commit_sha?} (only with status='running') stores swe's handback with `at` added; task_brief returns it, and a move to completed clears it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -35681,6 +35760,22 @@ function taskTools(db2) {
               }
             },
             required: ["criteria"]
+          },
+          checkpoint: {
+            type: "object",
+            description: "A handback instead of running on; only with status='running'. Stored with `at` (now) and returned by task_brief so the next spawn resumes from it. A move to completed clears it; every other move keeps it.",
+            properties: {
+              done: { type: "string", description: `What is done, at most ${CHECKPOINT_TEXT_MAX_CHARS} chars.` },
+              left: { type: "string", description: `What is left, at most ${CHECKPOINT_TEXT_MAX_CHARS} chars.` },
+              files: {
+                type: "array",
+                items: { type: "string" },
+                maxItems: CHECKPOINT_MAX_FILES,
+                description: "The files in play."
+              },
+              commit_sha: { type: "string", description: "The commit the work so far is at (7-40 hex chars)." }
+            },
+            required: ["done", "left", "files"]
           }
         },
         required: ["agent", "task_id", "status"]
@@ -36254,6 +36349,10 @@ function taskTools(db2) {
       if (args2["report"] !== void 0 && args2["report"] !== null && status !== "completed") {
         throw new Error(`task_update_status: report is accepted only with status='completed' (got '${status}').`);
       }
+      const hasCheckpoint = args2["checkpoint"] !== void 0 && args2["checkpoint"] !== null;
+      if (hasCheckpoint && status !== "running") {
+        throw new Error(`task_update_status: checkpoint is accepted only with status='running' (got '${status}').`);
+      }
       const report = status === "completed" ? parseCompletionReport(args2["report"], specCriterionIds(task.spec_body)) : null;
       const taskRepo = task.repo;
       if (report?.concepts && taskRepo) {
@@ -36262,6 +36361,7 @@ function taskTools(db2) {
       const now2 = nowISO();
       const completedAt = status === "completed" ? now2 : status === "closed" ? task.completed_at : null;
       const completionReport = status === "completed" ? report ? JSON.stringify(report) : null : status === "closed" ? task.completion_report : null;
+      const checkpoint = hasCheckpoint ? JSON.stringify(parseCheckpoint(args2["checkpoint"], now2)) : status === "completed" ? null : task.checkpoint;
       db2.transaction(() => {
         if (status === "closed" && task.status !== "closed") {
           recordReviewBypassIfUnreviewed(
@@ -36274,13 +36374,13 @@ function taskTools(db2) {
         }
         if (rawCommitSha !== void 0) {
           db2.run(
-            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, commit_sha = ? WHERE id = ?`,
-            [status, now2, completedAt, completionReport, rawCommitSha, taskId]
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ?, commit_sha = ? WHERE id = ?`,
+            [status, now2, completedAt, completionReport, checkpoint, rawCommitSha, taskId]
           );
         } else {
           db2.run(
-            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ? WHERE id = ?`,
-            [status, now2, completedAt, completionReport, taskId]
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, completion_report = ?, checkpoint = ? WHERE id = ?`,
+            [status, now2, completedAt, completionReport, checkpoint, taskId]
           );
         }
         if (TERMINAL_TASK_STATUSES.has(status)) {
@@ -41100,7 +41200,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none), plus checkpoint: swe's handback {done, left, files, commit_sha?, at} from task_update_status(status='running') to resume from (null when none), and last_stop: {cause, detail, at} of the task's newest stopped swe run, cause budget or hook_block (null when that run stopped cleanly). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, checkpoint, last_stop, locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
         type: "object",
         properties: {
@@ -41626,7 +41726,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const want = (s) => section === "all" || section === s;
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, t.completion_report, t.spawn_note, i.objective
+                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId]
@@ -41663,6 +41763,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`,
             [task.id]
           ).map((f) => ({ ...f }));
+          const stop2 = db2.get(
+            `SELECT stop_cause, stop_detail, completed_at FROM agent_runs
+              WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NOT NULL
+              ORDER BY id DESC LIMIT 1`,
+            [task.id]
+          );
+          const last_stop = stop2 && stop2.stop_cause !== null ? { cause: stop2.stop_cause, detail: stop2.stop_detail, at: stop2.completed_at } : null;
           return {
             task_id: task.id,
             issue_id: task.issue_id,
@@ -41678,6 +41785,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             open_findings,
             completion_report: parseStoredReport(task.completion_report),
             spawn_note: task.spawn_note,
+            checkpoint: parseStoredCheckpoint(task.checkpoint),
+            last_stop,
             locations: briefLocations(db2, repo, task.spec_body ?? "", parseTaskFiles(task.files))
           };
         };
