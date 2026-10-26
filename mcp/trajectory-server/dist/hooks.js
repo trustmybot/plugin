@@ -9992,6 +9992,12 @@ function under(a, b) {
 function splitWords(s) {
   return s === "" ? [] : s.split(/[ \t]+/);
 }
+function lookup(w, k) {
+  for (let j = k + 1; j < w.length && w[j].startsWith("-") && w[j] !== "--" && w[j] !== "-"; j++) {
+    if (/^-[^-]*[vV]/.test(w[j])) return true;
+  }
+  return false;
+}
 function unwrap(w, k) {
   const dirs = [];
   const n = w.length;
@@ -10007,6 +10013,7 @@ function unwrap(w, k) {
       continue;
     }
     if (!WRAPPER.test(a)) break;
+    if (a === "command" && lookup(w, k)) return { k: k + 1, dirs };
     const spec = SPECS[a] ?? NO_SPEC;
     k++;
     while (k < n && w[k].startsWith("-")) {

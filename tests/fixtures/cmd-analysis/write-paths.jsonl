@@ -1642,3 +1642,11 @@
 {"cmd":"python3 -c \"import importlib; print(importlib.util.find_spec('json'))\"","cwd":"/w"}
 {"cmd":"python3 -c \"print(vars(object))\"","cwd":"/w"}
 {"cmd":"python3 -c \"from os.path import *; print(join('a', 'b'))\"","cwd":"/w"}
+{"cmd":"command -v bash","cwd":"/w"}
+{"cmd":"command -V python3","cwd":"/w"}
+{"cmd":"command -pv node","cwd":"/w"}
+{"cmd":"command -v bash; bash --version | head -1","cwd":"/w"}
+{"cmd":"command -v x > /etc/o1872","cwd":"/w"}
+{"cmd":"command bash -c \"echo x > /etc/o1872\"","cwd":"/w"}
+{"cmd":"command -p bash -c \"echo x > /etc/o1872\"","cwd":"/w"}
+{"cmd":"command -- -v > /etc/o1872","cwd":"/w"}

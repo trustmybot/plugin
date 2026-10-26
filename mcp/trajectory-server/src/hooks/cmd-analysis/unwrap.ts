@@ -4,7 +4,8 @@
  * exec with their own options, each wrapper by its own option table. The TS
  * analyzer also skips timeout (and its duration), stdbuf and nice, and their
  * Homebrew coreutils names gtimeout, gstdbuf and gnice, which the .sh does not
- * (GH 1692).
+ * (GH 1692). A `command -v` / `-V` lookup runs nothing, so the TS stops at its
+ * option word instead of skipping to the name it looks up (GH 1872).
  */
 
 interface WrapSpec {
@@ -49,9 +50,18 @@ export function splitWords(s: string): string[] {
   return s === '' ? [] : s.split(/[ \t]+/);
 }
 
+/** `command` at index k only prints how a name resolves: an option word holding v or V comes before any `--` or operand. */
+function lookup(w: readonly string[], k: number): boolean {
+  for (let j = k + 1; j < w.length && w[j].startsWith('-') && w[j] !== '--' && w[j] !== '-'; j++) {
+    if (/^-[^-]*[vV]/.test(w[j])) return true;
+  }
+  return false;
+}
+
 /**
- * From index k of w, the index of the real argv0 and the dirs the skipped
- * wrappers run it in (env -C / --chdir, sudo -D / --chdir, a `--chdir=<dir>` word).
+ * From index k of w, the index of the real argv0 (a `command -v` lookup's
+ * option word) and the dirs the skipped wrappers run it in (env -C / --chdir,
+ * sudo -D / --chdir, a `--chdir=<dir>` word).
  */
 export function unwrap(w: readonly string[], k: number): { k: number; dirs: string[] } {
   const dirs: string[] = [];
@@ -68,6 +78,7 @@ export function unwrap(w: readonly string[], k: number): { k: number; dirs: stri
       continue;
     }
     if (!WRAPPER.test(a)) break;
+    if (a === 'command' && lookup(w, k)) return { k: k + 1, dirs };
     const spec = SPECS[a] ?? NO_SPEC;
     k++;
     while (k < n && w[k].startsWith('-')) {
