@@ -8553,7 +8553,8 @@ var SCRIPT_WORDS = /* @__PURE__ */ new Set([
   "BEGIN",
   "END",
   "write",
-  "close"
+  "close",
+  "sleep"
 ]);
 var Bindings = class {
   map = /* @__PURE__ */ new Map();
@@ -9364,6 +9365,25 @@ function lexScript(perl, src) {
   return out2;
 }
 var member = (t) => t?.t === "p" && (t.text === "." || t.text === "::");
+var SLEEP_SELECT = [
+  { t: "w", text: "select" },
+  { t: "p", text: "(" },
+  { t: "w", text: "undef" },
+  { t: "p", text: "," },
+  { t: "w", text: "undef" },
+  { t: "p", text: "," },
+  { t: "w", text: "undef" },
+  { t: "p", text: "," }
+];
+function perlSleepSelect(toks, k) {
+  if (toks[k - 1]?.text === "->") return 0;
+  if (!SLEEP_SELECT.every((s, j) => toks[k + j]?.t === s.t && toks[k + j].text === s.text)) return 0;
+  const wait = toks[k + SLEEP_SELECT.length];
+  const numeric = wait?.t === "lit" && wait.text === "0";
+  const scalar = wait?.t === "v" && /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(wait.text);
+  if (!(numeric || scalar) || toks[k + SLEEP_SELECT.length + 1]?.text !== ")") return 0;
+  return SLEEP_SELECT.length + 2;
+}
 function proveScript(lang, src) {
   const perl = lang === "perl";
   const fail = { ok: false, judged: false };
@@ -9423,6 +9443,11 @@ function proveScript(lang, src) {
       if (toks[j + 1]?.text === "=") return fail;
     }
     if (SCRIPT_WORDS.has(name3)) continue;
+    const sleep = perl ? perlSleepSelect(toks, k) : 0;
+    if (sleep) {
+      k += sleep - 1;
+      continue;
+    }
     let dotted = name3;
     for (let j = k; !perl && member(toks[j - 1]) && toks[j - 2]?.t === "w"; j -= 2) dotted = `${toks[j - 2].text}.${dotted}`;
     if (!judgedCall(lang, dotted.replace(/::/g, "."))) return fail;

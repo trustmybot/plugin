@@ -13,7 +13,8 @@
  * line from the scanner is unproven too. A grammar not loaded yet leaves the
  * program unproven for this pass and is loaded before the command is analyzed
  * again (index.ts). perl and ruby are lexed against an identifier allowlist,
- * judged writes included.
+ * judged writes included; perl's `select` is proven only as the 4-argument
+ * sleep `select(undef,undef,undef,<number or $scalar>)` (GH 1887).
  */
 import { builtinModules } from 'node:module';
 import { programParser } from './parser.js';
@@ -157,7 +158,7 @@ const SCRIPT_WORDS = new Set([
     'keys', 'values', 'reverse', 'map', 'grep', 'my', 'our', 'if', 'unless', 'for', 'foreach', 'while', 'ARGV',
     'upcase', 'downcase', 'STDIN', 'STDOUT', 'STDERR',
     'else', 'elsif', 'until', 'and', 'or', 'not', 'xor', 'eq', 'ne', 'lt', 'gt', 'le', 'ge', 'cmp', 'x', 'last', 'next',
-    'do', 'end', 'then', 'nil', 'true', 'false', 'in', 'BEGIN', 'END', 'write', 'close',
+    'do', 'end', 'then', 'nil', 'true', 'false', 'in', 'BEGIN', 'END', 'write', 'close', 'sleep',
 ]);
 /** The names a program binds: every binding of each, merged by `resolve`. */
 class Bindings {
@@ -1173,6 +1174,25 @@ function lexScript(perl, src) {
     return out;
 }
 const member = (t) => t?.t === 'p' && (t.text === '.' || t.text === '::');
+const SLEEP_SELECT = [
+    { t: 'w', text: 'select' }, { t: 'p', text: '(' },
+    { t: 'w', text: 'undef' }, { t: 'p', text: ',' },
+    { t: 'w', text: 'undef' }, { t: 'p', text: ',' },
+    { t: 'w', text: 'undef' }, { t: 'p', text: ',' },
+];
+/** The token count of perl's 4-argument sleep `select(undef,undef,undef,<number or $scalar>)` at `k`, or 0 for any other form. */
+function perlSleepSelect(toks, k) {
+    if (toks[k - 1]?.text === '->')
+        return 0;
+    if (!SLEEP_SELECT.every((s, j) => toks[k + j]?.t === s.t && toks[k + j].text === s.text))
+        return 0;
+    const wait = toks[k + SLEEP_SELECT.length];
+    const numeric = wait?.t === 'lit' && wait.text === '0';
+    const scalar = wait?.t === 'v' && /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(wait.text);
+    if (!(numeric || scalar) || toks[k + SLEEP_SELECT.length + 1]?.text !== ')')
+        return 0;
+    return SLEEP_SELECT.length + 2;
+}
 /** perl / ruby: every bareword, method name and `&:symbol` is in the allowlist, a judged write, a ruby local, a ruby constant receiver or a hash key. */
 function proveScript(lang, src) {
     const perl = lang === 'perl';
@@ -1252,6 +1272,11 @@ function proveScript(lang, src) {
         }
         if (SCRIPT_WORDS.has(name))
             continue;
+        const sleep = perl ? perlSleepSelect(toks, k) : 0;
+        if (sleep) {
+            k += sleep - 1;
+            continue;
+        }
         let dotted = name;
         for (let j = k; !perl && member(toks[j - 1]) && toks[j - 2]?.t === 'w'; j -= 2)
             dotted = `${toks[j - 2].text}.${dotted}`;

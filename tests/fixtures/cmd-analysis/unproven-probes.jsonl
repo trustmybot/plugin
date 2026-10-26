@@ -64,3 +64,18 @@
 {"src":"readonly","cmd":"perl -le 'print length($ARGV[0])' abc","expect":"empty"}
 {"src":"readonly","cmd":"ruby -e 'puts ARGV.map(&:upcase).join(\" \")' a b","expect":"empty"}
 {"src":"readonly","cmd":"R=/w/sub; touch $R/f","expect":"resolves","paths":["/w/sub/f"]}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,0.25)'","expect":"empty"}
+{"src":"gh1887","cmd":"perl -e 'select(undef, undef, undef, $t)'","expect":"empty"}
+{"src":"gh1887","cmd":"perl -e 'sleep 1'","expect":"empty"}
+{"src":"gh1887","cmd":"ruby -e 'sleep 0.5'","expect":"empty"}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,0.25)' && some-cmd > out.jsonl 2> err.txt","expect":"resolves","paths":["/w/out.jsonl","/w/err.txt"]}
+{"src":"gh1887","cmd":"{ printf '%s\\n' '<json>'; perl -e 'select(undef,undef,undef,25)'; } | timeout 100 npx -y @primer/mcp@1.1.2 > out.jsonl 2> err.txt","expect":"resolves","paths":["/w/out.jsonl","/w/err.txt"]}
+{"src":"gh1887","cmd":"perl -e 'select($fh)'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,system(\"rm\",\"/etc/x\"))'","expect":"fail_closed","danger":"/etc/x"}
+{"src":"gh1887","cmd":"perl -e 'undef'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e 'select(STDERR); print 1'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef)'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,1,2)'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,$t{x})'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e '$o->select(undef,undef,undef,1)'","expect":"fail_closed"}
+{"src":"gh1887","cmd":"perl -e 'select(undef,undef,undef,1); undef $x'","expect":"fail_closed"}
