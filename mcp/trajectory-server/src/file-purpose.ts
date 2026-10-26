@@ -433,26 +433,41 @@ function plainMarkdown(s: string): string {
   ).trim();
 }
 
+// The line with every HTML comment span removed, and whether a comment is still
+// open at its end. `<!-->` and `<!--->` close at once, as CommonMark has it.
+function withoutComments(line: string, inComment: boolean): { rest: string; inComment: boolean } {
+  let rest = '';
+  let i = 0;
+  for (;;) {
+    if (inComment) {
+      const end = line.indexOf('-->', i);
+      if (end < 0) return { rest, inComment: true };
+      i = end + 3;
+      inComment = false;
+    }
+    const start = line.indexOf('<!--', i);
+    if (start < 0) return { rest: rest + line.slice(i), inComment: false };
+    rest += line.slice(i, start);
+    i = start + 2;
+    inComment = true;
+  }
+}
+
 function fromFirstLine(body: string[]): FilePurpose | null {
   let fenced = false;
   let inComment = false;
   for (const raw of body) {
     let l = raw.trim();
-    if (inComment) {
-      const end = l.indexOf('-->');
-      if (end < 0) continue;
-      inComment = false;
-      l = l.slice(end + 3).trim();
-      if (l === '') continue;
-    } else if (!fenced && l.startsWith('<!--') && !l.includes('-->', 2)) {
-      inComment = true;
-      continue;
+    if (!fenced) {
+      const scan = withoutComments(l, inComment);
+      inComment = scan.inComment;
+      l = scan.rest.trim();
     }
     if (/^(```|~~~)/.test(l)) {
       fenced = !fenced;
       continue;
     }
-    if (fenced || l === '' || l.startsWith('<!--') || l.startsWith('|') || /^-{3,}$/.test(l)) continue;
+    if (fenced || l === '' || l.startsWith('|') || /^-{3,}$/.test(l)) continue;
     const text = plainMarkdown(l.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, ''));
     if (/[A-Za-z0-9]/.test(text)) return result(text, 'structural');
   }
