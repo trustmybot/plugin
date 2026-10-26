@@ -38,7 +38,10 @@ const webCtx = await esbuild.context({
   jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' },
   sourcemap: 'inline',
-  outfile: join(WEB_OUT, 'app.js'),
+  splitting: true,
+  outdir: WEB_OUT,
+  entryNames: 'app',
+  chunkNames: 'chunks/[name]-[hash]',
   logLevel: 'info',
 });
 

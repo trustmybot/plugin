@@ -22,7 +22,7 @@ const PREFIXES = [
   '--bgColor-', '--fgColor-', '--borderColor-',
   '--button-default-', '--button-primary-', '--button-danger-', '--button-invisible-',
   '--control-', '--counter-', '--underlineNav-', '--header-', '--shadow-', '--focus-',
-  '--overlay-', '--avatar-', '--borderWidth-', '--fontStack-',
+  '--overlay-', '--avatar-', '--borderWidth-', '--fontStack-', '--data-',
 ];
 
 function parseBlocks(css) {

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   FileDirectoryIcon,
+  GraphIcon,
   HomeIcon,
   IssueOpenedIcon,
   LightBulbIcon,
@@ -9,6 +10,7 @@ import {
   TasklistIcon,
 } from '@primer/octicons-react';
 import { useLiveRefresh } from './api.ts';
+import { Loading } from './shared/Loading.tsx';
 import { AppHeader } from './ui/AppHeader.tsx';
 import { UnderlineNav, type NavTab } from './ui/UnderlineNav.tsx';
 import { AuditView } from './views/AuditView.tsx';
@@ -21,11 +23,14 @@ import { RunsView } from './views/RunsView.tsx';
 import { TasksView } from './views/TasksView.tsx';
 import { TaskView } from './views/tasks/TaskView.tsx';
 
+const InsightsView = lazy(() => import('./views/insights/InsightsView.tsx').then((m) => ({ default: m.InsightsView })));
+
 export const TABS: readonly NavTab[] = [
   ['overview', 'Overview', HomeIcon],
   ['issues', 'Issues', IssueOpenedIcon],
   ['tasks', 'Tasks', TasklistIcon],
   ['runs', 'Runs & gates', PlayIcon],
+  ['insights', 'Insights', GraphIcon],
   ['audit', 'Audit', LogIcon],
   ['map', 'Project map', FileDirectoryIcon],
   ['concepts', 'Concepts', LightBulbIcon],
@@ -69,6 +74,12 @@ function TabView({ tab }: { tab: string }) {
     case 'issues': return <IssuesView />;
     case 'tasks': return <TasksView />;
     case 'runs': return <RunsView />;
+    case 'insights':
+      return (
+        <Suspense fallback={<Loading q={{ error: null }}>{() => null}</Loading>}>
+          <InsightsView />
+        </Suspense>
+      );
     case 'audit': return <AuditView />;
     case 'map': return <ProjectMapView />;
     default: return <OverviewView />;
