@@ -122,6 +122,11 @@ describe('dashboard issues', () => {
     for (const label of LABELS) assert.ok(html.includes(`>${label}</span>`), label);
     assert.match(html, />2 Open</);
     assert.ok(!html.includes('octicon-issue-closed'));
+    assert.match(html, /<a href="#\/issues" aria-current="page"/);
+    assert.match(html, /<a href="#\/issues\?state=closed"/);
+    assert.match(html, /<ul role="list"><li /);
+    assert.match(html, /aria-live="polite">2 open issues</);
+    assert.ok(!html.includes('<table'));
   });
 
   test('the closed list is empty and shows a Blankslate', async () => {

@@ -113,7 +113,11 @@ export function tasks(db: DatabaseSync): Row[] {
     db,
     `SELECT t.id, t.issue_id, i.objective AS issue_objective, t.branch_id, t.title,
             t.status, t.repo, t.effort, t.commit_sha, t.created_at, t.updated_at,
-            t.completed_at
+            t.completed_at,
+            (SELECT v.verdict FROM validation_attempts v WHERE v.task_id = t.id
+              ORDER BY v.id DESC LIMIT 1) AS last_verdict,
+            (SELECT COUNT(*) FROM review_findings f WHERE f.task_id = t.id
+               AND f.status = 'open') AS open_findings
        FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
       ORDER BY t.id DESC LIMIT ?`,
     RECENT_LIMIT * 5,
