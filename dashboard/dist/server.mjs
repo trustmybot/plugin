@@ -8297,6 +8297,7 @@ var DEFAULT_PORT = 7477;
 var WEB_ROOT = fileURLToPath2(new URL("./web/", import.meta.url));
 var MAX_BODY_BYTES2 = 2 * 1024 * 1024;
 var TOKEN_HEADER = "x-tmb-token";
+var INTERNAL_ERROR = { error: "internal_error", message: "the dashboard server hit an error; its terminal has the details" };
 var MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -8471,8 +8472,9 @@ async function handle(ctx, req, res) {
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) handleApi(ctx.db, url, res);
     else serveStatic(ctx, url.pathname, res);
   } catch (err3) {
+    console.error("dashboard request failed:", err3);
     if (res.headersSent) res.end();
-    else sendJson(res, 500, { error: err3 instanceof Error ? err3.message : String(err3) });
+    else sendJson(res, 500, INTERNAL_ERROR);
   }
 }
 function main() {

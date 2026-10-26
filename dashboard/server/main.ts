@@ -18,6 +18,7 @@ const DEFAULT_PORT = 7477;
 const WEB_ROOT = fileURLToPath(new URL('./web/', import.meta.url));
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const TOKEN_HEADER = 'x-tmb-token';
+const INTERNAL_ERROR = { error: 'internal_error', message: 'the dashboard server hit an error; its terminal has the details' };
 
 interface Ctx {
   db: DatabaseSync;
@@ -204,8 +205,9 @@ async function handle(ctx: Ctx, req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) handleApi(ctx.db, url, res);
     else serveStatic(ctx, url.pathname, res);
   } catch (err) {
+    console.error('dashboard request failed:', err);
     if (res.headersSent) res.end();
-    else sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    else sendJson(res, 500, INTERNAL_ERROR);
   }
 }
 

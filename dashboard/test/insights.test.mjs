@@ -717,7 +717,7 @@ describe('Insights view', () => {
   test('the CSV body equals the table cells, quoted per RFC 4180', () => {
     const t = { columns: ['Command', 'p95'], rows: [['bun run "build", fast', 12.5], ['node --test', 60]] };
     const html = mod.table('cap', t);
-    const decode = (s) => s.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'");
+    const decode = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
     const head = [...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => decode(m[1]));
     const cells = [...html.matchAll(/<tr[^>]*>((?:<td[^>]*>[^<]*<\/td>)+)<\/tr>/g)].map((r) => [...r[1].matchAll(/<td[^>]*>([^<]*)<\/td>/g)].map((m) => decode(m[1])));
     const csv = mod.toCsv(t);
