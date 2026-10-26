@@ -41048,8 +41048,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync12 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync12, openSync as openSync2, readFileSync as readFileSync8, readSync, realpathSync as realpathSync6, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
-import { dirname as dirname11, join as join18 } from "node:path";
+import { existsSync as existsSync12, readFileSync as readFileSync8, realpathSync as realpathSync6, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname11, join as join19 } from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // src/graph.ts
@@ -41407,13 +41407,15 @@ var NONE = { purpose: "", source: "none" };
 var MANIFESTS = /* @__PURE__ */ new Set(["package.json", "plugin.json", "marketplace.json"]);
 var COMMENT_STYLES = {
   ts: { line: ["//"], block: true },
+  tsx: { line: ["//"], block: true },
   js: { line: ["//"], block: true },
   mjs: { line: ["//"], block: true },
   sh: { line: ["#"], block: false },
   pl: { line: ["#"], block: false },
   sql: { line: ["--"], block: true }
 };
-var JSDOC_EXTS = /* @__PURE__ */ new Set(["ts", "js", "mjs"]);
+var JSDOC_EXTS = /* @__PURE__ */ new Set(["ts", "tsx", "js", "mjs"]);
+var STRUCTURAL_EXTS = /* @__PURE__ */ new Set(["json", "yml", "yaml", "txt"]);
 var DIRECTIVE_LINE = /^(spdx-license-identifier|copyright|\(c\)|©|licensed under|all rights reserved|shellcheck |eslint|prettier-ignore|@ts-|-\*-|vim:|jshint|global )/i;
 function baseName(path2) {
   const i2 = path2.lastIndexOf("/");
@@ -41424,23 +41426,44 @@ function extension(path2) {
   const i2 = name2.lastIndexOf(".");
   return i2 > 0 ? name2.slice(i2 + 1).toLowerCase() : "";
 }
+function inChangelogDir(path2) {
+  return /(^|\/)changelog\.d\//.test(path2);
+}
 function isPurposeCandidate(path2) {
   const ext = extension(path2);
-  return MANIFESTS.has(baseName(path2)) || ext === "py" || ext === "md" || ext in COMMENT_STYLES;
+  return MANIFESTS.has(baseName(path2)) || ext === "py" || ext === "md" || ext in COMMENT_STYLES || STRUCTURAL_EXTS.has(ext) || inChangelogDir(path2);
+}
+function capChars(text, max) {
+  if (text.length <= max) return text;
+  const clipped = text.slice(0, max - 1);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${(lastSpace > max / 2 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}\u2026`;
 }
 function normalizePurpose(raw) {
   const text = raw.replace(/\s+/g, " ").trim();
   if (!text) return "";
   const end = /[.!?](?=\s+[A-Z0-9`'"(\[]|\s*$)/.exec(text);
-  const sentence = end ? text.slice(0, end.index + 1) : text;
-  if (sentence.length <= PURPOSE_MAX_CHARS) return sentence;
-  const clipped = sentence.slice(0, PURPOSE_MAX_CHARS - 1);
-  const lastSpace = clipped.lastIndexOf(" ");
-  return `${(lastSpace > PURPOSE_MAX_CHARS / 2 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}\u2026`;
+  return capChars(end ? text.slice(0, end.index + 1) : text, PURPOSE_MAX_CHARS);
 }
 function result(raw, source) {
   const purpose = normalizePurpose(raw);
   return purpose ? { purpose, source } : null;
+}
+function built(raw, source) {
+  const purpose = capChars(raw.replace(/\s+/g, " ").trim(), PURPOSE_MAX_CHARS);
+  return purpose ? { purpose, source } : null;
+}
+function fitList(label, items, budget, sep5 = ", ") {
+  let out2 = `${label}: `;
+  let n = 0;
+  for (const item of items) {
+    const rest = items.length - n - 1;
+    const more = rest > 0 ? `${sep5}+${rest} more` : "";
+    if (n > 0 && out2.length + sep5.length + item.length + more.length > budget) break;
+    out2 += (n > 0 ? sep5 : "") + item;
+    n++;
+  }
+  return n < items.length ? `${out2}${sep5}+${items.length - n} more` : out2;
 }
 function firstParagraph(lines2) {
   const out2 = [];
@@ -41595,6 +41618,134 @@ function fromManifest(head) {
     }
   }
 }
+function stem(path2) {
+  return baseName(path2).replace(/\.[^.]+$/, "");
+}
+function readJsonString(text, start2) {
+  let j = start2 + 1;
+  while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+  if (j >= text.length) return null;
+  try {
+    return { value: JSON.parse(text.slice(start2, j + 1)), end: j + 1 };
+  } catch {
+    return { value: text.slice(start2 + 1, j), end: j + 1 };
+  }
+}
+function jsonShape(text) {
+  const start2 = text.search(/\S/);
+  const array2 = text[start2] === "[";
+  if (!array2 && text[start2] !== "{") return null;
+  const keyDepth = array2 ? 2 : 1;
+  const shape = { array: array2, keys: [], items: [], strings: /* @__PURE__ */ new Map() };
+  let depth = 0;
+  let element = 0;
+  let i2 = start2;
+  while (i2 < text.length) {
+    const c = text[i2];
+    if (c === '"') {
+      const key = readJsonString(text, i2);
+      if (!key) break;
+      i2 = key.end;
+      if (array2 && depth === 1) {
+        shape.items.push(key.value);
+        continue;
+      }
+      if (depth !== keyDepth || element > 0) continue;
+      const colon = /^\s*:\s*/.exec(text.slice(i2, i2 + 64));
+      if (!colon) continue;
+      if (!shape.keys.includes(key.value)) shape.keys.push(key.value);
+      i2 += colon[0].length;
+      if (text[i2] === '"') {
+        const value = readJsonString(text, i2);
+        if (!value) break;
+        if (!shape.strings.has(key.value)) shape.strings.set(key.value, value.value);
+        i2 = value.end;
+      }
+      continue;
+    }
+    if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") {
+      depth--;
+      if (depth === 0) break;
+    } else if (c === "," && array2 && depth === 1) element++;
+    i2++;
+  }
+  return shape;
+}
+var YAML_KEY = /^("[^"]*"|'[^']*'|[A-Za-z_$][\w$.-]*)\s*:(?:\s+(.*))?$/;
+function yamlShape(text) {
+  const shape = { array: false, keys: [], items: [], strings: /* @__PURE__ */ new Map() };
+  for (const line of text.split("\n")) {
+    const schema = /^#\s*yaml-language-server:\s*\$schema=(\S+)/.exec(line);
+    if (schema) shape.strings.set("$schema", schema[1]);
+    const m = YAML_KEY.exec(line.trimEnd());
+    if (!m) continue;
+    const key = unquoteYaml(m[1]);
+    if (shape.keys.includes(key)) continue;
+    shape.keys.push(key);
+    const value = (m[2] ?? "").replace(/\s+#.*$/, "").trim();
+    if (value && !/^[|>&*{[!]/.test(value)) shape.strings.set(key, unquoteYaml(value));
+  }
+  return shape;
+}
+function shortSchema(url2) {
+  return url2.replace(/^[a-z]+:\/\//i, "").replace(/#$/, "");
+}
+function fromShape(shape) {
+  if (!shape) return null;
+  const name2 = shape.array ? void 0 : shape.strings.get("name");
+  const description = shape.array ? void 0 : shape.strings.get("description");
+  const schema = shape.array ? void 0 : shape.strings.get("$schema");
+  if (description) return result(name2 ? `${name2}: ${description}` : description, "structural");
+  if (name2) return built(schema ? `${name2} (schema ${shortSchema(schema)})` : name2, "structural");
+  if (schema) return built(`schema ${shortSchema(schema)}`, "structural");
+  if (shape.keys.length === 0) return shape.items.length > 0 ? built(fitList("items", shape.items, PURPOSE_MAX_CHARS), "structural") : null;
+  return built(fitList(shape.array ? "items with keys" : "keys", shape.keys, PURPOSE_MAX_CHARS), "structural");
+}
+function dirRole(path2) {
+  if (inChangelogDir(path2)) return "changelog fragment";
+  const dirs = path2.split("/").slice(0, -1);
+  const parent = dirs[dirs.length - 1];
+  if (!parent) return "text";
+  if (dirs.includes("fixtures") || dirs.includes("__fixtures__")) {
+    const owner = parent === "fixtures" || parent === "__fixtures__" ? dirs[dirs.length - 2] : parent;
+    return owner ? `${owner} fixture` : "fixture";
+  }
+  return `${parent} text`;
+}
+function stripTags(s) {
+  let prev;
+  let out2 = s;
+  do {
+    prev = out2;
+    out2 = out2.replace(/<[^>]*>/g, "");
+  } while (out2 !== prev);
+  return out2.replace(/[<>]/g, "");
+}
+function plainMarkdown(s) {
+  return stripTags(stripInlineMarkdown(s)).replace(/`([^`]*)`/g, "$1").replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2").trim();
+}
+function fromFirstLine(body2) {
+  let fenced = false;
+  for (const raw of body2) {
+    const l = raw.trim();
+    if (/^(```|~~~)/.test(l)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced || l === "" || l.startsWith("<!--") || l.startsWith("|") || /^-{3,}$/.test(l)) continue;
+    const text = plainMarkdown(l.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, ""));
+    if (/[A-Za-z0-9]/.test(text)) return result(text, "structural");
+  }
+  return null;
+}
+function fromStructure(path2, ext, text) {
+  if (inChangelogDir(path2) || ext === "txt") return built(`${dirRole(path2)}: ${stem(path2)}`, "structural");
+  if (ext === "json") return fromShape(jsonShape(text));
+  if (ext === "yml" || ext === "yaml") return fromShape(yamlShape(text));
+  if (ext === "md") return fromFirstLine(splitFrontmatter(text).body);
+  return null;
+}
 function extractPurpose(path2, head) {
   if (!head || head.includes("\0") || head.trim() === "") return NONE;
   const text = head.slice(0, PURPOSE_HEAD_BYTES).replace(/\r\n?/g, "\n").replace(/^﻿/, "");
@@ -41606,13 +41757,142 @@ function extractPurpose(path2, head) {
   else if (ext in COMMENT_STYLES) {
     found = (JSDOC_EXTS.has(ext) ? fromJsdoc(text) : null) ?? fromCommentBlock(text, COMMENT_STYLES[ext]);
   }
-  return found ?? NONE;
+  return found ?? fromStructure(path2, ext, text) ?? NONE;
+}
+var KIND_LABEL = {
+  sh_function: "function",
+  sql_table: "table",
+  sql_index: "index",
+  sql_trigger: "trigger"
+};
+var CODE_EXT = /\.[cm]?[jt]sx?$/;
+function isTestFile(path2) {
+  return /(^|\/)(tests?|__tests__)\//.test(path2) || /\.(test|spec)\./.test(baseName(path2));
+}
+function needsHeadForSymbols(path2) {
+  return isTestFile(path2) && CODE_EXT.test(path2);
+}
+function testTitles(head) {
+  const titles = [];
+  const re = /\b(?:describe|suite|test|it)(?:\.(?:only|skip|todo))?\s*\(\s*(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
+  for (const m of head.matchAll(re)) {
+    const title = m[2].trim();
+    if (title && !titles.includes(title)) titles.push(title);
+  }
+  return titles;
+}
+function fromTestTitles(path2, head) {
+  const titles = testTitles(head);
+  if (titles.length === 0) return null;
+  const subject = baseName(path2).replace(/\.(test|spec)\.[^.]+$/, "").replace(/\.[^.]+$/, "");
+  return built(fitList(`tests for ${subject}`, titles, PURPOSE_MAX_CHARS, "; "), "symbols");
+}
+function contains(outer, inner) {
+  if (outer.start_line === null || outer.end_line === null || inner.start_line === null || inner.end_line === null) {
+    return false;
+  }
+  return outer.start_line <= inner.start_line && outer.end_line >= inner.end_line && (outer.start_line < inner.start_line || outer.end_line > inner.end_line);
+}
+function docSentence(doc) {
+  const text = normalizePurpose(doc);
+  return text && !isDirective(text) && /[A-Za-z]{3}/.test(text) ? text : "";
+}
+function squash(name2) {
+  return name2.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function withDoc(label, items, doc) {
+  const docBudget = doc ? Math.min(doc.length + 3, PURPOSE_MAX_CHARS / 2) : 0;
+  const list = fitList(label, items, PURPOSE_MAX_CHARS - docBudget);
+  const room = PURPOSE_MAX_CHARS - list.length - 3;
+  return doc && room >= 20 ? `${list} \u2014 ${capChars(doc, room)}` : list;
+}
+function purposeFromSymbols(path2, symbols, head = "") {
+  if (needsHeadForSymbols(path2)) {
+    const tests = fromTestTitles(path2, head);
+    if (tests) return tests;
+  }
+  const defs = symbols.filter((s) => s.kind !== "module" && s.kind !== "hook" && s.kind !== "method");
+  const top = defs.filter((d) => !defs.some((o) => o !== d && contains(o, d)));
+  if (top.length === 0) return null;
+  const moduleDoc2 = docSentence(symbols.find((s) => s.kind === "module")?.doc ?? "");
+  const shell = top.every((s) => s.kind === "sh_function");
+  if (shell) return built(withDoc("functions", [...new Set(top.map((s) => s.qualified_name))], moduleDoc2), "symbols");
+  const exports = top.filter((s) => s.exported === 1);
+  const listed2 = exports.length > 0 ? exports : top;
+  const items = [...new Set(listed2.map((s) => `${s.qualified_name} (${KIND_LABEL[s.kind] ?? s.kind})`))];
+  let doc = moduleDoc2;
+  if (!doc && exports.length > 0) {
+    const fileStem = squash(baseName(path2).replace(/\..*$/, ""));
+    const main = exports.find((s) => squash(s.qualified_name) === fileStem && docSentence(s.doc)) ?? exports.find((s) => docSentence(s.doc));
+    doc = main ? docSentence(main.doc) : "";
+  }
+  return built(withDoc(exports.length > 0 ? "exports" : "defines", items, doc), "symbols");
+}
+
+// src/symbol-purpose.ts
+import { closeSync as closeSync2, openSync as openSync2, readSync } from "node:fs";
+import { join as join15 } from "node:path";
+function readFileHead(absPath) {
+  let fd = null;
+  try {
+    fd = openSync2(absPath, "r");
+    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
+    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
+    return buf.subarray(0, n).toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== null) closeSync2(fd);
+  }
+}
+function refreshSymbolPurposes(db2, repo) {
+  const files = db2.all(
+    `SELECT id, path, purpose, purpose_source FROM wm_files
+      WHERE repo = ? AND purpose_source IN ('none', 'symbols') ORDER BY path`,
+    [repo]
+  );
+  if (files.length === 0) return { updated: 0 };
+  const repoPath = db2.get(`SELECT path FROM repos WHERE name = ?`, [repo])?.path ?? null;
+  const byPath = /* @__PURE__ */ new Map();
+  const rows = db2.all(
+    `SELECT path, kind, qualified_name, doc, exported, start_line, end_line FROM wm_symbols
+      WHERE repo = ? AND path IN (SELECT value FROM json_each(?))
+      ORDER BY path, start_line, id`,
+    [repo, JSON.stringify(files.map((f) => f.path))]
+  );
+  for (const r of rows) {
+    const symbol2 = {
+      kind: r.kind,
+      qualified_name: r.qualified_name,
+      doc: r.doc,
+      exported: Number(r.exported),
+      start_line: r.start_line === null ? null : Number(r.start_line),
+      end_line: r.end_line === null ? null : Number(r.end_line)
+    };
+    const list = byPath.get(r.path);
+    if (list) list.push(symbol2);
+    else byPath.set(r.path, [symbol2]);
+  }
+  const now2 = nowISO();
+  let updated = 0;
+  db2.transaction(() => {
+    for (const f of files) {
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join15(repoPath, f.path)) : "";
+      const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
+      const purpose = next?.purpose ?? "";
+      const source = next ? "symbols" : "none";
+      if (purpose === f.purpose && source === f.purpose_source) continue;
+      db2.run(`UPDATE wm_files SET purpose = ?, purpose_source = ?, updated_at = ? WHERE id = ?`, [purpose, source, now2, f.id]);
+      updated++;
+    }
+  });
+  return { updated };
 }
 
 // src/readme-drift.ts
 import { spawnSync as spawnSync10 } from "node:child_process";
 import { existsSync as existsSync10 } from "node:fs";
-import { join as join15, posix } from "node:path";
+import { join as join16, posix } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
 function git2(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
@@ -41702,7 +41982,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync10(join15(history.root, fromDir)) || existsSync10(join15(history.root, ref2))) continue;
+    if (existsSync10(join16(history.root, fromDir)) || existsSync10(join16(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -41737,11 +42017,11 @@ function readmeDrift(history, dir, readmeName, readme) {
 // src/symbol-index.ts
 import { createHash as createHash2 } from "node:crypto";
 import { readFileSync as readFileSync7 } from "node:fs";
-import { basename as basename8, join as join17, posix as posix2 } from "node:path";
+import { basename as basename8, join as join18, posix as posix2 } from "node:path";
 
 // src/parsing/loader.ts
 import { existsSync as existsSync11 } from "node:fs";
-import { dirname as dirname10, join as join16 } from "node:path";
+import { dirname as dirname10, join as join17 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 var RUNTIME_WASM = "tree-sitter.wasm";
 var GRAMMAR_WASM = {
@@ -41756,10 +42036,10 @@ var pending = null;
 var loads = 0;
 function wasmDir() {
   const here = dirname10(fileURLToPath5(import.meta.url));
-  for (const dir of [join16(here, "parsing"), here]) {
-    if (existsSync11(join16(dir, RUNTIME_WASM))) return dir;
+  for (const dir of [join17(here, "parsing"), here]) {
+    if (existsSync11(join17(dir, RUNTIME_WASM))) return dir;
   }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join16(here, "parsing")} or ${here}`);
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join17(here, "parsing")} or ${here}`);
 }
 var runtime = null;
 var grammars = /* @__PURE__ */ new Map();
@@ -41772,7 +42052,7 @@ function loadRuntime() {
     (async () => {
       const dir = wasmDir();
       const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file2) => join16(dir, file2) });
+      await mod.Parser.init({ locateFile: (file2) => join17(dir, file2) });
       return mod;
     })(),
     () => {
@@ -41788,7 +42068,7 @@ function loadParser(name2) {
       (async () => {
         const { Parser: Parser2, Language: Language2 } = await loadRuntime();
         const p = new Parser2();
-        p.setLanguage(await Language2.load(join16(wasmDir(), GRAMMAR_WASM[name2])));
+        p.setLanguage(await Language2.load(join17(wasmDir(), GRAMMAR_WASM[name2])));
         return p;
       })(),
       () => grammars.delete(name2)
@@ -42311,7 +42591,7 @@ function namesOf(kind, qualifiedName, path2) {
   return kind === "module" ? [basename8(path2), path2] : [shortName(kind, qualifiedName)];
 }
 function readSource(repoPath, relPath) {
-  return readFileSync7(join17(repoPath, relPath), "utf8");
+  return readFileSync7(join18(repoPath, relPath), "utf8");
 }
 function sourceLanguage(repoPath, relPath, sizeBytes) {
   if (sizeBytes > MAX_PARSE_BYTES) return null;
@@ -42326,8 +42606,8 @@ function sourceLanguage(repoPath, relPath, sizeBytes) {
 function resolveImport(fromFile, spec, fileSet) {
   if (!spec || !spec.startsWith(".")) return null;
   const base = posix2.normalize(posix2.join(posix2.dirname(fromFile), spec));
-  const stem = base.replace(/\.(m?js|ts)$/, "");
-  for (const c of [base, `${stem}.ts`, `${stem}.tsx`, `${stem}.js`, `${stem}.mjs`, `${stem}/index.ts`, `${stem}/index.js`]) {
+  const stem2 = base.replace(/\.(m?js|ts)$/, "");
+  for (const c of [base, `${stem2}.ts`, `${stem2}.tsx`, `${stem2}.js`, `${stem2}.mjs`, `${stem2}/index.ts`, `${stem2}/index.js`]) {
     if (fileSet.has(c)) return c;
   }
   return null;
@@ -42756,7 +43036,7 @@ function staleFiles(db2, files) {
       `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
       [f.repo, f.path]
     );
-    const disk = fileMd5(join17(root, f.path));
+    const disk = fileMd5(join18(root, f.path));
     checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
   }
   return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
@@ -43249,13 +43529,13 @@ function wrap4(fn) {
 function resolveScanScript() {
   const here = dirname11(fileURLToPath6(import.meta.url));
   const candidates = [
-    join18(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join18(here, "..", "..", "..", "scripts", "scan.sh")
+    join19(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join19(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync12(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join18(pluginRoot, "scripts", "scan.sh");
+    const c = join19(pluginRoot, "scripts", "scan.sh");
     if (existsSync12(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -43388,7 +43668,7 @@ function deriveDirectoryEntries(out2) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename9(dirPath);
-  const join24 = (names) => {
+  const join25 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -43399,16 +43679,16 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join24(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join25(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join24(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join25(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join18(absDirPath, name2);
+    const readmePath = join19(absDirPath, name2);
     if (!existsSync12(readmePath)) continue;
     try {
       return { name: name2, text: readFileSync8(readmePath, "utf8") };
@@ -43442,7 +43722,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join18(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join19(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -43467,7 +43747,7 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join18(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join19(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -43502,19 +43782,6 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   }
   return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
-function readFileHead(absPath) {
-  let fd = null;
-  try {
-    fd = openSync2(absPath, "r");
-    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
-    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
-    return buf.subarray(0, n).toString("utf8");
-  } catch {
-    return "";
-  } finally {
-    if (fd !== null) closeSync2(fd);
-  }
-}
 function fileDir(relPath) {
   const i2 = relPath.lastIndexOf("/");
   return i2 >= 0 ? relPath.slice(0, i2) : "";
@@ -43533,6 +43800,16 @@ function planFiles(graph, out2, now2) {
     const prev = existing.get(path2);
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
+      if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
+        const extracted = extractPurpose(f.path, readFileHead(join19(repoPath, f.path)));
+        plan.extracted++;
+        if (extracted.source !== "none") {
+          const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
+          plan.nodes.push(node2);
+          plan.writes.push(node2);
+          continue;
+        }
+      }
       plan.nodes.push(prev);
       continue;
     }
@@ -43549,7 +43826,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join18(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join19(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -43786,6 +44063,11 @@ async function persistScan(db2, graph, out2, sessionDir) {
         serverLog({ event: "symbol_index_error", repo: r.name, error: e.message });
       }
       try {
+        refreshSymbolPurposes(db2, r.name);
+      } catch (e) {
+        serverLog({ event: "symbol_purpose_error", repo: r.name, error: e.message });
+      }
+      try {
         refreshConcepts(db2, r.name);
       } catch (e) {
         serverLog({ event: "concept_refresh_error", repo: r.name, error: e.message });
@@ -43894,7 +44176,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
         if (!graph && graphOpenError) {
           return err17(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join18(dirname11(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join19(dirname11(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -44171,7 +44453,7 @@ function repoTools(db2, graphHolder2 = null) {
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync10, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname13, join as join20 } from "node:path";
+import { dirname as dirname13, join as join21 } from "node:path";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
@@ -44179,7 +44461,7 @@ import { execFile } from "node:child_process";
 import { createHash as createHash3 } from "node:crypto";
 import { existsSync as existsSync13, mkdirSync as mkdirSync7, readFileSync as readFileSync9, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname12, isAbsolute as isAbsolute5, join as join19 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute5, join as join20 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -44222,7 +44504,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync9(join19(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync9(join20(homedir3(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -44282,23 +44564,23 @@ function stableJson(value) {
 }
 function cliConfigFingerprint(projectRoot) {
   const home = homedir3();
-  const claudeJson = readJson(join19(home, ".claude.json"));
-  const inProject = (...parts2) => projectRoot === null ? null : readJson(join19(projectRoot, ...parts2));
+  const claudeJson = readJson(join20(home, ".claude.json"));
+  const inProject = (...parts2) => projectRoot === null ? null : readJson(join20(projectRoot, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
     claudeJsonProjectMcpServers: projectRoot === null ? null : field(field(field(claudeJson, "projects"), projectRoot), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
-      user: field(readJson(join19(home, ".claude", "settings.json")), "enabledPlugins"),
+      user: field(readJson(join20(home, ".claude", "settings.json")), "enabledPlugins"),
       project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
       local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
     },
-    installedPlugins: readJson(join19(home, ".claude", "plugins", "installed_plugins.json"))
+    installedPlugins: readJson(join20(home, ".claude", "plugins", "installed_plugins.json"))
   };
   return createHash3("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot) {
-  return join19(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
+  return join20(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
 }
 function readProbeCache(projectRoot) {
   if (projectRoot === null) return null;
@@ -44336,7 +44618,7 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join19(pluginRoot, row.file_path);
+      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join20(pluginRoot, row.file_path);
       return existsSync13(resolved) ? "active" : "broken";
     }
     case "mcp": {
@@ -44438,13 +44720,13 @@ function wrap5(fn) {
 function resolveScriptsFile(name2) {
   const here = dirname13(fileURLToPath7(import.meta.url));
   const candidates = [
-    join20(here, "..", "..", "..", "..", "scripts", name2),
-    join20(here, "..", "..", "..", "scripts", name2)
+    join21(here, "..", "..", "..", "..", "scripts", name2),
+    join21(here, "..", "..", "..", "scripts", name2)
   ];
   for (const c of candidates) if (existsSync14(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join20(pluginRoot, "scripts", name2);
+    const c = join21(pluginRoot, "scripts", name2);
     if (existsSync14(c)) return c;
   }
   throw new Error(`${name2} not found \u2014 expected at <plugin>/scripts/${name2}`);
@@ -44704,11 +44986,11 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join20(pluginRoot, "agents", `${target}.md`);
+    const c2 = join21(pluginRoot, "agents", `${target}.md`);
     if (existsSync14(c2)) return c2;
   }
   const here = dirname13(fileURLToPath7(import.meta.url));
-  const c = join20(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  const c = join21(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync14(c)) return c;
   return null;
 }
@@ -44731,8 +45013,8 @@ function readManifestProvidedTools(manifestPath) {
 function resolveInstalledPluginManifest(name2) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
   if (override) return existsSync14(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join20(process.env["HOME"] || "", ".claude");
-  const registry2 = join20(claudeHome, "plugins", "installed_plugins.json");
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join21(process.env["HOME"] || "", ".claude");
+  const registry2 = join21(claudeHome, "plugins", "installed_plugins.json");
   if (!existsSync14(registry2)) return null;
   let parsed;
   try {
@@ -44748,7 +45030,7 @@ function resolveInstalledPluginManifest(name2) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join20(installPath, ".claude-plugin", "plugin.json");
+      const manifest = join21(installPath, ".claude-plugin", "plugin.json");
       if (existsSync14(manifest)) return manifest;
     }
   }
@@ -44834,9 +45116,9 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join20(projectRoot, ".claude");
+  const claudeDir = join21(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join20(claudeDir, "CLAUDE.md");
+    const claudeMd = join21(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     let body2 = existsSync14(claudeMd) ? readFileSync10(claudeMd, "utf8") : "";
     if (!body2.includes(reference)) {
@@ -44849,7 +45131,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join20(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join21(claudeDir, "agents", `${target}.md`);
   let content;
   if (existsSync14(localAgentMd)) {
     content = readFileSync10(localAgentMd, "utf8");
@@ -44877,7 +45159,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join20(projectRoot, rel);
+    const filePath = join21(projectRoot, rel);
     if (!existsSync14(filePath)) return;
     const content = readFileSync10(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
@@ -44887,7 +45169,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join20(projectRoot, rel);
+    const filePath = join21(projectRoot, rel);
     if (!existsSync14(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     const body2 = readFileSync10(filePath, "utf8");
@@ -45202,9 +45484,9 @@ function cheatcodeTools(db2) {
         const projectRoot = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot === null) return null;
-          const paths = [join20(projectRoot, ".claude", "skills", name2, "SKILL.md")];
+          const paths = [join21(projectRoot, ".claude", "skills", name2, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join20(projectRoot, ".claude", "CLAUDE.md") : join20(projectRoot, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join21(projectRoot, ".claude", "CLAUDE.md") : join21(projectRoot, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
@@ -45487,7 +45769,7 @@ function cheatcodeTools(db2) {
 // src/tools/world_model.ts
 import { spawnSync as spawnSync13 } from "node:child_process";
 import { readFileSync as readFileSync11, realpathSync as realpathSync7 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join21, relative as relative3, sep as sep4 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join22, relative as relative3, sep as sep4 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -45635,7 +45917,7 @@ function symbolSource(db2, symbol2) {
   let file2;
   try {
     root = realpathSync7(rootArg);
-    file2 = realpathSync7(join21(root, symbol2.path));
+    file2 = realpathSync7(join22(root, symbol2.path));
   } catch {
     return { source: null, source_reason: "file-missing" };
   }
@@ -46176,7 +46458,7 @@ function worldModelTools(db2, graphHolder2) {
 // src/tools/agent-runs-backfill.ts
 import { existsSync as existsSync15, readdirSync as readdirSync4, readFileSync as readFileSync12, statSync as statSync5 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename10, join as join22 } from "node:path";
+import { basename as basename10, join as join23 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function readRecords(path2) {
@@ -46323,22 +46605,22 @@ function sessionSpawnTypes(records) {
   return out2;
 }
 function defaultTranscriptsDir(projectRoot) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join22(homedir4(), ".claude");
-  return join22(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join23(homedir4(), ".claude");
+  return join23(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
   for (const name2 of readdirSync4(dir).sort()) {
-    const p = join22(dir, name2);
+    const p = join23(dir, name2);
     if (name2.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join22(p, "subagents");
+    const sub = join23(p, "subagents");
     if (!existsSync15(sub) || !statSync5(sub).isDirectory()) continue;
     for (const f of readdirSync4(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join22(sub, f), session: name2 });
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join23(sub, f), session: name2 });
     }
   }
   return { sessions, subagents };
@@ -46588,12 +46870,12 @@ import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
 import { readFileSync as readFileSync13, realpathSync as realpathSync8 } from "node:fs";
-import { join as join23 } from "node:path";
+import { join as join24 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join23(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join24(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join23(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join24(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
@@ -46612,9 +46894,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join23(claudeConfigDir(env), "settings.json"),
-    join23(project, ".claude", "settings.json"),
-    join23(project, ".claude", "settings.local.json")
+    join24(claudeConfigDir(env), "settings.json"),
+    join24(project, ".claude", "settings.json"),
+    join24(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {

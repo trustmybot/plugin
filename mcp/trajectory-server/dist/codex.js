@@ -33442,8 +33442,8 @@ function issueTools(db, dbPath = "", options = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync6 } from "node:child_process";
-import { closeSync as closeSync3, existsSync as existsSync6, openSync as openSync3, readFileSync as readFileSync8, readSync, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname7, join as join14 } from "node:path";
+import { existsSync as existsSync6, readFileSync as readFileSync8, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname as dirname7, join as join15 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/file-purpose.ts
@@ -33453,13 +33453,15 @@ var NONE = { purpose: "", source: "none" };
 var MANIFESTS = /* @__PURE__ */ new Set(["package.json", "plugin.json", "marketplace.json"]);
 var COMMENT_STYLES = {
   ts: { line: ["//"], block: true },
+  tsx: { line: ["//"], block: true },
   js: { line: ["//"], block: true },
   mjs: { line: ["//"], block: true },
   sh: { line: ["#"], block: false },
   pl: { line: ["#"], block: false },
   sql: { line: ["--"], block: true }
 };
-var JSDOC_EXTS = /* @__PURE__ */ new Set(["ts", "js", "mjs"]);
+var JSDOC_EXTS = /* @__PURE__ */ new Set(["ts", "tsx", "js", "mjs"]);
+var STRUCTURAL_EXTS = /* @__PURE__ */ new Set(["json", "yml", "yaml", "txt"]);
 var DIRECTIVE_LINE = /^(spdx-license-identifier|copyright|\(c\)|©|licensed under|all rights reserved|shellcheck |eslint|prettier-ignore|@ts-|-\*-|vim:|jshint|global )/i;
 function baseName(path) {
   const i2 = path.lastIndexOf("/");
@@ -33470,23 +33472,44 @@ function extension(path) {
   const i2 = name2.lastIndexOf(".");
   return i2 > 0 ? name2.slice(i2 + 1).toLowerCase() : "";
 }
+function inChangelogDir(path) {
+  return /(^|\/)changelog\.d\//.test(path);
+}
 function isPurposeCandidate(path) {
   const ext = extension(path);
-  return MANIFESTS.has(baseName(path)) || ext === "py" || ext === "md" || ext in COMMENT_STYLES;
+  return MANIFESTS.has(baseName(path)) || ext === "py" || ext === "md" || ext in COMMENT_STYLES || STRUCTURAL_EXTS.has(ext) || inChangelogDir(path);
+}
+function capChars(text, max) {
+  if (text.length <= max) return text;
+  const clipped = text.slice(0, max - 1);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${(lastSpace > max / 2 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}\u2026`;
 }
 function normalizePurpose(raw) {
   const text = raw.replace(/\s+/g, " ").trim();
   if (!text) return "";
   const end = /[.!?](?=\s+[A-Z0-9`'"(\[]|\s*$)/.exec(text);
-  const sentence = end ? text.slice(0, end.index + 1) : text;
-  if (sentence.length <= PURPOSE_MAX_CHARS) return sentence;
-  const clipped = sentence.slice(0, PURPOSE_MAX_CHARS - 1);
-  const lastSpace = clipped.lastIndexOf(" ");
-  return `${(lastSpace > PURPOSE_MAX_CHARS / 2 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}\u2026`;
+  return capChars(end ? text.slice(0, end.index + 1) : text, PURPOSE_MAX_CHARS);
 }
 function result(raw, source) {
   const purpose = normalizePurpose(raw);
   return purpose ? { purpose, source } : null;
+}
+function built(raw, source) {
+  const purpose = capChars(raw.replace(/\s+/g, " ").trim(), PURPOSE_MAX_CHARS);
+  return purpose ? { purpose, source } : null;
+}
+function fitList(label, items, budget, sep4 = ", ") {
+  let out2 = `${label}: `;
+  let n = 0;
+  for (const item of items) {
+    const rest = items.length - n - 1;
+    const more = rest > 0 ? `${sep4}+${rest} more` : "";
+    if (n > 0 && out2.length + sep4.length + item.length + more.length > budget) break;
+    out2 += (n > 0 ? sep4 : "") + item;
+    n++;
+  }
+  return n < items.length ? `${out2}${sep4}+${items.length - n} more` : out2;
 }
 function firstParagraph(lines2) {
   const out2 = [];
@@ -33641,6 +33664,134 @@ function fromManifest(head) {
     }
   }
 }
+function stem(path) {
+  return baseName(path).replace(/\.[^.]+$/, "");
+}
+function readJsonString(text, start2) {
+  let j = start2 + 1;
+  while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+  if (j >= text.length) return null;
+  try {
+    return { value: JSON.parse(text.slice(start2, j + 1)), end: j + 1 };
+  } catch {
+    return { value: text.slice(start2 + 1, j), end: j + 1 };
+  }
+}
+function jsonShape(text) {
+  const start2 = text.search(/\S/);
+  const array2 = text[start2] === "[";
+  if (!array2 && text[start2] !== "{") return null;
+  const keyDepth = array2 ? 2 : 1;
+  const shape = { array: array2, keys: [], items: [], strings: /* @__PURE__ */ new Map() };
+  let depth = 0;
+  let element = 0;
+  let i2 = start2;
+  while (i2 < text.length) {
+    const c = text[i2];
+    if (c === '"') {
+      const key = readJsonString(text, i2);
+      if (!key) break;
+      i2 = key.end;
+      if (array2 && depth === 1) {
+        shape.items.push(key.value);
+        continue;
+      }
+      if (depth !== keyDepth || element > 0) continue;
+      const colon = /^\s*:\s*/.exec(text.slice(i2, i2 + 64));
+      if (!colon) continue;
+      if (!shape.keys.includes(key.value)) shape.keys.push(key.value);
+      i2 += colon[0].length;
+      if (text[i2] === '"') {
+        const value = readJsonString(text, i2);
+        if (!value) break;
+        if (!shape.strings.has(key.value)) shape.strings.set(key.value, value.value);
+        i2 = value.end;
+      }
+      continue;
+    }
+    if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") {
+      depth--;
+      if (depth === 0) break;
+    } else if (c === "," && array2 && depth === 1) element++;
+    i2++;
+  }
+  return shape;
+}
+var YAML_KEY = /^("[^"]*"|'[^']*'|[A-Za-z_$][\w$.-]*)\s*:(?:\s+(.*))?$/;
+function yamlShape(text) {
+  const shape = { array: false, keys: [], items: [], strings: /* @__PURE__ */ new Map() };
+  for (const line of text.split("\n")) {
+    const schema = /^#\s*yaml-language-server:\s*\$schema=(\S+)/.exec(line);
+    if (schema) shape.strings.set("$schema", schema[1]);
+    const m = YAML_KEY.exec(line.trimEnd());
+    if (!m) continue;
+    const key = unquoteYaml(m[1]);
+    if (shape.keys.includes(key)) continue;
+    shape.keys.push(key);
+    const value = (m[2] ?? "").replace(/\s+#.*$/, "").trim();
+    if (value && !/^[|>&*{[!]/.test(value)) shape.strings.set(key, unquoteYaml(value));
+  }
+  return shape;
+}
+function shortSchema(url2) {
+  return url2.replace(/^[a-z]+:\/\//i, "").replace(/#$/, "");
+}
+function fromShape(shape) {
+  if (!shape) return null;
+  const name2 = shape.array ? void 0 : shape.strings.get("name");
+  const description = shape.array ? void 0 : shape.strings.get("description");
+  const schema = shape.array ? void 0 : shape.strings.get("$schema");
+  if (description) return result(name2 ? `${name2}: ${description}` : description, "structural");
+  if (name2) return built(schema ? `${name2} (schema ${shortSchema(schema)})` : name2, "structural");
+  if (schema) return built(`schema ${shortSchema(schema)}`, "structural");
+  if (shape.keys.length === 0) return shape.items.length > 0 ? built(fitList("items", shape.items, PURPOSE_MAX_CHARS), "structural") : null;
+  return built(fitList(shape.array ? "items with keys" : "keys", shape.keys, PURPOSE_MAX_CHARS), "structural");
+}
+function dirRole(path) {
+  if (inChangelogDir(path)) return "changelog fragment";
+  const dirs = path.split("/").slice(0, -1);
+  const parent = dirs[dirs.length - 1];
+  if (!parent) return "text";
+  if (dirs.includes("fixtures") || dirs.includes("__fixtures__")) {
+    const owner = parent === "fixtures" || parent === "__fixtures__" ? dirs[dirs.length - 2] : parent;
+    return owner ? `${owner} fixture` : "fixture";
+  }
+  return `${parent} text`;
+}
+function stripTags(s) {
+  let prev;
+  let out2 = s;
+  do {
+    prev = out2;
+    out2 = out2.replace(/<[^>]*>/g, "");
+  } while (out2 !== prev);
+  return out2.replace(/[<>]/g, "");
+}
+function plainMarkdown(s) {
+  return stripTags(stripInlineMarkdown(s)).replace(/`([^`]*)`/g, "$1").replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2").trim();
+}
+function fromFirstLine(body2) {
+  let fenced = false;
+  for (const raw of body2) {
+    const l = raw.trim();
+    if (/^(```|~~~)/.test(l)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced || l === "" || l.startsWith("<!--") || l.startsWith("|") || /^-{3,}$/.test(l)) continue;
+    const text = plainMarkdown(l.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, ""));
+    if (/[A-Za-z0-9]/.test(text)) return result(text, "structural");
+  }
+  return null;
+}
+function fromStructure(path, ext, text) {
+  if (inChangelogDir(path) || ext === "txt") return built(`${dirRole(path)}: ${stem(path)}`, "structural");
+  if (ext === "json") return fromShape(jsonShape(text));
+  if (ext === "yml" || ext === "yaml") return fromShape(yamlShape(text));
+  if (ext === "md") return fromFirstLine(splitFrontmatter(text).body);
+  return null;
+}
 function extractPurpose(path, head) {
   if (!head || head.includes("\0") || head.trim() === "") return NONE;
   const text = head.slice(0, PURPOSE_HEAD_BYTES).replace(/\r\n?/g, "\n").replace(/^﻿/, "");
@@ -33652,13 +33803,142 @@ function extractPurpose(path, head) {
   else if (ext in COMMENT_STYLES) {
     found = (JSDOC_EXTS.has(ext) ? fromJsdoc(text) : null) ?? fromCommentBlock(text, COMMENT_STYLES[ext]);
   }
-  return found ?? NONE;
+  return found ?? fromStructure(path, ext, text) ?? NONE;
+}
+var KIND_LABEL = {
+  sh_function: "function",
+  sql_table: "table",
+  sql_index: "index",
+  sql_trigger: "trigger"
+};
+var CODE_EXT = /\.[cm]?[jt]sx?$/;
+function isTestFile(path) {
+  return /(^|\/)(tests?|__tests__)\//.test(path) || /\.(test|spec)\./.test(baseName(path));
+}
+function needsHeadForSymbols(path) {
+  return isTestFile(path) && CODE_EXT.test(path);
+}
+function testTitles(head) {
+  const titles = [];
+  const re = /\b(?:describe|suite|test|it)(?:\.(?:only|skip|todo))?\s*\(\s*(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
+  for (const m of head.matchAll(re)) {
+    const title = m[2].trim();
+    if (title && !titles.includes(title)) titles.push(title);
+  }
+  return titles;
+}
+function fromTestTitles(path, head) {
+  const titles = testTitles(head);
+  if (titles.length === 0) return null;
+  const subject = baseName(path).replace(/\.(test|spec)\.[^.]+$/, "").replace(/\.[^.]+$/, "");
+  return built(fitList(`tests for ${subject}`, titles, PURPOSE_MAX_CHARS, "; "), "symbols");
+}
+function contains(outer, inner) {
+  if (outer.start_line === null || outer.end_line === null || inner.start_line === null || inner.end_line === null) {
+    return false;
+  }
+  return outer.start_line <= inner.start_line && outer.end_line >= inner.end_line && (outer.start_line < inner.start_line || outer.end_line > inner.end_line);
+}
+function docSentence(doc) {
+  const text = normalizePurpose(doc);
+  return text && !isDirective(text) && /[A-Za-z]{3}/.test(text) ? text : "";
+}
+function squash(name2) {
+  return name2.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function withDoc(label, items, doc) {
+  const docBudget = doc ? Math.min(doc.length + 3, PURPOSE_MAX_CHARS / 2) : 0;
+  const list = fitList(label, items, PURPOSE_MAX_CHARS - docBudget);
+  const room = PURPOSE_MAX_CHARS - list.length - 3;
+  return doc && room >= 20 ? `${list} \u2014 ${capChars(doc, room)}` : list;
+}
+function purposeFromSymbols(path, symbols, head = "") {
+  if (needsHeadForSymbols(path)) {
+    const tests = fromTestTitles(path, head);
+    if (tests) return tests;
+  }
+  const defs = symbols.filter((s) => s.kind !== "module" && s.kind !== "hook" && s.kind !== "method");
+  const top = defs.filter((d) => !defs.some((o) => o !== d && contains(o, d)));
+  if (top.length === 0) return null;
+  const moduleDoc2 = docSentence(symbols.find((s) => s.kind === "module")?.doc ?? "");
+  const shell = top.every((s) => s.kind === "sh_function");
+  if (shell) return built(withDoc("functions", [...new Set(top.map((s) => s.qualified_name))], moduleDoc2), "symbols");
+  const exports = top.filter((s) => s.exported === 1);
+  const listed = exports.length > 0 ? exports : top;
+  const items = [...new Set(listed.map((s) => `${s.qualified_name} (${KIND_LABEL[s.kind] ?? s.kind})`))];
+  let doc = moduleDoc2;
+  if (!doc && exports.length > 0) {
+    const fileStem = squash(baseName(path).replace(/\..*$/, ""));
+    const main = exports.find((s) => squash(s.qualified_name) === fileStem && docSentence(s.doc)) ?? exports.find((s) => docSentence(s.doc));
+    doc = main ? docSentence(main.doc) : "";
+  }
+  return built(withDoc(exports.length > 0 ? "exports" : "defines", items, doc), "symbols");
+}
+
+// src/symbol-purpose.ts
+import { closeSync as closeSync3, openSync as openSync3, readSync } from "node:fs";
+import { join as join10 } from "node:path";
+function readFileHead(absPath) {
+  let fd = null;
+  try {
+    fd = openSync3(absPath, "r");
+    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
+    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
+    return buf.subarray(0, n).toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== null) closeSync3(fd);
+  }
+}
+function refreshSymbolPurposes(db, repo) {
+  const files = db.all(
+    `SELECT id, path, purpose, purpose_source FROM wm_files
+      WHERE repo = ? AND purpose_source IN ('none', 'symbols') ORDER BY path`,
+    [repo]
+  );
+  if (files.length === 0) return { updated: 0 };
+  const repoPath = db.get(`SELECT path FROM repos WHERE name = ?`, [repo])?.path ?? null;
+  const byPath = /* @__PURE__ */ new Map();
+  const rows = db.all(
+    `SELECT path, kind, qualified_name, doc, exported, start_line, end_line FROM wm_symbols
+      WHERE repo = ? AND path IN (SELECT value FROM json_each(?))
+      ORDER BY path, start_line, id`,
+    [repo, JSON.stringify(files.map((f) => f.path))]
+  );
+  for (const r of rows) {
+    const symbol2 = {
+      kind: r.kind,
+      qualified_name: r.qualified_name,
+      doc: r.doc,
+      exported: Number(r.exported),
+      start_line: r.start_line === null ? null : Number(r.start_line),
+      end_line: r.end_line === null ? null : Number(r.end_line)
+    };
+    const list = byPath.get(r.path);
+    if (list) list.push(symbol2);
+    else byPath.set(r.path, [symbol2]);
+  }
+  const now2 = nowISO();
+  let updated = 0;
+  db.transaction(() => {
+    for (const f of files) {
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join10(repoPath, f.path)) : "";
+      const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
+      const purpose = next?.purpose ?? "";
+      const source = next ? "symbols" : "none";
+      if (purpose === f.purpose && source === f.purpose_source) continue;
+      db.run(`UPDATE wm_files SET purpose = ?, purpose_source = ?, updated_at = ? WHERE id = ?`, [purpose, source, now2, f.id]);
+      updated++;
+    }
+  });
+  return { updated };
 }
 
 // src/readme-drift.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { existsSync as existsSync3 } from "node:fs";
-import { join as join10, posix } from "node:path";
+import { join as join11, posix } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
 function git(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
@@ -33748,7 +34028,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync3(join10(history.root, fromDir)) || existsSync3(join10(history.root, ref2))) continue;
+    if (existsSync3(join11(history.root, fromDir)) || existsSync3(join11(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -33792,11 +34072,11 @@ ${UNTRUSTED_CLOSE}`;
 // src/symbol-index.ts
 import { createHash as createHash3 } from "node:crypto";
 import { readFileSync as readFileSync6 } from "node:fs";
-import { basename as basename5, join as join12, posix as posix2 } from "node:path";
+import { basename as basename5, join as join13, posix as posix2 } from "node:path";
 
 // src/parsing/loader.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { dirname as dirname6, join as join11 } from "node:path";
+import { dirname as dirname6, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 var RUNTIME_WASM = "tree-sitter.wasm";
 var GRAMMAR_WASM = {
@@ -33811,10 +34091,10 @@ var pending = null;
 var loads = 0;
 function wasmDir() {
   const here = dirname6(fileURLToPath3(import.meta.url));
-  for (const dir of [join11(here, "parsing"), here]) {
-    if (existsSync4(join11(dir, RUNTIME_WASM))) return dir;
+  for (const dir of [join12(here, "parsing"), here]) {
+    if (existsSync4(join12(dir, RUNTIME_WASM))) return dir;
   }
-  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join11(here, "parsing")} or ${here}`);
+  throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join12(here, "parsing")} or ${here}`);
 }
 var runtime = null;
 var grammars = /* @__PURE__ */ new Map();
@@ -33827,7 +34107,7 @@ function loadRuntime() {
     (async () => {
       const dir = wasmDir();
       const mod = await Promise.resolve().then(() => (init_tree_sitter(), tree_sitter_exports));
-      await mod.Parser.init({ locateFile: (file2) => join11(dir, file2) });
+      await mod.Parser.init({ locateFile: (file2) => join12(dir, file2) });
       return mod;
     })(),
     () => {
@@ -33843,7 +34123,7 @@ function loadParser(name2) {
       (async () => {
         const { Parser: Parser2, Language: Language2 } = await loadRuntime();
         const p = new Parser2();
-        p.setLanguage(await Language2.load(join11(wasmDir(), GRAMMAR_WASM[name2])));
+        p.setLanguage(await Language2.load(join12(wasmDir(), GRAMMAR_WASM[name2])));
         return p;
       })(),
       () => grammars.delete(name2)
@@ -34366,7 +34646,7 @@ function namesOf(kind, qualifiedName, path) {
   return kind === "module" ? [basename5(path), path] : [shortName(kind, qualifiedName)];
 }
 function readSource(repoPath, relPath) {
-  return readFileSync6(join12(repoPath, relPath), "utf8");
+  return readFileSync6(join13(repoPath, relPath), "utf8");
 }
 function sourceLanguage(repoPath, relPath, sizeBytes) {
   if (sizeBytes > MAX_PARSE_BYTES) return null;
@@ -34381,8 +34661,8 @@ function sourceLanguage(repoPath, relPath, sizeBytes) {
 function resolveImport(fromFile, spec, fileSet) {
   if (!spec || !spec.startsWith(".")) return null;
   const base = posix2.normalize(posix2.join(posix2.dirname(fromFile), spec));
-  const stem = base.replace(/\.(m?js|ts)$/, "");
-  for (const c of [base, `${stem}.ts`, `${stem}.tsx`, `${stem}.js`, `${stem}.mjs`, `${stem}/index.ts`, `${stem}/index.js`]) {
+  const stem2 = base.replace(/\.(m?js|ts)$/, "");
+  for (const c of [base, `${stem2}.ts`, `${stem2}.tsx`, `${stem2}.js`, `${stem2}.mjs`, `${stem2}/index.ts`, `${stem2}/index.js`]) {
     if (fileSet.has(c)) return c;
   }
   return null;
@@ -34811,7 +35091,7 @@ function staleFiles(db, files) {
       `SELECT content_md5, symbols_md5 FROM wm_files WHERE repo = ? AND path = ?`,
       [f.repo, f.path]
     );
-    const disk = fileMd5(join12(root, f.path));
+    const disk = fileMd5(join13(root, f.path));
     checked.set(key, !row || disk === null || disk !== row.content_md5 || row.symbols_md5 !== symbolsStamp(row.content_md5));
   }
   return new Set([...checked].filter(([, stale]) => stale).map(([key]) => key));
@@ -35301,7 +35581,7 @@ function derivedChain(db, repo, query, candidates = keywordSearchSymbols(db, rep
 // src/tools/milestones.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { existsSync as existsSync5, readFileSync as readFileSync7 } from "node:fs";
-import { join as join13 } from "node:path";
+import { join as join14 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
@@ -35525,10 +35805,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join13(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join13(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join13(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join13(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join14(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join14(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join14(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join14(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -35602,13 +35882,13 @@ function wrap(fn) {
 function resolveScanScript() {
   const here = dirname7(fileURLToPath4(import.meta.url));
   const candidates = [
-    join14(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join14(here, "..", "..", "..", "scripts", "scan.sh")
+    join15(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join15(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync6(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join14(pluginRoot, "scripts", "scan.sh");
+    const c = join15(pluginRoot, "scripts", "scan.sh");
     if (existsSync6(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -35741,7 +36021,7 @@ function deriveDirectoryEntries(out2) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename6(dirPath);
-  const join16 = (names) => {
+  const join17 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -35752,16 +36032,16 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts2.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts2.push(`${fileCount} (${join16(fileNames.slice().sort())})`);
+    parts2.push(`${fileCount} (${join17(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts2.push(`subdirs: ${join16(subdirNames.slice().sort())}`);
+    parts2.push(`subdirs: ${join17(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts2.length > 0 ? parts2.join("; ") : "empty directory"}`;
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join14(absDirPath, name2);
+    const readmePath = join15(absDirPath, name2);
     if (!existsSync6(readmePath)) continue;
     try {
       return { name: name2, text: readFileSync8(readmePath, "utf8") };
@@ -35795,7 +36075,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join14(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join15(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -35820,7 +36100,7 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join14(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join15(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -35855,19 +36135,6 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   }
   return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
-function readFileHead(absPath) {
-  let fd = null;
-  try {
-    fd = openSync3(absPath, "r");
-    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
-    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
-    return buf.subarray(0, n).toString("utf8");
-  } catch {
-    return "";
-  } finally {
-    if (fd !== null) closeSync3(fd);
-  }
-}
 function fileDir(relPath) {
   const i2 = relPath.lastIndexOf("/");
   return i2 >= 0 ? relPath.slice(0, i2) : "";
@@ -35886,6 +36153,16 @@ function planFiles(graph, out2, now2) {
     const prev = existing.get(path);
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
+      if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
+        const extracted = extractPurpose(f.path, readFileHead(join15(repoPath, f.path)));
+        plan.extracted++;
+        if (extracted.source !== "none") {
+          const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
+          plan.nodes.push(node2);
+          plan.writes.push(node2);
+          continue;
+        }
+      }
       plan.nodes.push(prev);
       continue;
     }
@@ -35902,7 +36179,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join14(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join15(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -36139,6 +36416,11 @@ async function persistScan(db, graph, out2, sessionDir) {
         serverLog({ event: "symbol_index_error", repo: r.name, error: e.message });
       }
       try {
+        refreshSymbolPurposes(db, r.name);
+      } catch (e) {
+        serverLog({ event: "symbol_purpose_error", repo: r.name, error: e.message });
+      }
+      try {
         refreshConcepts(db, r.name);
       } catch (e) {
         serverLog({ event: "concept_refresh_error", repo: r.name, error: e.message });
@@ -36247,7 +36529,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         if (!graph && graphOpenError) {
           return err4(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join14(dirname7(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join15(dirname7(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -36378,7 +36660,7 @@ function resolveRepoDefaultBranch(repoPath) {
 
 // src/tools/world_model.ts
 import { readFileSync as readFileSync9, realpathSync as realpathSync6 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join15, relative as relative4, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join16, relative as relative4, sep as sep3 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -36526,7 +36808,7 @@ function symbolSource(db, symbol2) {
   let file2;
   try {
     root = realpathSync6(rootArg);
-    file2 = realpathSync6(join15(root, symbol2.path));
+    file2 = realpathSync6(join16(root, symbol2.path));
   } catch {
     return { source: null, source_reason: "file-missing" };
   }
