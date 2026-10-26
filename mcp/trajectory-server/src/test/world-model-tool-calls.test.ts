@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
@@ -233,6 +234,17 @@ describe('world-model tool call log (GH 1836)', () => {
     assert.deepEqual(lastCall(db).content.args, { id: symbolId });
     assert.ok(!('impact' in lastCall(db).content.args));
     assert.ok(!('source' in lastCall(db).content.args));
+  });
+
+  it('GH 1986: the wm_tool_called description and its ENUMS.md row name `impact` and `source`', () => {
+    const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+    for (const rel of ['mcp/trajectory-server/src/audit-events.ts', 'docs/contributing/ENUMS.md']) {
+      const lines = readFileSync(join(pluginRoot, rel), 'utf8').split('\n').filter((l) => l.includes('wm_tool_called'));
+      assert.ok(
+        lines.some((l) => l.includes('`impact`') && l.includes('`source`')),
+        `${rel} describes wm_tool_called with \`impact\` and \`source\``,
+      );
+    }
   });
 
   it('GH 1836: task_id comes from the single open agent_runs row for the caller role', async () => {
