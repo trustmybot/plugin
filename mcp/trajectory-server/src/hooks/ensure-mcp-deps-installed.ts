@@ -4,7 +4,8 @@
  * it once, pruned, into `$CLAUDE_PLUGIN_DATA/deps/<key>/` instead of into every
  * plugin version's cache dir, and bridging the bare import there with the
  * symlink `<plugin root>/node_modules/@huggingface/transformers` →
- * `<data>/deps/current/node_modules/@huggingface/transformers`.
+ * `<data>/deps/<key>/node_modules/@huggingface/transformers`, the root's own
+ * key, so versions pinning different transformers never share a target (GH 1717).
  *
  * Ready (the bare specifier resolves from the MCP dir to TRANSFORMERS_VERSION)
  * → exit 0, no output. Not ready and the data dir already holds a valid
@@ -43,6 +44,7 @@ import { ALLOW, type SyncGate, type GateResult } from './gate.js';
 import {
   TRANSFORMERS_PACKAGE,
   TRANSFORMERS_VERSION,
+  pinnedTransformersVersion,
   runtimeDepsKey,
   runtimeDepsRoot,
   transformersEsmEntry,
@@ -171,9 +173,9 @@ function bareSpecifierVersion(mcpDir: string): string | undefined {
   return undefined;
 }
 
-export function isValidInstall(dir: string): boolean {
+export function isValidInstall(dir: string, version: string = TRANSFORMERS_VERSION): boolean {
   return isFile(join(dir, INSTALLED_AT))
-    && transformersVersion(dir) === TRANSFORMERS_VERSION
+    && transformersVersion(dir) === version
     && transformersEsmEntry(dir) !== undefined;
 }
 
@@ -203,14 +205,20 @@ function pointCurrent(dataDir: string, key: string): void {
 type BridgeRule = 'any-symlink' | 'own-symlink';
 
 /**
- * `<root>/node_modules/@huggingface/transformers` → the data dir's `current`
- * install. Created when absent; an existing symlink is re-pointed (under
- * `own-symlink` only one already into `<data>/deps`); a real directory, such
- * as a dev checkout's workspace install, is never replaced.
+ * `<root>/node_modules/@huggingface/transformers` → the data dir's install for
+ * `key`, the root's own. Created when absent; an existing symlink is re-pointed
+ * (under `own-symlink` only one already into `<data>/deps`, such as one to
+ * `current`); a real directory, such as a dev checkout's workspace install, is
+ * never replaced.
  */
-export function ensureBridge(root: string, dataDir: string, rule: BridgeRule = 'any-symlink'): boolean {
+export function ensureBridge(
+  root: string,
+  dataDir: string,
+  rule: BridgeRule = 'any-symlink',
+  key: string = runtimeDepsKey(),
+): boolean {
   const link = join(root, 'node_modules', TRANSFORMERS_PACKAGE);
-  const target = join(depsDir(dataDir), 'current', 'node_modules', TRANSFORMERS_PACKAGE);
+  const target = join(depsDir(dataDir), key, 'node_modules', TRANSFORMERS_PACKAGE);
   let existing: string | undefined;
   try {
     const st = lstatSync(link);
@@ -362,12 +370,12 @@ function ensureDeps(env: NodeJS.ProcessEnv): GateResult {
   const key = runtimeDepsKey();
   const installDir = ctx.legacy ? undefined : runtimeDepsRoot(ctx.dataDir, key);
   if (bareSpecifierVersion(ctx.mcpDir) === TRANSFORMERS_VERSION) {
-    if (installDir && isValidInstall(installDir)) ensureBridge(ctx.root, ctx.dataDir, 'own-symlink');
+    if (installDir && isValidInstall(installDir)) ensureBridge(ctx.root, ctx.dataDir, 'own-symlink', key);
     return ALLOW;
   }
   if (installDir && isValidInstall(installDir)) {
     pointCurrent(ctx.dataDir, key);
-    ensureBridge(ctx.root, ctx.dataDir);
+    ensureBridge(ctx.root, ctx.dataDir, 'any-symlink', key);
     return ALLOW;
   }
   const hooksEntry = resolve(process.argv[1] ?? '');
@@ -507,14 +515,55 @@ function promote(staging: string, final: string): void {
   if (hadFinal) rmSync(aside, { recursive: true, force: true });
 }
 
-/** Keeps `key` and the newest other key by `.installed-at`; drops other keys and `.staging-*` older than 1 h. */
-function collectGarbage(deps: string, key: string, log: Logger): void {
+/** `…/plugins/cache/<marketplace>/<plugin>` when `root` is a version dir under it. */
+function cacheParent(root: string): string | undefined {
+  const parent = dirname(resolve(root));
+  const cache = dirname(dirname(parent));
+  return basename(cache) === 'cache' && basename(dirname(cache)) === 'plugins' ? parent : undefined;
+}
+
+/** The version dirs beside `root` under its plugin cache parent, `root` included; none outside a cache. */
+function versionDirs(root: string): string[] {
+  const parent = cacheParent(root);
+  if (!parent) return [];
+  return readdirSync(parent, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => join(parent, e.name));
+}
+
+/** The key dirs under `deps` that `current` or a version dir's bridge resolves into. */
+function referencedKeys(deps: string, root: string): Set<string> {
+  const keys = new Set<string>();
+  const realDeps = realpathSync(deps);
+  const links = [join(deps, 'current'), ...versionDirs(root).map((v) => join(v, 'node_modules', TRANSFORMERS_PACKAGE))];
+  for (const link of links) {
+    let real: string;
+    try {
+      real = realpathSync(link);
+    } catch {
+      continue;
+    }
+    if (!isWithin(realDeps, real)) continue;
+    const first = relative(realDeps, real).split(sep)[0];
+    if (first) keys.add(first);
+  }
+  return keys;
+}
+
+/**
+ * Keeps `key`, the newest other key by `.installed-at` and every key still
+ * referenced by `current` or a version dir's bridge; drops other keys and
+ * `.staging-*` older than 1 h.
+ */
+function collectGarbage(deps: string, key: string, root: string, log: Logger): void {
   const entries = readdirSync(deps, { withFileTypes: true });
+  const referenced = referencedKeys(deps, root);
   const others = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== key)
     .map((e) => ({ name: e.name, at: installedAtMs(join(deps, e.name)) }))
     .sort((a, b) => b.at - a.at);
   for (const old of others.slice(1)) {
+    if (referenced.has(old.name)) continue;
     rmSync(join(deps, old.name), { recursive: true, force: true });
     log(`removed old key ${old.name}`);
   }
@@ -531,21 +580,16 @@ function collectGarbage(deps: string, key: string, log: Logger): void {
   }
 }
 
-/** `…/plugins/cache/<marketplace>/<plugin>` when `root` is a version dir under it. */
-function cacheParent(root: string): string | undefined {
-  const parent = dirname(resolve(root));
-  const cache = dirname(dirname(parent));
-  return basename(cache) === 'cache' && basename(dirname(cache)) === 'plugins' ? parent : undefined;
-}
-
-/** Replaces the hook-installed node_modules of the other version dirs beside `root` with the bridge. */
-function cleanupSiblings(root: string, dataDir: string, log: Logger): void {
-  const parent = cacheParent(root);
-  if (!parent) return;
-  const self = basename(resolve(root));
-  for (const entry of readdirSync(parent, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === self) continue;
-    const version = join(parent, entry.name);
+/**
+ * Replaces the hook-installed node_modules of the other version dirs beside
+ * `root` with a bridge to the key the sibling's own runtime-deps manifest pins
+ * on `platform`/`arch`, when that key is a valid install; otherwise the sibling
+ * is left unbridged for its own gate to install.
+ */
+function cleanupSiblings(root: string, dataDir: string, platform: string, arch: string, log: Logger): void {
+  const self = resolve(root);
+  for (const version of versionDirs(root)) {
+    if (version === self) continue;
     let replaced = false;
     for (const nodeModules of [join(version, 'node_modules'), join(version, MCP_REL, 'node_modules')]) {
       if (!isRealDir(nodeModules)) continue;
@@ -553,7 +597,14 @@ function cleanupSiblings(root: string, dataDir: string, log: Logger): void {
       log(`removed ${nodeModules}`);
       replaced = true;
     }
-    if (replaced && ensureBridge(version, dataDir)) log(`bridged ${version}`);
+    if (!replaced) continue;
+    const pin = pinnedTransformersVersion(join(version, MCP_REL, 'runtime-deps'));
+    const key = pin === undefined ? '' : runtimeDepsKey(platform, arch, pin);
+    if (pin === undefined || !isValidInstall(join(depsDir(dataDir), key), pin)) {
+      log(`left ${version} unbridged: no valid install for its pin ${pin ?? '(unreadable)'}`);
+      continue;
+    }
+    if (ensureBridge(version, dataDir, 'any-symlink', key)) log(`bridged ${version} → ${key}`);
   }
 }
 
@@ -602,9 +653,9 @@ export function installRuntimeDeps(opts: InstallOptions): number {
     log(`installed ${join(deps, key)}`);
     pointCurrent(opts.dataDir, key);
     log(`current → ${key}`);
-    collectGarbage(deps, key, log);
-    if (ensureBridge(opts.root, opts.dataDir)) log(`bridged ${opts.root}`);
-    cleanupSiblings(opts.root, opts.dataDir, log);
+    if (ensureBridge(opts.root, opts.dataDir, 'any-symlink', key)) log(`bridged ${opts.root} → ${key}`);
+    cleanupSiblings(opts.root, opts.dataDir, platform, arch, log);
+    collectGarbage(deps, key, opts.root, log);
     rc = 0;
   } catch (err) {
     log(`failed: ${err instanceof Error ? err.message : String(err)}`);

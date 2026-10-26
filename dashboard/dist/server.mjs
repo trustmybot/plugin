@@ -16,8 +16,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 var TRANSFORMERS_VERSION = "3.8.1";
 var TRANSFORMERS_PACKAGE = "@huggingface/transformers";
-function runtimeDepsKey(platform = process.platform, arch = process.arch) {
-  return `${TRANSFORMERS_VERSION}-${platform}-${arch}`;
+function runtimeDepsKey(platform = process.platform, arch = process.arch, version = TRANSFORMERS_VERSION) {
+  return `${version}-${platform}-${arch}`;
 }
 function runtimeDepsRoot(dataDir = process.env.CLAUDE_PLUGIN_DATA, key = runtimeDepsKey()) {
   return dataDir ? join(dataDir, "deps", key) : void 0;

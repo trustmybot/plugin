@@ -8,8 +8,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 export const TRANSFORMERS_VERSION = '3.8.1';
 export const TRANSFORMERS_PACKAGE = '@huggingface/transformers';
-export function runtimeDepsKey(platform = process.platform, arch = process.arch) {
-    return `${TRANSFORMERS_VERSION}-${platform}-${arch}`;
+const EXACT_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+export function runtimeDepsKey(platform = process.platform, arch = process.arch, version = TRANSFORMERS_VERSION) {
+    return `${version}-${platform}-${arch}`;
 }
 export function runtimeDepsRoot(dataDir = process.env.CLAUDE_PLUGIN_DATA, key = runtimeDepsKey()) {
     return dataDir ? join(dataDir, 'deps', key) : undefined;
@@ -25,6 +26,16 @@ function readPackageJson(pkgDir) {
     catch {
         return undefined;
     }
+}
+/**
+ * The exact transformers version the runtime-deps manifest in `manifestDir`
+ * pins, or undefined when the manifest can't be read or the pin is not one
+ * exact version.
+ */
+export function pinnedTransformersVersion(manifestDir) {
+    const deps = readPackageJson(manifestDir)?.['dependencies'];
+    const pin = isObject(deps) ? deps[TRANSFORMERS_PACKAGE] : undefined;
+    return typeof pin === 'string' && EXACT_VERSION.test(pin) ? pin : undefined;
 }
 /** The `"."` entry of an exports map; a map with no subpath keys is that entry itself. */
 function rootExport(exportsField) {
