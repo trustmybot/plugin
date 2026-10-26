@@ -60,13 +60,15 @@ Pass the typed machine contract on each swe-executed task:
 | Effort | When |
 |---|---|
 | `medium` | Default |
-| `high` | The task touches enforcement code (hooks, guards, permission gates), the persistence or server write path (schema, migrations, DB layer, write handlers), or is prompt-bearing (`prompt_bearing: 1`) |
+| `high` | The task changes enforcement logic (a hook, guard or permission gate that can deny), a schema or migration, or is prompt-bearing (`prompt_bearing: 1`) |
 | `high` | Any rework spawn after a reviewer FAIL: raise it first with `task_reopen(task_id, reason, effort='high')` or `task_retry(..., effort='high')`, then spawn with the same value |
 | `low` | Consultants and lookups |
 
+Editing a DB-layer, write-handler or hook file without changing what it admits or denies stays `medium`.
+
 swe executes a spec bro already pinned, so medium is the executor default; high is for surfaces where a miss fails open.
 
-The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
+The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — split into multiple tasks linked by `parent_branch_id` when it passes any of: 8 `files[]` entries, 8 `verification[]` commands, 5 `SC` ids or about 5000 characters, so each task fits one swe run:
 
 - `## Description` — ≤3 sentences, file paths with line refs, Assumptions bullets
 - `## Success Criteria` — 2–5 testable assertions, each a top-level bullet opening with a unique id (`- SC1: …`, `- SC2: …`); nested `Writer:` / `Populated:` lines carry none. The swe reports against these ids, and pr-reviewer findings cite them.
