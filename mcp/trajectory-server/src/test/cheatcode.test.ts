@@ -531,13 +531,11 @@ describe('cheatcode_install', () => {
     }
   });
 
-  // Offline proof of the mcp dispatch split (#120): an mcp-kind repo has no
-  // marketplace manifest, so it must route to `claude mcp add` (mcp_register),
-  // NEVER to `plugin marketplace add` / `plugin install`. Run the REAL script
-  // with a stubbed `claude` on PATH that records every argv; whether the add
-  // succeeds or soft-degrades, the load-bearing invariant is that no plugin
-  // marketplace call is made for the mcp kind.
-  it('mcp kind routes to claude mcp add, never plugin marketplace add/install', () => {
+  // GH 1885: the candidate carries only name + source_url, and a source URL is
+  // not a run command, so an mcp-kind install fails closed. The REAL script runs
+  // with a stubbed `claude` on PATH that records every argv: no `mcp add`, no
+  // plugin marketplace call, no .mcp.json.
+  it('mcp kind fails closed: no claude mcp add, no plugin marketplace add/install, no .mcp.json', () => {
     const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-mcp-'));
     const argvLog = join(dir, 'argv.log');
     const fakeClaude = join(dir, 'claude');
@@ -574,15 +572,18 @@ describe('cheatcode_install', () => {
       assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
       const out = JSON.parse(r.stdout);
       assert.equal(out.method, 'mcp-register', 'mcp kind emits the mcp-register method');
+      assert.equal(out.installed, false, 'a source URL is never a run command');
+      assert.equal(out.version, null);
+      assert.ok(out.error && /run-command/.test(out.error), `run-command error: ${out.error}`);
+      assert.ok(!existsSync(join(dir, '.mcp.json')), 'no .mcp.json is written');
 
-      const calls = readFileSync(argvLog, 'utf8').trim().split('\n').filter(Boolean);
-      // The add is attempted via `claude mcp add` (or, had the CLI been absent, a
-      // clean soft-degrade — but here the stub is present so the add fires).
+      const calls = existsSync(argvLog)
+        ? readFileSync(argvLog, 'utf8').trim().split('\n').filter(Boolean)
+        : [];
       assert.ok(
-        calls.some((c) => c.startsWith('mcp add ')),
-        `expected a 'claude mcp add' call; calls:\n${calls.join('\n')}`,
+        !calls.some((c) => c.startsWith('mcp add')),
+        `mcp kind must not call claude mcp add; calls:\n${calls.join('\n')}`,
       );
-      // The load-bearing invariant: mcp kind NEVER touches the plugin marketplace.
       assert.ok(
         !calls.some((c) => c.startsWith('plugin marketplace add ') || /^plugin install /.test(c)),
         `mcp kind must not call plugin marketplace add/install; calls:\n${calls.join('\n')}`,
