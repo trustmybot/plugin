@@ -402,20 +402,33 @@ function stripTags(s) {
     let out = s;
     do {
         prev = out;
-        out = out.replace(/<[^>]*>/g, '');
+        out = out.replace(/<[^<>]*>/g, '');
     } while (out !== prev);
-    return out.replace(/[<>]/g, '');
+    return out.replace(/<+(?=[A-Za-z/!?])/g, '');
 }
 function plainMarkdown(s) {
-    return stripTags(stripInlineMarkdown(s))
+    return stripTags(stripInlineMarkdown(s)
         .replace(/`([^`]*)`/g, '$1')
-        .replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, '$1$2')
-        .trim();
+        .replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, '$1$2')).trim();
 }
 function fromFirstLine(body) {
     let fenced = false;
+    let inComment = false;
     for (const raw of body) {
-        const l = raw.trim();
+        let l = raw.trim();
+        if (inComment) {
+            const end = l.indexOf('-->');
+            if (end < 0)
+                continue;
+            inComment = false;
+            l = l.slice(end + 3).trim();
+            if (l === '')
+                continue;
+        }
+        else if (!fenced && l.startsWith('<!--') && !l.includes('-->', 2)) {
+            inComment = true;
+            continue;
+        }
         if (/^(```|~~~)/.test(l)) {
             fenced = !fenced;
             continue;
@@ -475,7 +488,7 @@ function testTitles(head) {
     const titles = [];
     const re = /\b(?:describe|suite|test|it)(?:\.(?:only|skip|todo))?\s*\(\s*(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
     for (const m of head.matchAll(re)) {
-        const title = m[2].trim();
+        const title = m[2].replace(/\\(.)/g, '$1').trim();
         if (title && !titles.includes(title))
             titles.push(title);
     }

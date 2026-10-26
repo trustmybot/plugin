@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   extractPurpose,
   isPurposeCandidate,
@@ -211,6 +213,31 @@ describe('extractPurpose — structural fallback for data files', () => {
     assert.ok(!/[<>]/.test(got.purpose), `purpose kept a tag character: ${got.purpose}`);
   });
 
+  it('markdown with no heading: a multi-line HTML comment is skipped through its -->', () => {
+    expectPurpose('docs/note.md', '<!--\nInternal note\nmore -->\nReal purpose line.\n', 'structural', 'Real purpose line.');
+    expectPurpose('docs/after.md', '<!-- start\nhidden -->  Text after the comment.\n', 'structural', 'Text after the comment.');
+    expectPurpose('docs/empty.md', '<!-->\nReal line.\n', 'structural', 'Real line.');
+    expectPurpose('docs/empty-dash.md', '<!--->\nReal line.\n', 'structural', 'Real line.');
+  });
+
+  it('markdown with no heading: arrows and comparisons keep their angle brackets', () => {
+    assert.match(extractPurpose('docs/arrow.md', 'a -> b\n').purpose, /a -> b/);
+    assert.match(extractPurpose('docs/cmp.md', 'x > y\n').purpose, /x > y/);
+    assert.match(extractPurpose('docs/lt.md', 'n < 3 and a <= b\n').purpose, /n < 3 and a <= b/);
+    assert.ok(!/<[A-Za-z/!?]/.test(extractPurpose('docs/run.md', '<<<a <`b` <!x\n').purpose));
+  });
+
+  it('every md head in this file yields a purpose that cannot open a tag', () => {
+    const source = readFileSync(fileURLToPath(import.meta.url).replace(/dist\/test\/(.*)\.js$/, 'src/test/$1.ts'), 'utf8');
+    const heads = [...source.matchAll(/'([\w./-]+\.md)',\s*'((?:\\.|[^'\\])*)'/g)];
+    assert.ok(heads.length >= 10, `found ${heads.length} md heads`);
+    for (const [, path, raw] of heads) {
+      const head = JSON.parse(`"${raw!.replace(/\\'/g, "'").replace(/"/g, '\\"')}"`) as string;
+      const got = extractPurpose(path!, head);
+      assert.ok(!/<[A-Za-z/!?]/.test(got.purpose), `${path}: ${got.purpose}`);
+    }
+  });
+
   it('never overrides a header: a // header, a JSDoc @file and a docstring keep their source', () => {
     assert.equal(extractPurpose('src/a.ts', '// Parses payloads.\nexport const a = 1;\n').source, 'comment');
     assert.equal(extractPurpose('src/b.ts', '/**\n * @file Routes requests.\n */\nexport const b = 1;\n').source, 'jsdoc');
@@ -299,6 +326,14 @@ describe('purposeFromSymbols — symbols fallback for code files', () => {
       { purpose: 'exports: tempDB (function)', source: 'symbols' },
       'a test-tree helper with no titles falls back to its exports',
     );
+  });
+
+  it('a test file: backslash escapes in a title are unescaped', () => {
+    const head = 'it("a \\"q\\" b", () => {});\n';
+    assert.deepEqual(purposeFromSymbols('src/test/esc.test.ts', [sym('module', 'src/test/esc.test.ts')], head), {
+      purpose: 'tests for esc: a "q" b',
+      source: 'symbols',
+    });
   });
 
   it('caps a long export list at PURPOSE_MAX_CHARS with a +N more tail, and yields null with no definitions', () => {

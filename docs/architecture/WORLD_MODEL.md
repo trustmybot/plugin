@@ -78,7 +78,7 @@ Freshness is keyed by `symbols_md5`, stamped `<content_md5>:<EXTRACTOR_VERSION>`
 - `content_md5` equal → leave the row untouched (purpose and `updated_at` preserved), except that a `none` row is re-extracted and rewritten only when a purpose now comes out;
 - existing row has `purpose_source='swe'` and the md5 differs → refresh md5/size/sha/`updated_at`, keep `purpose` and `purpose_source`.
 
-After symbol indexing, `refreshSymbolPurposes` (`src/symbol-purpose.ts`) rewrites each `none` or `symbols` row whose symbol-derived purpose changed, so a file's `symbols` purpose follows its definitions and a file that gains a header moves to `comment` / `jsdoc` on the next scan. Directory structural summaries are built before this pass, so they pick up a new `symbols` purpose one scan later.
+After symbol indexing, `refreshSymbolPurposes` (`src/symbol-purpose.ts`) rewrites each `none` or `symbols` row whose symbol-derived purpose changed, so a file's `symbols` purpose follows its definitions. A file that gains a header moves to `comment` / `jsdoc` on the next scan through the `content_md5` re-extract in `planFiles` (`src/tools/scan.ts`). Directory structural summaries are built before this pass, so they pick up a new `symbols` purpose one scan later.
 
 File rows whose path is gone from the repo's scan are deleted, and so are all rows of a repo that left the workspace; `repo_rename` re-keys them with the directory rows. The 4 KB head is the only file read; file bodies are never stored. The table stores purposes raw; because they come from file contents, every read path wraps them in `<untrusted-content source="file-purpose">` delimiters (the same `frameUntrusted` framing README summaries get), so agents treat them as data.
 
