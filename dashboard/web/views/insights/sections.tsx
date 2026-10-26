@@ -4,10 +4,11 @@ import { DataTable, type Column as TableColumn } from '../../DataTable.tsx';
 import { agentCell, entityLink } from '../../shared/columns.tsx';
 import { Box } from '../../ui/Box.tsx';
 import { Flash } from '../../ui/Flash.tsx';
+import { Label } from '../../ui/Label.tsx';
 import { ProgressBar, StackedProgressBar } from '../../ui/ProgressBar.tsx';
 import { ChartCard } from './ChartCard.tsx';
-import { ColumnChart, Histogram, type Column } from './charts.tsx';
-import { AGENT_COLOR, THROUGHPUT_COLOR, compact, duration, pct, plain, ratio, shortDay, usd } from './format.ts';
+import { BarList, ColumnChart, Histogram, niceAxis, type Column } from './charts.tsx';
+import { AGENT_COLOR, THROUGHPUT_COLOR, compact, duration, durationTicks, pct, plain, ratio, shortDay, usd } from './format.ts';
 import { METRICS, RANGES, type InsightParams, type MetricKey } from './params.ts';
 import type { AgentKey, AgentStats, Insights, Metric, Outlier } from './types.ts';
 import type { TableData } from './csv.ts';
@@ -15,6 +16,7 @@ import type { TableData } from './csv.ts';
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
 export const EFFORT_CAPTION = 'Effort is set per task, so this compares task size, not the setting.';
 export const BRO_CAPTION = 'bro is metered per session, not per run.';
+export const IDLE_CAPTION = 'Likely idle: over 30 min with under 1 tool use and 500 output tokens a minute. Listed last.';
 export const EARLY_MIN = 20;
 
 interface SectionProps {
@@ -66,7 +68,7 @@ function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: Insi
   return (
     <ChartCard
       title={s.agent}
-      subtitle={`${period(params)} · ${per} · output tokens`}
+      subtitle={`${period(params)} · ${per} · ${noun(s, 2)} by output tokens`}
       section="tokens"
       range={params.range}
       table={histogramTable(s)}
@@ -79,7 +81,6 @@ function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: Insi
         {early && <p className="text-xs font-semibold text-(--fgColor-attention)">{earlyData(s.n)}</p>}
         <Histogram
           label={`${s.agent} output tokens ${per.toLowerCase()}: ${s.n} measured, ${s.histogram.length} buckets${early ? '' : `, p50 ${compact(s.tokens_out.p50)}, p95 ${compact(s.tokens_out.p95)}`}`}
-          unit={s.per === 'session' ? 'Sessions' : 'Runs'}
           who={s.agent}
           buckets={s.histogram}
           color={AGENT_COLOR[s.agent]}
@@ -100,19 +101,41 @@ function rankOf(agents: AgentStats[], metric: MetricKey): Map<AgentKey, string> 
 
 const OUTLIER_TITLE = { tokens_out: 'Top runs by output tokens', context: 'Top runs by context', duration_ms: 'Top runs by duration' } as const;
 
+const count = (v: unknown) => (v === null || v === undefined ? '—' : plain(Number(v)));
+
+const NUMERIC = 'whitespace-nowrap tabular-nums';
+const numeric = (text: ReactNode) => <span className={NUMERIC}>{text}</span>;
+
 function Outliers({ kind, rows }: { kind: keyof typeof OUTLIER_TITLE; rows: Outlier[] }) {
-  const fmt = kind === 'duration_ms' ? duration : compact;
+  const isDuration = kind === 'duration_ms';
+  const fmt = isDuration ? duration : compact;
   const columns: TableColumn[] = [
-    { key: 'run_id', header: 'Run', hideBelow: 'sm' },
+    { key: 'run_id', header: 'Run', cell: (r) => numeric(String(r['run_id'])), hideBelow: 'sm' },
     { key: 'agent', header: 'Agent', cell: agentCell('agent') },
     { key: 'task_id', header: 'Task', cell: entityLink('task', 'task_id') },
-    { key: 'task_title', header: 'Title', cell: entityLink('task', 'task_id', 'task_title'), truncate: true, hideBelow: 'md' },
-    { key: 'value', header: kind === 'duration_ms' ? 'Duration' : 'Tokens', cell: (r) => <span className="tabular-nums">{fmt(Number(r['value']))}</span> },
+    { key: 'task_title', header: 'Title', cell: entityLink('task', 'task_id', 'task_title'), truncate: 'fill', hideBelow: 'md' },
+    {
+      key: 'value',
+      header: isDuration ? 'Duration' : 'Tokens',
+      cell: (r) => (
+        <span className={`inline-flex items-center gap-2 ${NUMERIC}`}>
+          {fmt(Number(r['value']))}
+          {r['idle'] === true && <Label variant="secondary">Likely idle</Label>}
+        </span>
+      ),
+    },
+    ...(isDuration
+      ? ([
+          { key: 'tool_uses', header: 'Tool uses', cell: (r) => numeric(count(r['tool_uses'])), hideBelow: 'sm' },
+          { key: 'tokens_out', header: 'Output tokens', cell: (r) => numeric(r['tokens_out'] == null ? '—' : compact(Number(r['tokens_out']))), hideBelow: 'sm' },
+        ] satisfies TableColumn[])
+      : []),
   ];
   return (
     <section className="space-y-2" aria-label={OUTLIER_TITLE[kind]}>
       <h3 className="text-sm font-semibold text-fg">{OUTLIER_TITLE[kind]}</h3>
       <DataTable rows={rows as unknown as Row[]} columns={columns} filter={false} />
+      {isDuration && <p className="text-xs text-fg-muted">{IDLE_CAPTION}</p>}
     </section>
   );
 }
@@ -156,19 +179,59 @@ function metricTable(agents: AgentStats[], pick: (s: AgentStats) => Metric, fmt:
   return { columns: ['Agent', 'n', 'avg', 'p50', 'p95', 'max'], rows: agents.map((s) => { const m = pick(s); return [s.agent, s.n, fmt(m.avg), fmt(m.p50), fmt(m.p95), fmt(m.max)]; }) };
 }
 
-function MetricCard({ title, unit, agents, pick, fmt, params, section }: { title: string; unit: string; agents: AgentStats[]; pick: (s: AgentStats) => Metric; fmt: (v: number | null) => string; params: InsightParams; section: string }) {
+function StatTiles({ tiles }: { tiles: Array<{ key: string; title: string; items: Array<[string, string]> }> }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {tiles.map((t) => (
+        <div key={t.key} className="rounded-md border border-(--borderColor-muted) px-3 py-2" data-tile="">
+          <p className="text-xs font-semibold text-fg">{t.title}</p>
+          <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+            {t.items.map(([term, value]) => (
+              <div key={term}>
+                <dt className="text-xs text-fg-muted">{term}</dt>
+                <dd className="text-base font-semibold text-fg">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const metricTiles = (agents: AgentStats[], pick: (s: AgentStats) => Metric, fmt: (v: number | null) => string) =>
+  agents.map((s) => {
+    const m = pick(s);
+    return { key: s.agent, title: s.agent, items: [['p50', fmt(m.p50)], ['p95', fmt(m.p95)], ['max', fmt(m.max)]] as Array<[string, string]> };
+  });
+
+interface TimeCardProps {
+  title: string;
+  unit: string;
+  agents: AgentStats[];
+  pick: (s: AgentStats) => Metric;
+  fmt: (v: number | null) => string;
+  axis: (max: number) => { top: number; ticks: Array<{ at: number; label: string }> };
+  params: InsightParams;
+  bars: boolean;
+}
+
+function TimeCard({ title, unit, agents, pick, fmt, axis, params, bars }: TimeCardProps) {
   const per = agents[0]?.per === 'session' ? 'Per session' : 'Per run';
   const columns = metricColumns(agents, pick, fmt);
   return (
     <ChartCard
       title={title}
-      subtitle={`${period(params)} · ${per} · average ${unit}`}
-      section={section}
+      subtitle={`${period(params)} · ${per} · ${unit}`}
+      section="time"
       range={params.range}
       table={metricTable(agents, pick, fmt)}
       caption={agents[0]?.per === 'session' ? BRO_CAPTION : undefined}
     >
-      <ColumnChart label={`${title}: ${columns.map((c) => c.aria).join('; ')}`} unit={unit} columns={columns} format={(v) => fmt(v)} />
+      <div className="space-y-3">
+        <StatTiles tiles={metricTiles(agents, pick, fmt)} />
+        {bars && <BarList label={`${title}: ${columns.map((c) => c.aria).join('; ')}`} rows={columns} format={(v) => fmt(v)} axis={axis} />}
+      </div>
     </ChartCard>
   );
 }
@@ -177,25 +240,39 @@ export function TimeSection({ data, params }: SectionProps) {
   const runs = perRun(data.agents);
   const b = bro(data.agents);
   const ms = (v: number | null) => duration(v);
+  const durationAxis = (max: number) => durationTicks(max);
+  const toolAxis = niceAxis((v) => plain(v));
   return (
     <div className="space-y-4">
       <SectionHeading>Time</SectionHeading>
       <Grid>
-        <MetricCard title="Duration per run" unit="Duration" agents={runs} pick={(s) => s.duration_ms} fmt={ms} params={params} section="time" />
-        <MetricCard title="Tool uses per run" unit="Tool uses" agents={runs} pick={(s) => s.tool_uses} fmt={plain} params={params} section="time" />
-        {b && <MetricCard title="bro duration per session" unit="Duration" agents={[b]} pick={(s) => s.duration_ms} fmt={ms} params={params} section="time" />}
-        {b && <MetricCard title="bro tool uses per session" unit="Tool uses" agents={[b]} pick={(s) => s.tool_uses} fmt={plain} params={params} section="time" />}
+        <TimeCard title="Duration per run" unit="duration; bars show the average" agents={runs} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars />
+        <TimeCard title="Tool uses per run" unit="tool uses; bars show the average" agents={runs} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars />
+        {b && <TimeCard title="bro duration per session" unit="duration" agents={[b]} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars={false} />}
+        {b && <TimeCard title="bro tool uses per session" unit="tool uses" agents={[b]} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars={false} />}
       </Grid>
       <Outliers kind="duration_ms" rows={data.outliers.duration_ms} />
     </div>
   );
 }
 
-function CostCard({ title, rows, label, params }: { title: string; rows: Array<{ key: string; usd: number; runs: number; color: string }>; label: string; params: InsightParams }) {
+type CostRow = { key: string; usd: number; runs: number; color: string };
+
+const costTable = (rows: CostRow[]): TableData => ({ columns: ['Name', 'USD', 'Runs'], rows: rows.map((r) => [r.key, r.usd, r.runs]) });
+
+function CostCard({ title, rows, label, params }: { title: string; rows: CostRow[]; label: string; params: InsightParams }) {
   const columns: Column[] = rows.map((r) => ({ key: r.key, label: r.key, value: r.usd, color: r.color, aria: `${r.key}: ${usd(r.usd)} over ${r.runs} ${label}`, tip: `${r.key}: ${usd(r.usd)}` }));
   return (
-    <ChartCard title={title} subtitle={`${period(params)} · USD`} section="cost" range={params.range} table={{ columns: ['Name', 'USD', 'Runs'], rows: rows.map((r) => [r.key, r.usd, r.runs]) }}>
-      <ColumnChart label={`${title}: ${columns.map((c) => c.aria).join('; ') || 'no priced runs'}`} unit="USD" columns={columns} format={usd} />
+    <ChartCard title={title} subtitle={`${period(params)} · USD`} section="cost" range={params.range} table={costTable(rows)}>
+      <BarList label={`${title}: ${columns.map((c) => c.aria).join('; ') || 'no priced runs'}`} rows={columns} format={usd} axis={niceAxis(usd)} />
+    </ChartCard>
+  );
+}
+
+function CostTile({ title, rows, label, params }: { title: string; rows: CostRow[]; label: string; params: InsightParams }) {
+  return (
+    <ChartCard title={title} subtitle={`${period(params)} · USD`} section="cost" range={params.range} table={costTable(rows)} caption={BRO_CAPTION}>
+      <StatTiles tiles={rows.map((r) => ({ key: r.key, title: r.key, items: [['USD', usd(r.usd)], [label[0]!.toUpperCase() + label.slice(1), plain(r.runs)]] }))} />
     </ChartCard>
   );
 }
@@ -222,8 +299,8 @@ export function CostSection({ data, params }: SectionProps) {
         </Flash>
       )}
       <Grid>
-        <CostCard title="Cost by agent" rows={agentRows(['swe', 'reviewer'])} label="runs" params={params} />
-        {broRows.length > 0 && <CostCard title="bro cost" rows={broRows} label="sessions" params={params} />}
+        <CostCard title="Cost by agent" rows={agentRows(['swe', 'code-reviewer'])} label="runs" params={params} />
+        {broRows.length > 0 && <CostTile title="bro cost" rows={broRows} label="sessions" params={params} />}
         <CostCard
           title="Cost by model"
           rows={cost.by_model.map((m) => ({ key: m.model, usd: m.usd, runs: m.runs, color: THROUGHPUT_COLOR }))}
@@ -262,11 +339,11 @@ export function QualitySection({ data, params }: SectionProps) {
   });
   const seconds = (v: number | null) => (v === null ? '—' : `${plain(v)}s`);
   const slowColumns: TableColumn[] = [
-    { key: 'command', header: 'Command', cell: (r) => <code className="font-mono text-xs">{String(r['command'])}</code>, truncate: true },
-    { key: 'n', header: 'Runs', hideBelow: 'sm' },
-    { key: 'p50', header: 'p50', cell: (r) => seconds(r['p50'] as number | null), hideBelow: 'sm' },
-    { key: 'p95', header: 'p95', cell: (r) => seconds(r['p95'] as number | null) },
-    { key: 'max', header: 'max', cell: (r) => seconds(r['max'] as number | null) },
+    { key: 'command', header: 'Command', cell: (r) => <code className="font-mono text-xs">{String(r['command'])}</code>, truncate: 'fill' },
+    { key: 'n', header: 'Runs', cell: (r) => numeric(plain(Number(r['n']))), hideBelow: 'sm' },
+    { key: 'p50', header: 'p50', cell: (r) => numeric(seconds(r['p50'] as number | null)), hideBelow: 'sm' },
+    { key: 'p95', header: 'p95', cell: (r) => numeric(seconds(r['p95'] as number | null)) },
+    { key: 'max', header: 'max', cell: (r) => numeric(seconds(r['max'] as number | null)) },
   ];
   return (
     <div className="space-y-4">
@@ -298,7 +375,7 @@ export function QualitySection({ data, params }: SectionProps) {
           range={params.range}
           table={{ columns: ['Attempts', 'Tasks'], rows: q.attempts.map((a) => [a.attempts, a.tasks]) }}
         >
-          <ColumnChart label={`Review attempts per task: ${attempts.map((c) => c.aria).join('; ') || 'no reviews'}`} unit="Tasks" columns={attempts} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
+          <ColumnChart label={`Review attempts per task: ${attempts.map((c) => c.aria).join('; ') || 'no reviews'}`} columns={attempts} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
         </ChartCard>
       </Grid>
       <section className="space-y-2" aria-label="Slowest verification commands">
@@ -345,7 +422,7 @@ export function ThroughputSection({ data, params }: SectionProps) {
         range={params.range}
         table={{ columns: ['Day', 'Closed tasks'], rows: days.map((d) => [d.day, d.closed]) }}
       >
-        <ColumnChart label={`Closed tasks per day: ${total} over ${days.length} days`} unit="Tasks" columns={columns} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
+        <ColumnChart label={`Closed tasks per day: ${total} over ${days.length} days`} columns={columns} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
       </ChartCard>
     </div>
   );

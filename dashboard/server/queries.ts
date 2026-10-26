@@ -485,7 +485,7 @@ export function worldModelSearch(db: DatabaseSync, query: string, limit: number)
 
 export const INSIGHT_RANGES = { '7d': 7, '30d': 30, '90d': 90, all: null } as const;
 export type InsightRange = keyof typeof INSIGHT_RANGES;
-export const INSIGHT_AGENTS = ['swe', 'reviewer', 'bro'] as const;
+export const INSIGHT_AGENTS = ['swe', 'code-reviewer', 'bro'] as const;
 export type InsightAgent = (typeof INSIGHT_AGENTS)[number];
 
 export interface InsightFilter {
@@ -582,7 +582,7 @@ interface RunRow {
 
 const AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'swe' THEN 'swe'
-    WHEN r.agent_type = 'code-reviewer' THEN 'reviewer'
+    WHEN r.agent_type = 'code-reviewer' THEN 'code-reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
 
@@ -679,6 +679,25 @@ function costOf(db: DatabaseSync, runs: RunRow[]): Row {
   return { priced: true, by_agent: list(byAgent, 'agent'), by_model: list(byModel, 'model'), unpriced_runs: unpriced };
 }
 
+const wrapsWhole = (s: string): boolean => {
+  if (!s.startsWith('(') || !s.endsWith(')')) return false;
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth += 1;
+    else if (s[i] === ')') depth -= 1;
+    if (depth === 0 && i < s.length - 1) return false;
+  }
+  return depth === 0;
+};
+
+// One key for a verification command and its subshell form (GH 1948): trim,
+// strip parentheses only while one pair wraps the whole string, collapse spaces.
+export function normalizeCommand(command: string): string {
+  let s = command.trim();
+  while (wrapsWhole(s)) s = s.slice(1, -1).trim();
+  return s.replace(/\s+/g, ' ');
+}
+
 function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Row {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
@@ -722,9 +741,10 @@ function qualityOf(db: DatabaseSync, f: InsightFilter, since: string | null): Ro
     since,
     ...taskArgs,
   )) {
-    const list = commands.get(String(c['command'])) ?? [];
+    const command = normalizeCommand(String(c['command']));
+    const list = commands.get(command) ?? [];
     list.push(Number(c['elapsed_s']));
-    commands.set(String(c['command']), list);
+    commands.set(command, list);
   }
   const slowest = [...commands]
     .map(([command, values]) => {
@@ -760,14 +780,28 @@ function throughputOf(db: DatabaseSync, f: InsightFilter, since: string | null):
   ).map((r) => ({ day: String(r['day']), closed: Number(r['closed']) }));
 }
 
+const IDLE_MIN_MS = 30 * 60_000;
+const IDLE_TOOL_USES_PER_MIN = 1;
+const IDLE_TOKENS_OUT_PER_MIN = 500;
+
+// A run that sat open far longer than it worked (GH 1948): at least 30 min,
+// under 1 tool use and under 500 output tokens a minute.
+export function likelyIdle(r: { duration_ms: number; tool_uses: number; tokens_out: number }): boolean {
+  if (!(r.duration_ms >= IDLE_MIN_MS)) return false;
+  const minutes = r.duration_ms / 60_000;
+  return r.tool_uses / minutes < IDLE_TOOL_USES_PER_MIN && r.tokens_out / minutes < IDLE_TOKENS_OUT_PER_MIN;
+}
+
 function outliersOf(runs: RunRow[]): Row {
   const perRun = runs.filter((r) => r.measured === 1 && r.agent !== 'bro');
-  const top = (value: (r: RunRow) => number) =>
-    perRun
-      .map((r) => ({ run_id: r.id, agent: r.agent, task_id: r.task_id, task_title: r.task_title, value: value(r) }))
-      .sort((a, b) => b.value - a.value || a.run_id - b.run_id)
-      .slice(0, TOP_N);
-  return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms: top((r) => r.duration_ms) };
+  const row = (r: RunRow, value: number) => ({ run_id: r.id, agent: r.agent, task_id: r.task_id, task_title: r.task_title, value });
+  const byValue = (a: { value: number; run_id: number }, b: { value: number; run_id: number }) => b.value - a.value || a.run_id - b.run_id;
+  const top = (value: (r: RunRow) => number) => perRun.map((r) => row(r, value(r))).sort(byValue).slice(0, TOP_N);
+  const durations = perRun
+    .map((r) => ({ ...row(r, r.duration_ms), tool_uses: r.tool_uses, tokens_out: r.tokens_out, idle: likelyIdle(r) }))
+    .sort(byValue);
+  const duration_ms = [...durations.filter((r) => !r.idle).slice(0, TOP_N), ...durations.filter((r) => r.idle).slice(0, TOP_N)];
+  return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
 
 // GET /api/insights: per-agent token, time and cost stats, review and

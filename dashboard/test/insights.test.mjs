@@ -5,9 +5,10 @@
 // agent) and insights() directly against hand-computed values, priced and
 // unpriced. Then bundle the Insights view with esbuild, render every section to
 // static HTML from that data and check the hash round-trip, ChartCard parts,
-// cost honesty, the CSV/table match and the chart accessibility. Last, check
-// the build output (lazy chunk, size budget, devDependencies) and the contrast
-// of the --data-* colours Insights uses.
+// cost honesty, the CSV/table match, the marks and the chart accessibility, and
+// on a second seed the GH 1948 idle runs and command grouping. Last, check
+// the build output (lazy chunk, its size, the size budget, devDependencies),
+// the agent palette and the contrast and CVD separation of its colours.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -105,12 +106,14 @@ before(async () => {
     stdin: {
       contents: `import { renderToStaticMarkup } from 'react-dom/server';
         import { createElement } from 'react';
-        import { insights, insightFilter, nearestRank, metric, logEdges, histogram } from './server/queries.ts';
+        import { insights, insightFilter, nearestRank, metric, logEdges, histogram, likelyIdle, normalizeCommand } from './server/queries.ts';
         import { InsightsLayout } from './web/views/insights/InsightsView.tsx';
         import { parseInsightParams, insightHash } from './web/views/insights/params.ts';
         import { ChartCard, DataTableView } from './web/views/insights/ChartCard.tsx';
         import { toCsv, csvName } from './web/views/insights/csv.ts';
-        import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION } from './web/views/insights/sections.tsx';
+        import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION } from './web/views/insights/sections.tsx';
+        import { AGENT_COLOR, compact, durationTicks } from './web/views/insights/format.ts';
+        import { Histogram, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
         const withHash = (hash, fn) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
           try { return fn(); } finally { delete globalThis.window; }
@@ -119,9 +122,10 @@ before(async () => {
           const [path, query = ''] = hash.replace(/^#\\/?/, '').split('?');
           return renderToStaticMarkup(createElement(InsightsLayout, { params: parseInsightParams(path, new URLSearchParams(query)), q: { data, error: null } }));
         });
+        export const histogramSvg = (props) => renderToStaticMarkup(createElement(Histogram, props));
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -158,16 +162,17 @@ describe('GET /api/insights', () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     for (const key of ['range', 'agents', 'cost', 'quality', 'throughput', 'outliers']) assert.ok(key in body, key);
-    assert.deepEqual(body.agents.map((a) => a.agent), ['swe', 'reviewer', 'bro']);
+    assert.deepEqual(body.agents.map((a) => a.agent), ['swe', 'code-reviewer', 'bro']);
     assert.equal(body.range.key, '30d');
   });
 
   test('a bad agent or range is 400; the default range is 30d', async () => {
-    for (const q of ['agent=bogus', 'range=bogus', 'range=1y', 'agent=code-reviewer']) {
+    for (const q of ['agent=bogus', 'range=bogus', 'range=1y', 'agent=reviewer']) {
       const res = await fetch(`${server.url}api/insights?${q}`);
       assert.equal(res.status, 400, q);
       assert.match((await res.json()).error, /must be one of/);
     }
+    assert.equal((await fetch(`${server.url}api/insights?agent=code-reviewer`)).status, 200);
     const body = await (await fetch(`${server.url}api/insights`)).json();
     assert.equal(body.range.key, '30d');
   });
@@ -206,8 +211,8 @@ describe('insights()', () => {
     assert.equal(swe.cache_hit.avg, sum(SWE, (r) => r.cr) / sum(SWE, (r) => r.in + r.cr + r.cc));
   });
 
-  test('reviewer is the code-reviewer runs', () => {
-    const reviewer = agent(data(), 'reviewer');
+  test('code-reviewer is the code-reviewer runs', () => {
+    const reviewer = agent(data(), 'code-reviewer');
     assert.equal(reviewer.n, 23);
     assert.equal(reviewer.total, 23);
     assert.equal(reviewer.tokens_out.p50, 200 * 12);
@@ -231,7 +236,7 @@ describe('insights()', () => {
       assert.equal(sum(a.histogram, (b) => b.count), a.n, a.agent);
       for (let i = 1; i < a.histogram.length; i++) assert.equal(a.histogram[i].from, a.histogram[i - 1].to);
     }
-    assert.deepEqual(agent(d, 'swe').histogram.map((b) => b.from), agent(d, 'reviewer').histogram.map((b) => b.from));
+    assert.deepEqual(agent(d, 'swe').histogram.map((b) => b.from), agent(d, 'code-reviewer').histogram.map((b) => b.from));
     const edges = mod.logEdges([1, 10_000]);
     assert.equal(edges.length, 11);
     assert.ok(Math.abs(edges[5] - 100) <= 1);
@@ -241,7 +246,7 @@ describe('insights()', () => {
     assert.equal(agent(mod.insights(db, filter('range=all'), NOW), 'swe').n, 26);
     const onlySwe = mod.insights(db, filter('agent=swe'), NOW);
     assert.deepEqual(onlySwe.agents.map((a) => a.n), [25, 0, 0]);
-    assert.deepEqual(filter('agent=bogus'), { error: 'agent must be one of swe, reviewer, bro' });
+    assert.deepEqual(filter('agent=bogus'), { error: 'agent must be one of swe, code-reviewer, bro' });
   });
 
   test('quality: first pass, attempts, verdicts, verification and slowest commands', () => {
@@ -286,11 +291,84 @@ describe('insights()', () => {
       const usd = (rows) => Math.round(sum(rows, (r) => (r.in * OPUS.input + r.out * OPUS.output + r.cr * OPUS.cache_read + r.cc * OPUS.cache_creation) / 1e6) * 1e4) / 1e4;
       assert.deepEqual(cost.by_agent.find((a) => a.agent === 'swe'), { agent: 'swe', usd: usd(SWE), runs: 25 });
       assert.deepEqual(cost.by_agent.find((a) => a.agent === 'bro'), { agent: 'bro', usd: usd(BRO), runs: 3 });
-      assert.equal(cost.by_agent.find((a) => a.agent === 'reviewer'), undefined);
+      assert.equal(cost.by_agent.find((a) => a.agent === 'code-reviewer'), undefined);
       assert.deepEqual(cost.by_model, [{ model: 'claude-opus', usd: usd([...SWE, ...BRO]), runs: 28 }]);
     } finally {
       priced.close();
     }
+  });
+});
+
+describe('GH 1948: idle runs and subshell command variants', () => {
+  const MIN = 60_000;
+  const SHAPES = {
+    240: { agent: 'code-reviewer', ms: 217 * MIN, tools: 34, out: 18_000 },
+    387: { agent: 'swe', ms: 137 * MIN, tools: 21, out: 7000 },
+    178: { agent: 'swe', ms: 36.86 * MIN, tools: 43, out: 17_676 },
+    329: { agent: 'swe', ms: 97.84 * MIN, tools: 454, out: 252_482 },
+  };
+  const CMD = 'cd mcp/trajectory-server && bun run test';
+  const { db, ids } = seed(join(tmp, 'gh1948.db'));
+  const runIds = {};
+  for (const [name, s] of Object.entries(SHAPES)) {
+    const r = db
+      .prepare(`INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+                VALUES (?, ?, 10, ?, 0, 0, ?, ?, ?, ?, 'subagent_stop', 'claude-opus')`)
+      .run(ids[0], s.agent, s.out, s.tools, s.ms, ago(HOUR), ago(HOUR));
+    runIds[name] = Number(r.lastInsertRowid);
+  }
+  const vrun = db.prepare("INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s) VALUES (?, 'abc1234', 'gate', ?, ?, 0, 600)");
+  const cmd = db.prepare('INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s) VALUES (?, 1, ?, 0, ?)');
+  const now = NOW.toISOString();
+  for (let i = 0; i < 39; i++) cmd.run(Number(vrun.run(ids[i % 3], now, now).lastInsertRowid), i < 31 ? CMD : `(${CMD})`, 100 + i);
+  const data = () => mod.insights(db, filter('range=30d'), NOW);
+
+  test('likelyIdle: over 30 min with under 1 tool use and 500 output tokens a minute', () => {
+    const run = (s) => ({ duration_ms: s.ms, tool_uses: s.tools, tokens_out: s.out });
+    assert.equal(mod.likelyIdle(run(SHAPES[240])), true);
+    assert.equal(mod.likelyIdle(run(SHAPES[387])), true);
+    assert.equal(mod.likelyIdle(run(SHAPES[178])), false);
+    assert.equal(mod.likelyIdle(run(SHAPES[329])), false);
+    assert.equal(mod.likelyIdle({ duration_ms: 29 * MIN, tool_uses: 0, tokens_out: 0 }), false);
+    assert.equal(mod.likelyIdle({ duration_ms: 60 * MIN, tool_uses: 60, tokens_out: 0 }), false);
+    assert.equal(mod.likelyIdle({ duration_ms: 60 * MIN, tool_uses: 0, tokens_out: 30_000 }), false);
+  });
+
+  test('duration outliers: top 10 non-idle runs, then idle runs, each with tool_uses, tokens_out and idle', () => {
+    const rows = data().outliers.duration_ms;
+    assert.equal(rows.length, 12);
+    assert.deepEqual(rows.slice(-2).map((r) => r.run_id), [runIds[240], runIds[387]]);
+    for (const r of rows.slice(-2)) {
+      assert.equal(r.idle, true);
+      assert.notEqual(r.tool_uses, null);
+      assert.notEqual(r.tokens_out, null);
+    }
+    assert.deepEqual(rows.slice(-2).map((r) => [r.tool_uses, r.tokens_out]), [[34, 18_000], [21, 7000]]);
+    assert.deepEqual(rows.slice(0, 2).map((r) => r.run_id), [runIds[329], runIds[178]]);
+    assert.ok(rows.slice(0, 10).every((r) => r.idle === false && typeof r.tool_uses === 'number' && typeof r.tokens_out === 'number'));
+    for (let i = 1; i < 10; i++) assert.ok(rows[i - 1].value >= rows[i].value);
+  });
+
+  test('normalizeCommand strips only parentheses that wrap the whole command', () => {
+    assert.equal(mod.normalizeCommand(`  (${CMD})  `), CMD);
+    assert.equal(mod.normalizeCommand(`((  cd   a &&  b ))`), 'cd a && b');
+    assert.equal(mod.normalizeCommand('(a) && (b)'), '(a) && (b)');
+    assert.equal(mod.normalizeCommand('(a) && b'), '(a) && b');
+    assert.equal(mod.normalizeCommand('node\t--test'), 'node --test');
+  });
+
+  test('slowest commands group the subshell form with the bare one: one row, n = 39', () => {
+    const rows = data().quality.slowest_commands.filter((c) => c.command.includes('trajectory-server'));
+    assert.deepEqual(rows.map((c) => [c.command, c.n]), [[CMD, 39]]);
+  });
+
+  test('the Top runs table labels idle rows and lists them last', () => {
+    const html = mod.page('#/insights/time?range=30d', data());
+    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
+    const labelled = [...top.matchAll(/<tr[^>]*>.*?<\/tr>/gs)].filter((r) => r[0].includes('Likely idle'));
+    assert.equal(labelled.length, 2);
+    assert.match(labelled[0][0], /border-\(--borderColor-muted\) text-fg-muted[^>]*>Likely idle</);
+    assert.ok(top.includes(mod.IDLE_CAPTION));
   });
 });
 
@@ -307,9 +385,9 @@ describe('Insights view', () => {
   const at = (section, query = 'range=30d') => mod.page(`#/insights/${section}?${query}`, data);
 
   test('the hash round-trips every param; an unknown section falls back to Tokens', () => {
-    const params = { section: 'quality', range: '90d', metric: 'cache_hit', filters: { repo: 'plugin', agent: 'reviewer', model: 'claude-opus', effort: 'high' } };
+    const params = { section: 'quality', range: '90d', metric: 'cache_hit', filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
     const hash = mod.insightHash(params);
-    assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=reviewer&model=claude-opus&effort=high&m=cache_hit');
+    assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=code-reviewer&model=claude-opus&effort=high&m=cache_hit');
     const [path, query] = hash.slice(2).split('?');
     assert.deepEqual(mod.parseInsightParams(path, new URLSearchParams(query)), params);
     assert.equal(mod.parseInsightParams('insights/bogus', new URLSearchParams('range=nope&m=nope')).section, 'tokens');
@@ -351,14 +429,18 @@ describe('Insights view', () => {
     assert.match(html, /Tokens measured for 25 of 27 runs/);
     assert.match(html, /Tokens measured for 23 of 23 runs/);
     assert.match(html, /Tokens measured for 3 of 3 sessions/);
-    assert.match(html, /Last 30 days · Per session · output tokens/);
+    assert.match(html, /Last 30 days · Per run · runs by output tokens/);
+    assert.match(html, /Last 30 days · Per session · sessions by output tokens/);
     assert.ok(html.includes(mod.BRO_CAPTION));
     assert.match(html, /Early data · 3 of 20 runs/);
     assert.match(html, /p50 13K/);
     assert.match(html, /p95 24K/);
-    assert.match(html, /<line[^>]*stroke="var\(--fgColor-default\)"[^>]*stroke-width="2"[^>]*stroke-dasharray="6 4"/);
+    const rules = [...html.matchAll(/<g data-marker="">\s*<line[^>]*>/g)].map((m) => m[0]);
+    assert.equal(rules.length, 4);
+    for (const rule of rules) assert.match(rule, /stroke="var\(--fgColor-muted\)" stroke-width="1"/);
+    assert.doesNotMatch(html, /stroke-dasharray/);
     const broCard = html.slice(html.indexOf('data-agent="bro"'));
-    assert.doesNotMatch(broCard, /p50 \d|p95 \d|stroke-dasharray="6 4"/);
+    assert.doesNotMatch(broCard, /p50 \d|p95 \d|data-marker/);
     assert.match(html, /aria-label="swe, [^"]+ output tokens: \d+ runs?"/);
     assert.match(html, /Top runs by output tokens/);
     assert.match(html, /Top runs by context/);
@@ -371,7 +453,7 @@ describe('Insights view', () => {
     assert.match(html, /Rank \d of 2 by average cache-hit %/);
   });
 
-  test('swe and reviewer histograms share one y scale; bro has its own', () => {
+  test('swe and code-reviewer histograms share one y scale; bro has its own', () => {
     const html = at('tokens');
     const cards = html.split('data-agent="').slice(1);
     assert.equal(cards.length, 3);
@@ -384,14 +466,143 @@ describe('Insights view', () => {
     assert.notEqual(top(cards[2]), top(cards[0]));
   });
 
-  test('axes: y on the right with a rotated unit, Primer strokes, dashed muted gridlines, no dots', () => {
-    const html = at('throughput');
-    assert.match(html, /visx-axis-right/);
-    assert.match(html, /<text[^>]*transform="rotate\(90\)"[^>]*>.*?Tasks/s);
-    assert.match(html, /class="visx-line visx-axis-line"[^>]*stroke="var\(--borderColor-emphasis\)"/);
-    assert.match(html, /visx-rows[^]*?stroke="var\(--borderColor-muted\)"[^>]*stroke-dasharray="4 4"/);
-    assert.match(html, /fill="var\(--fgColor-muted\)"/);
-    assert.doesNotMatch(html, /<circle/);
+  test('axes: solid muted horizontal grid before the marks, the baseline the only axis line, no tick strokes or rotated title', () => {
+    for (const section of ['throughput', 'tokens', 'quality']) {
+      const html = at(section);
+      const svgs = [...html.matchAll(/<svg width="\d+" height="224"[^>]*>(.*?)<\/svg><\/div>/gs)].map((m) => m[1]);
+      assert.ok(svgs.length > 0, section);
+      for (const svg of svgs) {
+        const grid = svg.indexOf('visx-rows');
+        assert.ok(grid >= 0 && grid < svg.indexOf('data-mark=""') || !svg.includes('data-mark'), section);
+        assert.doesNotMatch(svg, /visx-columns/);
+        const rows = svg.slice(grid, svg.indexOf('</g>', grid));
+        for (const line of rows.matchAll(/<line[^>]*>/g)) assert.match(line[0], /stroke="var\(--borderColor-muted\)" stroke-width="1"/);
+        const axisLines = [...svg.matchAll(/class="visx-line visx-axis-line"[^>]*>/g)].map((m) => m[0]);
+        assert.equal(axisLines.length, 1, section);
+        assert.match(axisLines[0], /stroke="var\(--borderColor-default\)"/);
+        assert.doesNotMatch(svg, /visx-axis-tick">\s*<line|class="visx-line visx-axis-tick/);
+        assert.doesNotMatch(svg, /rotate\(/);
+        assert.doesNotMatch(svg, /stroke-dasharray/);
+      }
+      for (const tick of html.matchAll(/<text transform=""[^>]*>/g)) {
+        assert.match(tick[0], /fill="var\(--fgColor-muted\)" font-size="11" style="font-variant-numeric:tabular-nums"/);
+      }
+    }
+    assert.doesNotMatch(at('throughput'), /<circle/);
+  });
+
+  test('histogram: edge labels anchored start and end, at most innerW/56 of them', () => {
+    const cards = at('tokens').split('data-agent="').slice(1);
+    for (const card of cards) {
+      const bottom = card.slice(card.indexOf('visx-axis-bottom'), card.indexOf('visx-axis-right'));
+      const anchors = [...bottom.matchAll(/text-anchor="(\w+)"/g)].map((m) => m[1]);
+      assert.ok(anchors.length >= 2 && anchors.length <= Math.floor((480 - 48) / 56), anchors.join());
+      assert.equal(anchors[0], 'start');
+      assert.equal(anchors.at(-1), 'end');
+      assert.ok(anchors.slice(1, -1).every((a) => a === 'middle'));
+    }
+    const edges = Array.from({ length: 11 }, (_, i) => ({ at: i, label: String(i) }));
+    const thin = mod.thinEdgeTicks(edges, 200);
+    assert.ok(thin.length <= Math.floor(200 / 56));
+    assert.deepEqual([thin[0].at, thin.at(-1).at], [0, 10]);
+  });
+
+  test('marks: at most 24px wide with a 2px gap, washed fill, one cap per non-zero bar, full-band hit targets', () => {
+    assert.equal(mod.barWidth(100), 24);
+    assert.equal(mod.barWidth(13), 11);
+    assert.equal(mod.barWidth(1), 0);
+    for (const section of ['throughput', 'tokens', 'quality', 'time']) {
+      const html = at(section);
+      for (const svg of html.matchAll(/<svg width="(\d+)" height="(\d+)" role="img"[^>]*>(.*?)<\/svg><\/div>/gs)) {
+        const body = svg[3];
+        const marks = [...body.matchAll(/<g data-mark=""><path class="visx-bar-rounded" d="([^"]+)"([^>]*)><\/path><path d="([^"]+)"([^>]*)><\/path><\/g>/g)];
+        assert.equal(marks.length, (body.match(/data-mark=""/g) ?? []).length, section);
+        assert.equal((body.match(/data-cap=""/g) ?? []).length, marks.length, section);
+        for (const [, bar, barAttrs, cap, capAttrs] of marks) {
+          assert.match(barAttrs, /style="fill-opacity:var\(--chart-wash\)"/);
+          assert.match(capAttrs, /fill="none" stroke="[^"]+" stroke-width="2" data-cap=""/);
+          const [, run, r] = /^M[\d.-]+,[\d.-]+ h([\d.-]+)\s*a([\d.]+),/.exec(bar);
+          const across = Number(run) + 2 * Number(r);
+          if (cap.includes('V')) {
+            const [, v] = /v([\d.-]+)/.exec(bar.slice(bar.indexOf('a')));
+            assert.equal(Number(v) + 2 * Number(r), 12, `${section}: slim bar 12px thick`);
+          } else {
+            assert.ok(across <= 24, `${section} bar ${across}px`);
+          }
+        }
+        const hits = [...body.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" fill="transparent" data-hit="" tabindex="0"/g)];
+        assert.equal(hits.length, (body.match(/tabindex="0"/g) ?? []).length, `${section}: every tabindex=0 is a hit rect`);
+        for (let i = 1; i < hits.length; i++) {
+          const [prev, cur] = [hits[i - 1], hits[i]];
+          if (prev[2] === cur[2]) assert.ok(Math.abs(Number(prev[1]) + Number(prev[3]) - Number(cur[1])) < 1e-6, `${section}: columns tile the plot`);
+          else assert.ok(Math.abs(Number(prev[2]) + Number(prev[4]) - Number(cur[2])) < 1e-6, `${section}: rows tile the plot`);
+        }
+      }
+    }
+    const days = at('throughput');
+    const zero = [...days.matchAll(/aria-label="([^"]+): 0 closed tasks"/g)].length;
+    assert.equal((days.match(/data-cap=""/g) ?? []).length, 31 - zero);
+  });
+
+  test('marker labels: start-anchored, end-anchored in the right third, clamped, stacked when they collide', () => {
+    const near = mod.placeMarkerLabels([{ x: 100, label: 'p50 13K' }, { x: 110, label: 'p95 24K' }], 400);
+    assert.deepEqual(near.map((p) => [p.anchor, p.row]), [['start', 0], ['start', 1]]);
+    const far = mod.placeMarkerLabels([{ x: 50, label: 'p50 13K' }, { x: 300, label: 'p95 24K' }], 400);
+    assert.deepEqual(far.map((p) => [p.anchor, p.row, p.x]), [['start', 0, 50], ['end', 0, 300]]);
+    const edge = mod.placeMarkerLabels([{ x: 400, label: 'p95 24K' }], 400)[0];
+    assert.deepEqual([edge.anchor, edge.x, edge.right], ['end', 400, 400]);
+    assert.ok(edge.left >= 0);
+    const start = mod.placeMarkerLabels([{ x: 0, label: 'p50 1K' }], 400)[0];
+    assert.deepEqual([start.anchor, start.left], ['start', 0]);
+    for (const p of [...near, ...far, edge, start]) assert.ok(mod.labelBox(p).bottom < 0, 'labels sit above the plot');
+  });
+
+  test('marker labels near the right edge (bro card shape) sit in the band, clear of bars, y ticks and each other', () => {
+    const edges = Array.from({ length: 11 }, (_, i) => Math.round(10 ** (3 + 0.3 * i)));
+    const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
+    const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
+    const p50 = Math.sqrt(edges[8] * edges[9]);
+    const p95 = 746_200;
+    const svg = mod.histogramSvg({ label: 'bro', who: 'bro', buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+    const innerW = 480 - 8 - 40;
+    const [, gx, gy] = /<g class="visx-group" transform="translate\(([\d.]+), ([\d.]+)\)"/.exec(svg);
+    assert.deepEqual([Number(gx), Number(gy)], [8, 36]);
+    const labels = [...svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*data-marker-label="">([^<]+)<\/text>/g)].map(([, x, y, anchor, text]) => {
+      const w = text.length * 6.6;
+      const left = anchor === 'end' ? Number(x) - w : Number(x);
+      return { text, anchor, left, right: left + w, top: Number(y) - 11, bottom: Number(y) + 3 };
+    });
+    assert.deepEqual(labels.map((l) => [l.text, l.anchor]), [['p50 354.8K', 'end'], ['p95 746.2K', 'end']]);
+    const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    assert.ok(!overlap(labels[0], labels[1]), 'the two labels stack instead of overlapping');
+    assert.ok(labels[1].bottom <= labels[0].top, 'p95 sits on the band row above p50');
+    for (const l of labels) {
+      assert.ok(l.left >= 0 && l.right <= innerW, `${l.text} inside the plot x-range`);
+      assert.ok(l.bottom < 0 && l.top >= -Number(gy), `${l.text} inside the band above the plot`);
+    }
+    const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) /g)].map((m) => Number(m[2]));
+    assert.equal(bars.length, 9);
+    assert.ok(bars.every((y) => y >= 0), 'every bar stays below the band');
+    const [, axisX] = /class="visx-group visx-axis visx-axis-right" transform="translate\(([\d.]+), 0\)"/.exec(svg);
+    assert.equal(Number(axisX), innerW);
+    const ticks = [...svg.slice(svg.indexOf('visx-axis-right')).matchAll(/<svg x="([\d.-]+)"[^>]*><text transform="" x="([\d.-]+)"[^>]*text-anchor="start"/g)];
+    assert.ok(ticks.length >= 2);
+    for (const [, dx, x] of ticks) {
+      assert.ok(Number(axisX) + Number(dx) + Number(x) > Math.max(...labels.map((l) => l.right)), 'y tick labels stay right of every marker label');
+    }
+  });
+
+  test('duration ticks step through 1s … 2h with integer labels', () => {
+    const labels = (ms) => mod.durationTicks(ms).ticks.map((t) => t.label);
+    assert.deepEqual(labels(9 * 60_000), ['0', '5m', '10m']);
+    assert.deepEqual(labels(14_000), ['0', '5s', '10s', '15s']);
+    assert.deepEqual(labels(50 * 60_000), ['0', '15m', '30m', '45m', '60m']);
+    assert.deepEqual(labels(3.5 * 3_600_000), ['0', '1h', '2h', '3h', '4h']);
+    for (const ms of [800, 42_000, 13 * 60_000, 7 * 3_600_000]) {
+      const { top, ticks } = mod.durationTicks(ms);
+      assert.ok(top >= ms && ticks.length <= 5, String(ms));
+      for (const t of ticks) assert.match(t.label, /^(0|\d+[smh])$/);
+    }
   });
 
   test('Throughput: focusable columns labelled by day', () => {
@@ -406,6 +617,51 @@ describe('Insights view', () => {
     const html = at('time');
     for (const title of ['Duration per run', 'Tool uses per run', 'bro duration per session', 'bro tool uses per session', 'Top runs by duration']) assert.ok(html.includes(title), title);
     assert.match(html, /aria-label="swe: average [^"]+ over 25 runs"/);
+    const cards = html.split('data-chart-card=""').slice(1);
+    assert.equal(cards.length, 4);
+    for (const card of cards.slice(0, 2)) {
+      assert.equal((card.match(/data-tile=""/g) ?? []).length, 2);
+      assert.equal((card.match(/data-hit=""/g) ?? []).length, 2);
+      assert.match(card, /<dt[^>]*>p50<\/dt>.*<dt[^>]*>p95<\/dt>.*<dt[^>]*>max<\/dt>/s);
+      assert.match(card, /<text x="0" y="12" fill="var\(--fgColor-default\)" font-size="12">swe<\/text>/);
+      assert.doesNotMatch(card, /height="224"/);
+    }
+    assert.match(cards[0], /Per run · duration; bars show the average/);
+    assert.match(cards[0], />0<\/tspan>.*>\d+m<\/tspan>/s);
+    for (const card of cards.slice(2)) {
+      assert.equal((card.match(/data-tile=""/g) ?? []).length, 1);
+      assert.doesNotMatch(card, /<svg width/);
+    }
+  });
+
+  test('outlier tables fit: the Title and Command cells truncate with the full text in title, numbers stay on one line', () => {
+    const long = `Title ${'x'.repeat(114)}`;
+    assert.equal(long.length, 120);
+    const [first, ...rest] = data.outliers.duration_ms;
+    const html = mod.page('#/insights/time?range=30d', { ...data, outliers: { ...data.outliers, duration_ms: [{ ...first, task_title: long }, ...rest] } });
+    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
+    const cell = new RegExp(`<td class="([^"]*)" title="${long}">`).exec(top);
+    assert.ok(cell, 'the title cell carries the full title');
+    assert.match(cell[1], /(^| )truncate( |$)/);
+    assert.match(cell[1], /(^| )max-w-0( |$)/);
+    assert.match(cell[1], /(^| )w-full( |$)/);
+    const firstRow = top.slice(top.indexOf('<tbody>'), top.indexOf('</tr>', top.indexOf('<tbody>')));
+    assert.equal((firstRow.match(/class="whitespace-nowrap tabular-nums"|class="inline-flex items-center gap-2 whitespace-nowrap tabular-nums"/g) ?? []).length, 4);
+    const quality = at('quality');
+    const slow = quality.slice(quality.indexOf('aria-label="Slowest verification commands"'));
+    assert.match(slow, /<td class="[^"]*w-full min-w-32 max-w-0 truncate[^"]*" title="node --test">/);
+    for (const kind of ['Top runs by output tokens', 'Top runs by context']) {
+      const t = at('tokens').slice(at('tokens').indexOf(`aria-label="${kind}"`));
+      assert.match(t, /<td class="[^"]*w-full min-w-32 max-w-0 truncate[^"]*" title="Task [abc]">/, kind);
+    }
+  });
+
+  test('Time: duration outliers show tool uses and output tokens, with the idle caption', () => {
+    const html = at('time');
+    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
+    assert.match(top, />Tool uses<.*>Output tokens</s);
+    assert.ok(top.includes(mod.IDLE_CAPTION));
+    assert.equal(mod.IDLE_CAPTION, 'Likely idle: over 30 min with under 1 tool use and 500 output tokens a minute. Listed last.');
   });
 
   test('Quality: first-pass rate, attempts, stacked verdict mix, verification rate, slowest commands', () => {
@@ -432,6 +688,14 @@ describe('Insights view', () => {
     assert.match(html, /Cost by model/);
     assert.match(html, /aria-label="swe: \$[\d,.]+ over 25 runs"/);
     assert.match(html, /23 measured runs have no price/);
+    const cards = html.split('data-chart-card=""').slice(1);
+    const byTitle = (t) => cards.find((c) => c.includes(`>${t}</h3>`));
+    for (const t of ['Cost by agent', 'Cost by model']) {
+      assert.doesNotMatch(byTitle(t), /height="224"/, t);
+      assert.match(byTitle(t), /data-cap=""/, t);
+    }
+    assert.match(byTitle('bro cost'), /data-tile=""/);
+    assert.doesNotMatch(byTitle('bro cost'), /<svg width/);
   });
 
   test('ChartCard: h3, subheader, kebab menu with both actions, legend only for 2+ series', () => {
@@ -545,15 +809,59 @@ describe('build and bundle', () => {
       const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
       return (hi + 0.05) / (lo + 0.05);
     };
+    const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    const rgb = (hex) => [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+    // Machado, Oliveira & Fernandes 2009, severity 1.0, applied in linear RGB.
+    const MACHADO = {
+      protan: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+      deutan: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.01182, 0.04294, 0.968881]],
+    };
+    const simulate = (c, m) => m.map((row) => Math.min(1, Math.max(0, row[0] * c[0] + row[1] * c[1] + row[2] * c[2])));
+    const oklab = ([r, g, b]) => {
+      const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+      const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+      const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+      return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+    };
+    const deltaE = (p, q) => 100 * Math.hypot(...p.map((v, i) => v - q[i]));
+    const cvdDelta = (a, b) => Math.min(...Object.values(MACHADO).map((m) => deltaE(oklab(simulate(rgb(a), m)), oklab(simulate(rgb(b), m)))));
+    const agents = Object.values(mod.AGENT_COLOR).map((v) => /--data-[a-z]+-color-emphasis/.exec(v)[0]);
+    const floors = {};
     for (const [mode, selector] of [['light', '[data-color-mode="light"][data-light-theme="light"]'], ['dark', '[data-color-mode="dark"][data-dark-theme="dark"]']]) {
       const b = block(selector);
       const bg = value(b, '--bgColor-default');
+      assert.equal(bg, mode === 'light' ? '#ffffff' : '#0d1117');
       for (const name of used) {
         const fg = value(b, name);
         assert.ok(fg, `${name} missing in ${mode}`);
         assert.ok(contrast(fg, bg) >= 3, `${name} ${fg} on ${bg} (${mode}) is ${contrast(fg, bg).toFixed(2)}:1`);
       }
+      let floor = Infinity;
+      for (let i = 0; i < agents.length; i++) {
+        for (let j = i + 1; j < agents.length; j++) {
+          const d = cvdDelta(value(b, agents[i]), value(b, agents[j]));
+          assert.ok(d >= 8, `${agents[i]} vs ${agents[j]} (${mode}) CVD ΔE ${d.toFixed(1)} < 8`);
+          floor = Math.min(floor, d);
+        }
+      }
+      floors[mode] = Math.round(floor * 10) / 10;
     }
+    assert.deepEqual(floors, { light: 14.3, dark: 15.7 });
+  });
+
+  test('agent palette: swe pink, code-reviewer orange, bro blue', () => {
+    assert.deepEqual(mod.AGENT_COLOR, {
+      swe: 'var(--data-pink-color-emphasis)',
+      'code-reviewer': 'var(--data-orange-color-emphasis)',
+      bro: 'var(--data-blue-color-emphasis)',
+    });
+  });
+
+  test('the InsightsView chunk is at most 56,320 bytes gzipped', () => {
+    const chunk = readdirSync(join(WEB, 'chunks')).find((f) => /^InsightsView-[A-Z0-9]+\.js$/.test(f));
+    assert.ok(chunk);
+    const size = gzipSync(readFileSync(join(WEB, 'chunks', chunk)), { level: 9 }).length;
+    assert.ok(size <= 56_320, `${chunk} is ${size} B gzipped`);
   });
 
   test('the web tree has no hex colour under views/insights', () => {

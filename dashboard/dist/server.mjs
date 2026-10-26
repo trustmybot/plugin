@@ -4930,7 +4930,7 @@ function worldModelSearch(db, query, limit) {
   return { available: true, hits: hits.map((h) => ({ ...h, text: summaryLine(h["text"]) })) };
 }
 var INSIGHT_RANGES = { "7d": 7, "30d": 30, "90d": 90, all: null };
-var INSIGHT_AGENTS = ["swe", "reviewer", "bro"];
+var INSIGHT_AGENTS = ["swe", "code-reviewer", "bro"];
 var isRange = (v) => Object.hasOwn(INSIGHT_RANGES, v);
 var isAgent = (v) => INSIGHT_AGENTS.includes(v);
 function insightFilter(p) {
@@ -4980,7 +4980,7 @@ function histogram(values, edges) {
 }
 var AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'swe' THEN 'swe'
-    WHEN r.agent_type = 'code-reviewer' THEN 'reviewer'
+    WHEN r.agent_type = 'code-reviewer' THEN 'code-reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
 var sinceOf = (range, now2) => {
@@ -5056,6 +5056,21 @@ function costOf(db, runs) {
   const list = (map, key) => [...map].map(([k, g]) => ({ [key]: k, usd: Math.round(g.usd * 1e4) / 1e4, runs: g.runs })).sort((a, b) => b.usd - a.usd);
   return { priced: true, by_agent: list(byAgent, "agent"), by_model: list(byModel, "model"), unpriced_runs: unpriced };
 }
+var wrapsWhole = (s) => {
+  if (!s.startsWith("(") || !s.endsWith(")")) return false;
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "(") depth += 1;
+    else if (s[i] === ")") depth -= 1;
+    if (depth === 0 && i < s.length - 1) return false;
+  }
+  return depth === 0;
+};
+function normalizeCommand(command) {
+  let s = command.trim();
+  while (wrapsWhole(s)) s = s.slice(1, -1).trim();
+  return s.replace(/\s+/g, " ");
+}
 function qualityOf(db, f, since) {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
@@ -5099,9 +5114,10 @@ function qualityOf(db, f, since) {
     since,
     ...taskArgs
   )) {
-    const list = commands.get(String(c["command"])) ?? [];
+    const command = normalizeCommand(String(c["command"]));
+    const list = commands.get(command) ?? [];
     list.push(Number(c["elapsed_s"]));
-    commands.set(String(c["command"]), list);
+    commands.set(command, list);
   }
   const slowest = [...commands].map(([command, values]) => {
     const sorted = [...values].sort((a, b) => a - b);
@@ -5131,10 +5147,22 @@ function throughputOf(db, f, since) {
     f.effort
   ).map((r) => ({ day: String(r["day"]), closed: Number(r["closed"]) }));
 }
+var IDLE_MIN_MS = 30 * 6e4;
+var IDLE_TOOL_USES_PER_MIN = 1;
+var IDLE_TOKENS_OUT_PER_MIN = 500;
+function likelyIdle(r) {
+  if (!(r.duration_ms >= IDLE_MIN_MS)) return false;
+  const minutes = r.duration_ms / 6e4;
+  return r.tool_uses / minutes < IDLE_TOOL_USES_PER_MIN && r.tokens_out / minutes < IDLE_TOKENS_OUT_PER_MIN;
+}
 function outliersOf(runs) {
   const perRun = runs.filter((r) => r.measured === 1 && r.agent !== "bro");
-  const top = (value) => perRun.map((r) => ({ run_id: r.id, agent: r.agent, task_id: r.task_id, task_title: r.task_title, value: value(r) })).sort((a, b) => b.value - a.value || a.run_id - b.run_id).slice(0, TOP_N);
-  return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms: top((r) => r.duration_ms) };
+  const row = (r, value) => ({ run_id: r.id, agent: r.agent, task_id: r.task_id, task_title: r.task_title, value });
+  const byValue = (a, b) => b.value - a.value || a.run_id - b.run_id;
+  const top = (value) => perRun.map((r) => row(r, value(r))).sort(byValue).slice(0, TOP_N);
+  const durations = perRun.map((r) => ({ ...row(r, r.duration_ms), tool_uses: r.tool_uses, tokens_out: r.tokens_out, idle: likelyIdle(r) })).sort(byValue);
+  const duration_ms = [...durations.filter((r) => !r.idle).slice(0, TOP_N), ...durations.filter((r) => r.idle).slice(0, TOP_N)];
+  return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
 function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
   const since = sinceOf(f.range, now2);

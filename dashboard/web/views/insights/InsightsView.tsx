@@ -45,7 +45,7 @@ function Select({ label, value, options, onChange }: { label: string; value: str
 }
 
 const ANY: readonly [string, string] = ['', 'Any'];
-const AGENT_OPTIONS = [ANY, ['swe', 'swe'], ['reviewer', 'reviewer'], ['bro', 'bro']] as const;
+const AGENT_OPTIONS = [ANY, ['swe', 'swe'], ['code-reviewer', 'code-reviewer'], ['bro', 'bro']] as const;
 const EFFORT_OPTIONS = [ANY, ['low', 'low'], ['medium', 'medium'], ['high', 'high']] as const;
 
 function FilterBar({ params, data }: { params: InsightParams; data: Insights | undefined }) {

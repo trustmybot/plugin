@@ -1,8 +1,8 @@
 import type { AgentKey } from './types.ts';
 
 export const AGENT_COLOR: Record<AgentKey, string> = {
-  swe: 'var(--data-green-color-emphasis)',
-  reviewer: 'var(--data-orange-color-emphasis)',
+  swe: 'var(--data-pink-color-emphasis)',
+  'code-reviewer': 'var(--data-orange-color-emphasis)',
   bro: 'var(--data-blue-color-emphasis)',
 };
 
@@ -24,6 +24,34 @@ export function duration(ms: number | null): string {
   if (s < 60) return `${PLAIN.format(s)}s`;
   if (s < 3600) return `${PLAIN.format(s / 60)}m`;
   return `${PLAIN.format(s / 3600)}h`;
+}
+
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+const DURATION_STEPS = [SECOND, 5 * SECOND, 10 * SECOND, 30 * SECOND, MINUTE, 2 * MINUTE, 5 * MINUTE, 10 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR];
+
+export interface Tick {
+  at: number;
+  label: string;
+}
+
+function durationLabel(ms: number, step: number): string {
+  if (ms === 0) return '0';
+  if (step >= HOUR) return `${ms / HOUR}h`;
+  if (step >= MINUTE) return `${ms / MINUTE}m`;
+  return `${ms / SECOND}s`;
+}
+
+// A nice duration axis over [0, maxMs]: the smallest step from 1s to 2h (then
+// a multiple of 2h) that covers maxMs in at most `count` steps, integer labels.
+export function durationTicks(maxMs: number, count = 4): { top: number; ticks: Tick[] } {
+  const max = Math.max(SECOND, maxMs);
+  const step = DURATION_STEPS.find((s) => Math.ceil(max / s) <= count) ?? 2 * HOUR * Math.ceil(max / (2 * HOUR * count));
+  const top = Math.ceil(max / step) * step;
+  const ticks: Tick[] = [];
+  for (let at = 0; at <= top; at += step) ticks.push({ at, label: durationLabel(at, step) });
+  return { top, ticks };
 }
 
 export function shortDay(day: string): string {
