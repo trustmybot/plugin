@@ -10,11 +10,14 @@ const DASH = <span className="text-fg-muted">—</span>;
 
 const taskCell = (r: Row) => (
   <div className="min-w-48 whitespace-normal">
-    <a href={`#/issues/${r['issue_id']}`} className="font-semibold text-fg hover:text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+    <a href={`#/tasks/${r['id']}`} className="font-semibold text-fg hover:text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
       {String(r['title'] ?? '')}
     </a>
     <div className="text-xs text-fg-muted">
-      #{String(r['id'])} · issue #{String(r['issue_id'])}
+      #{String(r['id'])} ·{' '}
+      <a href={`#/issues/${r['issue_id']}`} className="hover:text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+        issue #{String(r['issue_id'])}
+      </a>
     </div>
   </div>
 );
@@ -42,5 +45,5 @@ const TASK_COLUMNS: Column[] = [
 
 export function TasksView() {
   const q = useApi<Row[]>('tasks');
-  return <Loading q={q}>{(rows) => <DataTable rows={rows} columns={TASK_COLUMNS} onRowClick={(r) => go(`issues/${r['issue_id']}`)} />}</Loading>;
+  return <Loading q={q}>{(rows) => <DataTable rows={rows} columns={TASK_COLUMNS} onRowClick={(r) => go(`tasks/${r['id']}`)} />}</Loading>;
 }

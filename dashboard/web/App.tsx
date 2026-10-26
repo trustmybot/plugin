@@ -19,6 +19,7 @@ import { OverviewView } from './views/OverviewView.tsx';
 import { ProjectMapView } from './views/ProjectMapView.tsx';
 import { RunsView } from './views/RunsView.tsx';
 import { TasksView } from './views/TasksView.tsx';
+import { TaskView } from './views/tasks/TaskView.tsx';
 
 export const TABS: readonly NavTab[] = [
   ['overview', 'Overview', HomeIcon],
@@ -49,7 +50,15 @@ export function App() {
       <AppHeader />
       <UnderlineNav tabs={TABS} active={tab} />
       <main className="mx-auto w-full max-w-[120rem] space-y-4 px-4 py-4 sm:px-6 2xl:px-10">
-        {tab === 'issues' && id ? <IssueView id={id} /> : tab === 'concepts' ? <ConceptsView id={id} /> : <TabView tab={tab} />}
+        {tab === 'issues' && id ? (
+          <IssueView id={id} />
+        ) : tab === 'tasks' && id ? (
+          <TaskView id={id} />
+        ) : tab === 'concepts' ? (
+          <ConceptsView id={id} />
+        ) : (
+          <TabView tab={tab} />
+        )}
       </main>
     </>
   );

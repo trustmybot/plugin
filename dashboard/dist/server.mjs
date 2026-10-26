@@ -4561,6 +4561,67 @@ function tasks(db) {
     RECENT_LIMIT * 5
   );
 }
+function parseJsonColumn(row, key) {
+  const raw = row[key];
+  if (raw === null || raw === void 0) return { [key]: null };
+  try {
+    return { [key]: JSON.parse(String(raw)) };
+  } catch {
+    return { [key]: null, [`${key}_raw`]: String(raw) };
+  }
+}
+function taskDetail(db, id) {
+  const task = one(
+    db,
+    `SELECT id, issue_id, branch_id, parent_branch_id, title, status, spec_body, commit_sha,
+            repo, effort, files, verification, completion_report, created_at, updated_at,
+            completed_at
+       FROM tasks WHERE id = ?`,
+    id
+  );
+  if (!task) return null;
+  const commands = db.prepare(
+    `SELECT ordinal, command, exit_code, elapsed_s, output_tail
+       FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`
+  );
+  const runs = all(
+    db,
+    `SELECT id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out
+       FROM verification_runs WHERE task_id = ? ORDER BY started_at DESC, id DESC`,
+    id
+  );
+  return {
+    task: {
+      ...task,
+      ...parseJsonColumn(task, "files"),
+      ...parseJsonColumn(task, "verification"),
+      ...parseJsonColumn(task, "completion_report")
+    },
+    issue: one(db, `SELECT id, objective FROM issues WHERE id = ?`, Number(task["issue_id"])) ?? null,
+    validations: all(
+      db,
+      `SELECT id, attempt_n, agent, verdict, feedback, mcp_available, created_at
+         FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n, id`,
+      id
+    ),
+    findings: all(
+      db,
+      `SELECT id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at,
+              resolved_at
+         FROM review_findings WHERE task_id = ? ORDER BY attempt_n, created_at, id`,
+      id
+    ),
+    verifications: runs.map((r) => ({ ...r, commands: commands.all(Number(r["id"])) })),
+    agent_runs: all(
+      db,
+      `SELECT id, agent_type, model, effort, tokens_in, tokens_out, cache_read_tokens,
+              cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
+              exit_reason
+         FROM agent_runs WHERE task_id = ? ORDER BY id`,
+      id
+    )
+  };
+}
 function agentRuns(db) {
   return all(
     db,
@@ -7906,6 +7967,10 @@ function handleApi(db, url, res) {
   if (parts.length === 2 && resource === "issues" && /^-?\d+$/.test(id)) {
     const detail = issueDetail(db, Number(id));
     return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: "issue not found" });
+  }
+  if (parts.length === 2 && resource === "tasks" && /^-?\d+$/.test(id)) {
+    const detail = taskDetail(db, Number(id));
+    return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: "task not found" });
   }
   sendJson(res, 404, { error: "unknown endpoint" });
 }

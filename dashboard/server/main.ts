@@ -93,6 +93,10 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
     const detail = q.issueDetail(db, Number(id));
     return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: 'issue not found' });
   }
+  if (parts.length === 2 && resource === 'tasks' && /^-?\d+$/.test(id!)) {
+    const detail = q.taskDetail(db, Number(id));
+    return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: 'task not found' });
+  }
   sendJson(res, 404, { error: 'unknown endpoint' });
 }
 
