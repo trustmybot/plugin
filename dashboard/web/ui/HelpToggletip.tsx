@@ -1,6 +1,6 @@
 // Forked from Primer CSS Popover (github.com/primer/css, MIT), rebuilt as a toggletip on Primer overlay tokens without Primer CSS.
 import { QuestionIcon } from '@primer/octicons-react';
-import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FocusEvent, type PointerEvent } from 'react';
 import { HELP_USES_HEADING, type HelpEntry } from '../shared/help-copy.ts';
 
 export const HOVER_OPEN_MS = 150;
@@ -20,7 +20,7 @@ export type HelpEvent =
   | { type: 'focus' }
   | { type: 'blur' }
   | { type: 'click' }
-  | { type: 'escape' }
+  | { type: 'escape'; focusInside: boolean }
   | { type: 'outside' };
 
 export const HELP_CLOSED: HelpState = { open: false, pinned: false, due: null, restoreFocus: false };
@@ -42,7 +42,7 @@ export function helpTransition(state: HelpState, event: HelpEvent): HelpState {
     case 'click':
       return s.pinned ? HELP_CLOSED : { ...s, open: true, pinned: true, due: null };
     case 'escape':
-      return { ...HELP_CLOSED, restoreFocus: true };
+      return { ...HELP_CLOSED, restoreFocus: event.focusInside };
     case 'outside':
       return HELP_CLOSED;
   }
@@ -88,8 +88,17 @@ export function HelpToggletip({ page, help, defaultOpen = false }: { page: strin
     const onDown = (e: Event) => {
       if (!root.current?.contains(e.target as Node)) dispatch({ type: 'outside' });
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      dispatch({ type: 'escape', focusInside: !!root.current?.contains(document.activeElement) });
+    };
     document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [state.open]);
 
   const hover = (type: 'pointerenter' | 'pointerleave') => (e: PointerEvent) => {
@@ -98,15 +107,9 @@ export function HelpToggletip({ page, help, defaultOpen = false }: { page: strin
   const onBlur = (e: FocusEvent) => {
     if (!root.current?.contains(e.relatedTarget as Node | null)) dispatch({ type: 'blur' });
   };
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && state.open) {
-      e.stopPropagation();
-      dispatch({ type: 'escape' });
-    }
-  };
 
   return (
-    <div ref={root} className="relative" onPointerEnter={hover('pointerenter')} onPointerLeave={hover('pointerleave')} onBlur={onBlur} onKeyDown={onKeyDown}>
+    <div ref={root} className="relative" onPointerEnter={hover('pointerenter')} onPointerLeave={hover('pointerleave')} onBlur={onBlur}>
       <button
         ref={trigger}
         type="button"

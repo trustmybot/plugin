@@ -295,10 +295,26 @@ describe('helpTransition', () => {
   test('focus opens it and Escape closes it, restoring focus to the button', () => {
     const open = run([{ type: 'focus' }]);
     assert.equal(open.open, true);
-    const closed = ui.helpTransition(open, { type: 'escape' });
+    const closed = ui.helpTransition(open, { type: 'escape', focusInside: true });
     assert.equal(closed.open, false);
     assert.equal(closed.restoreFocus, true);
     assert.equal(ui.helpTransition(closed, { type: 'focus' }).restoreFocus, false);
+  });
+
+  test('Escape closes a hover-opened or pinned tip while focus is elsewhere, leaving focus where it is', () => {
+    const hovered = run([{ type: 'pointerenter', at: 0 }, { type: 'tick', at: 150 }, { type: 'escape', focusInside: false }]);
+    assert.equal(hovered.open, false);
+    assert.equal(hovered.restoreFocus, false);
+    const pinned = run([{ type: 'click' }, { type: 'escape', focusInside: false }]);
+    assert.equal(pinned.open, false);
+    assert.equal(pinned.pinned, false);
+    assert.equal(pinned.restoreFocus, false);
+  });
+
+  test('Escape is heard on the whole document while the tip is open, not only inside it', () => {
+    const src = readFileSync(join(DASH, 'web/ui/HelpToggletip.tsx'), 'utf8');
+    assert.match(src, /(document|window)\.addEventListener\(['"]keydown['"]/);
+    assert.doesNotMatch(src, /onKeyDown=/);
   });
 
   test('click pins it, blur leaves a pinned tip open and a second click closes it', () => {

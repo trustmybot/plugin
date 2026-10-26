@@ -85,7 +85,7 @@ The editor snapshots the issue when it opens. Its fields, the changed-field diff
 
 ## Page help
 
-Every page, the issue and task pages included, has a `?` marker at the top right of the content. Its accessible name is "About this page: {page}" and it opens a short panel: what the page shows, where its data comes from (the Project map also names its two layers, Structure and Concepts) and a "Use it to" list. It is a toggletip, not a tooltip: it opens after 150 ms of hover, on focus, and on click or tap, and a click pins it open. Escape closes it and returns focus to the button; a click outside closes it, and so does moving focus away unless it is pinned. It stays open while the pointer is over the button or the panel, with 200 ms of grace to cross the gap. Below 640 px the panel spans the screen and scrolls past 60% of its height. The copy lives in `web/shared/help-copy.ts`.
+Every page, the issue and task pages included, has a `?` marker at the top right of the content. Its accessible name is "About this page: {page}" and it opens a short panel: what the page shows, where its data comes from (the Project map also names its two layers, Structure and Concepts) and a "Use it to" list. It is a toggletip, not a tooltip: it opens after 150 ms of hover, on focus, and on click or tap, and a click pins it open. Escape closes it wherever focus is on the page, and returns focus to the button when focus was inside the toggletip; a click outside closes it, and so does moving focus away unless it is pinned. It stays open while the pointer is over the button or the panel, with 200 ms of grace to cross the gap. Below 640 px the panel spans the screen and scrolls past 60% of its height. The copy lives in `web/shared/help-copy.ts`.
 
 ## Project map
 
