@@ -1,6 +1,7 @@
 import { askuserquestionLengthLint } from './askuserquestion-length-lint.js';
 import { containmentGuard } from './containment-guard.js';
 import { ensureMcpDepsInstalled } from './ensure-mcp-deps-installed.js';
+import { GATE_NAME as GIT_GUARDS_GATE, gitGuards } from './git-guards.js';
 import { GATE_NAME as PUSH_GUARD_GATE, gitPushGuard } from './git-push-guard.js';
 import { GATE_NAME as PREFLIGHT_GATE, codeReviewerPreflight } from './code-reviewer-preflight.js';
 import { GATE_NAME as SPAWN_NOTE_GATE, codeReviewerSpawnNote } from './code-reviewer-spawn-note.js';
@@ -12,6 +13,7 @@ const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     ['containment-guard', containmentGuard],
     ['ensure-mcp-deps-installed', ensureMcpDepsInstalled],
+    [GIT_GUARDS_GATE, gitGuards],
     [PUSH_GUARD_GATE, gitPushGuard],
     [PREFLIGHT_GATE, codeReviewerPreflight],
     [SPAWN_NOTE_GATE, codeReviewerSpawnNote],

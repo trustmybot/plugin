@@ -10,6 +10,7 @@ import { writePathsWith } from './write-paths.js';
 
 export { bashParserLoads, programParserLoads } from './parser.js';
 export { pathCanonical, payloadCwd } from './path.js';
+export { stripLiterals } from './strip-literals.js';
 export {
   cmdStatements,
   cwdState,

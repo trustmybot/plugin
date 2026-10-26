@@ -4988,6 +4988,30 @@ function jsonValues(text) {
     i2 = end;
   }
 }
+function jsonStream(text) {
+  const values = [];
+  let i2 = 0;
+  for (; ; ) {
+    while (i2 < text.length && /[ \t\n\r]/.test(text[i2])) i2 += 1;
+    if (i2 >= text.length) return { values, complete: true };
+    const end = valueEnd(text, i2);
+    if (end < 0) return { values, complete: false };
+    try {
+      values.push(JSON.parse(text.slice(i2, end)));
+    } catch {
+      return { values, complete: false };
+    }
+    i2 = end;
+  }
+}
+function jqRawElements(text) {
+  const out2 = [];
+  for (const value of jsonStream(text).values) {
+    if (value === null || typeof value !== "object") continue;
+    for (const v of Array.isArray(value) ? value : Object.values(value)) out2.push(jqRawText(v));
+  }
+  return out2.join("\n");
+}
 var JqError2 = class extends Error {
 };
 function index(value, key2) {
@@ -5784,6 +5808,29 @@ function sqlInt(value = "") {
 }
 function sqlQuote(value = "") {
   return stripTrailingNewlines(value.replace(/'/g, "''"));
+}
+function sqlLikeEscape(value = "") {
+  return stripTrailingNewlines(value.replace(/[\\%_]/g, "\\$&").replace(/'/g, "''"));
+}
+var TASK_STATUS_LIST = /^[a-z_', ]*$/;
+function taskBySlug(db, slug, col = "id", statuses = "", env = process.env, onWarning) {
+  if (db === "" || slug === "") return "";
+  if (col !== "id" && col !== "branch_id") return "";
+  if (!TASK_STATUS_LIST.test(statuses)) return "";
+  let where = `branch_id LIKE '%/${sqlLikeEscape(slug)}' ESCAPE '\\'`;
+  if (statuses !== "") where += ` AND status IN (${statuses})`;
+  const rows = sqliteRo(db, `SELECT id || '|' || branch_id FROM tasks WHERE ${where} ORDER BY id DESC;`, env);
+  if (rows === "") return "";
+  const lines2 = rows.split("\n");
+  const count = lines2.filter((l) => l !== "").length;
+  if (count > 1 && onWarning) {
+    const branches = lines2.map((l) => l.split("|")[1] ?? l).join(",");
+    onWarning(`tmb: worktree slug "${slug}" matches ${count} tasks (${branches}); using the newest`);
+  }
+  const first = lines2[0];
+  const bar = first.indexOf("|");
+  if (col === "id") return bar < 0 ? first : first.slice(0, bar);
+  return bar < 0 ? first : first.slice(bar + 1);
 }
 function branchSlug(branch = "") {
   const slash = branch.indexOf("/");
@@ -6846,9 +6893,9 @@ function fdModel(mode, args2, raw, acts, m) {
   }
   return !bad;
 }
-function listerBind(host, name3, dirtok, mode, words, acts) {
+function listerBind(host, name3, dirtok, mode, words2, acts) {
   if (mode === "loop" && (host.root === "" || !NAME.test(name3))) return null;
-  const dec2 = mode === "loop" ? words : words.map(decode);
+  const dec2 = mode === "loop" ? words2 : words2.map(decode);
   let dir = "";
   if (dirtok.startsWith("/")) dir = dirtok;
   else if (dirtok === "@") dir = host.cwd;
@@ -6857,23 +6904,23 @@ function listerBind(host, name3, dirtok, mode, words, acts) {
   const args2 = [];
   const raw = [];
   let skip = false;
-  for (let k = 1; k < words.length; k++) {
+  for (let k = 1; k < words2.length; k++) {
     const w = dec2[k] ?? "";
     if (mode === "exec") {
       if (skip) {
         skip = false;
         continue;
       }
-      if (EXEC_REDIRECT.test(words[k])) {
+      if (EXEC_REDIRECT.test(words2[k])) {
         skip = true;
         continue;
       }
-      if (EXEC_REDIRECT_WORD.test(words[k])) continue;
-      raw.push(words[k]);
+      if (EXEC_REDIRECT_WORD.test(words2[k])) continue;
+      raw.push(words2[k]);
     } else {
       if (w === "2>/dev/null") continue;
       if (w === "2>") {
-        if (words[k + 1] !== "/dev/null") return null;
+        if (words2[k + 1] !== "/dev/null") return null;
         k++;
         continue;
       }
@@ -6881,7 +6928,7 @@ function listerBind(host, name3, dirtok, mode, words, acts) {
     }
     args2.push(w);
   }
-  const cmd = basename2(words[0] ?? "");
+  const cmd = basename2(words2[0] ?? "");
   if (mode === "exec" && cmd !== "find" && cmd !== "fd" && cmd !== "fdfind") return null;
   const m = { paths: [], vals: [], pats: [], excl: [], gdir: "", listed: false };
   let fine;
@@ -9910,8 +9957,8 @@ var PROGRAM_FLAG = {
   perl: /^-[nlpaswWtTUcX]*[eE](.*)$/s,
   ruby: /^-[nlpaswWdv]*e(.*)$/s
 };
-function interpWrites(words, procWrites, held = () => false) {
-  const argv0 = basename3(words[0] ?? "");
+function interpWrites(words2, procWrites, held = () => false) {
+  const argv0 = basename3(words2[0] ?? "");
   let lang;
   let pyopt = false;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) {
@@ -9921,7 +9968,7 @@ function interpWrites(words, procWrites, held = () => false) {
   else if (argv0 === "perl") lang = "perl";
   else if (argv0 === "ruby") lang = "ruby";
   else return [];
-  const n = words.length;
+  const n = words2.length;
   let k = 1;
   let optarg = false;
   const encoded = [];
@@ -9931,26 +9978,26 @@ function interpWrites(words, procWrites, held = () => false) {
     carriers.push(attached ? flagWord : next ?? "");
   };
   while (k < n) {
-    const w = words[k++];
+    const w = words2[k++];
     if (pyopt) {
       const m2 = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
       if (m2) {
         pyopt = false;
-        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words[k] ?? ""))))) return ["$(proc)"];
+        if (PY_RUNNERS.test(chomp(decode(m2[1] || (words2[k] ?? ""))))) return ["$(proc)"];
       } else if (optarg) optarg = false;
       else if (w === "-W" || w === "-X") optarg = true;
       else if (!w.startsWith("-")) pyopt = false;
     }
     const m = PROGRAM_FLAG[lang].exec(w);
     if (m) {
-      take(w, m[1], m[1] ? void 0 : words[k++]);
+      take(w, m[1], m[1] ? void 0 : words2[k++]);
       break;
     }
   }
   if (lang === "perl" || lang === "ruby") {
     for (let j = k; j < n; j++) {
-      const m = PROGRAM_FLAG[lang].exec(words[j]);
-      if (m) take(words[j], m[1], m[1] ? void 0 : words[++j]);
+      const m = PROGRAM_FLAG[lang].exec(words2[j]);
+      if (m) take(words2[j], m[1], m[1] ? void 0 : words2[++j]);
     }
   }
   const program = encoded.map((e) => chomp(decode(e))).join("\n");
@@ -9961,7 +10008,7 @@ function interpWrites(words, procWrites, held = () => false) {
   if (found.lines.length === 0) return unproven;
   const literal = !(found.lines[0] === "-" && found.lines.length === 1);
   const out2 = literal ? [...found.lines] : [];
-  for (; k < n; k++) if (!words[k].startsWith("-")) out2.push(...decode(words[k]).split("\n"));
+  for (; k < n; k++) if (!words2[k].startsWith("-")) out2.push(...decode(words2[k]).split("\n"));
   if (found.computed) out2.push(COMPUTED + argv0);
   return [...out2, ...unproven];
 }
@@ -10940,17 +10987,17 @@ function inplaceFiles(tool, args2) {
   if (!hasprog) ops = ops.slice(1);
   return ops;
 }
-function gitTree(chain2, words) {
-  const n = words.length;
+function gitTree(chain2, words2) {
+  const n = words2.length;
   let cdir = "";
   let tree = "";
   let k = 1;
   let usetree = true;
   let dir = "";
   let outs = [];
-  const at = (j) => words[j] ?? "";
+  const at = (j) => words2[j] ?? "";
   while (k < n) {
-    const w = words[k];
+    const w = words2[k];
     if (w === "-C") {
       cdir = under(cdir, at(k + 1));
       k += 2;
@@ -10970,7 +11017,7 @@ function gitTree(chain2, words) {
   } else if (sub === "stash") {
     if (next === "list" || next === "show") return [];
   } else if (sub === "apply") {
-    const all = ` ${words.slice(k).join(" ")} `;
+    const all = ` ${words2.slice(k).join(" ")} `;
     if (!all.includes(" --apply ") && /( --check | --stat | --numstat | --summary )/.test(all)) return [];
   } else if (sub === "bisect") {
     if (/^(|log|view|visualize|terms|help)$/.test(next)) return [];
@@ -10978,28 +11025,28 @@ function gitTree(chain2, words) {
     if (/^(|list|check-rules)$/.test(next)) return [];
   } else if (sub === "submodule") {
     let j = k + 1;
-    while (j < n && words[j].startsWith("-")) j++;
+    while (j < n && words2[j].startsWith("-")) j++;
     if (!/^(update|add|deinit|absorbgitdirs)$/.test(at(j))) return [];
   } else if (sub === "read-tree") {
     let j = k + 1;
     for (; j < n; j++) {
-      const w = words[j];
+      const w = words2[j];
       if (w === "--") break;
       if (w.startsWith("--")) continue;
       if (/^-.*u/s.test(w)) break;
     }
-    if (!(j < n && words[j] !== "--")) return [];
+    if (!(j < n && words2[j] !== "--")) return [];
   } else if (sub === "checkout-index") {
     for (let j = k + 1; j < n; j++) {
-      if (/^--prefix=./s.test(words[j])) {
-        outs.push(words[j].slice("--prefix=".length));
+      if (/^--prefix=./s.test(words2[j])) {
+        outs.push(words2[j].slice("--prefix=".length));
         usetree = false;
       }
     }
   } else if (sub === "init") {
     usetree = false;
     for (let j = k + 1; j < n; j++) {
-      const w = words[j];
+      const w = words2[j];
       if (w === "--separate-git-dir") {
         outs.push(at(j + 1));
         j++;
@@ -11013,7 +11060,7 @@ function gitTree(chain2, words) {
     usetree = false;
     const fp = sub === "format-patch";
     for (let j = k + 1; j < n; j++) {
-      const w = words[j];
+      const w = words2[j];
       if (fp && w === "--stdout") return [];
       if (w === "-o" || w === "--output" || fp && w === "--output-directory") {
         outs.push(at(j + 1));
@@ -11027,34 +11074,34 @@ function gitTree(chain2, words) {
   if (usetree) outs = [tree || ".", ...outs];
   return outs.filter((w) => w !== "").map((w) => chain2 ? under(cdir, w) : w);
 }
-function extraWrites(chain2, words, interp) {
+function extraWrites(chain2, words2, interp) {
   const out2 = [];
   let ops = [];
-  const tool = basename4(words[0]);
-  if (tool === "sed" || tool === "perl") out2.push(...inplaceFiles(tool, words.slice(1)));
-  else if (tool === "mv") ops = words.slice(1);
+  const tool = basename4(words2[0]);
+  if (tool === "sed" || tool === "perl") out2.push(...inplaceFiles(tool, words2.slice(1)));
+  else if (tool === "mv") ops = words2.slice(1);
   else if (tool === "git") {
     let k = 1;
-    while (k < words.length) {
-      if (words[k] === "-C" || words[k] === "-c") k += 2;
-      else if (words[k].startsWith("-")) k++;
+    while (k < words2.length) {
+      if (words2[k] === "-C" || words2[k] === "-c") k += 2;
+      else if (words2[k].startsWith("-")) k++;
       else break;
     }
-    if (words[k] === "mv") ops = words.slice(k + 1);
-    out2.push(...gitTree(chain2, words));
+    if (words2[k] === "mv") ops = words2.slice(k + 1);
+    out2.push(...gitTree(chain2, words2));
   }
   const srcs = ops.filter((w) => !w.startsWith("-"));
   if (srcs.length >= 2) out2.push(...srcs.slice(0, -1));
-  out2.push(...interp(words));
+  out2.push(...interp(words2));
   return out2;
 }
 function stmtWritePaths(stmt, chain2, interp) {
   const paths = writeTargets(stmt);
-  const { pre, words } = unwrapStatement(stmt);
-  if (words.length <= 1) return { paths, words };
-  if (pre === "") paths.push(...extraWrites(chain2, words, interp));
-  else for (const p of extraWrites(true, words, interp)) if (p !== "") paths.push(under(pre, p));
-  return { paths, words };
+  const { pre, words: words2 } = unwrapStatement(stmt);
+  if (words2.length <= 1) return { paths, words: words2 };
+  if (pre === "") paths.push(...extraWrites(chain2, words2, interp));
+  else for (const p of extraWrites(true, words2, interp)) if (p !== "") paths.push(under(pre, p));
+  return { paths, words: words2 };
 }
 
 // src/hooks/cmd-analysis/write-paths.ts
@@ -11118,21 +11165,21 @@ function parseLine(cmd) {
 `;
 }
 function inner(stmt) {
-  const words = shellWords(stmt);
-  const argv0 = words[0] ?? "";
+  const words2 = shellWords(stmt);
+  const argv0 = words2[0] ?? "";
   if (basename5(argv0) === "watch") {
     let i2 = 1;
-    while (i2 < words.length && words[i2].startsWith("-")) {
-      const w = words[i2++];
+    while (i2 < words2.length && words2[i2].startsWith("-")) {
+      const w = words2[i2++];
       if (w === "--") break;
       if (WATCH_VALUE.test(w)) i2++;
     }
-    return words.slice(i2).join(" ");
+    return words2.slice(i2).join(" ");
   }
   if (/^(.*\/)?(bash|sh|zsh|dash|ksh)$/.test(argv0)) {
-    for (let i2 = 1; i2 < words.length; i2++) {
-      const w = words[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words2.length; i2++) {
+      const w = words2[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -11141,9 +11188,9 @@ function inner(stmt) {
   const builtin = /^(builtin|command)[ \t]+eval(?:[ \t]+|$)/.exec(stmt);
   return builtin ? stmt.slice(builtin[0].length) : "";
 }
-function evalArgs(words) {
-  if (words[0] === "eval") return words.slice(1);
-  if ((words[0] === "builtin" || words[0] === "command") && words[1] === "eval") return words.slice(2);
+function evalArgs(words2) {
+  if (words2[0] === "eval") return words2.slice(1);
+  if ((words2[0] === "builtin" || words2[0] === "command") && words2[1] === "eval") return words2.slice(2);
   return void 0;
 }
 var SET_IN_TEXT = /(?<![A-Za-z0-9_$-])([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?[ \t]*(?:[-+*/%&^|]|<<|>>)?=(?!=)/g;
@@ -11153,8 +11200,8 @@ function setInText(text) {
   if (/\(\(|\$\[|\[|^let\b/.test(text)) for (const m of text.matchAll(STEPPED)) names.push(m[1] ?? m[2]);
   return names;
 }
-function stdinProgram(words) {
-  const argv0 = basename5(words[0]);
+function stdinProgram(words2) {
+  const argv0 = basename5(words2[0]);
   let kind;
   if (/^(python|python3|python[23]\..*)$/s.test(argv0)) kind = "py";
   else if (argv0 === "node" || argv0 === "nodejs") kind = "node";
@@ -11165,8 +11212,8 @@ function stdinProgram(words) {
   const none = { kind: "", info: false };
   let info2 = false;
   let skip = false;
-  for (let k = 1; k < words.length; k++) {
-    const w = words[k];
+  for (let k = 1; k < words2.length; k++) {
+    const w = words2[k];
     if (skip) {
       skip = false;
       continue;
@@ -11201,7 +11248,7 @@ function stdinProgram(words) {
   }
   return { kind, info: info2 };
 }
-var stdinInterp = (words) => stdinProgram(words).kind;
+var stdinInterp = (words2) => stdinProgram(words2).kind;
 var WritePaths = class _WritePaths {
   constructor(parser2, opts) {
     this.parser = parser2;
@@ -11417,27 +11464,27 @@ var WritePaths = class _WritePaths {
     return this.bind(level, name3, listerBind(this.listerHost(level), name3, dirtok, "loop", fields, []));
   }
   /** _tmb_cmd_exec_writes: what a find / fd / xargs statement writes through the command it runs. */
-  execWrites(outer, dir, mark, words, tok, depth) {
+  execWrites(outer, dir, mark, words2, tok, depth) {
     const level = { ...outer };
-    const tool = basename5(words[0]);
+    const tool = basename5(words2[0]);
     const acts = [];
     let name3;
     if (tool === "find") name3 = "find_path";
     else if (tool === "fd" || tool === "fdfind") name3 = "fd_path";
     else if (tool === "xargs") {
       name3 = "xargs_arg";
-      const n = words.length;
+      const n = words2.length;
       let k = 1;
       let rep = "";
       let noin = false;
       while (k < n) {
-        const p = words[k];
+        const p = words2[k];
         if (p === "--") {
           k++;
           break;
         }
         if (p === "-I" || p === "-J") {
-          rep = words[k + 1] ?? "";
+          rep = words2[k + 1] ?? "";
           k += 2;
           continue;
         }
@@ -11458,13 +11505,13 @@ var WritePaths = class _WritePaths {
       }
       if (k >= n) return;
       const rv2 = "${" + name3 + "}";
-      let cmd = words.slice(k).join(" ");
+      let cmd = words2.slice(k).join(" ");
       cmd = rep !== "" ? cmd.split(rep).join(rv2) : `${cmd} ${rv2}`;
       acts.push("x" + cmd);
       if (noin || mark === "" || !this.loopSource(level, name3, mark)) level.vars += `${name3}	${BAD2}
 `;
     } else return;
-    if (tool !== "xargs" && !this.bind(level, name3, listerBind(this.listerHost(level), name3, dir, "exec", words, acts))) {
+    if (tool !== "xargs" && !this.bind(level, name3, listerBind(this.listerHost(level), name3, dir, "exec", words2, acts))) {
       level.vars += `${name3}	${BAD2}
 `;
     }
@@ -11520,13 +11567,13 @@ var WritePaths = class _WritePaths {
     const out2 = [];
     for (const record of this.listing(cmd, "@", 0)) {
       if (record.dir.startsWith("=")) continue;
-      const { words } = unwrapStatement(record.stmt);
-      if (words.length === 0) continue;
-      if (/[$`]/.test(dec(words[0]))) {
+      const { words: words2 } = unwrapStatement(record.stmt);
+      if (words2.length === 0) continue;
+      if (/[$`]/.test(dec(words2[0]))) {
         out2.push("$(proc)");
         continue;
       }
-      if (!cmd.includes("<<") && stdinInterp(words) !== "") out2.push("$(proc)");
+      if (!cmd.includes("<<") && stdinInterp(words2) !== "") out2.push("$(proc)");
     }
     const nested = new _WritePaths(this.parser, { cwd: PROG_DIR, raw: true, root: "", env: this.opts.env });
     nested.run(cmd, "@", 0, "");
@@ -11567,8 +11614,8 @@ var WritePaths = class _WritePaths {
   isHeld(word) {
     return this.held.has(heldKey(word));
   }
-  interp = (words) => interpWrites(
-    words,
+  interp = (words2) => interpWrites(
+    words2,
     (cmd) => this.procWrites(cmd),
     (w) => this.isHeld(w)
   );
@@ -11577,40 +11624,40 @@ var WritePaths = class _WritePaths {
    * with an option other than -x / -r / -g / -t (`declare -n`, `-a`, `-i`,
    * ...), and those mapfile / readarray, getopts and unset set (GH 1739).
    */
-  trackVars(level, words) {
-    switch (basename5(words[0])) {
+  trackVars(level, words2) {
+    switch (basename5(words2[0])) {
       case "export":
       case "declare":
       case "typeset":
       case "local":
       case "readonly": {
-        const plain = words.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
-        for (const w of words.slice(1)) {
+        const plain = words2.slice(1).every((w) => !/^[-+]/.test(w) || /^[-+][xrgt]+$/.test(w));
+        for (const w of words2.slice(1)) {
           if (!/^[A-Za-z_].*=/s.test(w)) continue;
           if (plain) this.varSet(level, before(w, "="), dec(after(w, "=")));
           else this.poison(level, before(w, "="));
         }
-        if (!plain) for (const w of words.slice(1)) this.poison(level, w);
+        if (!plain) for (const w of words2.slice(1)) this.poison(level, w);
         return;
       }
       case "mapfile":
       case "readarray":
-        for (const w of [...words.slice(1), "MAPFILE"]) this.poison(level, w);
+        for (const w of [...words2.slice(1), "MAPFILE"]) this.poison(level, w);
         return;
       case "unset":
-        for (const w of words.slice(1)) this.poison(level, w);
+        for (const w of words2.slice(1)) this.poison(level, w);
         return;
       case "getopts":
-        this.poison(level, words[2] ?? "");
+        this.poison(level, words2[2] ?? "");
         return;
       case "for": {
-        if (words[2] !== "in") {
-          level.vars += `${words[1] ?? ""}	${BAD2}
+        if (words2[2] !== "in") {
+          level.vars += `${words2[1] ?? ""}	${BAD2}
 `;
           return;
         }
-        const name3 = words[1] ?? "";
-        const rest = words.slice(3);
+        const name3 = words2[1] ?? "";
+        const rest = words2.slice(3);
         if (rest.length === 1 && rest[0].startsWith("$")) {
           if (!this.loopSource(level, name3, rest[0].slice(3))) level.vars += `${name3}	${BAD2}
 `;
@@ -11623,7 +11670,7 @@ var WritePaths = class _WritePaths {
         let mk = "";
         let skip = false;
         const names = [];
-        for (const w of words.slice(1)) {
+        for (const w of words2.slice(1)) {
           if (skip) {
             skip = false;
             continue;
@@ -11640,7 +11687,7 @@ var WritePaths = class _WritePaths {
         return;
       }
       case "printf":
-        if (words[1] === "-v") level.vars += `${words[2] ?? ""}	${BAD2}
+        if (words2[1] === "-v") level.vars += `${words2[2] ?? ""}	${BAD2}
 `;
         return;
     }
@@ -11663,9 +11710,9 @@ var WritePaths = class _WritePaths {
     }
   }
   /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
-  poisonSet(level, words) {
-    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words[0]));
-    for (const w of words) {
+  poisonSet(level, words2) {
+    const declares = /^(export|declare|typeset|local|readonly)$/.test(basename5(words2[0]));
+    for (const w of words2) {
       if (declares && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
       for (const name3 of setInText(dec(w))) this.poison(level, name3);
     }
@@ -11697,19 +11744,19 @@ var WritePaths = class _WritePaths {
         }
         level.oldtok = old;
         level.why = why;
-        const words = shellWords(record.stmt);
-        if (words.length === 0) return;
+        const words2 = shellWords(record.stmt);
+        if (words2.length === 0) return;
         if (dir.startsWith("=")) {
           this.pwd = dirPath(dir.slice(1), cwd);
-          for (const w of words) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
           return;
         }
-        this.poisonSet(level, words);
+        this.poisonSet(level, words2);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
         const body2 = inner(record.stmt);
-        if (body2 !== "" && (!evalArgs(words) && heldProgram(body2) || depth < MAX_DEPTH)) return;
+        if (body2 !== "" && (!evalArgs(words2) && heldProgram(body2) || depth < MAX_DEPTH)) return;
         this.pwd = dirPath(dir, cwd);
-        this.trackVars(level, words);
+        this.trackVars(level, words2);
       });
       level.vars = varsUniq(level.vars);
       converged = level.vars === prev;
@@ -11745,29 +11792,29 @@ var WritePaths = class _WritePaths {
       }
       level.oldtok = old;
       level.why = why;
-      let words = shellWords(record.stmt);
-      if (words.length === 0) continue;
+      let words2 = shellWords(record.stmt);
+      if (words2.length === 0) continue;
       if (dir.startsWith("=")) {
         this.pwd = dirPath(dir.slice(1), cwd);
-        for (const w of words) this.varSet(level, before(w, "="), dec(after(w, "=")));
+        for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
         continue;
       }
       const tok = dir + SEP + old + (why === "" ? "" : SEP + why);
       const chain2 = dir === "-" && why === "";
       const body2 = inner(record.stmt);
-      const evaluated = evalArgs(words);
-      this.poisonSet(level, words);
+      const evaluated = evalArgs(words2);
+      this.poisonSet(level, words2);
       for (const h of bodies.get(idx) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
       const argv0 = unwrapStatement(record.stmt).words[0] ?? "";
       if (/[$`\x07]/.test(decode(argv0))) this.out += unprovenLine(dec(record.stmt));
       if (evaluated?.some((w) => this.isHeld(w))) this.out += unprovenLine(dec(record.stmt));
-      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.out += unprovenLine(`${basename5(dec(words[0]))} ${dec(body2)}`);
-      const ownWords = body2 !== "" && !evaluated && basename5(words[0]) !== "watch";
+      else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.out += unprovenLine(`${basename5(dec(words2[0]))} ${dec(body2)}`);
+      const ownWords = body2 !== "" && !evaluated && basename5(words2[0]) !== "watch";
       if (ownWords) {
         for (const p of stmtWritePaths(record.stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
       }
       if (body2 !== "" && !evaluated && heldProgram(body2)) {
-        this.out += computedLine(`${basename5(dec(words[0]))} ${dec(body2)}`);
+        this.out += computedLine(`${basename5(dec(words2[0]))} ${dec(body2)}`);
         continue;
       }
       if (body2 !== "" && depth < MAX_DEPTH) {
@@ -11777,28 +11824,28 @@ var WritePaths = class _WritePaths {
       if (body2 !== "") this.out += computedLine(dec(body2));
       let stmt = record.stmt;
       let mark = "";
-      if (basename5(words[0]) === "xargs" && words[words.length - 1].startsWith(SEP)) {
-        mark = words[words.length - 1];
-        words = words.slice(0, -1);
-        stmt = words.join(" ");
+      if (basename5(words2[0]) === "xargs" && words2[words2.length - 1].startsWith(SEP)) {
+        mark = words2[words2.length - 1];
+        words2 = words2.slice(0, -1);
+        stmt = words2.join(" ");
       }
       if (!ownWords) {
         for (const p of stmtWritePaths(stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
       }
-      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words[0]))) this.execWrites(level, dir, mark, words, tok, depth);
-      const { kind, info: info2 } = stdinProgram(words);
+      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words2[0]))) this.execWrites(level, dir, mark, words2, tok, depth);
+      const { kind, info: info2 } = stdinProgram(words2);
       if (kind !== "") {
         const progs = [];
         const herestring = (w) => {
           progs.push({ prog: dec(w), held: heldProgram(w), partly: this.isHeld(w) });
         };
-        for (let w = 0; w < words.length; w++) {
-          if (words[w] === "<<<") herestring(words[w + 1] ?? "");
-          else if (words[w].startsWith("<<<")) herestring(words[w].slice(3));
+        for (let w = 0; w < words2.length; w++) {
+          if (words2[w] === "<<<") herestring(words2[w + 1] ?? "");
+          else if (words2[w].startsWith("<<<")) herestring(words2[w].slice(3));
         }
         for (const h of bodies.get(idx) ?? []) progs.push({ prog: h.body, held: heldProgram(h.body), partly: h.expands });
-        if (progs.length === 0 && !info2) this.out += computedLine(basename5(dec(words[0])));
-        const shownArgv0 = basename5(dec(words[0]));
+        if (progs.length === 0 && !info2) this.out += computedLine(basename5(dec(words2[0])));
+        const shownArgv0 = basename5(dec(words2[0]));
         for (const { prog, held, partly } of progs) {
           if (held) this.out += computedLine(`${shownArgv0} ${prog}`);
           else if (kind === "sh") {
@@ -11814,7 +11861,7 @@ var WritePaths = class _WritePaths {
         }
       }
       this.pwd = dirPath(dir, cwd);
-      this.trackVars(level, words);
+      this.trackVars(level, words2);
     }
   }
 };
@@ -11855,6 +11902,173 @@ function writePathsWith(parser2, command, opts) {
   const lines2 = w.out.split("\n");
   if (lines2[lines2.length - 1] === "") lines2.pop();
   return lines2;
+}
+
+// src/hooks/cmd-analysis/strip-literals.ts
+var NEUTRAL2 = /* @__PURE__ */ new Set([" ", "	", "<", ">", "|", ";", "&", "(", ")", "`"]);
+var COMMENT_BEFORE = /* @__PURE__ */ new Set([" ", "	", ";", "&", "|", "("]);
+var WORD_END = /* @__PURE__ */ new Set([" ", "	", ";", "&", "|", "<", ">", "(", ")"]);
+var SQ = "'";
+function neutral2(c) {
+  return NEUTRAL2.has(c) ? "_" : c;
+}
+function stripLiterals(cmd) {
+  let state = "";
+  let inbody = false;
+  let cur = 0;
+  let sp = 0;
+  const delim = [];
+  const tabs = [];
+  const pd = [];
+  const subBt = [];
+  let printed = "";
+  const subopen = (bt) => {
+    sp += 1;
+    pd[sp] = 0;
+    subBt[sp] = bt;
+    return "$(";
+  };
+  const subclose = () => {
+    sp -= 1;
+    state = "d";
+    return ")";
+  };
+  for (const line of cmd.split("\n")) {
+    if (inbody) {
+      const t = tabs[cur] ? line.replace(/^\t+/, "") : line;
+      if (t === delim[cur]) {
+        cur += 1;
+        if (cur >= delim.length) {
+          inbody = false;
+          delim.length = 0;
+          tabs.length = 0;
+          cur = 0;
+        }
+      }
+      continue;
+    }
+    let out2 = "";
+    let i2 = 0;
+    const n = line.length;
+    while (i2 < n) {
+      const c = line[i2];
+      const next = line[i2 + 1] ?? "";
+      if (state === "s") {
+        if (c === SQ) state = "";
+        else out2 += neutral2(c);
+        i2 += 1;
+        continue;
+      }
+      if (state === "a") {
+        if (c === "\\") {
+          out2 += neutral2(next);
+          i2 += 2;
+          continue;
+        }
+        if (c === SQ) state = "";
+        else out2 += neutral2(c);
+        i2 += 1;
+        continue;
+      }
+      if (state === "d") {
+        if (c === "\\") {
+          out2 += neutral2(next);
+          i2 += 2;
+          continue;
+        }
+        if (c === "$" && next === "(") {
+          out2 += subopen(false);
+          state = "";
+          i2 += 2;
+          continue;
+        }
+        if (c === "`") {
+          out2 += subopen(true);
+          state = "";
+          i2 += 1;
+          continue;
+        }
+        if (c === '"') state = "";
+        else out2 += neutral2(c);
+        i2 += 1;
+        continue;
+      }
+      if (sp > 0) {
+        if (subBt[sp] && c === "`") {
+          out2 += subclose();
+          i2 += 1;
+          continue;
+        }
+        if (!subBt[sp] && c === "(") pd[sp] += 1;
+        if (!subBt[sp] && c === ")") {
+          if (pd[sp] === 0) {
+            out2 += subclose();
+            i2 += 1;
+            continue;
+          }
+          pd[sp] -= 1;
+        }
+      }
+      if (c === "$" && next === SQ) {
+        state = "a";
+        i2 += 2;
+        continue;
+      }
+      if (c === "\\") {
+        out2 += next;
+        i2 += 2;
+        continue;
+      }
+      if (c === SQ) {
+        state = "s";
+        i2 += 1;
+        continue;
+      }
+      if (c === '"') {
+        state = "d";
+        i2 += 1;
+        continue;
+      }
+      if (c === "#" && (i2 === 0 || COMMENT_BEFORE.has(line[i2 - 1]))) break;
+      if (line.startsWith("<<<", i2)) {
+        out2 += "<<<";
+        i2 += 3;
+        continue;
+      }
+      if (line.startsWith("<<", i2)) {
+        let j = i2 + 2;
+        let strip = false;
+        if (line[j] === "-") {
+          strip = true;
+          j += 1;
+        }
+        while (j < n && (line[j] === " " || line[j] === "	")) j += 1;
+        let w = "";
+        while (j < n) {
+          const d = line[j];
+          if (WORD_END.has(d)) break;
+          if (d !== SQ && d !== '"' && d !== "\\") w += d;
+          j += 1;
+        }
+        if (w !== "") {
+          delim.push(w);
+          tabs.push(strip);
+        }
+        out2 += `<<${w}`;
+        i2 = j;
+        continue;
+      }
+      out2 += c;
+      i2 += 1;
+    }
+    printed += state === "" ? `${out2}
+` : `${out2}_`;
+    if (delim.length > 0 && state === "") {
+      inbody = true;
+      cur = 0;
+    }
+  }
+  return printed;
 }
 
 // src/hooks/lib/git.ts
@@ -11909,12 +12123,12 @@ function readStmt(stmt) {
   return stmt.replace(/^\t+|\t+$/g, "");
 }
 function inner2(stmt) {
-  const words = readWords(stmt);
-  const argv0 = words[0] ?? "";
+  const words2 = readWords(stmt);
+  const argv0 = words2[0] ?? "";
   if (SHELL.test(argv0)) {
-    for (let i2 = 1; i2 < words.length; i2++) {
-      const w = words[i2];
-      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words[i2 + 1] ?? "";
+    for (let i2 = 1; i2 < words2.length; i2++) {
+      const w = words2[i2];
+      if (w === "-c" || /^-[a-zA-Z].*c$/s.test(w) || /^-c[a-zA-Z]/.test(w)) return words2[i2 + 1] ?? "";
       if (!w.startsWith("-")) return "";
     }
     return "";
@@ -12327,6 +12541,9 @@ function containmentGuardWith(analyze) {
 }
 var containmentGuard = containmentGuardWith(writePaths);
 
+// src/hooks/git-guards.ts
+import { accessSync as accessSync5, constants as constants5, realpathSync as realpathSync4, statSync as statSync10 } from "node:fs";
+
 // src/hooks/lib/repo.ts
 import { statSync as statSync9 } from "node:fs";
 function isFile6(path) {
@@ -12343,6 +12560,15 @@ function firstLine(text) {
 }
 function readable2(db, env) {
   return isFile6(db) && haveSqlite(env);
+}
+function repoDefaultBranch(root, env = process.env) {
+  if (root === "") return "";
+  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
+  if (remote !== "") return remote;
+  for (const cand of ["main", "master", "dev"]) {
+    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
+  }
+  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
 }
 function repoGitRoot(target, env = process.env) {
   if (target === "") return "";
@@ -12379,14 +12605,403 @@ function repoResolve(db, root, env = process.env) {
     )
   );
 }
+function repoIsRegistered(db, root, env = process.env) {
+  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
+}
 function repoSinglePath(db, env = process.env) {
   if (!readable2(db, env)) return "";
   if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
   return firstLine(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
 }
 
+// src/hooks/git-guards.ts
+var GATE_NAME2 = "git-guards";
+var NEEDS_GUARD = /(^|[^A-Za-z0-9_./-])(git|gh|glab)([ \t\n\v\f\r]|$)/;
+var SPACE = "[ \\t\\n\\v\\f\\r]";
+var NONSPACE = "[^ \\t\\n\\v\\f\\r]";
+var GUARDED_SUB = /^(commit|merge|rebase|cherry-pick|push)( |$)|^(checkout -b|switch -c) /;
+var INTEGRATION_SUB = /^(merge|rebase|cherry-pick)( |$)/;
+var FF_SYNC_QUIET = /* @__PURE__ */ new Set(["-q", "--quiet", "-v", "--verbose", "--stat", "--no-stat", "-n", "--progress", "--no-progress"]);
+var FF_SYNC_COMPANIONS = /* @__PURE__ */ new Set(["cd", "echo", "printf", "true", "false", "test", "[", "pwd"]);
+var FF_SYNC_GIT_READS = /* @__PURE__ */ new Set(["fetch", "status", "log", "diff", "show", "rev-parse"]);
+var NON_ASCII = /[^\x00-\x7f]/;
+var SWITCH_TAIL = /* @__PURE__ */ new Set(["", " ", ";", "|", "&", ")"]);
+var PARSE_REASON = "BLOCKED: the git guard could not parse this command, so it cannot tell which statements run git, gh or glab, or in which checkout. Split it into simpler commands or fix its quoting, then retry.";
+var MALFORMED_REASON = "BLOCKED: this repo's protected_branches is malformed JSON. Fix the repos row or re-run bro onboarding.";
+function needsGitGuard(command) {
+  return NEEDS_GUARD.test(command);
+}
+var Denied2 = class {
+  constructor(result) {
+    this.result = result;
+  }
+  result;
+};
+function deny(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return new Denied2({ stdout: `${jqCompact(decision)}
+`, code: 0 });
+}
+function readRow(line) {
+  const s = line.replace(/^\t+/, "");
+  const tab = s.indexOf("	");
+  if (tab < 0) return { dir: s, stmt: "" };
+  return { dir: s.slice(0, tab), stmt: s.slice(tab).replace(/^\t+|\t+$/g, "") };
+}
+function words(s) {
+  return (s.split("\n")[0] ?? "").split(/[ \t]+/).filter((w) => w !== "");
+}
+function optionValue(s, find, strip) {
+  const m = new RegExp(find).exec(s);
+  return m ? m[0].replace(new RegExp(strip), "") : "";
+}
+function cutField(text, n) {
+  const fields = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n - 1] ?? "" : line);
+  return stripTrailingNewlines(fields.join("\n"));
+}
+function physicalDir(dir) {
+  try {
+    if (!statSync10(dir).isDirectory()) return "";
+    accessSync5(dir, constants5.X_OK);
+    return realpathSync4.native(dir);
+  } catch {
+    return "";
+  }
+}
+function inlineLandings(text) {
+  const leadC = new RegExp(`^git${SPACE}+-C(${SPACE}|$)`);
+  const commit = new RegExp(`^git${SPACE}+commit(${SPACE}|$)`);
+  const create = [new RegExp(`^git${SPACE}+checkout${SPACE}+-b${SPACE}`), new RegExp(`^git${SPACE}+switch${SPACE}+-c${SPACE}`)];
+  const change = new RegExp(`^git${SPACE}+(checkout|switch)(${SPACE}|$)`);
+  const split2 = new RegExp(`${SPACE}+`);
+  let landings = "";
+  let current = "";
+  let known = false;
+  let saw = false;
+  for (const s of text.split("\n")) {
+    if (leadC.test(s) && /(commit|checkout|switch)/.test(s)) return "";
+    if (commit.test(s)) {
+      saw = true;
+      if (!known) return "";
+      landings += `${current}
+`;
+    } else if (create.some((re) => re.test(s))) {
+      const tok = s.split(split2);
+      const j = tok.findIndex((t) => t === "-b" || t === "-c");
+      const name3 = j >= 0 && j < tok.length - 1 ? tok[j + 1] : "";
+      if (name3 === "") return "";
+      current = name3;
+      known = true;
+    } else if (change.test(s)) {
+      const name3 = s.split(split2)[2] ?? "";
+      if (name3 === "" || name3.startsWith("-")) return "";
+      current = name3;
+      known = true;
+    }
+  }
+  return saw ? stripTrailingNewlines(landings) : "";
+}
+function ffSyncOtherOk(stmt) {
+  if (stmt.includes(">") || stmt.includes("<")) return false;
+  const w0 = words(stmt)[0] ?? "";
+  if (FF_SYNC_COMPANIONS.has(w0)) return true;
+  if (w0 !== "git") return false;
+  if (stmt.includes(":")) return false;
+  return FF_SYNC_GIT_READS.has(gitSubcommand(stmt).split(" ")[0]);
+}
+var GitGuards = class {
+  constructor(command, cwd, db, env, lines2) {
+    this.command = command;
+    this.cwd = cwd;
+    this.db = db;
+    this.env = env;
+    this.lines = lines2;
+    const rows = lines2.map(readRow);
+    this.dirs = rows.map((r) => r.dir);
+    this.stmts = rows.map((r) => r.stmt);
+    this.landings = inlineLandings(stripTrailingNewlines(lines2.map((l) => l.includes("	") ? l.slice(l.indexOf("	") + 1) : l).join("\n")));
+    this.dbReadable = db !== "" && isFile7(db) && haveSqlite(env);
+  }
+  command;
+  cwd;
+  db;
+  env;
+  lines;
+  dirs;
+  stmts;
+  landings;
+  dbReadable;
+  gitRoot = "";
+  prTarget = "";
+  protectedBranches = "";
+  git(dir, ...args2) {
+    return gitOut(dir, args2, this.env);
+  }
+  gitOk(dir, ...args2) {
+    return gitOk(dir, args2, this.env);
+  }
+  /** load_policy: the repos row of <root>, or false for no root or an unregistered repo. */
+  loadPolicy(root) {
+    if (root === "") return false;
+    this.gitRoot = root;
+    this.prTarget = "";
+    let raw = "";
+    if (this.dbReadable) {
+      if (!repoIsRegistered(this.db, root, this.env)) return false;
+      const row = repoResolve(this.db, root, this.env);
+      this.prTarget = cutField(row, 1);
+      raw = cutField(row, 3);
+    }
+    const defaultBranch = repoDefaultBranch(root, this.env);
+    this.prTarget ||= defaultBranch;
+    raw ||= jqCompact([defaultBranch]);
+    const parsed = jsonStream(raw);
+    if (!parsed.complete || !Array.isArray(parsed.values[parsed.values.length - 1])) throw deny(MALFORMED_REASON);
+    this.protectedBranches = stripTrailingNewlines(jqRawElements(raw));
+    return true;
+  }
+  branchIsProtected(branch) {
+    return this.protectedBranches.split("\n").includes(branch);
+  }
+  /** dir_branch: the branch checked out in <dir>, else the newest task whose branch_id ends in /<basename of dir>. */
+  dirBranch(dir) {
+    const branch = this.git(dir, "branch", "--show-current");
+    if (branch !== "" || !this.dbReadable) return branch;
+    return taskBySlug(this.db, posixBasename(dir), "branch_id", "", this.env, (line) => process.stderr.write(`${line}
+`)).replace(/\n/g, "");
+  }
+  dirInWorktree(dir) {
+    const top = this.git(dir, "rev-parse", "--show-toplevel");
+    return top !== "" && physicalDir(top) !== physicalDir(this.gitRoot);
+  }
+  /** need_dir: deny an ambiguous dir; false for an unknown or missing one. */
+  needDir(dir, stmt, unresolved) {
+    if (dir === "?") throw new Denied2({ stdout: denyAmbiguousGitTarget(stmt, unresolved), code: 0 });
+    if (dir === "-" || dir === "") return false;
+    return isDir2(dir);
+  }
+  /** rule2_protected_bases: protected_branches ∪ target ∪ repos.pr_target ∪ every task's parent_branch_id. */
+  rule2ProtectedBases() {
+    const out2 = [...this.protectedBranches.split("\n"), this.prTarget];
+    if (this.dbReadable) {
+      const name3 = repoNameForRoot(this.db, this.gitRoot, this.env);
+      if (name3 !== "" && sqliteRo(this.db, "SELECT 1 FROM pragma_table_info('repos') WHERE name='pr_target' LIMIT 1;", this.env) !== "") {
+        out2.push(
+          ...sqliteRo(this.db, `SELECT pr_target FROM repos WHERE name = '${sqlQuote(name3)}' AND pr_target IS NOT NULL AND pr_target != '';`, this.env).split("\n")
+        );
+      }
+      const filter = name3 === "" ? "repo IS NULL" : `(repo = '${sqlQuote(name3)}' OR repo IS NULL)`;
+      out2.push(
+        ...sqliteRo(
+          this.db,
+          `SELECT DISTINCT parent_branch_id FROM tasks WHERE parent_branch_id IS NOT NULL AND parent_branch_id != '' AND ${filter};`,
+          this.env
+        ).split("\n")
+      );
+    }
+    return new Set(out2.filter((b) => !/^[ \t\n\v\f\r]*$/.test(b)));
+  }
+  rule2Recovery(dir) {
+    if (dir === "-" || dir === "?" || dir === "" || !isDir2(dir)) return "";
+    if (this.git(dir, "remote", "-v") !== "") {
+      return ` Push your feature branch and open a PR into ${this.prTarget}: git push origin <branch> && gh pr create --base ${this.prTarget} --head <branch>.`;
+    }
+    return " This repo has no remote \u2014 leave the branch unmerged and surface it to the Human for integration.";
+  }
+  /** ff_sync_switch: the local branch statement <i> switches to right before `&&` and the merge, "" otherwise. */
+  ffSyncSwitch(i2, dir) {
+    if (i2 < 0 || (this.dirs[i2] ?? "") !== dir) return "";
+    const stmt = this.stmts[i2];
+    const w = words(stmt);
+    if (w[0] !== "git") return "";
+    let k = w[1] === "-C" ? 3 : 1;
+    if (w[k] !== "switch" && w[k] !== "checkout") return "";
+    k += 1;
+    if (w[k] === "-q" || w[k] === "--quiet") k += 1;
+    const name3 = w[k] ?? "";
+    if (name3 === "" || name3.startsWith("-") || k + 1 !== w.length) return "";
+    if (!this.gitOk(dir, "rev-parse", "--verify", "--quiet", `refs/heads/${name3}`)) return "";
+    if (NON_ASCII.test(this.command)) return "";
+    const flat = stripLiterals(this.command).replace(/\n/g, ";").replace(/[ \t]+/g, " ");
+    const needle = `${stmt} && ${this.stmts[i2 + 1] ?? ""}`;
+    const at = flat.indexOf(needle);
+    if (at < 0) return "";
+    const tail = flat.slice(at + needle.length);
+    if (tail.includes(needle) || !SWITCH_TAIL.has(tail.slice(0, 1))) return "";
+    const head = flat.slice(0, at).replace(/ +$/, "");
+    return head === "" || head.endsWith(";") || head.endsWith("&&") ? name3 : "";
+  }
+  /** ff_upstream_sync: statement <idx> fast-forwards a branch to its own remote-tracking upstream. */
+  ffUpstreamSync(idx, dir, sub) {
+    const own = this.dirs[idx] ?? "";
+    if (own === "-" || own === "?" || own === "") return false;
+    let target = "";
+    let ff = false;
+    for (const w of words(sub.startsWith("merge") ? sub.slice(5) : sub)) {
+      if (w === "--ff-only") ff = true;
+      else if (FF_SYNC_QUIET.has(w)) continue;
+      else if (w.startsWith("-")) return false;
+      else if (target !== "") return false;
+      else target = w;
+    }
+    if (!ff || target === "") return false;
+    let branch = this.ffSyncSwitch(idx - 1, own);
+    const skip = branch === "" ? -1 : idx - 1;
+    for (let j = 0; j < this.stmts.length; j++) {
+      if (j === idx || j === skip || this.stmts[j] === "") continue;
+      if (!ffSyncOtherOk(this.stmts[j])) return false;
+    }
+    branch ||= this.git(dir, "branch", "--show-current");
+    if (branch === "" || !this.gitOk(dir, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`)) return false;
+    const remote = this.git(dir, "config", "--get", `branch.${branch}.remote`);
+    if (remote === "" || remote === ".") return false;
+    const up = this.git(dir, "rev-parse", "--symbolic-full-name", `${branch}@{u}`);
+    if (!/^refs\/remotes\/[\s\S]/.test(up)) return false;
+    if (target === "@{u}" || target === "@{upstream}") return true;
+    return this.git(dir, "rev-parse", "--symbolic-full-name", target) === up;
+  }
+  ghRule(stmt, dir, unresolved) {
+    const pr = this.prTarget;
+    const base = optionValue(stmt, `--base[= ]${NONSPACE}+`, "--base[= ]+");
+    if (base !== "" && base === pr) return;
+    if (pr === "dev" && base === "main") {
+      let head = optionValue(stmt, `--head[= ]${NONSPACE}+`, "--head[= ]+");
+      if (head === "" && this.needDir(dir, stmt, unresolved)) head = this.git(dir, "branch", "--show-current");
+      if (head !== "dev") {
+        throw deny(
+          `BLOCKED: only 'dev \u2192 main' is permitted as a release merge. Feature branches must PR to ${pr}: gh pr create --base ${pr} --head <branch>. Got --head=${head}.`
+        );
+      }
+      return;
+    }
+    throw deny(
+      `BLOCKED: PRs must target ${pr} branch. Use: gh pr create --base ${pr} --head <branch>. (Dev \u2192 main release merges are allowed when PR_TARGET=dev.)`
+    );
+  }
+  glabRule(stmt, dir, unresolved) {
+    const pr = this.prTarget;
+    const target = optionValue(stmt, `--target-branch[= ]${NONSPACE}+`, "--target-branch[= ]+") || optionValue(stmt, `(^|${SPACE})-b[= ]${NONSPACE}+`, `^${SPACE}*-b[= ]+`);
+    let source = optionValue(stmt, `--source-branch[= ]${NONSPACE}+`, "--source-branch[= ]+") || optionValue(stmt, `(^|${SPACE})-s[= ]${NONSPACE}+`, `^${SPACE}*-s[= ]+`);
+    if (target === pr) return;
+    if (pr === "dev" && target === "main") {
+      if (source === "" && this.needDir(dir, stmt, unresolved)) source = this.git(dir, "branch", "--show-current");
+      if (source !== "dev") {
+        throw deny(
+          `BLOCKED: only 'dev \u2192 main' is permitted as a release merge. Feature branches must MR to ${pr}: glab mr create --target-branch ${pr} --source-branch <branch>. Got --source-branch=${source}.`
+        );
+      }
+      return;
+    }
+    throw deny(
+      `BLOCKED: MRs must target ${pr} branch. Use: glab mr create --target-branch ${pr} --source-branch <branch>. (Dev \u2192 main release merges are allowed when PR_TARGET=dev.)`
+    );
+  }
+  integrationRule(idx, sub, stmt, dir, unresolved) {
+    if (!this.needDir(dir, stmt, unresolved) || this.dirInWorktree(dir)) return;
+    const reason = `BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed \u2014 integration is PR-only.${this.rule2Recovery(dir)}`;
+    if (sub === "merge" || sub.startsWith("merge ")) {
+      if (this.ffUpstreamSync(idx, dir, sub)) return;
+      throw deny(`${reason} To sync a branch with its own upstream, run git pull --ff-only (or git merge --ff-only @{u}) on that branch.`);
+    }
+    throw deny(reason);
+  }
+  commitRule(stmt, dir, unresolved) {
+    const bases = this.rule2ProtectedBases();
+    let branch;
+    if (this.landings !== "") {
+      branch = this.landings.split("\n").find((b) => bases.has(b)) ?? "";
+    } else {
+      if (!this.needDir(dir, stmt, unresolved)) return;
+      branch = this.dirBranch(dir);
+      if (!bases.has(branch)) branch = "";
+    }
+    if (branch !== "") throw deny(`BLOCKED: ${branch} is a shared workflow base \u2014 no direct commits/merges/rebases.${this.rule2Recovery(dir)}`);
+  }
+  forcePushRule(sub, stmt, dir, unresolved) {
+    let force = false;
+    const pos = [];
+    for (const a of words(sub.startsWith("push") ? sub.slice(4) : sub)) {
+      if (a === "--force" || a === "--force-with-lease" || a.startsWith("--force-with-lease=") || a === "-f") force = true;
+      else if (!a.startsWith("-")) pos.push(a);
+    }
+    if (!force) return;
+    let target = pos[0] === "origin" || pos[0] === "upstream" ? pos[1] ?? "" : "";
+    if (target === "") {
+      if (!this.needDir(dir, stmt, unresolved)) return;
+      target = this.git(dir, "branch", "--show-current");
+    }
+    if (target !== "" && this.branchIsProtected(target)) throw deny(`BLOCKED: Force push to ${target} is forbidden. This is destructive and irreversible.`);
+  }
+  newBranchRule(stmt, dir, unresolved) {
+    if (!this.needDir(dir, stmt, unresolved)) return;
+    const branch = this.dirBranch(dir);
+    let t = this.prTarget;
+    if (!this.gitOk(dir, "rev-parse", "--verify", "--quiet", t) && !this.gitOk(dir, "rev-parse", "--verify", "--quiet", `origin/${t}`)) {
+      const fallback = repoDefaultBranch(this.gitRoot, this.env);
+      if (fallback !== "") t = fallback;
+    }
+    if (branch !== "" && branch !== t) {
+      throw deny(`BLOCKED: New branches must be created from ${t}. Currently on '${branch}'. Run: git checkout ${t} && git pull origin ${t} first.`);
+    }
+    if (branch === "") throw deny(`BLOCKED: Detached HEAD detected. Run: git checkout -B ${t} origin/${t} to reattach, then create your feature branch.`);
+    if (this.git(dir, "remote", "get-url", "origin") === "") return;
+    gitRun(dir, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", t, "--quiet"], this.env);
+    const local = this.git(dir, "rev-parse", "--verify", t);
+    const remote = this.git(dir, "rev-parse", "--verify", `origin/${t}`);
+    if (local !== "" && remote !== "" && local !== remote) throw deny(`BLOCKED: Local ${t} is behind origin/${t}. Run: git pull origin ${t} first.`);
+  }
+  judge(idx) {
+    const stmt = this.stmts[idx];
+    if (stmt === "") return;
+    const sub = gitSubcommand(stmt);
+    let forge = "";
+    if (stmt === "gh pr create" || stmt.startsWith("gh pr create ")) forge = "gh";
+    else if (stmt === "glab mr create" || stmt.startsWith("glab mr create ")) forge = "glab";
+    if (!GUARDED_SUB.test(sub) && forge === "") return;
+    let dir = this.dirs[idx];
+    let unresolved = false;
+    if (dir === "-") {
+      unresolved = true;
+      dir = cwdState(this.cwd, this.env);
+    }
+    if (!this.loadPolicy(stmtRepoRoot(dir, this.cwd, this.env))) return;
+    if (forge === "gh") return this.ghRule(stmt, dir, unresolved);
+    if (forge === "glab") return this.glabRule(stmt, dir, unresolved);
+    if (INTEGRATION_SUB.test(sub)) return this.integrationRule(idx, sub, stmt, dir, unresolved);
+    if (sub === "commit" || sub.startsWith("commit ")) return this.commitRule(stmt, dir, unresolved);
+    if (sub === "push" || sub.startsWith("push ")) return this.forcePushRule(sub, stmt, dir, unresolved);
+    if (sub.startsWith("checkout -b ") || sub.startsWith("switch -c ")) return this.newBranchRule(stmt, dir, unresolved);
+  }
+  run() {
+    try {
+      for (let idx = 0; idx < this.lines.length; idx++) this.judge(idx);
+    } catch (e) {
+      if (e instanceof Denied2) return e.result;
+      throw e;
+    }
+    return ALLOW;
+  }
+};
+function isFile7(path) {
+  try {
+    return statSync10(path).isFile();
+  } catch {
+    return false;
+  }
+}
+var gitGuards = async (payload, env) => {
+  const command = stripTrailingNewlines(jqAlternatives(payload, [["tool_input", "command"]]).replace(/\0/g, ""));
+  if (!needsGitGuard(command)) return ALLOW;
+  const cwd = payloadCwd(payload, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return deny(PARSE_REASON).result;
+  const text = stripTrailingNewlines(listed2.statements.map(({ dir, stmt }) => `${dir}	${stmt}`).join("\n"));
+  if (text === "") return ALLOW;
+  return new GitGuards(command, cwd, dbPath(env) ?? "", env, text.split("\n")).run();
+};
+
 // src/hooks/git-push-guard.ts
-var GATE_NAME2 = "git-push-guard";
+var GATE_NAME3 = "git-push-guard";
 var SOURCE_PATHS = [":(top)", ":(top,exclude,glob)mcp/*/dist/**", ":(top,exclude)dashboard/dist"];
 var FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 var HEX = /^[0-9a-f]+$/;
@@ -12394,8 +13009,8 @@ var SWE_REASON = "BLOCKED: SWE must never push. Bro handles the push gate after 
 var CODE_REVIEWER_REASON = `BLOCKED: ${CODE_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
 var WORKTREE_REASON = "BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`.";
 var DB_REASON = "BLOCKED: trajectory DB unavailable \u2014 the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB and retry the push.";
-var PARSE_REASON = "BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout. Split it into simpler commands or fix its quoting, then retry the push.";
-function deny(reason) {
+var PARSE_REASON2 = "BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout. Split it into simpler commands or fix its quoting, then retry the push.";
+function deny2(reason) {
   const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
   return { stdout: `${jqCompact(decision)}
 `, code: 0 };
@@ -12488,12 +13103,12 @@ var Guard2 = class {
     const seen = /* @__PURE__ */ new Set();
     const out2 = [];
     for (const row of lines(pairs)) {
-      const words = row.trim().split(/\s+/).filter((w) => w !== "");
-      const sha = words[0] ?? "";
+      const words2 = row.trim().split(/\s+/).filter((w) => w !== "");
+      const sha = words2[0] ?? "";
       if (!pid.has(sha) || seen.has(sha)) continue;
       seen.add(sha);
       let m = "";
-      for (const cand of words.slice(1)) {
+      for (const cand of words2.slice(1)) {
         if (pid.has(cand) && pid.get(cand) === pid.get(sha) && task.has(cand)) {
           const t = task.get(cand) ?? "";
           if (m === "" || /\|1$/.test(t)) m = t;
@@ -12601,11 +13216,11 @@ var Guard2 = class {
     const unsigned = this.read(
       `SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60) FROM tasks t WHERE t.commit_sha IN (${shaList.join(",")}) AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass');`
     );
-    if (unsigned === GATE_READ_ERROR) return deny(DB_REASON);
+    if (unsigned === GATE_READ_ERROR) return deny2(DB_REASON);
     if (unsigned !== "") {
       const rows2 = lines(unsigned);
       const list2 = rows2.map((r) => `  - task_id=${field2(r, 1)}  ${field2(r, 2)}  (${field2(r, 3)})`).join("\n");
-      return deny(
+      return deny2(
         `BLOCKED: pushing ${rows2.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:
 
 ${list2}
@@ -12615,7 +13230,7 @@ bro will spawn code-reviewer for each unsigned task. On all-pass the push will p
       );
     }
     const unchecked = this.uncheckedRebases(dir, pushed);
-    if (unchecked === GATE_READ_ERROR) return deny(DB_REASON);
+    if (unchecked === GATE_READ_ERROR) return deny2(DB_REASON);
     if (unchecked === "") return null;
     const rows = lines(unchecked);
     const list = rows.map((r) => {
@@ -12623,7 +13238,7 @@ bro will spawn code-reviewer for each unsigned task. On all-pass the push will p
       const kind = field2(r, 5) === "src" ? "rebase with regenerated dist" : "rebase";
       return `  - ${field2(r, 1)}  ${kind} of task_id=${field2(r, 2)}  ${field2(r, 3)}  (${why})`;
     }).join("\n");
-    return deny(
+    return deny2(
       `BLOCKED: pushing ${rows.length} rebased task commit(s) not covered by a review and a verification run. Each has the patch-id of a task commit (a rebase with regenerated dist: the patch-id outside mcp/*/dist and dashboard/dist) but is not that commit:
 
 ${list}
@@ -12637,22 +13252,22 @@ var gitPushGuard = async (payload, env) => {
   if (!command.includes("push")) return ALLOW;
   const cwd = payloadCwd(payload, env);
   const listed2 = await cmdStatements(command, cwd, env);
-  if (!listed2.ok) return deny(PARSE_REASON);
+  if (!listed2.ok) return deny2(PARSE_REASON2);
   const pushes = listed2.statements.filter(({ stmt }) => {
     const sub = gitSubcommand(stmt);
     return (sub === "push" || sub.startsWith("push ")) && !FORCE.test(` ${sub} `);
   });
   if (pushes.length === 0) return ALLOW;
   const role = agentRole(payload);
-  if (role === "swe") return deny(SWE_REASON);
-  if (role === CODE_REVIEWER_ROLE) return deny(CODE_REVIEWER_REASON);
+  if (role === "swe") return deny2(SWE_REASON);
+  if (role === CODE_REVIEWER_ROLE) return deny2(CODE_REVIEWER_REASON);
   const db = dbPath(env, (line) => process.stderr.write(`${line}
 `)) ?? "";
   const guard2 = new Guard2(db, cwd, env);
   for (const { dir, stmt } of pushes) {
     if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
     if (dir === "-") return { stdout: denyAmbiguousGitTarget(stmt, true), code: 0 };
-    if (dir.includes("/.claude/worktrees/")) return deny(WORKTREE_REASON);
+    if (dir.includes("/.claude/worktrees/")) return deny2(WORKTREE_REASON);
     if (db === "" || !haveSqlite(env)) continue;
     const verdict = guard2.judge(dir);
     if (verdict) return verdict;
@@ -12710,7 +13325,7 @@ function resolveRepoDefaultBranch(repoPath) {
 }
 
 // src/hooks/code-reviewer-preflight.ts
-var GATE_NAME3 = "code-reviewer-preflight";
+var GATE_NAME4 = "code-reviewer-preflight";
 var BYPASS_ENV = "TMB_SKIP_CODE_REVIEWER_PREFLIGHT";
 var GIT_TIMEOUT_MS = 1e4;
 var GIT_MAX_BUFFER2 = 256 * 1024 * 1024;
@@ -12743,7 +13358,7 @@ function listed(items) {
   const shown2 = items.slice(0, MAX_LISTED).join("; ");
   return items.length > MAX_LISTED ? `${shown2}; (+${items.length - MAX_LISTED} more)` : shown2;
 }
-function deny2(failure2) {
+function deny3(failure2) {
   return {
     stdout: `${jqCompact({
       hookSpecificOutput: {
@@ -12757,7 +13372,7 @@ function deny2(failure2) {
   };
 }
 function dbUnavailable(env) {
-  return { stdout: `${denyDbUnavailable(GATE_NAME3, env)}
+  return { stdout: `${denyDbUnavailable(GATE_NAME4, env)}
 `, code: 0 };
 }
 function treeBlobs(repo, rev, env) {
@@ -12909,14 +13524,14 @@ function preflight(db, taskId, env) {
   if (location.code === 2) return dbUnavailable(env);
   const recorded = task.commitSha;
   if (location.code !== 0) {
-    return deny2({ check: "sha_mismatch", expected: recorded || null, actual: `branch tip unresolvable: ${location.missing}` });
+    return deny3({ check: "sha_mismatch", expected: recorded || null, actual: `branch tip unresolvable: ${location.missing}` });
   }
   const repo = location.repoRoot;
   const branch = task.branch;
   const tip = revParse(repo, `refs/heads/${branch}`, env);
   const commit = recorded === "" ? null : revParse(repo, recorded, env);
   if (commit === null || tip !== commit) {
-    return deny2({
+    return deny3({
       check: "sha_mismatch",
       expected: recorded === "" ? null : commit ?? recorded,
       actual: tip ?? `refs/heads/${branch} does not resolve in ${repo}`
@@ -12936,7 +13551,7 @@ function preflight(db, taskId, env) {
          FROM verification_runs WHERE task_id = ${taskId} AND ${shaIn} ORDER BY id DESC LIMIT 1;`,
       env
     );
-    return deny2({
+    return deny3({
       check: "no_passing_run",
       expected: `a verification_runs row for task ${taskId} at ${commit} with exit_code=0 and timed_out=0`,
       actual: latest === GATE_READ_ERROR || latest === "" ? `no verification_runs row for task ${taskId} at ${commit}` : latest
@@ -12951,7 +13566,7 @@ function preflight(db, taskId, env) {
   const targetRef = prTargetRef(repo, targetRow.split("\n")[0], task.parentBranch);
   const targetTip = targetRef === null ? null : revParse(repo, targetRef, env);
   if (targetRef === null || targetTip === null) {
-    return deny2({
+    return deny3({
       check: "base_conflict",
       expected: `${commit} merges cleanly into the PR target`,
       actual: `no PR target ref resolves in ${repo}`
@@ -12962,7 +13577,7 @@ function preflight(db, taskId, env) {
     const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ""))];
     const blocking = merge.code === 1 && conflicted.length > 0 ? nonRegenPaths(repo, commit, conflicted, env) : null;
     if (blocking === null || blocking.length > 0) {
-      return deny2({
+      return deny3({
         check: "base_conflict",
         expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
         actual: merge.code !== 1 || conflicted.length === 0 ? `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}` : blocking === null ? `conflicts in ${listed(conflicted)}; git check-attr of their merge attribute failed` : `conflicts in ${listed(blocking)}`
@@ -12971,7 +13586,7 @@ function preflight(db, taskId, env) {
   }
   const mergeBase = git(repo, ["merge-base", targetTip, commit], env).stdout.trim();
   if (mergeBase === "") {
-    return deny2({
+    return deny3({
       check: "base_conflict",
       expected: `${commit} shares history with ${targetRef} (${targetTip})`,
       actual: "no merge-base"
@@ -12979,7 +13594,7 @@ function preflight(db, taskId, env) {
   }
   const stale = staleDocRefs(repo, mergeBase, commit, env);
   if (typeof stale === "string" || stale.length > 0) {
-    return deny2({
+    return deny3({
       check: "stale_doc_ref",
       expected: `no agents/, skills/, docs/ *.md, CLAUDE.md or README.md at ${commit} mentions a path or MCP tool that ${mergeBase}..${commit} removes`,
       actual: typeof stale === "string" ? stale : listed(stale)
@@ -12988,7 +13603,7 @@ function preflight(db, taskId, env) {
   if (hasChangelogDir(repo, commit, env) || hasChangelogDir(repo, mergeBase, env)) {
     const added = git(repo, ["diff", "--no-ext-diff", "--name-only", "--no-renames", "--diff-filter=A", mergeBase, commit, "--", `${CHANGELOG_DIR}/`], env);
     if (added.code !== 0 || added.stdout.trim() === "") {
-      return deny2({
+      return deny3({
         check: "missing_changelog",
         expected: `${mergeBase}..${commit} adds a file under ${CHANGELOG_DIR}/`,
         actual: added.code !== 0 ? `git diff failed: ${added.stderr.trim()}` : `no file added under ${CHANGELOG_DIR}/`
@@ -13014,7 +13629,7 @@ var codeReviewerPreflight = (payload, env) => {
 var SPAWN_NOTE_MAX_CHARS = 300;
 
 // src/hooks/code-reviewer-spawn-note.ts
-var GATE_NAME4 = "code-reviewer-spawn-note";
+var GATE_NAME5 = "code-reviewer-spawn-note";
 var BYPASS_ENV2 = "TMB_SKIP_CODE_REVIEWER_SPAWN_NOTE";
 var ANCHORS = ["task_id", "commit_sha", "branch_id", "repo", "repo_path", "attempt_n", "subagent_session_id"];
 var ANCHOR_RE = new RegExp(`\\b(?:${ANCHORS.join("|")})\\s*=\\s*(?:'[^']*'|"[^"]*"|\`[^\`]*\`|\\S+)`, "g");
@@ -13024,7 +13639,7 @@ function spawnProse(prompt) {
 function denyReason(proseChars) {
   return `BLOCKED: the code-reviewer spawn prompt carries ${proseChars} characters of prose beyond its anchors (${ANCHORS.map((a) => `${a}=`).join(", ")}); the cap is ${SPAWN_NOTE_MAX_CHARS}. The reviewer reads the spec, discussions and swe's completion report from task_brief. Store the remaining context as spawn_note (at most ${SPAWN_NOTE_MAX_CHARS} chars) with bro_atomic_close, where task_brief returns it, and respawn with the anchors and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose.`;
 }
-function deny3(reason) {
+function deny4(reason) {
   return {
     stdout: `${jqCompact({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
@@ -13038,7 +13653,7 @@ var codeReviewerSpawnNote = (payload, env) => {
   if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
   if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "code-reviewer") return ALLOW;
   const prose = spawnProse(jqAlternatives(payload, [["tool_input", "prompt"]]));
-  return prose.length > SPAWN_NOTE_MAX_CHARS ? deny3(denyReason(prose.length)) : ALLOW;
+  return prose.length > SPAWN_NOTE_MAX_CHARS ? deny4(denyReason(prose.length)) : ALLOW;
 };
 
 // src/task-rework.ts
@@ -13052,7 +13667,7 @@ function elapsedMs(createdAt, endedAt) {
 }
 
 // src/hooks/rework-limit.ts
-var GATE_NAME5 = "rework-limit";
+var GATE_NAME6 = "rework-limit";
 function readState(db, taskId, env) {
   const out2 = gateRead(
     db,
@@ -13106,12 +13721,12 @@ var reworkLimit = (payload, env) => {
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME5, env);
-  return reworkLimitVerdict(GATE_NAME5, db, taskId, env);
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME6, env);
+  return reworkLimitVerdict(GATE_NAME6, db, taskId, env);
 };
 
 // src/hooks/swe-resume-gate.ts
-var GATE_NAME6 = "swe-resume-gate";
+var GATE_NAME7 = "swe-resume-gate";
 function effortMismatchReason(agentId, target) {
   return `BLOCKED: swe ${agentId} ran task ${target.task_id} at effort ${target.run_effort}; the task's effort is now ${target.task_effort}. A resumed swe keeps the effort it was spawned at, so resuming it would ignore the change. Spawn a fresh swe at the task's effort instead: Agent(subagent_type='swe', effort='${target.task_effort}', prompt starting 'task_id=${target.task_id}').`;
 }
@@ -13121,7 +13736,7 @@ var sweResumeGate = (payload, env) => {
   if (to === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME6, env);
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME7, env);
   const out2 = gateRead(
     db,
     `SELECT json_object('task_id', r.task_id, 'status', t.status, 'run_effort', r.effort, 'task_effort', t.effort)
@@ -13130,11 +13745,11 @@ var sweResumeGate = (payload, env) => {
       ORDER BY r.id DESC LIMIT 1;`,
     env
   );
-  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME6, env);
+  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME7, env);
   if (out2 === "") return ALLOW;
   const target = JSON.parse(out2.split("\n")[0]);
   if (target.status === "closed") return ALLOW;
-  const verdict = reworkLimitVerdict(GATE_NAME6, db, String(target.task_id), env);
+  const verdict = reworkLimitVerdict(GATE_NAME7, db, String(target.task_id), env);
   if (verdict !== ALLOW) return verdict;
   if (target.run_effort !== null && target.task_effort !== null && target.run_effort !== target.task_effort) {
     return denyPreToolUse(effortMismatchReason(to, target));
@@ -13144,7 +13759,7 @@ var sweResumeGate = (payload, env) => {
 
 // src/hooks/swe-stop-cause.ts
 import { readFileSync as readFileSync6 } from "node:fs";
-var GATE_NAME7 = "swe-stop-cause";
+var GATE_NAME8 = "swe-stop-cause";
 var STOP_DETAIL_MAX_CHARS = 500;
 var HOOK_DENY_RE = /^PreToolUse:\S+ hook error:/;
 var SKIPPED_TOOL_RE = /(^|__)(task_update_status|task_brief)$/;
@@ -13228,7 +13843,7 @@ function sweStopCause(payload, env) {
         WHERE id = (SELECT id FROM agent_runs
                      WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${sqlQuote(spawnId)}'
                      ORDER BY id DESC LIMIT 1);`,
-      { caller: GATE_NAME7, env }
+      { caller: GATE_NAME8, env }
     );
   } catch {
   }
@@ -13236,11 +13851,11 @@ function sweStopCause(payload, env) {
 }
 
 // src/hooks/task-overrun-alert.ts
-var GATE_NAME8 = "task-overrun-alert";
+var GATE_NAME9 = "task-overrun-alert";
 var OVERRUN_ENV = "TMB_TASK_OVERRUN_MIN";
 var DEFAULT_OVERRUN_MIN = 60;
 var EVENT = "task_overrun_alerted";
-var FROM_NODE = `hook:${GATE_NAME8}`;
+var FROM_NODE = `hook:${GATE_NAME9}`;
 var MS_PER_MIN = 6e4;
 function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
@@ -13281,7 +13896,7 @@ function claim(db, found, now, env) {
   const statements = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
-    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME8 });
+    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME9 });
     const row = auditSql(
       {
         issueId: String(o.issueId),
@@ -13292,12 +13907,12 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME8, env, now: nowIso(now) }
+      { caller: GATE_NAME9, env, now: nowIso(now) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
   }
-  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME8, env });
+  const w = dbWrite(db, statements.join("\n"), { caller: GATE_NAME9, env });
   if (!w.ok) return null;
   return new Set(w.stdout.split("\n").map((l) => sqlInt(l.trim())).filter((id) => id !== "").map(Number));
 }
@@ -13330,13 +13945,14 @@ var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
   ["containment-guard", containmentGuard],
   ["ensure-mcp-deps-installed", ensureMcpDepsInstalled],
-  [GATE_NAME2, gitPushGuard],
-  [GATE_NAME3, codeReviewerPreflight],
-  [GATE_NAME4, codeReviewerSpawnNote],
-  [GATE_NAME5, reworkLimit],
-  [GATE_NAME6, sweResumeGate],
-  [GATE_NAME7, sweStopCause],
-  [GATE_NAME8, taskOverrunAlert]
+  [GATE_NAME2, gitGuards],
+  [GATE_NAME3, gitPushGuard],
+  [GATE_NAME4, codeReviewerPreflight],
+  [GATE_NAME5, codeReviewerSpawnNote],
+  [GATE_NAME6, reworkLimit],
+  [GATE_NAME7, sweResumeGate],
+  [GATE_NAME8, sweStopCause],
+  [GATE_NAME9, taskOverrunAlert]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

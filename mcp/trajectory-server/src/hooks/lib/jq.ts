@@ -61,6 +61,37 @@ export function jsonValues(text: string): unknown[] {
   }
 }
 
+/**
+ * The JSON values of a jq input stream and whether all of it parsed: jq's
+ * exit status is 2 when a parse error ends the stream, whatever it printed.
+ */
+export function jsonStream(text: string): { values: unknown[]; complete: boolean } {
+  const values: unknown[] = [];
+  let i = 0;
+  for (;;) {
+    while (i < text.length && /[ \t\n\r]/.test(text[i])) i += 1;
+    if (i >= text.length) return { values, complete: true };
+    const end = valueEnd(text, i);
+    if (end < 0) return { values, complete: false };
+    try {
+      values.push(JSON.parse(text.slice(i, end)));
+    } catch {
+      return { values, complete: false };
+    }
+    i = end;
+  }
+}
+
+/** `jq -r '.[]'` over every value of <text>: array elements and object values, one rendering per line. */
+export function jqRawElements(text: string): string {
+  const out: string[] = [];
+  for (const value of jsonStream(text).values) {
+    if (value === null || typeof value !== 'object') continue;
+    for (const v of Array.isArray(value) ? value : Object.values(value)) out.push(jqRawText(v));
+  }
+  return out.join('\n');
+}
+
 class JqError extends Error {}
 
 function index(value: unknown, key: string): unknown {
