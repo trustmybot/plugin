@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/ghf",
+  "tool_input": {
+    "command": "gh pr create --base main --head feat/x --title t"
+  },
+  "corpus_expect": "allow"
+}
