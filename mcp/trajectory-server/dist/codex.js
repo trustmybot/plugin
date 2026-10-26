@@ -36383,6 +36383,9 @@ function noSyncRemoteWarnings(db, repos) {
   }));
 }
 var SYMBOL_STAT_KEYS = ["files_parsed", "files_failed", "symbols", "edges", "edges_resolved"];
+function persistedFiles(files, renamedTo) {
+  return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
+}
 async function persistScan(db, graph, out2, sessionDir) {
   const now2 = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
@@ -36395,7 +36398,7 @@ async function persistScan(db, graph, out2, sessionDir) {
   const persisted = {
     ...out2,
     repos: out2.repos.filter((r) => !renamedTo.has(r.name)),
-    files: out2.files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path))
+    files: persistedFiles(out2.files, renamedTo)
   };
   const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {
@@ -36646,6 +36649,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
           const spawnFn = args2["_spawnFn"];
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
           const upsertedRepos = out2.repos.filter((repo) => !renamedTo.has(repo.name));
+          const files = persistedFiles(out2.files, renamedTo);
           const warnings = noSyncRemoteWarnings(db, upsertedRepos.map((r) => r.name));
           for (const r of upsertedRepos) {
             try {
@@ -36654,7 +36658,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
               serverLog({ event: "milestone_sync_error", repo: r.name, error: e.message });
             }
           }
-          const topDirs = new Set(out2.files.map((f) => f.path.split("/")[0]).filter(Boolean));
+          const topDirs = new Set(files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(
             db,
             out2.repos,
@@ -36669,7 +36673,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             issue_id: -1,
             from_node: "bro",
             event_type: "deep_scan_completed",
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ""}; ${out2.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired}; symbols ${stats.symbols.symbols} in ${stats.symbols.files_parsed} parsed files (${stats.symbols.files_failed} failed), edges ${stats.symbols.edges_resolved}/${stats.symbols.edges} resolved \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}${mcpNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ""}; ${files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired}; symbols ${stats.symbols.symbols} in ${stats.symbols.files_parsed} parsed files (${stats.symbols.files_failed} failed), edges ${stats.symbols.edges_resolved}/${stats.symbols.edges} resolved \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out2.session_dir,

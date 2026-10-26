@@ -674,6 +674,10 @@ function noSyncRemoteWarnings(db: TrajectoryDB, repos: ReadonlyArray<string>): S
 
 const SYMBOL_STAT_KEYS = ['files_parsed', 'files_failed', 'symbols', 'edges', 'edges_resolved'] as const;
 
+export function persistedFiles<F extends { repo: string; path: string }>(files: F[], renamedTo: Set<string>): F[] {
+  return files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path));
+}
+
 // Persist repos[] and the world model (wm_directories + wm_files), each in its
 // own transaction, then bring each scanned repo's symbol index up to date.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
@@ -712,7 +716,7 @@ async function persistScan(
   const persisted: ScanOutput = {
     ...out,
     repos: out.repos.filter((r) => !renamedTo.has(r.name)),
-    files: out.files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path)),
+    files: persistedFiles(out.files, renamedTo),
   };
   const scannedNames = new Set(persisted.repos.map((r) => r.name));
 
@@ -1097,6 +1101,7 @@ export function scanTools(
           const spawnFn = args['_spawnFn'] as SpawnFn | undefined;
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
           const upsertedRepos = out.repos.filter((repo) => !renamedTo.has(repo.name));
+          const files = persistedFiles(out.files, renamedTo);
           const warnings = noSyncRemoteWarnings(db, upsertedRepos.map((r) => r.name));
           for (const r of upsertedRepos) {
             try {
@@ -1110,7 +1115,7 @@ export function scanTools(
           // audit. The flag rides in the audit content_json so downstream
           // tooling (the scan-side renderer pass, manual diagnostic queries)
           // can decide whether the scan changed the project shape.
-          const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
+          const topDirs = new Set(files.map((f) => f.path.split('/')[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(
             db,
             out.repos,
@@ -1132,7 +1137,7 @@ export function scanTools(
             issue_id: -1,
             from_node: 'bro',
             event_type: 'deep_scan_completed',
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ''}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired}; symbols ${stats.symbols.symbols} in ${stats.symbols.files_parsed} parsed files (${stats.symbols.files_failed} failed), edges ${stats.symbols.edges_resolved}/${stats.symbols.edges} resolved — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ''}; ${files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired}; symbols ${stats.symbols.symbols} in ${stats.symbols.files_parsed} parsed files (${stats.symbols.files_failed} failed), edges ${stats.symbols.edges_resolved}/${stats.symbols.edges} resolved — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
