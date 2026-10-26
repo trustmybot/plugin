@@ -17,7 +17,7 @@ import { resolveSoleRepo } from './utils/repo-paths.js';
 import { loadParsers } from './parsing/loader.js';
 import { extractFile, inSymbolScope, languageOf, splitWords, STOPWORDS, symbolTerms, clip, oneLine, } from './parsing/extract.js';
 import { dispatchChains, extractHooks, HOOKS_PATH, REGISTRATIONS_PATH } from './parsing/hooks.js';
-export const EXTRACTOR_VERSION = 1;
+export const EXTRACTOR_VERSION = 2;
 const MAX_PARSE_BYTES = 1_000_000;
 const CARD_LIST_CAP = 50;
 export const IMPACT_REF_CAP = 200;
