@@ -9,7 +9,9 @@
 #
 #   (a) Bash: git push from SWE context                  → DENY
 #   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
-#   (c) Edit/Write: target outside assigned worktree      → DENY
+#   (c) Edit/Write: target outside assigned worktree      → DENY (except under
+#       the session's own scratchpad, <canonical /tmp>/claude-<uid>/<project>/
+#       <session_id>/scratchpad/, a real dir this user owns → ALLOW)
 #   (d) Edit/Write: CLAUDE.md at the worktree root        → DENY (always)
 #       Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
 #   (e) Bash: a written CLAUDE.md at the worktree root    → DENY (always)
@@ -298,7 +300,9 @@ TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_pa
 
 # ---- Rule (c): target outside assigned worktree ----------------------------
 # The worktree is the caller's derived one (canonical paths compared); a
-# relative target joins the payload cwd, the dir the tool resolves it in.
+# relative target joins the payload cwd, the dir the tool resolves it in. A
+# canonical target under the payload session's scratchpad is admitted; the
+# prefix is built from canonical /tmp, so a symlinked component resolves out.
 if [ "$CTX_STATE" = "missing" ]; then
   DENY_MSG="BLOCKED: swe-boundary cannot resolve this swe's worktree: ${TMB_CTX_MISSING}. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: ${TARGET}. Report this to bro."
   jq -nc --arg r "$DENY_MSG" \
@@ -310,7 +314,29 @@ case "$TARGET" in
   *)  ABS_TARGET="$(tmb_payload_cwd "$INPUT")/${TARGET}" ;;
 esac
 if [ -n "$WORKTREE_ROOT" ] && ! tmb_ctx_in_worktree "$ABS_TARGET"; then
-  DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}) of task ${CALLER_TASK}. Target '${TARGET}' is outside the worktree."
+  _SESSION=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+  case "$_SESSION" in ''|*/*|.*) _SESSION="" ;; esac
+  _SCRATCH_BASE="$(tmb_path_canonical /tmp)/claude-$(id -u)"
+  if [ -n "$_SESSION" ]; then
+    _TARGET_C=$(tmb_path_canonical "$ABS_TARGET")
+    _REST="${_TARGET_C#"$_SCRATCH_BASE"/}"
+    _PROJECT="${_REST%%/*}"
+    _SCRATCH="$_SCRATCH_BASE/$_PROJECT/$_SESSION/scratchpad"
+    if [ "$_REST" != "$_TARGET_C" ] && [ -n "$_PROJECT" ] && [ "$_PROJECT" != "$_REST" ] \
+      && [ "${_TARGET_C#"$_SCRATCH"/}" != "$_TARGET_C" ] && [ -n "${_TARGET_C#"$_SCRATCH"/}" ] \
+      && [ -d "$_SCRATCH" ] && [ ! -L "$_SCRATCH" ] && [ -O "$_SCRATCH" ]; then
+      exit 0
+    fi
+  fi
+  _SCRATCH_HINT="/tmp/claude-$(id -u)/<project>/<session_id>/scratchpad"
+  if [ -n "$_SESSION" ]; then
+    _FOUND=()
+    for _dir in "$_SCRATCH_BASE"/*/"$_SESSION"/scratchpad; do
+      if [ -d "$_dir" ] && [ ! -L "$_dir" ] && [ -O "$_dir" ]; then _FOUND+=("$_dir"); fi
+    done
+    [ "${#_FOUND[@]}" -eq 1 ] && _SCRATCH_HINT="${_FOUND[0]}"
+  fi
+  DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}) of task ${CALLER_TASK}. Target '${TARGET}' is outside the worktree. Scratch files go in this session's scratchpad, ${_SCRATCH_HINT}/."
   jq -nc --arg r "$DENY_MSG" \
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
   exit 0

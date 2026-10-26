@@ -11768,8 +11768,10 @@ var Guard = class {
   ccProjectC = "";
   ccSessionC = "";
   ccPlansC = "";
+  runEnv;
   constructor(env) {
     this.env = env;
+    this.runEnv = env;
   }
   home() {
     return this.env.HOME ?? "";
@@ -11908,7 +11910,7 @@ function splitUnresolved(word) {
 }
 async function judgeBash(g, input, analyze) {
   const command = jqField2(input, ["tool_input", "command"]);
-  const writes = command === "" ? [] : await analyze(command, { cwd: g.cwd, raw: true, root: g.root, env: g.env });
+  const writes = command === "" ? [] : await analyze(command, { cwd: g.cwd, raw: true, root: g.root, env: g.runEnv });
   const lines = capture(writes.join("\n")).split("\n").filter((w) => w !== "");
   if (lines.length === 0) return;
   if (!g.unbound && !g.bound && !g.allowed(g.cwd)) g.deny(g.cwd);
@@ -11934,6 +11936,13 @@ async function judgeBash(g, input, analyze) {
     }
     if (path !== null) g.judge(path);
   }
+}
+function runTmpdir(input, g) {
+  const hookTmp = g.env.TMPDIR ?? "";
+  if (/^\/./s.test(hookTmp)) return hookTmp;
+  if (g.toolName !== "Bash" || g.harnessTmpC === "") return hookTmp;
+  if (jqField2(input, ["tool_input", "dangerouslyDisableSandbox"]) === "true") return hookTmp;
+  return `/tmp/claude-${g.uid}`;
 }
 async function guard(input, env, analyze) {
   const g = new Guard(env);
@@ -11966,9 +11975,10 @@ async function guard(input, env, analyze) {
   g.rootC = g.root === "" ? "" : canonical(g.root);
   g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
   g.cacheC = canonical(g.cacheDir);
-  const tmpdir = env.TMPDIR ?? "";
-  if (/^\/./s.test(tmpdir)) g.hostTmpC = canonical(tmpdir);
   g.harnessTmpC = harnessTmp(g.uid);
+  const tmpdir = runTmpdir(input, g);
+  if (tmpdir !== (env.TMPDIR ?? "")) g.runEnv = { ...env, TMPDIR: tmpdir };
+  if (/^\/./s.test(tmpdir)) g.hostTmpC = canonical(tmpdir);
   if (agentType === "" || agentType === "bro") {
     const ccHome = env.CLAUDE_CONFIG_DIR || `${g.home()}/.claude`;
     g.ccProjectC = ccProjectDir(ccHome, g.root, env);
