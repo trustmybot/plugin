@@ -316,6 +316,68 @@ describe('scan_run — workspace discovery + persistence', () => {
       }
     });
   });
+
+  describe('scan_run reads the persisted file list (GH 1892)', () => {
+    it('reports an audit file count equal to the stored wm_files rows, generated paths excluded', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-gen-count-'));
+      const db = tempDB();
+      const graph = new WorldModelGraph(db);
+      try {
+        mkRepo(ws, 'app', {
+          'src/main.ts': 'export const a = 1;\n',
+          'src/util.ts': 'export const b = 2;\n',
+          'dist/main.js': 'exports.a = 1;\n',
+          'dist/main.js.map': '{}\n',
+          'node_modules/pkg/index.js': 'module.exports = 1;\n',
+          'src/vendor.min.js': 'x\n',
+        });
+        const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
+        const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        assert.ok(!r.isError, JSON.stringify(r));
+        const stored = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM wm_files WHERE repo = 'app'`)!.n;
+        assert.equal(stored, 2);
+        const summary = db.get<{ summary: string }>(
+          "SELECT summary FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1",
+        )!.summary;
+        assert.match(summary, new RegExp(`; ${stored} files;`));
+      } finally {
+        graph.close();
+        db.close();
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('ignores a new top-level generated folder for structural_change and top_dirs', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-gen-topdir-'));
+      const db = tempDB();
+      const graph = new WorldModelGraph(db);
+      try {
+        const appDir = mkRepo(ws, 'app', { 'src/main.ts': 'export const a = 1;\n' });
+        const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
+        const first = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        assert.ok(!first.isError, JSON.stringify(first));
+
+        mkdirSync(join(appDir, 'node_modules', 'pkg'), { recursive: true });
+        writeFileSync(join(appDir, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1;\n');
+        execFileSync('git', ['add', '-f', '.'], { cwd: appDir });
+        execFileSync('git', ['commit', '-qm', 'add node_modules'], { cwd: appDir });
+
+        const second = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        assert.ok(!second.isError, JSON.stringify(second));
+        assert.equal((parse(second) as { structural_change: boolean }).structural_change, false);
+        const audit = db.get<{ content_json: string }>(
+          `SELECT content_json FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1`,
+        )!;
+        const topDirs = JSON.parse(audit.content_json).top_dirs as string[];
+        assert.ok(!topDirs.includes('node_modules'), `top_dirs: ${topDirs.join(',')}`);
+        assert.ok(topDirs.includes('src'));
+      } finally {
+        graph.close();
+        db.close();
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+  });
 });
 
 describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
