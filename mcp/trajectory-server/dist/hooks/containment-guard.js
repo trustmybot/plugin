@@ -19,6 +19,12 @@
  * reads `BLOCKED: write target "<target>" cannot be judged: <why>`;
  * dispatch.sh matches the phrase (its UNJUDGED_PHRASE) and keeps no
  * boundary-deny record for it, since no path was judged (GH 1750, GH 1772).
+ *
+ * A second exception (GH 1912): with no absolute TMPDIR in the hook env, a
+ * Bash call the sandbox runs (not marked dangerouslyDisableSandbox) is judged
+ * with the TMPDIR Claude Code's sandbox gives it, /tmp/claude-<uid>, when that
+ * dir passes harnessTmp's check. The .sh keeps the hook env, so a `$TMPDIR`
+ * target stays unresolved there and is denied. No corpus payload runs it.
  */
 import { lstatSync, statSync } from 'node:fs';
 import { ALLOW } from './gate.js';
@@ -116,8 +122,10 @@ class Guard {
     ccProjectC = '';
     ccSessionC = '';
     ccPlansC = '';
+    runEnv;
     constructor(env) {
         this.env = env;
+        this.runEnv = env;
     }
     home() {
         return this.env.HOME ?? '';
@@ -272,7 +280,7 @@ function splitUnresolved(word) {
 }
 async function judgeBash(g, input, analyze) {
     const command = jqField(input, ['tool_input', 'command']);
-    const writes = command === '' ? [] : await analyze(command, { cwd: g.cwd, raw: true, root: g.root, env: g.env });
+    const writes = command === '' ? [] : await analyze(command, { cwd: g.cwd, raw: true, root: g.root, env: g.runEnv });
     const lines = capture(writes.join('\n')).split('\n').filter((w) => w !== '');
     if (lines.length === 0)
         return;
@@ -301,6 +309,17 @@ async function judgeBash(g, input, analyze) {
         if (path !== null)
             g.judge(path);
     }
+}
+/** The TMPDIR the command runs with: the hook's when absolute, else the sandbox's for a sandboxed Bash call. */
+function runTmpdir(input, g) {
+    const hookTmp = g.env.TMPDIR ?? '';
+    if (/^\/./s.test(hookTmp))
+        return hookTmp;
+    if (g.toolName !== 'Bash' || g.harnessTmpC === '')
+        return hookTmp;
+    if (jqField(input, ['tool_input', 'dangerouslyDisableSandbox']) === 'true')
+        return hookTmp;
+    return `/tmp/claude-${g.uid}`;
 }
 async function guard(input, env, analyze) {
     const g = new Guard(env);
@@ -337,10 +356,12 @@ async function guard(input, env, analyze) {
     g.rootC = g.root === '' ? '' : canonical(g.root);
     g.cacheDir = env.TMB_MODEL_CACHE_DIR || env.HF_HOME || `${g.home()}/.cache/huggingface`;
     g.cacheC = canonical(g.cacheDir);
-    const tmpdir = env.TMPDIR ?? '';
+    g.harnessTmpC = harnessTmp(g.uid);
+    const tmpdir = runTmpdir(input, g);
+    if (tmpdir !== (env.TMPDIR ?? ''))
+        g.runEnv = { ...env, TMPDIR: tmpdir };
     if (/^\/./s.test(tmpdir))
         g.hostTmpC = canonical(tmpdir);
-    g.harnessTmpC = harnessTmp(g.uid);
     if (agentType === '' || agentType === 'bro') {
         const ccHome = env.CLAUDE_CONFIG_DIR || `${g.home()}/.claude`;
         g.ccProjectC = ccProjectDir(ccHome, g.root, env);
