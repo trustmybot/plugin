@@ -2284,7 +2284,7 @@ describe('task_brief sections (GH 1743)', () => {
   const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
   const CORE_KEYS = [
     'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'effort',
-    'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note',
+    'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'locations',
   ];
   const ALL_KEYS = [
     ...CORE_KEYS, 'verification', 'verification_run', 'scope', 'scope_world_model', 'world_model_warning', 'task_discussions',
@@ -2304,7 +2304,7 @@ describe('task_brief sections (GH 1743)', () => {
     const id = seed(db);
     const core = parse(await brief(db, { agent: 'swe', task_id: id }));
     assert.deepEqual(Object.keys(core).sort(), [...CORE_KEYS, 'sections'].sort());
-    assert.deepEqual(Object.keys(core['sections'] as object).sort(), ['history', 'scope', 'verification']);
+    assert.deepEqual(Object.keys(core['sections'] as object).sort(), ['core', 'history', 'scope', 'verification']);
     assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'core' })), [...CORE_KEYS, 'sections'].sort());
     assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'verification' })), ['verification', 'verification_run']);
     assert.deepEqual(
