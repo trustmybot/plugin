@@ -779,7 +779,7 @@ assert_eq "open|" "$(sqlite3 "$DB" "SELECT status || '|' || COALESCE(resolved_at
 
 # ---- Verification carry-forward (GH 1950) ------------------------------------
 # verification[] is A (declares src/**), B (declares lib/**) and U (undeclared
-# in .tmb/verification-inputs.json), plus one open finding probe P; each
+# in .config/tmb/verification-inputs.json), plus one open finding probe P; each
 # appends its letter to $TMPDIR/<slug>.ran, outside the worktree.
 carry_cmd() { printf 'echo %s >> %s/%s.ran' "$2" "$TMPDIR" "$1"; }
 carry_map() {
@@ -812,9 +812,9 @@ carry_setup() {
       VALUES ($id, 1, 'feat/$slug', 'plugin', 'pending', '', '$(jq -nc --arg a "$(carry_cmd "$slug" A)" --arg b "$(carry_cmd "$slug" B)" --arg u "$(carry_cmd "$slug" U)" '[$a, $b, $u]')');
     INSERT INTO review_findings VALUES ('F$id-1', $id, 1, NULL, '$(carry_cmd "$slug" P)', 'exit 0', 'exit 1', 'open', '2026-01-01T00:00:00.000Z', NULL);
   "
-  mkdir -p "$wt/src" "$wt/lib" "$wt/docs" "$wt/.tmb"
+  mkdir -p "$wt/src" "$wt/lib" "$wt/docs" "$wt/.config/tmb"
   git -C "$wt" init --quiet
-  carry_map "$slug" "${3:-1}" > "$wt/.tmb/verification-inputs.json"
+  carry_map "$slug" "${3:-1}" > "$wt/.config/tmb/verification-inputs.json"
   echo app > "$wt/src/app.txt"
   echo lib > "$wt/lib/lib.txt"
   echo doc > "$wt/docs/x.md"
@@ -894,8 +894,8 @@ carry_none 103 carry-dirty "dirty"
 test_case "carry-forward: a commit that changes the inputs map carries nothing"
 carry_setup 104 carry-map
 docs_edit carry-map more
-jq '.commands += [{match: "true", inputs: ["x"]}]' "$WT_ROOT/carry-map/.tmb/verification-inputs.json" > "$TMPDIR/map.json"
-mv "$TMPDIR/map.json" "$WT_ROOT/carry-map/.tmb/verification-inputs.json"
+jq '.commands += [{match: "true", inputs: ["x"]}]' "$WT_ROOT/carry-map/.config/tmb/verification-inputs.json" > "$TMPDIR/map.json"
+mv "$TMPDIR/map.json" "$WT_ROOT/carry-map/.config/tmb/verification-inputs.json"
 wt_commit carry-map "map change" >/dev/null
 carry_none 104 carry-map "map change"
 

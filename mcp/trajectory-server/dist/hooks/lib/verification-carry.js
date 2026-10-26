@@ -12,7 +12,7 @@
  *       timed out, on a commit P other than HEAD;
  *   (b) P is an ancestor of HEAD and P..HEAD holds no merge commit;
  *   (c) the worktree is clean;
- *   (d) .tmb/verification-inputs.json is not among the paths P..HEAD changed,
+ *   (d) .config/tmb/verification-inputs.json is not among the paths P..HEAD changed,
  *       and its HEAD version is a valid version-1 map;
  *   (e) the command is not a `[probe …]` command and R holds a row with the
  *       identical command text and exit 0;
@@ -24,7 +24,7 @@ import { basename, matchesGlob } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GATE_READ_ERROR, gateRead, sqlInt, sqlQuote } from './db.js';
 import { gitRun } from './git.js';
-export const VERIFICATION_INPUTS_PATH = '.tmb/verification-inputs.json';
+export const VERIFICATION_INPUTS_PATH = '.config/tmb/verification-inputs.json';
 export const VERIFICATION_INPUTS_VERSION = 1;
 const SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const PROBE_PREFIX = '[probe ';

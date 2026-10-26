@@ -34,9 +34,9 @@
 #     reused (GH 1672)
 #   - Otherwise, a command lib/verification-carry.js (dist) carries forward
 #     from the task's last passing run on an ancestor commit — its inputs
-#     declared in .tmb/verification-inputs.json untouched since — is recorded
-#     with exit 0, elapsed 0 and "carried from run #R at <sha12>" instead of
-#     run; the helper's time counts against the command budget (GH 1950)
+#     declared in .config/tmb/verification-inputs.json untouched since — is
+#     recorded with exit 0, elapsed 0 and "carried from run #R at <sha12>"
+#     instead of run; the helper's time counts against the command budget (GH 1950)
 #   - Verification passes          → allow (additionalContext names the
 #     carried commands and their source run, when any)
 #   - Verification fails           → DENY naming the failing command, its
@@ -563,7 +563,7 @@ run_verification() {
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: verification[] passed (not recorded: worktree HEAD unresolvable)."}}'
   elif [ -n "$CARRIED_CMDS" ]; then
     jq -nc --arg run "$CARRY_RUN" --arg sha "${CARRY_SHA:0:12}" --arg cmds "$CARRIED_CMDS" --arg n "$CMD_TOTAL" \
-      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification carried forward from run #" + $run + " at " + $sha + " — this commit touched none of their declared inputs (.tmb/verification-inputs.json), so these commands were not run again; the rest of the " + $n + " ran:\n" + $cmds)}}'
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification carried forward from run #" + $run + " at " + $sha + " — this commit touched none of their declared inputs (.config/tmb/verification-inputs.json), so these commands were not run again; the rest of the " + $n + " ran:\n" + $cmds)}}'
   fi
 }
 

@@ -22,10 +22,6 @@
       "inputs": ["scripts/**", "tests/**", "**/*.sh", "**/.*", "**/.*/**"]
     },
     {
-      "match": "bash tests/l1-lint/changelog-current.sh",
-      "inputs": ["CHANGELOG.md", "changelog.d/**", "scripts/maintenance/**", "tests/l1-lint/changelog-current.sh", "**/.*", "**/.*/**"]
-    },
-    {
       "match": "bash tests/l1-lint/dist-fresh.sh",
       "inputs": ["mcp/trajectory-server/**", "tests/l1-lint/dist-fresh.sh", "tests/l1-lint/fixtures/dist-fresh/**", "package.json", "bun.lock", "**/.*", "**/.*/**"]
     }
