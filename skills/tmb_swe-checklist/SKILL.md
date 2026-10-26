@@ -12,7 +12,7 @@ Before `task_update_status(completed, commit_sha, report)`, confirm these by rea
 - **Rework.** Each of the brief's `open_findings` is fixed, its `probe_cmd` is committed as a test in the repo's own suite, and its id is in `report.findings_fixed`. Run each probe yourself before closing; the gate re-runs every one and refuses the close while any fails.
 - **Tests for what you touched.** Run each test and lint covering the files you changed as `node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/test-run.js" -- <command>`. It prints one summary line plus each failure and keeps the full log at its `log=` path; report the pass/fail and that summary line. The gate runs `verification[]` once when you close and records the run for your commit. A dry run or smoke test reports as its command's pass/fail.
 - **Changelog.** Where the repo records changes per PR (a fragment directory or a CHANGELOG section), add the task's entry the way the repo does and leave any generated changelog file to its generator.
-- **Hook blocks.** A PreToolUse block is a hard stop on that call. A deny that names an allowed form: rerun in that form. A deny that names none, or says it is policy: reach that effect no other way and close with `task_update_status(failed, report)` quoting the exact hook output. Every run ends through `task_update_status`.
+- **Hook blocks.** A PreToolUse block is a hard stop on that call. A deny that names an allowed form: rerun in that form. A deny that names none, or says it is policy: reach that effect no other way, close with `task_update_status(status='failed')` and no `report`, and quote the exact hook output in your final message. Every run ends through `task_update_status`.
 
 Escalate (not guess) when:
 
