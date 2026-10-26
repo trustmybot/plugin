@@ -1,0 +1,2 @@
+### Fixed
+- **A task brief carries the Human's verbatim intent again** (GH 1760): after GH 1741 scoped `task_brief` discussions to the task, the intent row `intent_start` writes (issue-level, no `task_id`) dropped out of every brief, so swe and pr-reviewer no longer saw the Human's own words. The brief's `history` section now includes the issue's newest issue-level intent that no later row supersedes, capped at 500 chars like a note and not counted against the 8 note rows.

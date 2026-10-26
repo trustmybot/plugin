@@ -1,9 +1,10 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TrajectoryDB } from '../db.js';
 import { pinScanEnv, tempDB } from './helpers.js';
 import { compositeTools, filesToDirs, pathInFiles, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
@@ -3612,6 +3613,13 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
         [issueId, body, at, taskId],
       ).lastInsertRowid,
     );
+  const insertIntent = (db: TrajectoryDB, issueId: number, body: string, at: string, supersedes: number | null = null): number =>
+    Number(
+      db.run(
+        `INSERT INTO discussions (issue_id, author, kind, body, created_at, supersedes) VALUES (?, 'bro', 'intent', ?, ?, ?)`,
+        [issueId, body, at, supersedes],
+      ).lastInsertRowid,
+    );
   const seedIssueTasks = (db: TrajectoryDB, count: number): number[] => {
     db.run(
       `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
@@ -3640,19 +3648,20 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
       insertDecision(db, 55, taskIds[i % 7]!, `decision ${i} for task ${i % 7}: ${'d'.repeat(1000)}`, at(1 + i));
     }
     insertDecision(db, 55, null, `newest issue-level decision ${'n'.repeat(1000)}`, at(30));
+    insertIntent(db, 55, `Human intent verbatim: "${'h'.repeat(1000)}"`, at(0));
 
     const target = taskIds[3]!;
     const out = await brief(db, target);
-    const disc = out['task_discussions'] as Array<{ kind: string; body: string }>;
+    const disc = out['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
     assert.deepEqual(
-      disc.map((d) => d.body.replace(/:? [dn]{1000}$/, '')),
-      ['decision 3 for task 3', 'decision 10 for task 3', 'decision 17 for task 3', 'newest issue-level decision'],
+      disc.map((d) => (d.kind === 'intent' ? 'intent' : d.body.replace(/:? [dn]{1000}$/, ''))),
+      ['intent', 'decision 3 for task 3', 'decision 10 for task 3', 'decision 17 for task 3', 'newest issue-level decision'],
     );
-    assert.ok(disc.every((d) => d.kind === 'decision'));
+    assert.equal(disc[0]!.truncated, true);
     const size = JSON.stringify(disc).length;
     assert.ok(size < 6000, `task_discussions is ${size} chars`);
     const omitted = out['task_discussions_omitted'] as { count: number; hint: string };
-    assert.equal(omitted.count, 21 - disc.length);
+    assert.equal(omitted.count, 22 - disc.length);
     assert.match(omitted.hint, /discussion_search\(issue_id=55\) returns the full history/);
     db.close();
   });
@@ -3664,6 +3673,88 @@ describe('task_brief — task-scoped discussions (GH 1741)', () => {
     insertDecision(db, 55, null, 'second', at(2));
     const out = await brief(db, taskId!);
     assert.deepEqual((out['task_discussions'] as Array<{ body: string }>).map((d) => d.body), ['second']);
+    db.close();
+  });
+
+  it('a task on an intent_start issue: the history section carries the Human intent verbatim (GH 1760)', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    const started = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'export data',
+      intent_verbatim: 'I want to export my data as CSV, never as XLSX',
+      branch_id: 'feat/export-csv',
+    });
+    assert.ok(!started.isError, JSON.stringify(parse(started)));
+    const issueId = parse(started)['issue_id'] as number;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+       VALUES (?, 'feat/export-csv', 't', 'd', 'pending', 's', datetime('now'), datetime('now'))`,
+      [issueId],
+    );
+    const taskId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    const r = (await composites.handlers['task_brief']!({ agent: 'swe', task_id: taskId, section: 'history' })) as RawResult;
+    const disc = parse(r)['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
+    const intents = disc.filter((d) => d.kind === 'intent');
+    assert.equal(intents.length, 1);
+    assert.equal(intents[0]!.body, 'Human intent verbatim: "I want to export my data as CSV, never as XLSX"');
+    assert.equal(intents[0]!.truncated, undefined);
+    db.close();
+  });
+
+  it('only the newest unsuperseded issue-level intent reaches the brief (GH 1760)', async () => {
+    const db = tempDB();
+    const [taskId] = seedIssueTasks(db, 1);
+    const first = insertIntent(db, 55, 'Human intent verbatim: "first"', at(1));
+    insertIntent(db, 55, 'Human intent verbatim: "first, restated"', at(2), first);
+    const intentsOf = async (): Promise<string[]> =>
+      ((await brief(db, taskId!))['task_discussions'] as Array<{ kind: string; body: string }>)
+        .filter((d) => d.kind === 'intent')
+        .map((d) => d.body);
+    assert.deepEqual(await intentsOf(), ['Human intent verbatim: "first, restated"']);
+
+    const newest = insertIntent(db, 55, 'Human intent verbatim: "second ask"', at(3));
+    assert.deepEqual(await intentsOf(), ['Human intent verbatim: "second ask"']);
+
+    insertIntent(db, 55, 'Human intent verbatim: "second ask, corrected"', at(4), newest);
+    assert.deepEqual(await intentsOf(), ['Human intent verbatim: "second ask, corrected"']);
+    db.close();
+  });
+
+  it('a long issue-level intent is truncated to 500 chars and does not displace the 8 other-kind rows (GH 1760)', async () => {
+    const db = tempDB();
+    const [taskId] = seedIssueTasks(db, 1);
+    const longIntent = `Human intent verbatim: "${'w'.repeat(800)}"`;
+    insertIntent(db, 55, longIntent, at(1));
+    for (let i = 0; i < 8; i++) {
+      db.run(
+        `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (55, 'swe', 'note', ?, ?)`,
+        [`note ${i}`, at(10 + i)],
+      );
+    }
+    const disc = (await brief(db, taskId!))['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
+    const intent = disc.find((d) => d.kind === 'intent');
+    assert.ok(intent);
+    assert.equal(intent!.truncated, true);
+    assert.equal(
+      intent!.body,
+      longIntent.slice(0, 500) + '\n… [truncated; discussion_search(issue_id=55) returns the full history]',
+    );
+    assert.deepEqual(
+      disc.filter((d) => d.kind === 'note').map((d) => d.body),
+      Array.from({ length: 8 }, (_, i) => `note ${i}`),
+    );
+    db.close();
+  });
+
+  it('the task_brief description and src/tools/README.md name the issue-level intent row (GH 1760)', () => {
+    const db = tempDB();
+    const def = compositeTools(db, '/tmp/.claude/tmb/trajectory.db').definitions.find((d) => d.name === 'task_brief');
+    assert.match(def!.description!, /issue-level decision and intent/);
+    const readme = readFileSync(fileURLToPath(new URL('../../src/tools/README.md', import.meta.url)), 'utf8');
+    const line = readme.split('\n').find((l) => l.includes('task_discussions'));
+    assert.match(line!, /issue-level intent/);
+    assert.doesNotMatch(readme, /carries only its newest issue-level decision\./);
     db.close();
   });
 
