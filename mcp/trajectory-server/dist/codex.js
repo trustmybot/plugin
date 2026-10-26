@@ -25503,7 +25503,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 49;
+var TARGET_SCHEMA_VERSION = 50;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26054,6 +26054,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 49 && toVersion >= 49) {
     migrateV48toV49(db);
+  }
+  if (fromVersion < 50 && toVersion >= 50) {
+    migrateV49toV50(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
@@ -27787,6 +27790,22 @@ function migrateV48toV49(db) {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
     `);
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
+}
+function migrateV49toV50(db) {
+  if (!tableExists(db, "agent_runs")) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, "agent_runs", "plugin_version")) {
+      db.exec("ALTER TABLE agent_runs ADD COLUMN plugin_version TEXT");
+    }
     commitTransaction(db);
   } catch (err6) {
     try {

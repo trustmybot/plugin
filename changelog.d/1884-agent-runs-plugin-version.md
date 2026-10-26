@@ -1,0 +1,2 @@
+### Added
+- **Each agent run records the plugin version that wrote it** (GH 1884): `agent_runs` gains a `plugin_version` column (schema v50). The swe, pr-reviewer and bro rows take the version of the code that inserted them, from the trajectory server or from the plugin manifest in the hooks, and later updates leave it alone. Cost and token numbers can now be compared across plugin versions, even when two sessions on one DB run different versions. Rows recorded before the upgrade, and rows written by `agent_runs_backfill`, have no version.

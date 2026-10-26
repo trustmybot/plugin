@@ -10,6 +10,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 HOOK="$PLUGIN_ROOT/scripts/hooks/bro-turn-usage.sh"
+export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+PLUGIN_VERSION=$(jq -r .version "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json")
 
 TMPDIR_BTU=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-bro-turn-usage.XXXXXX")
 trap 'rm -rf "$TMPDIR_BTU"' EXIT
@@ -182,5 +184,16 @@ mkdir -p "$(dirname "$PROJ_DB")"
 sqlite3 "$PROJ_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 run_hook "$TRANSCRIPT" "$SESSION" "$PROJ_DB" >/dev/null
 assert_eq "$PROJ" "$(sqlite3 "$PROJ_DB" "SELECT root_dir FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" "root_dir = project root"
+
+test_case "the inserted bro row carries the manifest plugin_version; the next turn's UPDATE leaves it (GH 1884)"
+assert_eq "$PLUGIN_VERSION" "$(sqlite3 "$DB" "SELECT plugin_version FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" "bro insert"
+OTHER_ROOT="$TMPDIR_BTU/other-plugin"
+mkdir -p "$OTHER_ROOT/.claude-plugin"
+echo '{"name":"tmb","version":"0.0.1-other"}' > "$OTHER_ROOT/.claude-plugin/plugin.json"
+msg 9 120 >> "$TRANSCRIPT"
+CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" run_hook "$TRANSCRIPT" >/dev/null
+assert_eq "1|30|$PLUGIN_VERSION" \
+  "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), MAX(plugin_version) FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" \
+  "the next turn rewrites the totals and keeps plugin_version"
 
 summarize

@@ -207,6 +207,9 @@ SAFE_SESSION_SQL="NULL"
 [ -n "$SESSION_ID" ] && SAFE_SESSION_SQL="'$(tmb_sql_quote "$SESSION_ID")'"
 SAFE_MODEL_SQL="NULL"
 [ -n "${MODEL:-}" ] && SAFE_MODEL_SQL="'$(tmb_sql_quote "$MODEL")'"
+PLUGIN_VERSION=$(tmb_plugin_version)
+SAFE_PLUGIN_VERSION_SQL="NULL"
+[ -n "$PLUGIN_VERSION" ] && SAFE_PLUGIN_VERSION_SQL="'$(tmb_sql_quote "$PLUGIN_VERSION")'"
 
 # A spawn whose transcript holds no token usage overwrites
 # no tokens a row already carries and closes it by the shared usage rule
@@ -251,11 +254,13 @@ UPDATE agent_runs
  WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'pr-reviewer' AND spawn_id = '${SAFE_SPAWN_ID}';
 INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
-                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort)
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort,
+                        plugin_version)
 SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'pr-reviewer', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
        (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, ${USAGE_INSERT_SQL},
-       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_PROJECT_ROOT}', 'completed', ${REVIEWER_EFFORT_SQL}
+       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_PROJECT_ROOT}', 'completed', ${REVIEWER_EFFORT_SQL},
+       ${SAFE_PLUGIN_VERSION_SQL}
  WHERE (SELECT changes()) = 0;"; then
     jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
       '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid,agent_type:"pr-reviewer"}' \
@@ -455,11 +460,13 @@ UPDATE agent_runs
     LIMIT 1);
 INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
-                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort)
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort,
+                        plugin_version)
 SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'swe', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
        (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, ${USAGE_INSERT_SQL},
-       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}', (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID})
+       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}', (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID}),
+       ${SAFE_PLUGIN_VERSION_SQL}
  WHERE (SELECT changes()) = 0;
 UPDATE agent_runs
    SET usage_source = 'unmeasured',

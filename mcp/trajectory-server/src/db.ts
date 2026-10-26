@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 49;
+export const TARGET_SCHEMA_VERSION = 50;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -83,7 +83,7 @@ export interface TrajectoryDBOptions {
 
 export class TrajectoryDB {
   private db: DatabaseSync;
-  private readonly pluginVersion: string | null;
+  readonly pluginVersion: string | null;
   private readonly serverLog: TrajectoryLog;
   private readonly sqlLog: TrajectoryLog;
   private readonly migrate: boolean;
@@ -803,6 +803,9 @@ function runMigrations(
   }
   if (fromVersion < 49 && toVersion >= 49) {
     migrateV48toV49(db);
+  }
+  if (fromVersion < 50 && toVersion >= 50) {
+    migrateV49toV50(db);
   }
 }
 
@@ -2878,6 +2881,27 @@ function migrateV48toV49(db: DatabaseSync): void {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
     `);
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v49→v50: the writer's plugin version on agent_runs (GH 1884). Each insert
+// records the version of the code doing the write; rows already present keep
+// plugin_version NULL.
+function migrateV49toV50(db: DatabaseSync): void {
+  if (!tableExists(db, 'agent_runs')) return;
+  beginImmediate(db);
+  try {
+    if (!hasColumn(db, 'agent_runs', 'plugin_version')) {
+      db.exec('ALTER TABLE agent_runs ADD COLUMN plugin_version TEXT');
+    }
     commitTransaction(db);
   } catch (err) {
     try {

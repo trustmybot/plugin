@@ -15,6 +15,9 @@
 #      one metering row carrying plugin_config.reviewer_effort (high when unset).
 #   6. No usage — a stop whose transcript yields no tokens closes its row
 #      unmeasured and keeps any tokens an earlier stop metered.
+#   7. Plugin version — an inserted swe or pr-reviewer row carries the
+#      manifest version, a later UPDATE leaves it, and with CLAUDE_PLUGIN_ROOT
+#      unset the insert writes NULL (GH 1884).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +57,8 @@ sqlite3 "$DB" "
     (142, 1, 'fix/task-142', 'dev', 'd', 'pending',   '$NOW', '$NOW');
 "
 export TRAJECTORY_DB_PATH="$DB"
+export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+PLUGIN_VERSION=$(jq -r .version "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json")
 
 # Task 140 (running, as the spawn left it) has a commit in its worktree: the
 # stop auto-completes it as it would a pending task.
@@ -291,5 +296,34 @@ TOTAL_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")
 run_hook "$(pr_stop_input "$TRANSCRIPT_NO_ID" agent-rev-noid)" >/dev/null
 assert_eq "$TOTAL_BEFORE" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")" "no agent_runs row"
 assert_eq "1" "$(skipped)" "no capture-skipped audit row for a pr-reviewer"
+
+# ---- plugin_version (GH 1884) -------------------------------------------------
+OTHER_ROOT="$TMPDIR/other-plugin"
+mkdir -p "$OTHER_ROOT/.claude-plugin"
+echo '{"name":"tmb","version":"0.0.1-other"}' > "$OTHER_ROOT/.claude-plugin/plugin.json"
+
+test_case "an inserted swe row carries the manifest plugin_version; a later UPDATE leaves it"
+assert_eq "$PLUGIN_VERSION" "$(sqlite3 "$DB" "SELECT plugin_version FROM agent_runs WHERE task_id=144 AND agent_type='swe';")" "swe insert"
+CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" run_hook "$(stop_input "$T144" agent-144)" >/dev/null
+assert_eq "1|$PLUGIN_VERSION" \
+  "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(plugin_version) FROM agent_runs WHERE task_id=144 AND agent_type='swe';")" \
+  "the re-fire under another version updates the row and keeps its plugin_version"
+assert_eq "" "$(sqlite3 "$DB" "SELECT COALESCE(plugin_version, '') FROM agent_runs WHERE task_id=142;")" "the UPDATE of a row opened without a version writes none"
+
+test_case "an inserted pr-reviewer row carries the manifest plugin_version; a re-fire leaves it"
+assert_eq "$PLUGIN_VERSION" "$(sqlite3 "$DB" "SELECT plugin_version FROM agent_runs WHERE spawn_id='agent-rev-1';")" "pr-reviewer insert"
+CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" run_hook "$(pr_stop_input "$TR1" agent-rev-1)" >/dev/null
+assert_eq "1|$PLUGIN_VERSION" \
+  "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(plugin_version) FROM agent_runs WHERE spawn_id='agent-rev-1';")" \
+  "the re-fire under another version keeps it"
+
+test_case "with CLAUDE_PLUGIN_ROOT unset the insert still succeeds and writes NULL"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (148, 1, 'fix/task-148', 'dev', 'd', 'completed', '$NOW', '$NOW');"
+T148="$TMPDIR/t148.jsonl"
+transcript 148 "$T148"
+(unset CLAUDE_PLUGIN_ROOT; run_hook "$(stop_input "$T148" agent-148)" >/dev/null)
+assert_eq "1|40|1" \
+  "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), MAX(plugin_version IS NULL) FROM agent_runs WHERE task_id=148;")" \
+  "one metered row, plugin_version NULL"
 
 summarize
