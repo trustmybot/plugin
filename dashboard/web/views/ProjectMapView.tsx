@@ -90,23 +90,25 @@ export function ProjectMapView() {
                 <ConceptSearch term={search.term} repo={repo} id={route.concept} onSelect={(key) => navigate('concepts', search.term, key)} />
               </Suspense>
             ) : (
-              <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)] [&>*]:min-w-0">
-                <nav aria-label="Directory tree" className="min-w-0">
-                  {root ? (
-                    <div className="overflow-x-auto py-1 pr-1 pl-2">
-                      <DirectoryTree root={root} selected={selected} expanded={expanded} onSelect={(p) => open(repo, p)} onToggle={toggle} />
-                    </div>
-                  ) : (
-                    <p className="text-sm text-fg-muted">No root directory recorded for {repo}.</p>
-                  )}
-                </nav>
-                <div className="min-w-0 space-y-4">
-                  {search.term && <SearchResults term={search.term} onOpen={open} />}
-                  {root && <DirectoryListing repo={repo} path={selected} onSelect={(p) => open(repo, p)} />}
+              <>
+                <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)] [&>*]:min-w-0">
+                  <nav aria-label="Directory tree" className="min-w-0">
+                    {root ? (
+                      <div className="overflow-x-auto py-1 pr-1 pl-2">
+                        <DirectoryTree root={root} selected={selected} expanded={expanded} onSelect={(p) => open(repo, p)} onToggle={toggle} />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-fg-muted">No root directory recorded for {repo}.</p>
+                    )}
+                  </nav>
+                  <div className="min-w-0 space-y-4">
+                    {search.term && <SearchResults term={search.term} onOpen={open} />}
+                    {root && <DirectoryListing repo={repo} path={selected} onSelect={(p) => open(repo, p)} />}
+                  </div>
                 </div>
-              </div>
+                <DepGraph key={repo} repo={repo} />
+              </>
             )}
-            <DepGraph key={repo} repo={repo} />
           </div>
         );
       }}
