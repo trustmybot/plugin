@@ -43634,6 +43634,14 @@ function sandboxQuestion(current, isReonboard, remoteUrls, platform) {
     ...assemble(keep, [no, yes], advice, "no")
   };
 }
+function bugReportQuestion(current, isReonboard) {
+  return {
+    question: "When TMB itself breaks, bro can draft a bug report for github.com/trustmybot/plugin. You see each report in full and it is filed only if you say yes, from your GitHub account. Reports are public. Bro strips paths, tokens and your code from the draft.",
+    header: "Bug reports",
+    multiSelect: false,
+    ...assemble(keepOption(current, isReonboard), BUG_REPORT_OPTIONS, NO_ADVICE, "no")
+  };
+}
 function resolveOption(value, options) {
   if (value === KEEP_SENTINEL) return KEEP_SENTINEL;
   const wire = options.find((o) => o.wire === value);
@@ -43680,6 +43688,11 @@ var HEADLESS_OPTIONS = [
   { label: "No", description: "", wire: "no" },
   { label: "Yes", description: "", wire: "yes" }
 ];
+var BUG_REPORT_OPTIONS = [
+  { label: "No", description: "Bro never offers to file a report.", wire: "no" },
+  { label: "Yes", description: "Bro drafts each report and files it only after you approve.", wire: "yes" }
+];
+var ALONE_APPLY_KEYS = ["headless_enforcement", "bug_report_consent"];
 var SANDBOX_YES_RECOMMENDED = "Yes (Recommended)";
 var SANDBOX_OPTIONS = [
   ...HEADLESS_OPTIONS,
@@ -43705,8 +43718,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           },
           round: {
             type: "string",
-            enum: ["shape", "main", "remote", "sync", "sandbox"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep)."
+            enum: ["shape", "main", "remote", "sync", "sandbox", "bug_report"],
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep). 'bug_report' = bug_report_consent (any shape; whether bro may offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; a fresh onboard defaults to No, re-onboard defaults to Keep)."
           },
           repo: {
             type: "string",
@@ -43718,14 +43731,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     },
     {
       name: "onboard_apply",
-      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs. headless_enforcement alone (after onboarding) turns headless enforcement on or off on request.",
+      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs. headless_enforcement and/or bug_report_consent alone (after onboarding) change those answers on request.",
       inputSchema: {
         type: "object",
         properties: {
           shape: {
             type: "string",
             enum: ["local", "remote"],
-            description: "Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone) or for headless_enforcement alone on an onboarded project."
+            description: "Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone) or for headless_enforcement and/or bug_report_consent alone on an onboarded project."
           },
           standalone: {
             type: "boolean",
@@ -43761,6 +43774,11 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             type: "string",
             enum: ["yes", "no"],
             description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host + enableWeakerNetworkIsolation on macOS, plus env npm/bun caches under the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no')."
+          },
+          bug_report_consent: {
+            type: "string",
+            enum: ["yes", "no"],
+            description: "Optional. The 'bug_report' round answer: 'yes' lets bro offer to draft a TMB bug report for github.com/trustmybot/plugin, filed only after the Human approves each one; 'no' means bro never offers. Omit to keep the stored answer (default 'no'). Also accepted alone (no shape) on an onboarded project, with or without headless_enforcement."
           },
           repo: {
             type: "string",
@@ -43808,6 +43826,17 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${value}')`);
     }
     return { value, stored, answered };
+  };
+  const resolveBugReportConsent = (raw) => {
+    let value = readConfig(db2, "bug_report_consent") ?? "no";
+    if (raw !== void 0) {
+      const resolved = resolveOption(raw, BUG_REPORT_OPTIONS);
+      if (resolved !== KEEP_SENTINEL) value = resolved ?? raw;
+    }
+    if (value !== "yes" && value !== "no") {
+      throw new Error(`bug_report_consent must be 'yes' or 'no' (got '${value}')`);
+    }
+    return value;
   };
   const applyHeadlessShim = (h) => {
     try {
@@ -43938,7 +43967,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             }),
             issue_sync: readConfig(db2, "issue_sync"),
             headless_enforcement: readConfig(db2, "headless_enforcement") ?? "no",
-            sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
+            sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no",
+            bug_report_consent: readConfig(db2, "bug_report_consent") ?? "no"
           },
           probe: {
             in_git: git4.in_git,
@@ -43971,6 +44001,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           return ok17({
             questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)]
           });
+        }
+        if (round === "bug_report") {
+          const current = readConfig(db2, "bug_report_consent");
+          return ok17({ questions: [bugReportQuestion(current, readOnboardedFlag(db2))] });
         }
         if (repo !== void 0) {
           if (round !== "main") {
@@ -44045,22 +44079,31 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         if (strayPaths !== void 0 && args2["shape"] === void 0) {
           return ok17({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
         }
-        if (args2["shape"] === void 0 && args2["headless_enforcement"] !== void 0) {
+        const aloneKeys = ALONE_APPLY_KEYS.filter((k) => args2[k] !== void 0);
+        if (args2["shape"] === void 0 && aloneKeys.length > 0) {
+          const named2 = aloneKeys.join(" and ");
           const others = Object.keys(args2).filter(
-            (k) => k !== "headless_enforcement" && k !== "agent" && args2[k] !== void 0
+            (k) => !ALONE_APPLY_KEYS.includes(k) && k !== "agent" && args2[k] !== void 0
           );
           if (others.length > 0) {
-            throw new Error(`headless_enforcement without shape is applied alone \u2014 drop ${others.join(", ")}, or pass shape for the full apply`);
+            throw new Error(`${named2} without shape is applied alone \u2014 drop ${others.join(", ")}, or pass shape for the full apply`);
           }
           if (!readOnboardedFlag(db2)) {
-            throw new Error("headless_enforcement alone needs an onboarded project \u2014 run /onboard first");
+            throw new Error(`${named2} alone needs an onboarded project \u2014 run /onboard first`);
           }
-          const headless2 = resolveHeadless(args2["headless_enforcement"]);
-          writeConfig(db2, "headless_enforcement", headless2.value);
-          return ok17({
-            ok: true,
-            applied: { headless_enforcement: headless2.value, headless_shim: applyHeadlessShim(headless2) }
-          });
+          const headless2 = args2["headless_enforcement"] !== void 0 ? resolveHeadless(args2["headless_enforcement"]) : null;
+          const consent = args2["bug_report_consent"] !== void 0 ? resolveBugReportConsent(args2["bug_report_consent"]) : null;
+          const applied = {};
+          if (headless2) {
+            writeConfig(db2, "headless_enforcement", headless2.value);
+            applied["headless_enforcement"] = headless2.value;
+            applied["headless_shim"] = applyHeadlessShim(headless2);
+          }
+          if (consent !== null) {
+            writeConfig(db2, "bug_report_consent", consent);
+            applied["bug_report_consent"] = consent;
+          }
+          return ok17({ ok: true, applied });
         }
         const shape = args2["shape"];
         if (shape !== "local" && shape !== "remote") {
@@ -44181,6 +44224,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         if (sandbox_enforcement !== "yes" && sandbox_enforcement !== "no") {
           throw new Error(`sandbox_enforcement must be 'yes' or 'no' (got '${sandbox_enforcement}')`);
         }
+        const bug_report_consent = resolveBugReportConsent(args2["bug_report_consent"]);
         const seedPolicy = (repoPath, inGit) => {
           const defaultBranch = () => inGit ? repoDefaultBranch(repoPath) : derivePrTargetDefault("github-flow");
           if (branching_model === void 0) {
@@ -44199,6 +44243,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           writeConfig(db2, "issue_sync", issue_sync);
           writeConfig(db2, "headless_enforcement", headless_enforcement);
           writeConfig(db2, "sandbox_enforcement", sandbox_enforcement);
+          writeConfig(db2, "bug_report_consent", bug_report_consent);
           const rows = db2.all(
             `SELECT name, path, branching_model FROM repos`
           );
@@ -44291,6 +44336,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             headless_shim,
             sandbox_enforcement,
             sandbox,
+            bug_report_consent,
             ...warning ? { warning } : {}
           }
         });
