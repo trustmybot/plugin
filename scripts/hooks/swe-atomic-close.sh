@@ -20,6 +20,8 @@
 #                                         + swe_atomic_close_auto_completed audit row
 #   pending|running + HAS_COMMITS=false → additionalContext warning to bro
 #   any other status                    → metrics only, status unchanged
+#   any status + stop_cause hook_block  → additionalContext names the block
+#                                         (GH 1914), after any other sentence
 #   subagent_type code-reviewer   → metrics only
 #   any other subagent_type     → silent exit 0
 #
@@ -514,6 +516,20 @@ HOOKS_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks.js"
 if [ -f "$HOOKS_JS" ] && command -v node >/dev/null 2>&1; then
   printf '%s' "$INPUT" | TMB_STOP_TASK_ID="$SAFE_TASK_ID" TMB_STOP_SPAWN_ID="$SPAWN_ID" TMB_STOP_SINCE="$SAFE_FIRST_TS" \
     node "$HOOKS_JS" swe-stop-cause >/dev/null 2>&1 || true
+fi
+
+# A run the recorder flagged hook_block (it ended on a deny with no completion
+# report) is named to bro, so the rework spawn_note can carry the block (GH 1914).
+HOOK_BLOCK=$(tmb_sqlite_ro "$DB" "
+SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_detail, 1, 200), '') END
+  FROM agent_runs
+ WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'swe' AND spawn_id = '${SAFE_SPAWN_ID}'
+ ORDER BY id DESC LIMIT 1;" 2>/dev/null || true)
+if [ "${HOOK_BLOCK:0:1}" = "B" ]; then
+  BLOCK_DETAIL="${HOOK_BLOCK:1}"
+  BLOCK_DETAIL="${BLOCK_DETAIL//$'\n'/ }"
+  BLOCK_CONTEXT="SWE for task #${TASK_ID} ended on a hook block with no completion report (\"${BLOCK_DETAIL}\"), which task_brief.last_stop carries; name the block in the rework spawn_note so the next swe applies the allowed form and continues."
+  CONTEXT="${CONTEXT:+$CONTEXT }${BLOCK_CONTEXT}"
 fi
 
 # Log the decision.

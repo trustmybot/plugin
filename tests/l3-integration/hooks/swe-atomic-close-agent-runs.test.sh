@@ -22,6 +22,10 @@
 #      running task running and the swe-stop-cause recorder writes stop_cause
 #      budget; an older checkpoint auto-completes and is cleared; without
 #      dist/hooks.js the hook still completes.
+#   9. Hook block (GH 1914) — a run whose last tool_result is a PreToolUse deny
+#      and that made no completion report records stop_cause hook_block and bro
+#      gets a sentence naming the block, commits or not; a successful completed
+#      task_update_status call after the deny records no stop_cause.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -361,6 +365,61 @@ assert_eq "completed|$(git -C "$REPO/.claude/worktrees/task-161" rev-parse HEAD)
   "$(sqlite3 "$DB" "SELECT status, COALESCE(commit_sha, ''), checkpoint IS NULL FROM tasks WHERE id=161;")" \
   "completed at the worktree HEAD, checkpoint NULL"
 assert_eq "|completed" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, ''), exit_reason FROM agent_runs WHERE task_id=161;")" "no stop_cause"
+
+# ---- a run that ends on a hook block with no completion report (GH 1914) -----
+BLOCK_DENY='PreToolUse:Bash hook error: BLOCKED: write target "python3" cannot be judged; use Edit or Write on the literal path.'
+BLOCK_SENTENCE="ended on a hook block with no completion report"
+
+# deny_transcript <task_id> <file> [report]: the spawn's last tool_result is a
+# PreToolUse:Bash deny; with "report", a successful task_update_status
+# completed call follows it.
+deny_transcript() {
+  {
+    printf '%s\n' \
+      '{"type":"user","timestamp":"2026-06-16T19:30:00.000Z","message":{"role":"user","content":"task_id='"$1"' You are swe."}}' \
+      '{"type":"assistant","timestamp":"2026-06-16T19:30:04.000Z","message":{"id":"m1","usage":{"input_tokens":40,"output_tokens":4},"content":[{"type":"tool_use","id":"tb1","name":"Bash","input":{"command":"python3 x.py"}}]}}'
+    jq -cn --arg d "$BLOCK_DENY" \
+      '{type:"user",timestamp:"2026-06-16T19:30:05.000Z",message:{role:"user",content:[{type:"tool_result",tool_use_id:"tb1",is_error:true,content:$d}]}}'
+    if [ "${3:-}" = "report" ]; then
+      printf '%s\n' \
+        '{"type":"assistant","timestamp":"2026-06-16T19:30:06.000Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":2},"content":[{"type":"tool_use","id":"tr1","name":"mcp__plugin_tmb_trajectory-server__task_update_status","input":{"agent":"swe","task_id":"'"$1"'","status":"completed"}}]}}' \
+        '{"type":"user","timestamp":"2026-06-16T19:30:07.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tr1","content":"{\"ok\":true}"}]}}'
+    fi
+  } > "$2"
+}
+
+test_case "a deny with no report and no commits records hook_block and names the block beside the no-commit warning"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (170, 1, 'fix/task-170', 'dev', 'd', 'running', '$NOW', '$NOW');"
+T170="$TMPDIR/t170.jsonl"
+deny_transcript 170 "$T170"
+OUT=$(run_hook "$(stop_input "$T170" agent-170)")
+assert_eq "hook_block|1" \
+  "$(sqlite3 "$DB" "SELECT stop_cause, substr(stop_detail, 1, length('$BLOCK_DENY')) = '$BLOCK_DENY' FROM agent_runs WHERE task_id=170;")" \
+  "stop_cause hook_block, stop_detail starts with the deny"
+CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || true)
+assert_contains "$CTX" "stopped without committing" "the no-commit warning stays"
+assert_contains "$CTX" "SWE for task #170 $BLOCK_SENTENCE" "the hook-block sentence follows it"
+assert_contains "$CTX" "PreToolUse:Bash hook error: BLOCKED" "the sentence quotes the deny"
+assert_contains "$CTX" "task_brief.last_stop" "the sentence points at task_brief.last_stop"
+assert_contains "$CTX" "rework spawn_note" "the sentence asks bro to name the block in the spawn_note"
+
+test_case "a deny with no report and commits auto-completes and still names the block"
+committed_task 171
+T171="$TMPDIR/t171.jsonl"
+deny_transcript 171 "$T171"
+OUT=$(run_hook "$(stop_input "$T171" agent-171)")
+assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=171;")" "the task auto-completes"
+assert_eq "hook_block" "$(sqlite3 "$DB" "SELECT stop_cause FROM agent_runs WHERE task_id=171;")" "stop_cause hook_block"
+CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || true)
+assert_contains "$CTX" "SWE for task #171 $BLOCK_SENTENCE" "the context names the block"
+
+test_case "a deny followed by a successful completed report records no stop_cause and no hook-block sentence"
+committed_task 172
+T172="$TMPDIR/t172.jsonl"
+deny_transcript 172 "$T172" report
+OUT=$(run_hook "$(stop_input "$T172" agent-172)")
+assert_eq "" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, '') FROM agent_runs WHERE task_id=172;")" "stop_cause NULL"
+assert_not_contains "$OUT" "$BLOCK_SENTENCE" "no hook-block sentence"
 
 test_case "with dist/hooks.js absent the hook still completes"
 BARE_ROOT="$TMPDIR/bare-plugin"

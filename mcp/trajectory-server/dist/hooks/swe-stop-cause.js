@@ -9,7 +9,9 @@
  *     at agent_transcript_path (entries from TMB_STOP_SINCE on, results of
  *     task_update_status and task_brief skipped) is an error whose text starts
  *     `PreToolUse:<tool> hook error:`; stop_detail is that text, capped at 500
- *     characters;
+ *     characters, unless the run window holds a completion report: a
+ *     task_update_status call with status 'completed' whose tool_result is not
+ *     an error (a 'failed' call is no report);
  *   - else both NULL.
  *
  * The row is the newest swe row of task TMB_STOP_TASK_ID keyed by spawn_id
@@ -25,6 +27,7 @@ export const GATE_NAME = 'swe-stop-cause';
 export const STOP_DETAIL_MAX_CHARS = 500;
 const HOOK_DENY_RE = /^PreToolUse:\S+ hook error:/;
 const SKIPPED_TOOL_RE = /(^|__)(task_update_status|task_brief)$/;
+const STATUS_TOOL_RE = /(^|__)task_update_status$/;
 function resultText(content) {
     if (typeof content === 'string')
         return content;
@@ -35,9 +38,14 @@ function resultText(content) {
         .filter((t) => t !== '')
         .join('\n');
 }
-/** The deny text of the run's last counted tool_result when it is a PreToolUse hook block, else null. */
+function isCompletedReport(name, input) {
+    return STATUS_TOOL_RE.test(name) && typeof input === 'object' && input !== null && input.status === 'completed';
+}
+/** The deny text of the run's last counted tool_result when it is a PreToolUse hook block and the run made no completion report, else null. */
 export function hookBlockDetail(transcriptText, sinceMs) {
     const names = new Map();
+    const reportUses = new Set();
+    let reported = false;
     let last = null;
     for (const line of transcriptText.split('\n')) {
         if (line.trim() === '')
@@ -60,16 +68,20 @@ export function hookBlockDetail(transcriptText, sinceMs) {
             const block = raw;
             if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
                 names.set(block.id, block.name);
+                if (inWindow && isCompletedReport(block.name, block.input))
+                    reportUses.add(block.id);
             }
             else if (block.type === 'tool_result' && inWindow) {
                 const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
+                if (reportUses.has(toolUseId) && block.is_error !== true)
+                    reported = true;
                 if (SKIPPED_TOOL_RE.test(names.get(toolUseId) ?? ''))
                     continue;
                 last = { toolUseId, isError: block.is_error === true, text: resultText(block.content) };
             }
         }
     }
-    if (!last || !last.isError || !HOOK_DENY_RE.test(last.text))
+    if (reported || !last || !last.isError || !HOOK_DENY_RE.test(last.text))
         return null;
     return last.text.slice(0, STOP_DETAIL_MAX_CHARS);
 }

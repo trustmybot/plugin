@@ -1,7 +1,8 @@
 /**
  * The swe-stop-cause recorder (GH 1905) on a temp trajectory DB and fixture
  * transcripts: a checkpoint written in the run records budget, a trailing
- * PreToolUse deny records hook_block with its text, and anything else leaves
+ * PreToolUse deny records hook_block with its text unless the run made a
+ * successful completed task_update_status call (GH 1914), and anything else leaves
  * both columns NULL. It always exits 0 with empty stdout.
  */
 import { describe, it, before, after } from 'node:test';
@@ -81,10 +82,10 @@ function fixture(): Fixture {
   return { root, db, env, exec, row, transcript };
 }
 
-const toolUse = (ts: string, id: string, name: string) => ({
+const toolUse = (ts: string, id: string, name: string, input: unknown = {}) => ({
   timestamp: ts,
   type: 'assistant',
-  message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input: {} }] },
+  message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
 });
 const toolResult = (ts: string, id: string, content: unknown, isError = false) => ({
   timestamp: ts,
@@ -188,6 +189,46 @@ describe('swe-stop-cause (GH 1905)', () => {
     const t = f.transcript([toolUse('2026-10-25T09:59:00.000Z', 'toolu_1', 'Bash'), toolResult('2026-10-25T09:59:01.000Z', 'toolu_1', DENY, true)]);
     assert.deepEqual(sweStopCause(payload(t), f.env), ALLOWED);
     assert.deepEqual(f.row(), { stop_cause: null, stop_detail: null });
+  });
+
+  describe('a completion report suppresses hook_block (GH 1914)', () => {
+    const STATUS_TOOL = 'mcp__plugin_tmb_trajectory-server__task_update_status';
+    const since = Date.parse(SINCE);
+    const jsonl = (lines: unknown[]) => lines.map((l) => JSON.stringify(l)).join('\n');
+    const deny = [toolUse('2026-10-25T10:05:00.000Z', 'toolu_d', 'Bash'), toolResult('2026-10-25T10:05:01.000Z', 'toolu_d', DENY, true)];
+    const report = (ts: string, name: string, status: string, isError: boolean) => [
+      toolUse(ts, 'toolu_r', name, { agent: 'swe', task_id: '3', status }),
+      toolResult(ts.replace(/\.000Z$/, '.500Z'), 'toolu_r', isError ? 'Error: gate refused the close' : '{"ok":true}', isError),
+    ];
+
+    it('deny and no report: hook_block', () => {
+      assert.equal(hookBlockDetail(jsonl(deny), since), DENY);
+    });
+
+    it('deny and a successful completed report: null', () => {
+      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T10:01:00.000Z', STATUS_TOOL, 'completed', false), ...deny]), since), null);
+      assert.equal(hookBlockDetail(jsonl([...deny, ...report('2026-10-25T10:06:00.000Z', 'task_update_status', 'completed', false)]), since), null);
+    });
+
+    it('deny and an errored completed report: hook_block', () => {
+      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T10:01:00.000Z', STATUS_TOOL, 'completed', true), ...deny]), since), DENY);
+    });
+
+    it('deny and a failed report: hook_block', () => {
+      assert.equal(hookBlockDetail(jsonl([...deny, ...report('2026-10-25T10:06:00.000Z', STATUS_TOOL, 'failed', false)]), since), DENY);
+    });
+
+    it('a completed report before TMB_STOP_SINCE does not count', () => {
+      assert.equal(hookBlockDetail(jsonl([...report('2026-10-25T09:50:00.000Z', STATUS_TOOL, 'completed', false), ...deny]), since), DENY);
+    });
+
+    it('records NULL on the row when the run reported completion', () => {
+      const f = fixture();
+      f.exec("UPDATE agent_runs SET stop_cause = 'hook_block', stop_detail = 'stale' WHERE spawn_id = ?", SWE);
+      const t = f.transcript([...deny, ...report('2026-10-25T10:06:00.000Z', STATUS_TOOL, 'completed', false)]);
+      assert.deepEqual(sweStopCause(payload(t), f.env), ALLOWED);
+      assert.deepEqual(f.row(), { stop_cause: null, stop_detail: null });
+    });
   });
 
   it('exits 0 with empty stdout and writes nothing on a missing transcript or DB', () => {
