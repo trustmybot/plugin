@@ -216,6 +216,8 @@ describe('extractPurpose — structural fallback for data files', () => {
   it('markdown with no heading: a multi-line HTML comment is skipped through its -->', () => {
     expectPurpose('docs/note.md', '<!--\nInternal note\nmore -->\nReal purpose line.\n', 'structural', 'Real purpose line.');
     expectPurpose('docs/after.md', '<!-- start\nhidden -->  Text after the comment.\n', 'structural', 'Text after the comment.');
+    expectPurpose('docs/empty.md', '<!-->\nReal line.\n', 'structural', 'Real line.');
+    expectPurpose('docs/empty-dash.md', '<!--->\nReal line.\n', 'structural', 'Real line.');
   });
 
   it('markdown with no heading: arrows and comparisons keep their angle brackets', () => {

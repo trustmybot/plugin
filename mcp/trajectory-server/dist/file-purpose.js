@@ -425,7 +425,7 @@ function fromFirstLine(body) {
             if (l === '')
                 continue;
         }
-        else if (!fenced && l.startsWith('<!--') && !l.includes('-->', 4)) {
+        else if (!fenced && l.startsWith('<!--') && !l.includes('-->', 2)) {
             inComment = true;
             continue;
         }

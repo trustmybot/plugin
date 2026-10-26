@@ -444,7 +444,7 @@ function fromFirstLine(body: string[]): FilePurpose | null {
       inComment = false;
       l = l.slice(end + 3).trim();
       if (l === '') continue;
-    } else if (!fenced && l.startsWith('<!--') && !l.includes('-->', 4)) {
+    } else if (!fenced && l.startsWith('<!--') && !l.includes('-->', 2)) {
       inComment = true;
       continue;
     }
