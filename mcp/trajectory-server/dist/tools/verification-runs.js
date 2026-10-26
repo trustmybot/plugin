@@ -8,6 +8,22 @@ export function probeCommand(probe) {
 /** SQL ordering review_findings by the <n> of their F<task_id>-<n> id. */
 export const FINDING_ORDER_SQL = "CAST(substr(id, instr(id, '-') + 1) AS INTEGER)";
 /**
+ * Copies every open finding of `fromTaskId` onto `toTaskId` in id order, as
+ * F<toTaskId>-<n> (n from 1) with attempt_n 0, status open and created_at
+ * `now`, so the retry's own reviewer attempts (from 1) never replace them.
+ * The source rows stay as they are.
+ */
+export function carryOpenFindings(db, fromTaskId, toTaskId, now) {
+    const open = db.all(`SELECT id, criterion_id, probe_cmd, expected, observed FROM review_findings
+      WHERE task_id = ? AND status = 'open' ORDER BY ${FINDING_ORDER_SQL}`, [fromTaskId]);
+    return open.map((f, i) => {
+        const id = `F${toTaskId}-${i + 1}`;
+        db.run(`INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
+       VALUES (?, ?, 0, ?, ?, ?, ?, 'open', ?)`, [id, toTaskId, f.criterion_id, f.probe_cmd, f.expected, f.observed, now]);
+        return { from: f.id, id };
+    });
+}
+/**
  * The task's findings the gate probes: every status but wontfix, in id order.
  * A DB without review_findings (schema < 47) has none.
  */

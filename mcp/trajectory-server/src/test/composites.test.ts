@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TrajectoryDB } from '../db.js';
-import { pinScanEnv, tempDB } from './helpers.js';
+import { pinScanEnv, seedReviewerObservation, tempDB } from './helpers.js';
+import { validationTools } from '../tools/validation.js';
+import { activeFindingProbes } from '../tools/verification-runs.js';
 import { compositeTools, filesToDirs, pathInFiles, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
 import { GraphHolder, type WorldModelGraph } from '../graph.js';
 import { issueTools } from '../tools/issues.js';
@@ -4476,5 +4478,172 @@ describe('scopeSurface', () => {
     assert.equal(scopeSurface('src/a.ts'), 'src');
     assert.equal(scopeSurface('README.md'), '<root>');
     assert.equal(scopeSurface('a/b/c'), 'a');
+  });
+});
+
+describe('review findings across task_reopen and task_retry (GH 1783)', () => {
+  const SPEC = ['## Description', 'd', '', '## Success Criteria', '- SC1: works'].join('\n');
+  type Finding = { id: string; task_id: number; attempt_n: number; criterion_id: string | null; probe_cmd: string; expected: string; observed: string; status: string; created_at: string; resolved_at: string | null };
+
+  function setup(status: string): { db: TrajectoryDB; handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>; taskId: number } {
+    const db = tempDB();
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+            VALUES (1, 'fix/findings', '', 'd', ?, ?, datetime('now'), datetime('now'))`, [status, SPEC]);
+    const taskId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'fix/findings'`)!.id;
+    const seed = (n: number, attempt: number, findingStatus: string, criterion: string | null) =>
+      db.run(
+        `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at, resolved_at)
+         VALUES (?, ?, ?, ?, ?, 'exit 0', ?, ?, '2026-01-01T00:00:00.000Z', ?)`,
+        [`F${taskId}-${n}`, taskId, attempt, criterion, `exit ${n}`, `exit ${n} seen`, findingStatus, findingStatus === 'open' ? null : '2026-01-02T00:00:00.000Z'],
+      );
+    seed(1, 1, 'fixed', 'SC1');
+    seed(2, 1, 'open', 'SC1');
+    seed(3, 1, 'wontfix', null);
+    seed(10, 2, 'open', null);
+    seed(4, 2, 'open', 'SC1');
+    return { db, handlers: compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, taskId };
+  }
+
+  const findings = (db: TrajectoryDB, taskId: number): Finding[] =>
+    db.all<Finding>(
+      `SELECT * FROM review_findings WHERE task_id = ? ORDER BY CAST(substr(id, instr(id, '-') + 1) AS INTEGER)`,
+      [taskId],
+    ).map((r) => ({ ...r }));
+  const auditRows = (db: TrajectoryDB, eventType: string) =>
+    db.all<{ from_node: string; content_json: string }>(`SELECT from_node, content_json FROM audit WHERE event_type = ? ORDER BY id`, [eventType])
+      .map((r) => ({ from_node: r.from_node, content: JSON.parse(r.content_json) as Record<string, unknown> }));
+
+  it('SC2: task_reopen wontfix sets the findings to wontfix with resolved_at, one audit row each, and drops them from open_findings and the probes', async () => {
+    const { db, handlers, taskId } = setup('failed');
+    const r = await call(handlers, 'task_reopen', {
+      agent: 'bro', task_id: taskId, reason: 'review failed',
+      wontfix: [
+        { finding_id: `F${taskId}-2`, reason: 'Human accepts the legacy output' },
+        { finding_id: `F${taskId}-10`, reason: 'out of scope per the Human' },
+      ],
+    });
+    assert.equal(r.isError, undefined, JSON.stringify(parse(r)));
+    const out = parse(r);
+    assert.deepEqual(out['wontfixed'], [`F${taskId}-2`, `F${taskId}-10`]);
+    assert.equal(out['status'], 'running');
+    const rows = findings(db, taskId);
+    for (const id of [`F${taskId}-2`, `F${taskId}-10`]) {
+      const row = rows.find((f) => f.id === id)!;
+      assert.equal(row.status, 'wontfix', id);
+      assert.match(String(row.resolved_at), /^\d{4}-\d{2}-\d{2}T/, id);
+    }
+    assert.equal(rows.find((f) => f.id === `F${taskId}-4`)!.status, 'open');
+    assert.deepEqual(auditRows(db, 'review_finding_wontfix'), [
+      { from_node: 'bro', content: { task_id: taskId, finding_id: `F${taskId}-2`, reason: 'Human accepts the legacy output' } },
+      { from_node: 'bro', content: { task_id: taskId, finding_id: `F${taskId}-10`, reason: 'out of scope per the Human' } },
+    ]);
+    const brief = parse(await call(handlers, 'task_brief', { agent: 'swe', task_id: taskId })) as { open_findings: Array<{ id: string }> };
+    assert.deepEqual(brief.open_findings.map((f) => f.id), [`F${taskId}-4`]);
+    assert.deepEqual(activeFindingProbes(db, taskId).map((p) => p.id), [`F${taskId}-1`, `F${taskId}-4`]);
+    db.close();
+  });
+
+  it('SC2: task_reopen without wontfix returns wontfixed [] and writes no wontfix audit row', async () => {
+    const { db, handlers, taskId } = setup('failed');
+    const out = parse(await call(handlers, 'task_reopen', { agent: 'bro', task_id: taskId, reason: 'review failed' }));
+    assert.deepEqual(out['wontfixed'], []);
+    assert.equal(auditRows(db, 'review_finding_wontfix').length, 0);
+    db.close();
+  });
+
+  it('SC3: task_reopen refuses a bad wontfix list whole and writes nothing', async () => {
+    const { db, handlers, taskId } = setup('failed');
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+            VALUES (1, 'fix/other', '', 'd', 'failed', ?, datetime('now'), datetime('now'))`, [SPEC]);
+    const otherId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'fix/other'`)!.id;
+    db.run(`INSERT INTO review_findings (id, task_id, attempt_n, probe_cmd, expected, observed, status, created_at)
+            VALUES (?, ?, 1, 'false', 'exit 0', 'exit 1', 'open', '2026-01-01T00:00:00.000Z')`, [`F${otherId}-1`, otherId]);
+    const good = { finding_id: `F${taskId}-2`, reason: 'Human accepts this one' };
+    const before = findings(db, taskId);
+    const cases: Array<[string, Record<string, unknown>, RegExp]> = [
+      ['agent is not bro', { agent: 'swe', wontfix: [good] }, /forbidden/],
+      ['finding of another task', { wontfix: [good, { finding_id: `F${otherId}-1`, reason: 'Human accepts this one' }] }, /not a review finding of task/],
+      ['unknown finding', { wontfix: [{ finding_id: `F${taskId}-99`, reason: 'Human accepts this one' }] }, /not a review finding of task/],
+      ['fixed finding', { wontfix: [good, { finding_id: `F${taskId}-1`, reason: 'Human accepts this one' }] }, /'fixed'; only an open finding/],
+      ['wontfix finding', { wontfix: [{ finding_id: `F${taskId}-3`, reason: 'Human accepts this one' }] }, /'wontfix'; only an open finding/],
+      ['short reason', { wontfix: [good, { finding_id: `F${taskId}-4`, reason: ' too short ' }] }, /at least 10 characters/],
+      ['duplicate id', { wontfix: [good, good] }, /more than once/],
+    ];
+    for (const [label, args, pattern] of cases) {
+      const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: taskId, reason: 'review failed', ...args });
+      assert.equal(r.isError, true, label);
+      assert.match(String(parse(r)['error']), pattern, label);
+      assert.equal(db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [taskId])!.status, 'failed', label);
+      assert.deepEqual(findings(db, taskId), before, label);
+      assert.equal(auditRows(db, 'review_finding_wontfix').length, 0, label);
+      assert.equal(auditRows(db, 'task_reopened').length, 0, label);
+    }
+    assert.equal(db.get<{ status: string }>('SELECT status FROM review_findings WHERE id = ?', [`F${otherId}-1`])!.status, 'open');
+    db.close();
+  });
+
+  it('SC4: task_retry copies the open findings in id order onto the new task, leaves the source rows, and audits the carry', async () => {
+    const { db, handlers, taskId } = setup('failed');
+    const before = findings(db, taskId);
+    const r = await call(handlers, 'task_retry', {
+      agent: 'bro', failed_task_id: String(taskId), new_branch_id: 'fix/findings-v2', corrected_spec_body: SPEC,
+      retry_rationale: 'second approach', description: 'd',
+    });
+    assert.equal(r.isError, undefined, JSON.stringify(parse(r)));
+    const out = parse(r);
+    const newId = out['task_id'] as number;
+    const expectedCarry = [
+      { from: `F${taskId}-2`, id: `F${newId}-1` },
+      { from: `F${taskId}-4`, id: `F${newId}-2` },
+      { from: `F${taskId}-10`, id: `F${newId}-3` },
+    ];
+    assert.deepEqual(out['carried_findings'], expectedCarry);
+    assert.deepEqual(findings(db, taskId), before, 'the failed task\'s rows are unchanged');
+    const copies = findings(db, newId);
+    assert.deepEqual(
+      copies.map(({ id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, resolved_at }) => ({
+        id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, resolved_at,
+      })),
+      expectedCarry.map(({ from, id }) => {
+        const src = before.find((f) => f.id === from)!;
+        return {
+          id, task_id: newId, attempt_n: 0, criterion_id: src.criterion_id, probe_cmd: src.probe_cmd,
+          expected: src.expected, observed: src.observed, status: 'open', resolved_at: null,
+        };
+      }),
+    );
+    for (const c of copies) assert.notEqual(c.created_at, '2026-01-01T00:00:00.000Z', 'created_at is the retry time');
+    assert.deepEqual(auditRows(db, 'review_findings_carried'), [
+      { from_node: 'bro', content: { from_task_id: taskId, to_task_id: newId, findings: expectedCarry } },
+    ]);
+
+    const brief = parse(await call(handlers, 'task_brief', { agent: 'swe', task_id: newId })) as { open_findings: Array<{ id: string }> };
+    assert.deepEqual(brief.open_findings.map((f) => f.id), expectedCarry.map((c) => c.id));
+
+    seedReviewerObservation(db, newId, 1, { agentId: 'reviewer-agent-0001' });
+    const recorded = await call(validationTools(db).handlers, 'validation_record', {
+      agent: 'pr-reviewer', task_id: newId, attempt_n: 1, verdict: 'fail', feedback: '# Review', mcp_available: true,
+      findings: [{ probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1' }],
+    });
+    assert.ok(!recorded.isError, JSON.stringify(parse(recorded)));
+    assert.deepEqual(findings(db, newId).map((f) => [f.id, f.attempt_n]), [
+      [`F${newId}-1`, 0], [`F${newId}-2`, 0], [`F${newId}-3`, 0], [`F${newId}-4`, 1],
+    ]);
+    db.close();
+  });
+
+  it('SC4: task_retry with no open findings returns carried_findings [] and writes no carry audit row', async () => {
+    const { db, handlers, taskId } = setup('failed');
+    db.run(`UPDATE review_findings SET status = 'fixed', resolved_at = '2026-01-02T00:00:00.000Z' WHERE task_id = ? AND status = 'open'`, [taskId]);
+    const out = parse(await call(handlers, 'task_retry', {
+      agent: 'bro', failed_task_id: String(taskId), new_branch_id: 'fix/findings-v3', corrected_spec_body: SPEC,
+      retry_rationale: 'second approach', description: 'd',
+    }));
+    assert.deepEqual(out['carried_findings'], []);
+    assert.equal(findings(db, out['task_id'] as number).length, 0);
+    assert.equal(auditRows(db, 'review_findings_carried').length, 0);
+    db.close();
   });
 });

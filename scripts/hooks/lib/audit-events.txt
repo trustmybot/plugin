@@ -50,6 +50,8 @@ remote_id_guard_overrun	hook
 repo_remotes_migration_skipped	server
 repo_rename_detected	bro
 repo_renamed	bro
+review_finding_wontfix	bro
+review_findings_carried	bro
 review_gate_bypassed	bro,hook
 review_gate_waived	bro
 reviewer_identity_observed	hook

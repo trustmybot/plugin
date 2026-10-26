@@ -36,6 +36,7 @@ import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import {
   FINDING_ORDER_SQL,
   activeFindingProbes,
+  carryOpenFindings,
   gateCommands,
   latestVerificationRun,
   passingRunForCommit,
@@ -675,6 +676,49 @@ function appendUnique(existing: readonly string[], additions: readonly string[])
   return out;
 }
 
+const WONTFIX_REASON_MIN_CHARS = 10;
+
+interface WontfixEntry {
+  finding_id: string;
+  reason: string;
+}
+
+/**
+ * task_reopen's wontfix[]: each entry names an open review finding of the task
+ * once, with a reason of at least WONTFIX_REASON_MIN_CHARS characters. Any bad
+ * entry refuses the whole list.
+ */
+function parseWontfix(db: TrajectoryDB, taskId: number, value: unknown): WontfixEntry[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error('wontfix must be an array of {finding_id, reason}.');
+  const seen = new Set<string>();
+  return value.map((item, i) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new Error(`wontfix[${i}] must be an object {finding_id, reason}.`);
+    }
+    const { finding_id: findingId, reason } = item as Record<string, unknown>;
+    if (typeof findingId !== 'string' || findingId.trim() === '') {
+      throw new Error(`wontfix[${i}].finding_id must be a non-empty string.`);
+    }
+    if (typeof reason !== 'string' || reason.trim().length < WONTFIX_REASON_MIN_CHARS) {
+      throw new Error(`wontfix[${i}].reason must be at least ${WONTFIX_REASON_MIN_CHARS} characters: why the Human accepts finding ${findingId}.`);
+    }
+    if (seen.has(findingId)) throw new Error(`wontfix names finding ${findingId} more than once.`);
+    seen.add(findingId);
+    const finding = db.get<{ task_id: number; status: string }>(
+      'SELECT task_id, status FROM review_findings WHERE id = ?',
+      [findingId],
+    );
+    if (!finding || finding.task_id !== taskId) {
+      throw new Error(`wontfix[${i}]: finding ${findingId} is not a review finding of task ${taskId}.`);
+    }
+    if (finding.status !== 'open') {
+      throw new Error(`wontfix[${i}]: finding ${findingId} is '${finding.status}'; only an open finding can be marked wontfix.`);
+    }
+    return { finding_id: findingId, reason: reason.trim() };
+  });
+}
+
 const REOPENABLE_STATUSES = new Set(['pending', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
 
@@ -710,7 +754,8 @@ export function compositeTools(
       description:
         "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
         "new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. " +
-        "Returns {task_id, branch_id, effort, git_setup, base_ref, worktree_path, diagnostic?}.",
+        "Copies the failed task's open review findings onto the new task as F<new_task_id>-<n>. " +
+        "Returns {task_id, branch_id, effort, carried_findings: [{from, id}], git_setup, base_ref, worktree_path, diagnostic?}.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -999,7 +1044,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, branch_created, diagnostic?}; spawn swe on the task next.",
+        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, wontfixed, worktree_path, worktree_recreated, branch_created, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1024,6 +1069,16 @@ export function compositeTools(
           spawn_note: {
             type: 'string',
             description: `Optional context for the rework swe beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars; task_brief returns it as spawn_note.`,
+          },
+          wontfix: {
+            type: 'array',
+            description: `Open findings of this task the Human accepts: each set to wontfix (no longer probed), with a review_finding_wontfix audit row. Reason ≥${WONTFIX_REASON_MIN_CHARS} chars; any bad entry refuses the call.`,
+            items: {
+              type: 'object',
+              properties: { finding_id: { type: 'string' }, reason: { type: 'string' } },
+              required: ['finding_id', 'reason'],
+              additionalProperties: false,
+            },
           },
           session_id: RUN_SESSION_ID_SCHEMA,
         },
@@ -1448,6 +1503,7 @@ export function compositeTools(
         if (task.issue_status === 'closed') {
           return err(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
         }
+        const wontfix = parseWontfix(db, taskId, args['wontfix']);
 
         const repoPath = resolveRepoPath(db, task.repo);
         if (repoPath) {
@@ -1504,6 +1560,21 @@ export function compositeTools(
           if (effortRank(effort) > effortRank(task.effort)) {
             insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
           }
+          for (const w of wontfix) {
+            db.run(
+              `UPDATE review_findings SET status = 'wontfix', resolved_at = ? WHERE id = ? AND task_id = ? AND status = 'open'`,
+              [now, w.finding_id, taskId],
+            );
+            insertAudit(db, {
+              issue_id: task.issue_id,
+              branch_id: task.branch_id,
+              from_node: agent,
+              event_type: 'review_finding_wontfix',
+              summary: `Finding ${w.finding_id} of task ${taskId} marked wontfix: ${w.reason}`.slice(0, 200),
+              content_json: JSON.stringify({ task_id: taskId, finding_id: w.finding_id, reason: w.reason }),
+              created_at: now,
+            });
+          }
         });
 
         let worktreePath: string | null = null;
@@ -1543,6 +1614,7 @@ export function compositeTools(
           files,
           verification,
           effort,
+          wontfixed: wontfix.map((w) => w.finding_id),
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
           branch_created: branchCreated,
@@ -2109,7 +2181,20 @@ export function compositeTools(
             insertEffortRaised(db, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, agent, now, failed.id);
           }
 
-          return newTask;
+          const carried = carryOpenFindings(db, failed.id, newTask.id, now);
+          if (carried.length > 0) {
+            insertAudit(db, {
+              issue_id: failed.issue_id,
+              branch_id: newBranchId,
+              from_node: agent,
+              event_type: 'review_findings_carried',
+              summary: `Carried ${carried.length} open review finding(s) from task ${failed.id} to task ${newTask.id}`,
+              content_json: JSON.stringify({ from_task_id: failed.id, to_task_id: newTask.id, findings: carried }),
+              created_at: now,
+            });
+          }
+
+          return { ...newTask, carried };
         });
 
         if (!repoPath || !branchSetup) {
@@ -2117,6 +2202,7 @@ export function compositeTools(
             task_id: result.id,
             branch_id: result.branch_id,
             effort,
+            carried_findings: result.carried,
             worktree_path: null,
             diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
           });
@@ -2132,6 +2218,7 @@ export function compositeTools(
           task_id: result.id,
           branch_id: result.branch_id,
           effort,
+          carried_findings: result.carried,
           git_setup: branchSetup.gitSetup,
           base_ref: branchSetup.baseRef,
           worktree_path: worktreePath,
