@@ -11,7 +11,7 @@ import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import {
   fileRefKey,
   IMPACT_MAX_DEPTH,
@@ -303,7 +303,7 @@ function symbolSource(db: TrajectoryDB, symbol: SymbolRow): { source: SymbolSour
     return { source: null, source_reason: 'file-missing' };
   }
   const rel = relative(root, file);
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return { source: null, source_reason: 'outside-repo-root' };
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return { source: null, source_reason: 'outside-repo-root' };
   let lines: string[];
   try {
     lines = readFileSync(file, 'utf8').split('\n');
@@ -311,6 +311,7 @@ function symbolSource(db: TrajectoryDB, symbol: SymbolRow): { source: SymbolSour
     return { source: null, source_reason: 'file-unreadable' };
   }
   const start = Math.max(1, symbol.start_line);
+  if (start > lines.length) return { source: null, source_reason: 'range-past-eof' };
   const end = Math.min(symbol.end_line, lines.length);
   const truncated = end - start + 1 > SOURCE_MAX_LINES;
   const last = truncated ? start + SOURCE_MAX_LINES - 1 : end;

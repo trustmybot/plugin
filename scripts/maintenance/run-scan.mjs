@@ -8,11 +8,13 @@
 // that fails to open (an older schema this opener may not migrate, a lock,
 // corruption) exits 1 with the error.
 //
-// Usage: TRAJECTORY_DB_PATH=<db> run-scan.mjs [project-root]. The DB path is
+// Usage: TRAJECTORY_DB_PATH=<db> run-scan.mjs [project-root] [source]. The DB path is
 // required and never discovered: only the trajectory-server resolves and
 // migrates the live DB (GH 1639). The project root is the argument, else
 // CLAUDE_PROJECT_DIR (set on every Claude Code hook) — never the working
 // directory, which may be a worktree or a subdirectory. Neither → exit 2.
+// The source is scan_run's audit `source`: bro_auto_post_close by default,
+// startup_catchup from the server's connect-time catch-up.
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -55,7 +57,7 @@ async function main() {
     const result = await tools.handlers.scan_run({
       agent: 'bro',
       session_dir: projectRoot,
-      source: 'bro_auto_post_close',
+      source: process.argv[3] || 'bro_auto_post_close',
     });
     if (result.isError) {
       console.error(`${TAG} scan_run error: ${result.content?.[0]?.text ?? '?'}`);

@@ -93,6 +93,21 @@ else
   _fail "expected 'discovered N repos' in output, got: $OUT"
 fi
 
+# ── Test: the audit source comes from the second argument (GH 1851) ──────────
+last_scan_source() {
+  sqlite3 "$DB" "SELECT json_extract(content_json, '\$.source') FROM audit
+                  WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1;"
+}
+
+test_case "no source argument: the scan is audited as bro_auto_post_close"
+SRC=$(last_scan_source)
+if [ "$SRC" = "bro_auto_post_close" ]; then _pass; else _fail "want bro_auto_post_close, got '$SRC'"; fi
+
+test_case "source argument startup_catchup: the scan is audited as startup_catchup"
+CATCHUP_OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" "$WS" startup_catchup 2>&1) || true )
+SRC=$(last_scan_source)
+if [ "$SRC" = "startup_catchup" ]; then _pass; else _fail "want startup_catchup, got '$SRC'. output: $CATCHUP_OUT"; fi
+
 # ── Test: lock released after scan completes ─────────────────────────────────
 test_case "lock file absent after normal rescan completion"
 LOCK="$WS/.claude/tmb/scan.lock"
