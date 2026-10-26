@@ -577,6 +577,90 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
       assert.equal(install(root, data, { PATH: bunDir }).rc, 0);
       assert.ok(lstatSync(sibling).isDirectory());
     });
+
+    function inodes(version: string): number[] {
+      return ['node_modules', 'node_modules/@huggingface', join('node_modules', PKG)].map((p) => lstatSync(join(version, p)).ino);
+    }
+
+    function removedLine(log: string[], path: string): boolean {
+      return log.some((l) => l === `removed ${path}`);
+    }
+
+    it('a sibling already bridged to its own valid pinned key keeps every inode and its target (GH 1716)', () => {
+      const cache = dir('bridged-own/plugins/cache');
+      const data = dir('bridged-own/data');
+      const root = fakeRoot(dir('bridged-own/plugins/cache/m/p/2.0.0'));
+      const sibling = fakeRoot(join(cache, 'm/p/1.0.0'));
+      assert.equal(ensureBridge(sibling, data, 'any-symlink', runtimeDepsKey()), true);
+      const before = inodes(sibling);
+
+      const run = install(root, data, { PATH: bunDir });
+      assert.equal(run.rc, 0, run.log.join('\n'));
+      assert.deepEqual(inodes(sibling), before);
+      assert.equal(readlinkSync(join(sibling, 'node_modules', PKG)), bridgeTarget(data));
+      assert.equal(removedLine(run.log, join(sibling, 'node_modules')), false, run.log.join('\n'));
+      assert.equal(resolvedVersion(sibling), TRANSFORMERS_VERSION);
+    });
+
+    it('a bridge-only sibling linked to a key that is not a valid install is re-pointed to its pinned key, not deleted (GH 1716)', () => {
+      const cache = dir('bridged-stale/plugins/cache');
+      const data = dir('bridged-stale/data');
+      const root = fakeRoot(dir('bridged-stale/plugins/cache/m/p/2.0.0'));
+      const pinnedKey = fakeKey(data, '3.0.0', '2026-01-01T00:00:00.000Z');
+      const sibling = fakeRoot(join(cache, 'm/p/1.1.0'), '3.0.0');
+      assert.equal(ensureBridge(sibling, data, 'any-symlink', 'no-such-key'), true);
+      const [nodeModules, scope] = inodes(sibling);
+
+      const run = install(root, data, { PATH: bunDir });
+      assert.equal(run.rc, 0, run.log.join('\n'));
+      assert.deepEqual(inodes(sibling).slice(0, 2), [nodeModules, scope]);
+      assert.equal(readlinkSync(join(sibling, 'node_modules', PKG)), bridgeTarget(data, pinnedKey));
+      assert.equal(resolvedVersion(sibling), '3.0.0');
+      assert.equal(removedLine(run.log, join(sibling, 'node_modules')), false, run.log.join('\n'));
+    });
+
+    it('a bridge-only sibling whose own pin has no valid install keeps its node_modules and link as they were (GH 1716)', () => {
+      const cache = dir('bridged-nopin/plugins/cache');
+      const data = dir('bridged-nopin/data');
+      const root = fakeRoot(dir('bridged-nopin/plugins/cache/m/p/2.0.0'));
+      const sibling = fakeRoot(join(cache, 'm/p/1.3.0'), '3.1.0');
+      assert.equal(ensureBridge(sibling, data, 'any-symlink', 'gone-key'), true);
+      const before = inodes(sibling);
+
+      const run = install(root, data, { PATH: bunDir });
+      assert.equal(run.rc, 0, run.log.join('\n'));
+      assert.deepEqual(inodes(sibling), before);
+      assert.equal(readlinkSync(join(sibling, 'node_modules', PKG)), bridgeTarget(data, 'gone-key'));
+      assert.ok(run.log.some((l) => l.includes('left') && l.includes(sibling) && l.includes('3.1.0')), run.log.join('\n'));
+    });
+
+    it('anything but the exact bridge layout keeps the replacement path; the MCP node_modules is still removed (GH 1716)', () => {
+      const cache = dir('bridged-not/plugins/cache');
+      const data = dir('bridged-not/data');
+      const root = fakeRoot(dir('bridged-not/plugins/cache/m/p/2.0.0'));
+      const extra = fakeRoot(join(cache, 'm/p/1.0.0'));
+      assert.equal(ensureBridge(extra, data, 'any-symlink', runtimeDepsKey()), true);
+      writeFileSync(join(extra, 'node_modules/keep-me'), 'x');
+      const outside = fakeRoot(join(cache, 'm/p/1.1.0'));
+      mkdirSync(join(outside, 'node_modules/@huggingface'), { recursive: true });
+      cpSymlink(dir('bridged-not/elsewhere', PKG), join(outside, 'node_modules', PKG));
+      const withMcp = fakeRoot(join(cache, 'm/p/1.2.0'));
+      assert.equal(ensureBridge(withMcp, data, 'any-symlink', runtimeDepsKey()), true);
+      const withMcpInodes = inodes(withMcp);
+      dir('bridged-not/plugins/cache/m/p/1.2.0/mcp/trajectory-server/node_modules/onnxruntime-node');
+
+      const run = install(root, data, { PATH: bunDir });
+      assert.equal(run.rc, 0, run.log.join('\n'));
+      for (const replaced of [extra, outside]) {
+        assert.ok(removedLine(run.log, join(replaced, 'node_modules')), run.log.join('\n'));
+        assert.equal(readlinkSync(join(replaced, 'node_modules', PKG)), bridgeTarget(data));
+      }
+      assert.equal(existsSync(join(extra, 'node_modules/keep-me')), false);
+      assert.equal(existsSync(join(withMcp, 'mcp/trajectory-server/node_modules')), false);
+      assert.ok(removedLine(run.log, join(withMcp, 'mcp/trajectory-server/node_modules')), run.log.join('\n'));
+      assert.deepEqual(inodes(withMcp), withMcpInodes);
+      assert.equal(removedLine(run.log, join(withMcp, 'node_modules')), false, run.log.join('\n'));
+    });
   });
 
   describe('the gate', () => {
