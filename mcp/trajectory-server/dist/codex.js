@@ -25300,7 +25300,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
-  { type: "issue_adopted", writers: ["bro"], description: "`issue_create` or `issue_adopt_remote` adopted an existing remote issue as the local issue's twin; `content_json` carries `issue_id`, `backend`, `remote_iid`" },
+  { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
   { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
   { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
@@ -31359,6 +31359,17 @@ function repoSlugFromRemoteUrl(remoteUrl) {
   const repoPath = parsed.repoPath.replace(/\.git$/, "");
   return `${parsed.host}/${repoPath}`;
 }
+var MARKER_OPEN = "<!-- ";
+var MARKER_CLOSE = " -->";
+function issueSyncMarker(issueId, createdAt) {
+  return `${MARKER_OPEN}tmb-issue:${issueId}:${createdAt}${MARKER_CLOSE}`;
+}
+function withMarker(body2, marker) {
+  if (!marker) return body2;
+  return body2 === "" ? marker : `${body2}
+
+${marker}`;
+}
 async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
   try {
     let result2;
@@ -31450,7 +31461,8 @@ function isFailure(r) {
   return r.ok === false;
 }
 async function createOnBackend(backend, opts, spawnFn) {
-  const { title, body: body2, labels = [], milestone } = opts;
+  const { title, labels = [], milestone } = opts;
+  const body2 = withMarker(opts.body, opts.marker);
   const kind = backend === "gh" ? "github" : "gitlab";
   const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
   if (opts._cwd) {
@@ -31504,16 +31516,20 @@ async function createOnBackend(backend, opts, spawnFn) {
   try {
     const result2 = spawnFn(cmd, args2, spawnOpts);
     if (result2.status !== 0) {
+      const silent = result2.stdout.trim() === "" && result2.stderr.trim() === "";
+      const outcome = result2.status === null || silent ? "unknown" : "failed";
       syncLog({
         event: "issue_create_failed",
         backend,
         issueId: opts.issueId,
+        outcome,
         stderr: result2.stderr,
         exit_code: result2.status
       });
       return {
         ok: false,
         reason: "non_zero_exit",
+        outcome,
         backend,
         stderr: result2.stderr,
         stdout: result2.stdout,
@@ -31526,11 +31542,13 @@ async function createOnBackend(backend, opts, spawnFn) {
         event: "issue_create_parse_failed",
         backend,
         issueId: opts.issueId,
+        outcome: "unknown",
         stdout: result2.stdout
       });
       return {
         ok: false,
         reason: "parse_failed",
+        outcome: "unknown",
         backend,
         stdout: result2.stdout,
         message: `could not parse remote issue id from "${cmd} ${args2.join(" ")}" output`
@@ -31547,6 +31565,7 @@ async function createOnBackend(backend, opts, spawnFn) {
             backend,
             issueId: opts.issueId,
             reason: "host_repo_mismatch",
+            outcome: "failed",
             parsed_host: parsed.host,
             parsed_repo: parsed.repoPath,
             configured_host: configured.host,
@@ -31556,6 +31575,7 @@ async function createOnBackend(backend, opts, spawnFn) {
           return {
             ok: false,
             reason: "verify_failed",
+            outcome: "failed",
             backend,
             stdout: result2.stdout,
             message: `remote iid host/repo mismatch: got ${parsed.host}/${parsed.repoPath}, expected ${configured.host}/${configured.repoPath}`
@@ -31570,12 +31590,14 @@ async function createOnBackend(backend, opts, spawnFn) {
         backend,
         issueId: opts.issueId,
         reason: verifyResult.reason,
+        outcome: "unknown",
         iid: parsed.iid,
         stdout: result2.stdout
       });
       return {
         ok: false,
         reason: "verify_failed",
+        outcome: "unknown",
         backend,
         stdout: result2.stdout,
         message: `read-back verify failed for iid ${parsed.iid}: ${verifyResult.reason}`
@@ -31599,11 +31621,13 @@ async function createOnBackend(backend, opts, spawnFn) {
       event: "issue_create_error",
       backend,
       issueId: opts.issueId,
+      outcome: "failed",
       error: message2
     });
     return {
       ok: false,
       reason: "spawn_error",
+      outcome: "failed",
       backend,
       message: message2
     };
@@ -31616,6 +31640,7 @@ async function syncIssueCreate(opts) {
     return {
       ok: false,
       reason: "no_backend",
+      outcome: "failed",
       backend: null,
       message: "no remote backend configured (issue_sync key resolved to null)"
     };
@@ -31635,9 +31660,76 @@ async function syncIssueCreate(opts) {
   return {
     ok: false,
     reason: "no_backend",
+    outcome: "failed",
     backend: null,
     message: `unrecognised backend "${backend}" \u2014 use issue_create for dual-backend creates`
   };
+}
+var MARKER_LOOKUP_LIMIT = 50;
+function markerToken(marker) {
+  if (!marker.startsWith(MARKER_OPEN) || !marker.endsWith(MARKER_CLOSE)) return marker;
+  return marker.slice(MARKER_OPEN.length, marker.length - MARKER_CLOSE.length);
+}
+function markerListArgs(backend, repoSlug, search) {
+  if (backend === "gh") {
+    const args3 = ["issue", "list", "--state", "all", "--limit", String(MARKER_LOOKUP_LIMIT), "--json", "number,body"];
+    if (search !== null) args3.push("--search", `"${search}" in:body`);
+    if (repoSlug) args3.push("--repo", repoSlug);
+    return args3;
+  }
+  const args2 = ["issue", "list", "--all", "--per-page", String(MARKER_LOOKUP_LIMIT), "--output", "json"];
+  if (search !== null) args2.push("--search", search, "--in", "description");
+  if (repoSlug) args2.push("-R", repoSlug);
+  return args2;
+}
+function matchMarker(backend, stdout, marker) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const iidKey = backend === "gh" ? "number" : "iid";
+  const bodyKey = backend === "gh" ? "body" : "description";
+  const iids = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const iid = entry[iidKey];
+    const text = entry[bodyKey];
+    if (typeof iid === "number" && typeof text === "string" && text.includes(marker)) iids.push(iid);
+  }
+  return iids;
+}
+async function findIssuesByMarker(backend, marker, opts = {}) {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  for (const search of [null, markerToken(marker)]) {
+    let result2;
+    try {
+      result2 = spawnFn(backend, markerListArgs(backend, opts.repoSlug, search), spawnOpts);
+    } catch (e) {
+      const message2 = e instanceof Error ? e.message : String(e);
+      syncLog({ event: "issue_marker_lookup_error", backend, marker, error: message2 });
+      return { ok: false, reason: "spawn_error", message: message2 };
+    }
+    if (result2.status !== 0) {
+      syncLog({ event: "issue_marker_lookup_failed", backend, marker, exit_code: result2.status, stderr: result2.stderr });
+      return { ok: false, reason: "non_zero_exit", exit_code: result2.status ?? void 0, stderr: result2.stderr };
+    }
+    const iids = matchMarker(backend, result2.stdout, marker);
+    if (iids === null) {
+      syncLog({ event: "issue_marker_lookup_parse_failed", backend, marker, stdout: result2.stdout });
+      return { ok: false, reason: "parse_failed", message: `could not parse "${backend} issue list" output` };
+    }
+    if (iids.length > 0) {
+      const sorted = [...new Set(iids)].sort((a, b) => a - b);
+      syncLog({ event: "issue_marker_lookup_match", backend, marker, iids: sorted, searched: search !== null });
+      return { ok: true, iids: sorted };
+    }
+  }
+  return { ok: true, iids: [] };
 }
 async function syncIssueClose(opts) {
   const spawnFn = opts._spawnFn ?? defaultSpawnFn;
@@ -32044,6 +32136,11 @@ function notSyncedHint(clis) {
   const names = clis.map((c) => CLI_LABEL[c]).join(" and ");
   return `The ${names} remote is not the Remote chosen at onboard; re-run /onboard to change the Remote choice.`;
 }
+var SYNC_RETRY_HINT = "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.";
+var SYNC_UNKNOWN_HINT = "The remote issue may already exist: the create's result was lost. Run `issue_sync_retry`; it looks for the issue by its body marker before it creates, so it adopts that issue rather than opening a duplicate. Do not re-create it by hand.";
+function syncFailureHint(outcomes) {
+  return outcomes.includes("unknown") ? SYNC_UNKNOWN_HINT : SYNC_RETRY_HINT;
+}
 async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
   if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
     return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
@@ -32286,7 +32383,7 @@ function issueTools(db, dbPath = "", options = {}) {
     },
     {
       name: "issue_sync_retry",
-      description: "Manually retry remote sync for an issue where auto-sync failed. Bro only.",
+      description: "Manually retry remote sync for an issue where auto-sync failed. Bro only. Before it creates, it looks on the remote for the issue's body marker and adopts a match (adopted, duplicates); when that lookup fails it creates nothing (reason lookup_failed).",
       inputSchema: {
         type: "object",
         properties: {
@@ -32434,6 +32531,7 @@ function issueTools(db, dbPath = "", options = {}) {
         throw new Error("issue_create: failed to retrieve inserted row");
       }
       const issueId = rowId.id;
+      const marker = issueSyncMarker(issueId, now2);
       const syncConfigRow = db.get(
         `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
       );
@@ -32499,6 +32597,7 @@ function issueTools(db, dbPath = "", options = {}) {
                   issueId,
                   title: objective,
                   body: description,
+                  marker,
                   labels,
                   milestone: milestone ?? void 0,
                   _backend: "gh",
@@ -32506,11 +32605,12 @@ function issueTools(db, dbPath = "", options = {}) {
                   _cwd: syncCwd,
                   _remoteUrl: ghRemoteUrl ?? void 0,
                   _repoSlug: ghRemote?.slug ?? void 0
-                }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "gh", message: "blank remote URL for gh" }),
+                }) : Promise.resolve({ ok: false, reason: "no_backend", outcome: "failed", backend: "gh", message: "blank remote URL for gh" }),
                 !glBlank ? syncIssueCreate({
                   issueId,
                   title: objective,
                   body: description,
+                  marker,
                   labels,
                   milestone: milestone ?? void 0,
                   _backend: "glab",
@@ -32518,11 +32618,14 @@ function issueTools(db, dbPath = "", options = {}) {
                   _cwd: syncCwd,
                   _remoteUrl: glRemoteUrl ?? void 0,
                   _repoSlug: glRemote?.slug ?? void 0
-                }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "glab", message: "blank remote URL for glab" })
+                }) : Promise.resolve({ ok: false, reason: "no_backend", outcome: "failed", backend: "glab", message: "blank remote URL for glab" })
               ]);
               const ghIid = !isFailure(ghResult) && ghResult.remote_kind === "github" ? ghResult.remote_iid : null;
               const glIid = !isFailure(glResult) && glResult.remote_kind === "gitlab" ? glResult.remote_iid : null;
               const firstSuccess = !isFailure(ghResult) ? ghResult : !isFailure(glResult) ? glResult : null;
+              const failureOutcomes = {};
+              if (isFailure(ghResult)) failureOutcomes.gh = ghResult.outcome;
+              if (isFailure(glResult)) failureOutcomes.glab = glResult.outcome;
               if (firstSuccess !== null) {
                 db.run(
                   `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
@@ -32531,18 +32634,19 @@ function issueTools(db, dbPath = "", options = {}) {
               } else {
                 const failures = [];
                 if (isFailure(ghResult)) {
-                  serverLog({ event: "issue_sync_failed", issueId, backend: "gh", reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
+                  serverLog({ event: "issue_sync_failed", issueId, backend: "gh", reason: ghResult.reason, outcome: ghResult.outcome, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
                   failures.push("gh");
                 }
                 if (isFailure(glResult)) {
-                  serverLog({ event: "issue_sync_failed", issueId, backend: "glab", reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
+                  serverLog({ event: "issue_sync_failed", issueId, backend: "glab", reason: glResult.reason, outcome: glResult.outcome, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
                   failures.push("glab");
                 }
                 syncDiagnostic = {
                   sync_failed: true,
                   reason: "both_remotes_failed",
                   backends: failures,
-                  hint: "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug."
+                  outcomes: failureOutcomes,
+                  hint: syncFailureHint(Object.values(failureOutcomes))
                 };
               }
               if (ghIid !== null || glIid !== null) {
@@ -32553,9 +32657,10 @@ function issueTools(db, dbPath = "", options = {}) {
                   syncDiagnostic = {
                     sync_partial: true,
                     failed_backends: partial2,
+                    outcomes: failureOutcomes,
                     gh_iid: ghIid,
                     gl_iid: glIid,
-                    hint: "Try `issue_sync_retry` to retry the failed remote."
+                    hint: Object.values(failureOutcomes).includes("unknown") ? SYNC_UNKNOWN_HINT : "Try `issue_sync_retry` to retry the failed remote."
                   };
                 }
               }
@@ -32598,6 +32703,7 @@ function issueTools(db, dbPath = "", options = {}) {
                 issueId,
                 title: objective,
                 body: description,
+                marker,
                 labels,
                 milestone: milestone ?? void 0,
                 _backend: createBackend,
@@ -32626,6 +32732,7 @@ function issueTools(db, dbPath = "", options = {}) {
                   issueId,
                   backend,
                   reason: syncResult.reason,
+                  outcome: syncResult.outcome,
                   exit_code: syncResult.exit_code,
                   stderr: syncResult.stderr?.slice(0, 1024),
                   message: syncResult.message
@@ -32633,12 +32740,13 @@ function issueTools(db, dbPath = "", options = {}) {
                 syncDiagnostic = {
                   sync_failed: true,
                   reason: syncResult.reason,
+                  outcome: syncResult.outcome,
                   backend: syncResult.backend,
                   exit_code: syncResult.exit_code,
                   stderr: syncResult.stderr?.slice(0, 4096),
                   stdout: syncResult.stdout?.slice(0, 4096),
                   message: syncResult.message,
-                  hint: "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug."
+                  hint: syncFailureHint([syncResult.outcome])
                 };
               }
             }
@@ -33124,14 +33232,55 @@ function issueTools(db, dbPath = "", options = {}) {
           retryLabels = defaultSyncLabels(db);
         }
       }
+      const marker = issueSyncMarker(row.id, row.created_at);
       const createErrors = [];
+      const adoptions = [];
       let lastSuccess = null;
       for (const target of createTargets) {
         const retryRemote = retryCtx.remoteFor(target);
+        const lookup = await findIssuesByMarker(target, marker, {
+          spawnFn,
+          cwd: retryCwd,
+          repoSlug: retryRemote?.slug ?? void 0
+        });
+        if (!lookup.ok) {
+          createErrors.push({
+            backend: target,
+            reason: "lookup_failed",
+            lookup_reason: lookup.reason,
+            exit_code: lookup.exit_code,
+            stderr: lookup.stderr?.slice(0, 4096),
+            message: lookup.message,
+            hint: "Could not check the remote for an issue an earlier create may have made, so nothing was created. Fix the gh/glab access and retry."
+          });
+          continue;
+        }
+        if (lookup.iids.length > 0) {
+          const adoptedIid = lookup.iids[0];
+          const duplicates = lookup.iids.slice(1);
+          const remoteKind = target === "gh" ? "github" : "gitlab";
+          const adoptNow = nowISO();
+          db.run(
+            `UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+            [remoteKind, target === "gh" ? adoptedIid : null, target === "glab" ? adoptedIid : null, adoptNow, issueId]
+          );
+          insertAudit(db, {
+            issue_id: row.id,
+            from_node: "executor",
+            event_type: "issue_adopted",
+            summary: `issue ${row.id} adopted ${remoteKind} #${adoptedIid} found by its sync marker`,
+            content_json: JSON.stringify({ issue_id: row.id, backend: remoteKind, remote_iid: adoptedIid, via: "issue_sync_retry" }),
+            created_at: adoptNow
+          });
+          adoptions.push({ backend: target, remote_iid: adoptedIid, duplicates });
+          lastSuccess = { remote_iid: adoptedIid, remote_kind: remoteKind };
+          continue;
+        }
         const syncResult = await syncIssueCreate({
           issueId: row.id,
           title: issue2.objective,
           body: row.description,
+          marker,
           labels: retryLabels,
           milestone: row.milestone ?? void 0,
           _backend: target,
@@ -33152,6 +33301,7 @@ function issueTools(db, dbPath = "", options = {}) {
           createErrors.push({
             backend: syncResult.backend,
             reason: syncResult.reason,
+            outcome: syncResult.outcome,
             exit_code: syncResult.exit_code,
             stderr: syncResult.stderr?.slice(0, 4096),
             stdout: syncResult.stdout?.slice(0, 4096),
@@ -33159,11 +33309,16 @@ function issueTools(db, dbPath = "", options = {}) {
           });
         }
       }
+      const adoptionFields = adoptions.length === 0 ? {} : {
+        adopted: true,
+        duplicates: adoptions.flatMap((a) => a.duplicates),
+        adoptions
+      };
       if (createErrors.length === 0 && lastSuccess !== null) {
-        return ok2({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok2({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind, ...adoptionFields });
       }
       if (lastSuccess !== null) {
-        return ok2({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok2({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind, ...adoptionFields });
       }
       return ok2({
         action: "create",

@@ -116,6 +116,18 @@ export function repoSlugFromRemoteUrl(remoteUrl) {
     const repoPath = parsed.repoPath.replace(/\.git$/, '');
     return `${parsed.host}/${repoPath}`;
 }
+// Stamped on every remote body so a retry can find the issue a create whose
+// result was lost already made (GH 1863). created_at is the per-workspace nonce.
+const MARKER_OPEN = '<!-- ';
+const MARKER_CLOSE = ' -->';
+export function issueSyncMarker(issueId, createdAt) {
+    return `${MARKER_OPEN}tmb-issue:${issueId}:${createdAt}${MARKER_CLOSE}`;
+}
+function withMarker(body, marker) {
+    if (!marker)
+        return body;
+    return body === '' ? marker : `${body}\n\n${marker}`;
+}
 // Fetch the remote label taxonomy for a backend (one probe per create, no
 // persistent cache — #36). Returns the set of existing label names, or null
 // when the taxonomy can't be determined (probe failed / unparseable) so the
@@ -231,7 +243,8 @@ function isFailure(r) {
     return r.ok === false;
 }
 async function createOnBackend(backend, opts, spawnFn) {
-    const { title, body, labels = [], milestone } = opts;
+    const { title, labels = [], milestone } = opts;
+    const body = withMarker(opts.body, opts.marker);
     const kind = backend === 'gh' ? 'github' : 'gitlab';
     const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
     if (opts._cwd) {
@@ -292,16 +305,20 @@ async function createOnBackend(backend, opts, spawnFn) {
     try {
         const result = spawnFn(cmd, args, spawnOpts);
         if (result.status !== 0) {
+            const silent = result.stdout.trim() === '' && result.stderr.trim() === '';
+            const outcome = result.status === null || silent ? 'unknown' : 'failed';
             syncLog({
                 event: 'issue_create_failed',
                 backend,
                 issueId: opts.issueId,
+                outcome,
                 stderr: result.stderr,
                 exit_code: result.status,
             });
             return {
                 ok: false,
                 reason: 'non_zero_exit',
+                outcome,
                 backend,
                 stderr: result.stderr,
                 stdout: result.stdout,
@@ -314,11 +331,13 @@ async function createOnBackend(backend, opts, spawnFn) {
                 event: 'issue_create_parse_failed',
                 backend,
                 issueId: opts.issueId,
+                outcome: 'unknown',
                 stdout: result.stdout,
             });
             return {
                 ok: false,
                 reason: 'parse_failed',
+                outcome: 'unknown',
                 backend,
                 stdout: result.stdout,
                 message: `could not parse remote issue id from "${cmd} ${args.join(' ')}" output`,
@@ -335,6 +354,7 @@ async function createOnBackend(backend, opts, spawnFn) {
                         backend,
                         issueId: opts.issueId,
                         reason: 'host_repo_mismatch',
+                        outcome: 'failed',
                         parsed_host: parsed.host,
                         parsed_repo: parsed.repoPath,
                         configured_host: configured.host,
@@ -344,6 +364,7 @@ async function createOnBackend(backend, opts, spawnFn) {
                     return {
                         ok: false,
                         reason: 'verify_failed',
+                        outcome: 'failed',
                         backend,
                         stdout: result.stdout,
                         message: `remote iid host/repo mismatch: got ${parsed.host}/${parsed.repoPath}, expected ${configured.host}/${configured.repoPath}`,
@@ -358,12 +379,14 @@ async function createOnBackend(backend, opts, spawnFn) {
                 backend,
                 issueId: opts.issueId,
                 reason: verifyResult.reason,
+                outcome: 'unknown',
                 iid: parsed.iid,
                 stdout: result.stdout,
             });
             return {
                 ok: false,
                 reason: 'verify_failed',
+                outcome: 'unknown',
                 backend,
                 stdout: result.stdout,
                 message: `read-back verify failed for iid ${parsed.iid}: ${verifyResult.reason}`,
@@ -388,11 +411,13 @@ async function createOnBackend(backend, opts, spawnFn) {
             event: 'issue_create_error',
             backend,
             issueId: opts.issueId,
+            outcome: 'failed',
             error: message,
         });
         return {
             ok: false,
             reason: 'spawn_error',
+            outcome: 'failed',
             backend,
             message,
         };
@@ -405,6 +430,7 @@ export async function syncIssueCreate(opts) {
         return {
             ok: false,
             reason: 'no_backend',
+            outcome: 'failed',
             backend: null,
             message: 'no remote backend configured (issue_sync key resolved to null)',
         };
@@ -424,11 +450,91 @@ export async function syncIssueCreate(opts) {
     return {
         ok: false,
         reason: 'no_backend',
+        outcome: 'failed',
         backend: null,
         message: `unrecognised backend "${backend}" — use issue_create for dual-backend creates`,
     };
 }
 export { isFailure as isSyncFailure };
+const MARKER_LOOKUP_LIMIT = 50;
+function markerToken(marker) {
+    if (!marker.startsWith(MARKER_OPEN) || !marker.endsWith(MARKER_CLOSE))
+        return marker;
+    return marker.slice(MARKER_OPEN.length, marker.length - MARKER_CLOSE.length);
+}
+function markerListArgs(backend, repoSlug, search) {
+    if (backend === 'gh') {
+        const args = ['issue', 'list', '--state', 'all', '--limit', String(MARKER_LOOKUP_LIMIT), '--json', 'number,body'];
+        if (search !== null)
+            args.push('--search', `"${search}" in:body`);
+        if (repoSlug)
+            args.push('--repo', repoSlug);
+        return args;
+    }
+    const args = ['issue', 'list', '--all', '--per-page', String(MARKER_LOOKUP_LIMIT), '--output', 'json'];
+    if (search !== null)
+        args.push('--search', search, '--in', 'description');
+    if (repoSlug)
+        args.push('-R', repoSlug);
+    return args;
+}
+function matchMarker(backend, stdout, marker) {
+    let parsed;
+    try {
+        parsed = JSON.parse(stdout);
+    }
+    catch {
+        return null;
+    }
+    if (!Array.isArray(parsed))
+        return null;
+    const iidKey = backend === 'gh' ? 'number' : 'iid';
+    const bodyKey = backend === 'gh' ? 'body' : 'description';
+    const iids = [];
+    for (const entry of parsed) {
+        if (!entry || typeof entry !== 'object')
+            continue;
+        const iid = entry[iidKey];
+        const text = entry[bodyKey];
+        if (typeof iid === 'number' && typeof text === 'string' && text.includes(marker))
+            iids.push(iid);
+    }
+    return iids;
+}
+// Remote issues whose body carries `marker`, lowest iid first (GH 1863). The
+// newest-50 list needs no search index; the --search list covers older issues.
+export async function findIssuesByMarker(backend, marker, opts = {}) {
+    const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+    const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
+    if (opts.cwd)
+        spawnOpts.cwd = opts.cwd;
+    for (const search of [null, markerToken(marker)]) {
+        let result;
+        try {
+            result = spawnFn(backend, markerListArgs(backend, opts.repoSlug, search), spawnOpts);
+        }
+        catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            syncLog({ event: 'issue_marker_lookup_error', backend, marker, error: message });
+            return { ok: false, reason: 'spawn_error', message };
+        }
+        if (result.status !== 0) {
+            syncLog({ event: 'issue_marker_lookup_failed', backend, marker, exit_code: result.status, stderr: result.stderr });
+            return { ok: false, reason: 'non_zero_exit', exit_code: result.status ?? undefined, stderr: result.stderr };
+        }
+        const iids = matchMarker(backend, result.stdout, marker);
+        if (iids === null) {
+            syncLog({ event: 'issue_marker_lookup_parse_failed', backend, marker, stdout: result.stdout });
+            return { ok: false, reason: 'parse_failed', message: `could not parse "${backend} issue list" output` };
+        }
+        if (iids.length > 0) {
+            const sorted = [...new Set(iids)].sort((a, b) => a - b);
+            syncLog({ event: 'issue_marker_lookup_match', backend, marker, iids: sorted, searched: search !== null });
+            return { ok: true, iids: sorted };
+        }
+    }
+    return { ok: true, iids: [] };
+}
 export async function syncIssueClose(opts) {
     const spawnFn = opts._spawnFn ?? defaultSpawnFn;
     const { remote_iid, remote_kind } = opts;
