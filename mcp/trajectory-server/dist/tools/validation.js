@@ -143,7 +143,7 @@ export function validationTools(db) {
                         items: {
                             type: 'object',
                             properties: {
-                                criterion_id: { type: 'string', description: 'The spec Success Criteria id the finding breaks (e.g. "SC2"). Omit or null when it covers no single criterion.' },
+                                criterion_id: { type: ['string', 'null'], description: 'The spec Success Criteria id the finding breaks (e.g. "SC2"). Omit or null when it covers no single criterion.' },
                                 probe_cmd: {
                                     type: 'string',
                                     description: 'Self-contained shell command, run with bash -c from the task worktree root, that exits 0 once the finding is fixed and non-zero while it stands. ' +

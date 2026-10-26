@@ -150,6 +150,17 @@ describe('validation_record review findings (GH 1737)', () => {
             { id: `F${taskId}-4`, criterion_id: 'SC2', probe_cmd: 'exit 3', expected: 'exit 0', observed: 'exit 1: 2 failing' },
         ]);
     });
+    it('types findings[].criterion_id as string or null, and stores an explicit null as NULL (GH 1783)', async () => {
+        const def = validationTools(db).definitions.find((d) => d.name === 'validation_record');
+        const findingsSchema = def.inputSchema.properties['findings'];
+        assert.deepEqual(findingsSchema.items.properties['criterion_id'].type, ['string', 'null']);
+        const result = await record(4, { verdict: 'fail', findings: [{ ...FINDING, criterion_id: null }] });
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        const ids = parseResult(result).findings.map((f) => f.id);
+        assert.equal(ids.length, 1);
+        const row = db.get('SELECT criterion_id FROM review_findings WHERE id = ?', [ids[0]]);
+        assert.equal(row.criterion_id, null);
+    });
     it('a later pass verdict is accepted with no findings and leaves the ledger as it is', async () => {
         const before = findingRows();
         const result = await record(3, { verdict: 'pass' });
