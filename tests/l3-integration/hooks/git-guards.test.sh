@@ -1138,6 +1138,23 @@ out=$(run_hook_payload "swe" "$REPO_PATH" "export WT=$WT_PATH && cd \"\${WT}\" &
 assert_not_contains "$out" '"permissionDecision":"deny"' "export VAR=<literal> && cd \${VAR} resolves too"
 cleanup_repo
 
+test_case "GH 1911: 'W=<repo>; git -C \$W commit' keeps its dir past a quoted '(' and a data heredoc, not past an expanding one"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" "W=$REPO_PATH; git -C \$W commit -q -m \"a (b)\"")
+assert_not_contains "$out" "ambiguous_git_target" "quoted parens in -m are data"
+assert_contains "$out" "dev is a shared workflow base" "resolved to the main checkout, judged on its dev"
+out=$(run_hook_payload "swe" "$REPO_PATH" "W=$REPO_PATH; git -C \$W commit -q -F - <<EOM
+msg
+EOM")
+assert_not_contains "$out" "ambiguous_git_target" "-F - <<EOM with a plain body is data"
+assert_contains "$out" "dev is a shared workflow base" "the heredoc form resolves to the main checkout too"
+out=$(run_hook_payload "swe" "$REPO_PATH" "W=$REPO_PATH; : <<EOM
+\$((W=0))
+EOM
+git -C \$W commit -q -m x")
+assert_contains "$out" "ambiguous_git_target" "an unquoted heredoc body that assigns still kills the variable"
+cleanup_repo
+
 test_case "GH 1595: 'cd \$UNSET && git commit' with worktrees present → unresolvable-dir deny, not 'names no directory'"
 setup_dev_main_repo
 out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $UNSET && git commit -m x')

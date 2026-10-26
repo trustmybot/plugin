@@ -6190,6 +6190,20 @@ var QC = "\b";
 var JOINER = ENC[12];
 var SUB_PO = "";
 var SUB_PC = "";
+var HD_DATA = "";
+var HD_EXP = "";
+function plainDollars(text) {
+  let m;
+  while ((m = text.indexOf("$")) >= 0) {
+    text = text.slice(m + 1);
+    const braced = /^\{[A-Za-z_][A-Za-z0-9_]*\}/.exec(text);
+    const plain = braced ? null : /^[A-Za-z_][A-Za-z0-9_]*/.exec(text);
+    if (braced) text = text.slice(braced[0].length);
+    else if (plain && text[plain[0].length] !== "[") text = text.slice(plain[0].length);
+    else return false;
+  }
+  return true;
+}
 var DECODE = new Map([
   ...[...NEUTRAL, "\n"].map((c, i2) => [i2 < 10 ? ENC[i2 + 1] : ENC[12], c]),
   [SUB_PO, "("],
@@ -6204,6 +6218,12 @@ function neutral(c) {
   return k >= 0 ? ENC[k + 1] : c;
 }
 var SPECIAL = /* @__PURE__ */ new Set(["comment", "string", "raw_string", "ansi_c_string", "translated_string", "heredoc_redirect"]);
+function bodyText(src, from, end) {
+  const lineStart2 = src.lastIndexOf("\n", from.startIndex - 1) + 1;
+  const endStart = src.lastIndexOf("\n", end.startIndex - 1) + 1;
+  return endStart > lineStart2 ? src.slice(lineStart2, endStart) : "";
+}
+var plainBody = (body2) => !body2.includes("`") && plainDollars(body2);
 function specials(node, out2) {
   if (SPECIAL.has(node.type)) {
     out2.push({ start: node.startIndex, end: node.endIndex, node });
@@ -6281,7 +6301,9 @@ var Encoder = class {
     const start2 = kids2.find((c) => c.type === "heredoc_start");
     const body2 = kids2.find((c) => c.type === "heredoc_body");
     const end = kids2.find((c) => c.type === "heredoc_end");
-    const delim = start2 ? this.src.slice(start2.startIndex, start2.endIndex).replace(/['"\\]/g, "") : "";
+    const word = start2 ? this.src.slice(start2.startIndex, start2.endIndex) : "";
+    const delim = word.replace(/['"\\]/g, "");
+    const data = /['"\\]/.test(word) || end !== void 0 && plainBody(bodyText(this.src, body2 ?? end, end));
     const rest = [];
     const opEnd = start2 ? start2.endIndex : node.startIndex + 2;
     for (const c of kids2) {
@@ -6290,7 +6312,7 @@ var Encoder = class {
     const dropFrom = body2?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
     if (end && this.src[dropTo] === "\n") dropTo++;
-    return { text: "<<" + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
+    return { text: "<<" + (delim === "" ? "" : data ? HD_DATA : HD_EXP) + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
   }
   /** One word node, encoded as `range` encodes it inside its command. */
   word(node) {
@@ -9998,7 +10020,8 @@ var VSEP = "";
 var VEQ = "";
 var BAD = "";
 var VPLAIN = /^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$/;
-var VBAD = "*?[](){<>`";
+var VBAD = "*?[](){<>`";
+var HD_MARK = /<<[\x1a\x1e]/g;
 var VSPECIAL = /^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$/;
 var KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
 var NAME2 = /^[A-Za-z_][A-Za-z0-9_]*/;
@@ -10024,6 +10047,7 @@ function norm(p) {
   return joined === "" ? "/" : joined;
 }
 function rawword(t) {
+  t = unmark(t);
   let out2 = "";
   for (const ch of t) {
     if (ch === QO) out2 += "$" + ENC[8];
@@ -10038,7 +10062,11 @@ function rawword(t) {
   }
   return out2;
 }
+function unmark(t) {
+  return t.replace(HD_MARK, "<<");
+}
 function srcmark(body2, dir) {
+  body2 = unmark(body2);
   if (/[;&|()`\n]/.test(body2) || body2.includes(QO) || body2.includes(QC)) return "";
   body2 = body2.replace(/[ \t]+/g, SEP);
   if (body2.startsWith(SEP)) body2 = body2.slice(1);
@@ -10236,25 +10264,22 @@ function statementsEnc(buf, base, home, assign) {
     }
   }
   function vplainexp(text) {
-    if (text.includes("<<")) return false;
+    const parts2 = text.split("<<");
+    for (let k = 1; k < parts2.length; k++) {
+      if (!parts2[k].startsWith(HD_DATA)) return false;
+      parts2[k] = parts2[k].slice(1);
+    }
+    text = parts2.join("");
     const t = text.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "");
     for (const ch of VBAD) if (t.includes(ch)) return false;
-    let m;
-    while ((m = text.indexOf("$")) >= 0) {
-      text = text.slice(m + 1);
-      const braced = BRACED.exec(text);
-      const plain = braced ? null : NAME2.exec(text);
-      if (braced) text = text.slice(braced[0].length);
-      else if (plain && text[plain[0].length] !== "[") text = text.slice(plain[0].length);
-      else return false;
-    }
-    return true;
+    return plainDollars(text);
   }
   function flush() {
     const chained = fsep === "&&";
     fsep = "";
     vtop = sp === 0 && qsp === 0 && !bt;
     if (!vplainexp(stmt)) vok = false;
+    stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
     const w = splitWords(stmt);
