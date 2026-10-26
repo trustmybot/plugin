@@ -179,6 +179,8 @@ describe('search scope', () => {
     assert.equal(html.match(/<select/g).length, 1);
     assert.match(html, /Repository<\/span>/);
     assert.doesNotMatch(html, /role="tree"/);
+    assert.doesNotMatch(html, /No dependency graph yet/);
+    assert.doesNotMatch(html, /Dependency graph/);
     assert.ok(html.indexOf('role="radiogroup"') < html.indexOf('<input type="search"'), 'toggle sits left of the field');
   });
 
@@ -188,6 +190,8 @@ describe('search scope', () => {
     assert.match(html, /placeholder="Search folders and files…"/);
     assert.match(html, /value="src"/);
     assert.match(html, /role="tree"/);
+    const graph = html.indexOf('No dependency graph yet');
+    assert.ok(graph > html.indexOf('role="tree"'), 'dependency graph sits below the tree');
   });
 
   test('arrow keys, Home and End move between segments and wrap', () => {
