@@ -694,7 +694,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 51;
+var TARGET_SCHEMA_VERSION = 52;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1251,6 +1251,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 51 && toVersion >= 51) {
     migrateV50toV51(db);
+  }
+  if (fromVersion < 52 && toVersion >= 52) {
+    migrateV51toV52(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3063,6 +3066,29 @@ function migrateV50toV51(db) {
           WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
             AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`
       ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, "Code-reviewer", OLD_REVIEWER, OLD_REVIEWER_TITLE);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV51toV52(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      if (!hasColumn(db, "agent_runs", "stop_cause")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN stop_cause TEXT CHECK (stop_cause IN ('budget','hook_block'))");
+      }
+      if (!hasColumn(db, "agent_runs", "stop_detail")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN stop_detail TEXT");
+      }
+    }
+    if (tableExists(db, "tasks") && !hasColumn(db, "tasks", "checkpoint")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
     }
     commitTransaction(db);
   } catch (err3) {
