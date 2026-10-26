@@ -163,6 +163,54 @@ for SCRIPT in "$INVOKER" "$PLUGIN_ROOT/scripts/maintenance/run-scan-initial.mjs"
   fi
 done
 
+# ── Installed-cache shape: no node_modules, symbols still index (GH 1878) ────
+# The plugin cache ships dist/ but no devDependencies, so the invoker must reach
+# web-tree-sitter through the bundle, never through node_modules. The external
+# @huggingface/transformers is absent here too (the cache resolves it through
+# CLAUDE_PLUGIN_DATA), so its embeddings miss is expected and not asserted.
+test_case "a plugin tree with no node_modules: the copied invoker indexes a .ts file's symbols"
+CACHE="$TMPDIR/cache-plugin"
+mkdir -p "$CACHE/mcp/trajectory-server"
+# scan_run shells out to scripts/scan.sh and the hook libs it sources, as the cache ships them.
+cp -R "$PLUGIN_ROOT/scripts" "$CACHE/scripts"
+cp "$INVOKER" "$CACHE/scripts/maintenance/"
+cp -R "$PLUGIN_ROOT/mcp/trajectory-server/dist" "$CACHE/mcp/trajectory-server/dist"
+NM_ON_PATH=""
+D="$CACHE/mcp/trajectory-server/dist"
+while :; do
+  [ -e "$D/node_modules" ] && NM_ON_PATH="$NM_ON_PATH $D/node_modules"
+  [ "$D" = "/" ] && break
+  D=$(dirname "$D")
+done
+NM_INSIDE=$(find "$CACHE" -name node_modules)
+
+CWS="$TMPDIR/cache-ws"
+CREPO="$CWS/repo-ts"
+mkdir -p "$CREPO/src"
+git -C "$CREPO" init -q -b main
+git -C "$CREPO" config user.email t@t.io
+git -C "$CREPO" config user.name t
+printf 'export function greet(name: string): string {\n  return `hi ${name}`;\n}\n' > "$CREPO/src/greet.ts"
+git -C "$CREPO" add .
+git -C "$CREPO" commit -qm init
+CDB="$CWS/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$CDB")"
+TRAJECTORY_DB_PATH="$CDB" node --experimental-sqlite --no-warnings --input-type=module \
+  -e "const { TrajectoryDB } = await import('$CACHE/mcp/trajectory-server/dist/run-scan.js'); new TrajectoryDB(process.env.TRAJECTORY_DB_PATH).close(); process.exit(0);"
+
+CACHE_OUT=$( (cd "$CWS" && TRAJECTORY_DB_PATH="$CDB" _l5_timeout 120 node --experimental-sqlite \
+  "$CACHE/scripts/maintenance/run-scan.mjs" "$CWS" 2>&1) || true )
+SYM_COUNT=$(sqlite3 "$CDB" "SELECT COUNT(*) FROM wm_symbols WHERE path = 'src/greet.ts';" 2>/dev/null || echo 0)
+STAMP=$(sqlite3 "$CDB" "SELECT symbols_md5 FROM wm_files WHERE path = 'src/greet.ts';" 2>/dev/null || true)
+if [ -z "$NM_ON_PATH" ] && [ -z "$NM_INSIDE" ] \
+  && echo "$CACHE_OUT" | grep "\[post-close-rescan\] OK" >/dev/null \
+  && ! echo "$CACHE_OUT" | grep "Cannot find package 'web-tree-sitter'" >/dev/null \
+  && [ "$SYM_COUNT" -ge 1 ] && [ -n "$STAMP" ] && [ "${STAMP%:failed}" = "$STAMP" ]; then
+  _pass
+else
+  _fail "want OK, no 'Cannot find package 'web-tree-sitter'', ≥1 symbol and a non-failed stamp; got node_modules:[$NM_ON_PATH $NM_INSIDE] symbols=$SYM_COUNT stamp='$STAMP' output: $CACHE_OUT"
+fi
+
 # ── Hook: post-task-close-rescan.sh hands the invoker an explicit DB path ────
 # A fake plugin tree whose run-scan.mjs records the TRAJECTORY_DB_PATH it got.
 FAKE="$TMPDIR/fake-plugin/scripts"

@@ -95,6 +95,11 @@ perl scripts/postprocess-bundle.pl \
   --external:@huggingface/transformers \
   --outfile="$TMPDIR/hooks.js" --sourcemap >/dev/null 2>&1
 perl scripts/postprocess-bundle.pl "$TMPDIR/hooks.js" "$TMPDIR/hooks.js.map"
+./node_modules/.bin/esbuild src/run-scan.ts \
+  --bundle --platform=node --format=esm --target=node22 \
+  --external:@huggingface/transformers \
+  --outfile="$TMPDIR/run-scan.js" --sourcemap >/dev/null 2>&1
+perl scripts/postprocess-bundle.pl "$TMPDIR/run-scan.js" "$TMPDIR/run-scan.js.map"
 ./node_modules/.bin/esbuild src/hooks/manifest.ts \
   --bundle --platform=node --format=esm --target=node22 --log-level=warning \
   | node --input-type=module > "$TMPDIR/hooks-gates.txt"
