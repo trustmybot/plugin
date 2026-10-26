@@ -8,3 +8,4 @@ Controlled-vocabulary registries — the source-of-truth names that hooks branch
 | [`LABELS.md`](./LABELS.md) | The issue-label taxonomy for TMB development (one type, one priority, one area), generated from `.github/labels.json` |
 | [`CHANGELOG_AND_REBASES.md`](./CHANGELOG_AND_REBASES.md) | How a branch records its change (`changelog.d/` fragments) and how generated files survive a rebase (the `tmb-regen` merge driver + `regen-generated.sh`) |
 | [`NAMING.md`](./NAMING.md) | The one-stem-per-feature rule — every surface implementing/testing/documenting a feature uses the same name |
+| [`FILE_HEADERS.md`](./FILE_HEADERS.md) | The purpose-header rule — a new `ts`, `tsx` or `sh` source file opens with a one-line comment saying what it is for |
