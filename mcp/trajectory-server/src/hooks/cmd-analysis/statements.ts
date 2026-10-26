@@ -9,7 +9,7 @@
  * \022<dir>\022<word>… mark. The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
-import { ENC, QC, QO, SUB_PC, SUB_PO } from './encode.js';
+import { ENC, HD_DATA, QC, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 
 export const SEP = '\x12';
@@ -19,7 +19,8 @@ const VEQ = '\x1d';
 const BAD = '\x01';
 
 const VPLAIN = /^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$/;
-const VBAD = '*?[](){<>`\x03\x04\x0f\x10\x11';
+const VBAD = '*?[](){<>`';
+const HD_MARK = /<<[\x1a\x1e]/g;
 const VSPECIAL =
   /^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$/;
 const KEYWORD = /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/;
@@ -55,6 +56,7 @@ function norm(p: string): string {
 
 /** A double-quoted substitution's body as one word; its quoted parens become SUB_PO / SUB_PC so `heldProgram` can tell them from the frame (TS only). */
 function rawword(t: string): string {
+  t = unmark(t);
   let out = '';
   for (const ch of t) {
     if (ch === QO) out += '$' + ENC[8];
@@ -70,7 +72,13 @@ function rawword(t: string): string {
   return out;
 }
 
+/** The encoded text without the heredoc verdict marks of encode.ts. */
+function unmark(t: string): string {
+  return t.replace(HD_MARK, '<<');
+}
+
 function srcmark(body: string, dir: string): string {
+  body = unmark(body);
   if (/[;&|()`\n]/.test(body) || body.includes(QO) || body.includes(QC)) return '';
   body = body.replace(/[ \t]+/g, SEP);
   if (body.startsWith(SEP)) body = body.slice(1);
@@ -280,20 +288,17 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     }
   }
 
+  /** Quoted operator chars are data; each `<<` must carry encode.ts's HD_DATA mark. */
   function vplainexp(text: string): boolean {
-    if (text.includes('<<')) return false;
+    const parts = text.split('<<');
+    for (let k = 1; k < parts.length; k++) {
+      if (!parts[k].startsWith(HD_DATA)) return false;
+      parts[k] = parts[k].slice(1);
+    }
+    text = parts.join('');
     const t = text.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, '');
     for (const ch of VBAD) if (t.includes(ch)) return false;
-    let m: number;
-    while ((m = text.indexOf('$')) >= 0) {
-      text = text.slice(m + 1);
-      const braced = BRACED.exec(text);
-      const plain = braced ? null : NAME.exec(text);
-      if (braced) text = text.slice(braced[0].length);
-      else if (plain && text[plain[0].length] !== '[') text = text.slice(plain[0].length);
-      else return false;
-    }
-    return true;
+    return plainDollars(text);
   }
 
   function flush(): void {
@@ -301,6 +306,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     fsep = '';
     vtop = sp === 0 && qsp === 0 && !bt;
     if (!vplainexp(stmt)) vok = false;
+    stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
     const w = splitWords(stmt);

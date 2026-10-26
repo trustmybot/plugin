@@ -77,13 +77,17 @@
 #       `;` / `&&` sequence, is on an allowlist: `VAR=<literal>` / `export
 #       VAR=<literal>` (no expansion; one after `&&` leaves its VAR unknown)
 #       or a simple command starting with cd, git, echo, true, false, ls,
-#       cat, pwd, mkdir or touch; and each such statement has no `<<`, every
-#       `$` in it is a bare `$NAME` not followed by `[` or exactly `${NAME}`,
-#       and, quoted or not, it has none of * ? [ ] ( ) < > ` and no `{`
-#       outside an exact `${NAME}` (zsh math in test / [ and glob
-#       qualifiers can assign). Any other statement, keyword, wrapper,
-#       redirect, subshell, command substitution, pipe, `||`, `&` or IFS /
-#       shell-managed assignment makes every variable unknown from there on.
+#       cat, pwd, mkdir or touch; and each such statement has no `<<` but a
+#       heredoc's whose delimiter is quoted or whose body has no backtick and
+#       no `$` but a bare `$NAME` / `${NAME}` (strip_literals marks each
+#       `<<` with that verdict), every `$` in it is a bare `$NAME` not
+#       followed by `[` or exactly `${NAME}`, and, quoted or not, it has none
+#       of * ? [ ] and no `{` outside an exact `${NAME}`, nor an unquoted
+#       ( ) < > ` (zsh math in test / [ and glob qualifiers can assign; a
+#       quoted or escaped ( ) < > ` is data, GH 1911). Any other statement,
+#       keyword, wrapper, redirect, subshell, command substitution, pipe,
+#       `||`, `&` or IFS / shell-managed assignment makes every variable
+#       unknown from there on.
 #
 # tmb_cmd_write_paths <command> [<cwd>] [raw] [<root>]
 #   Every path the command writes, one per line, statement by statement
@@ -329,9 +333,19 @@ tmb_cmd_strip_literals() {
     function subopen(  ) { sp++; pd[sp] = 0; return keep ? sprintf("%c", 7) : "$(" }
     function subclose(  ) { sp--; state = "d"; return keep ? sprintf("%c", 8) : ")" }
     function emitbody(k) { printf "%s\t%s\n", delim[k], body[k]; body[k] = ""; bn[k] = 0 }
+    function plainbody(s,   m) {
+      if (index(s, "`")) return 0
+      while ((m = index(s, "$")) > 0) {
+        s = substr(s, m + 1)
+        if (match(s, /^\{[A-Za-z_][A-Za-z0-9_]*\}/) || (match(s, /^[A-Za-z_][A-Za-z0-9_]*/) && substr(s, RLENGTH + 1, 1) != "[")) s = substr(s, RLENGTH + 1)
+        else return 0
+      }
+      return 1
+    }
     BEGIN {
-      state = ""; nh = 0; cur = 0; inbody = 0; sp = 0
+      state = ""; nh = 0; cur = 0; inbody = 0; sp = 0; nc = 0; hg = 0
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
+      hdata = sprintf("%c", 30); hexp = sprintf("%c", 26)
     }
     {
       line = $0
@@ -342,8 +356,9 @@ tmb_cmd_strip_literals() {
           if (bodies) emitbody(cur)
           cur++
           if (cur > nh) { inbody = 0; nh = 0; cur = 0 }
-        } else if (bodies) {
-          body[cur] = (bn[cur]++ ? body[cur] "\037" : "") t
+        } else {
+          if (bodies) body[cur] = (bn[cur]++ ? body[cur] "\037" : "") t
+          if (keep && !hq[gid[cur]] && !plainbody(t)) hbad[gid[cur]] = 1
         }
         next
       }
@@ -384,23 +399,35 @@ tmb_cmd_strip_literals() {
           j = i + 2; strip = 0
           if (substr(line, j, 1) == "-") { strip = 1; j++ }
           while (j <= n && substr(line, j, 1) ~ /[ \t]/) j++
-          w = ""
+          w = ""; q = 0
           while (j <= n) {
             d = substr(line, j, 1)
             if (d ~ /[ \t;&|<>()]/) break
             if (d != sq && d != "\"" && d != "\\") w = w d
+            else q = 1
             j++
           }
-          if (w != "") { nh++; delim[nh] = w; tabs[nh] = strip }
+          if (w != "") {
+            nh++; delim[nh] = w; tabs[nh] = strip
+            if (keep) { gid[nh] = ++hg; hq[hg] = q; hline[hg] = nc + 1; hpos[hg] = length(out) + 2 }
+          }
           out = out "<<" w
           i = j; continue
         }
         out = out c; i++
       }
-      if (!bodies) { if (state != "") { printf "%s%s", out, joiner() } else { print out } }
+      if (keep) chunk[++nc] = out ((state != "") ? joiner() : "\n")
+      else if (!bodies) { if (state != "") { printf "%s%s", out, joiner() } else { print out } }
       if (nh > 0 && state == "") { inbody = 1; cur = 1 }
     }
-    END { if (bodies && inbody) for (k = cur; k <= nh; k++) emitbody(k) }
+    END {
+      if (bodies && inbody) for (k = cur; k <= nh; k++) emitbody(k)
+      for (k = hg; k >= 1; k--) {
+        s = chunk[hline[k]]
+        chunk[hline[k]] = substr(s, 1, hpos[k]) (hbad[k] ? hexp : hdata) substr(s, hpos[k] + 1)
+      }
+      for (k = 1; k <= nc; k++) printf "%s", chunk[k]
+    }
   '
 }
 
@@ -628,6 +655,7 @@ _tmb_cmd_statements_enc() {
       return 0
     }
     function srcmark(body, dir) {
+      body = unmark(body)
       if (body ~ /[;&|()`\n]/ || index(body, qo) || index(body, qc)) return ""
       gsub(/[ \t]+/, sep, body)
       sub("^" sep, "", body); sub(sep "$", "", body)
@@ -737,8 +765,14 @@ _tmb_cmd_statements_enc() {
       return norm(d "/" p)
     }
     function vend(ok) { if (vtop) { if (!ok || vkill) vok = 0; vkill = 0 } }
-    function vplainexp(s,   m, t, k) {
-      if (index(s, "<<")) return 0
+    function unmark(s) { gsub(hdmark, "<<", s); return s }
+    function vplainexp(s,   m, t, k, r) {
+      r = ""
+      while ((m = index(s, "<<")) > 0) {
+        if (substr(s, m + 2, 1) != hdata) return 0
+        r = r substr(s, 1, m - 1); s = substr(s, m + 3)
+      }
+      s = r s
       t = s; gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", t)
       for (k = 1; k <= length(vbad); k++) if (index(t, substr(vbad, k, 1))) return 0
       while ((m = index(s, "$")) > 0) {
@@ -752,6 +786,7 @@ _tmb_cmd_statements_enc() {
       chained = (fsep == "&&"); fsep = ""
       vtop = (sp == 0 && qsp == 0 && !bt)
       if (!vplainexp(stmt)) vok = 0
+      stmt = unmark(stmt)
       csure = !cond; cond = 0
       n = split(stmt, w, /[ \t]+/)
       stmt = ""
@@ -826,7 +861,7 @@ _tmb_cmd_statements_enc() {
     function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; stack[++sp] = cur }
     function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; cur = stack[sp--] } }
     function rawword(t,   k, m, ch, out, x) {
-      out = ""; m = length(t)
+      t = unmark(t); out = ""; m = length(t)
       for (k = 1; k <= m; k++) {
         ch = substr(t, k, 1)
         if (ch == qo) { out = out "$" enc[8]; continue }
@@ -842,7 +877,8 @@ _tmb_cmd_statements_enc() {
       wsep = sprintf("%c", 20); vsep = sprintf("%c", 28); veq = sprintf("%c", 29); bad = sprintf("%c", 1)
       vs = ""; cwhy = ""; owhy = ""; cond = 0; vok = 1; vkill = 0; vtop = 1
       vplain = "^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$"
-      vbad = "*?[](){<>`" sprintf("%c%c%c%c%c", 3, 4, 15, 16, 17)
+      vbad = "*?[](){<>`"
+      hdata = sprintf("%c", 30); hdmark = "<<[" sprintf("%c%c", 26, 30) "]"
       vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
       if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }

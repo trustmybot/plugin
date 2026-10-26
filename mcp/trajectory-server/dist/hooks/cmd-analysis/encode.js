@@ -6,6 +6,26 @@ export const JOINER = ENC[12];
 /** A quoted or escaped `(` / `)` inside a substitution that statements.ts frames as `$` ENC[8] … ENC[9]: decoded alike, told apart from the frame. */
 export const SUB_PO = '\x15';
 export const SUB_PC = '\x16';
+/** After a heredoc's `<<`: its delimiter is quoted, or its body expands nothing but plain `$NAME` / `${NAME}`. */
+export const HD_DATA = '\x1e';
+/** After a heredoc's `<<`: its body may run code or assign when the shell expands it. */
+export const HD_EXP = '\x1a';
+/** Every `$` in `text` is a plain `$NAME` not followed by `[`, or exactly `${NAME}`. */
+export function plainDollars(text) {
+    let m;
+    while ((m = text.indexOf('$')) >= 0) {
+        text = text.slice(m + 1);
+        const braced = /^\{[A-Za-z_][A-Za-z0-9_]*\}/.exec(text);
+        const plain = braced ? null : /^[A-Za-z_][A-Za-z0-9_]*/.exec(text);
+        if (braced)
+            text = text.slice(braced[0].length);
+        else if (plain && text[plain[0].length] !== '[')
+            text = text.slice(plain[0].length);
+        else
+            return false;
+    }
+    return true;
+}
 const DECODE = new Map([
     ...[...NEUTRAL, '\n'].map((c, i) => [i < 10 ? ENC[i + 1] : ENC[12], c]),
     [SUB_PO, '('],
@@ -22,6 +42,13 @@ function neutral(c) {
     return k >= 0 ? ENC[k + 1] : c;
 }
 const SPECIAL = new Set(['comment', 'string', 'raw_string', 'ansi_c_string', 'translated_string', 'heredoc_redirect']);
+/** A heredoc body's source lines: from the line `from` starts on up to its end delimiter's line, as tmb_cmd_strip_literals reads them. */
+function bodyText(src, from, end) {
+    const lineStart = src.lastIndexOf('\n', from.startIndex - 1) + 1;
+    const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
+    return endStart > lineStart ? src.slice(lineStart, endStart) : '';
+}
+const plainBody = (body) => !body.includes('`') && plainDollars(body);
 function specials(node, out) {
     if (SPECIAL.has(node.type)) {
         out.push({ start: node.startIndex, end: node.endIndex, node });
@@ -111,7 +138,9 @@ export class Encoder {
         const start = kids.find((c) => c.type === 'heredoc_start');
         const body = kids.find((c) => c.type === 'heredoc_body');
         const end = kids.find((c) => c.type === 'heredoc_end');
-        const delim = start ? this.src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, '') : '';
+        const word = start ? this.src.slice(start.startIndex, start.endIndex) : '';
+        const delim = word.replace(/['"\\]/g, '');
+        const data = /['"\\]/.test(word) || (end !== undefined && plainBody(bodyText(this.src, body ?? end, end)));
         const rest = [];
         const opEnd = start ? start.endIndex : node.startIndex + 2;
         for (const c of kids) {
@@ -122,7 +151,7 @@ export class Encoder {
         let dropTo = end?.endIndex ?? node.endIndex;
         if (end && this.src[dropTo] === '\n')
             dropTo++;
-        return { text: '<<' + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
+        return { text: '<<' + (delim === '' ? '' : data ? HD_DATA : HD_EXP) + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
     }
     /** One word node, encoded as `range` encodes it inside its command. */
     word(node) {

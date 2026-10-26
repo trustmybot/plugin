@@ -4,7 +4,8 @@
  * comments dropped, quotes removed, every blank and operator character of
  * quoted or backslash-escaped text turned into a reversible control byte, and
  * a $( ) or backtick inside double quotes framed by QO … QC with its body
- * encoded as shell syntax again.
+ * encoded as shell syntax again, and each heredoc's `<<` followed by HD_DATA
+ * when its body is data to the shell, else by HD_EXP (GH 1911).
  */
 import type { Node, Parser } from 'web-tree-sitter';
 
@@ -17,6 +18,24 @@ export const JOINER = ENC[12];
 /** A quoted or escaped `(` / `)` inside a substitution that statements.ts frames as `$` ENC[8] … ENC[9]: decoded alike, told apart from the frame. */
 export const SUB_PO = '\x15';
 export const SUB_PC = '\x16';
+/** After a heredoc's `<<`: its delimiter is quoted, or its body expands nothing but plain `$NAME` / `${NAME}`. */
+export const HD_DATA = '\x1e';
+/** After a heredoc's `<<`: its body may run code or assign when the shell expands it. */
+export const HD_EXP = '\x1a';
+
+/** Every `$` in `text` is a plain `$NAME` not followed by `[`, or exactly `${NAME}`. */
+export function plainDollars(text: string): boolean {
+  let m: number;
+  while ((m = text.indexOf('$')) >= 0) {
+    text = text.slice(m + 1);
+    const braced = /^\{[A-Za-z_][A-Za-z0-9_]*\}/.exec(text);
+    const plain = braced ? null : /^[A-Za-z_][A-Za-z0-9_]*/.exec(text);
+    if (braced) text = text.slice(braced[0].length);
+    else if (plain && text[plain[0].length] !== '[') text = text.slice(plain[0].length);
+    else return false;
+  }
+  return true;
+}
 
 const DECODE: ReadonlyMap<string, string> = new Map([
   ...[...NEUTRAL, '\n'].map((c, i): [string, string] => [i < 10 ? ENC[i + 1] : ENC[12], c]),
@@ -38,6 +57,15 @@ function neutral(c: string | undefined): string {
 const SPECIAL = new Set(['comment', 'string', 'raw_string', 'ansi_c_string', 'translated_string', 'heredoc_redirect']);
 
 type Span = { start: number; end: number; node: Node };
+
+/** A heredoc body's source lines: from the line `from` starts on up to its end delimiter's line, as tmb_cmd_strip_literals reads them. */
+function bodyText(src: string, from: Node, end: Node): string {
+  const lineStart = src.lastIndexOf('\n', from.startIndex - 1) + 1;
+  const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
+  return endStart > lineStart ? src.slice(lineStart, endStart) : '';
+}
+
+const plainBody = (body: string): boolean => !body.includes('`') && plainDollars(body);
 
 function specials(node: Node, out: Span[]): Span[] {
   if (SPECIAL.has(node.type)) {
@@ -120,7 +148,9 @@ export class Encoder {
     const start = kids.find((c) => c.type === 'heredoc_start');
     const body = kids.find((c) => c.type === 'heredoc_body');
     const end = kids.find((c) => c.type === 'heredoc_end');
-    const delim = start ? this.src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, '') : '';
+    const word = start ? this.src.slice(start.startIndex, start.endIndex) : '';
+    const delim = word.replace(/['"\\]/g, '');
+    const data = /['"\\]/.test(word) || (end !== undefined && plainBody(bodyText(this.src, body ?? end, end)));
     const rest: Span[] = [];
     const opEnd = start ? start.endIndex : node.startIndex + 2;
     for (const c of kids) {
@@ -129,7 +159,7 @@ export class Encoder {
     const dropFrom = body?.startIndex ?? end?.startIndex ?? node.endIndex;
     let dropTo = end?.endIndex ?? node.endIndex;
     if (end && this.src[dropTo] === '\n') dropTo++;
-    return { text: '<<' + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
+    return { text: '<<' + (delim === '' ? '' : data ? HD_DATA : HD_EXP) + delim, skipTo: opEnd, rest: [...rest, { start: dropFrom, end: dropTo, node }] };
   }
 
   /** One word node, encoded as `range` encodes it inside its command. */

@@ -855,32 +855,21 @@ assert_eq '/abs#git -C ${R} status' "$(last 'R=/abs && git -C "${R}" status')" "
 assert_eq '/w/B#git commit' "$(last 'export WT=/w/B; cd $WT && git commit')" "export WT=<literal>; cd \$WT"
 assert_eq '/w/B#git add f|/w/B#git commit' "$(stmts 'WT=/w/B; cd "$WT" && git add f && git commit' | awk -F'|' '{print $(NF-1) "|" $NF}')" "WT=<literal>; cd \"\$WT\" && git add && git commit"
 assert_eq '/b#git -C $R status' "$(last 'R=/a; R=/b; git -C $R status')" "the latest assignment wins"
-for c in 'true && R=/b; git -C $R status' 'if x; then R=/a; fi; git -C $R status' 'for R in /a; do :; done; git -C $R status' \
-  '(R=/b); git -C $R status' 'R=/a | true; git -C $R status' 'R=/a & git -C $R status' 'f() { R=/a; }; git -C $R status' \
-  'R=/a; eval x; git -C $R status' 'R=/a; source x; git -C $R status' 'R=$(pwd); git -C $R status' \
-  'R=/a; unset R; git -C $R status' 'R=/a; read R; git -C $R status' \
-  'R=/a; case x in x) R=/b;; esac; git -C $R status' 'R=/a; R+=/b; git -C $R status' 'R=/a; R[0]=/b; git -C $R status' \
-  'R=/a; declare -n R=S; git -C $R status' 'R=/a; typeset -n R=S; git -C $R status' 'R=/a; local -n R=S; git -C $R status' \
-  'R=/a; builtin eval R=/b; git -C $R status' 'R=/a; mapfile R < f; git -C $R status' 'R=/a; readarray R < f; git -C $R status' \
-  'R=/a; time R=/b; git -C $R status' 'R=/a; > f R=/b; git -C $R status' "R=/a; trap 'R=/b' DEBUG; git -C \$R status" \
-  'R=/a; let R=1; git -C $R status' 'R=/a; coproc R=/b; git -C $R status' 'R=/a; ((R=1)); git -C $R status' \
-  'R=/a; echo $((R=1)); git -C $R status' 'R=/a; IFS=/; git -C $R status' \
-  'R=/a; echo $[R=0]; git -C $R status' 'R=/a; echo ${A[R=0]}; git -C $R status' \
-  'R=/a; echo ${X:R=0}; git -C $R status' 'R=/a; echo ${X:0:R=0}; git -C $R status' \
-  'R=/a; echo "x $[R=0]"; git -C $R status' \
-  $'R=/a; true <<EOF\n$[R=0]\nEOF\ngit -C $R status' $'R=/a; true <<EOF\n${A[R=0]}\nEOF\ngit -C $R status' \
-  $'R=/a; echo <<EOF\n$[R=0]\nEOF\ngit -C $R status' $'R=/a; echo <<EOF\n${A[R=0]}\nEOF\ngit -C $R status' \
-  'R=/a; echo $X[R=0]; git -C $R status' 'R=/a; echo $#X[R=0]; git -C $R status' \
-  'R=/a; echo $+X[R=0]; git -C $R status' 'R=/a; echo "$X[R=0]"; git -C $R status' \
-  'R=/a; printf %d R=0; git -C $R status' \
-  'R=/a; [ R=0 -eq 0 ]; git -C $R status' 'R=/a; test R=0 -eq 0; git -C $R status' \
-  'R=/a; true *(e:R=0:); git -C $R status' 'R=/a; echo x?(e:R=0:); git -C $R status' \
-  'R=/a; ls (x); git -C $R status' 'R=/a; echo a > f; git -C $R status' 'R=/a; echo {a,b}; git -C $R status' \
-  'R=/a; echo x*; git -C $R status' 'R=/a; ls x?; git -C $R status' 'R=/a; echo [a]; git -C $R status' \
-  'R=/a; echo "a>b"; git -C $R status' 'R=/a; echo "(x)"; git -C $R status' 'R=/a; echo "{$R}"; git -C $R status' \
-  'O=/b; R=$O; git -C $R status'; do
-  assert_eq '-#git -C $R status' "$(last "$c")" "unknown: $c"
-done
+
+test_case "GH 1911: VAR=<literal> survives quoted operators and data heredocs, and dies on anything that may assign"
+assert_eq '/w/r#git -C $W commit -q -m a__b_|/w/r#git -C $W status' \
+  "$(stmts 'W=/w/r; git -C $W commit -q -m "a (b)"; git -C $W status')" "-m \"a (b)\" and the git after it"
+assert_eq '/w/r#git -C $W commit -q -F - <<EOM|/w/r#git -C $W status' \
+  "$(stmts $'W=/w/r; git -C $W commit -q -F - <<EOM\nmsg\nEOM\ngit -C $W status')" "-F - <<EOM, its <<EOM unmarked"
+assert_eq "$PLAIN#cat <<EOM|-#git -C \$W status" \
+  "$(stmts $'W=/w/r; cat <<EOM\n$((W=0))\nEOM\ngit -C $W status')" "an unquoted \$((W=0)) body"
+STMT_VARS="$PLUGIN_ROOT/tests/fixtures/cmd-analysis/statement-vars.jsonl"
+assert_eq "true" "$(jq -s '(map(select(.dirs[-1] == "-")) | length >= 60) and (map(select(.dirs[-1] | startswith("/"))) | length >= 14)' "$STMT_VARS")" "the shared fixture holds both kinds"
+while IFS= read -r row; do
+  c=$(jq -r .cmd <<< "$row")
+  want=$(jq -r --arg p "$PLAIN" '[.dirs[] | if . == "@" then $p else . end] | join("|")' <<< "$row")
+  assert_eq "$want" "$(tmb_cmd_statements "$c" "$PLAIN" | cut -f1 | paste -sd'|' -)" "$(jq -r .why <<< "$row"): $c"
+done < "$STMT_VARS"
 
 test_case "GH 1595: a relative path after an unresolvable cd is never bare"
 assert_eq 'UNRESOLVED:UNSET:$UNSET/f' "$(wpaths 'cd $UNSET && touch f' /w)" "cd \$UNSET && touch f"
