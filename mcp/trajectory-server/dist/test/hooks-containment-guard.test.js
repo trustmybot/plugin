@@ -183,6 +183,17 @@ describe('containment-guard (TS): denies that judge no path', () => {
         const read = await containmentGuard(bash(`x=${project}/src/a; while :; do echo > $x; read -r x; done`), env);
         assert.ok((reason(read.stdout) ?? '').includes(UNJUDGED_PHRASE), read.stdout);
     });
+    for (const body of [
+        'for ((i=0;i<2;i++)) { echo > $x; x=/etc/p1944; }',
+        'for i in 1 2; { echo > $x; x=/etc/p1944; }',
+        'select i in 1 2; { echo > $x; x=/etc/p1944; }',
+        'while :; do coproc for i in 1; do :; done; echo > $x; x=/etc/p1944; done',
+    ]) {
+        it(`denies a braced or coproc-nested loop body: \`${body}\` (GH 1944)`, async () => {
+            const r = await containmentGuard(bash(`x=${project}/src/a; ${body}`), env);
+            assert.ok(reason(r.stdout), r.stdout);
+        });
+    }
     it('allows a for-loop and a loop that never reassigns when every target is under the root (GH 1944)', async () => {
         assert.deepEqual(await containmentGuard(bash(`for f in a b; do x=${project}/src/$f; echo > $x; done`), env), { stdout: '', code: 0 });
         assert.deepEqual(await containmentGuard(bash(`x=${project}/src/a; while :; do echo > $x; done`), env), { stdout: '', code: 0 });

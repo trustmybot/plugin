@@ -642,7 +642,8 @@ tmb_cmd_decode() {
 # `xargs` of `src | xargs …` — when that source is one simple command (see
 # _tmb_cmd_loop_source). Also with `assign`, a loop's statements are framed by
 # a `{<TAB>do` and a `}<TAB>done` line: from its `while` / `until` (the
-# condition runs on every pass) or from the `do` of a `for` / `select`.
+# condition runs on every pass), from a `do` no `while` / `until` waits for,
+# or from the `{` body of a `for` / `select`, to the `done` or `}` closing it.
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -814,7 +815,8 @@ _tmb_cmd_statements_enc() {
         return
       }
       a0 = w[first]
-      if (assign && (a0 == "for" || a0 == "select")) ls[++lsp] = "f"
+      if (assign && (a0 == "for" || a0 == "select")) fh = 1
+      else if (assign && (a0 == "coproc" || a0 == "function")) loopprefix(w, n, first)
       ok = plain && na == 0
       if (ok && a0 == "export") {
         for (k = first + 1; k <= n; k++) {
@@ -861,10 +863,26 @@ _tmb_cmd_statements_enc() {
       if (!chained) { old = "-"; owhy = "" }
       vend(ok)
     }
-    function loopkw(k) {
-      if (k == "while" || k == "until") { ls[++lsp] = "o"; printf "{\tdo\n" }
-      else if (k == "do") { if (lsp > 0 && ls[lsp] == "f") { ls[lsp] = "o"; printf "{\tdo\n" } }
-      else if (k == "done" && lsp > 0) { if (ls[lsp] == "o") printf "}\tdone\n"; lsp-- }
+    function loopkw(k,   j, ends) {
+      if (k == "while" || k == "until") { ls[++lsp] = "w"; printf "{\tdo\n" }
+      else if (k == "do") {
+        if (!fh && lsp > 0 && ls[lsp] == "w") ls[lsp] = "o"
+        else { ls[++lsp] = "o"; printf "{\tdo\n" }
+        fh = 0
+      } else if (k == "{") { ls[++lsp] = fh ? "b" : "g"; if (fh) printf "{\tdo\n"; fh = 0 }
+      else if (k == "done" || k == "}") {
+        ends = (k == "done") ? "wo" : "bg"
+        for (j = lsp; j > 0 && index(ends, ls[j]) == 0; j--) ;
+        if (j > 0) for (; lsp >= j; lsp--) if (ls[lsp] != "g") printf "}\tdone\n"
+      }
+    }
+    function loopprefix(w, n, first,   k, c) {
+      for (k = first + 1; k <= n && c < 2; k++) {
+        if (w[k] == "") continue
+        c++
+        if (w[k] == "for" || w[k] == "select") { fh = 1; return }
+        if (w[k] ~ /^(while|until|\{)$/) { loopkw(w[k]); return }
+      }
     }
     function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; stack[++sp] = cur }
     function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; cur = stack[sp--] } }
@@ -890,7 +908,7 @@ _tmb_cmd_statements_enc() {
       vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
       if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
-      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0
+      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0; fh = 0
       qo = sprintf("%c", 7); qc = sprintf("%c", 8)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }

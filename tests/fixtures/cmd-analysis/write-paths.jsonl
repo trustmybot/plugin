@@ -1672,6 +1672,16 @@
 {"cmd":"x=/w/a; ( while :; do echo > $x; x=/etc/p1944; done )","cwd":"/w"}
 {"cmd":"x=/w/a; while :; do echo \"$(echo > $x)\"; x=/etc/p1944; done","cwd":"/w"}
 {"cmd":"x=/w/a; bash -c \"while :; do echo > \\$x; x=/etc/p1944; done\"","cwd":"/w"}
+{"cmd":"x=/w/a; for ((i=0;i<2;i++)) { echo > $x; x=/etc/p1944; }","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; { echo > $x; x=/etc/p1944; }","cwd":"/w"}
+{"cmd":"x=/w/a; select i in 1 2; { echo > $x; x=/etc/p1944; }","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do coproc for i in 1; do :; done; echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; coproc while echo > $x; do x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; { coproc { :; }; echo > $x; x=/etc/p1944; }","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; { { :; }; echo > $x; x=/etc/p1944; }","cwd":"/w"}
+{"cmd":"x=/w/a; while for i in 1; do :; done; do echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"for f in a b; { x=/w/$f; echo > $x; }","cwd":"/w"}
+{"cmd":"{ echo > /w/g; }; x=/w/a; for i in 1 2; do echo > $x; done","cwd":"/w"}
 {"cmd":"for f in a b; do x=/w/$f; echo > $x; done","cwd":"/w"}
 {"cmd":"x=/w/a; while :; do echo > $x; done","cwd":"/w"}
 {"cmd":"x=/w/a; for i in 1 2; do x=/w/b; echo > $x; done; echo > $x","cwd":"/w"}

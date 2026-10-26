@@ -130,20 +130,52 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
   const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string }> = [];
 
   const emit = (dir: string, text: string) => records.push({ dir, stmt: text });
-  const loops: Array<'f' | 'o'> = [];
+  const loops: Array<'w' | 'o' | 'b' | 'g'> = [];
+  let forhead = false;
 
-  /** With `assign`, frames a loop's statements: `{` from its while / until or the do of a for / select, `}` at its done. */
+  /**
+   * With `assign`, frames a loop's statements: `{` from its while / until, from
+   * a `do` no while / until waits for, or from the `{` body of a for / select,
+   * and `}` at the done or `}` that closes it.
+   */
   function loopkw(k: string): void {
     if (k === 'while' || k === 'until') {
-      loops.push('o');
+      loops.push('w');
       emit(LOOP_OPEN, 'do');
     } else if (k === 'do') {
-      if (loops[loops.length - 1] === 'f') {
-        loops[loops.length - 1] = 'o';
+      if (!forhead && loops[loops.length - 1] === 'w') loops[loops.length - 1] = 'o';
+      else {
+        loops.push('o');
         emit(LOOP_OPEN, 'do');
       }
-    } else if (k === 'done' && loops.length > 0) {
-      if (loops.pop() === 'o') emit(LOOP_CLOSE, 'done');
+      forhead = false;
+    } else if (k === '{') {
+      loops.push(forhead ? 'b' : 'g');
+      if (forhead) emit(LOOP_OPEN, 'do');
+      forhead = false;
+    } else if (k === 'done' || k === '}') {
+      const ends = k === 'done' ? 'wo' : 'bg';
+      let j = loops.length - 1;
+      while (j >= 0 && !ends.includes(loops[j])) j--;
+      if (j < 0) return;
+      while (loops.length > j) if (loops.pop() !== 'g') emit(LOOP_CLOSE, 'done');
+    }
+  }
+
+  /** The compound command after coproc [NAME] or function NAME: a for / select header, or a while / until / `{`. */
+  function loopprefix(w: string[], first: number): void {
+    let c = 0;
+    for (let k = first + 1; k < w.length && c < 2; k++) {
+      if (w[k] === '') continue;
+      c++;
+      if (w[k] === 'for' || w[k] === 'select') {
+        forhead = true;
+        return;
+      }
+      if (/^(while|until|\{)$/.test(w[k])) {
+        loopkw(w[k]);
+        return;
+      }
     }
   }
 
@@ -391,7 +423,8 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       return;
     }
     let a0 = w[first];
-    if (assign && (a0 === 'for' || a0 === 'select')) loops.push('f');
+    if (assign && (a0 === 'for' || a0 === 'select')) forhead = true;
+    else if (assign && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
     if (ok && a0 === 'export') {
       for (let k = first + 1; k < n; k++) {
