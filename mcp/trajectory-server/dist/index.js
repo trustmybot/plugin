@@ -33454,18 +33454,99 @@ function reworkStats(db2, taskId, now2) {
     reworks: reworkKinds(db2, taskId)
   };
 }
+var WRITE_PATH_RULE = /write target ".*" cannot be judged|comes from a process|depends on a variable/s;
+function hookBlockReason(hook, rule) {
+  const h = hook ?? "unknown";
+  const r = rule ?? "";
+  if (r.includes("dispatch failed") || r.includes("ran past")) return { reason: `${h}:gate_failure`, gate_failure: true };
+  if (r.includes("ambiguous_git_target")) return { reason: `${h}:ambiguous_git_target`, gate_failure: false };
+  if (WRITE_PATH_RULE.test(r)) return { reason: `${h}:write_path`, gate_failure: false };
+  if (r.startsWith("BLOCKED: containment")) return { reason: `${h}:containment`, gate_failure: false };
+  if (r.includes("SWE may only edit files inside")) return { reason: `${h}:swe_worktree`, gate_failure: false };
+  return { reason: h, gate_failure: false };
+}
+function sortedReasons(counts) {
+  return Object.fromEntries([...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
+}
+function hookBlockStats(db2, runs, now2) {
+  const perRun = new Map(runs.map((r) => [r.id, 0]));
+  const byReason = /* @__PURE__ */ new Map();
+  let denials = 0;
+  let gateFailures = 0;
+  const windows = runs.filter((r) => r.task_id !== null && r.started_at !== null && !Number.isNaN(Date.parse(r.started_at))).map((r) => ({
+    id: r.id,
+    task_id: r.task_id,
+    agent_type: r.agent_type,
+    start: Date.parse(r.started_at),
+    end: r.completed_at !== null && !Number.isNaN(Date.parse(r.completed_at)) ? Date.parse(r.completed_at) : now2.getTime()
+  })).sort((a, b) => b.start - a.start);
+  if (windows.length === 0) return { denials, gate_failures: gateFailures, by_reason: {}, per_run: perRun };
+  const taskIds = [...new Set(windows.map((w) => w.task_id))];
+  const rows = db2.all(
+    `SELECT json_extract(content_json, '$.task_id') AS task_id,
+            json_extract(content_json, '$.agent_type') AS agent_type,
+            json_extract(content_json, '$.hook') AS hook,
+            json_extract(content_json, '$.rule') AS rule,
+            created_at
+       FROM audit
+      WHERE event_type = 'hook_denied'
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) IN (${taskIds.map(() => "?").join(", ")})`,
+    taskIds
+  );
+  for (const row of rows) {
+    const at = Date.parse(row.created_at);
+    if (Number.isNaN(at) || row.task_id === null || row.agent_type === null) continue;
+    const taskId = Number(row.task_id);
+    const agentType = row.agent_type.startsWith("tmb:") ? row.agent_type.slice(4) : row.agent_type;
+    const run2 = windows.find((w) => w.task_id === taskId && w.agent_type === agentType && w.start <= at && at <= w.end);
+    if (!run2) continue;
+    const { reason, gate_failure } = hookBlockReason(row.hook, row.rule);
+    if (gate_failure) gateFailures += 1;
+    else denials += 1;
+    byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+    perRun.set(run2.id, (perRun.get(run2.id) ?? 0) + 1);
+  }
+  return { denials, gate_failures: gateFailures, by_reason: sortedReasons(byReason), per_run: perRun };
+}
+var HOOK_BLOCK_RUN_COLUMNS = "id, task_id, agent_type, started_at, completed_at";
+var ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+function parseSince(raw) {
+  if (typeof raw !== "string" || !ISO_DATE.test(raw) || Number.isNaN(Date.parse(raw))) {
+    throw new Error("since must be an ISO date, e.g. 2026-10-26 or 2026-10-26T00:00:00Z");
+  }
+  return new Date(raw);
+}
+function hookBlockWindow(db2, since, now2) {
+  const runs = db2.all(
+    `SELECT ${HOOK_BLOCK_RUN_COLUMNS} FROM agent_runs
+      WHERE agent_type = 'swe' AND started_at IS NOT NULL AND julianday(started_at) >= julianday(?)
+      ORDER BY id`,
+    [since.toISOString()]
+  );
+  const stats = hookBlockStats(db2, runs, now2);
+  const blocks = stats.denials + stats.gate_failures;
+  return {
+    runs: runs.length,
+    runs_with_blocks: [...stats.per_run.values()].filter((n) => n > 0).length,
+    denials: stats.denials,
+    gate_failures: stats.gate_failures,
+    blocks_per_run: runs.length === 0 ? 0 : Math.round(blocks / runs.length * 100) / 100,
+    by_reason: stats.by_reason
+  };
+}
 function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens.",
+      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string", description: "Calling agent identity" },
-          task_id: { type: "integer", description: "Task ID to query stats for" }
+          task_id: { type: "integer", description: "Task ID to query stats for (task mode)" },
+          since: { type: "string", description: "ISO date; without task_id, returns hook-block stats over swe runs started at or after it (window mode)" }
         },
-        required: ["agent", "task_id"]
+        required: ["agent"]
       }
     }
   ];
@@ -33476,6 +33557,13 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
       wrapHandler5(async (args2) => {
         normalizeAgent(args2["agent"]);
         const rawTaskId = args2["task_id"];
+        if (rawTaskId === void 0 || rawTaskId === null) {
+          if (args2["since"] === void 0 || args2["since"] === null) {
+            throw new Error("task_stats needs task_id (one task) or since (window across runs)");
+          }
+          const since = args2["since"];
+          return ok6({ since, window: hookBlockWindow(db2, parseSince(since), clock()) });
+        }
         const taskId = Number(rawTaskId);
         if (!Number.isInteger(taskId) || taskId <= 0) {
           throw new Error("task_id must be a positive integer");
@@ -33504,6 +33592,12 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
           [taskId]
         );
         const cost = costEstimate(spawns, readModelPrices(db2));
+        const blocks = hookBlockStats(
+          db2,
+          db2.all(`SELECT ${HOOK_BLOCK_RUN_COLUMNS} FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`, [taskId]),
+          clock()
+        );
+        const hookBlocks = { denials: blocks.denials, gate_failures: blocks.gate_failures, by_reason: blocks.by_reason };
         return ok6({
           task_id: taskId,
           aggregate,
@@ -33511,7 +33605,8 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
           unpriced_tokens: cost.unpriced_tokens,
           cost_groups: cost.groups,
           ...reworkStats(db2, taskId, clock()),
-          spawns
+          hook_blocks: hookBlocks,
+          spawns: spawns.map((s) => ({ ...s, hook_blocks: blocks.per_run.get(s.id) ?? 0 }))
         });
       })
     )
