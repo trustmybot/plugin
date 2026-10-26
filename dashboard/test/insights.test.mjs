@@ -120,7 +120,7 @@ before(async () => {
         import { toCsv, csvName } from './web/views/insights/csv.ts';
         import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION } from './web/views/insights/sections.tsx';
         import { AGENT_COLOR, compact, durationTicks } from './web/views/insights/format.ts';
-        import { Histogram, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
+        import { Histogram, barWidth, histBarWidth, labelBox, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
         const withHash = (hash, fn) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
           try { return fn(); } finally { delete globalThis.window; }
@@ -136,7 +136,7 @@ before(async () => {
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const escaped = (text) => renderToStaticMarkup(createElement(Fragment, null, text));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -857,30 +857,39 @@ describe('Insights view', () => {
     assert.deepEqual([thin[0].at, thin.at(-1).at], [0, 10]);
   });
 
-  test('marks: at most 24px wide with a 2px gap, washed fill, one cap per non-zero bar, full-band hit targets', () => {
+  test('marks: histogram bars band - 2, other columns at most 24px wide, a 2px gap, washed fill, one cap per non-zero bar, full-band hit targets', () => {
     assert.equal(mod.barWidth(100), 24);
     assert.equal(mod.barWidth(13), 11);
     assert.equal(mod.barWidth(1), 0);
+    assert.equal(mod.histBarWidth(100), 98);
+    assert.equal(mod.histBarWidth(30), 28);
+    assert.equal(mod.histBarWidth(2), 1);
     for (const section of ['throughput', 'tokens', 'quality', 'time']) {
       const html = at(section);
       for (const svg of html.matchAll(/<svg width="(\d+)" height="(\d+)" role="img"[^>]*>(.*?)<\/svg><\/div>/gs)) {
         const body = svg[3];
+        const hits = [...body.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" fill="transparent" data-hit="" tabindex="0"/g)];
+        const contiguous = section === 'tokens' && svg[2] === '224';
         const marks = [...body.matchAll(/<g data-mark=""><path class="visx-bar-rounded" d="([^"]+)"([^>]*)><\/path><path d="([^"]+)"([^>]*)><\/path><\/g>/g)];
         assert.equal(marks.length, (body.match(/data-mark=""/g) ?? []).length, section);
         assert.equal((body.match(/data-cap=""/g) ?? []).length, marks.length, section);
         for (const [, bar, barAttrs, cap, capAttrs] of marks) {
           assert.match(barAttrs, /style="fill-opacity:var\(--chart-wash\)"/);
           assert.match(capAttrs, /fill="none" stroke="[^"]+" stroke-width="2" data-cap=""/);
-          const [, run, r] = /^M[\d.-]+,[\d.-]+ h([\d.-]+)\s*a([\d.]+),/.exec(bar);
+          const [, mx, run, r] = /^M([\d.-]+),[\d.-]+ h([\d.-]+)\s*a([\d.]+),/.exec(bar);
           const across = Number(run) + 2 * Number(r);
           if (cap.includes('V')) {
             const [, v] = /v([\d.-]+)/.exec(bar.slice(bar.indexOf('a')));
             assert.equal(Number(v) + 2 * Number(r), 12, `${section}: slim bar 12px thick`);
+          } else if (contiguous) {
+            const band = Number(hits[0][3]);
+            assert.ok(Math.abs(across - (band - 2)) < 1e-6 && across > 24, `${section} histogram bar ${across}px in a ${band}px band`);
+            const left = Number(mx) - Number(r);
+            assert.ok(hits.some((h) => Math.abs(Number(h[1]) + 1 - left) < 1e-6), `${section}: bar centred 1px inside its band`);
           } else {
             assert.ok(across <= 24, `${section} bar ${across}px`);
           }
         }
-        const hits = [...body.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" fill="transparent" data-hit="" tabindex="0"/g)];
         assert.equal(hits.length, (body.match(/tabindex="0"/g) ?? []).length, `${section}: every tabindex=0 is a hit rect`);
         for (let i = 1; i < hits.length; i++) {
           const [prev, cur] = [hits[i - 1], hits[i]];
@@ -892,6 +901,27 @@ describe('Insights view', () => {
     const days = at('throughput');
     const zero = [...days.matchAll(/aria-label="([^"]+): 0 closed tasks"/g)].length;
     assert.equal((days.match(/data-cap=""/g) ?? []).length, 31 - zero);
+  });
+
+  test('histogram: 10 buckets at 480px draw innerW/10 - 2 bars, 1px inside each band, rounded on top only', () => {
+    const edges = Array.from({ length: 11 }, (_, i) => 10 ** (3 + 0.3 * i));
+    const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
+    const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
+    const svg = mod.histogramSvg({ label: 'swe', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50: null, p95: null, format: mod.compact });
+    const band = (480 - 8 - 40) / 10;
+    const hits = [...svg.matchAll(/<rect x="([\d.]+)" y="0" width="([\d.]+)"[^>]*data-hit=""/g)].map((m) => Number(m[1]));
+    assert.equal(hits.length, 10);
+    const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(bars.length, 9);
+    assert.equal((svg.match(/data-cap=""/g) ?? []).length, 9);
+    const nonZero = counts.flatMap((c, i) => (c > 0 ? [i] : []));
+    bars.forEach((d, k) => {
+      const [, mx, run, r] = /^M([\d.-]+),[\d.-]+ h([\d.-]+)\s*a([\d.]+),/.exec(d);
+      const across = Number(run) + 2 * Number(r);
+      assert.ok(Math.abs(across - (band - 2)) < 1e-6 && across > 24, `bar ${across}px`);
+      assert.ok(Math.abs(Number(mx) - Number(r) - (hits[nonZero[k]] + 1)) < 1e-6, `bar ${k} left edge 1px right of x(i)`);
+      assert.equal((d.match(/a/g) ?? []).length, 2, 'only the top corners are rounded');
+    });
   });
 
   test('marker labels: start-anchored, end-anchored in the right third, clamped, stacked when they collide', () => {

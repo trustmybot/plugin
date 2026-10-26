@@ -53,6 +53,7 @@ const TIP_CLASS =
   'pointer-events-none -translate-x-1/2 -translate-y-full rounded-md bg-(--overlay-bgColor) px-2 py-1 text-xs whitespace-nowrap text-fg tabular-nums shadow-(--shadow-floating-small) border border-(--borderColor-default)';
 
 export const barWidth = (band: number) => Math.max(0, Math.min(BAR_MAX, band - BAR_GAP));
+export const histBarWidth = (band: number) => Math.max(1, band - BAR_GAP);
 export const textWidth = (text: string) => text.length * CHAR_PX;
 
 // The 2px cap line along a bar's rounded data-end, inset 1px so it sits inside the bar.
@@ -133,9 +134,10 @@ export interface ColumnChartProps {
   format: (v: number) => string;
   edgeTicks?: Tick[];
   markers?: Marker[];
+  contiguous?: boolean;
 }
 
-function Plot({ width, label, columns, yMax, format, edgeTicks, markers }: ColumnChartProps & { width: number }) {
+function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contiguous }: ColumnChartProps & { width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
   const marginTop = markers ? BAND_TOP : MARGIN.top;
   const innerW = Math.max(0, width - MARGIN.left - MARGIN.right);
@@ -145,7 +147,7 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers }: Colum
   const top = Math.max(1, yMax ?? 0, ...columns.map((c) => c.value));
   const y = scaleLinear<number>({ domain: [0, top], range: [innerH, 0], nice: true });
   const band = innerW / n;
-  const bar = barWidth(band);
+  const bar = contiguous ? histBarWidth(band) : barWidth(band);
   const every = Math.max(1, Math.ceil(n / Math.max(1, innerW / MIN_TICK_GAP)));
   const shown: EdgeTick[] = edgeTicks
     ? thinEdgeTicks(edgeTicks, innerW)
@@ -359,5 +361,5 @@ export function Histogram({ label, buckets, color, who, noun, yMax, p50, p95, fo
   if (p50 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p50), label: `p50 ${format(p50)}` });
   if (p95 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p95), label: `p95 ${format(p95)}` });
   const edges: Tick[] = buckets.map((b, i) => ({ at: i, label: format(b.from) })).concat(buckets.length > 0 ? [{ at: buckets.length, label: format(buckets.at(-1)!.to) }] : []);
-  return <ColumnChart label={label} columns={columns} yMax={yMax} format={(v) => (Number.isInteger(v) ? String(v) : '')} edgeTicks={edges} markers={markers} />;
+  return <ColumnChart label={label} columns={columns} yMax={yMax} format={(v) => (Number.isInteger(v) ? String(v) : '')} edgeTicks={edges} markers={markers} contiguous />;
 }
