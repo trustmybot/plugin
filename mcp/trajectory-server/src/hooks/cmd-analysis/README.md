@@ -57,7 +57,7 @@ A gate should treat every `UNRESOLVED:` line as a write it cannot place.
 
 ## Corpus and divergences
 
-`src/test/cmd-analysis-diff.test.ts` runs every row of `tests/fixtures/cmd-analysis/write-paths.jsonl` (`{cmd, cwd?, raw?, root?, layout?}`, with `$TMP` standing for the test's temp dir) through one bash process that sources `cmd-analysis.sh` and through `writePaths`, under a fixed `HOME` / `TMPDIR` / `CLAUDE_PROJECT_DIR` / `TMB_MODEL_CACHE_DIR` and `LC_ALL=C`.
+`src/test/cmd-analysis-diff.suite.ts` runs every row of `tests/fixtures/cmd-analysis/write-paths.jsonl` (`{cmd, cwd?, raw?, root?, layout?}`, with `$TMP` standing for the test's temp dir) through a bash process that sources `cmd-analysis.sh` and through `writePaths`, the rows split across `cmd-analysis-diff.shard-<k>of<n>.test.ts` with one bash process each, under a fixed `HOME` / `TMPDIR` / `CLAUDE_PROJECT_DIR` / `TMB_MODEL_CACHE_DIR` and `LC_ALL=C`.
 
 - Each row must print the same lines in both, unless its `cmd` is in `tests/fixtures/cmd-analysis/divergences.jsonl`.
 - A divergence `{cmd, sh, ts, reason}` must still differ exactly as recorded, and its `reason` explains why the TS is right. Divergences only ever make the TS stricter: it prints an `UNRESOLVED:` line, or more paths, where the .sh prints fewer or none.
