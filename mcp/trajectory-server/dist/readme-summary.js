@@ -4,6 +4,8 @@
 // images or links) removed, so the summary clip spends its bytes on prose.
 // Per CommonMark 0.31.2 (§4.6, §6.6) no tag spans a blank line; only HTML
 // comments may, so they are stripped over the whole text and tags per block.
+// Line endings are normalized to \n first (CommonMark §2.1: LF, CR or CRLF);
+// untouched input comes back as given, changed output uses \n throughout.
 export const README_CLEAN_MAX_CHARS = 16 * 1024;
 const LINKED_IMAGE = /\[!\[[^[\]]*\]\([^()]*\)\]\([^()]*\)/g;
 const IMAGE = /!\[[^[\]]*\]\([^()]*\)/g;
@@ -35,8 +37,9 @@ function isHeading(block) {
 }
 export function cleanReadme(raw) {
     const text = raw.length > README_CLEAN_MAX_CHARS ? raw.slice(0, README_CLEAN_MAX_CHARS) : raw;
-    const lines = text.split('\n');
-    const stripped = stripMarkup(text).split('\n');
+    const normalized = text.replace(/\r\n?/g, '\n');
+    const lines = normalized.split('\n');
+    const stripped = stripMarkup(normalized).split('\n');
     let changed = stripped.some((l, i) => l !== lines[i]);
     const kept = [];
     let block = [];

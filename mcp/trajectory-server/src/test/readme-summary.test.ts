@@ -101,6 +101,30 @@ describe('cleanReadme (GH 1834)', () => {
     assert.equal(cleanReadme('# A\n\nSee <b\n\nlater > text.\n'), '# A\n\nSee b\n\nlater > text.\n');
   });
 
+  it('keeps the prose and blockquote after a non-tag "<" in CRLF text (F158-3)', () => {
+    const a = cleanReadme('# Lib\r\n\r\nWorks when x <y holds.\r\n\r\nMore prose here.\r\n\r\n> Note: something\r\n');
+    const b = cleanReadme('# Lib\r\n\r\nSee <b\r\n\r\nlater > text.\r\n');
+    assert.ok(a.includes('More prose here.'), a);
+    assert.ok(a.includes('> Note: something'), a);
+    assert.ok(b.includes('later > text.'), b);
+    assert.equal(b, '# Lib\n\nSee b\n\nlater > text.\n');
+  });
+
+  it('treats a lone CR as a line ending', () => {
+    assert.equal(cleanReadme('# Lib\r\rSee <b\r\rlater > text.\r'), '# Lib\n\nSee b\n\nlater > text.\n');
+  });
+
+  it('fully strips a CRLF hero block and returns \\n endings throughout', () => {
+    const out = cleanReadme(ROOT_README_HEAD.replace(/\n/g, '\r\n'));
+    assert.equal(out, cleanReadme(ROOT_README_HEAD));
+    assert.doesNotMatch(out, /[<\r]/);
+  });
+
+  it('leaves a plain CRLF README byte-identical', () => {
+    const plain = '# Project\r\n\r\nRun `make` to build. See [docs](docs/README.md).\r\n\r\n## Usage\r\n\r\n- a < b\r\n';
+    assert.equal(cleanReadme(plain), plain);
+  });
+
   it(`clips the input to ${README_CLEAN_MAX_CHARS} chars before stripping`, () => {
     const out = cleanReadme(`# Big\n\n${'word '.repeat(README_CLEAN_MAX_CHARS)}\n`);
     assert.ok(out.length <= README_CLEAN_MAX_CHARS + 1, String(out.length));

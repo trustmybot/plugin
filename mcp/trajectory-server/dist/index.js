@@ -42044,6 +42044,65 @@ function readmeDrift(history, dir, readmeName, readme) {
   return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
 }
 
+// src/readme-summary.ts
+var README_CLEAN_MAX_CHARS = 16 * 1024;
+var LINKED_IMAGE = /\[!\[[^[\]]*\]\([^()]*\)\]\([^()]*\)/g;
+var IMAGE = /!\[[^[\]]*\]\([^()]*\)/g;
+var LINK = /\[([^[\]]*)\]\([^()]*\)/g;
+function untilStable(s, step) {
+  let prev;
+  let out2 = s;
+  do {
+    prev = out2;
+    out2 = step(out2);
+  } while (out2 !== prev);
+  return out2;
+}
+var COMMENT = /<!--[\s\S]*?-->/g;
+var TAG = /<[A-Za-z/!?](?:[^<>\n]|\n(?![ \t]*\n))*>/g;
+var STRAY_TAG_OPEN = /<(?=[A-Za-z/!?])/g;
+var newlinesOf = (m) => m.replace(/[^\n]/g, "");
+function stripMarkup(s) {
+  const noComments = untilStable(s, (t) => t.replace(COMMENT, newlinesOf));
+  const noImages = untilStable(noComments, (t) => t.replace(LINKED_IMAGE, newlinesOf).replace(IMAGE, newlinesOf));
+  const noTags = untilStable(noImages, (t) => t.replace(TAG, newlinesOf));
+  return untilStable(noTags, (t) => t.replace(STRAY_TAG_OPEN, ""));
+}
+function hasProse(block) {
+  return block.some((l) => new RegExp("\\p{L}", "u").test(l.replace(LINK, "")));
+}
+function isHeading(block) {
+  return block.length === 1 && /^\s*#{1,6}\s/.test(block[0]);
+}
+function cleanReadme(raw) {
+  const text = raw.length > README_CLEAN_MAX_CHARS ? raw.slice(0, README_CLEAN_MAX_CHARS) : raw;
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const lines2 = normalized.split("\n");
+  const stripped = stripMarkup(normalized).split("\n");
+  let changed = stripped.some((l, i2) => l !== lines2[i2]);
+  const kept = [];
+  let block = [];
+  let proseSeen = false;
+  const flush = () => {
+    if (block.length === 0) return;
+    if (proseSeen || hasProse(block)) {
+      if (kept.length > 0) kept.push("");
+      kept.push(...block);
+      if (!isHeading(block)) proseSeen = true;
+    } else {
+      changed = true;
+    }
+    block = [];
+  };
+  stripped.forEach((line, i2) => {
+    if (line.trim() !== "") block.push(line);
+    else if (lines2[i2].trim() === "") flush();
+  });
+  flush();
+  return changed ? `${kept.join("\n")}
+` : text;
+}
+
 // src/symbol-index.ts
 import { createHash as createHash2 } from "node:crypto";
 import { readFileSync as readFileSync7 } from "node:fs";
@@ -42187,16 +42246,21 @@ function normalizedHash(node) {
   for (const c of comments) text = text.slice(0, c.startIndex - base) + text.slice(c.endIndex - base);
   return md5(oneLine(text));
 }
+function isRuleLine(line) {
+  const rest = line.replace(/^\s*(\/\*\*?|\/\/|#|\*)/, "").replace(/\*\/\s*$/, "").trim();
+  return rest.length >= 3 && /^[-=#*_~/ ]+$/.test(rest);
+}
 function docOf(node) {
   const anchor = node.parent?.type === "export_statement" ? node.parent : node;
   const lines2 = [];
   let edge = anchor.startPosition.row;
   let prev = anchor.previousNamedSibling;
-  while (prev && prev.type === "comment" && prev.endPosition.row >= edge - (lines2.length === 0 ? 2 : 1)) {
+  while (prev && prev.type === "comment" && prev.endPosition.row === edge - 1) {
     lines2.unshift(prev.text);
     edge = prev.startPosition.row;
     prev = prev.previousNamedSibling;
   }
+  if (lines2.some((block) => block.split("\n").some(isRuleLine))) return "";
   const raw = lines2.map(
     (l) => l.replace(/\*\//g, " ").replace(/^\s*(\/\*\*?|\*|\/\/+|#+)/gm, " ")
   ).join(" ");
@@ -42595,7 +42659,7 @@ function extractHooks(src, chains) {
 }
 
 // src/symbol-index.ts
-var EXTRACTOR_VERSION = 1;
+var EXTRACTOR_VERSION = 2;
 var MAX_PARSE_BYTES = 1e6;
 var CARD_LIST_CAP = 50;
 var IMPACT_REF_CAP = 200;
@@ -43730,7 +43794,8 @@ function readReadme(absDirPath, candidates = README_CANDIDATES) {
 function readReadmeSummary(absDirPath) {
   const readme = readReadme(absDirPath);
   if (!readme) return null;
-  const clipped = readme.text.length > README_MAX_BYTES ? readme.text.slice(0, README_MAX_BYTES) : readme.text;
+  const text = cleanReadme(readme.text);
+  const clipped = text.length > README_MAX_BYTES ? text.slice(0, README_MAX_BYTES) : text;
   return frameUntrusted("readme", clipped);
 }
 function planReadmeDrift(out2) {
