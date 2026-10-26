@@ -14,6 +14,7 @@ import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
+import { linkWorktreeNodeModules } from '../utils/worktree-deps.js';
 import { FINDING_ORDER_SQL, activeFindingProbes, carryOpenFindings, gateCommands, latestVerificationRun, passingRunForCommit, verificationWaivedForCommit, } from './verification-runs.js';
 import { parseSpawnNote, parseStoredReport, reportMissingIds, specCriteriaProblem, specCriterionIds, SPAWN_NOTE_MAX_CHARS, } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
@@ -371,7 +372,9 @@ function worktreeOfBranch(repoPath, branchId) {
 }
 // Adds the task's worktree unless git already tracks one at that path (matched
 // by realpath: `git worktree list --porcelain` emits canonicalized paths, e.g.
-// /private/var/… for a /var/… symlink). Throws when `git worktree add` fails.
+// /private/var/… for a /var/… symlink), then links the main checkout's
+// node_modules into it, on reuse too (GH 1853). Throws only when
+// `git worktree add` fails.
 function ensureTaskWorktree(repoPath, branchId) {
     const worktreePath = taskWorktreePath(repoPath, branchId);
     let reused = false;
@@ -388,6 +391,12 @@ function ensureTaskWorktree(repoPath, branchId) {
     }
     if (!reused) {
         git(repoPath, ['worktree', 'add', worktreePath, branchId], WORKTREE_TIMEOUT_MS);
+    }
+    try {
+        linkWorktreeNodeModules(repoPath, worktreePath);
+    }
+    catch {
+        // Best-effort: a missing link never fails provisioning.
     }
     return { worktreePath, reused };
 }

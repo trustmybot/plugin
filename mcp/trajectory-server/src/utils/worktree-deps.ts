@@ -1,0 +1,96 @@
+// Untracked node_modules installs never reach a fresh git worktree (GH 1541,
+// GH 1853): link the main checkout's install beside each tracked package.json.
+// Shared by ensureTaskWorktree and skills/tmb_planning/scripts/integrate.sh,
+// which runs `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
+import { execFileSync } from 'node:child_process';
+import { lstatSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
+
+export interface WorktreeDepsResult {
+  linked: string[];
+  skipped: { dir: string; reason: string }[];
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function pathPresent(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function trackedPackageDirs(worktreePath: string): string[] {
+  const out = execFileSync('git', ['-C', worktreePath, 'ls-files', '-z', '--', 'package.json', '*/package.json'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: SUBPROCESS_TIMEOUT_MS,
+  }).toString();
+  return [...new Set(out.split('\0').filter(Boolean).map((p) => dirname(p)))];
+}
+
+export function linkWorktreeNodeModules(repoRoot: string, worktreePath: string): WorktreeDepsResult {
+  const result: WorktreeDepsResult = { linked: [], skipped: [] };
+  let dirs: string[];
+  try {
+    dirs = trackedPackageDirs(worktreePath);
+  } catch (error) {
+    result.skipped.push({ dir: '.', reason: `git ls-files failed: ${(error as Error).message}` });
+    return result;
+  }
+  for (const dir of dirs) {
+    const src = join(repoRoot, dir, 'node_modules');
+    const dest = join(worktreePath, dir, 'node_modules');
+    if (!isDirectory(src)) {
+      result.skipped.push({ dir, reason: `no install at ${src}` });
+      continue;
+    }
+    if (pathPresent(dest)) {
+      result.skipped.push({ dir, reason: `${dest} already exists` });
+      continue;
+    }
+    try {
+      symlinkSync(src, dest);
+      result.linked.push(dir);
+    } catch (error) {
+      result.skipped.push({ dir, reason: `could not link ${src}: ${(error as Error).message}` });
+    }
+  }
+  return result;
+}
+
+// The basename check keeps the guard off inside esbuild bundles (dist/index.js,
+// dist/hooks.js), where import.meta.url is the bundle's own entry point. The ESM
+// loader realpaths import.meta.url but argv[1] keeps symlinks, so both sides are
+// compared as real paths.
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  const self = fileURLToPath(import.meta.url);
+  if (entry === undefined || basename(self) !== 'worktree-deps.js') return false;
+  try {
+    return realpathSync(entry) === realpathSync(self);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  const [repoRoot, worktreePath] = process.argv.slice(2);
+  if (!repoRoot || !worktreePath) {
+    process.stderr.write('usage: node worktree-deps.js <repoRoot> <worktreePath>\n');
+  } else {
+    for (const s of linkWorktreeNodeModules(repoRoot, worktreePath).skipped) {
+      process.stderr.write(`worktree-deps: ${s.dir}: ${s.reason}\n`);
+    }
+  }
+  process.exit(0);
+}
