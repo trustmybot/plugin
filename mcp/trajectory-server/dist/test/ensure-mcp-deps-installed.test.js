@@ -6,13 +6,13 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, utimesSync, writeFileSync, } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { ensureBridge, installRuntimeDeps, isValidInstall, } from '../hooks/ensure-mcp-deps-installed.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { LOCK_TOKEN_ENV, ensureBridge, installRuntimeDeps, isValidInstall, releaseLock, takeLock, } from '../hooks/ensure-mcp-deps-installed.js';
 import { TRANSFORMERS_VERSION, pinnedTransformersVersion, runtimeDepsKey, runtimeDepsRoot, transformersEsmEntry, } from '../runtime-deps.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SERVER_DIR = join(PLUGIN_ROOT, 'mcp/trajectory-server');
@@ -27,8 +27,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]);
 const args = process.argv.slice(2).join(' ');
+const lockOwner = () => {
+  try {
+    return fs.readFileSync(path.join(process.env.STUB_LOCK, 'owner'), 'utf8');
+  } catch {
+    return '';
+  }
+};
 if (process.env.STUB_RECORD) {
-  fs.appendFileSync(process.env.STUB_RECORD, [process.cwd(), name, args, process.env.BUN_INSTALL_CACHE_DIR || '', process.env.npm_config_cache || ''].join('|') + '\\n');
+  fs.appendFileSync(process.env.STUB_RECORD, [process.cwd(), name, args, process.env.BUN_INSTALL_CACHE_DIR || '', process.env.npm_config_cache || '', process.env.TMB_MCP_DEPS_LOCK_TOKEN || '', process.env.STUB_LOCK ? lockOwner() : ''].join('|') + '\\n');
 }
 if (process.env.STUB_FAIL === '1') process.exit(1);
 if (args.includes('--no-save')) process.exit(0);
@@ -553,6 +560,155 @@ describe('ensure-mcp-deps-installed (GH 1695)', () => {
             assert.ok(text.includes(join(data, 'deps', runtimeDepsKey())), text);
             assert.ok(text.includes('ensure-mcp-deps-installed --install'), text);
             assert.equal(existsSync(join(data, 'deps/.install.lock')), false);
+        });
+        it('the spawned worker\'s env carries the lock token the gate wrote to <lock>/owner (GH 1719)', () => {
+            const root = fakeRoot(dir('gate-token/root'));
+            const data = dir('gate-token/data');
+            const lock = join(data, 'deps/.install.lock');
+            const rec = join(base, 'gate-token.rec');
+            const out = runNode({ PATH: bunDir, STUB_RECORD: rec, STUB_LOCK: lock, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: data });
+            assert.equal(out.code, 0);
+            waitUnlocked(lock);
+            const [call, ...rest] = records(rec);
+            assert.deepEqual(rest, []);
+            assert.match(call[5], /^[0-9a-f-]{36}$/);
+            assert.equal(call[6], call[5], 'the worker env token equals <lock>/owner while it installs');
+        });
+    });
+    describe('the install lock (GH 1718, GH 1719)', () => {
+        const STALE_MIN = 15;
+        const DEPS_MODULE = join(SERVER_DIR, 'dist/hooks/ensure-mcp-deps-installed.js');
+        function staleLock(name) {
+            const lock = join(dir('lock', name), '.install.lock');
+            mkdirSync(lock);
+            const old = new Date(Date.now() - (STALE_MIN + 5) * 60_000);
+            utimesSync(lock, old, old);
+            return lock;
+        }
+        function owner(lock) {
+            return readFileSync(join(lock, 'owner'), 'utf8');
+        }
+        function runWorker(env) {
+            const r = spawnSync(process.execPath, [HOOKS_BUNDLE, 'ensure-mcp-deps-installed', '--install'], {
+                input: '{}',
+                env,
+                cwd: base,
+                encoding: 'utf8',
+            });
+            if (r.error)
+                throw r.error;
+            return { code: r.status, stdout: r.stdout };
+        }
+        async function waitFor(paths) {
+            for (let i = 0; i < 600 && !paths.every((p) => existsSync(p)); i++)
+                await new Promise((r) => setTimeout(r, 50));
+            assert.ok(paths.every((p) => existsSync(p)), 'every racer is ready');
+        }
+        it('reclaim is atomic: of 6 processes racing on one stale lock exactly one gets a token, and <lock>/owner holds it', async () => {
+            const lock = staleLock('race');
+            const sync = dir('lock/race-sync');
+            const go = join(sync, 'go');
+            const racers = Array.from({ length: 6 }, (_, i) => {
+                const ready = join(sync, `ready-${i}`);
+                const script = [
+                    `import { existsSync, writeFileSync } from 'node:fs';`,
+                    `const { takeLock } = await import(${JSON.stringify(pathToFileURL(DEPS_MODULE).href)});`,
+                    `writeFileSync(${JSON.stringify(ready)}, '');`,
+                    `while (!existsSync(${JSON.stringify(go)}));`,
+                    `process.stdout.write(takeLock(${JSON.stringify(lock)}, ${STALE_MIN}) ?? '');`,
+                ].join('\n');
+                const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
+                const result = new Promise((res, rej) => {
+                    let out = '';
+                    child.stdout.on('data', (d) => { out += d.toString(); });
+                    child.on('error', rej);
+                    child.on('close', (code) => (code === 0 ? res(out) : rej(new Error(`racer ${i} exited ${code}`))));
+                });
+                return { ready, result };
+            });
+            await waitFor(racers.map((r) => r.ready));
+            writeFileSync(go, '');
+            const tokens = (await Promise.all(racers.map((r) => r.result))).filter((t) => t !== '');
+            assert.equal(tokens.length, 1, `tokens: ${JSON.stringify(tokens)}`);
+            assert.equal(owner(lock), tokens[0]);
+            assert.equal(existsSync(`${lock}.reclaim`), false, 'the mutex is released');
+        });
+        it('a fresh <lock>.reclaim blocks the reclaim; one older than 30 s is dropped so a later call reclaims', () => {
+            const lock = staleLock('mutex');
+            const mutex = `${lock}.reclaim`;
+            mkdirSync(mutex);
+            assert.equal(takeLock(lock, STALE_MIN), undefined);
+            assert.ok(existsSync(lock), 'the stale lock stays while the mutex is held');
+            assert.ok(existsSync(mutex));
+            const old = new Date(Date.now() - 31_000);
+            utimesSync(mutex, old, old);
+            assert.equal(takeLock(lock, STALE_MIN), undefined);
+            assert.equal(existsSync(mutex), false, 'a mutex older than 30 s is dropped');
+            assert.ok(existsSync(lock));
+            const token = takeLock(lock, STALE_MIN);
+            assert.ok(token);
+            assert.equal(owner(lock), token);
+            assert.equal(existsSync(mutex), false);
+        });
+        it('a lock that is not stale is never reclaimed', () => {
+            const lock = join(dir('lock/fresh'), '.install.lock');
+            const token = takeLock(lock, STALE_MIN);
+            assert.ok(token);
+            assert.equal(takeLock(lock, STALE_MIN), undefined);
+            assert.equal(owner(lock), token);
+        });
+        it('only the owner token releases the lock; an ownerless lock is never released', () => {
+            const lock = join(dir('lock/release'), '.install.lock');
+            const token = takeLock(lock, STALE_MIN);
+            assert.ok(token);
+            assert.equal(releaseLock(lock, 'not-the-owner'), false);
+            assert.equal(releaseLock(lock, undefined), false);
+            assert.equal(releaseLock(lock, ''), false);
+            assert.equal(owner(lock), token);
+            assert.equal(releaseLock(lock, token), true);
+            assert.equal(existsSync(lock), false);
+            const ownerless = join(dir('lock/ownerless'), '.install.lock');
+            mkdirSync(ownerless);
+            for (const t of [undefined, '', 'any-token'])
+                assert.equal(releaseLock(ownerless, t), false);
+            assert.ok(existsSync(ownerless));
+        });
+        it('a worker whose token does not own the lock leaves it in place', () => {
+            const root = fakeRoot(dir('lock/worker-wrong/root'));
+            const data = dir('lock/worker-wrong/data');
+            const lock = join(data, 'deps/.install.lock');
+            const held = takeLock(lock, STALE_MIN);
+            assert.ok(held);
+            const out = runWorker({ PATH: bunDir, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: data, [LOCK_TOKEN_ENV]: 'not-the-owner' });
+            assert.equal(out.code, 0, out.stdout);
+            assert.equal(owner(lock), held);
+        });
+        it('a manual run while another owner holds a fresh lock returns 1, installs nothing and keeps the lock', () => {
+            const root = fakeRoot(dir('lock/manual-held/root'));
+            const data = dir('lock/manual-held/data');
+            const lock = join(data, 'deps/.install.lock');
+            const held = takeLock(lock, STALE_MIN);
+            assert.ok(held);
+            const rec = join(base, 'manual-held.rec');
+            const out = runWorker({ PATH: bunDir, STUB_RECORD: rec, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: data });
+            assert.equal(out.code, 1);
+            assert.match(out.stdout, /another install holds .*\.install\.lock; not installing/);
+            assert.deepEqual(records(rec), []);
+            assert.equal(owner(lock), held);
+        });
+        it('a manual run with no lock held takes the lock, installs and releases it', () => {
+            const root = fakeRoot(dir('lock/manual-free/root'));
+            const data = dir('lock/manual-free/data');
+            const lock = join(data, 'deps/.install.lock');
+            const rec = join(base, 'manual-free.rec');
+            const out = runWorker({ PATH: bunDir, STUB_RECORD: rec, STUB_LOCK: lock, CLAUDE_PLUGIN_ROOT: root, CLAUDE_PLUGIN_DATA: data });
+            assert.equal(out.code, 0, out.stdout);
+            const [call, ...rest] = records(rec);
+            assert.deepEqual(rest, []);
+            assert.equal(call[5], '', 'a manual run carries no token');
+            assert.match(call[6], /^[0-9a-f-]{36}$/, 'the lock was held with its own token while installing');
+            assert.equal(existsSync(lock), false);
+            assert.ok(isValidInstall(join(data, 'deps', runtimeDepsKey())));
         });
     });
     describe('edge cases match the .sh', () => {

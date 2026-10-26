@@ -16,6 +16,7 @@
  * Bypass, unset CLAUDE_PLUGIN_ROOT, no MCP package.json → exit 0, no output.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { accessSync, closeSync, constants, copyFileSync, cpSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync, } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -24,8 +25,11 @@ import { ALLOW } from './gate.js';
 import { TRANSFORMERS_PACKAGE, TRANSFORMERS_VERSION, pinnedTransformersVersion, runtimeDepsKey, runtimeDepsRoot, transformersEsmEntry, transformersVersion, } from '../runtime-deps.js';
 export const GATE_NAME = 'ensure-mcp-deps-installed';
 export const INSTALL_FLAG = '--install';
+export const LOCK_TOKEN_ENV = 'TMB_MCP_DEPS_LOCK_TOKEN';
 const MCP_REL = join('mcp', 'trajectory-server');
 const LOCK_STALE_DEFAULT_MIN = 15;
+const RECLAIM_MUTEX_STALE_MS = 30_000;
+const LOCK_OWNER = 'owner';
 const STAGING_STALE_MS = 60 * 60 * 1000;
 const INSTALLED_AT = '.installed-at';
 const STAGING_PREFIX = '.staging-';
@@ -188,30 +192,93 @@ function staleMinutes(env) {
     const raw = env.TMB_MCP_DEPS_LOCK_STALE_MIN ?? '';
     return /^[0-9]+$/.test(raw) ? Number(raw) : LOCK_STALE_DEFAULT_MIN;
 }
-function takeLock(lock, staleMin) {
+function ageMs(path) {
     try {
-        if (Date.now() - statSync(lock).mtimeMs > staleMin * 60_000)
-            rmdirSync(lock);
+        return Date.now() - statSync(path).mtimeMs;
     }
     catch {
-        // no lock, or a stale one another process already reclaimed
+        return undefined;
+    }
+}
+/** A lock that is gone, or older than `staleMin` minutes. */
+function isStaleLock(lock, staleMin) {
+    const age = ageMs(lock);
+    return age === undefined || age > staleMin * 60_000;
+}
+/** Creates `lock` and writes a fresh owner token into it; undefined when the lock already exists. */
+function claimLock(lock) {
+    try {
+        mkdirSync(lock);
+    }
+    catch {
+        return undefined;
+    }
+    const token = randomUUID();
+    try {
+        writeFileSync(join(lock, LOCK_OWNER), token);
+    }
+    catch {
+        rmSync(lock, { recursive: true, force: true });
+        return undefined;
+    }
+    return token;
+}
+/**
+ * Takes over a stale lock under the mutex `<lock>.reclaim`, as dispatch.sh's
+ * reclaim() does: the holder re-checks staleness, so a lock re-created
+ * meanwhile is never removed. A mutex older than 30 s is dropped for the next caller.
+ */
+function reclaimLock(lock, staleMin) {
+    const mutex = `${lock}.reclaim`;
+    try {
+        mkdirSync(mutex);
+    }
+    catch {
+        const age = ageMs(mutex);
+        if (age !== undefined && age > RECLAIM_MUTEX_STALE_MS)
+            rmSync(mutex, { recursive: true, force: true });
+        return undefined;
     }
     try {
+        if (!isStaleLock(lock, staleMin))
+            return undefined;
+        rmSync(lock, { recursive: true, force: true });
+        return claimLock(lock);
+    }
+    finally {
+        try {
+            rmdirSync(mutex);
+        }
+        catch {
+            // dropped as stale by another caller
+        }
+    }
+}
+/** The owner token written to `<lock>/owner`, or undefined while another caller holds a lock that is not stale. */
+export function takeLock(lock, staleMin) {
+    try {
         mkdirSync(dirname(lock), { recursive: true });
-        mkdirSync(lock);
-        return true;
+    }
+    catch {
+        return undefined;
+    }
+    return claimLock(lock) ?? (isStaleLock(lock, staleMin) ? reclaimLock(lock, staleMin) : undefined);
+}
+/** Removes `lock` only when its owner file reads exactly `token`; a lock with no owner file is never removed. */
+export function releaseLock(lock, token) {
+    if (!token)
+        return false;
+    let owner;
+    try {
+        owner = readFileSync(join(lock, LOCK_OWNER), 'utf8');
     }
     catch {
         return false;
     }
-}
-function releaseLock(lock) {
-    try {
-        rmdirSync(lock);
-    }
-    catch {
-        // already gone
-    }
+    if (owner !== token)
+        return false;
+    rmSync(lock, { recursive: true, force: true });
+    return true;
 }
 function lockPath(ctx) {
     return ctx.legacy ? join(ctx.mcpDir, '.deps-install.lock') : join(depsDir(ctx.dataDir), '.install.lock');
@@ -292,14 +359,14 @@ function noInstallerNotice(ctx, hooksEntry) {
         : `CLAUDE_PLUGIN_ROOT="${ctx.root}" CLAUDE_PLUGIN_DATA="${ctx.dataDir}" node "${hooksEntry}" ${GATE_NAME} ${INSTALL_FLAG} (it installs into ${runtimeDepsRoot(ctx.dataDir)})`;
     return notice(`📦 Semantic search is degraded: the MCP server's @huggingface/transformers is not installed and neither bun nor npm is on PATH. Install one and restart Claude Code, or run: ${manual}`);
 }
-function startWorker(hooksEntry, log) {
+function startWorker(hooksEntry, log, token) {
     const fd = log.path ? openSync(log.path, 'a') : undefined;
     const stdio = fd === undefined ? 'ignore' : ['ignore', fd, fd];
     try {
         const child = spawn(process.execPath, [hooksEntry, GATE_NAME, INSTALL_FLAG], {
             detached: true,
             stdio,
-            env: log.env,
+            env: { ...log.env, [LOCK_TOKEN_ENV]: token },
         });
         child.on('error', () => undefined);
         child.unref();
@@ -330,14 +397,15 @@ function ensureDeps(env) {
     if (!installer)
         return noInstallerNotice(ctx, hooksEntry);
     const lock = lockPath(ctx);
-    if (!takeLock(lock, staleMinutes(env)))
+    const token = takeLock(lock, staleMinutes(env));
+    if (!token)
         return ALLOW;
     const log = installLog(ctx);
     try {
-        startWorker(hooksEntry, log);
+        startWorker(hooksEntry, log, token);
     }
     catch {
-        releaseLock(lock);
+        releaseLock(lock, token);
     }
     const logNote = log.path ? ` Log: ${log.path}` : '';
     return notice(`📦 Installing the MCP server's @huggingface/transformers in the background (${installer.name}); semantic search runs on FTS until then and embeddings go live on the next Claude Code restart.${logNote}`);
@@ -629,19 +697,29 @@ function legacyInstall(ctx, log) {
     log(`exit ${rc}`);
     return rc;
 }
-/** `node dist/hooks.js ensure-mcp-deps-installed --install`: the detached worker; releases the gate's lock. */
+/**
+ * `node dist/hooks.js ensure-mcp-deps-installed --install`: the detached
+ * worker. Spawned by the gate, it releases the gate's lock only while it still
+ * owns it; run by hand, it takes the lock itself and refuses while another
+ * install holds it.
+ */
 export function runInstallWorker(env) {
     const ctx = context(env);
     if (!ctx)
         return 0;
     const lock = lockPath(ctx);
+    const token = env[LOCK_TOKEN_ENV] || takeLock(lock, staleMinutes(env));
+    if (!token) {
+        stdoutLogger(`another install holds ${lock}; not installing`);
+        return 1;
+    }
     try {
         return ctx.legacy
             ? legacyInstall(ctx, stdoutLogger)
             : installRuntimeDeps({ root: ctx.root, dataDir: ctx.dataDir, env });
     }
     finally {
-        releaseLock(lock);
+        releaseLock(lock, token);
     }
 }
 //# sourceMappingURL=ensure-mcp-deps-installed.js.map

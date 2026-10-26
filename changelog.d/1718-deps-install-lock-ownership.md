@@ -1,0 +1,2 @@
+### Fixed
+- **Only one SessionStart hook takes over a stale transformers install lock** (GH 1718): two hooks that found the same stale install lock could both remove it and both start a background install of @huggingface/transformers. A stale lock is now reclaimed under a `<lock>.reclaim` mutex, as the hook dispatcher reclaims its own locks, so exactly one hook takes it over and starts an install. Together with the owner-only release (GH 1719), only one background install runs at a time.

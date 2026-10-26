@@ -4069,6 +4069,7 @@ import { readFileSync as readFileSync6 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   accessSync,
   closeSync,
@@ -4158,8 +4159,11 @@ function transformersEsmEntry(root) {
 // src/hooks/ensure-mcp-deps-installed.ts
 var GATE_NAME = "ensure-mcp-deps-installed";
 var INSTALL_FLAG = "--install";
+var LOCK_TOKEN_ENV = "TMB_MCP_DEPS_LOCK_TOKEN";
 var MCP_REL = join2("mcp", "trajectory-server");
 var LOCK_STALE_DEFAULT_MIN = 15;
+var RECLAIM_MUTEX_STALE_MS = 3e4;
+var LOCK_OWNER = "owner";
 var STAGING_STALE_MS = 60 * 60 * 1e3;
 var INSTALLED_AT = ".installed-at";
 var STAGING_PREFIX = ".staging-";
@@ -4290,24 +4294,71 @@ function staleMinutes(env) {
   const raw = env.TMB_MCP_DEPS_LOCK_STALE_MIN ?? "";
   return /^[0-9]+$/.test(raw) ? Number(raw) : LOCK_STALE_DEFAULT_MIN;
 }
-function takeLock(lock, staleMin) {
+function ageMs(path) {
   try {
-    if (Date.now() - statSync(lock).mtimeMs > staleMin * 6e4) rmdirSync(lock);
+    return Date.now() - statSync(path).mtimeMs;
   } catch {
+    return void 0;
+  }
+}
+function isStaleLock(lock, staleMin) {
+  const age = ageMs(lock);
+  return age === void 0 || age > staleMin * 6e4;
+}
+function claimLock(lock) {
+  try {
+    mkdirSync(lock);
+  } catch {
+    return void 0;
+  }
+  const token = randomUUID();
+  try {
+    writeFileSync(join2(lock, LOCK_OWNER), token);
+  } catch {
+    rmSync(lock, { recursive: true, force: true });
+    return void 0;
+  }
+  return token;
+}
+function reclaimLock(lock, staleMin) {
+  const mutex = `${lock}.reclaim`;
+  try {
+    mkdirSync(mutex);
+  } catch {
+    const age = ageMs(mutex);
+    if (age !== void 0 && age > RECLAIM_MUTEX_STALE_MS) rmSync(mutex, { recursive: true, force: true });
+    return void 0;
   }
   try {
+    if (!isStaleLock(lock, staleMin)) return void 0;
+    rmSync(lock, { recursive: true, force: true });
+    return claimLock(lock);
+  } finally {
+    try {
+      rmdirSync(mutex);
+    } catch {
+    }
+  }
+}
+function takeLock(lock, staleMin) {
+  try {
     mkdirSync(dirname(lock), { recursive: true });
-    mkdirSync(lock);
-    return true;
+  } catch {
+    return void 0;
+  }
+  return claimLock(lock) ?? (isStaleLock(lock, staleMin) ? reclaimLock(lock, staleMin) : void 0);
+}
+function releaseLock(lock, token) {
+  if (!token) return false;
+  let owner;
+  try {
+    owner = readFileSync2(join2(lock, LOCK_OWNER), "utf8");
   } catch {
     return false;
   }
-}
-function releaseLock(lock) {
-  try {
-    rmdirSync(lock);
-  } catch {
-  }
+  if (owner !== token) return false;
+  rmSync(lock, { recursive: true, force: true });
+  return true;
 }
 function lockPath(ctx) {
   return ctx.legacy ? join2(ctx.mcpDir, ".deps-install.lock") : join2(depsDir(ctx.dataDir), ".install.lock");
@@ -4376,14 +4427,14 @@ function noInstallerNotice(ctx, hooksEntry) {
   const manual = ctx.legacy ? `cd "${ctx.mcpDir}" && ${commandLine(LEGACY_INSTALLERS[0])}` : `CLAUDE_PLUGIN_ROOT="${ctx.root}" CLAUDE_PLUGIN_DATA="${ctx.dataDir}" node "${hooksEntry}" ${GATE_NAME} ${INSTALL_FLAG} (it installs into ${runtimeDepsRoot(ctx.dataDir)})`;
   return notice(`\u{1F4E6} Semantic search is degraded: the MCP server's @huggingface/transformers is not installed and neither bun nor npm is on PATH. Install one and restart Claude Code, or run: ${manual}`);
 }
-function startWorker(hooksEntry, log) {
+function startWorker(hooksEntry, log, token) {
   const fd = log.path ? openSync(log.path, "a") : void 0;
   const stdio = fd === void 0 ? "ignore" : ["ignore", fd, fd];
   try {
     const child = spawn(process.execPath, [hooksEntry, GATE_NAME, INSTALL_FLAG], {
       detached: true,
       stdio,
-      env: log.env
+      env: { ...log.env, [LOCK_TOKEN_ENV]: token }
     });
     child.on("error", () => void 0);
     child.unref();
@@ -4409,12 +4460,13 @@ function ensureDeps(env) {
   const installer = findInstaller(env, ctx.legacy ? LEGACY_INSTALLERS : DATA_INSTALLERS);
   if (!installer) return noInstallerNotice(ctx, hooksEntry);
   const lock = lockPath(ctx);
-  if (!takeLock(lock, staleMinutes(env))) return ALLOW;
+  const token = takeLock(lock, staleMinutes(env));
+  if (!token) return ALLOW;
   const log = installLog(ctx);
   try {
-    startWorker(hooksEntry, log);
+    startWorker(hooksEntry, log, token);
   } catch {
-    releaseLock(lock);
+    releaseLock(lock, token);
   }
   const logNote = log.path ? ` Log: ${log.path}` : "";
   return notice(`\u{1F4E6} Installing the MCP server's @huggingface/transformers in the background (${installer.name}); semantic search runs on FTS until then and embeddings go live on the next Claude Code restart.${logNote}`);
@@ -4651,10 +4703,15 @@ function runInstallWorker(env) {
   const ctx = context(env);
   if (!ctx) return 0;
   const lock = lockPath(ctx);
+  const token = env[LOCK_TOKEN_ENV] || takeLock(lock, staleMinutes(env));
+  if (!token) {
+    stdoutLogger(`another install holds ${lock}; not installing`);
+    return 1;
+  }
   try {
     return ctx.legacy ? legacyInstall(ctx, stdoutLogger) : installRuntimeDeps({ root: ctx.root, dataDir: ctx.dataDir, env });
   } finally {
-    releaseLock(lock);
+    releaseLock(lock, token);
   }
 }
 
