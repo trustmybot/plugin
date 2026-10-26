@@ -44,6 +44,28 @@ describe('cleanReadme (GH 1834)', () => {
         assert.doesNotMatch(out, /<p/);
         assert.doesNotMatch(out, /</);
     });
+    it('removes a multi-line <img> tag and a multi-line HTML comment entirely (F158-1)', () => {
+        const out = cleanReadme('# X\n\n<p align="center">\n  <img\n    src="a.svg"\n    alt="hero">\n</p>\n\n<!--\n  generated, do not edit\n-->\n\nReal prose.\n');
+        assert.equal(out, '# X\n\nReal prose.\n');
+    });
+    it('removes a multi-line <picture><source><img> block and keeps the prose after it', () => {
+        const out = cleanReadme([
+            '<picture>',
+            '  <source',
+            '    media="(prefers-color-scheme: dark)"',
+            '    srcset="logo-dark.svg"',
+            '  />',
+            '  <img',
+            '    alt="Logo of the library"',
+            '    src="logo.svg"',
+            '  />',
+            '</picture>',
+            '',
+            'Powerful asynchronous state management.',
+            '',
+        ].join('\n'));
+        assert.equal(out, 'Powerful asynchronous state management.\n');
+    });
     it('keeps no state between calls', () => {
         assert.equal(cleanReadme(ROOT_README_HEAD), cleanReadme(ROOT_README_HEAD));
     });

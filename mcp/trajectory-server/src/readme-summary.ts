@@ -17,10 +17,17 @@ function untilStable(s: string, step: (s: string) => string): string {
   return out;
 }
 
+const COMMENT = /<!--[\s\S]*?-->/g;
+const TAG = /<[A-Za-z/!?][^>]*>/g;
+const STRAY_TAG_OPEN = /<(?=[A-Za-z/!?])/g;
+
+const newlinesOf = (m: string): string => m.replace(/[^\n]/g, '');
+
 function stripMarkup(s: string): string {
-  const noComments = untilStable(s, (t) => t.replace(/<!--[\s\S]*?-->/g, ''));
-  const noImages = untilStable(noComments, (t) => t.replace(LINKED_IMAGE, '').replace(IMAGE, ''));
-  return untilStable(noImages, (t) => t.replace(/<[^>]*>/g, '')).replace(/<(?=[A-Za-z/!?])/g, '');
+  const noComments = untilStable(s, (t) => t.replace(COMMENT, newlinesOf));
+  const noImages = untilStable(noComments, (t) => t.replace(LINKED_IMAGE, newlinesOf).replace(IMAGE, newlinesOf));
+  const noTags = untilStable(noImages, (t) => t.replace(TAG, newlinesOf));
+  return untilStable(noTags, (t) => t.replace(STRAY_TAG_OPEN, ''));
 }
 
 function hasProse(block: string[]): boolean {
@@ -33,7 +40,7 @@ function isHeading(block: string[]): boolean {
 
 export function cleanReadme(text: string): string {
   const lines = text.split('\n');
-  const stripped = lines.map(stripMarkup);
+  const stripped = stripMarkup(text).split('\n');
   let changed = stripped.some((l, i) => l !== lines[i]);
   const kept: string[] = [];
   let block: string[] = [];
