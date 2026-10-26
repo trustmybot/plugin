@@ -1,0 +1,2 @@
+### Fixed
+- **The stale-framing-prose lint passes on dev again** (GH 2015): it flagged schema enum values such as `retired` inside fenced code blocks (the generated ERD diagram and an ADR's SQL), and two `WORLD_MODEL.md` lines used stale framing. The lint now skips fenced code blocks the way it already skips inline code, its `--self-test` runs every fixture through the same check as the real scan, and the two lines are reworded to state current behaviour.
