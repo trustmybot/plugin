@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/gfl",
+  "tool_input": {
+    "command": "git push --force upstream dev"
+  },
+  "corpus_expect": "Force push to dev is forbidden"
+}

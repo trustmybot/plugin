@@ -3,6 +3,7 @@ code-reviewer-preflight
 code-reviewer-spawn-note
 containment-guard
 ensure-mcp-deps-installed
+git-guards
 git-push-guard
 rework-limit
 swe-resume-gate
