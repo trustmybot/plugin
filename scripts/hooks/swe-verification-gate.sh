@@ -32,7 +32,13 @@
 #     HEAD → allow without running, additionalContext "verification reused run
 #     #N"; a run made before task_update_spec changed verification[] is not
 #     reused (GH 1672)
-#   - Verification passes          → allow
+#   - Otherwise, a command lib/verification-carry.js (dist) carries forward
+#     from the task's last passing run on an ancestor commit — its inputs
+#     declared in .config/tmb/verification-inputs.json untouched since — is
+#     recorded with exit 0, elapsed 0 and "carried from run #R at <sha12>"
+#     instead of run; the helper's time counts against the command budget (GH 1950)
+#   - Verification passes          → allow (additionalContext names the
+#     carried commands and their source run, when any)
 #   - Verification fails           → DENY naming the failing command, its
 #     elapsed and the cumulative time, the FAIL lines and the output tail (a
 #     command that itself exits 124 is a failing command, not a timeout)
@@ -403,6 +409,43 @@ timeout_reason() {
     "$TIMEOUT_S" "$4" "$1" "$CMD_TOTAL" "$ran" "$2" "$VERIFICATION_MAX_S" "$(record_note)"
 }
 
+CARRY_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks/lib/verification-carry.js"
+VERIFICATION_CARRY_TIMEOUT_S=10
+CARRY_RUN=""
+CARRY_SHA=""
+CARRY_ORDINALS=""
+CARRIED_CMDS=""
+
+# plan_carry — sets CARRY_RUN, CARRY_SHA and CARRY_ORDINALS (" 1 3 ") from
+# lib/verification-carry.js: the verification[] commands this run records as
+# carried from an earlier passing run instead of running them (GH 1950). No
+# node, no dist file, a helper error or timeout, or output that is not a plan
+# leaves them empty, and every command runs.
+plan_carry() {
+  local secs="$VERIFICATION_CARRY_TIMEOUT_S" out line run rest sha ords
+  [ -f "$CARRY_JS" ] || return 0
+  [ "$TIMEOUT_S" -ge "$secs" ] || secs="$TIMEOUT_S"
+  out=$(cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$secs" "" \
+    node "$CARRY_JS" "$DB" "$TASK_ID" "$WT_PATH" "$WT_SHA" "$GATE_CMDS_JSON" </dev/null 2>/dev/null) || return 0
+  line=$(jq -r 'select((.source_run | type) == "number" and (.source_sha | type) == "string" and (.carry | type) == "array")
+    | "\(.source_run)|\(.source_sha)|\(.carry | map(tostring) | join(" "))"' <<< "$out" 2>/dev/null) || return 0
+  run="${line%%|*}"
+  rest="${line#*|}"
+  sha="${rest%%|*}"
+  ords="${rest#*|}"
+  case "$run" in ''|*[!0-9]*) return 0 ;; esac
+  [[ "$sha" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 0
+  [[ "$ords" =~ ^[0-9]+( [0-9]+)*$ ]] || return 0
+  CARRY_RUN="$run"
+  CARRY_SHA="$sha"
+  CARRY_ORDINALS=" $ords "
+}
+
+is_carried() {
+  case "$CARRY_ORDINALS" in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
 # run_verification — runs verification[] once in the worktree, recording the
 # run as it goes; prints the deny decision, or nothing when every command passed
 # and the run is recorded. The command budget and the cumulative time count
@@ -458,8 +501,16 @@ run_verification() {
 
   # Each entry of the typed verification[] array is a clean shell command string
   # (Typed Rails #673); each non-empty line runs as a command in the worktree.
+  [ -z "$RUN_ID" ] || plan_carry
+
   while IFS= read -r CMD; do
     [ -z "$CMD" ] && continue
+    if is_carried $(( ordinal + 1 )); then
+      ordinal=$(( ordinal + 1 ))
+      record_command "$ordinal" "$CMD" 0 0 "carried from run #${CARRY_RUN} at ${CARRY_SHA:0:12}"
+      CARRIED_CMDS+="${CARRIED_CMDS:+$'\n'}${CMD}"
+      continue
+    fi
     run_one "$CMD" "$CMD" || return 0
     if [ "$cmd_rc" -ne 0 ]; then
       record_finish "$cmd_rc" 0
@@ -510,6 +561,9 @@ run_verification() {
   record_finish 0 0
   if [ -z "$WT_SHA" ]; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: verification[] passed (not recorded: worktree HEAD unresolvable)."}}'
+  elif [ -n "$CARRIED_CMDS" ]; then
+    jq -nc --arg run "$CARRY_RUN" --arg sha "${CARRY_SHA:0:12}" --arg cmds "$CARRIED_CMDS" --arg n "$CMD_TOTAL" \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification carried forward from run #" + $run + " at " + $sha + " — this commit touched none of their declared inputs (.config/tmb/verification-inputs.json), so these commands were not run again; the rest of the " + $n + " ran:\n" + $cmds)}}'
   fi
 }
 
