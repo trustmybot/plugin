@@ -96,10 +96,10 @@ The GH 1680 MVP (`conceptUpsert`, `refreshConcepts`, `evalClaim`) showed concept
 
 | # | Check | Result |
 |---|---|---|
-| 1 | A 3-step concept over the indexed worktree writes 1 verified concept, 3 ordered steps (last handoff NULL) and a passing `calls` claim, and is found by a word only a step uses | **Pass** (`world-model-concepts.test.ts`) |
+| 1 | A 3-step concept over the indexed worktree writes 1 verified concept, 3 ordered steps (last handoff NULL) and a passing `calls` claim, and is found by a word only a step uses | **Pass** (`world-model-concepts.suite.ts`) |
 | 2 | Editing an anchored body makes step and concept `suspect`, deleting it `broken`, re-upserting `verified`; an unknown anchor or failing claim writes nothing | **Pass** |
 | 3 | SessionStart hooks have strictly increasing `run_order` and exact `runs` edges | **Pass** |
 | 4 | A caller edge goes from unresolved to exact once its callee lands, and stays exact when the callee moves to another sourced file or is re-created as a class, without re-parsing the caller and matching a fresh full index | **Pass** |
 | 5 | A query no concept matches returns a derived chain of 2+ steps with no test paths | **Pass** |
-| 6 | A scan applies a reviewed task's proposed concept as verified with one applied row, skips an unreviewed task's, and does not re-apply on the next scan; an unresolved proposal stays pending before 14 days and writes one rejected row after | **Pass** (`world-model-concepts.test.ts`) |
+| 6 | A scan applies a reviewed task's proposed concept as verified with one applied row, skips an unreviewed task's, and does not re-apply on the next scan; an unresolved proposal stays pending before 14 days and writes one rejected row after | **Pass** (`world-model-concepts.suite.ts`) |
 | 7 | Each of the four upkeep contracts fails on its seeded case and holds on a clean fixture | **Pass** (`trajectory-doctor.test.ts`) |
