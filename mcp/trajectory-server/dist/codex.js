@@ -33792,6 +33792,21 @@ function plainMarkdown(s) {
     stripInlineMarkdown(s).replace(/`([^`]*)`/g, "$1").replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2")
   ).trim();
 }
+function backtickRunEnd(line, at) {
+  let end = at;
+  while (line[end] === "`") end++;
+  return end;
+}
+function codeSpanEnd(line, open, openEnd) {
+  const length = openEnd - open;
+  let j = line.indexOf("`", openEnd);
+  while (j >= 0) {
+    const runEnd = backtickRunEnd(line, j);
+    if (runEnd - j === length) return runEnd;
+    j = line.indexOf("`", runEnd);
+  }
+  return -1;
+}
 function withoutComments(line, inComment) {
   let rest = "";
   let i2 = 0;
@@ -33803,6 +33818,15 @@ function withoutComments(line, inComment) {
       inComment = false;
     }
     const start2 = line.indexOf("<!--", i2);
+    const tick = line.indexOf("`", i2);
+    if (tick >= 0 && (start2 < 0 || tick < start2)) {
+      const runEnd = backtickRunEnd(line, tick);
+      const spanEnd = codeSpanEnd(line, tick, runEnd);
+      const next = spanEnd < 0 ? runEnd : spanEnd;
+      rest += line.slice(i2, next);
+      i2 = next;
+      continue;
+    }
     if (start2 < 0) return { rest: rest + line.slice(i2), inComment: false };
     rest += line.slice(i2, start2);
     i2 = start2 + 2;

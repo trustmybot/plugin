@@ -126,6 +126,12 @@ describe('extractPurpose — structural fallback for data files', () => {
         expectPurpose('docs/between.md', '<!-- a --> text <!-- b -->\n', 'structural', 'text');
         expectPurpose('docs/prose-open.md', 'Prose <!-- open\nhidden\n-->\n', 'structural', 'Prose');
     });
+    it('markdown with no heading: a <!-- inside a code span stays literal (GH 1938)', () => {
+        expectPurpose('docs/span.md', 'Use `<!--` to start a comment.\nNext.\n', 'structural', 'Use !-- to start a comment.');
+        expectPurpose('docs/comment-first.md', '<!-- `x --> Real.\n', 'structural', 'Real.');
+        expectPurpose('docs/lone-tick.md', 'Lone ` tick <!-- c -->\n', 'structural', 'Lone ` tick');
+        expectPurpose('docs/double-tick.md', '``a`b`` <!-- c --> tail\n', 'structural', 'ab` tail');
+    });
     it('markdown with no heading: arrows and comparisons keep their angle brackets', () => {
         assert.match(extractPurpose('docs/arrow.md', 'a -> b\n').purpose, /a -> b/);
         assert.match(extractPurpose('docs/cmp.md', 'x > y\n').purpose, /x > y/);
