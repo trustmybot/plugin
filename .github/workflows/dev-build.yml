@@ -27,6 +27,10 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
       - name: Resolve the next release version
         id: next
         env:
@@ -87,7 +91,9 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          node --experimental-strip-types scripts/maintenance/runtime-payload.ts
           git commit -am "🔖 chore(dev-build): $VERSION" -m "Built from $DEV_SHA."
+          node --experimental-strip-types scripts/maintenance/runtime-payload.ts --check
           git push --force origin HEAD:refs/heads/dev-build
           echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {

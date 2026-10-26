@@ -53,7 +53,7 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 | `main` | stable tip; version tags live here | `tmb@trustmybot` (catalog `trustmybot/marketplace`) |
 | `rc` | fast-forwarded to the `vX.Y.Z-rc.N` tag under validation | `tmb@trustmybot-rc` (catalog `trustmybot/marketplace-rc`) |
 | `dev` | integration trunk; all PRs land here first | `tmb@trustmybot-dev` (catalog `trustmybot/marketplace-dev`, ref `dev-build`) |
-| `dev-build` | CI-stamped copy of `dev` ([Dev builds](#dev-builds)); never edited by hand | served to `tmb@trustmybot-dev` |
+| `dev-build` | CI-stamped, runtime-only copy of `dev` ([Dev builds](#dev-builds)): `scripts/maintenance/runtime-payload.ts` prunes every tracked path outside its runtime allowlist (tests, sources, `dist/test`, sourcemaps, docs) before the build commit, keeping `.github/` because a `GITHUB_TOKEN` push may not change workflow files; never edited by hand | served to `tmb@trustmybot-dev` |
 
 ### Dev builds
 
