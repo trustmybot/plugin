@@ -4223,11 +4223,23 @@ function markIssueClosed(db, issueId, now2) {
 var DERIVED_LABEL = "derived, unverified";
 var DERIVED_MAX_DEPTH = 4;
 var DERIVED_MAX_STEPS = 8;
-var DERIVED_SEED_POOL = 20;
+var DERIVED_SEED_HITS = 5;
+var DERIVED_HELPER_FAN_IN = 5;
 var DERIVED_EDGES = ["calls", "sources", "runs"];
 var OR_FALLBACK_MIN_HITS2 = 3;
 function queryWords2(query) {
   return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS.has(w)))];
+}
+var WORD_MATCH_SQL = {
+  wm_concepts_fts: "SELECT 1 AS hit FROM wm_concepts_fts WHERE wm_concepts_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
+  wm_symbols_fts: "SELECT 1 AS hit FROM wm_symbols_fts WHERE wm_symbols_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
+  wm_files_fts: "SELECT 1 AS hit FROM wm_files_fts WHERE wm_files_fts MATCH ? AND rowid = CAST(? AS INTEGER)"
+};
+function wordsMatched(db, table, rowid, words) {
+  return words.filter((w) => db.get(WORD_MATCH_SQL[table], [`"${w}"`, rowid]) !== void 0).length;
+}
+function majority(words) {
+  return Math.floor(words.length / 2) + 1;
 }
 function searchConcepts(db, repo, query, limit) {
   const words = queryWords2(query);
@@ -4243,7 +4255,8 @@ function searchConcepts(db, repo, query, limit) {
   let rows = search2("AND");
   if (rows.length < OR_FALLBACK_MIN_HITS2 && words.length > 1) {
     const seen = new Set(rows.map((r) => Number(r.id)));
-    rows = [...rows, ...search2("OR").filter((r) => !seen.has(Number(r.id)))].slice(0, limit);
+    const covered = (id) => wordsMatched(db, "wm_concepts_fts", id, words) >= majority(words);
+    rows = [...rows, ...search2("OR").filter((r) => !seen.has(Number(r.id)) && covered(Number(r.id)))].slice(0, limit);
   }
   return rows.map((r, i) => {
     const counts = db.all(
@@ -4325,8 +4338,54 @@ function getConcept(db, id) {
     steps
   };
 }
-function derivedChain(db, repo, query) {
-  const seed = keywordSearchSymbols(db, repo, query, DERIVED_SEED_POOL).hits.find((h) => !outsideConceptLane(h.path));
+function outgoingDerived(db, id) {
+  return Number(
+    db.get(
+      `SELECT COUNT(*) AS n FROM wm_edges
+        WHERE src_id = ? AND resolution = 'exact' AND kind IN (SELECT value FROM json_each(?))`,
+      [id, JSON.stringify(DERIVED_EDGES)]
+    ).n
+  );
+}
+function isLeafHelper(db, id) {
+  const callers = db.get(
+    `SELECT COUNT(DISTINCT src_id) AS n FROM wm_edges WHERE dst_id = ? AND kind = 'calls' AND resolution = 'exact'`,
+    [id]
+  ).n;
+  return Number(callers) >= DERIVED_HELPER_FAN_IN && outgoingDerived(db, id) === 0;
+}
+function fileSeed(db, repo, path, words) {
+  const ids = db.all(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind <> 'module' ORDER BY start_line, id`,
+    [repo, path]
+  );
+  let best = null;
+  for (const row of ids) {
+    const id = Number(row.id);
+    const c = { id, matched: wordsMatched(db, "wm_symbols_fts", id, words), out: outgoingDerived(db, id) };
+    if (!best || c.matched > best.matched || c.matched === best.matched && c.out > best.out) best = c;
+  }
+  return best ? symbolById(db, best.id) : null;
+}
+function seedSymbol(db, repo, query, candidates) {
+  const words = queryWords2(query);
+  if (words.length === 0) return null;
+  for (const c of candidates) {
+    if (c.kind === "symbol") {
+      const s2 = symbolById(db, c.id);
+      if (s2 && !outsideConceptLane(s2.path) && wordsMatched(db, "wm_symbols_fts", s2.id, words) >= majority(words)) return s2;
+      continue;
+    }
+    if (outsideConceptLane(c.path)) continue;
+    const file = db.get(`SELECT id FROM wm_files WHERE repo = ? AND path = ?`, [repo, c.path]);
+    if (!file || wordsMatched(db, "wm_files_fts", Number(file.id), words) < majority(words)) continue;
+    const s = fileSeed(db, repo, c.path, words);
+    if (s) return s;
+  }
+  return null;
+}
+function derivedChain(db, repo, query, candidates = keywordSearchSymbols(db, repo, query, DERIVED_SEED_HITS).hits.map((h) => ({ kind: "symbol", id: h.id }))) {
+  const seed = seedSymbol(db, repo, query, candidates);
   if (!seed) return null;
   const order = [];
   const seen = /* @__PURE__ */ new Set([seed.id]);
@@ -4348,9 +4407,10 @@ function derivedChain(db, repo, query) {
       for (const e of out) {
         const dst = Number(e.dst_id);
         if (seen.has(dst) || outsideConceptLane(e.path)) continue;
+        seen.add(dst);
+        if (isLeafHelper(db, dst)) continue;
         const row = symbolById(db, dst);
         if (!row) continue;
-        seen.add(dst);
         via.set(dst, e.kind);
         next.push(row);
       }

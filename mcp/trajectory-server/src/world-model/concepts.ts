@@ -23,7 +23,8 @@ export type ConceptStatus = StepTrust | 'retired';
 export const DERIVED_LABEL = 'derived, unverified';
 const DERIVED_MAX_DEPTH = 4;
 const DERIVED_MAX_STEPS = 8;
-const DERIVED_SEED_POOL = 20;
+export const DERIVED_SEED_HITS = 5;
+const DERIVED_HELPER_FAN_IN = 5;
 const DERIVED_EDGES = ['calls', 'sources', 'runs'];
 const OR_FALLBACK_MIN_HITS = 3;
 
@@ -452,9 +453,26 @@ function queryWords(query: string): string[] {
   return [...new Set(splitWords(query).split(' ').filter((w) => w.length > 1 && !STOPWORDS.has(w)))];
 }
 
+const WORD_MATCH_SQL = {
+  wm_concepts_fts: 'SELECT 1 AS hit FROM wm_concepts_fts WHERE wm_concepts_fts MATCH ? AND rowid = CAST(? AS INTEGER)',
+  wm_symbols_fts: 'SELECT 1 AS hit FROM wm_symbols_fts WHERE wm_symbols_fts MATCH ? AND rowid = CAST(? AS INTEGER)',
+  wm_files_fts: 'SELECT 1 AS hit FROM wm_files_fts WHERE wm_files_fts MATCH ? AND rowid = CAST(? AS INTEGER)',
+} as const;
+
+// How many query words the row's own FTS entry matches, one quoted MATCH per
+// word so the count follows the porter tokenizer. The CAST matters: a bound
+// JS number arrives as REAL, and FTS5's rowid lookup then drops the MATCH.
+function wordsMatched(db: TrajectoryDB, table: keyof typeof WORD_MATCH_SQL, rowid: number, words: string[]): number {
+  return words.filter((w) => db.get(WORD_MATCH_SQL[table], [`"${w}"`, rowid]) !== undefined).length;
+}
+
+function majority(words: string[]): number {
+  return Math.floor(words.length / 2) + 1;
+}
+
 // bm25 over name, body and the joined step descriptions, a name match
-// weighted highest: every word first, then any word when that finds fewer
-// than 3.
+// weighted highest: every word first, then, when that finds fewer than 3,
+// any concept that matches a majority of the words.
 export function searchConcepts(db: TrajectoryDB, repo: string, query: string, limit: number): ConceptHit[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
@@ -470,7 +488,8 @@ export function searchConcepts(db: TrajectoryDB, repo: string, query: string, li
   let rows = search('AND');
   if (rows.length < OR_FALLBACK_MIN_HITS && words.length > 1) {
     const seen = new Set(rows.map((r) => Number(r.id)));
-    rows = [...rows, ...search('OR').filter((r) => !seen.has(Number(r.id)))].slice(0, limit);
+    const covered = (id: number) => wordsMatched(db, 'wm_concepts_fts', id, words) >= majority(words);
+    rows = [...rows, ...search('OR').filter((r) => !seen.has(Number(r.id)) && covered(Number(r.id)))].slice(0, limit);
   }
   return rows.map((r, i) => {
     const counts = db.all<{ trust: StepTrust; n: number }>(
@@ -558,12 +577,78 @@ export function getConcept(db: TrajectoryDB, id: number): ConceptDetail | null {
   };
 }
 
-// A chain read off the index when no concept matches: the top symbol hit
-// seeds a breadth-first walk over exact calls, sources and runs edges (in
-// source-line order), depth 4, at most 8 steps, test and fixture paths
-// skipped. Unverified by construction.
-export function derivedChain(db: TrajectoryDB, repo: string, query: string): DerivedChain | null {
-  const seed = keywordSearchSymbols(db, repo, query, DERIVED_SEED_POOL).hits.find((h) => !outsideConceptLane(h.path));
+export type SeedCandidate = { kind: 'symbol'; id: number } | { kind: 'file'; path: string };
+
+function outgoingDerived(db: TrajectoryDB, id: number): number {
+  return Number(
+    db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM wm_edges
+        WHERE src_id = ? AND resolution = 'exact' AND kind IN (SELECT value FROM json_each(?))`,
+      [id, JSON.stringify(DERIVED_EDGES)],
+    )!.n,
+  );
+}
+
+// A utility many callers reach that leads nowhere, e.g. an error_json.
+function isLeafHelper(db: TrajectoryDB, id: number): boolean {
+  const callers = db.get<{ n: number }>(
+    `SELECT COUNT(DISTINCT src_id) AS n FROM wm_edges WHERE dst_id = ? AND kind = 'calls' AND resolution = 'exact'`,
+    [id],
+  )!.n;
+  return Number(callers) >= DERIVED_HELPER_FAN_IN && outgoingDerived(db, id) === 0;
+}
+
+// A file's best symbol: most query words matched, then most outgoing derived
+// edges, then the earliest. Module rows are left to the file, as in symbol
+// search.
+function fileSeed(db: TrajectoryDB, repo: string, path: string, words: string[]): SymbolRow | null {
+  const ids = db.all<{ id: number }>(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind <> 'module' ORDER BY start_line, id`,
+    [repo, path],
+  );
+  let best: { id: number; matched: number; out: number } | null = null;
+  for (const row of ids) {
+    const id = Number(row.id);
+    const c = { id, matched: wordsMatched(db, 'wm_symbols_fts', id, words), out: outgoingDerived(db, id) };
+    if (!best || c.matched > best.matched || (c.matched === best.matched && c.out > best.out)) best = c;
+  }
+  return best ? symbolById(db, best.id) : null;
+}
+
+// The first search hit, in rank order, outside the test lane whose own FTS
+// entry covers a majority of the query words: a symbol seeds itself, a file
+// its best symbol.
+function seedSymbol(db: TrajectoryDB, repo: string, query: string, candidates: SeedCandidate[]): SymbolRow | null {
+  const words = queryWords(query);
+  if (words.length === 0) return null;
+  for (const c of candidates) {
+    if (c.kind === 'symbol') {
+      const s = symbolById(db, c.id);
+      if (s && !outsideConceptLane(s.path) && wordsMatched(db, 'wm_symbols_fts', s.id, words) >= majority(words)) return s;
+      continue;
+    }
+    if (outsideConceptLane(c.path)) continue;
+    const file = db.get<{ id: number }>(`SELECT id FROM wm_files WHERE repo = ? AND path = ?`, [repo, c.path]);
+    if (!file || wordsMatched(db, 'wm_files_fts', Number(file.id), words) < majority(words)) continue;
+    const s = fileSeed(db, repo, c.path, words);
+    if (s) return s;
+  }
+  return null;
+}
+
+// A chain read off the index when no concept matches: the first of the
+// caller's ranked search hits with majority word coverage seeds a
+// breadth-first walk over exact calls, sources and runs edges (in source-line
+// order), depth 4, at most 8 steps, test and fixture paths and leaf helpers
+// skipped. Unverified by construction. A caller with no world-model ranking
+// (the dashboard) passes no candidates and gets the top keyword symbol hits.
+export function derivedChain(
+  db: TrajectoryDB,
+  repo: string,
+  query: string,
+  candidates: SeedCandidate[] = keywordSearchSymbols(db, repo, query, DERIVED_SEED_HITS).hits.map((h) => ({ kind: 'symbol' as const, id: h.id })),
+): DerivedChain | null {
+  const seed = seedSymbol(db, repo, query, candidates);
   if (!seed) return null;
   const order: Array<{ symbol: SymbolRow; via: Map<number, Handoff> }> = [];
   const seen = new Set<number>([seed.id]);
@@ -585,9 +670,10 @@ export function derivedChain(db: TrajectoryDB, repo: string, query: string): Der
       for (const e of out) {
         const dst = Number(e.dst_id);
         if (seen.has(dst) || outsideConceptLane(e.path)) continue;
+        seen.add(dst);
+        if (isLeafHelper(db, dst)) continue;
         const row = symbolById(db, dst);
         if (!row) continue;
-        seen.add(dst);
         via.set(dst, e.kind);
         next.push(row);
       }

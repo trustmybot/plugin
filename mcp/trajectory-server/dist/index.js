@@ -42318,7 +42318,8 @@ import { spawnSync as spawnSync11 } from "node:child_process";
 var DERIVED_LABEL = "derived, unverified";
 var DERIVED_MAX_DEPTH = 4;
 var DERIVED_MAX_STEPS = 8;
-var DERIVED_SEED_POOL = 20;
+var DERIVED_SEED_HITS = 5;
+var DERIVED_HELPER_FAN_IN = 5;
 var DERIVED_EDGES = ["calls", "sources", "runs"];
 var OR_FALLBACK_MIN_HITS2 = 3;
 var PASS = "pass";
@@ -42576,6 +42577,17 @@ function applyConceptProposals(db2, repo, repoPath, now2 = /* @__PURE__ */ new D
 function queryWords2(query) {
   return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
 }
+var WORD_MATCH_SQL = {
+  wm_concepts_fts: "SELECT 1 AS hit FROM wm_concepts_fts WHERE wm_concepts_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
+  wm_symbols_fts: "SELECT 1 AS hit FROM wm_symbols_fts WHERE wm_symbols_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
+  wm_files_fts: "SELECT 1 AS hit FROM wm_files_fts WHERE wm_files_fts MATCH ? AND rowid = CAST(? AS INTEGER)"
+};
+function wordsMatched(db2, table, rowid, words) {
+  return words.filter((w) => db2.get(WORD_MATCH_SQL[table], [`"${w}"`, rowid]) !== void 0).length;
+}
+function majority(words) {
+  return Math.floor(words.length / 2) + 1;
+}
 function searchConcepts(db2, repo, query, limit) {
   const words = queryWords2(query);
   if (words.length === 0) return [];
@@ -42590,7 +42602,8 @@ function searchConcepts(db2, repo, query, limit) {
   let rows = search("AND");
   if (rows.length < OR_FALLBACK_MIN_HITS2 && words.length > 1) {
     const seen = new Set(rows.map((r) => Number(r.id)));
-    rows = [...rows, ...search("OR").filter((r) => !seen.has(Number(r.id)))].slice(0, limit);
+    const covered = (id) => wordsMatched(db2, "wm_concepts_fts", id, words) >= majority(words);
+    rows = [...rows, ...search("OR").filter((r) => !seen.has(Number(r.id)) && covered(Number(r.id)))].slice(0, limit);
   }
   return rows.map((r, i2) => {
     const counts = db2.all(
@@ -42672,8 +42685,54 @@ function getConcept(db2, id) {
     steps
   };
 }
-function derivedChain(db2, repo, query) {
-  const seed = keywordSearchSymbols(db2, repo, query, DERIVED_SEED_POOL).hits.find((h) => !outsideConceptLane(h.path));
+function outgoingDerived(db2, id) {
+  return Number(
+    db2.get(
+      `SELECT COUNT(*) AS n FROM wm_edges
+        WHERE src_id = ? AND resolution = 'exact' AND kind IN (SELECT value FROM json_each(?))`,
+      [id, JSON.stringify(DERIVED_EDGES)]
+    ).n
+  );
+}
+function isLeafHelper(db2, id) {
+  const callers = db2.get(
+    `SELECT COUNT(DISTINCT src_id) AS n FROM wm_edges WHERE dst_id = ? AND kind = 'calls' AND resolution = 'exact'`,
+    [id]
+  ).n;
+  return Number(callers) >= DERIVED_HELPER_FAN_IN && outgoingDerived(db2, id) === 0;
+}
+function fileSeed(db2, repo, path2, words) {
+  const ids = db2.all(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind <> 'module' ORDER BY start_line, id`,
+    [repo, path2]
+  );
+  let best = null;
+  for (const row of ids) {
+    const id = Number(row.id);
+    const c = { id, matched: wordsMatched(db2, "wm_symbols_fts", id, words), out: outgoingDerived(db2, id) };
+    if (!best || c.matched > best.matched || c.matched === best.matched && c.out > best.out) best = c;
+  }
+  return best ? symbolById(db2, best.id) : null;
+}
+function seedSymbol(db2, repo, query, candidates) {
+  const words = queryWords2(query);
+  if (words.length === 0) return null;
+  for (const c of candidates) {
+    if (c.kind === "symbol") {
+      const s2 = symbolById(db2, c.id);
+      if (s2 && !outsideConceptLane(s2.path) && wordsMatched(db2, "wm_symbols_fts", s2.id, words) >= majority(words)) return s2;
+      continue;
+    }
+    if (outsideConceptLane(c.path)) continue;
+    const file2 = db2.get(`SELECT id FROM wm_files WHERE repo = ? AND path = ?`, [repo, c.path]);
+    if (!file2 || wordsMatched(db2, "wm_files_fts", Number(file2.id), words) < majority(words)) continue;
+    const s = fileSeed(db2, repo, c.path, words);
+    if (s) return s;
+  }
+  return null;
+}
+function derivedChain(db2, repo, query, candidates = keywordSearchSymbols(db2, repo, query, DERIVED_SEED_HITS).hits.map((h) => ({ kind: "symbol", id: h.id }))) {
+  const seed = seedSymbol(db2, repo, query, candidates);
   if (!seed) return null;
   const order = [];
   const seen = /* @__PURE__ */ new Set([seed.id]);
@@ -42695,9 +42754,10 @@ function derivedChain(db2, repo, query) {
       for (const e of out2) {
         const dst = Number(e.dst_id);
         if (seen.has(dst) || outsideConceptLane(e.path)) continue;
+        seen.add(dst);
+        if (isLeafHelper(db2, dst)) continue;
         const row = symbolById(db2, dst);
         if (!row) continue;
-        seen.add(dst);
         via.set(dst, e.kind);
         next.push(row);
       }
@@ -45242,6 +45302,37 @@ function fuse(lists) {
   }
   return [...fused.values()].sort((a, b) => b.score - a.score);
 }
+async function rankWorldModel(db2, graph, repo, query, mode, k) {
+  const pool = mode === "keyword" ? k : k * 4;
+  const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
+  const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
+  const symbolSearch = keywordSearchSymbols(db2, repo, query, SYMBOL_POOL);
+  const match = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === "any_term") ? "any_term" : "all_terms";
+  const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
+  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
+  const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
+  if (mode === "keyword") return { ranked: keywordRanked, match };
+  await backfillWorldModel(db2);
+  const semantic = await cosineHits(db2, graph, repo, query, pool);
+  if (semantic.length === 0) return { ranked: keywordRanked, match, warning: "semantic_unavailable" };
+  if (mode === "semantic") return { ranked: semantic, match };
+  return {
+    ranked: fuse([
+      dirSearch.hits.map(dirHit),
+      hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== "dir")),
+      hitsOf(semantic.filter(({ hit }) => hit.kind === "dir")),
+      hitsOf(semantic.filter(({ hit }) => hit.kind === "file"))
+    ]),
+    match
+  };
+}
+function derivedSeeds(ranked) {
+  return ranked.flatMap(({ hit }) => {
+    if (hit.kind === "symbol") return [{ kind: "symbol", id: hit.node.id }];
+    if (hit.kind === "file") return [{ kind: "file", path: WorldModelGraph.relativeFilePath(hit.node) }];
+    return [];
+  }).slice(0, DERIVED_SEED_HITS);
+}
 function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -45517,36 +45608,14 @@ function worldModelTools(db2, graphHolder2) {
         if (!graph) {
           return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
-        const pool = mode === "keyword" ? k : k * 4;
-        const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-        const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
-        const symbolSearch = keywordSearchSymbols(db2, repo, query, SYMBOL_POOL);
-        const match = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === "any_term") ? "any_term" : "all_terms";
-        const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
-        const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
-        const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
-        const respond = (ranked, extra = {}) => {
-          const top = ranked.slice(0, k);
-          const stale = staleFiles(
-            db2,
-            top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
-          );
-          const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
-          return ok20({ results, total_matched: results.length, ...extra, mode, match });
-        };
-        if (mode === "keyword") return respond(keywordRanked);
-        await backfillWorldModel(db2);
-        const semantic = await cosineHits(db2, graph, repo, query, pool);
-        if (semantic.length === 0) return respond(keywordRanked, { warning: "semantic_unavailable" });
-        if (mode === "semantic") return respond(semantic);
-        return respond(
-          fuse([
-            dirSearch.hits.map(dirHit),
-            hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== "dir")),
-            hitsOf(semantic.filter(({ hit }) => hit.kind === "dir")),
-            hitsOf(semantic.filter(({ hit }) => hit.kind === "file"))
-          ])
+        const { ranked, match, warning } = await rankWorldModel(db2, graph, repo, query, mode, k);
+        const top = ranked.slice(0, k);
+        const stale = staleFiles(
+          db2,
+          top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
         );
+        const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
+        return ok20({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match });
       })
     ),
     world_model_symbol: requireRoles(
@@ -45618,7 +45687,8 @@ function worldModelTools(db2, graphHolder2) {
         const available = db2.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== void 0;
         if (!available) return ok20({ available, concepts: [], derived: null });
         const concepts = searchConcepts(db2, repo.name, query, CONCEPT_LIMIT);
-        const derived = concepts.length === 0 ? derivedChain(db2, repo.name, query) : null;
+        const graph = concepts.length === 0 ? graphHolder2?.ensureGraph() ?? null : null;
+        const derived = graph ? derivedChain(db2, repo.name, query, derivedSeeds((await rankWorldModel(db2, graph, repo.name, query, "hybrid", DERIVED_SEED_HITS)).ranked)) : null;
         return ok20({
           available,
           concepts,
