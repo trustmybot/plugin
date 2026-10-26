@@ -3,8 +3,8 @@
 // Shared by ensureTaskWorktree and skills/tmb_planning/scripts/integrate.sh,
 // which runs `node dist/utils/worktree-deps.js <repoRoot> <worktreePath>`.
 import { execFileSync } from 'node:child_process';
-import { lstatSync, statSync, symlinkSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { lstatSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS } from './timeouts.js';
 function isDirectory(path) {
@@ -63,11 +63,20 @@ export function linkWorktreeNodeModules(repoRoot, worktreePath) {
     return result;
 }
 // The basename check keeps the guard off inside esbuild bundles (dist/index.js,
-// dist/hooks.js), where import.meta.url is the bundle's own entry point.
+// dist/hooks.js), where import.meta.url is the bundle's own entry point. The ESM
+// loader realpaths import.meta.url but argv[1] keeps symlinks, so both sides are
+// compared as real paths.
 function isMainModule() {
     const entry = process.argv[1];
     const self = fileURLToPath(import.meta.url);
-    return entry !== undefined && basename(self) === 'worktree-deps.js' && resolve(entry) === self;
+    if (entry === undefined || basename(self) !== 'worktree-deps.js')
+        return false;
+    try {
+        return realpathSync(entry) === realpathSync(self);
+    }
+    catch {
+        return false;
+    }
 }
 if (isMainModule()) {
     const [repoRoot, worktreePath] = process.argv.slice(2);

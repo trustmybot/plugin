@@ -168,6 +168,19 @@ describe('linkWorktreeNodeModules', () => {
     });
   });
 
+  it('the CLI entry links when run through a symlinked plugin path (F148-1)', () => {
+    withWorktree((repoRoot, wt) => {
+      const utilsDir = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'utils');
+      const linkedUtils = join(repoRoot, '..', 'plug-utils');
+      symlinkSync(utilsDir, linkedUtils);
+      execFileSync(process.execPath, [join(linkedUtils, 'worktree-deps.js'), repoRoot, wt], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      assert.ok(isLinkTo(join(wt, 'node_modules'), join(repoRoot, 'node_modules')));
+      assert.ok(isLinkTo(join(wt, 'pkg', 'node_modules'), join(repoRoot, 'pkg', 'node_modules')));
+    });
+  });
+
   it('the CLI guard stays off inside the dist/index.js bundle: the server still answers initialize', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'wt-deps-bundle-'));
     const bundle = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'index.js');
