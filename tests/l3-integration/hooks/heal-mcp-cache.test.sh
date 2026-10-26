@@ -175,7 +175,7 @@ for stdin_mode in yes closed; do
   assert_contains "$OUT" "[dry-run] Step C would: rm -rf $H/.claude/plugins/cache/trustmybot-dev/tmb/1.0.0" "Step C preview"
   assert_contains "$OUT" "[dry-run] Step B would: rm -rf $H/.claude/plugins/cache/trustmybot-dev;" "Step B preview"
   test_case "--dry-run (stdin $stdin_mode): never prompts"
-  if printf '%s' "$OUT" | grep -q 'Proceed with'; then _fail "prompt shown; output: $OUT"; else _pass; fi
+  if printf '%s' "$OUT" | grep 'Proceed with' >/dev/null; then _fail "prompt shown; output: $OUT"; else _pass; fi
 done
 
 summarize
