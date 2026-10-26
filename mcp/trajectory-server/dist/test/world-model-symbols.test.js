@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { parserLoadCount } from '../parsing/loader.js';
 import { EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
-import { inSymbolScope } from '../parsing/extract.js';
+import { inSymbolScope, isGeneratedPath } from '../parsing/extract.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
@@ -315,6 +315,7 @@ describe('a file whose extraction throws is recorded, not left unstamped (GH 185
             'src/a.ts', 'dist/a.js', 'mcp/x/dist/a.js', 'src/a.js.map', 'node_modules/p/i.js', 'a/node_modules/p/i.js',
             'vendor/v.go', 'a/vendor/v.go', 'web/app.min.js', 'package-lock.json', 'a/package-lock.json', 'bun.lockb',
             'Cargo.lock', 'distro/a.ts', 'src/redist/a.ts', 'src/package-lock.json.ts', 'hooks/hooks.json', 'scripts/run',
+            'build/y', 'a/build/b.js', 'src/rebuild/a.ts', 'src/build.ts',
         ];
         for (const p of paths) {
             const inScope = db.get(`SELECT ${IN_SYMBOL_SCOPE_SQL} AS ok FROM (SELECT ? AS path)`, [p]).ok === 1;
@@ -515,6 +516,97 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
         await scan(db, holder, ws);
         assert.equal((await symbol({ qualified_name: 'stepA' })).symbol['stale'], false);
         assert.equal((await searchHit())['stale'], false);
+    });
+});
+describe('generated output stays out of the world model (GH 1835)', () => {
+    it('isGeneratedPath flags build output, dependencies, maps and minified bundles, and inSymbolScope adds lockfiles', () => {
+        for (const p of ['dist/x.js', 'a/dist/b.js', 'x.js.map', 'build/y', 'node_modules/z/i.js', 'vendor/v.go', 'app.min.js']) {
+            assert.equal(isGeneratedPath(p), true, p);
+            assert.equal(inSymbolScope(p), false, p);
+        }
+        assert.equal(isGeneratedPath('src/dist-utils.ts'), false);
+        assert.equal(inSymbolScope('src/dist-utils.ts'), true);
+        for (const p of ['package-lock.json', 'bun.lockb', 'yarn.lock']) {
+            assert.equal(isGeneratedPath(p), false, p);
+            assert.equal(inSymbolScope(p), false, p);
+        }
+    });
+    const ws = mkdtempSync(join(tmpdir(), 'wm-generated-'));
+    const root = join(ws, 'app');
+    const db = tempDB();
+    const graph = new WorldModelGraph(db);
+    const holder = GraphHolder.fixed(graph);
+    const SOURCE = '// Quokka relay: forwards widget frames.\nexport function quokkaRelay(n: number): number {\n  return n + 1;\n}\n';
+    const distRows = () => ({
+        files: db.get(`SELECT COUNT(*) AS n FROM wm_files WHERE repo = 'app' AND path LIKE 'dist/%'`).n,
+        dirs: db.get(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = 'app' AND (path = 'dist' OR path LIKE 'dist/%')`).n,
+    });
+    before(async () => {
+        mkdirSync(join(root, 'src'), { recursive: true });
+        mkdirSync(join(root, 'dist'), { recursive: true });
+        writeFileSync(join(root, 'src/a.ts'), SOURCE);
+        writeFileSync(join(root, 'dist/a.js'), SOURCE.replace('(n: number): number', '(n)'));
+        writeFileSync(join(root, 'dist/a.js.map'), '{"version":3}\n');
+        writeFileSync(join(root, 'package-lock.json'), '{"lockfileVersion":3}\n');
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+        execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+        execFileSync('git', ['add', '-A'], { cwd: root });
+        execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+        await scan(db, holder, ws);
+    });
+    after(() => {
+        db.close();
+        rmSync(ws, { recursive: true, force: true });
+    });
+    it('indexes src/ and the lockfile but no committed dist/ file or directory', () => {
+        assert.deepEqual(distRows(), { files: 0, dirs: 0 });
+        const paths = db.all(`SELECT path FROM wm_files WHERE repo = 'app' ORDER BY path`).map((r) => r.path);
+        assert.deepEqual(paths, ['package-lock.json', 'src/a.ts']);
+        const repoRoot = graph.allDirectoriesForRepo('app').find((d) => d.path === '');
+        assert.ok(!String(repoRoot.summary).includes('dist'), String(repoRoot.summary));
+    });
+    it('world_model_search returns no dist/ hit for a term in both src/a.ts and dist/a.js', async () => {
+        const wm = worldModelTools(db, holder).handlers;
+        const out = parse((await wm['world_model_search']({ agent: 'bro', repo: 'app', query: 'quokka relay', mode: 'keyword', k: 20 })));
+        assert.ok(out.results.some((r) => r['path'] === 'src/a.ts'), JSON.stringify(out.results));
+        for (const r of out.results) {
+            const path = String(r['path']);
+            assert.ok(!path.includes('dist/') && path !== 'dist', JSON.stringify(r));
+        }
+    });
+    it('a rescan deletes dist rows an earlier scan stored', async () => {
+        const now = new Date().toISOString();
+        for (const path of ['dist', 'dist/sub']) {
+            graph.upsertDirectory({
+                repo: 'app',
+                path,
+                parent_path: path === 'dist' ? '' : 'dist',
+                summary: 'dist/ — stale',
+                summary_source: 'structural',
+                summary_updated_at: now,
+                file_count: 1,
+            });
+        }
+        for (const [path, dir] of [
+            ['dist/a.js', 'dist'],
+            ['dist/sub/b.js', 'dist/sub'],
+        ]) {
+            graph.upsertFile({
+                repo: 'app',
+                path,
+                dir,
+                purpose: 'Quokka relay.',
+                purpose_source: 'comment',
+                content_md5: 'x',
+                size_bytes: 1,
+                last_commit_sha: 'x',
+                updated_at: now,
+            });
+        }
+        assert.deepEqual(distRows(), { files: 2, dirs: 2 });
+        await scan(db, holder, ws);
+        assert.deepEqual(distRows(), { files: 0, dirs: 0 });
     });
 });
 //# sourceMappingURL=world-model-symbols.test.js.map

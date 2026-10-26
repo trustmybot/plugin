@@ -80,6 +80,7 @@ const SYMBOLS_SCHEMA = 44;
 export const UNINDEXED_SAMPLE_CAP = 20;
 // inSymbolScope (parsing/extract.ts) as a SQL predicate on wm_files.path.
 export const IN_SYMBOL_SCOPE_SQL = `NOT (path GLOB 'dist/*' OR path GLOB '*/dist/*' OR path GLOB '*.map'
+               OR path GLOB 'build/*' OR path GLOB '*/build/*'
                OR path GLOB 'node_modules/*' OR path GLOB '*/node_modules/*'
                OR path GLOB 'vendor/*' OR path GLOB '*/vendor/*' OR path GLOB '*.min.js'
                OR path = 'package-lock.json' OR path GLOB '*/package-lock.json'

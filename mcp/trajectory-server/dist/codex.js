@@ -33857,15 +33857,15 @@ function loadParsers() {
 // src/parsing/extract.ts
 import { createHash as createHash2 } from "node:crypto";
 import { basename as basename4 } from "node:path";
-var EXCLUDED_PATH = [
+var GENERATED_PATH = [
   /(^|\/)dist\//,
-  /\.map$/,
+  /(^|\/)build\//,
   /(^|\/)node_modules\//,
   /(^|\/)vendor\//,
-  /\.min\.js$/,
-  /(^|\/)package-lock\.json$/,
-  /\.lock(b)?$/
+  /\.map$/,
+  /\.min\.js$/
 ];
+var LOCKFILE_PATH = [/(^|\/)package-lock\.json$/, /\.lock(b)?$/];
 var EXTENSION_LANGUAGE = {
   ts: "typescript",
   mts: "typescript",
@@ -33896,8 +33896,11 @@ function splitWords(s) {
 }
 var clip = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 var oneLine = (s) => s.replace(/\s+/g, " ").trim();
+function isGeneratedPath(relPath) {
+  return GENERATED_PATH.some((re) => re.test(relPath));
+}
 function inSymbolScope(relPath) {
-  return !EXCLUDED_PATH.some((re) => re.test(relPath));
+  return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 function languageOf(relPath, head) {
   const name2 = basename4(relPath);
@@ -36017,7 +36020,7 @@ async function persistScan(db, graph, out2, sessionDir) {
   const persisted = {
     ...out2,
     repos: out2.repos.filter((r) => !renamedTo.has(r.name)),
-    files: out2.files.filter((f) => !renamedTo.has(f.repo))
+    files: out2.files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path))
   };
   const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {

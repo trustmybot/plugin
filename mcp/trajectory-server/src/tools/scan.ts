@@ -15,6 +15,7 @@ import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
 import { indexRepoSymbols, type SymbolIndexStats } from '../symbol-index.js';
+import { isGeneratedPath } from '../parsing/extract.js';
 import { applyConceptProposals, refreshConcepts } from '../world-model/concepts.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { syncRepoMilestones } from './milestones.js';
@@ -710,7 +711,7 @@ async function persistScan(
   const persisted: ScanOutput = {
     ...out,
     repos: out.repos.filter((r) => !renamedTo.has(r.name)),
-    files: out.files.filter((f) => !renamedTo.has(f.repo)),
+    files: out.files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path)),
   };
   const scannedNames = new Set(persisted.repos.map((r) => r.name));
 

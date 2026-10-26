@@ -41802,15 +41802,15 @@ function loadParsers() {
 // src/parsing/extract.ts
 import { createHash } from "node:crypto";
 import { basename as basename7 } from "node:path";
-var EXCLUDED_PATH = [
+var GENERATED_PATH = [
   /(^|\/)dist\//,
-  /\.map$/,
+  /(^|\/)build\//,
   /(^|\/)node_modules\//,
   /(^|\/)vendor\//,
-  /\.min\.js$/,
-  /(^|\/)package-lock\.json$/,
-  /\.lock(b)?$/
+  /\.map$/,
+  /\.min\.js$/
 ];
+var LOCKFILE_PATH = [/(^|\/)package-lock\.json$/, /\.lock(b)?$/];
 var EXTENSION_LANGUAGE = {
   ts: "typescript",
   mts: "typescript",
@@ -41841,8 +41841,11 @@ function splitWords(s) {
 }
 var clip = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 var oneLine = (s) => s.replace(/\s+/g, " ").trim();
+function isGeneratedPath(relPath) {
+  return GENERATED_PATH.some((re) => re.test(relPath));
+}
 function inSymbolScope(relPath) {
-  return !EXCLUDED_PATH.some((re) => re.test(relPath));
+  return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 function languageOf(relPath, head) {
   const name2 = basename7(relPath);
@@ -43664,7 +43667,7 @@ async function persistScan(db2, graph, out2, sessionDir) {
   const persisted = {
     ...out2,
     repos: out2.repos.filter((r) => !renamedTo.has(r.name)),
-    files: out2.files.filter((f) => !renamedTo.has(f.repo))
+    files: out2.files.filter((f) => !renamedTo.has(f.repo) && !isGeneratedPath(f.path))
   };
   const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {
@@ -46693,6 +46696,7 @@ var CONCEPTS_MIN_SYMBOLS = 100;
 var SYMBOLS_SCHEMA = 44;
 var UNINDEXED_SAMPLE_CAP = 20;
 var IN_SYMBOL_SCOPE_SQL = `NOT (path GLOB 'dist/*' OR path GLOB '*/dist/*' OR path GLOB '*.map'
+               OR path GLOB 'build/*' OR path GLOB '*/build/*'
                OR path GLOB 'node_modules/*' OR path GLOB '*/node_modules/*'
                OR path GLOB 'vendor/*' OR path GLOB '*/vendor/*' OR path GLOB '*.min.js'
                OR path = 'package-lock.json' OR path GLOB '*/package-lock.json'

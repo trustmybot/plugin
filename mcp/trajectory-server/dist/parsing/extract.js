@@ -4,15 +4,15 @@
 // and outgoing references out. Adapted from the GH 1680 MVP.
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
-const EXCLUDED_PATH = [
+const GENERATED_PATH = [
     /(^|\/)dist\//,
-    /\.map$/,
+    /(^|\/)build\//,
     /(^|\/)node_modules\//,
     /(^|\/)vendor\//,
+    /\.map$/,
     /\.min\.js$/,
-    /(^|\/)package-lock\.json$/,
-    /\.lock(b)?$/,
 ];
+const LOCKFILE_PATH = [/(^|\/)package-lock\.json$/, /\.lock(b)?$/];
 const EXTENSION_LANGUAGE = {
     ts: 'typescript',
     mts: 'typescript',
@@ -39,10 +39,14 @@ export function splitWords(s) {
 }
 export const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 export const oneLine = (s) => s.replace(/\s+/g, ' ').trim();
-// A path is in symbol scope unless it is build output, a source map, a
-// lockfile or vendored code.
+// Build output, installed or vendored dependencies, source maps and minified
+// bundles: the world model indexes none of them (GH 1835).
+export function isGeneratedPath(relPath) {
+    return GENERATED_PATH.some((re) => re.test(relPath));
+}
+// A path is in symbol scope unless it is generated output or a lockfile.
 export function inSymbolScope(relPath) {
-    return !EXCLUDED_PATH.some((re) => re.test(relPath));
+    return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 // The language a path parses as: by extension, else a bash/sh shebang on an
 // extensionless file; null when the file has no symbol extractor.

@@ -61,15 +61,16 @@ export interface Extraction {
   edges: ExtractedEdge[];
 }
 
-const EXCLUDED_PATH = [
+const GENERATED_PATH = [
   /(^|\/)dist\//,
-  /\.map$/,
+  /(^|\/)build\//,
   /(^|\/)node_modules\//,
   /(^|\/)vendor\//,
+  /\.map$/,
   /\.min\.js$/,
-  /(^|\/)package-lock\.json$/,
-  /\.lock(b)?$/,
 ];
+
+const LOCKFILE_PATH = [/(^|\/)package-lock\.json$/, /\.lock(b)?$/];
 
 const EXTENSION_LANGUAGE: Record<string, SourceLanguage> = {
   ts: 'typescript',
@@ -112,10 +113,15 @@ export function splitWords(s: string): string {
 export const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 export const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
-// A path is in symbol scope unless it is build output, a source map, a
-// lockfile or vendored code.
+// Build output, installed or vendored dependencies, source maps and minified
+// bundles: the world model indexes none of them (GH 1835).
+export function isGeneratedPath(relPath: string): boolean {
+  return GENERATED_PATH.some((re) => re.test(relPath));
+}
+
+// A path is in symbol scope unless it is generated output or a lockfile.
 export function inSymbolScope(relPath: string): boolean {
-  return !EXCLUDED_PATH.some((re) => re.test(relPath));
+  return !isGeneratedPath(relPath) && !LOCKFILE_PATH.some((re) => re.test(relPath));
 }
 
 // The language a path parses as: by extension, else a bash/sh shebang on an
