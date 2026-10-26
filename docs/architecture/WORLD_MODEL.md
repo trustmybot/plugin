@@ -153,6 +153,24 @@ The world model shares the trajectory DB's handle and its WAL-mode, busy-timeout
 
 Embeddings are computed on demand: each `semantic` or `hybrid` search embeds up to 50 missing rows per table first and, when more are missing, starts a background backfill. When the embedding model is unavailable, `semantic` and `hybrid` return the keyword hits with `warning: 'semantic_unavailable'`.
 
+### Measuring WM use
+
+Every call to the six world-model tools, error results included, writes one `wm_tool_called` audit row (GH 1836). `content_json` carries `tool`, `agent`, `task_id`, `args`, `result_count`, `empty`, `error`, `warning`, `match`, `derived` and `latency_ms`. `task_id` is the task of the single open `agent_runs` row for the caller's role, else null, and the row is then filed on the system issue `-1`. Logging is fail-open: a failed insert never changes the tool's result.
+
+```sql
+-- calls and empty-result rate per tool
+SELECT json_extract(content_json, '$.tool') AS tool,
+       COUNT(*) AS calls,
+       AVG(json_extract(content_json, '$.empty')) AS empty_rate
+  FROM audit WHERE event_type = 'wm_tool_called'
+ GROUP BY tool ORDER BY calls DESC;
+
+-- calls per task (NULL: no single open run matched the caller)
+SELECT json_extract(content_json, '$.task_id') AS task_id, COUNT(*) AS calls
+  FROM audit WHERE event_type = 'wm_tool_called'
+ GROUP BY task_id ORDER BY calls DESC;
+```
+
 ## When bro reaches for it
 
 | Situation | Bro's move |

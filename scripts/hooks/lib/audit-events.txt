@@ -83,3 +83,4 @@ tmb_skill_created	bro
 trajectory_doctor_run	bro
 validation_session_unverified	server
 verification_gate_waived	hook
+wm_tool_called	server
