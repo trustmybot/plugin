@@ -205,6 +205,12 @@ describe('extractPurpose — structural fallback for data files', () => {
     expectPurpose('skills/x/SKILL.md', '---\nname: x\n---\n\n- *First* bullet point\n', 'structural', 'First bullet point');
   });
 
+  it('markdown with no heading: nested tags leave no < or > in the purpose', () => {
+    const got = extractPurpose('docs/nested.md', '<<script>script>x\n');
+    assert.equal(got.source, 'structural');
+    assert.ok(!/[<>]/.test(got.purpose), `purpose kept a tag character: ${got.purpose}`);
+  });
+
   it('never overrides a header: a // header, a JSDoc @file and a docstring keep their source', () => {
     assert.equal(extractPurpose('src/a.ts', '// Parses payloads.\nexport const a = 1;\n').source, 'comment');
     assert.equal(extractPurpose('src/b.ts', '/**\n * @file Routes requests.\n */\nexport const b = 1;\n').source, 'jsdoc');

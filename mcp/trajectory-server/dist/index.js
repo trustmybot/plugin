@@ -41713,8 +41713,17 @@ function dirRole(path2) {
   }
   return `${parent} text`;
 }
+function stripTags(s) {
+  let prev;
+  let out2 = s;
+  do {
+    prev = out2;
+    out2 = out2.replace(/<[^>]*>/g, "");
+  } while (out2 !== prev);
+  return out2.replace(/[<>]/g, "");
+}
 function plainMarkdown(s) {
-  return stripInlineMarkdown(s).replace(/<[^>]*>/g, "").replace(/`([^`]*)`/g, "$1").replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2").trim();
+  return stripTags(stripInlineMarkdown(s)).replace(/`([^`]*)`/g, "$1").replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, "$1$2").trim();
 }
 function fromFirstLine(body2) {
   let fenced = false;

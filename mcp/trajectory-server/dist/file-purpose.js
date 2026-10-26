@@ -397,9 +397,17 @@ function dirRole(path) {
     }
     return `${parent} text`;
 }
+function stripTags(s) {
+    let prev;
+    let out = s;
+    do {
+        prev = out;
+        out = out.replace(/<[^>]*>/g, '');
+    } while (out !== prev);
+    return out.replace(/[<>]/g, '');
+}
 function plainMarkdown(s) {
-    return stripInlineMarkdown(s)
-        .replace(/<[^>]*>/g, '')
+    return stripTags(stripInlineMarkdown(s))
         .replace(/`([^`]*)`/g, '$1')
         .replace(/(^|[^\w*])[*_]([^*_]+)[*_](?=[^\w*]|$)/g, '$1$2')
         .trim();
