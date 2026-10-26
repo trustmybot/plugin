@@ -603,35 +603,82 @@ function collectGarbage(deps, key, root, log) {
         log(`removed stale ${e.name}`);
     }
 }
+function onlyEntry(dir, name) {
+    if (!isRealDir(dir))
+        return false;
+    const entries = readdirSync(dir);
+    return entries.length === 1 && entries[0] === name;
+}
+/**
+ * A `node_modules` holding exactly the layout ensureBridge writes:
+ * `@huggingface/transformers` as a symlink into `<data>/deps`, dangling or not.
+ */
+function isBridgeOnly(nodeModules, dataDir) {
+    const [scope, name] = TRANSFORMERS_PACKAGE.split('/');
+    const link = join(nodeModules, scope, name);
+    try {
+        if (!onlyEntry(nodeModules, scope) || !onlyEntry(join(nodeModules, scope), name))
+            return false;
+        if (!lstatSync(link).isSymbolicLink())
+            return false;
+        return isWithin(resolve(depsDir(dataDir)), resolve(dirname(link), readlinkSync(link)));
+    }
+    catch {
+        return false;
+    }
+}
+function linkTarget(link) {
+    try {
+        return readlinkSync(link);
+    }
+    catch {
+        return undefined;
+    }
+}
 /**
  * Replaces the hook-installed node_modules of the other version dirs beside
  * `root` with a bridge to the key the sibling's own runtime-deps manifest pins
  * on `platform`/`arch`, when that key is a valid install; otherwise the sibling
- * is left unbridged for its own gate to install.
+ * is left unbridged for its own gate to install. A root node_modules already
+ * holding only the bridge is kept: its link is re-pointed to the pinned key
+ * when that key is valid, and left as it is otherwise (GH 1716).
  */
 function cleanupSiblings(root, dataDir, platform, arch, log) {
     const self = resolve(root);
     for (const version of versionDirs(root)) {
         if (version === self)
             continue;
+        const rootNodeModules = join(version, 'node_modules');
+        const bridgeOnly = isBridgeOnly(rootNodeModules, dataDir);
         let replaced = false;
-        for (const nodeModules of [join(version, 'node_modules'), join(version, MCP_REL, 'node_modules')]) {
+        for (const nodeModules of [rootNodeModules, join(version, MCP_REL, 'node_modules')]) {
+            if (bridgeOnly && nodeModules === rootNodeModules)
+                continue;
             if (!isRealDir(nodeModules))
                 continue;
             rmSync(nodeModules, { recursive: true, force: true });
             log(`removed ${nodeModules}`);
             replaced = true;
         }
-        if (!replaced)
+        if (!replaced && !bridgeOnly)
             continue;
         const pin = pinnedTransformersVersion(join(version, MCP_REL, 'runtime-deps'));
         const key = pin === undefined ? '' : runtimeDepsKey(platform, arch, pin);
         if (pin === undefined || !isValidInstall(join(depsDir(dataDir), key), pin)) {
-            log(`left ${version} unbridged: no valid install for its pin ${pin ?? '(unreadable)'}`);
+            const state = bridgeOnly ? 'with its bridge as is' : 'unbridged';
+            log(`left ${version} ${state}: no valid install for its pin ${pin ?? '(unreadable)'}`);
             continue;
         }
-        if (ensureBridge(version, dataDir, 'any-symlink', key))
-            log(`bridged ${version} → ${key}`);
+        if (!bridgeOnly) {
+            if (ensureBridge(version, dataDir, 'any-symlink', key))
+                log(`bridged ${version} → ${key}`);
+            continue;
+        }
+        const link = join(rootNodeModules, TRANSFORMERS_PACKAGE);
+        const before = linkTarget(link);
+        if (ensureBridge(version, dataDir, 'own-symlink', key) && linkTarget(link) !== before) {
+            log(`re-pointed ${version} → ${key}`);
+        }
     }
 }
 /** The worker: installs, prunes and checks the key in staging, then promotes it (decision 207). */

@@ -4620,25 +4620,60 @@ function collectGarbage(deps, key2, root, log) {
     log(`removed stale ${e.name}`);
   }
 }
+function onlyEntry(dir, name3) {
+  if (!isRealDir(dir)) return false;
+  const entries = readdirSync(dir);
+  return entries.length === 1 && entries[0] === name3;
+}
+function isBridgeOnly(nodeModules, dataDir) {
+  const [scope, name3] = TRANSFORMERS_PACKAGE.split("/");
+  const link = join2(nodeModules, scope, name3);
+  try {
+    if (!onlyEntry(nodeModules, scope) || !onlyEntry(join2(nodeModules, scope), name3)) return false;
+    if (!lstatSync(link).isSymbolicLink()) return false;
+    return isWithin(resolve2(depsDir(dataDir)), resolve2(dirname(link), readlinkSync(link)));
+  } catch {
+    return false;
+  }
+}
+function linkTarget(link) {
+  try {
+    return readlinkSync(link);
+  } catch {
+    return void 0;
+  }
+}
 function cleanupSiblings(root, dataDir, platform, arch, log) {
   const self2 = resolve2(root);
   for (const version of versionDirs(root)) {
     if (version === self2) continue;
+    const rootNodeModules = join2(version, "node_modules");
+    const bridgeOnly = isBridgeOnly(rootNodeModules, dataDir);
     let replaced = false;
-    for (const nodeModules of [join2(version, "node_modules"), join2(version, MCP_REL, "node_modules")]) {
+    for (const nodeModules of [rootNodeModules, join2(version, MCP_REL, "node_modules")]) {
+      if (bridgeOnly && nodeModules === rootNodeModules) continue;
       if (!isRealDir(nodeModules)) continue;
       rmSync(nodeModules, { recursive: true, force: true });
       log(`removed ${nodeModules}`);
       replaced = true;
     }
-    if (!replaced) continue;
+    if (!replaced && !bridgeOnly) continue;
     const pin = pinnedTransformersVersion(join2(version, MCP_REL, "runtime-deps"));
     const key2 = pin === void 0 ? "" : runtimeDepsKey(platform, arch, pin);
     if (pin === void 0 || !isValidInstall(join2(depsDir(dataDir), key2), pin)) {
-      log(`left ${version} unbridged: no valid install for its pin ${pin ?? "(unreadable)"}`);
+      const state = bridgeOnly ? "with its bridge as is" : "unbridged";
+      log(`left ${version} ${state}: no valid install for its pin ${pin ?? "(unreadable)"}`);
       continue;
     }
-    if (ensureBridge(version, dataDir, "any-symlink", key2)) log(`bridged ${version} \u2192 ${key2}`);
+    if (!bridgeOnly) {
+      if (ensureBridge(version, dataDir, "any-symlink", key2)) log(`bridged ${version} \u2192 ${key2}`);
+      continue;
+    }
+    const link = join2(rootNodeModules, TRANSFORMERS_PACKAGE);
+    const before2 = linkTarget(link);
+    if (ensureBridge(version, dataDir, "own-symlink", key2) && linkTarget(link) !== before2) {
+      log(`re-pointed ${version} \u2192 ${key2}`);
+    }
   }
 }
 function installRuntimeDeps(opts) {
