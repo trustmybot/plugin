@@ -642,8 +642,11 @@ tmb_cmd_decode() {
 # `xargs` of `src | xargs …` — when that source is one simple command (see
 # _tmb_cmd_loop_source). Also with `assign`, a loop's statements are framed by
 # a `{<TAB>do` and a `}<TAB>done` line: from its `while` / `until` (the
-# condition runs on every pass), from a `do` no `while` / `until` waits for,
-# or from the `{` body of a `for` / `select`, to the `done` or `}` closing it.
+# condition runs on every pass), or from the `do` or `{` that ends a `for` /
+# `select` header (the header's own statement when it holds that word right
+# after NAME), to the `done` or `}` closing it. A `do` no header waits for, a
+# `done` or `}` that does not close the innermost frame, or a frame still open
+# at the end appends a last `!<TAB>unbalanced` line.
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -815,7 +818,7 @@ _tmb_cmd_statements_enc() {
         return
       }
       a0 = w[first]
-      if (assign && (a0 == "for" || a0 == "select")) fh = 1
+      if (assign && (a0 == "for" || a0 == "select")) forhead(w, n, first)
       else if (assign && (a0 == "coproc" || a0 == "function")) loopprefix(w, n, first)
       ok = plain && na == 0
       if (ok && a0 == "export") {
@@ -863,24 +866,37 @@ _tmb_cmd_statements_enc() {
       if (!chained) { old = "-"; owhy = "" }
       vend(ok)
     }
-    function loopkw(k,   j, ends) {
+    function loopkw(k,   t) {
+      t = (lsp > 0) ? ls[lsp] : ""
       if (k == "while" || k == "until") { ls[++lsp] = "w"; printf "{\tdo\n" }
       else if (k == "do") {
-        if (!fh && lsp > 0 && ls[lsp] == "w") ls[lsp] = "o"
-        else { ls[++lsp] = "o"; printf "{\tdo\n" }
-        fh = 0
-      } else if (k == "{") { ls[++lsp] = fh ? "b" : "g"; if (fh) printf "{\tdo\n"; fh = 0 }
-      else if (k == "done" || k == "}") {
-        ends = (k == "done") ? "wo" : "bg"
-        for (j = lsp; j > 0 && index(ends, ls[j]) == 0; j--) ;
-        if (j > 0) for (; lsp >= j; lsp--) if (ls[lsp] != "g") printf "}\tdone\n"
+        if (t == "w") ls[lsp] = "o"
+        else if (t == "f") { ls[lsp] = "o"; printf "{\tdo\n" }
+        else { unbal = 1; ls[++lsp] = "o"; printf "{\tdo\n" }
+      } else if (k == "{") {
+        if (t == "f") { ls[lsp] = "b"; printf "{\tdo\n" }
+        else ls[++lsp] = "g"
+      } else if (k == "done") {
+        if (t == "o") { lsp--; printf "}\tdone\n" }
+        else unbal = 1
+      } else if (k == "}") {
+        if (t == "b") { lsp--; printf "}\tdone\n" }
+        else if (t == "g") lsp--
+        else unbal = 1
+      }
+    }
+    function forhead(w, n, k,   c) {
+      ls[++lsp] = "f"
+      for (k++; k <= n && c < 2; k++) {
+        if (w[k] == "") continue
+        if (++c == 2 && w[k] ~ /^(do|\{)$/) loopkw(w[k])
       }
     }
     function loopprefix(w, n, first,   k, c) {
       for (k = first + 1; k <= n && c < 2; k++) {
         if (w[k] == "") continue
         c++
-        if (w[k] == "for" || w[k] == "select") { fh = 1; return }
+        if (w[k] == "for" || w[k] == "select") { forhead(w, n, k); return }
         if (w[k] ~ /^(while|until|\{)$/) { loopkw(w[k]); return }
       }
     }
@@ -908,7 +924,7 @@ _tmb_cmd_statements_enc() {
       vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
       if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
-      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0; fh = 0
+      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0; unbal = 0
       qo = sprintf("%c", 7); qc = sprintf("%c", 8)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }
@@ -964,6 +980,7 @@ _tmb_cmd_statements_enc() {
         stmt = stmt c
       }
       flush()
+      if (assign && (unbal || lsp > 0)) printf "!\tunbalanced\n"
     }
   ' | while IFS="$(printf '\t')" read -r dir stmt; do
     [ -n "$stmt" ] || continue
@@ -2109,7 +2126,7 @@ _tmb_cmd_prog_calls() {
 # literal, or an interpreter reading a program from stdin it is not given.
 _tmb_cmd_proc_writes() {
   local cmd="${1:-}" base=/.tmb-prog-dir dir stmt p rest
-  local _TMB_CMD_VARS="" _TMB_CMD_RAWJOIN=1 _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
+  local _TMB_CMD_VARS="" _TMB_CMD_UNBAL="" _TMB_CMD_RAWJOIN=1 _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
   local _TMB_CMD_CWD=/.tmb-prog-dir _TMB_CMD_ROOT="" _TMB_CMD_ROOTC=""
   local -a words
   while IFS="$(printf '\t')" read -r dir stmt; do
@@ -2449,7 +2466,7 @@ _tmb_cmd_join() {
 }
 
 tmb_cmd_write_paths() {
-  local _TMB_CMD_VARS="" _TMB_CMD_RAWJOIN="" _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
+  local _TMB_CMD_VARS="" _TMB_CMD_UNBAL="" _TMB_CMD_RAWJOIN="" _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
   local _TMB_CMD_CWD="${2:-}" _TMB_CMD_ROOT="${4:-}" _TMB_CMD_ROOTC=""
   [ "${3:-}" = "raw" ] && _TMB_CMD_RAWJOIN=1
   _tmb_cmd_write_paths_in "${1:-}" "${2:-}" "@" 0
@@ -2488,13 +2505,16 @@ _tmb_cmd_heredoc_align() {
 # _tmb_cmd_write_paths_in <command> <cwd> <base-dir-token> <depth>
 # tmb_cmd_write_paths for one command level; bash -c / eval bodies and sh
 # programs fed through a heredoc recurse with their statement's dir. Variable
-# assignments accumulate in the caller-scoped _TMB_CMD_VARS.
+# assignments accumulate in the caller-scoped _TMB_CMD_VARS. A level whose
+# loop frames do not balance (the listing's `!` line) sets _TMB_CMD_UNBAL, so
+# every variable use in it and in the levels it runs is unresolved.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
   local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old why mark chain
   local -a words progs
-  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-" _TMB_CMD_WHY=""
+  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-" _TMB_CMD_WHY="" _TMB_CMD_UNBAL="${_TMB_CMD_UNBAL:-}"
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
+  case $'\n'"$listing" in *$'\n!\t'*) _TMB_CMD_UNBAL=1 ;; esac
   case "$cmd" in *'<<'*) bodies=$(_tmb_cmd_heredoc_align "$cmd" "$listing") ;; esac
   while IFS="$(printf '\t')" read -r dir stmt; do
     idx=$((idx + 1))
@@ -2503,7 +2523,7 @@ _tmb_cmd_write_paths_in() {
         _tmb_cmd_loop_vars "$(printf '%s\n' "$listing" | awk -F'\t' -v s="$idx" 'NR <= s { next } $1 == "{" { d++ } $1 == "}" { if (!d) exit; d-- } { print }')" "$cwd" "$depth"
         continue
         ;;
-      '}') continue ;;
+      '}'|'!') continue ;;
     esac
     old="${dir#*$'\022'}"
     [ "$old" != "$dir" ] || old="-"
@@ -2584,7 +2604,7 @@ _tmb_cmd_loop_vars() {
   for pass in 1 2 3 4 5 6 7 8; do
     prev="$_TMB_CMD_VARS"
     while IFS="$(printf '\t')" read -r dir stmt; do
-      case "$dir" in '{'|'}') continue ;; esac
+      case "$dir" in '{'|'}'|'!') continue ;; esac
       _TMB_CMD_OLDTOK="${dir#*$'\022'}"
       [ "$_TMB_CMD_OLDTOK" != "$dir" ] || _TMB_CMD_OLDTOK="-"
       _TMB_CMD_OLDTOK="${_TMB_CMD_OLDTOK%%$'\022'*}"
@@ -3246,7 +3266,8 @@ _tmb_cmd_env_var() {
 # and ${VAR%suffix} / ${VAR%%suffix} (a literal suffix: letters, digits, . _ -)
 # from _TMB_CMD_VARS (else the default, else _tmb_cmd_env_var) into the
 # array _TMB_CMD_EXP (every combination of values, at most 16). Non-zero,
-# with the variable in _TMB_CMD_UNRES, when one cannot be resolved; a $( ) or
+# with the variable in _TMB_CMD_UNRES, when one cannot be resolved (any one
+# while _TMB_CMD_UNBAL is set); a $( ) or
 # backtick is `$()`, an inline program's `$(proc)` / `$(alias-write)` marker
 # itself.
 _tmb_cmd_expand() {
@@ -3298,6 +3319,7 @@ _tmb_cmd_expand() {
         continue
         ;;
     esac
+    if [ -n "${_TMB_CMD_UNBAL:-}" ]; then _TMB_CMD_UNRES="$name"; return 1; fi
     if vals=$(_tmb_cmd_var_get "$name"); then
       case "$vals" in *$'\001'*) _TMB_CMD_UNRES="$name"; return 1 ;; esac
     elif [ "$op" = "def" ]; then

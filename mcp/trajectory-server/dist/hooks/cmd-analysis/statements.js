@@ -7,7 +7,8 @@
  * token carries \022<old-dir-token>[\022<why>], an unquoted $( ) or backtick
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
  * \022<dir>\022<word>… mark, and a loop's statements sit between a `{` and a
- * `}` record (GH 1944). The TS keeps `time NAME=value` an assignment
+ * `}` record (GH 1944), with a last `!` record when those frames do not
+ * balance. The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
 import { ENC, HD_DATA, QC, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
@@ -15,6 +16,7 @@ import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 export const SEP = '\x12';
 export const LOOP_OPEN = '{';
 export const LOOP_CLOSE = '}';
+export const UNBALANCED = '!';
 export const WSEP = '\x14';
 const VSEP = '\x1c';
 const VEQ = '\x1d';
@@ -127,42 +129,68 @@ export function statementsEnc(buf, base, home, assign) {
     const q = [];
     const emit = (dir, text) => records.push({ dir, stmt: text });
     const loops = [];
-    let forhead = false;
+    let unbal = false;
     /**
-     * With `assign`, frames a loop's statements: `{` from its while / until, from
-     * a `do` no while / until waits for, or from the `{` body of a for / select,
-     * and `}` at the done or `}` that closes it.
+     * With `assign`, frames a loop's statements: `{` from its while / until or
+     * from the `do` or `{` that ends a for / select header, and `}` at the done
+     * or `}` that closes it. A `do` no header waits for, or a `done` / `}` that
+     * does not close the innermost frame, marks the command unbalanced.
      */
     function loopkw(k) {
+        const top = loops.length > 0 ? loops[loops.length - 1] : '';
         if (k === 'while' || k === 'until') {
             loops.push('w');
             emit(LOOP_OPEN, 'do');
         }
         else if (k === 'do') {
-            if (!forhead && loops[loops.length - 1] === 'w')
+            if (top === 'w')
                 loops[loops.length - 1] = 'o';
+            else if (top === 'f') {
+                loops[loops.length - 1] = 'o';
+                emit(LOOP_OPEN, 'do');
+            }
             else {
+                unbal = true;
                 loops.push('o');
                 emit(LOOP_OPEN, 'do');
             }
-            forhead = false;
         }
         else if (k === '{') {
-            loops.push(forhead ? 'b' : 'g');
-            if (forhead)
+            if (top === 'f') {
+                loops[loops.length - 1] = 'b';
                 emit(LOOP_OPEN, 'do');
-            forhead = false;
+            }
+            else
+                loops.push('g');
         }
-        else if (k === 'done' || k === '}') {
-            const ends = k === 'done' ? 'wo' : 'bg';
-            let j = loops.length - 1;
-            while (j >= 0 && !ends.includes(loops[j]))
-                j--;
-            if (j < 0)
-                return;
-            while (loops.length > j)
-                if (loops.pop() !== 'g')
-                    emit(LOOP_CLOSE, 'done');
+        else if (k === 'done') {
+            if (top === 'o') {
+                loops.pop();
+                emit(LOOP_CLOSE, 'done');
+            }
+            else
+                unbal = true;
+        }
+        else if (k === '}') {
+            if (top === 'b') {
+                loops.pop();
+                emit(LOOP_CLOSE, 'done');
+            }
+            else if (top === 'g')
+                loops.pop();
+            else
+                unbal = true;
+        }
+    }
+    /** A for / select header at w[k]: waits for its `do` or `{`, which the statement holds itself when that word comes right after NAME. */
+    function forhead(w, k) {
+        loops.push('f');
+        let c = 0;
+        for (k++; k < w.length && c < 2; k++) {
+            if (w[k] === '')
+                continue;
+            if (++c === 2 && (w[k] === 'do' || w[k] === '{'))
+                loopkw(w[k]);
         }
     }
     /** The compound command after coproc [NAME] or function NAME: a for / select header, or a while / until / `{`. */
@@ -173,7 +201,7 @@ export function statementsEnc(buf, base, home, assign) {
                 continue;
             c++;
             if (w[k] === 'for' || w[k] === 'select') {
-                forhead = true;
+                forhead(w, k);
                 return;
             }
             if (/^(while|until|\{)$/.test(w[k])) {
@@ -459,7 +487,7 @@ export function statementsEnc(buf, base, home, assign) {
         }
         let a0 = w[first];
         if (assign && (a0 === 'for' || a0 === 'select'))
-            forhead = true;
+            forhead(w, first);
         else if (assign && (a0 === 'coproc' || a0 === 'function'))
             loopprefix(w, first);
         let ok = plain && aw.length === 0;
@@ -674,6 +702,8 @@ export function statementsEnc(buf, base, home, assign) {
         stmt += c;
     }
     flush();
+    if (assign && (unbal || loops.length > 0))
+        emit(UNBALANCED, 'unbalanced');
     return records.filter((r) => r.stmt !== '');
 }
 //# sourceMappingURL=statements.js.map

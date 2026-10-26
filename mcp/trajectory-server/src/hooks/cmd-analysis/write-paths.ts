@@ -29,7 +29,7 @@ import { type ListerHost, listerBind } from './lister.js';
 import { pathCanonical } from './path.js';
 import type { Lang } from './prog-calls.js';
 import { COMPUTED, PARSE, UNPROVEN, heldProgram, interpWrites, progWrites, shown } from './programs.js';
-import { LOOP_CLOSE, LOOP_OPEN, type Record as Statement, SEP, WSEP, statementsEnc } from './statements.js';
+import { LOOP_CLOSE, LOOP_OPEN, type Record as Statement, SEP, UNBALANCED, WSEP, statementsEnc } from './statements.js';
 import { type Interp, stmtWritePaths, unwrapStatement } from './targets.js';
 
 const BAD = '\x01';
@@ -272,7 +272,7 @@ class WritePaths {
     return values.size > 0 ? chomp([...values].join('\n') + '\n') : null;
   }
 
-  /** _tmb_cmd_expand: every value a word expands to (at most 16), or the variable that stops it. */
+  /** _tmb_cmd_expand: every value a word expands to (at most 16), or the variable that stops it (any one in an unbalanced level). */
   expand(word: string, level: Level): Expansion {
     let rest = word;
     let acc = [''];
@@ -318,6 +318,7 @@ class WritePaths {
         rest = rest.slice(1);
         continue;
       }
+      if (this.unbalanced) return fail(name);
       let vals = this.varGet(level.vars, name);
       if (vals !== null) {
         if (vals.includes(BAD)) return fail(name);
@@ -595,6 +596,9 @@ class WritePaths {
   /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
   private held = new Set<string>();
 
+  /** _TMB_CMD_UNBAL: the level running, or one it runs within, has loop frames that do not balance. */
+  private unbalanced = false;
+
   private isHeld(word: string): boolean {
     return this.held.has(heldKey(word));
   }
@@ -684,11 +688,13 @@ class WritePaths {
       return;
     }
     const outer = this.held;
+    const unbalanced = this.unbalanced;
     this.held = encoded.held;
     try {
       this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
     } finally {
       this.held = outer;
+      this.unbalanced = unbalanced;
     }
   }
 
@@ -717,7 +723,7 @@ class WritePaths {
     for (let pass = 0; pass < 8 && !converged; pass++) {
       const prev = level.vars;
       loop.forEach((record, k) => {
-        if (record.dir === LOOP_OPEN || record.dir === LOOP_CLOSE) return;
+        if (record.dir === LOOP_OPEN || record.dir === LOOP_CLOSE || record.dir === UNBALANCED) return;
         let dir = record.dir;
         let old = dir.includes(SEP) ? after(dir, SEP) : '-';
         dir = before(dir, SEP);
@@ -756,6 +762,7 @@ class WritePaths {
     const { cwd } = this.opts;
     const records = statementsEnc(text, base, this.opts.env.HOME ?? '', true).filter((r) => !/^\t*$/.test(r.stmt));
     const bodies = heredocAlign(heredocs, records);
+    if (records.some((r) => r.dir === UNBALANCED)) this.unbalanced = true;
     let idx = 0;
     for (const record of records) {
       idx++;
@@ -763,7 +770,7 @@ class WritePaths {
         this.loopVars(level, loopBody(records, idx), idx, bodies, depth);
         continue;
       }
-      if (record.dir === LOOP_CLOSE) continue;
+      if (record.dir === LOOP_CLOSE || record.dir === UNBALANCED) continue;
       let dir = record.dir;
       let old = dir.includes(SEP) ? after(dir, SEP) : '-';
       dir = before(dir, SEP);

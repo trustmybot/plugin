@@ -589,7 +589,9 @@ assert_eq "deny" "$(decision "$OUT")" "an in-body read the guard cannot name"
 assert_contains "$OUT" "cannot be judged" "denied as unjudged"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "for f in a b; do x=$PROJECT/\$f; echo > \$x; done")")")" "a for-loop over in-root targets"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; while :; do echo > \$x; done")")")" "a loop that never reassigns"
-for body in 'for ((i=0;i<2;i++)) { echo > $x; x=/etc/p1944; }' 'for i in 1 2; { echo > $x; x=/etc/p1944; }' 'select i in 1 2; { echo > $x; x=/etc/p1944; }' 'while :; do coproc for i in 1; do :; done; echo > $x; x=/etc/p1944; done'; do
+for body in 'for ((i=0;i<2;i++)) { echo > $x; x=/etc/p1944; }' 'for i in 1 2; { echo > $x; x=/etc/p1944; }' 'select i in 1 2; { echo > $x; x=/etc/p1944; }' 'while :; do coproc for i in 1; do :; done; echo > $x; x=/etc/p1944; done' \
+  'for i do echo > $x; x=/etc/p1944; done' 'select i do echo > $x; x=/etc/p1944; done' \
+  'while :; do for i do :; done; echo > $x; x=/etc/p1944; done' 'echo > $x; x=/etc/p1944; done'; do
   assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; $body")")")" "$body"
 done
 

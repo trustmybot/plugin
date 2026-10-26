@@ -188,8 +188,13 @@ describe('containment-guard (TS): denies that judge no path', () => {
         'for i in 1 2; { echo > $x; x=/etc/p1944; }',
         'select i in 1 2; { echo > $x; x=/etc/p1944; }',
         'while :; do coproc for i in 1; do :; done; echo > $x; x=/etc/p1944; done',
+        'for i do echo > $x; x=/etc/p1944; done',
+        'select i do echo > $x; x=/etc/p1944; done',
+        'while :; do for i do :; done; echo > $x; x=/etc/p1944; done',
+        'coproc for i do echo > $x; x=/etc/p1944; done',
+        'echo > $x; x=/etc/p1944; done',
     ]) {
-        it(`denies a braced or coproc-nested loop body: \`${body}\` (GH 1944)`, async () => {
+        it(`denies a braced, header-do, nested or unbalanced loop body: \`${body}\` (GH 1944)`, async () => {
             const r = await containmentGuard(bash(`x=${project}/src/a; ${body}`), env);
             assert.ok(reason(r.stdout), r.stdout);
         });

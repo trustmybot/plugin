@@ -1687,3 +1687,19 @@
 {"cmd":"x=/w/a; for i in 1 2; do x=/w/b; echo > $x; done; echo > $x","cwd":"/w"}
 {"cmd":"x=/w/a; while :; do x=/w/b; echo > $x; done","cwd":"/w"}
 {"cmd":"for f in $(find . -name \"*.md\"); do g=$f.bak; cp \"$f\" \"$g\"; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i do echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; select i do echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do for i do :; done; echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do select i do :; done; echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; coproc for i do echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; for ((i=0;i<2;i++)) do echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i in do re; do echo > $x; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i in $(for j in 1; do echo; done); do echo > $x; done","cwd":"/w"}
+{"cmd":"x=/w/a; echo > $x; done","cwd":"/w"}
+{"cmd":"x=/w/a; echo > $x; }","cwd":"/w"}
+{"cmd":"x=/w/a; do echo > $x","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do echo > $x","cwd":"/w"}
+{"cmd":"x=/w/a; { echo > $x; done; }","cwd":"/w"}
+{"cmd":"echo > $HOME/f1944; done","cwd":"/w"}
+{"cmd":"echo > /etc/p1944; done","cwd":"/w"}
+{"cmd":"x=/w/a; bash -c \"echo > \\$x; done\"","cwd":"/w"}
