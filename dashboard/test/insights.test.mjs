@@ -460,6 +460,12 @@ describe('GET /api/insights/explore', () => {
   });
 });
 
+test('dashboard/README.md documents GET /api/insights/explore and the TMB_DASHBOARD_CHANGELOG override', () => {
+  const readme = readFileSync(join(DASH, 'README.md'), 'utf8');
+  assert.ok(readme.includes('| `/api/insights/explore?m=&a=&g=&range=&repo=&agent=&model=&effort=` | `{ measure, agg, dims, groups, review_round_mismatch, days, options }`'));
+  assert.ok(readme.includes('TMB_DASHBOARD_CHANGELOG'));
+});
+
 describe('explore()', () => {
   const { db } = seedExplore(join(tmp, 'explore-direct.db'));
   const { db: folded } = seedExplore(join(tmp, 'explore-fold.db'), { version: (i) => (i < 24 ? `1.0.${i % 12}` : null) });
