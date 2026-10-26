@@ -388,7 +388,8 @@ describe('findIssuesByMarker matching — SC4', () => {
       const [first, second] = remote.lists().map((c) => c.args);
       assert.ok(!first!.includes('--search'));
       const s = second!.indexOf('--search');
-      assert.ok(second![s + 1]!.includes('tmb-issue:7:2026-10-26T00:53:47.519Z'), JSON.stringify(second));
+      const token = 'tmb-issue:7:2026-10-26T00:53:47.519Z';
+      assert.equal(second![s + 1], cli === 'gh' ? `"${token}" in:body` : token, JSON.stringify(second));
       assert.ok(second!.includes(cli === 'gh' ? '--repo' : '-R'));
       if (cli === 'gh') {
         assert.deepEqual(first!.slice(0, 8), ['issue', 'list', '--state', 'all', '--limit', '50', '--json', 'number,body']);

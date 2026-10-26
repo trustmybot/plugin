@@ -140,8 +140,11 @@ export function repoSlugFromRemoteUrl(remoteUrl: string): string | null {
 
 // Stamped on every remote body so a retry can find the issue a create whose
 // result was lost already made (GH 1863). created_at is the per-workspace nonce.
+const MARKER_OPEN = '<!-- ';
+const MARKER_CLOSE = ' -->';
+
 export function issueSyncMarker(issueId: number, createdAt: string): string {
-  return `<!-- tmb-issue:${issueId}:${createdAt} -->`;
+  return `${MARKER_OPEN}tmb-issue:${issueId}:${createdAt}${MARKER_CLOSE}`;
 }
 
 function withMarker(body: string, marker: string | undefined): string {
@@ -549,7 +552,8 @@ export type MarkerLookupResult =
 const MARKER_LOOKUP_LIMIT = 50;
 
 function markerToken(marker: string): string {
-  return marker.replace(/^<!--\s*/, '').replace(/\s*-->$/, '');
+  if (!marker.startsWith(MARKER_OPEN) || !marker.endsWith(MARKER_CLOSE)) return marker;
+  return marker.slice(MARKER_OPEN.length, marker.length - MARKER_CLOSE.length);
 }
 
 function markerListArgs(backend: 'gh' | 'glab', repoSlug: string | undefined, search: string | null): string[] {

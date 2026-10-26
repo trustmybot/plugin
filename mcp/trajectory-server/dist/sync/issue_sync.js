@@ -118,8 +118,10 @@ export function repoSlugFromRemoteUrl(remoteUrl) {
 }
 // Stamped on every remote body so a retry can find the issue a create whose
 // result was lost already made (GH 1863). created_at is the per-workspace nonce.
+const MARKER_OPEN = '<!-- ';
+const MARKER_CLOSE = ' -->';
 export function issueSyncMarker(issueId, createdAt) {
-    return `<!-- tmb-issue:${issueId}:${createdAt} -->`;
+    return `${MARKER_OPEN}tmb-issue:${issueId}:${createdAt}${MARKER_CLOSE}`;
 }
 function withMarker(body, marker) {
     if (!marker)
@@ -456,7 +458,9 @@ export async function syncIssueCreate(opts) {
 export { isFailure as isSyncFailure };
 const MARKER_LOOKUP_LIMIT = 50;
 function markerToken(marker) {
-    return marker.replace(/^<!--\s*/, '').replace(/\s*-->$/, '');
+    if (!marker.startsWith(MARKER_OPEN) || !marker.endsWith(MARKER_CLOSE))
+        return marker;
+    return marker.slice(MARKER_OPEN.length, marker.length - MARKER_CLOSE.length);
 }
 function markerListArgs(backend, repoSlug, search) {
     if (backend === 'gh') {
