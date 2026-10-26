@@ -174,6 +174,18 @@ describe('world-model tool call log (GH 1836)', () => {
         assert.equal(lastCall(db).content['result_count'], 1);
         assert.deepEqual(lastCall(db).content.args, { name: 'quokka handshake' });
     });
+    it('GH 1986: world_model_symbol logs impact and source as passed, and neither when absent', async () => {
+        parse(await wm['world_model_symbol']({ agent: 'swe', id: symbolId, impact: 2 }));
+        assert.deepEqual(lastCall(db).content.args, { id: symbolId, impact: 2 });
+        assert.equal(lastCall(db).content.args['impact'], 2);
+        parse(await wm['world_model_symbol']({ agent: 'swe', id: symbolId, impact: true, source: true }));
+        assert.deepEqual(lastCall(db).content.args, { id: symbolId, impact: true, source: true });
+        assert.equal(lastCall(db).content.args['source'], true);
+        parse(await wm['world_model_symbol']({ agent: 'swe', id: symbolId }));
+        assert.deepEqual(lastCall(db).content.args, { id: symbolId });
+        assert.ok(!('impact' in lastCall(db).content.args));
+        assert.ok(!('source' in lastCall(db).content.args));
+    });
     it('GH 1836: task_id comes from the single open agent_runs row for the caller role', async () => {
         const openRun = () => {
             db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (?, ?, 'swe', '2026-10-26T09:05:00.000Z')`, [TASK, ISSUE]);
