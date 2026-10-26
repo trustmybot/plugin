@@ -1,5 +1,6 @@
 import { ApiError, type Row } from '../../api.ts';
 import { Badge } from '../../shared/Badge.tsx';
+import { ENTITY_LINK, hrefFor } from '../../shared/columns.tsx';
 import { Flash } from '../../ui/Flash.tsx';
 
 export function WriteError({ error }: { error: Error | null }) {
@@ -16,7 +17,10 @@ export function WriteError({ error }: { error: Error | null }) {
           <ul className="list-inside list-disc">
             {tasks.map((t) => (
               <li key={String(t['task_id'])}>
-                task {String(t['task_id'])} {t['status'] ? <Badge value={t['status']} /> : `commit ${String(t['commit_sha'] ?? '—').slice(0, 8)}`}
+                <a href={hrefFor('task', t['task_id'])} className={`${ENTITY_LINK} underline`}>
+                  task {String(t['task_id'])}
+                </a>{' '}
+                {t['status'] ? <Badge value={t['status']} /> : `commit ${String(t['commit_sha'] ?? '—').slice(0, 8)}`}
               </li>
             ))}
           </ul>

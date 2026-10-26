@@ -40,7 +40,63 @@ export function summary(db: DatabaseSync): Row {
   };
 }
 
+const LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?';
+const HOST = `${LABEL}(?:\\.${LABEL})*`;
+const SEGMENT = '(?!\\.+(?:/|$))[A-Za-z0-9_.-]+';
+const REPO_PATH = `${SEGMENT}(?:/${SEGMENT})+`;
+const REMOTE_FORMS = [
+  new RegExp(`^https://(${HOST})/(${REPO_PATH})$`),
+  new RegExp(`^git@(${HOST}):(${REPO_PATH})$`),
+  new RegExp(`^ssh://git@(${HOST})/(${REPO_PATH})$`),
+];
+
+export type WebProvider = 'github' | 'gitlab';
+
+// A git remote URL as its https web base, or null for any form outside the allowlist.
+export function remoteWebUrl(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  const trimmed = url.replace(/\/+$/, '').replace(/\.git$/, '');
+  for (const form of REMOTE_FORMS) {
+    const m = form.exec(trimmed);
+    if (m) return `https://${m[1]!.toLowerCase()}/${m[2]!}`;
+  }
+  return null;
+}
+
+interface WebRemote {
+  provider: WebProvider;
+  base: string;
+}
+
+function webRemotes(db: DatabaseSync): Map<string, WebRemote[]> {
+  const byRepo = new Map<string, WebRemote[]>();
+  const rows = all(
+    db,
+    `SELECT repo, provider, url FROM repo_remotes
+      WHERE provider IN ('github', 'gitlab')
+      ORDER BY repo, sync DESC, is_primary DESC, name`,
+  );
+  for (const r of rows) {
+    const base = remoteWebUrl(r['url']);
+    if (!base) continue;
+    const repo = String(r['repo']);
+    const list = byRepo.get(repo) ?? [];
+    list.push({ provider: r['provider'] as WebProvider, base });
+    byRepo.set(repo, list);
+  }
+  return byRepo;
+}
+
+const present = (v: unknown) => v !== null && v !== undefined;
+
+function issueWebUrl(remotes: Map<string, WebRemote[]>, issue: Row): string | null {
+  const provider: WebProvider | null = present(issue['gh_iid']) ? 'github' : present(issue['gl_iid']) ? 'gitlab' : null;
+  if (!provider || !present(issue['repo'])) return null;
+  return remotes.get(String(issue['repo']))?.find((r) => r.provider === provider)?.base ?? null;
+}
+
 export function issues(db: DatabaseSync): Row[] {
+  const remotes = webRemotes(db);
   return all(
     db,
     `SELECT i.id, i.objective, i.status, i.repo, i.milestone, i.gh_iid, i.gl_iid,
@@ -52,7 +108,7 @@ export function issues(db: DatabaseSync): Row[] {
        FROM issues i
       WHERE i.id > 0
       ORDER BY i.status = 'open' DESC, i.updated_at DESC`,
-  );
+  ).map((i) => ({ ...i, remote_web_url: issueWebUrl(remotes, i) }));
 }
 
 export function schemaVersion(db: DatabaseSync): number | null {
@@ -81,7 +137,7 @@ export function issueDetail(db: DatabaseSync, id: number): Row | null {
   if (!issue) return null;
   const repo = issue['repo'] === null ? null : String(issue['repo']);
   return {
-    issue,
+    issue: { ...issue, remote_web_url: issueWebUrl(webRemotes(db), issue) },
     label_taxonomy: {
       classification: configStringList(db, 'issue_classification_labels'),
       priority: configStringList(db, 'issue_priority_labels'),
@@ -94,7 +150,7 @@ export function issueDetail(db: DatabaseSync, id: number): Row | null {
     ).map((r) => String(r['name'])),
     discussions: all(
       db,
-      `SELECT id, author, kind, body, created_at FROM discussions
+      `SELECT id, author, kind, body, task_id, created_at FROM discussions
         WHERE issue_id = ? ORDER BY created_at, id`,
       id,
     ),
@@ -146,6 +202,7 @@ export function taskDetail(db: DatabaseSync, id: number): Row | null {
     id,
   );
   if (!task) return null;
+  const remote = present(task['repo']) ? webRemotes(db).get(String(task['repo']))?.[0] : undefined;
   const commands = db.prepare(
     `SELECT ordinal, command, exit_code, elapsed_s, output_tail
        FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
@@ -162,6 +219,8 @@ export function taskDetail(db: DatabaseSync, id: number): Row | null {
       ...parseJsonColumn(task, 'files'),
       ...parseJsonColumn(task, 'verification'),
       ...parseJsonColumn(task, 'completion_report'),
+      remote_web_url: remote?.base ?? null,
+      remote_provider: remote?.provider ?? null,
     },
     issue: one(db, `SELECT id, objective FROM issues WHERE id = ?`, Number(task['issue_id'])) ?? null,
     validations: all(

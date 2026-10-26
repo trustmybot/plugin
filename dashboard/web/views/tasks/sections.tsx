@@ -4,6 +4,7 @@ import { DataTable, type Column } from '../../DataTable.tsx';
 import { Markdown } from '../../Markdown.tsx';
 import { Badge } from '../../shared/Badge.tsx';
 import { exitBadge, time } from '../../shared/columns.tsx';
+import { CommitSha } from '../../shared/remote.tsx';
 import { criterionVariant, findingVariant, statusText, verdictVariant } from '../../shared/verdict.ts';
 import { Box, BoxRow } from '../../ui/Box.tsx';
 import { CodeBlock } from '../../ui/CodeBlock.tsx';
@@ -13,7 +14,6 @@ import { RelativeTime } from '../../ui/RelativeTime.tsx';
 import { Muted, Section } from './Section.tsx';
 
 const OUTPUT_LINES = 20;
-const SHA_LENGTH = 7;
 const NUMBER = new Intl.NumberFormat();
 
 const InlineCode = ({ children }: { children: ReactNode }) => (
@@ -143,7 +143,7 @@ export function ReviewsSection({ validations, findings }: { validations: Row[]; 
 
 const exitText = (code: unknown) => (code === null || code === undefined ? 'running' : `exit ${String(code)}`);
 
-export function VerificationSection({ runs }: { runs: TaskDetail['verifications'] }) {
+export function VerificationSection({ runs, web, provider }: { runs: TaskDetail['verifications']; web?: unknown; provider?: unknown }) {
   return (
     <Section title="Verification runs">
       {runs.length ? (
@@ -157,7 +157,9 @@ export function VerificationSection({ runs }: { runs: TaskDetail['verifications'
                   {exitBadge(r)}
                   <span className="font-mono text-xs text-fg">{exitText(r['exit_code'])}</span>
                   {r['timed_out'] ? <Label variant="severe">timed out</Label> : null}
-                  <InlineCode>{String(r['commit_sha'] ?? '').slice(0, SHA_LENGTH)}</InlineCode>
+                  <span className="text-xs">
+                    <CommitSha sha={r['commit_sha']} web={web} provider={provider} />
+                  </span>
                   <Meta>{String(r['source'] ?? '')}</Meta>
                   <Meta>
                     <RelativeTime value={r['started_at']} />

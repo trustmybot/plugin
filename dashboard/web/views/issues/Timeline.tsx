@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { CommentIcon } from '@primer/octicons-react';
 import type { Row } from '../../api.ts';
 import { Markdown } from '../../Markdown.tsx';
+import { ENTITY_LINK, hrefFor } from '../../shared/columns.tsx';
 import { Label } from '../../ui/Label.tsx';
 import { RelativeTime } from '../../ui/RelativeTime.tsx';
 import { Avatar } from './Avatar.tsx';
@@ -14,7 +15,18 @@ export const isCompactNote = (c: Row) => {
   return c['kind'] === 'note' && body.length < SHORT_NOTE && !body.includes('\n');
 };
 
-export function CommentCard({ author, verb, at, badge, body }: { author: string; verb: string; at: unknown; badge: ReactNode; body: string }) {
+export function TaskChip({ id }: { id: unknown }) {
+  if (id === null || id === undefined || id === '') return null;
+  return (
+    <span className="text-xs text-fg-muted" data-task-chip>
+      <a href={hrefFor('task', id)} className={`${ENTITY_LINK} underline`}>
+        task {String(id)}
+      </a>
+    </span>
+  );
+}
+
+export function CommentCard({ author, verb, at, badge, body, taskId }: { author: string; verb: string; at: unknown; badge: ReactNode; body: string; taskId?: unknown }) {
   return (
     <article className="relative flex gap-4 pb-4" data-comment>
       <span className="hidden shrink-0 sm:block">
@@ -29,7 +41,10 @@ export function CommentCard({ author, verb, at, badge, body }: { author: string;
           <span>
             {verb} <RelativeTime value={at} />
           </span>
-          <span className="ml-auto">{badge}</span>
+          <span className="ml-auto flex items-center gap-2">
+            <TaskChip id={taskId} />
+            {badge}
+          </span>
         </header>
         {body.trim() ? <Markdown className="p-4">{body}</Markdown> : <p className="p-4 text-sm text-fg-muted italic">No description provided.</p>}
       </div>
@@ -48,6 +63,7 @@ function TimelineEvent({ c }: { c: Row }) {
         <span className="font-semibold text-fg">{String(c['author'])}</span>
         <span>{String(c['body'])}</span>
         <RelativeTime value={c['created_at']} />
+        <TaskChip id={c['task_id']} />
       </span>
     </div>
   );
@@ -69,6 +85,7 @@ export function Timeline({ discussions }: { discussions: Row[] }) {
             at={c['created_at']}
             badge={<Label variant={kindVariant(String(c['kind']))}>{String(c['kind'])}</Label>}
             body={String(c['body'] ?? '')}
+            taskId={c['task_id']}
           />
         ),
       )}
