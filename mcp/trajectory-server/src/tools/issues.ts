@@ -10,7 +10,7 @@ import type { Issue, IssueRow, MilestoneResolution, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import type { RemoteSyncGateReason } from '../sync/backend.js';
-import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
+import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue, issueSyncMarker, findIssuesByMarker } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
@@ -446,6 +446,13 @@ function notSyncedHint(clis: ReadonlyArray<'gh' | 'glab'>): string {
   return `The ${names} remote is not the Remote chosen at onboard; re-run /onboard to change the Remote choice.`;
 }
 
+const SYNC_RETRY_HINT = 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.';
+const SYNC_UNKNOWN_HINT = 'The remote issue may already exist: the create\'s result was lost. Run `issue_sync_retry`; it looks for the issue by its body marker before it creates, so it adopts that issue rather than opening a duplicate. Do not re-create it by hand.';
+
+function syncFailureHint(outcomes: ReadonlyArray<SyncFailure['outcome']>): string {
+  return outcomes.includes('unknown') ? SYNC_UNKNOWN_HINT : SYNC_RETRY_HINT;
+}
+
 // Remote adoption (#36). Resolve the backend for a remote_iid (explicit arg, or
 // the repo's sole configured remote) and verify the remote issue exists via
 // gh/glab before any local link is persisted. Shared by issue_create's adopt-
@@ -745,7 +752,7 @@ export function issueTools(
     },
     {
       name: 'issue_sync_retry',
-      description: 'Manually retry remote sync for an issue where auto-sync failed. Bro only.',
+      description: 'Manually retry remote sync for an issue where auto-sync failed. Bro only. Before it creates, it looks on the remote for the issue\'s body marker and adopts a match (adopted, duplicates); when that lookup fails it creates nothing (reason lookup_failed).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -920,6 +927,7 @@ export function issueTools(
       }
 
       const issueId = rowId.id;
+      const marker = issueSyncMarker(issueId, now);
 
       const syncConfigRow = db.get<{ value_json: string }>(
         `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
@@ -1002,6 +1010,7 @@ export function issueTools(
                       issueId,
                       title: objective,
                       body: description,
+                      marker,
                       labels,
                       milestone: milestone ?? undefined,
                       _backend: 'gh',
@@ -1010,12 +1019,13 @@ export function issueTools(
                       _remoteUrl: ghRemoteUrl ?? undefined,
                       _repoSlug: ghRemote?.slug ?? undefined,
                     })
-                  : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'gh', message: 'blank remote URL for gh' }),
+                  : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', outcome: 'failed', backend: 'gh', message: 'blank remote URL for gh' }),
                 !glBlank
                   ? syncIssueCreate({
                       issueId,
                       title: objective,
                       body: description,
+                      marker,
                       labels,
                       milestone: milestone ?? undefined,
                       _backend: 'glab',
@@ -1024,7 +1034,7 @@ export function issueTools(
                       _remoteUrl: glRemoteUrl ?? undefined,
                       _repoSlug: glRemote?.slug ?? undefined,
                     })
-                  : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'glab', message: 'blank remote URL for glab' }),
+                  : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', outcome: 'failed', backend: 'glab', message: 'blank remote URL for glab' }),
               ]);
               const ghIid = !isSyncFailure(ghResult) && ghResult.remote_kind === 'github'
                 ? ghResult.remote_iid : null;
@@ -1032,6 +1042,9 @@ export function issueTools(
                 ? glResult.remote_iid : null;
               const firstSuccess = !isSyncFailure(ghResult) ? ghResult
                 : !isSyncFailure(glResult) ? glResult : null;
+              const failureOutcomes: Partial<Record<'gh' | 'glab', SyncFailure['outcome']>> = {};
+              if (isSyncFailure(ghResult)) failureOutcomes.gh = ghResult.outcome;
+              if (isSyncFailure(glResult)) failureOutcomes.glab = glResult.outcome;
               if (firstSuccess !== null) {
                 db.run(
                   `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
@@ -1040,18 +1053,19 @@ export function issueTools(
               } else {
                 const failures: string[] = [];
                 if (isSyncFailure(ghResult)) {
-                  serverLog({ event: 'issue_sync_failed', issueId, backend: 'gh', reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
+                  serverLog({ event: 'issue_sync_failed', issueId, backend: 'gh', reason: ghResult.reason, outcome: ghResult.outcome, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
                   failures.push('gh');
                 }
                 if (isSyncFailure(glResult)) {
-                  serverLog({ event: 'issue_sync_failed', issueId, backend: 'glab', reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
+                  serverLog({ event: 'issue_sync_failed', issueId, backend: 'glab', reason: glResult.reason, outcome: glResult.outcome, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
                   failures.push('glab');
                 }
                 syncDiagnostic = {
                   sync_failed: true,
                   reason: 'both_remotes_failed',
                   backends: failures,
-                  hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                  outcomes: failureOutcomes,
+                  hint: syncFailureHint(Object.values(failureOutcomes)),
                 };
               }
               if (ghIid !== null || glIid !== null) {
@@ -1062,9 +1076,12 @@ export function issueTools(
                   syncDiagnostic = {
                     sync_partial: true,
                     failed_backends: partial,
+                    outcomes: failureOutcomes,
                     gh_iid: ghIid,
                     gl_iid: glIid,
-                    hint: 'Try `issue_sync_retry` to retry the failed remote.',
+                    hint: Object.values(failureOutcomes).includes('unknown')
+                      ? SYNC_UNKNOWN_HINT
+                      : 'Try `issue_sync_retry` to retry the failed remote.',
                   };
                 }
               }
@@ -1110,6 +1127,7 @@ export function issueTools(
                 issueId,
                 title: objective,
                 body: description,
+                marker,
                 labels,
                 milestone: milestone ?? undefined,
                 _backend: createBackend,
@@ -1141,6 +1159,7 @@ export function issueTools(
                   issueId,
                   backend,
                   reason: syncResult.reason,
+                  outcome: syncResult.outcome,
                   exit_code: syncResult.exit_code,
                   stderr: syncResult.stderr?.slice(0, 1024),
                   message: syncResult.message,
@@ -1148,12 +1167,13 @@ export function issueTools(
                 syncDiagnostic = {
                   sync_failed: true,
                   reason: syncResult.reason,
+                  outcome: syncResult.outcome,
                   backend: syncResult.backend,
                   exit_code: syncResult.exit_code,
                   stderr: syncResult.stderr?.slice(0, 4096),
                   stdout: syncResult.stdout?.slice(0, 4096),
                   message: syncResult.message,
-                  hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                  hint: syncFailureHint([syncResult.outcome]),
                 };
               }
             }
@@ -1737,14 +1757,59 @@ export function issueTools(
         }
       }
 
+      // Fail closed against duplicates (GH 1863): an earlier create whose
+      // result was lost may have made the remote issue, so look for its body
+      // marker first and adopt a match; when the lookup itself fails, create
+      // nothing.
+      const marker = issueSyncMarker(row.id, row.created_at);
       const createErrors: unknown[] = [];
+      const adoptions: Array<{ backend: 'gh' | 'glab'; remote_iid: number; duplicates: number[] }> = [];
       let lastSuccess: { remote_iid: number; remote_kind: 'github' | 'gitlab' } | null = null;
       for (const target of createTargets) {
         const retryRemote = retryCtx.remoteFor(target);
+        const lookup = await findIssuesByMarker(target, marker, {
+          spawnFn,
+          cwd: retryCwd,
+          repoSlug: retryRemote?.slug ?? undefined,
+        });
+        if (!lookup.ok) {
+          createErrors.push({
+            backend: target,
+            reason: 'lookup_failed',
+            lookup_reason: lookup.reason,
+            exit_code: lookup.exit_code,
+            stderr: lookup.stderr?.slice(0, 4096),
+            message: lookup.message,
+            hint: 'Could not check the remote for an issue an earlier create may have made, so nothing was created. Fix the gh/glab access and retry.',
+          });
+          continue;
+        }
+        if (lookup.iids.length > 0) {
+          const adoptedIid = lookup.iids[0]!;
+          const duplicates = lookup.iids.slice(1);
+          const remoteKind = target === 'gh' ? 'github' : 'gitlab';
+          const adoptNow = nowISO();
+          db.run(
+            `UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+            [remoteKind, target === 'gh' ? adoptedIid : null, target === 'glab' ? adoptedIid : null, adoptNow, issueId],
+          );
+          insertAudit(db, {
+            issue_id: row.id,
+            from_node: 'executor',
+            event_type: 'issue_adopted',
+            summary: `issue ${row.id} adopted ${remoteKind} #${adoptedIid} found by its sync marker`,
+            content_json: JSON.stringify({ issue_id: row.id, backend: remoteKind, remote_iid: adoptedIid, via: 'issue_sync_retry' }),
+            created_at: adoptNow,
+          });
+          adoptions.push({ backend: target, remote_iid: adoptedIid, duplicates });
+          lastSuccess = { remote_iid: adoptedIid, remote_kind: remoteKind };
+          continue;
+        }
         const syncResult = await syncIssueCreate({
           issueId: row.id,
           title: issue.objective,
           body: row.description,
+          marker,
           labels: retryLabels,
           milestone: row.milestone ?? undefined,
           _backend: target,
@@ -1765,6 +1830,7 @@ export function issueTools(
           createErrors.push({
             backend: syncResult.backend,
             reason: syncResult.reason,
+            outcome: syncResult.outcome,
             exit_code: syncResult.exit_code,
             stderr: syncResult.stderr?.slice(0, 4096),
             stdout: syncResult.stdout?.slice(0, 4096),
@@ -1773,11 +1839,16 @@ export function issueTools(
         }
       }
 
+      const adoptionFields = adoptions.length === 0 ? {} : {
+        adopted: true,
+        duplicates: adoptions.flatMap((a) => a.duplicates),
+        adoptions,
+      };
       if (createErrors.length === 0 && lastSuccess !== null) {
-        return ok({ action: 'create', success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok({ action: 'create', success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind, ...adoptionFields });
       }
       if (lastSuccess !== null) {
-        return ok({ action: 'create', success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok({ action: 'create', success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind, ...adoptionFields });
       }
       return ok({
         action: 'create',

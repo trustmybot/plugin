@@ -784,6 +784,8 @@ describe('issue_sync_retry — milestone + valid labels (#1028)', () => {
         const calls = [];
         const spawnFn = (cmd, args) => {
             calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'list')
+                return { status: 0, stdout: '[]', stderr: '' };
             if (args[0] === 'issue' && args[1] === 'view') {
                 return { status: 0, stdout: '{"number":88,"url":"https://github.com/owner/repo/issues/88"}', stderr: '' };
             }
@@ -854,6 +856,8 @@ describe('issue_sync_retry replays the persisted label set (#53)', () => {
         const calls = [];
         const spawnFn = (cmd, args) => {
             calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'list')
+                return { status: 0, stdout: '[]', stderr: '' };
             if (args[0] === 'issue' && args[1] === 'view') {
                 return { status: 0, stdout: '{"number":88,"url":"https://github.com/owner/repo/issues/88"}', stderr: '' };
             }
@@ -893,6 +897,8 @@ describe('issue_sync_retry on a legacy NULL-labels row (#53)', () => {
         const calls = [];
         const spawnFn = (cmd, args) => {
             calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'list')
+                return { status: 0, stdout: '[]', stderr: '' };
             if (args[0] === 'issue' && args[1] === 'view') {
                 return { status: 0, stdout: '{"number":90,"url":"https://github.com/owner/repo/issues/90"}', stderr: '' };
             }
@@ -2150,6 +2156,8 @@ describe('issue sync follows the onboard Remote choice (GH 1590)', () => {
             calls.push({ cmd, args });
             if (args[0] === 'label' && args[1] === 'list')
                 return { status: 1, stdout: '', stderr: 'no taxonomy (test helper)' };
+            if (args[0] === 'issue' && args[1] === 'list')
+                return { status: 0, stdout: '[]', stderr: '' };
             if (args[0] === 'issue' && args[1] === 'create') {
                 return cmd === 'gh'
                     ? { status: 0, stdout: 'https://github.com/owner/repo/issues/42\n', stderr: '' }
@@ -2225,7 +2233,7 @@ describe('issue sync follows the onboard Remote choice (GH 1590)', () => {
             agent: 'bro', issue_id: String(issue.id), _spawnFn: recordingSpawn(calls),
         }));
         assert.equal(retried.skipped, undefined, JSON.stringify(retried));
-        assert.deepEqual(writes(calls), ['gh create', 'gh view']);
+        assert.deepEqual(writes(calls), ['gh list', 'gh list', 'gh create', 'gh view']);
         const again = [];
         const second = parseResult(await call(tools.handlers, 'issue_sync_retry', {
             agent: 'bro', issue_id: String(issue.id), _spawnFn: recordingSpawn(again),

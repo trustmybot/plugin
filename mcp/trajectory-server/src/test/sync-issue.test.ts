@@ -23,6 +23,10 @@ export function makeSpawnFn(responses: Array<{ status: number; stdout: string; s
     if (args[0] === 'label' && args[1] === 'list') {
       return { status: 1, stdout: '', stderr: 'no taxonomy (test helper)' };
     }
+    // issue_sync_retry's marker lookup (GH 1863) finds no earlier remote issue.
+    if (args[0] === 'issue' && args[1] === 'list') {
+      return { status: 0, stdout: '[]', stderr: '' };
+    }
     const response = responses[index] ?? { status: 1, stdout: '', stderr: 'no more responses' };
     index++;
     return response;
