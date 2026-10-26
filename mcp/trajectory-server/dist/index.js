@@ -42973,7 +42973,8 @@ var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "user_manual",
   "bro_auto_post_close",
   "bro_auto_post_change",
-  "bro_auto_initial"
+  "bro_auto_initial",
+  "startup_catchup"
 ]);
 function detectStructuralChange(db2, currentRepos, currentTopDirs, refilledEmptyGraph = false) {
   if (refilledEmptyGraph) return true;
@@ -43506,8 +43507,8 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           },
           source: {
             type: "string",
-            enum: ["user_manual", "bro_auto_post_close", "bro_auto_post_change", "bro_auto_initial"],
-            description: "Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation. Defaults to bro_auto_initial."
+            enum: ["user_manual", "bro_auto_post_close", "bro_auto_post_change", "bro_auto_initial", "startup_catchup"],
+            description: "Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation; startup_catchup = the server's connect-time catch-up. Defaults to bro_auto_initial."
           }
         },
         required: ["agent"]
@@ -43862,8 +43863,8 @@ function runClaude(args2, timeoutSec, projectRoot) {
 function parseMcpListing(text) {
   const names = /* @__PURE__ */ new Set();
   for (const line of text.split("\n")) {
-    const sep4 = line.indexOf(": ");
-    if (sep4 > 0) names.add(line.slice(0, sep4));
+    const sep5 = line.indexOf(": ");
+    if (sep5 > 0) names.add(line.slice(0, sep5));
   }
   return names;
 }
@@ -45134,7 +45135,7 @@ function cheatcodeTools(db2) {
 // src/tools/world_model.ts
 import { spawnSync as spawnSync13 } from "node:child_process";
 import { readFileSync as readFileSync11, realpathSync as realpathSync6 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join20, relative as relative3 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join20, relative as relative3, sep as sep4 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -45287,7 +45288,7 @@ function symbolSource(db2, symbol2) {
     return { source: null, source_reason: "file-missing" };
   }
   const rel = relative3(root, file2);
-  if (rel === "" || rel.startsWith("..") || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
   let lines2;
   try {
     lines2 = readFileSync11(file2, "utf8").split("\n");
@@ -45295,6 +45296,7 @@ function symbolSource(db2, symbol2) {
     return { source: null, source_reason: "file-unreadable" };
   }
   const start2 = Math.max(1, symbol2.start_line);
+  if (start2 > lines2.length) return { source: null, source_reason: "range-past-eof" };
   const end = Math.min(symbol2.end_line, lines2.length);
   const truncated = end - start2 + 1 > SOURCE_MAX_LINES;
   const last = truncated ? start2 + SOURCE_MAX_LINES - 1 : end;
@@ -47075,6 +47077,10 @@ import { spawn as spawn3 } from "node:child_process";
 import { existsSync as existsSync16 } from "node:fs";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 var RUN_SCAN_SCRIPT = fileURLToPath7(new URL("../../../scripts/maintenance/run-scan.mjs", import.meta.url));
+var STARTUP_CATCHUP_SOURCE = "startup_catchup";
+function startupCatchupArgs(script, projectRoot, execArgv = process.execArgv) {
+  return [...execArgv, script, projectRoot, STARTUP_CATCHUP_SOURCE];
+}
 function decideStartupCatchup(opts) {
   const script = opts.script ?? RUN_SCAN_SCRIPT;
   const exists = opts.exists ?? existsSync16;
@@ -47090,7 +47096,7 @@ function startStartupCatchup(dbPath2) {
   const decision = decideStartupCatchup({ dbPath: dbPath2, env: process.env });
   if (decision.spawn) {
     try {
-      const child = spawn3(process.execPath, [...process.execArgv, decision.script, decision.projectRoot], {
+      const child = spawn3(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot), {
         detached: true,
         stdio: "ignore",
         env: { ...process.env, TRAJECTORY_DB_PATH: dbPath2 }

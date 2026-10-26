@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { decideStartupCatchup, RUN_SCAN_SCRIPT } from '../startup-catchup.js';
+import { decideStartupCatchup, RUN_SCAN_SCRIPT, startupCatchupArgs } from '../startup-catchup.js';
 const DB = '/proj/.claude/tmb/trajectory.db';
 const present = () => true;
 describe('decideStartupCatchup', () => {
@@ -34,6 +34,16 @@ describe('decideStartupCatchup', () => {
         assert.deepEqual(d, { spawn: true, script: RUN_SCAN_SCRIPT, projectRoot: '/proj', reason: 'spawned' });
         assert.ok(RUN_SCAN_SCRIPT.endsWith('/scripts/maintenance/run-scan.mjs'));
         assert.ok(existsSync(RUN_SCAN_SCRIPT), RUN_SCAN_SCRIPT);
+    });
+    it('spawns run-scan.mjs with startup_catchup as its second argument (GH 1851)', () => {
+        assert.deepEqual(startupCatchupArgs(RUN_SCAN_SCRIPT, '/proj', ['--experimental-sqlite']), [
+            '--experimental-sqlite',
+            RUN_SCAN_SCRIPT,
+            '/proj',
+            'startup_catchup',
+        ]);
+        const src = readFileSync(fileURLToPath(new URL('../../src/startup-catchup.ts', import.meta.url)), 'utf8');
+        assert.ok(src.includes('spawn(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot)'));
     });
     it('index.ts starts the catch-up after server.connect', () => {
         const src = readFileSync(fileURLToPath(new URL('../../src/index.ts', import.meta.url)), 'utf8');

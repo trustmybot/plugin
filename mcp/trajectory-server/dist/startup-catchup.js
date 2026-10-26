@@ -1,5 +1,5 @@
 // Startup catch-up scan (ADR 0001, GH 1680): after the server connects, a
-// detached `run-scan.mjs <projectRoot>` brings the world model up to the
+// detached `run-scan.mjs <projectRoot> startup_catchup` brings the world model up to the
 // working tree, so edits made while no server ran are indexed before the
 // first query. The scan lock in tools/scan.ts serialises it with any other
 // scan; the child never holds the stdio event loop.
@@ -8,6 +8,10 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serverLog } from './logger.js';
 export const RUN_SCAN_SCRIPT = fileURLToPath(new URL('../../../scripts/maintenance/run-scan.mjs', import.meta.url));
+export const STARTUP_CATCHUP_SOURCE = 'startup_catchup';
+export function startupCatchupArgs(script, projectRoot, execArgv = process.execArgv) {
+    return [...execArgv, script, projectRoot, STARTUP_CATCHUP_SOURCE];
+}
 export function decideStartupCatchup(opts) {
     const script = opts.script ?? RUN_SCAN_SCRIPT;
     const exists = opts.exists ?? existsSync;
@@ -28,7 +32,7 @@ export function startStartupCatchup(dbPath) {
     const decision = decideStartupCatchup({ dbPath, env: process.env });
     if (decision.spawn) {
         try {
-            const child = spawn(process.execPath, [...process.execArgv, decision.script, decision.projectRoot], {
+            const child = spawn(process.execPath, startupCatchupArgs(decision.script, decision.projectRoot), {
                 detached: true,
                 stdio: 'ignore',
                 env: { ...process.env, TRAJECTORY_DB_PATH: dbPath },

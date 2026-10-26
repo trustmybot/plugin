@@ -191,7 +191,7 @@ sequenceDiagram
 
 `scan_run` is the single scan-side MCP tool. It forks the deterministic `scripts/scan.sh`, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 
-Triggered four ways (the `source` value is verified against `scan.ts`):
+Triggered five ways (the `source` value is verified against `scan.ts`):
 
 | Trigger | `source` value | Who fires |
 |---|---|---|
@@ -199,10 +199,11 @@ Triggered four ways (the `source` value is verified against `scan.ts`):
 | User typed `/scan` | `user_manual` | The slash command body passes it |
 | `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background |
 | Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
+| trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument |
 
 `scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
 
-- `source` (one of the four values above)
+- `source` (one of the five values above)
 - `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
 - `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
 

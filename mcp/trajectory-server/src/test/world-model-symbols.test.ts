@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -339,6 +339,16 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
       '}',
       tail,
     ].join('\n');
+  const DOTDOT_TS = 'export function dotDotFn(): number {\n  return 2;\n}\n';
+  const SHRINK_TS = [
+    'export function shrinkHead(): number {',
+    '  return 1;',
+    '}',
+    'export function shrinkTail(): number {',
+    '  return 2;',
+    '}',
+    '',
+  ].join('\n');
   const HUB_CALLERS = 210;
   const LONG_BODY = 250;
 
@@ -369,6 +379,10 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     for (let i = 0; i < LONG_BODY; i++) long.push(`  n += ${i};`);
     long.push('  return n;', '}', '');
     writeFileSync(join(root, 'src/long.ts'), long.join('\n'));
+    writeFileSync(join(root, '..foo.ts'), DOTDOT_TS);
+    writeFileSync(join(root, 'src/shrink.ts'), SHRINK_TS);
+    writeFileSync(join(ws, 'outside.ts'), 'export function outsideFn(): number {\n  return 1;\n}\n');
+    symlinkSync(join(ws, 'outside.ts'), join(root, 'src/escape.ts'));
     commit();
     await scan(db, holder, ws);
   });
@@ -438,6 +452,52 @@ describe('world_model_symbol impact, source and stale (GH 1680)', () => {
     assert.equal(body.length, 200);
     assert.equal(body[0], 'export function longBody(): number {');
     assert.equal(source.text, frameUntrusted('symbol-source', body.join('\n')));
+  });
+
+  it('source: true reads a top-level file named ..foo.ts (GH 1851)', async () => {
+    const card = await symbol({ qualified_name: 'dotDotFn', source: true });
+    assert.equal(card.symbol['path'], '..foo.ts');
+    assert.deepEqual(card['source'], {
+      start_line: 1,
+      end_line: 3,
+      text: frameUntrusted('symbol-source', DOTDOT_TS.split('\n').slice(0, 3).join('\n')),
+      truncated: false,
+    });
+  });
+
+  it('source: true refuses a path or symlink that resolves outside the repo (GH 1851)', async () => {
+    const insert = (path: string, name: string) =>
+      db.run(
+        `INSERT INTO wm_symbols (repo, path, kind, qualified_name, start_line, end_line, body_hash)
+         VALUES ('app', ?, 'function', ?, 1, 3, 'x')`,
+        [path, name],
+      );
+    insert('../outside.ts', 'escapeDotDot');
+    insert('src/escape.ts', 'escapeSymlink');
+    try {
+      for (const name of ['escapeDotDot', 'escapeSymlink']) {
+        const card = await symbol({ qualified_name: name, source: true });
+        assert.equal(card['source'], null, name);
+        assert.equal(card['source_reason'], 'outside-repo-root', name);
+      }
+    } finally {
+      db.run(`DELETE FROM wm_symbols WHERE repo = 'app' AND qualified_name IN ('escapeDotDot', 'escapeSymlink')`);
+    }
+  });
+
+  it('source: true refuses a start_line past the end of a shrunken file and never inverts the range (GH 1851)', async () => {
+    writeFileSync(join(root, 'src/shrink.ts'), 'export function shrinkHead(): number {\n  return 1;');
+    try {
+      const tail = await symbol({ qualified_name: 'shrinkTail', source: true });
+      assert.equal(tail['source'], null);
+      assert.equal(tail['source_reason'], 'range-past-eof');
+      const head = await symbol({ qualified_name: 'shrinkHead', source: true });
+      const source = head['source'] as { start_line: number; end_line: number };
+      assert.deepEqual([source.start_line, source.end_line], [1, 2]);
+      assert.ok(source.end_line >= source.start_line);
+    } finally {
+      writeFileSync(join(root, 'src/shrink.ts'), SHRINK_TS);
+    }
   });
 
   it('a bumped EXTRACTOR_VERSION re-parses every file once; the same version re-parses none', async () => {

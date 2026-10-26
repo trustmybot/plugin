@@ -35499,7 +35499,8 @@ var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "user_manual",
   "bro_auto_post_close",
   "bro_auto_post_change",
-  "bro_auto_initial"
+  "bro_auto_initial",
+  "startup_catchup"
 ]);
 function detectStructuralChange(db, currentRepos, currentTopDirs, refilledEmptyGraph = false) {
   if (refilledEmptyGraph) return true;
@@ -36032,8 +36033,8 @@ function scanTools(db, graphHolder = null, dbPath = "") {
           },
           source: {
             type: "string",
-            enum: ["user_manual", "bro_auto_post_close", "bro_auto_post_change", "bro_auto_initial"],
-            description: "Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation. Defaults to bro_auto_initial."
+            enum: ["user_manual", "bro_auto_post_close", "bro_auto_post_change", "bro_auto_initial", "startup_catchup"],
+            description: "Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation; startup_catchup = the server's connect-time catch-up. Defaults to bro_auto_initial."
           }
         },
         required: ["agent"]
@@ -36198,7 +36199,7 @@ function resolveRepoDefaultBranch(repoPath) {
 
 // src/tools/world_model.ts
 import { readFileSync as readFileSync9, realpathSync as realpathSync6 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join15, relative as relative4 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join15, relative as relative4, sep as sep3 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
@@ -36351,7 +36352,7 @@ function symbolSource(db, symbol2) {
     return { source: null, source_reason: "file-missing" };
   }
   const rel = relative4(root, file2);
-  if (rel === "" || rel.startsWith("..") || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep3}`) || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
   let lines2;
   try {
     lines2 = readFileSync9(file2, "utf8").split("\n");
@@ -36359,6 +36360,7 @@ function symbolSource(db, symbol2) {
     return { source: null, source_reason: "file-unreadable" };
   }
   const start2 = Math.max(1, symbol2.start_line);
+  if (start2 > lines2.length) return { source: null, source_reason: "range-past-eof" };
   const end = Math.min(symbol2.end_line, lines2.length);
   const truncated = end - start2 + 1 > SOURCE_MAX_LINES;
   const last = truncated ? start2 + SOURCE_MAX_LINES - 1 : end;

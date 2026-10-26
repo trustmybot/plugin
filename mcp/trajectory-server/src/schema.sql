@@ -615,9 +615,10 @@ CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
 --   wm_files: one row per tracked file. path is repo-relative; dir is its
 --     directory's path. purpose is extracted from the file head (or written
 --     by swe, purpose_source='swe'); content_md5 keys re-extraction.
---     symbols_md5 (GH 1680) is the content_md5 the file's wm_symbols rows were
---     parsed from; NULL until first parsed. A scan re-parses a file only when
---     the two differ.
+--     symbols_md5 (GH 1680) is the stamp content_md5 || ':' ||
+--     EXTRACTOR_VERSION the file's wm_symbols rows were parsed at; NULL until
+--     first parsed. A scan re-parses a file only when it differs from the
+--     current stamp.
 --   wm_symbols (GH 1680, ADR 0001 L1): one row per definition tree-sitter
 --     finds in a TS/JS, shell or SQL file. The stable anchor key is
 --     (repo, path, kind, qualified_name): 'Class.method' for methods, the
