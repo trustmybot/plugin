@@ -1703,3 +1703,16 @@
 {"cmd":"echo > $HOME/f1944; done","cwd":"/w"}
 {"cmd":"echo > /etc/p1944; done","cwd":"/w"}
 {"cmd":"x=/w/a; bash -c \"echo > \\$x; done\"","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do echo > $x; \"done\"; x=/etc/p1944; \"while\" :; \"do\" :; done","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do echo > $x; \\done; x=/etc/p1944; \\while :; \\do :; done","cwd":"/w"}
+{"cmd":"x=/w/a; until false; do echo > $x; d''one; x=/etc/p1944; w''hile :; d''o :; done","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do echo > $x; $'done'; x=/etc/p1944; $'while' :; $'do' :; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; do echo > $x; \"done\"; x=/etc/p1944; \"while\" :; \"do\" :; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; do echo > $x; \\done; x=/etc/p1944; $'do' :; done","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; { echo > $x; \"}\"; x=/etc/p1944; \"{\"; }","cwd":"/w"}
+{"cmd":"x=/w/a; for i in 1 2; { echo > $x; \\}; x=/etc/p1944; '{'; }","cwd":"/w"}
+{"cmd":"x=/w/a; \"for\" i in 1 2; do echo > $x; done","cwd":"/w"}
+{"cmd":"for f in a b; do x=/w/$f; echo \"done\" > $x; done","cwd":"/w"}
+{"cmd":"for f in a b; do x=\"/w/$f\"; echo 'done' > \"$x\"; done","cwd":"/w"}
+{"cmd":"x=/w/a; while :; do echo > $x; \u0017done; x=/etc/p1944; done","cwd":"/w"}
+{"cmd":"echo > /w\u0017/p","cwd":"/w"}

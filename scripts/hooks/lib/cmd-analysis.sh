@@ -18,7 +18,10 @@
 #     - `# comments` are dropped.
 #   A quoted string spanning lines joins them with `_`. With `keep`, those
 #   characters (and backslash-escaped ones) become reversible control bytes
-#   instead of `_` (see tmb_cmd_decode), so a quoted word can be recovered.
+#   instead of `_` (see tmb_cmd_decode), so a quoted word can be recovered,
+#   and each opening quote or unquoted backslash leaves a \027 mark that
+#   _tmb_cmd_statements_enc reads (a word holding one is never a reserved
+#   word, POSIX 2.4) and drops; a literal \027 becomes `$()` (encoded).
 #   With `bodies`, prints instead each heredoc body the same scan drops, in
 #   order: `<delimiter><TAB><body>`, its lines joined by \037.
 #
@@ -326,6 +329,7 @@ tmb_cmd_strip_literals() {
   [ "${2:-}" = "bodies" ] && bodies=1
   printf '%s\n' "${1:-}" | awk -v sq="'" -v keep="$keep" -v bodies="$bodies" '
     function neutral(c,   k) {
+      if (keep && c == qm) return qlit
       if (keep) { k = index(" \t<>|;&()`", c); return k ? enc[k] : c }
       return (c ~ /[ \t<>|;&()`]/) ? "_" : c
     }
@@ -346,6 +350,7 @@ tmb_cmd_strip_literals() {
       state = ""; nh = 0; cur = 0; inbody = 0; sp = 0; nc = 0; hg = 0
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
       hdata = sprintf("%c", 30); hexp = sprintf("%c", 26)
+      qm = sprintf("%c", 23); qlit = "$" enc[8] enc[9]
     }
     {
       line = $0
@@ -389,10 +394,10 @@ tmb_cmd_strip_literals() {
             pd[sp]--
           }
         }
-        if (c == "$" && substr(line, i + 1, 1) == sq) { state = "a"; i += 2; continue }
-        if (c == "\\") { out = out (keep ? neutral(substr(line, i + 1, 1)) : substr(line, i + 1, 1)); i += 2; continue }
-        if (c == sq) { state = "s"; i++; continue }
-        if (c == "\"") { state = "d"; i++; continue }
+        if (c == "$" && substr(line, i + 1, 1) == sq) { state = "a"; if (keep) out = out qm; i += 2; continue }
+        if (c == "\\") { out = out (keep ? qm neutral(substr(line, i + 1, 1)) : substr(line, i + 1, 1)); i += 2; continue }
+        if (c == sq) { state = "s"; if (keep) out = out qm; i++; continue }
+        if (c == "\"") { state = "d"; if (keep) out = out qm; i++; continue }
         if (c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[ \t;&|(]/)) break
         if (substr(line, i, 3) == "<<<") { out = out "<<<"; i += 3; continue }
         if (substr(line, i, 2) == "<<") {
@@ -414,7 +419,7 @@ tmb_cmd_strip_literals() {
           out = out "<<" w
           i = j; continue
         }
-        out = out c; i++
+        out = out ((keep && c == qm) ? qlit : c); i++
       }
       if (keep) chunk[++nc] = out ((state != "") ? joiner() : "\n")
       else if (!bodies) { if (state != "") { printf "%s%s", out, joiner() } else { print out } }
@@ -646,7 +651,8 @@ tmb_cmd_decode() {
 # `select` header (the header's own statement when it holds that word right
 # after NAME), to the `done` or `}` closing it. A `do` no header waits for, a
 # `done` or `}` that does not close the innermost frame, or a frame still open
-# at the end appends a last `!<TAB>unbalanced` line.
+# at the end appends a last `!<TAB>unbalanced` line. A quoted or escaped word
+# (one holding a \027 mark) is never one of those reserved words (POSIX 2.4).
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -661,7 +667,7 @@ _tmb_cmd_statements_enc() {
       return 0
     }
     function srcmark(body, dir) {
-      body = unmark(body)
+      body = unmark(body); gsub(qm, "", body)
       if (body ~ /[;&|()`\n]/ || index(body, qo) || index(body, qc)) return ""
       gsub(/[ \t]+/, sep, body)
       sub("^" sep, "", body); sub(sep "$", "", body)
@@ -791,17 +797,19 @@ _tmb_cmd_statements_enc() {
     function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained, cdw, plain, csure, dw, na, aw, ok) {
       chained = (fsep == "&&"); fsep = ""
       vtop = (sp == 0 && qsp == 0 && !bt)
-      if (!vplainexp(stmt)) vok = 0
+      t = stmt; gsub(qm, "", t)
+      if (!vplainexp(t)) vok = 0
       stmt = unmark(stmt)
       csure = !cond; cond = 0
       n = split(stmt, w, /[ \t]+/)
+      for (k = 1; k <= n; k++) { wq[k] = (index(w[k], qm) > 0); gsub(qm, "", w[k]) }
       stmt = ""
       first = 1; asg = ""; cdw = ""; na = 0; plain = 1
       waspiped = piped; piped = 0; lastout = ""; lastdir = cur; sawwhile = 0
       while (first <= n) {
         if (w[first] == "") { first++; continue }
         if (w[first] == "while") sawwhile = 1
-        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { if (assign) loopkw(w[first]); plain = 0; first++; continue }
+        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { if (assign && !wq[first]) loopkw(w[first]); plain = 0; first++; continue }
         if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { asg = asg (asg == "" ? "" : " ") w[first]; aw[++na] = w[first]; first++; continue }
         if (w[first] ~ /^(sudo|env|command|nohup|time|exec)$/) {
           first = unwrap(w, n, first); plain = 0
@@ -818,8 +826,8 @@ _tmb_cmd_statements_enc() {
         return
       }
       a0 = w[first]
-      if (assign && (a0 == "for" || a0 == "select")) forhead(w, n, first)
-      else if (assign && (a0 == "coproc" || a0 == "function")) loopprefix(w, n, first)
+      if (assign && !wq[first] && (a0 == "for" || a0 == "select")) forhead(w, n, first)
+      else if (assign && !wq[first] && (a0 == "coproc" || a0 == "function")) loopprefix(w, n, first)
       ok = plain && na == 0
       if (ok && a0 == "export") {
         for (k = first + 1; k <= n; k++) {
@@ -889,13 +897,14 @@ _tmb_cmd_statements_enc() {
       ls[++lsp] = "f"
       for (k++; k <= n && c < 2; k++) {
         if (w[k] == "") continue
-        if (++c == 2 && w[k] ~ /^(do|\{)$/) loopkw(w[k])
+        if (++c == 2 && !wq[k] && w[k] ~ /^(do|\{)$/) loopkw(w[k])
       }
     }
     function loopprefix(w, n, first,   k, c) {
       for (k = first + 1; k <= n && c < 2; k++) {
         if (w[k] == "") continue
         c++
+        if (wq[k]) continue
         if (w[k] == "for" || w[k] == "select") { forhead(w, n, k); return }
         if (w[k] ~ /^(while|until|\{)$/) { loopkw(w[k]); return }
       }
@@ -925,10 +934,10 @@ _tmb_cmd_statements_enc() {
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
       if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
       cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0; unbal = 0
-      qo = sprintf("%c", 7); qc = sprintf("%c", 8)
+      qo = sprintf("%c", 7); qc = sprintf("%c", 8); qm = sprintf("%c", 23)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }
-    { buf = (NR == 1) ? $0 : buf "\n" $0 }
+    { buf =(NR == 1) ? $0 : buf "\n" $0 }
     END {
       n = length(buf)
       for (i = 1; i <= n; i++) {

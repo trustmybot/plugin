@@ -237,5 +237,20 @@ describe('containment-guard (TS): denies that judge no path', () => {
   it('allows a for-loop and a loop that never reassigns when every target is under the root (GH 1944)', async () => {
     assert.deepEqual(await containmentGuard(bash(`for f in a b; do x=${project}/src/$f; echo > $x; done`), env), { stdout: '', code: 0 });
     assert.deepEqual(await containmentGuard(bash(`x=${project}/src/a; while :; do echo > $x; done`), env), { stdout: '', code: 0 });
+    assert.deepEqual(await containmentGuard(bash(`for f in a b; do x=${project}/src/$f; echo "done" > $x; done`), env), { stdout: '', code: 0 });
   });
+
+  for (const body of [
+    'while :; do echo > $x; "done"; x=/etc/p1944; "while" :; "do" :; done',
+    'while :; do echo > $x; \\done; x=/etc/p1944; \\while :; \\do :; done',
+    "until false; do echo > $x; d''one; x=/etc/p1944; w''hile :; d''o :; done",
+    "while :; do echo > $x; $'done'; x=/etc/p1944; $'while' :; $'do' :; done",
+    'for i in 1 2; do echo > $x; "done"; x=/etc/p1944; "while" :; "do" :; done',
+    'for i in 1 2; { echo > $x; "}"; x=/etc/p1944; "{"; }',
+  ]) {
+    it(`denies a loop whose quoted or escaped reserved word is a command word: \`${body}\` (GH 1944)`, async () => {
+      const r = await containmentGuard(bash(`x=${project}/src/a; ${body}`), env);
+      assert.ok(reason(r.stdout), r.stdout);
+    });
+  }
 });

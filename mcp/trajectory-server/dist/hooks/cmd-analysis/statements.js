@@ -11,7 +11,7 @@
  * balance. The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
-import { ENC, HD_DATA, QC, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
+import { ENC, HD_DATA, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 export const SEP = '\x12';
 export const LOOP_OPEN = '{';
@@ -78,7 +78,7 @@ function unmark(t) {
     return t.replace(HD_MARK, '<<');
 }
 function srcmark(body, dir) {
-    body = unmark(body);
+    body = unmark(body).replaceAll(QM, '');
     if (/[;&|()`\n]/.test(body) || body.includes(QO) || body.includes(QC))
         return '';
     body = body.replace(/[ \t]+/g, SEP);
@@ -130,11 +130,14 @@ export function statementsEnc(buf, base, home, assign) {
     const emit = (dir, text) => records.push({ dir, stmt: text });
     const loops = [];
     let unbal = false;
+    /** Per word of the statement being flushed: it held a QM, so it is never a reserved word. */
+    let wq = [];
     /**
      * With `assign`, frames a loop's statements: `{` from its while / until or
      * from the `do` or `{` that ends a for / select header, and `}` at the done
      * or `}` that closes it. A `do` no header waits for, or a `done` / `}` that
-     * does not close the innermost frame, marks the command unbalanced.
+     * does not close the innermost frame, marks the command unbalanced. A
+     * quoted or escaped word is never one of these (POSIX 2.4).
      */
     function loopkw(k) {
         const top = loops.length > 0 ? loops[loops.length - 1] : '';
@@ -189,7 +192,7 @@ export function statementsEnc(buf, base, home, assign) {
         for (k++; k < w.length && c < 2; k++) {
             if (w[k] === '')
                 continue;
-            if (++c === 2 && (w[k] === 'do' || w[k] === '{'))
+            if (++c === 2 && !wq[k] && (w[k] === 'do' || w[k] === '{'))
                 loopkw(w[k]);
         }
     }
@@ -200,6 +203,8 @@ export function statementsEnc(buf, base, home, assign) {
             if (w[k] === '')
                 continue;
             c++;
+            if (wq[k])
+                continue;
             if (w[k] === 'for' || w[k] === 'select') {
                 forhead(w, k);
                 return;
@@ -411,12 +416,15 @@ export function statementsEnc(buf, base, home, assign) {
         const chained = fsep === '&&';
         fsep = '';
         vtop = sp === 0 && qsp === 0 && !bt;
-        if (!vplainexp(stmt))
+        if (!vplainexp(stmt.replaceAll(QM, '')))
             vok = false;
         stmt = unmark(stmt);
         const csure = !cond;
         cond = false;
         const w = splitWords(stmt);
+        wq = w.map((word) => word.includes(QM));
+        for (let k = 0; k < w.length; k++)
+            w[k] = w[k].replaceAll(QM, '');
         const n = w.length;
         stmt = '';
         let first = 0;
@@ -437,7 +445,7 @@ export function statementsEnc(buf, base, home, assign) {
             if (w[first] === 'while')
                 sawwhile = true;
             if (KEYWORD.test(w[first])) {
-                if (assign)
+                if (assign && !wq[first])
                     loopkw(w[first]);
                 plain = false;
                 first++;
@@ -486,9 +494,9 @@ export function statementsEnc(buf, base, home, assign) {
             return;
         }
         let a0 = w[first];
-        if (assign && (a0 === 'for' || a0 === 'select'))
+        if (assign && !wq[first] && (a0 === 'for' || a0 === 'select'))
             forhead(w, first);
-        else if (assign && (a0 === 'coproc' || a0 === 'function'))
+        else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function'))
             loopprefix(w, first);
         let ok = plain && aw.length === 0;
         if (ok && a0 === 'export') {

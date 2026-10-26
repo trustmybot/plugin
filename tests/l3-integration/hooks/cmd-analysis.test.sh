@@ -905,6 +905,17 @@ for c in 'x=/w/a; echo > $x; done' 'x=/w/a; echo > $x; }' 'x=/w/a; do echo > $x'
 done
 assert_eq 'UNRESOLVED:HOME:$HOME/f1944' "$(wpaths 'echo > $HOME/f1944; done' /w)" "an unbalanced command resolves no variable"
 assert_eq 'UNRESOLVED:x:$x' "$(wpaths 'x=/w/a; bash -c "echo > \$x; done"' /w)" "an unbalanced bash -c body"
+for c in 'x=/w/a; while :; do echo > $x; "done"; x=/etc/p1944; "while" :; "do" :; done' \
+  'x=/w/a; while :; do echo > $x; \done; x=/etc/p1944; \while :; \do :; done' \
+  "x=/w/a; until false; do echo > \$x; d''one; x=/etc/p1944; w''hile :; d''o :; done" \
+  "x=/w/a; while :; do echo > \$x; \$'done'; x=/etc/p1944; \$'while' :; \$'do' :; done" \
+  'x=/w/a; for i in 1 2; do echo > $x; "done"; x=/etc/p1944; "while" :; "do" :; done' \
+  'x=/w/a; for i in 1 2; { echo > $x; "}"; x=/etc/p1944; "{"; }' \
+  "x=/w/a; for i in 1 2; { echo > \$x; \\}; x=/etc/p1944; '{'; }"; do
+  assert_eq '/w/a,/etc/p1944' "$(wpaths "$c" /w)" "a quoted or escaped reserved word is a command word: $c"
+done
+assert_eq '/w/a,/w/b' "$(wpaths 'for f in a b; do x=/w/$f; echo "done" > $x; done' /w)" "a quoted done argument keeps the for-loop exact"
+assert_eq 'UNRESOLVED:$():/w$()/p' "$(wpaths "$(printf 'echo > /w\027/p')" /w)" "a literal \\027 byte reads as computed text"
 
 test_case "GH 1602: an inline program's non-literal process call is \$(proc), not \$()"
 assert_eq 'UNRESOLVED:$(proc):$(proc)' "$(pyw 'import subprocess' 'for n in range(3):' "    subprocess.run(['true', str(n)])")" "subprocess.run(['true', str(n)])"

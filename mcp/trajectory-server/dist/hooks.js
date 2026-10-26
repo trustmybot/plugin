@@ -6193,6 +6193,8 @@ var SUB_PO = "";
 var SUB_PC = "";
 var HD_DATA = "";
 var HD_EXP = "";
+var QM = "";
+var QM_LITERAL = "$" + ENC[8] + ENC[9];
 function plainDollars(text) {
   let m;
   while ((m = text.indexOf("$")) >= 0) {
@@ -6215,6 +6217,7 @@ function decode(text) {
 }
 function neutral(c) {
   if (c === void 0 || c === "" || c === "\n") return ENC[1];
+  if (c === QM) return QM_LITERAL;
   const k = NEUTRAL.indexOf(c);
   return k >= 0 ? ENC[k + 1] : c;
 }
@@ -6253,11 +6256,11 @@ var Encoder = class {
     for (let i2 = from; i2 < to; i2++) {
       const c = src[i2];
       if (c !== "\\") {
-        out2 += c;
+        out2 += c === QM ? QM_LITERAL : c;
         continue;
       }
       const next = i2 + 1 < to ? src[i2 + 1] : void 0;
-      out2 += neutral(next);
+      out2 += QM + neutral(next);
       if (next !== void 0 && next !== "\n") i2++;
     }
     return out2;
@@ -6347,16 +6350,16 @@ var Encoder = class {
         case "comment":
           break;
         case "string":
-          out2 += this.dquoted(node, span.start + 1, span.end - 1);
+          out2 += QM + this.dquoted(node, span.start + 1, span.end - 1);
           break;
         case "translated_string":
-          out2 += "$" + this.dquoted(node, span.start + 2, span.end - 1);
+          out2 += "$" + QM + this.dquoted(node, span.start + 2, span.end - 1);
           break;
         case "raw_string":
-          out2 += this.quoted(span.start + 1, span.end - 1, false);
+          out2 += QM + this.quoted(span.start + 1, span.end - 1, false);
           break;
         case "ansi_c_string":
-          out2 += this.quoted(span.start + 2, span.end - 1, true);
+          out2 += QM + this.quoted(span.start + 2, span.end - 1, true);
           break;
       }
     }
@@ -6366,7 +6369,7 @@ var Encoder = class {
 var EXPANSIONS = ["simple_expansion", "expansion", "command_substitution", "arithmetic_expansion", "process_substitution"];
 var expands = (node) => node.descendantsOfType(EXPANSIONS).length > 0;
 function heldKey(word) {
-  return decode(word).replace(/\x07/g, "$(").replace(/\x08/g, ")");
+  return decode(word).replaceAll(QM, "").replace(/\x07/g, "$(").replace(/\x08/g, ")");
 }
 function heldWords(encoder, root) {
   const held = /* @__PURE__ */ new Set();
@@ -10056,6 +10059,9 @@ function unwrap(w, k) {
 
 // src/hooks/cmd-analysis/statements.ts
 var SEP = "";
+var LOOP_OPEN = "{";
+var LOOP_CLOSE = "}";
+var UNBALANCED = "!";
 var WSEP = "";
 var VSEP = "";
 var VEQ = "";
@@ -10107,7 +10113,7 @@ function unmark(t) {
   return t.replace(HD_MARK, "<<");
 }
 function srcmark(body2, dir) {
-  body2 = unmark(body2);
+  body2 = unmark(body2).replaceAll(QM, "");
   if (/[;&|()`\n]/.test(body2) || body2.includes(QO) || body2.includes(QC)) return "";
   body2 = body2.replace(/[ \t]+/g, SEP);
   if (body2.startsWith(SEP)) body2 = body2.slice(1);
@@ -10153,6 +10159,66 @@ function statementsEnc(buf, base, home, assign) {
   const owstack = [];
   const q = [];
   const emit = (dir, text) => records.push({ dir, stmt: text });
+  const loops = [];
+  let unbal = false;
+  let wq = [];
+  function loopkw(k) {
+    const top = loops.length > 0 ? loops[loops.length - 1] : "";
+    if (k === "while" || k === "until") {
+      loops.push("w");
+      emit(LOOP_OPEN, "do");
+    } else if (k === "do") {
+      if (top === "w") loops[loops.length - 1] = "o";
+      else if (top === "f") {
+        loops[loops.length - 1] = "o";
+        emit(LOOP_OPEN, "do");
+      } else {
+        unbal = true;
+        loops.push("o");
+        emit(LOOP_OPEN, "do");
+      }
+    } else if (k === "{") {
+      if (top === "f") {
+        loops[loops.length - 1] = "b";
+        emit(LOOP_OPEN, "do");
+      } else loops.push("g");
+    } else if (k === "done") {
+      if (top === "o") {
+        loops.pop();
+        emit(LOOP_CLOSE, "done");
+      } else unbal = true;
+    } else if (k === "}") {
+      if (top === "b") {
+        loops.pop();
+        emit(LOOP_CLOSE, "done");
+      } else if (top === "g") loops.pop();
+      else unbal = true;
+    }
+  }
+  function forhead(w, k) {
+    loops.push("f");
+    let c = 0;
+    for (k++; k < w.length && c < 2; k++) {
+      if (w[k] === "") continue;
+      if (++c === 2 && !wq[k] && (w[k] === "do" || w[k] === "{")) loopkw(w[k]);
+    }
+  }
+  function loopprefix(w, first) {
+    let c = 0;
+    for (let k = first + 1; k < w.length && c < 2; k++) {
+      if (w[k] === "") continue;
+      c++;
+      if (wq[k]) continue;
+      if (w[k] === "for" || w[k] === "select") {
+        forhead(w, k);
+        return;
+      }
+      if (/^(while|until|\{)$/.test(w[k])) {
+        loopkw(w[k]);
+        return;
+      }
+    }
+  }
   function closepar(pos) {
     let d = 0;
     for (let k = pos; k < buf.length; k++) {
@@ -10319,11 +10385,13 @@ function statementsEnc(buf, base, home, assign) {
     const chained = fsep === "&&";
     fsep = "";
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt)) vok = false;
+    if (!vplainexp(stmt.replaceAll(QM, ""))) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
     const w = splitWords(stmt);
+    wq = w.map((word) => word.includes(QM));
+    for (let k = 0; k < w.length; k++) w[k] = w[k].replaceAll(QM, "");
     const n = w.length;
     stmt = "";
     let first = 0;
@@ -10343,6 +10411,7 @@ function statementsEnc(buf, base, home, assign) {
       }
       if (w[first] === "while") sawwhile = true;
       if (KEYWORD.test(w[first])) {
+        if (assign && !wq[first]) loopkw(w[first]);
         plain = false;
         first++;
         continue;
@@ -10387,6 +10456,8 @@ function statementsEnc(buf, base, home, assign) {
       return;
     }
     let a0 = w[first];
+    if (assign && !wq[first] && (a0 === "for" || a0 === "select")) forhead(w, first);
+    else if (assign && !wq[first] && (a0 === "coproc" || a0 === "function")) loopprefix(w, first);
     let ok = plain && aw.length === 0;
     if (ok && a0 === "export") {
       for (let k = first + 1; k < n; k++) {
@@ -10572,6 +10643,7 @@ function statementsEnc(buf, base, home, assign) {
     stmt += c;
   }
   flush();
+  if (assign && (unbal || loops.length > 0)) emit(UNBALANCED, "unbalanced");
   return records.filter((r) => r.stmt !== "");
 }
 
@@ -11166,17 +11238,13 @@ var WritePaths = class _WritePaths {
     }
     return v === "" ? null : chomp2(v);
   }
+  /** _tmb_cmd_var_get: every recorded value of <name>, each once, or null when never assigned. */
   varGet(vars, name3) {
-    let found = false;
-    let out2 = "";
-    for (const line of vars.split("\n")) {
-      if (!line.startsWith(name3 + "	")) continue;
-      out2 += after(line, "	") + "\n";
-      found = true;
-    }
-    return found ? chomp2(out2) : null;
+    const values = /* @__PURE__ */ new Set();
+    for (const line of vars.split("\n")) if (line.startsWith(name3 + "	")) values.add(after(line, "	"));
+    return values.size > 0 ? chomp2([...values].join("\n") + "\n") : null;
   }
-  /** _tmb_cmd_expand: every value a word expands to (at most 16), or the variable that stops it. */
+  /** _tmb_cmd_expand: every value a word expands to (at most 16), or the variable that stops it (any one in an unbalanced level). */
   expand(word, level) {
     let rest = word;
     let acc = [""];
@@ -11221,6 +11289,7 @@ var WritePaths = class _WritePaths {
         rest = rest.slice(1);
         continue;
       }
+      if (this.unbalanced) return fail(name3);
       let vals = this.varGet(level.vars, name3);
       if (vals !== null) {
         if (vals.includes(BAD2)) return fail(name3);
@@ -11493,6 +11562,8 @@ var WritePaths = class _WritePaths {
   }
   /** The `heldKey` of every word of the command `run` is in whose text the shell fills in part of. */
   held = /* @__PURE__ */ new Set();
+  /** _TMB_CMD_UNBAL: the level running, or one it runs within, has loop frames that do not balance. */
+  unbalanced = false;
   isHeld(word) {
     return this.held.has(heldKey(word));
   }
@@ -11582,11 +11653,13 @@ var WritePaths = class _WritePaths {
       return;
     }
     const outer = this.held;
+    const unbalanced = this.unbalanced;
     this.held = encoded.held;
     try {
       this.runEncoded(encoded.text, encoded.heredocs, base, depth, vars);
     } finally {
       this.held = outer;
+      this.unbalanced = unbalanced;
     }
   }
   /** The names a statement's words may set beyond what `trackVars` follows; a declare-like builtin's own `name=` words are its to judge. */
@@ -11597,14 +11670,71 @@ var WritePaths = class _WritePaths {
       for (const name3 of setInText(dec(w))) this.poison(level, name3);
     }
   }
+  /**
+   * _tmb_cmd_loop_vars: at a loop's `{`, adds to the level every value its
+   * records (`loop`, the first at 1-based index `from + 1`) assign, nested
+   * loops included, pass after pass until one adds none, so a use that
+   * precedes an in-body assignment also sees what a later pass assigns
+   * (GH 1944). A name still gaining values after 8 passes is poisoned.
+   */
+  loopVars(level, loop, from, bodies, depth) {
+    const { cwd } = this.opts;
+    const saved = { pwd: this.pwd, oldtok: level.oldtok, why: level.why };
+    level.vars = varsUniq(level.vars);
+    const seed = new Set(level.vars.split("\n"));
+    let converged = false;
+    for (let pass = 0; pass < 8 && !converged; pass++) {
+      const prev = level.vars;
+      loop.forEach((record, k) => {
+        if (record.dir === LOOP_OPEN || record.dir === LOOP_CLOSE || record.dir === UNBALANCED) return;
+        let dir = record.dir;
+        let old = dir.includes(SEP) ? after(dir, SEP) : "-";
+        dir = before(dir, SEP);
+        let why = "";
+        if (old.includes(SEP)) {
+          why = after(old, SEP);
+          old = before(old, SEP);
+        }
+        level.oldtok = old;
+        level.why = why;
+        const words = shellWords(record.stmt);
+        if (words.length === 0) return;
+        if (dir.startsWith("=")) {
+          this.pwd = dirPath(dir.slice(1), cwd);
+          for (const w of words) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          return;
+        }
+        this.poisonSet(level, words);
+        for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
+        const body2 = inner(record.stmt);
+        if (body2 !== "" && (!evalArgs(words) && heldProgram(body2) || depth < MAX_DEPTH)) return;
+        this.pwd = dirPath(dir, cwd);
+        this.trackVars(level, words);
+      });
+      level.vars = varsUniq(level.vars);
+      converged = level.vars === prev;
+    }
+    if (!converged) {
+      for (const line of level.vars.split("\n")) if (line !== "" && !seed.has(line)) this.poison(level, before(line, "	"));
+    }
+    this.pwd = saved.pwd;
+    level.oldtok = saved.oldtok;
+    level.why = saved.why;
+  }
   runEncoded(text, heredocs2, base, depth, vars) {
     const level = { vars, oldtok: "-", why: "" };
     const { cwd } = this.opts;
     const records = statementsEnc(text, base, this.opts.env.HOME ?? "", true).filter((r) => !/^\t*$/.test(r.stmt));
     const bodies = heredocAlign(heredocs2, records);
+    if (records.some((r) => r.dir === UNBALANCED)) this.unbalanced = true;
     let idx = 0;
     for (const record of records) {
       idx++;
+      if (record.dir === LOOP_OPEN) {
+        this.loopVars(level, loopBody(records, idx), idx, bodies, depth);
+        continue;
+      }
+      if (record.dir === LOOP_CLOSE || record.dir === UNBALANCED) continue;
       let dir = record.dir;
       let old = dir.includes(SEP) ? after(dir, SEP) : "-";
       dir = before(dir, SEP);
@@ -11688,6 +11818,19 @@ var WritePaths = class _WritePaths {
     }
   }
 };
+function loopBody(records, from) {
+  let depth = 0;
+  let k = from;
+  for (; k < records.length; k++) {
+    if (records[k].dir === LOOP_OPEN) depth++;
+    else if (records[k].dir === LOOP_CLOSE && depth-- === 0) break;
+  }
+  return records.slice(from, k);
+}
+function varsUniq(vars) {
+  const lines2 = [...new Set(vars.split("\n").filter((l) => l !== ""))];
+  return lines2.length === 0 ? "" : lines2.join("\n") + "\n";
+}
 function heredocAlign(heredocs2, records) {
   const out2 = /* @__PURE__ */ new Map();
   if (heredocs2.length === 0) return out2;
