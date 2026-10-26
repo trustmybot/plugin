@@ -31,7 +31,7 @@ import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { resolveBaseRef, resolveCutBase, resolveRepoDefaultBranch, type CutBase } from '../utils/git-refs.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import {
   FINDING_ORDER_SQL,
@@ -518,6 +518,107 @@ function ensureTaskWorktree(repoPath: string, branchId: string): { worktreePath:
   return { worktreePath, reused };
 }
 
+type TaskBranchOutcome =
+  | { kind: 'ready'; created: boolean; cutBase: CutBase | null }
+  | { kind: 'base_unresolved' }
+  | { kind: 'diverged'; ref: string; baseRef: string }
+  | { kind: 'git_failed'; what: string; error: unknown };
+
+// The task branch policy task_provision, task_retry and task_reopen share: a
+// missing ref is cut from resolveCutBase(base) (created); an existing local or
+// origin ref at or behind the base tip is fast-forwarded to it (reused); a
+// diverged ref is refused unless reuseExisting keeps it as-is (reused).
+function ensureTaskBranch(repoPath: string, branchId: string, base: string, reuseExisting = false): TaskBranchOutcome {
+  const localRef = `refs/heads/${branchId}`;
+  const originRef = `refs/remotes/origin/${branchId}`;
+  const localSha = refSha(repoPath, localRef);
+  const originSha = refSha(repoPath, originRef);
+  const branchExists = localSha !== null || originSha !== null;
+
+  const cutBase = resolveCutBase(repoPath, base);
+  const baseRef = cutBase?.ref ?? null;
+  if (!baseRef && !(branchExists && reuseExisting)) return { kind: 'base_unresolved' };
+
+  if (!branchExists) {
+    try {
+      git(repoPath, ['branch', branchId, baseRef!]);
+    } catch (error) {
+      return { kind: 'git_failed', what: `failed to create branch '${branchId}' from '${baseRef}'`, error };
+    }
+    return { kind: 'ready', created: true, cutBase };
+  }
+
+  const diverged = baseRef
+    ? [localSha ? localRef : null, originSha ? originRef : null]
+        .filter((r): r is string => r !== null)
+        .find((r) => !isAncestor(repoPath, r, baseRef))
+    : undefined;
+  if (diverged && !reuseExisting) return { kind: 'diverged', ref: diverged, baseRef: baseRef! };
+  try {
+    if (diverged || !baseRef) {
+      if (!localSha) git(repoPath, ['branch', branchId, originRef]);
+    } else if (!localSha) {
+      git(repoPath, ['branch', branchId, baseRef]);
+    } else if (localSha !== refSha(repoPath, baseRef)) {
+      const checkedOutAt = worktreeOfBranch(repoPath, branchId);
+      if (checkedOutAt) git(checkedOutAt, ['merge', '--ff-only', '--quiet', baseRef]);
+      else git(repoPath, ['branch', '-f', branchId, baseRef]);
+    }
+  } catch (error) {
+    return { kind: 'git_failed', what: `failed to fast-forward existing branch '${branchId}' to '${baseRef ?? base}'`, error };
+  }
+  return { kind: 'ready', created: false, cutBase };
+}
+
+// The base a retry or rework branch is cut from: the task's parent branch when
+// it resolves, else the repo's target branch, else its default branch.
+function reworkBase(db: TrajectoryDB, repoPath: string, repoValue: string | null, parentBranch: string | null): string {
+  if (parentBranch && resolveCutBase(repoPath, parentBranch)) return parentBranch;
+  return readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath);
+}
+
+function isGitRepo(repoPath: string): boolean {
+  try {
+    git(repoPath, ['rev-parse', '--git-dir']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function branchDivergedResult(
+  tool: string,
+  branchId: string,
+  ref: string,
+  baseRef: string,
+  distance: { ahead: number; behind: number } | null,
+  openPrs: OpenChangeRequest[],
+  remedy: string,
+): CallToolResult {
+  const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(', ')}.` : '';
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          error: 'branch_exists_diverged',
+          branch_id: branchId,
+          ref,
+          base: baseRef,
+          ahead: distance?.ahead ?? null,
+          behind: distance?.behind ?? null,
+          open_prs: openPrs,
+          message:
+            `${tool}: branch '${branchId}' already exists and '${ref}' has diverged from '${baseRef}' ` +
+            `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
+            `${remedy} No task row was created.`,
+        }),
+      },
+    ],
+  };
+}
+
 type OpenChangeRequest = { backend: 'gh' | 'glab'; number: number; url: string };
 
 // Open PRs/MRs whose head is `branchId`, read under the issue-sync gate
@@ -608,7 +709,8 @@ export function compositeTools(
       name: 'task_retry',
       description:
         "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
-        "new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
+        "new task inheriting issue_id/parent_branch_id/repo (overridable), then cuts its branch and worktree like task_provision. " +
+        "Returns {task_id, branch_id, effort, git_setup, base_ref, worktree_path, diagnostic?}.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -897,7 +999,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, clears the stored completion_report, overwrites spawn_note (NULL when none is passed), writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's branch and worktree when missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, branch_created, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1143,96 +1245,40 @@ export function compositeTools(
           (args['base'] as string | undefined) ??
           (readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath));
 
-        // Branch policy: a new ref is created from the base ('created'); an
-        // existing ref (local or origin) is reused only when it is an
-        // ancestor of / equal to the base tip, fast-forwarded to it
-        // ('reused'); a diverged ref is refused unless reuse_existing keeps it
-        // as-is ('reused').
+        // Branch policy (ensureTaskBranch): a new ref is created from the base
+        // ('created'); an existing ref at or behind the base tip is reused; a
+        // diverged ref is refused unless reuse_existing keeps it as-is. Cut from
+        // local <base> when it is a fast-forward ahead of origin/<base>, else
+        // origin/<base> (a diverged base is reported as base_diverged); error
+        // when neither resolves — before anything is created.
         const reuseExisting = args['reuse_existing'] === true;
-        const localRef = `refs/heads/${branchId}`;
-        const originRef = `refs/remotes/origin/${branchId}`;
-        const localSha = refSha(repoPath, localRef);
-        const originSha = refSha(repoPath, originRef);
-        const branchExists = localSha !== null || originSha !== null;
-
-        // Cut from local <base> when it is a fast-forward ahead of
-        // origin/<base>, else origin/<base> (a diverged base is reported as
-        // base_diverged), else whichever side exists; error when neither
-        // resolves — before anything is created.
-        const cutBase = resolveCutBase(repoPath, base);
-        const resolvedBaseRef = cutBase?.ref ?? null;
-        if (!resolvedBaseRef && !(branchExists && reuseExisting)) {
+        const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
+        if (branch.kind === 'base_unresolved') {
           return err(
             `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
               `No task row was created — retry with a valid base and the same branch_id.`,
           );
         }
-        const gitFailure = (what: string, e: unknown): CallToolResult =>
-          err(
-            `task_provision: ${what} in repo '${repoValue}' ` +
-              `(${(e as Error).message.split('\n')[0] || 'git failed'}). No task row was created — ` +
+        if (branch.kind === 'git_failed') {
+          return err(
+            `task_provision: ${branch.what} in repo '${repoValue}' ` +
+              `(${(branch.error as Error).message.split('\n')[0] || 'git failed'}). No task row was created — ` +
               `retry with the same branch_id.`,
           );
-
-        if (!branchExists) {
-          try {
-            git(repoPath, ['branch', branchId, resolvedBaseRef!]);
-          } catch (e) {
-            return gitFailure(`failed to create branch '${branchId}' from '${resolvedBaseRef}'`, e);
-          }
-        } else {
-          const diverged = resolvedBaseRef
-            ? [localSha ? localRef : null, originSha ? originRef : null]
-                .filter((r): r is string => r !== null)
-                .find((r) => !isAncestor(repoPath, r, resolvedBaseRef))
-            : undefined;
-          if (diverged && !reuseExisting) {
-            const distance = refDistance(repoPath, resolvedBaseRef!, diverged);
-            const openPrs = openChangeRequestsForBranch(
-              db,
-              repoValue,
-              repoPath,
-              branchId,
-              args['_spawnFn'] as SpawnFn | undefined,
-            );
-            const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(', ')}.` : '';
-            return {
-              isError: true,
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    error: 'branch_exists_diverged',
-                    branch_id: branchId,
-                    ref: diverged,
-                    base: resolvedBaseRef,
-                    ahead: distance?.ahead ?? null,
-                    behind: distance?.behind ?? null,
-                    open_prs: openPrs,
-                    message:
-                      `task_provision: branch '${branchId}' already exists and '${diverged}' has diverged from '${resolvedBaseRef}' ` +
-                      `(${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : 'distance unknown'}).${prNote} ` +
-                      `Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is. ` +
-                      `No task row was created.`,
-                  }),
-                },
-              ],
-            };
-          }
-          try {
-            if (diverged || !resolvedBaseRef) {
-              if (!localSha) git(repoPath, ['branch', branchId, originRef]);
-            } else if (!localSha) {
-              git(repoPath, ['branch', branchId, resolvedBaseRef]);
-            } else if (localSha !== refSha(repoPath, resolvedBaseRef)) {
-              const checkedOutAt = worktreeOfBranch(repoPath, branchId);
-              if (checkedOutAt) git(checkedOutAt, ['merge', '--ff-only', '--quiet', resolvedBaseRef]);
-              else git(repoPath, ['branch', '-f', branchId, resolvedBaseRef]);
-            }
-          } catch (e) {
-            return gitFailure(`failed to fast-forward existing branch '${branchId}' to '${resolvedBaseRef ?? base}'`, e);
-          }
         }
+        if (branch.kind === 'diverged') {
+          return branchDivergedResult(
+            'task_provision',
+            branchId,
+            branch.ref,
+            branch.baseRef,
+            refDistance(repoPath, branch.baseRef, branch.ref),
+            openChangeRequestsForBranch(db, repoValue, repoPath, branchId, args['_spawnFn'] as SpawnFn | undefined),
+            'Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is.',
+          );
+        }
+        const { cutBase } = branch;
+        const resolvedBaseRef = cutBase?.ref ?? null;
 
         // --- DB TRANSACTION (atomic) ---
         // The branch ref now exists. Write the decision (satisfies the decision
@@ -1317,7 +1363,7 @@ export function compositeTools(
         // + a diagnostic without rolling back the task — bro can retry the
         // worktree setup. Idempotent: an existing worktree is reused, not
         // re-created.
-        let gitSetup: 'created' | 'reused' | 'error' = branchExists ? 'reused' : 'created';
+        let gitSetup: 'created' | 'reused' | 'error' = branch.created ? 'created' : 'reused';
         let worktreeReused = false;
         let diagnostic: string | undefined;
         const worktreePath = taskWorktreePath(repoPath, branchId);
@@ -1379,6 +1425,7 @@ export function compositeTools(
           id: number;
           issue_id: number;
           branch_id: string;
+          parent_branch_id: string | null;
           status: string;
           files: string | null;
           verification: string | null;
@@ -1386,7 +1433,8 @@ export function compositeTools(
           effort: Effort;
           issue_status: string;
         }>(
-          `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
+          `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
+                  i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId],
         );
@@ -1460,11 +1508,22 @@ export function compositeTools(
 
         let worktreePath: string | null = null;
         let worktreeRecreated = false;
+        let branchCreated = false;
         let diagnostic: string | undefined;
         if (repoPath) {
           try {
-            if (!refSha(repoPath, `refs/heads/${task.branch_id}`) && refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
-              git(repoPath, ['branch', task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
+            if (!refSha(repoPath, `refs/heads/${task.branch_id}`)) {
+              if (refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
+                git(repoPath, ['branch', task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
+              } else {
+                const base = reworkBase(db, repoPath, task.repo, task.parent_branch_id);
+                const branch = ensureTaskBranch(repoPath, task.branch_id, base);
+                if (branch.kind === 'base_unresolved') {
+                  throw new Error(`branch '${task.branch_id}' is missing and base '${base}' resolves neither as 'origin/${base}' nor locally`);
+                }
+                if (branch.kind === 'git_failed') throw new Error(`${branch.what}: ${(branch.error as Error).message.split('\n')[0]}`);
+                branchCreated = branch.kind === 'ready' && branch.created;
+              }
             }
             const wt = ensureTaskWorktree(repoPath, task.branch_id);
             worktreePath = wt.worktreePath;
@@ -1486,6 +1545,7 @@ export function compositeTools(
           effort,
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
+          branch_created: branchCreated,
           ...(diagnostic ? { diagnostic } : {}),
         });
       }),
@@ -1953,6 +2013,46 @@ export function compositeTools(
           rework: true,
           current: failed.effort,
         });
+
+        // Branch before the transaction (a git failure persists no row, as in
+        // task_provision); the worktree after it, fail-soft into diagnostic.
+        const repoValue = repoOverride ?? failed.repo;
+        const resolvedPath = resolveRepoPath(db, repoValue);
+        const repoPath = resolvedPath && isGitRepo(resolvedPath) ? resolvedPath : null;
+        let branchSetup: { gitSetup: 'created' | 'reused'; baseRef: string } | null = null;
+        if (repoPath) {
+          for (const path of [repoPath, taskWorktreePath(repoPath, newBranchId)]) {
+            const refusal = outsideProject('task_retry', runContext.projectRoot, path);
+            if (refusal) return outsideProjectResult(refusal);
+          }
+          const base = reworkBase(db, repoPath, repoValue, failed.parent_branch_id);
+          const branch = ensureTaskBranch(repoPath, newBranchId, base);
+          if (branch.kind === 'base_unresolved') {
+            return err(
+              `task_retry: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue ?? ''}'. ` +
+                `No task row was created.`,
+            );
+          }
+          if (branch.kind === 'git_failed') {
+            return err(
+              `task_retry: ${branch.what} in repo '${repoValue ?? ''}' ` +
+                `(${(branch.error as Error).message.split('\n')[0] || 'git failed'}). No task row was created.`,
+            );
+          }
+          if (branch.kind === 'diverged') {
+            return branchDivergedResult(
+              'task_retry',
+              newBranchId,
+              branch.ref,
+              branch.baseRef,
+              refDistance(repoPath, branch.baseRef, branch.ref),
+              openChangeRequestsForBranch(db, repoValue, repoPath, newBranchId, args['_spawnFn'] as SpawnFn | undefined),
+              'Pick a fresh new_branch_id (branch_id_propose).',
+            );
+          }
+          branchSetup = { gitSetup: branch.created ? 'created' : 'reused', baseRef: branch.cutBase!.ref };
+        }
+
         const now = nowISO();
         const result = db.transaction(() => {
           db.run(
@@ -2012,7 +2112,31 @@ export function compositeTools(
           return newTask;
         });
 
-        return ok({ task_id: result.id, branch_id: result.branch_id, effort });
+        if (!repoPath || !branchSetup) {
+          return ok({
+            task_id: result.id,
+            branch_id: result.branch_id,
+            effort,
+            worktree_path: null,
+            diagnostic: `cannot resolve a git repo path for repo='${repoValue ?? ''}'; no branch or worktree was created`,
+          });
+        }
+        const worktreePath = taskWorktreePath(repoPath, newBranchId);
+        let diagnostic: string | undefined;
+        try {
+          ensureTaskWorktree(repoPath, newBranchId);
+        } catch (e) {
+          diagnostic = (e as Error).message;
+        }
+        return ok({
+          task_id: result.id,
+          branch_id: result.branch_id,
+          effort,
+          git_setup: branchSetup.gitSetup,
+          base_ref: branchSetup.baseRef,
+          worktree_path: worktreePath,
+          ...(diagnostic ? { diagnostic } : {}),
+        });
       }),
     ),
 

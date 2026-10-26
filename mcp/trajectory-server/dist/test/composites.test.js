@@ -3072,6 +3072,161 @@ describe('task_reopen + task_update_spec', () => {
         }
     });
 });
+describe('task_retry and task_reopen cut a missing branch and worktree (GH 1781)', () => {
+    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- SC1: works'].join('\n');
+    function setup(targetBranch = 'main') {
+        const ws = mkdtempSync(join(tmpdir(), 'retry-cut-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        git(repoRoot, 'init', '-q', '-b', 'main');
+        git(repoRoot, 'config', 'user.email', 't@t.t');
+        git(repoRoot, 'config', 'user.name', 't');
+        const commit = (file) => {
+            writeFileSync(join(repoRoot, file), `${file}\n`);
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', file);
+            return git(repoRoot, 'rev-parse', 'HEAD');
+        };
+        const first = commit('a.txt');
+        const tip = commit('b.txt');
+        git(repoRoot, 'update-ref', 'refs/remotes/origin/main', tip);
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, ?)`, [repoRoot, targetBranch]);
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+        const handlers = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db')).handlers;
+        const failedTask = (branch, parent) => {
+            db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, files, verification, created_at, updated_at)
+         VALUES (1, ?, ?, '', 'd', 'failed', ?, 'app', '["src/x.ts"]', '["true"]', datetime('now'), datetime('now'))`, [branch, parent, SPEC]);
+            return db.get(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]).id;
+        };
+        const retry = (failedId, newBranch) => call(handlers, 'task_retry', {
+            agent: 'bro', failed_task_id: String(failedId), new_branch_id: newBranch, corrected_spec_body: SPEC,
+            retry_rationale: 'redesigned approach', description: 'd',
+        });
+        const taskCount = () => db.get('SELECT COUNT(*) AS c FROM tasks').c;
+        return { ws, repoRoot, db, handlers, git, commit, first, tip, failedTask, retry, taskCount };
+    }
+    it('SC1/SC2: task_retry cuts new_branch_id from the base tip and checks it out in a linked worktree', async () => {
+        const { ws, repoRoot, db, git, tip, failedTask, retry } = setup();
+        try {
+            const id = failedTask('fix/orig', 'main');
+            const r = await retry(id, 'fix/orig-v2');
+            assert.ok(!r.isError, JSON.stringify(parse(r)));
+            const out = parse(r);
+            const wt = join(repoRoot, '.claude', 'worktrees', 'orig-v2');
+            assert.equal(out['git_setup'], 'created');
+            assert.equal(out['base_ref'], 'origin/main');
+            assert.equal(out['worktree_path'], wt);
+            assert.equal(out['diagnostic'], undefined);
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/orig-v2'), tip, 'cut from the base tip');
+            assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), 'fix/orig-v2');
+            assert.match(git(repoRoot, 'worktree', 'list', '--porcelain'), /branch refs\/heads\/fix\/orig-v2/);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('SC2: task_retry falls back to the target branch when the parent does not resolve, and reuses a ref behind the base', async () => {
+        const { ws, repoRoot, db, git, first, tip, failedTask, retry } = setup();
+        try {
+            const id = failedTask('fix/gone-parent', 'feat/never-pushed');
+            git(repoRoot, 'branch', 'fix/gone-parent-v2', first);
+            const out = parse(await retry(id, 'fix/gone-parent-v2'));
+            assert.equal(out['git_setup'], 'reused', JSON.stringify(out));
+            assert.equal(out['base_ref'], 'origin/main');
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/gone-parent-v2'), tip, 'fast-forwarded to the base tip');
+            assert.equal(git(String(out['worktree_path']), 'rev-parse', '--abbrev-ref', 'HEAD'), 'fix/gone-parent-v2');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('SC2: task_retry without a resolvable repo path inserts the task and reports a diagnostic', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+            VALUES (1, 'fix/no-repo', '', 'd', 'failed', ?, datetime('now'), datetime('now'))`, [SPEC]);
+        const failedId = db.get(`SELECT id FROM tasks WHERE branch_id = 'fix/no-repo'`).id;
+        const out = parse(await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_retry', {
+            agent: 'bro', failed_task_id: String(failedId), new_branch_id: 'fix/no-repo-v2', corrected_spec_body: SPEC,
+            retry_rationale: 'redesigned approach', description: 'd',
+        }));
+        assert.ok(out['task_id'] > 0, JSON.stringify(out));
+        assert.equal(out['worktree_path'], null);
+        assert.match(String(out['diagnostic']), /cannot resolve a git repo path/);
+        assert.equal(out['git_setup'], undefined);
+        db.close();
+    });
+    it('SC3: task_retry refuses an unresolvable base and inserts no task row', async () => {
+        const { ws, repoRoot, db, git, failedTask, retry, taskCount } = setup('release');
+        try {
+            const id = failedTask('fix/no-base', null);
+            const before = taskCount();
+            const r = await retry(id, 'fix/no-base-v2');
+            assert.equal(r.isError, true);
+            assert.match(String(parse(r)['error']), /task_retry: base does not resolve as 'origin\/release'.*No task row was created/);
+            assert.equal(taskCount(), before, 'no task row');
+            assert.throws(() => git(repoRoot, 'rev-parse', '--verify', '--quiet', 'refs/heads/fix/no-base-v2'));
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('SC3: task_retry refuses a diverged existing new_branch_id and inserts no task row', async () => {
+        const { ws, repoRoot, db, git, first, failedTask, retry, taskCount } = setup();
+        try {
+            const id = failedTask('fix/stale', 'main');
+            git(repoRoot, 'checkout', '-q', '-b', 'fix/stale-v2', first);
+            writeFileSync(join(repoRoot, 'side.txt'), 'side\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'side');
+            git(repoRoot, 'checkout', '-q', 'main');
+            const sideSha = git(repoRoot, 'rev-parse', 'refs/heads/fix/stale-v2');
+            const before = taskCount();
+            const r = await retry(id, 'fix/stale-v2');
+            assert.equal(r.isError, true);
+            const out = parse(r);
+            assert.equal(out['error'], 'branch_exists_diverged');
+            assert.equal(out['base'], 'origin/main');
+            assert.match(String(out['message']), /^task_retry: .*new_branch_id.*No task row was created\.$/);
+            assert.equal(taskCount(), before, 'no task row');
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/stale-v2'), sideSha, 'ref untouched');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('SC4: task_reopen creates a branch missing locally and on origin from the base, then its worktree', async () => {
+        const { ws, repoRoot, db, handlers, git, tip } = setup();
+        try {
+            db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, files, verification, created_at, updated_at)
+         VALUES (1, 'fix/never-cut', 'main', '', 'd', 'closed', ?, 'app', '["src/x.ts"]', '["true"]', datetime('now'), datetime('now'))`, [SPEC]);
+            const id = db.get(`SELECT id FROM tasks WHERE branch_id = 'fix/never-cut'`).id;
+            const out = parse(await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'branch was never cut' }));
+            const wt = join(repoRoot, '.claude', 'worktrees', 'never-cut');
+            assert.equal(out['diagnostic'], undefined, JSON.stringify(out));
+            assert.equal(out['worktree_recreated'], true);
+            assert.equal(out['branch_created'], true);
+            assert.equal(out['worktree_path'], wt);
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/never-cut'), tip);
+            assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), 'fix/never-cut');
+            const again = parse(await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'second pass' }));
+            assert.equal(again['branch_created'], false);
+            assert.equal(again['worktree_recreated'], false);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
 describe('task_brief — task-scoped discussions (GH 1741)', () => {
     const insertDecision = (db, issueId, taskId, body, at) => Number(db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, 'bro', 'decision', ?, ?, ?)`, [issueId, body, at, taskId]).lastInsertRowid);
     const insertIntent = (db, issueId, body, at, supersedes = null) => Number(db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, supersedes) VALUES (?, 'bro', 'intent', ?, ?, ?)`, [issueId, body, at, supersedes]).lastInsertRowid);
