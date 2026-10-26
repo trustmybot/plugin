@@ -12,6 +12,7 @@ import type { FileNode, GraphHolder } from '../graph.js';
 import { extractPurpose, isPurposeCandidate } from '../file-purpose.js';
 import { readFileHead, refreshSymbolPurposes } from '../symbol-purpose.js';
 import { readmeDrift, readRepoHistory, type ReadmeDrift, type RepoHistory } from '../readme-drift.js';
+import { cleanReadme } from '../readme-summary.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
@@ -327,7 +328,8 @@ function readReadme(absDirPath: string, candidates: readonly string[] = README_C
 export function readReadmeSummary(absDirPath: string): string | null {
   const readme = readReadme(absDirPath);
   if (!readme) return null;
-  const clipped = readme.text.length > README_MAX_BYTES ? readme.text.slice(0, README_MAX_BYTES) : readme.text;
+  const text = cleanReadme(readme.text);
+  const clipped = text.length > README_MAX_BYTES ? text.slice(0, README_MAX_BYTES) : text;
   // A README is remotely-sourced text — frame it as untrusted data so any
   // agent that later reads this world-model summary treats it as content,
   // not instructions (#1036).

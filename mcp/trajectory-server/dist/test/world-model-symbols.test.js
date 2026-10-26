@@ -5,10 +5,10 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parserLoadCount } from '../parsing/loader.js';
+import { loadParsers, parserLoadCount } from '../parsing/loader.js';
 import { EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
-import { inSymbolScope, isGeneratedPath } from '../parsing/extract.js';
+import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine } from '../parsing/extract.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
@@ -607,6 +607,134 @@ describe('generated output stays out of the world model (GH 1835)', () => {
         assert.deepEqual(distRows(), { files: 2, dirs: 2 });
         await scan(db, holder, ws);
         assert.deepEqual(distRows(), { files: 0, dirs: 0 });
+    });
+});
+describe('a comment banner or a comment set off by a blank line is never a symbol doc (GH 1834)', () => {
+    // Mirrors skills/tmb_recovery/scripts/bro-sqlite-readonly.sh lines 76-79 and 176-179.
+    const BANNER_SH = [
+        '#!/usr/bin/env bash',
+        '# ---------------------------------------------------------------------------',
+        '# JSON output helpers',
+        '# ---------------------------------------------------------------------------',
+        'error_json() {',
+        '  printf "%s" "$1"',
+        '}',
+        '',
+        '# ---------------------------------------------------------------------------',
+        '# Tool implementations — each prints JSON matching the MCP response shape',
+        '# ---------------------------------------------------------------------------',
+        '',
+        'tool_issue_resume() {',
+        '  :',
+        '}',
+        '',
+        '# Says hi.',
+        'say_hi() {',
+        '  :',
+        '}',
+        '',
+        '# Set off by a blank line.',
+        '',
+        'loose() {',
+        '  :',
+        '}',
+        '',
+    ].join('\n');
+    const BANNER_TS = [
+        '// ====================================================================',
+        '// Section',
+        '// ====================================================================',
+        'export function banner(): number {',
+        '  return 1;',
+        '}',
+        '',
+        '/* ---------- */',
+        '',
+        'export function bannerGap(): number {',
+        '  return 2;',
+        '}',
+        '',
+        '// Adds one.',
+        'export function plain(): number {',
+        '  return 3;',
+        '}',
+        '',
+        '/**',
+        ' * JSDoc kept.',
+        ' */',
+        'function jsdoc(): number {',
+        '  return 4;',
+        '}',
+        '',
+        '// Set off by a blank line.',
+        '',
+        'export function loose(): number {',
+        '  return 5;',
+        '}',
+        '',
+    ].join('\n');
+    const docs = async (path, lang, src) => {
+        const out = extractFile(await loadParsers(), path, lang, src);
+        return Object.fromEntries(out.symbols.filter((s) => s.kind !== 'module').map((s) => [s.qualified_name, s.doc]));
+    };
+    it('bash comment rows end on their own row, so adjacency is the row right above', async () => {
+        const tree = (await loadParsers()).bash.parse('# a\n# b\nf() { :; }\n');
+        const rows = tree.rootNode.namedChildren.map((c) => [c.type, c.startPosition.row, c.endPosition.row]);
+        assert.deepEqual(rows, [
+            ['comment', 0, 0],
+            ['comment', 1, 1],
+            ['function_definition', 2, 2],
+        ]);
+    });
+    it('bash: a banner above or a blank row away gives an empty doc; an adjacent comment is kept', async () => {
+        assert.deepEqual(await docs('scripts/banner.sh', 'bash', BANNER_SH), {
+            error_json: '',
+            tool_issue_resume: '',
+            say_hi: 'Says hi.',
+            loose: '',
+        });
+    });
+    it('TS: a banner above or a blank row away gives an empty doc; an adjacent // or JSDoc comment is kept', async () => {
+        assert.deepEqual(await docs('src/banner.ts', 'typescript', BANNER_TS), {
+            banner: '',
+            bannerGap: '',
+            plain: 'Adds one.',
+            jsdoc: 'JSDoc kept.',
+            loose: '',
+        });
+    });
+    it('a rule line is three or more of -=#*_~/ after the marker', () => {
+        for (const l of ['# ---', '// ====', '#####', '/* ~~~ */', ' * ___', '# - - -', '//////'])
+            assert.ok(isRuleLine(l), l);
+        for (const l of ['# --', '/**', ' */', ' *', '# --- Section ---', '// Adds one.', '#'])
+            assert.ok(!isRuleLine(l), l);
+    });
+    it('a file stored at extractor version 1 with a banner doc is re-parsed on an unchanged rescan', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'wm-banner-'));
+        const root = join(ws, 'app');
+        const db = tempDB();
+        const holder = GraphHolder.fixed(new WorldModelGraph(db));
+        try {
+            mkdirSync(join(root, 'scripts'), { recursive: true });
+            execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+            execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+            execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+            writeFileSync(join(root, 'scripts/banner.sh'), BANNER_SH);
+            execFileSync('git', ['add', '-A'], { cwd: root });
+            execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+            await scan(db, holder, ws);
+            assert.equal(EXTRACTOR_VERSION, 2);
+            db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
+            db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
+            const out = await scan(db, holder, ws);
+            assert.equal(out.symbols.files_parsed, 1);
+            const doc = db.get(`SELECT doc FROM wm_symbols WHERE repo = 'app' AND qualified_name = 'error_json'`).doc;
+            assert.equal(doc, '');
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
     });
 });
 //# sourceMappingURL=world-model-symbols.test.js.map

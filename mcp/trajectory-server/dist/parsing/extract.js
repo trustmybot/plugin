@@ -80,17 +80,29 @@ function normalizedHash(node) {
         text = text.slice(0, c.startIndex - base) + text.slice(c.endIndex - base);
     return md5(oneLine(text));
 }
-// The whole comment block directly above a definition (or above its export).
+// A comment line that is only a rule: after its marker, three or more of
+// -=#*_~/ and spaces, e.g. `# -----` or `// ====`.
+export function isRuleLine(line) {
+    const rest = line
+        .replace(/^\s*(\/\*\*?|\/\/|#|\*)/, '')
+        .replace(/\*\/\s*$/, '')
+        .trim();
+    return rest.length >= 3 && /^[-=#*_~/ ]+$/.test(rest);
+}
+// The comment block whose last row is the row right above a definition (or
+// above its export), with no blank row between; '' for a section banner.
 export function docOf(node) {
     const anchor = node.parent?.type === 'export_statement' ? node.parent : node;
     const lines = [];
     let edge = anchor.startPosition.row;
     let prev = anchor.previousNamedSibling;
-    while (prev && prev.type === 'comment' && prev.endPosition.row >= edge - (lines.length === 0 ? 2 : 1)) {
+    while (prev && prev.type === 'comment' && prev.endPosition.row === edge - 1) {
         lines.unshift(prev.text);
         edge = prev.startPosition.row;
         prev = prev.previousNamedSibling;
     }
+    if (lines.some((block) => block.split('\n').some(isRuleLine)))
+        return '';
     const raw = lines
         .map((l) => l
         .replace(/\*\//g, ' ')
