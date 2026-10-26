@@ -1,6 +1,6 @@
 /**
  * PreToolUse(Agent) gate (GH 1740), run by agent-spawn-dispatch.sh after
- * pr-reviewer-after-atomic-close: before a pr-reviewer spawn for task_id=<N>,
+ * code-reviewer-after-atomic-close: before a code-reviewer spawn for task_id=<N>,
  * five deterministic checks on the task's commit, in order. The first that
  * fails denies with the JSON reason {check, expected, actual}, so no reviewer
  * is spent on a commit a machine could have refused:
@@ -13,9 +13,9 @@
  *                      agents/, skills/, docs/ *.md, CLAUDE.md or README.md at the commit
  *   missing_changelog  with a changelog.d/, the diff adds a file under it
  *
- * Only pr-reviewer spawns naming task_id=<N> are judged; a missing task_id is
+ * Only code-reviewer spawns naming task_id=<N> are judged; a missing task_id is
  * the prompt-shape gate's. No resolvable DB or no tasks row allows, a DB read
- * failure denies. Bypass: TMB_SKIP_PR_REVIEWER_PREFLIGHT=1.
+ * failure denies. Bypass: TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1.
  */
 import { spawnSync } from 'node:child_process';
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
@@ -25,8 +25,8 @@ import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { normalizeRole } from './lib/role.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 
-export const GATE_NAME = 'pr-reviewer-preflight';
-export const BYPASS_ENV = 'TMB_SKIP_PR_REVIEWER_PREFLIGHT';
+export const GATE_NAME = 'code-reviewer-preflight';
+export const BYPASS_ENV = 'TMB_SKIP_CODE_REVIEWER_PREFLIGHT';
 
 export type PreflightCheck = 'sha_mismatch' | 'no_passing_run' | 'base_conflict' | 'stale_doc_ref' | 'missing_changelog';
 
@@ -354,10 +354,10 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
   return ALLOW;
 }
 
-export const prReviewerPreflight: SyncGate = (payload, env) => {
+export const codeReviewerPreflight: SyncGate = (payload, env) => {
   if (env[BYPASS_ENV] === '1') return ALLOW;
   if (jqAlternatives(payload, [['tool_name']]) !== 'Agent') return ALLOW;
-  if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'pr-reviewer') return ALLOW;
+  if (normalizeRole(jqAlternatives(payload, [['tool_input', 'subagent_type']])) !== 'code-reviewer') return ALLOW;
   const m = /task_id\s*=\s*([0-9]+)/.exec(jqAlternatives(payload, [['tool_input', 'prompt']]));
   const taskId = sqlInt(m?.[1] ?? '');
   if (taskId === '') return ALLOW;

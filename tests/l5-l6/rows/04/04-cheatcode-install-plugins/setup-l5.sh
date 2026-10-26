@@ -7,7 +7,7 @@
 # propagation; the env exports additionally cover runners that source this setup.
 #
 # Both candidates are plugin-kind: feature-dev (attaches to swe) and code-review
-# (attaches to pr-reviewer). The search fixture supplies both candidates so the
+# (attaches to code-reviewer). The search fixture supplies both candidates so the
 # discovery step is deterministic; the vet fixture supplies the {repo, contents}
 # signal set for either candidate (its `hooks` entry is a code-execution surface →
 # 'caution' tier, gating the human approval); the install fixture supplies the
@@ -25,7 +25,7 @@ cat > "$SEARCH_FIXTURE" <<'JSON'
   { "name": "feature-dev", "kind": "plugin", "source_url": "https://github.com/example-org/feature-dev",
     "description": "feature development plugin for swe agents implementing specs", "registry": "anthropic-official", "tier": 1 },
   { "name": "code-review", "kind": "plugin", "source_url": "https://github.com/example-org/code-review",
-    "description": "optional code-review linting conveniences for pr-reviewer agents", "registry": "anthropic-official", "tier": 1 }
+    "description": "optional code-review linting conveniences for code-reviewer agents", "registry": "anthropic-official", "tier": 1 }
 ]
 JSON
 
@@ -52,7 +52,7 @@ cat > "$FIXTURE" <<'JSON'
   "error": null,
   "attachments": [
     { "target": "swe", "artifact": "marketplace-plugin:feature-dev" },
-    { "target": "pr-reviewer", "artifact": "marketplace-plugin:code-review" }
+    { "target": "code-reviewer", "artifact": "marketplace-plugin:code-review" }
   ]
 }
 JSON

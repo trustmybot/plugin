@@ -713,7 +713,7 @@ describe('cheatcode_install', () => {
     const tools = cheatcodeTools(db);
 
     // The fixture carries the attachment target: feature-dev → swe,
-    // code-review → pr-reviewer. The script passes it through, the handler
+    // code-review → code-reviewer. The script passes it through, the handler
     // records it on cheatcode_attachments.target.
     const featureDev = withFixture(
       JSON.stringify({
@@ -740,7 +740,7 @@ describe('cheatcode_install', () => {
       JSON.stringify({
         installed: true,
         version: '1.0.0',
-        attachments: [{ target: 'pr-reviewer', artifact: 'marketplace-plugin:code-review' }],
+        attachments: [{ target: 'code-reviewer', artifact: 'marketplace-plugin:code-review' }],
       }),
     );
     process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = codeReview.path;
@@ -766,7 +766,7 @@ describe('cheatcode_install', () => {
       [reviewId],
     );
     assert.equal(featureTarget!.target, 'swe', 'feature-dev routes to swe');
-    assert.equal(reviewTarget!.target, 'pr-reviewer', 'code-review routes to pr-reviewer');
+    assert.equal(reviewTarget!.target, 'code-reviewer', 'code-review routes to code-reviewer');
     assert.notEqual(featureTarget!.target, reviewTarget!.target, 'targets are distinct per candidate');
   });
 
@@ -786,7 +786,7 @@ describe('cheatcode_install', () => {
         'code-review': {
           installed: true,
           version: '1.0.0',
-          attachments: [{ target: 'pr-reviewer', artifact: 'marketplace-plugin:code-review' }],
+          attachments: [{ target: 'code-reviewer', artifact: 'marketplace-plugin:code-review' }],
         },
       }),
     );
@@ -815,7 +815,7 @@ describe('cheatcode_install', () => {
         [reviewId],
       );
       assert.equal(featureTarget!.target, 'swe', 'feature-dev entry routes to swe');
-      assert.equal(reviewTarget!.target, 'pr-reviewer', 'code-review entry routes to pr-reviewer');
+      assert.equal(reviewTarget!.target, 'code-reviewer', 'code-review entry routes to code-reviewer');
       assert.notEqual(featureTarget!.target, reviewTarget!.target, 'targets are distinct per candidate');
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
@@ -1072,7 +1072,7 @@ describe('cheatcode_install', () => {
 // The shipped global agent md the plugin copies global→local at materialize
 // time. These must exist in the plugin repo for the copy to resolve.
 const GLOBAL_SWE_MD = join(PLUGIN_ROOT, 'agents', 'swe.md');
-const GLOBAL_PR_MD = join(PLUGIN_ROOT, 'agents', 'pr-reviewer.md');
+const GLOBAL_PR_MD = join(PLUGIN_ROOT, 'agents', 'code-reviewer.md');
 
 // A standalone-skill install fixture: no marketplace attachment, the
 // materialization is the consuming-agent edit. installed:false mirrors the
@@ -1117,7 +1117,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
   function assertPluginRepoUntouched(before: ReturnType<typeof pluginRepoSnapshot>): void {
     const after = pluginRepoSnapshot();
     assert.equal(after.sweMd, before.sweMd, 'plugin agents/swe.md untouched');
-    assert.equal(after.prMd, before.prMd, 'plugin agents/pr-reviewer.md untouched');
+    assert.equal(after.prMd, before.prMd, 'plugin agents/code-reviewer.md untouched');
     assert.equal(after.claudeMd, before.claudeMd, 'plugin CLAUDE.md untouched');
   }
 
@@ -1272,19 +1272,19 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
     const fx = withFixture(INSTALL_SKILL_OK);
     process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
     try {
-      // A pre-existing, customized local pr-reviewer.md without the skill.
+      // A pre-existing, customized local code-reviewer.md without the skill.
       const localPr = join(root, '.claude', 'agents');
       mkdirSync(localPr, { recursive: true });
-      const seeded = '---\nname: pr-reviewer\nskills: [tmb_review]\n---\n\n# custom body\n';
-      writeFileSync(join(localPr, 'pr-reviewer.md'), seeded);
+      const seeded = '---\nname: code-reviewer\nskills: [tmb_review]\n---\n\n# custom body\n';
+      writeFileSync(join(localPr, 'code-reviewer.md'), seeded);
 
       const tools = cheatcodeTools(db);
       await callInstall(tools.handlers, {
         agent: 'bro',
         candidate: { name: 'sec-skill', kind: 'skill', source_url: 'https://github.com/x/sec-skill' },
-        target: 'pr-reviewer',
+        target: 'code-reviewer',
       });
-      const body = readFileSync(join(localPr, 'pr-reviewer.md'), 'utf8');
+      const body = readFileSync(join(localPr, 'code-reviewer.md'), 'utf8');
       assert.ok(body.includes('# custom body'), 'edited the existing local file in place');
       const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
       const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
@@ -1420,11 +1420,11 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
     }
   });
 
-  it('kind=plugin with NO target arg materializes every attachment-row target (swe + pr-reviewer), materialized[] length 2', async () => {
+  it('kind=plugin with NO target arg materializes every attachment-row target (swe + code-reviewer), materialized[] length 2', async () => {
     const prev = process.env['CLAUDE_PLUGIN_ROOT'];
     process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
     const { root, db, cleanup } = tempProject();
-    // The install records two attachment rows (swe, pr-reviewer) and NO target
+    // The install records two attachment rows (swe, code-reviewer) and NO target
     // arg is passed — disk materialization must follow the recorded attachments,
     // not the (absent) arg. Both consuming agents get their prompt surface.
     const fx = withFixture(
@@ -1433,7 +1433,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         version: '1.0.0',
         attachments: [
           { target: 'swe', artifact: 'marketplace-plugin:multi-agent' },
-          { target: 'pr-reviewer', artifact: 'marketplace-plugin:multi-agent' },
+          { target: 'code-reviewer', artifact: 'marketplace-plugin:multi-agent' },
         ],
       }),
     );
@@ -1449,28 +1449,28 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       const out = parse(r);
 
       const localSwe = join(root, '.claude', 'agents', 'swe.md');
-      const localPr = join(root, '.claude', 'agents', 'pr-reviewer.md');
+      const localPr = join(root, '.claude', 'agents', 'code-reviewer.md');
       assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized from attachment target');
-      assert.ok(existsSync(localPr), 'project .claude/agents/pr-reviewer.md materialized from attachment target');
+      assert.ok(existsSync(localPr), 'project .claude/agents/code-reviewer.md materialized from attachment target');
       assert.ok(
         readFileSync(localSwe, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1].includes('multi-agent'),
         'multi-agent in swe skills:',
       );
       assert.ok(
         readFileSync(localPr, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1].includes('multi-agent'),
-        'multi-agent in pr-reviewer skills:',
+        'multi-agent in code-reviewer skills:',
       );
 
       const mat = out['materialized'] as { target: string; artifact: string; path: string }[];
       assert.equal(mat.length, 2, 'both attachment targets materialized');
       const targets = mat.map((m) => m.target).sort();
-      assert.deepEqual(targets, ['pr-reviewer', 'swe'], 'materialized[] covers both consuming agents');
+      assert.deepEqual(targets, ['code-reviewer', 'swe'], 'materialized[] covers both consuming agents');
 
       const atts = db.all<{ target: string; artifact: string }>(
         `SELECT target, artifact FROM cheatcode_attachments WHERE artifact LIKE 'agent-md:%' ORDER BY target`,
       );
       assert.equal(atts.length, 2, 'a materialized attachment row per target');
-      assert.equal(atts[0].target, 'pr-reviewer');
+      assert.equal(atts[0].target, 'code-reviewer');
       assert.equal(atts[1].target, 'swe');
 
       assertPluginRepoUntouched(snapshot);
@@ -1501,7 +1501,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       assert.equal(mat.length, 1, 'target-arg-only install materializes one element');
       assert.equal(mat[0].target, 'swe');
       assert.ok(existsSync(join(root, '.claude', 'agents', 'swe.md')), 'swe.md materialized');
-      assert.ok(!existsSync(join(root, '.claude', 'agents', 'pr-reviewer.md')), 'no stray pr-reviewer materialization');
+      assert.ok(!existsSync(join(root, '.claude', 'agents', 'code-reviewer.md')), 'no stray code-reviewer materialization');
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
       if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];

@@ -1,11 +1,11 @@
 /**
  * PreToolUse gate (GH 1692), the port of scripts/hooks/git-push-guard.sh:
  * a `git push` runs only when every pushed commit that is a task's
- * commit_sha has a pr-reviewer pass verdict, and every pushed commit with the
+ * commit_sha has a code-reviewer pass verdict, and every pushed commit with the
  * patch-id of a task commit (a rebase, GH 1518), or its patch-id outside
  * mcp/[name]/dist and dashboard/dist (a rebase with regenerated dist, GH 1627),
  * is reviewed and has a passing verification run of its own. swe and
- * pr-reviewer never push; a push from .claude/worktrees/, or from a dir the
+ * code-reviewer never push; a push from .claude/worktrees/, or from a dir the
  * guard cannot tie to one checkout, is denied; so is a DB read error.
  *
  * Deny messages and decisions are the .sh's, with the two exceptions of
@@ -19,7 +19,7 @@ import { dbPath, gateRead, GATE_READ_ERROR, haveSqlite, sqlQuote, stripTrailingN
 import { gitOk, gitOut, gitRun } from './lib/git.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
 import { repoGitRoot, repoNameForRoot, repoResolve, repoSinglePath } from './lib/repo.js';
-import { agentRole, PR_REVIEWER_ROLE } from './lib/role.js';
+import { agentRole, CODE_REVIEWER_ROLE } from './lib/role.js';
 
 export const GATE_NAME = 'git-push-guard';
 
@@ -28,8 +28,8 @@ const FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 const HEX = /^[0-9a-f]+$/;
 
 const SWE_REASON =
-  'BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed).';
-const PR_REVIEWER_REASON = `BLOCKED: ${PR_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
+  'BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).';
+const CODE_REVIEWER_REASON = `BLOCKED: ${CODE_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
 const WORKTREE_REASON =
   'BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`.';
 const DB_REASON =
@@ -266,7 +266,7 @@ class Guard {
       const rows = lines(unsigned);
       const list = rows.map((r) => `  - task_id=${field(r, 1)}  ${field(r, 2)}  (${field(r, 3)})`).join('\n');
       return deny(
-        `BLOCKED: pushing ${rows.length} unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:\n\n${list}\nRun: @bro review before push\n\nbro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`,
+        `BLOCKED: pushing ${rows.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:\n\n${list}\nRun: @bro review before push\n\nbro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`,
       );
     }
 
@@ -302,7 +302,7 @@ export const gitPushGuard: Gate = async (payload, env) => {
 
   const role = agentRole(payload);
   if (role === 'swe') return deny(SWE_REASON);
-  if (role === PR_REVIEWER_ROLE) return deny(PR_REVIEWER_REASON);
+  if (role === CODE_REVIEWER_ROLE) return deny(CODE_REVIEWER_REASON);
 
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`)) ?? '';
   const guard = new Guard(db, cwd, env);

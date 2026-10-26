@@ -235,8 +235,8 @@ describe('effort-ab-report.ts (GH 1745)', () => {
       run(10, 20, 500);
       run(12, 10, 300);
       run(11, 7, 70);
-      db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, tool_uses, cache_read_tokens, duration_ms) VALUES (10, 7, 'pr-reviewer', 999, 999, 1)`);
-      db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (10, 1, 'pr-reviewer', 'fail', 1, '2026-01-01T00:40:00.000Z')`);
+      db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, tool_uses, cache_read_tokens, duration_ms) VALUES (10, 7, 'code-reviewer', 999, 999, 1)`);
+      db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (10, 1, 'code-reviewer', 'fail', 1, '2026-01-01T00:40:00.000Z')`);
       db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
               VALUES (7, NULL, 'hook:close-issue-on-merge', 'issue_auto_closed_on_merge', 's', '{"gh_iid":1}', '2026-01-01T04:00:00.000Z')`);
     } finally {

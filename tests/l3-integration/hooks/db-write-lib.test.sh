@@ -67,7 +67,7 @@ assert_eq "1" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_ok';")
 test_case "tmb_db_write rolls back when a later statement violates a CHECK"
 ERR=$(tmb_db_write "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('dbw_rollback', '1');
 INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
-VALUES (1, 1, 'pr-reviewer', 'not-a-verdict', '', 0, '$(tmb_now_iso)');" 2>&1 >/dev/null) && RC=0 || RC=$?
+VALUES (1, 1, 'code-reviewer', 'not-a-verdict', '', 0, '$(tmb_now_iso)');" 2>&1 >/dev/null) && RC=0 || RC=$?
 [ "$RC" -ne 0 ] && _pass || _fail "CHECK violation should return non-zero"
 assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_rollback';")" "first statement rolled back"
 assert_contains "$ERR" "tmb_db_write: " "one stderr line names the library"

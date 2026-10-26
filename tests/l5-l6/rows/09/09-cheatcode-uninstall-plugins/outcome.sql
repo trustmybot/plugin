@@ -2,7 +2,7 @@
 -- (pass, description). The scorer requires every row's pass column to be 1.
 --
 -- Scope: setup-l5.sh pre-seeds two installed plugins (feature-dev → swe,
--- code-review → pr-reviewer). bro tears both down. The deterministic proof is
+-- code-review → code-reviewer). bro tears both down. The deterministic proof is
 -- (a) two cheatcode_uninstalled audit rows, (b) both cheatcodes rows gone
 -- (COUNT=0 by name), and (c) their attachment rows gone (the install + teardown
 -- reverse each attachment via the marketplace path). Marketplace results are
@@ -45,4 +45,4 @@ SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
   'code-review-attachment-gone (got ' || COUNT(*) || ')' AS description
 FROM cheatcode_attachments
-WHERE target = 'pr-reviewer';
+WHERE target = 'code-reviewer';

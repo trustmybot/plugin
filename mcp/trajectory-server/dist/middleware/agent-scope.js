@@ -1,5 +1,5 @@
-const FIRST_CLASS_ROLES = new Set(['bro', 'swe', 'pr-reviewer']);
-const ALL_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'];
+const FIRST_CLASS_ROLES = new Set(['bro', 'swe', 'code-reviewer']);
+const ALL_ROLES = ['bro', 'swe', 'code-reviewer', 'consultant'];
 export function normalizeAgent(name) {
     if (typeof name !== 'string')
         return 'unknown';
@@ -12,7 +12,7 @@ export function normalizeAgent(name) {
         return 'consultant';
     return 'unknown';
 }
-const VALID_AGENTS = ['bro', 'swe', 'pr-reviewer', 'consultant slug matching ^[a-z][a-z0-9_-]*$'];
+const VALID_AGENTS = ['bro', 'swe', 'code-reviewer', 'consultant slug matching ^[a-z][a-z0-9_-]*$'];
 function missingAgentDiagnostics(toolName, allowedRoles, received) {
     const agentReceived = received === undefined ? null : received;
     return {
@@ -21,7 +21,7 @@ function missingAgentDiagnostics(toolName, allowedRoles, received) {
         valid_agents: VALID_AGENTS,
         message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). ` +
             'This is a missing-argument error, not a role restriction — retry with agent set to your role: ' +
-            "'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. " +
+            "'bro', 'swe', 'code-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. " +
             `${toolName} accepts: ${allowedRoles.join(', ')}.`,
     };
 }
@@ -70,7 +70,7 @@ export function redactIssue(issue, agent, opts) {
         const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + '...' : rest.objective;
         return { ...rest, objective: truncated };
     }
-    // Bro, consultants, and pr-reviewer are full-trust; description gated only on opts.include_description.
+    // Bro, consultants, and code-reviewer are full-trust; description gated only on opts.include_description.
     if (!opts?.include_description) {
         const { description: _, ...rest } = issue;
         void _;

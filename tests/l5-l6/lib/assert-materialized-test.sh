@@ -76,7 +76,7 @@ echo "== reject: agent md present but skill not in header =="
 assert_detect "swe.md missing feature-dev → fail" "$NO_SKILL" "swe" "feature-dev" 1
 
 echo "== reject: agent md absent =="
-assert_detect "pr-reviewer.md never materialized → fail" "$ABSENT" "pr-reviewer" "code-review" 1
+assert_detect "code-reviewer.md never materialized → fail" "$ABSENT" "code-reviewer" "code-review" 1
 
 echo "== reject: bro CLAUDE.md does not reference the skill =="
 assert_detect "bro CLAUDE.md missing skill → fail" "$NO_SKILL" "bro" "feature-dev" 1

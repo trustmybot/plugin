@@ -12,7 +12,7 @@
 # Pass-through when:
 #   - DB unresolved (not onboarded) or sqlite3 absent
 #   - Agent not resolvable from input
-#   - Agent is bro, swe, or pr-reviewer (backbone roles)
+#   - Agent is bro, swe, or code-reviewer (backbone roles)
 #   - Agent is not a consultant in the agents table
 # A DB read error blocks the stop with the trajectory-DB-unavailable reason.
 #   - Agent has at least one discussion row on the most recent open issue
@@ -43,7 +43,7 @@ AGENT_NAME=$(tmb_normalize_role "$RAW_AGENT")
 
 # Pass through for backbone roles — only consultants need the persistence gate.
 case "$AGENT_NAME" in
-  bro|swe|pr-reviewer)
+  bro|swe|code-reviewer)
     exit 0
     ;;
 esac

@@ -2,7 +2,7 @@
 
 These tests **drive the real MCP server through scripted tool sequences** to verify that each FLOWS.md flow produces the right state transitions, audit events, and role-enforcement behavior — **without needing Claude Code to be running**.
 
-The harness is `tests/l3-integration/mcp/harness.mjs` (shared with L3). Each test spawns the MCP server in a subprocess, opens an in-memory SQLite DB (`TRAJECTORY_DB_PATH=:memory:`), and walks one flow end-to-end as multiple MCP tool calls — first as bro, then SWE, then pr-reviewer, etc.
+The harness is `tests/l3-integration/mcp/harness.mjs` (shared with L3). Each test spawns the MCP server in a subprocess, opens an in-memory SQLite DB (`TRAJECTORY_DB_PATH=:memory:`), and walks one flow end-to-end as multiple MCP tool calls — first as bro, then SWE, then code-reviewer, etc.
 
 ## Coverage map
 

@@ -304,7 +304,7 @@ export function auditTools(db) {
                 response['warning'] = 'semantic_unavailable';
             return ok(response);
         }),
-        audit_append: requireRoles('audit_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
+        audit_append: requireRoles('audit_append', ['bro', 'swe', 'code-reviewer', 'consultant'], wrapHandler(async (args) => {
             const agentName = String(requireArg(args, 'agent')).toLowerCase();
             const role = normalizeAgent(agentName);
             const fromNode = role === 'consultant' ? agentName : role;

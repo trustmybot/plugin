@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 50;
+export const TARGET_SCHEMA_VERSION = 51;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -806,6 +806,9 @@ function runMigrations(
   }
   if (fromVersion < 50 && toVersion >= 50) {
     migrateV49toV50(db);
+  }
+  if (fromVersion < 51 && toVersion >= 51) {
+    migrateV50toV51(db);
   }
 }
 
@@ -2901,6 +2904,88 @@ function migrateV49toV50(db: DatabaseSync): void {
   try {
     if (!hasColumn(db, 'agent_runs', 'plugin_version')) {
       db.exec('ALTER TABLE agent_runs ADD COLUMN plugin_version TEXT');
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+const OLD_REVIEWER = 'pr-reviewer';
+const OLD_REVIEWER_TITLE = 'PR-reviewer';
+const REVIEWER = 'code-reviewer';
+
+const REVIEWER_JSON_RENAMES: Readonly<Record<string, string>> = {
+  [OLD_REVIEWER]: REVIEWER,
+  [`tmb:${OLD_REVIEWER}`]: `tmb:${REVIEWER}`,
+};
+
+// Every JSON string value in audit.content_json naming the old reviewer, at any
+// key path; json_set rewrites each one and audit_au keeps audit_fts in step.
+function renameReviewerInAuditJson(db: DatabaseSync): void {
+  const hits = db
+    .prepare(
+      `SELECT a.id AS id, j.fullkey AS path, j.atom AS value
+         FROM audit a, json_tree(a.content_json) j
+        WHERE instr(a.content_json, ?) > 0
+          AND json_valid(a.content_json)
+          AND j.type = 'text'
+          AND j.atom IN (?, ?)
+        ORDER BY a.id`,
+    )
+    .all(OLD_REVIEWER, OLD_REVIEWER, `tmb:${OLD_REVIEWER}`) as Array<{ id: number; path: string; value: string }>;
+  const update = db.prepare('UPDATE audit SET content_json = json_set(content_json, ?, ?) WHERE id = ?');
+  for (const hit of hits) {
+    update.run(hit.path, REVIEWER_JSON_RENAMES[hit.value]!, hit.id);
+  }
+}
+
+// v50→v51 (GH 1641): the reviewer is renamed pr-reviewer → code-reviewer, with
+// no alias. Data only and idempotent: agent_runs.agent_type,
+// validation_attempts.agent and the agents registry row take the new name (the
+// legacy agents row is dropped when a code-reviewer row already exists); every
+// pr-reviewer / tmb:pr-reviewer string value in audit.content_json is rewritten;
+// the plugin-seeded cheatcode descriptions (builtin rows and the tmb plugin row)
+// say code-reviewer. Written prose (audit.summary, discussions, specs, reports)
+// stays as written.
+function migrateV50toV51(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'agent_runs')) {
+      db.prepare('UPDATE agent_runs SET agent_type = ? WHERE agent_type = ?').run(REVIEWER, OLD_REVIEWER);
+    }
+    if (tableExists(db, 'validation_attempts')) {
+      db.prepare('UPDATE validation_attempts SET agent = ? WHERE agent = ?').run(REVIEWER, OLD_REVIEWER);
+    }
+    if (tableExists(db, 'agents')) {
+      // LINT-ALLOW: the legacy registry row is redundant once a code-reviewer row exists.
+      db.prepare(`DELETE FROM agents WHERE name = ? AND EXISTS (SELECT 1 FROM agents WHERE name = ?)`).run(
+        OLD_REVIEWER,
+        REVIEWER,
+      );
+      db.prepare(
+        `UPDATE agents
+            SET name = ?,
+                file_path = ?,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE name = ?`,
+      ).run(REVIEWER, `plugin:agents/${REVIEWER}.md`, OLD_REVIEWER);
+    }
+    if (tableExists(db, 'audit')) {
+      renameReviewerInAuditJson(db);
+    }
+    if (tableExists(db, 'cheatcodes')) {
+      db.prepare(
+        `UPDATE cheatcodes
+            SET description = replace(replace(description, ?, ?), ?, ?)
+          WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
+            AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`,
+      ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, 'Code-reviewer', OLD_REVIEWER, OLD_REVIEWER_TITLE);
     }
     commitTransaction(db);
   } catch (err) {

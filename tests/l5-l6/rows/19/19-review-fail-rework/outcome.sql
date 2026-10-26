@@ -1,4 +1,4 @@
--- 19-review-fail-rework — bro reopens the closed count task that pr-reviewer
+-- 19-review-fail-rework — bro reopens the closed count task that code-reviewer
 -- failed, swe reworks it in the same worktree, and a second review lands.
 
 SELECT

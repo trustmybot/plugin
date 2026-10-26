@@ -53,11 +53,11 @@ const VALID_ROOTS = new Set<AgentRoot>(['plugin', 'project']);
 
 // 'bro' is permanently reserved — it is the orchestrator persona loaded at
 // bro-session start; registering it as an agent would shadow the persona.
-// 'swe' and 'pr-reviewer' are backbone roles that ship with the plugin; a
+// 'swe' and 'code-reviewer' are backbone roles that ship with the plugin; a
 // project: registration with the same name would shadow the plugin's file and
 // silently deactivate the backbone, so only a plugin: path is accepted for them.
 const RESERVED_NAME = 'bro';
-const BACKBONE_PLUGIN_ONLY = new Set(['swe', 'pr-reviewer']);
+const BACKBONE_PLUGIN_ONLY = new Set(['swe', 'code-reviewer']);
 
 // Plugin root holds templates/agents/<name>.md. CC always sets
 // CLAUDE_PLUGIN_ROOT to the installed plugin's source root (L6 sets it via

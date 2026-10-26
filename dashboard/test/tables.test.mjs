@@ -2,8 +2,8 @@
 // static HTML and check the table sits in a Box with aria-sort header buttons,
 // an empty table shows a Blankslate, a hideBelow column hides its th and td
 // below sm, TasksView (fed from a seeded query cache) links each row to its
-// issue without a table, and the Runs Agent column gives code-reviewer the
-// pr-reviewer avatar colour.
+// issue without a table, and the Runs Agent column gives code-reviewer its
+// avatar colour.
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -90,14 +90,12 @@ test('TasksView rows link to #/tasks/<id> and to their issue', () => {
   assert.doesNotMatch(out, /<table/);
 });
 
-test('the Runs Agent column shows a small Avatar, and code-reviewer shares the pr-reviewer colour', () => {
+test('the Runs Agent column shows a small Avatar in the code-reviewer colour', () => {
   const agent = ui.RUN_COLUMNS.find((c) => c.key === 'agent_type');
   const cell = (name) => ui.render(agent.cell({ agent_type: name }));
   const bg = (html) => /bg-\(--bgColor-[a-z-]+\)/.exec(html)?.[0];
-  const pr = cell('pr-reviewer');
   const code = cell('code-reviewer');
   assert.match(code, /<span aria-hidden="true" class="[^"]*size-5[^"]*">CO<\/span>code-reviewer<\/span>$/);
-  assert.equal(bg(code), bg(pr));
-  assert.equal(bg(pr), 'bg-(--bgColor-severe-emphasis)');
-  assert.notEqual(bg(cell('swe')), bg(pr));
+  assert.equal(bg(code), 'bg-(--bgColor-severe-emphasis)');
+  assert.notEqual(bg(cell('swe')), bg(code));
 });

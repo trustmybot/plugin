@@ -48,7 +48,7 @@ export function reportTools(db) {
         },
         {
             name: 'issue_snapshot_md',
-            description: 'Generate a read-only markdown snapshot of an issue (header, discussions, tasks) to docs/trustmybot/snapshots/<issue_id>.md (default) or an explicit output_path. Used by PR reviewer for in-flight review handoff. Rejects paths outside docs/trustmybot/.',
+            description: 'Generate a read-only markdown snapshot of an issue (header, discussions, tasks) to docs/trustmybot/snapshots/<issue_id>.md (default) or an explicit output_path. Used by code reviewer for in-flight review handoff. Rejects paths outside docs/trustmybot/.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -165,7 +165,7 @@ export function reportTools(db) {
             lines.push('');
             return ok({ markdown: lines.join('\n'), mode: 'detail' });
         }),
-        issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
+        issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'code-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             const rawOutputPath = args['output_path'];

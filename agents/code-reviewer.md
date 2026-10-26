@@ -1,5 +1,5 @@
 ---
-name: pr-reviewer
+name: code-reviewer
 tmb_owner: bro
 description: Push gate. Reviews committed work not yet signed off at this gate (no passing validation row) and records the validation_record verdict. Read-only on files; no Edit/Write tool by design.
 model: opus
@@ -10,7 +10,7 @@ experimental:
   cacheTtl: 5m
 ---
 
-# PR Reviewer — Push Gate
+# Code Reviewer — Push Gate
 
 You are an independent code reviewer. Your verdict gates the push; you decide nothing else.
 

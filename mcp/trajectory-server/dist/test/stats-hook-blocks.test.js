@@ -26,7 +26,7 @@ function fixture() {
     const otherTaskId = seedTask(db, issueId, 'feat/b');
     const runA = seedRun(db, taskId, issueId, 'swe', '10:00', '10:30');
     const runB = seedRun(db, taskId, issueId, 'swe', '11:00', '11:30');
-    const runC = seedRun(db, taskId, issueId, 'pr-reviewer', '12:00', '12:10');
+    const runC = seedRun(db, taskId, issueId, 'code-reviewer', '12:00', '12:10');
     const runD = seedRun(db, taskId, issueId, 'swe', '13:00', '13:05');
     const git = { task_id: taskId, hook: 'git-guards', rule: 'BLOCKED: ambiguous_git_target — pass git -C <worktree>' };
     seedAudit(db, issueId, 'hook_denied', { ...git, agent_type: 'tmb:swe' }, '10:05');
@@ -35,7 +35,7 @@ function fixture() {
     seedAudit(db, issueId, 'hook_denied', { ...git, agent_type: 'tmb:swe' }, '10:45');
     seedAudit(db, issueId, 'hook_denied', { ...git, task_id: otherTaskId, agent_type: 'tmb:swe' }, '10:10');
     seedAudit(db, issueId, 'containment_denied', { task_id: taskId, agent_type: 'tmb:swe', hook: 'containment-guard', rule: 'BLOCKED: containment' }, '10:06');
-    seedAudit(db, issueId, 'hook_denied', { task_id: taskId, agent_type: 'tmb:pr-reviewer', hook: 'review-scope', rule: 'pr-reviewer may not edit' }, '12:05');
+    seedAudit(db, issueId, 'hook_denied', { task_id: taskId, agent_type: 'tmb:code-reviewer', hook: 'review-scope', rule: 'code-reviewer may not edit' }, '12:05');
     return { db, taskId, runs: { runA, runB, runC, runD } };
 }
 async function taskStats(db, args) {

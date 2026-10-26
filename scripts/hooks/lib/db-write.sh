@@ -117,7 +117,7 @@ tmb_db_write() {
 
 # _tmb_from_node_valid <from_node>
 # A hook writes as itself: hook:<hook-name>, or the system actor. Agent roles
-# (bro, swe, pr-reviewer, human) are rejected — a hook never impersonates one.
+# (bro, swe, code-reviewer, human) are rejected — a hook never impersonates one.
 _tmb_from_node_valid() {
   case "${1:-}" in
     system) return 0 ;;

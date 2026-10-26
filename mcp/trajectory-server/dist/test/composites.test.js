@@ -580,13 +580,13 @@ describe('bro_atomic_close', () => {
         }
     });
 });
-// A prior bro verification of the commit followed by a pr-reviewer pass: the
+// A prior bro verification of the commit followed by a code-reviewer pass: the
 // review evidence close_issue_if_last_task requires before it closes an issue.
 function seedReviewedCommit(db, issueId, taskId, sha) {
     const earlier = new Date(Date.now() - 60_000).toISOString();
     const later = new Date(Date.now() - 30_000).toISOString();
     db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'bro_verification_pass', 'ok', ?, ?)`, [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: sha }), earlier]);
-    db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'pr-reviewer', 'pass', 1, ?)`, [taskId, later]);
+    db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, ?)`, [taskId, later]);
 }
 describe('pathInFiles (GH 1705)', () => {
     it('an entry covers itself and its subtree, never its siblings; any tests/ entry covers all of tests/', () => {
@@ -867,7 +867,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
             assert.equal(payload['base_moved'], true);
             assert.equal(payload['recorded_base'], siblingSha);
             assert.equal(payload['merge_base'], baseSha);
-            const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'pr-reviewer', task_id: Number(taskId) }));
+            const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'code-reviewer', task_id: Number(taskId) }));
             assert.deepEqual(brief['scope'], {
                 files: ['src/a.ts'],
                 extras_accepted: ['tests/rogue.test.ts'],
@@ -1325,7 +1325,7 @@ describe('bro_verification_fail_record', () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
         const r = await call(composites.handlers, 'bro_verification_fail_record', {
-            agent: 'pr-reviewer', task_id: '1', which_check: 'V2', details: 'failed',
+            agent: 'code-reviewer', task_id: '1', which_check: 'V2', details: 'failed',
         });
         assert.equal(r.isError, true);
         assert.equal(parse(r)['error'], 'forbidden');
@@ -1350,7 +1350,7 @@ describe('bro_verification_fail_record', () => {
     });
 });
 describe('pr_monitor_worktree', () => {
-    it('rejects non-pr-reviewer caller', async () => {
+    it('rejects non-code-reviewer caller', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
         const r = await call(composites.handlers, 'pr_monitor_worktree', {
@@ -1363,7 +1363,7 @@ describe('pr_monitor_worktree', () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
         const r = await call(composites.handlers, 'pr_monitor_worktree', {
-            agent: 'pr-reviewer', commit_sha: 'not-a-sha', repo_path: '/tmp', command: 'echo ok',
+            agent: 'code-reviewer', commit_sha: 'not-a-sha', repo_path: '/tmp', command: 'echo ok',
         });
         assert.equal(r.isError, true);
         assert.match(parse(r)['error'], /hex SHA/);
@@ -1372,7 +1372,7 @@ describe('pr_monitor_worktree', () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
         const r = await call(composites.handlers, 'pr_monitor_worktree', {
-            agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: 'relative/path', command: 'echo ok',
+            agent: 'code-reviewer', commit_sha: 'abc1234', repo_path: 'relative/path', command: 'echo ok',
         });
         assert.equal(r.isError, true);
         assert.match(parse(r)['error'], /absolute path/);
@@ -1381,7 +1381,7 @@ describe('pr_monitor_worktree', () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
         const r = await call(composites.handlers, 'pr_monitor_worktree', {
-            agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: '/tmp', command: '   ',
+            agent: 'code-reviewer', commit_sha: 'abc1234', repo_path: '/tmp', command: '   ',
         });
         assert.equal(r.isError, true);
         assert.match(parse(r)['error'], /non-empty/);
@@ -1392,7 +1392,7 @@ describe('pr_monitor_worktree — containment', () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/proj/.claude/tmb/trajectory.db');
         const r = await call(composites.handlers, 'pr_monitor_worktree', {
-            agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: '/var/elsewhere', command: 'echo ok',
+            agent: 'code-reviewer', commit_sha: 'abc1234', repo_path: '/var/elsewhere', command: 'echo ok',
         });
         assert.equal(r.isError, true);
         const out = parse(r);
@@ -1414,7 +1414,7 @@ describe('pr_monitor_worktree — containment', () => {
             const db = tempDB();
             const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
             const r = await call(composites.handlers, 'pr_monitor_worktree', {
-                agent: 'pr-reviewer', commit_sha: sha, repo_path: ws, command: 'pwd',
+                agent: 'code-reviewer', commit_sha: sha, repo_path: ws, command: 'pwd',
             });
             assert.ok(!r.isError, JSON.stringify(parse(r)));
             assert.equal(parse(r)['worktree'], `${ws}/.claude/worktrees/pr-review-${sha}`);
@@ -1782,7 +1782,7 @@ describe('task_brief (#300)', () => {
         assert.equal(out['task_id'], id);
         assert.equal(out['branch_id'], 'fix/1-brief');
         assert.equal(out['spec_body'], SPEC);
-        assert.equal(out['commit_sha'], 'abc123def', 'commit_sha in brief (pr-reviewer needs it for the diff)');
+        assert.equal(out['commit_sha'], 'abc123def', 'commit_sha in brief (code-reviewer needs it for the diff)');
         assert.equal(out['world_model_warning'], 'world-model-unavailable');
         const disc = out['task_discussions'];
         assert.ok(disc.some((d) => d.kind === 'decision' && d.body === 'Use approach B'));
@@ -1833,7 +1833,7 @@ describe('task_brief (#300)', () => {
         const db = tempDB();
         const id = seedTask(db, { repo: 'app', spec: SPEC, verification: ['npm test', 'bash lint.sh'] });
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-        const brief = async () => parse((await tools.handlers['task_brief']({ agent: 'pr-reviewer', task_id: id })));
+        const brief = async () => parse((await tools.handlers['task_brief']({ agent: 'code-reviewer', task_id: id })));
         assert.equal((await brief())['verification_run'], null, 'no run recorded yet');
         db.run(`INSERT INTO verification_runs (id, task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
        VALUES (7, ?, 'old0000', 'gate', '2026-10-01T00:00:00.000Z', '2026-10-01T00:01:00.000Z', 1, 900, 0),
@@ -1858,14 +1858,14 @@ describe('task_brief (#300)', () => {
         });
         db.close();
     });
-    it('a swe caller records the swe_brief_fetched sentinel once; bro and pr-reviewer record none', async () => {
+    it('a swe caller records the swe_brief_fetched sentinel once; bro and code-reviewer record none', async () => {
         const db = tempDB();
         const id = seedTask(db, { repo: 'app', spec: SPEC });
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
         const sentinels = () => db.all(`SELECT from_node, content_json FROM audit WHERE event_type = 'swe_brief_fetched'`);
         await tools.handlers['task_brief']({ agent: 'bro', task_id: id });
-        await tools.handlers['task_brief']({ agent: 'pr-reviewer', task_id: id });
-        assert.equal(sentinels().length, 0, 'bro and pr-reviewer write no sentinel');
+        await tools.handlers['task_brief']({ agent: 'code-reviewer', task_id: id });
+        assert.equal(sentinels().length, 0, 'bro and code-reviewer write no sentinel');
         await tools.handlers['task_brief']({ agent: 'swe', task_id: id });
         const rows = sentinels();
         assert.equal(rows.length, 1, 'first swe call writes exactly one row');
@@ -1942,10 +1942,10 @@ describe('task_brief sections (GH 1743)', () => {
         assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'all' })), [...ALL_KEYS].sort(), 'all carries no sections hint');
         db.close();
     });
-    it('bro and pr-reviewer calls with no section return the full brief', async () => {
+    it('bro and code-reviewer calls with no section return the full brief', async () => {
         const db = tempDB();
         const id = seed(db);
-        for (const agent of ['bro', 'pr-reviewer']) {
+        for (const agent of ['bro', 'code-reviewer']) {
             assert.deepEqual(keys(await brief(db, { agent, task_id: id })), [...ALL_KEYS].sort(), agent);
         }
         db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (1, 'swe', 'note', 'n', datetime('now'))`);
@@ -3594,9 +3594,9 @@ describe('agent_runs lifecycle — rows open with their run and close with their
         const db = tempDB();
         const id = seed(db);
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
-        await tools.handlers['task_brief']({ agent: 'pr-reviewer', task_id: id });
+        await tools.handlers['task_brief']({ agent: 'code-reviewer', task_id: id });
         await tools.handlers['task_brief']({ agent: 'bro', task_id: id });
-        assert.equal(runs(db, id).length, 0, 'bro / pr-reviewer briefs open no swe row');
+        assert.equal(runs(db, id).length, 0, 'bro / code-reviewer briefs open no swe row');
         await tools.handlers['task_brief']({ agent: 'swe', task_id: id });
         await tools.handlers['task_brief']({ agent: 'swe', task_id: id });
         const opened = db.all('SELECT agent_type, repo, started_at, completed_at FROM agent_runs WHERE task_id = ?', [id]);
@@ -3682,12 +3682,12 @@ describe('agent_runs lifecycle — rows open with their run and close with their
          VALUES (?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 days'), ?, ?, ?, ?)`, [taskId, r.agentType, r.completedAt, r.tokensOut ?? null, r.usageSource ?? null, r.exitReason ?? null]).lastInsertRowid);
     const usage = (db, id) => ({ ...db.get('SELECT usage_source, tokens_out, completed_at FROM agent_runs WHERE id = ?', [id]) });
     const closedAt = new Date(Date.now() - 86_400_000).toISOString();
-    it('task_recover marks closed swe/pr-reviewer rows with no usage unmeasured and reports the count (GH 1746)', async () => {
+    it('task_recover marks closed swe/code-reviewer rows with no usage unmeasured and reports the count (GH 1746)', async () => {
         const db = tempDB();
         const id = seed(db);
         db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [id]);
         const swe = seedLegacyRun(db, id, { agentType: 'swe', completedAt: closedAt, tokensOut: 0, exitReason: 'failed' });
-        const reviewer = seedLegacyRun(db, id, { agentType: 'pr-reviewer', completedAt: closedAt });
+        const reviewer = seedLegacyRun(db, id, { agentType: 'code-reviewer', completedAt: closedAt });
         const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
         const out = parse((await tools.handlers['task_recover']({ agent: 'bro' })));
         assert.equal(out['runs_marked_unmeasured'], 2);
@@ -4010,7 +4010,7 @@ describe('review findings across task_reopen and task_retry (GH 1783)', () => {
         assert.deepEqual(brief.open_findings.map((f) => f.id), expectedCarry.map((c) => c.id));
         seedReviewerObservation(db, newId, 1, { agentId: 'reviewer-agent-0001' });
         const recorded = await call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer', task_id: newId, attempt_n: 1, verdict: 'fail', feedback: '# Review', mcp_available: true,
+            agent: 'code-reviewer', task_id: newId, attempt_n: 1, verdict: 'fail', feedback: '# Review', mcp_available: true,
             findings: [{ probe_cmd: 'npm test', expected: 'exit 0', observed: 'exit 1' }],
         });
         assert.ok(!recorded.isError, JSON.stringify(parse(recorded)));

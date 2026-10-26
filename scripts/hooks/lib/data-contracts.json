@@ -29,13 +29,13 @@
       "id": "swe_runs_metered",
       "severity": "error",
       "min_schema": 30,
-      "description": "swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
-      "sql": "SELECT COUNT(*) FROM agent_runs\n             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', completed_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND (usage_source IS NULL OR usage_source <> 'unmeasured')\n               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0\n               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0",
+      "description": "swe/code-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
+      "sql": "SELECT COUNT(*) FROM agent_runs\n             WHERE agent_type IN ('swe','code-reviewer') AND completed_at IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', completed_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND (usage_source IS NULL OR usage_source <> 'unmeasured')\n               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0\n               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0",
       "expect": {
         "op": "=",
         "value": 0
       },
-      "sample_sql": "SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs\n             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', completed_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND (usage_source IS NULL OR usage_source <> 'unmeasured')\n               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0\n               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0\n             ORDER BY id DESC LIMIT 5"
+      "sample_sql": "SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs\n             WHERE agent_type IN ('swe','code-reviewer') AND completed_at IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', completed_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND (usage_source IS NULL OR usage_source <> 'unmeasured')\n               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0\n               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0\n             ORDER BY id DESC LIMIT 5"
     },
     {
       "id": "bro_session_runs_metered",
@@ -52,7 +52,7 @@
     {
       "id": "closed_tasks_reviewed",
       "severity": "error",
-      "description": "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
+      "description": "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before code-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
       "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')\n               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')\n               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ((a.event_type = 'review_gate_waived' AND a.from_node = 'bro')\n      OR (a.event_type = 'review_gate_bypassed' AND a.from_node IN ('bro', 'hook:close-issue-on-merge')))\n                                AND CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.task_id') END = t.id)",
       "expect": {
         "op": "=",
@@ -121,7 +121,7 @@
     {
       "id": "no_unconsumed_reviewer_observations",
       "severity": "warn",
-      "description": "no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer validation_record call that never recorded a verdict)",
+      "description": "no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a code-reviewer validation_record call that never recorded a verdict)",
       "sql": "SELECT COUNT(*) FROM audit o\n             WHERE o.event_type = 'reviewer_identity_observed' AND strftime('%Y-%m-%dT%H:%M:%fZ', o.created_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')\n               AND COALESCE(CASE WHEN json_valid(o.content_json) THEN json_extract(o.content_json, '$.consumed') END, 0) = 0\n               AND COALESCE(CASE WHEN json_valid(o.content_json) THEN json_extract(o.content_json, '$.superseded') END, 0) = 0",
       "expect": {
         "op": "=",
@@ -278,13 +278,13 @@
     {
       "id": "populated_agent_runs_effort",
       "severity": "warn",
-      "description": "agent_runs.effort NULL rate over SubagentStop-metered swe/pr-reviewer rows since the first run carrying an effort created in the last 30 days, per-task bro rows excluded stays at or under 0.05",
-      "sql": "SELECT COALESCE(AVG(CASE WHEN effort IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND NOT (agent_type = 'bro' AND task_id IS NOT NULL) AND agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE effort IS NOT NULL)",
+      "description": "agent_runs.effort NULL rate over SubagentStop-metered swe/code-reviewer rows since the first run carrying an effort created in the last 30 days, per-task bro rows excluded stays at or under 0.05",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN effort IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND NOT (agent_type = 'bro' AND task_id IS NOT NULL) AND agent_type IN ('swe','code-reviewer') AND usage_source = 'subagent_stop'\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE effort IS NOT NULL)",
       "expect": {
         "op": "<=",
         "value": 0.05
       },
-      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND NOT (agent_type = 'bro' AND task_id IS NOT NULL) AND agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE effort IS NOT NULL) AND effort IS NULL ORDER BY id DESC LIMIT 5",
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND NOT (agent_type = 'bro' AND task_id IS NOT NULL) AND agent_type IN ('swe','code-reviewer') AND usage_source = 'subagent_stop'\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE effort IS NOT NULL) AND effort IS NULL ORDER BY id DESC LIMIT 5",
       "min_schema": 37
     },
     {

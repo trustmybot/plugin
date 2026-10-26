@@ -444,7 +444,7 @@ export function discussionTools(db: TrajectoryDB): {
 
     discussion_append: requireRoles(
       'discussion_append',
-      ['bro', 'swe', 'pr-reviewer', 'consultant'],
+      ['bro', 'swe', 'code-reviewer', 'consultant'],
       wrapHandler(async (args) => {
         normalizeAgent(args['agent'] as string | undefined);
         const rawIssueId = args['issue_id'] as string | undefined;

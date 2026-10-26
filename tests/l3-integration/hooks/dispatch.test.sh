@@ -806,8 +806,8 @@ assert_eq "0" "$rc" "observe-only: exit 0"
 assert_contains "$out" "fx banner" "observe-only: ran and allowed"
 
 test_case "no jq (real gates): the chain denies; deny-capable gates exit non-zero, the observe-only gate allows"
-NP=$(jq -nc '{hook_event_name:"PreToolUse",session_id:"s-n",agent_type:"pr-reviewer",agent_id:"ag1",
-  tool_name:"mcp__plugin_tmb_trajectory-server__validation_record",tool_input:{agent:"pr-reviewer",task_id:42,attempt_n:1},tool_use_id:"tu-n4"}')
+NP=$(jq -nc '{hook_event_name:"PreToolUse",session_id:"s-n",agent_type:"code-reviewer",agent_id:"ag1",
+  tool_name:"mcp__plugin_tmb_trajectory-server__validation_record",tool_input:{agent:"code-reviewer",task_id:42,attempt_n:1},tool_use_id:"tu-n4"}')
 out=$(cd "$RP" && printf '%s' "$NP" | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
 assert_contains "$out" '"permissionDecision":"deny"' "chain denies"
 assert_contains "$out" "jq not found" "reason names jq"

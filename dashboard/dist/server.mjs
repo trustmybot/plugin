@@ -511,7 +511,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
   { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
   { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
-  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
+  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing code-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
   { type: "concept_proposal_rejected", writers: ["bro"], description: "`scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error`" },
   { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
   { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
@@ -532,7 +532,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
-  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
+  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
   { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
   { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
@@ -549,9 +549,9 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate no longer probes it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
   { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
-  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
-  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
-  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
+  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
@@ -692,7 +692,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 50;
+var TARGET_SCHEMA_VERSION = 51;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1246,6 +1246,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 50 && toVersion >= 50) {
     migrateV49toV50(db);
+  }
+  if (fromVersion < 51 && toVersion >= 51) {
+    migrateV50toV51(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3004,6 +3007,70 @@ function migrateV49toV50(db) {
     throw err3;
   }
 }
+var OLD_REVIEWER = "pr-reviewer";
+var OLD_REVIEWER_TITLE = "PR-reviewer";
+var REVIEWER = "code-reviewer";
+var REVIEWER_JSON_RENAMES = {
+  [OLD_REVIEWER]: REVIEWER,
+  [`tmb:${OLD_REVIEWER}`]: `tmb:${REVIEWER}`
+};
+function renameReviewerInAuditJson(db) {
+  const hits = db.prepare(
+    `SELECT a.id AS id, j.fullkey AS path, j.atom AS value
+         FROM audit a, json_tree(a.content_json) j
+        WHERE instr(a.content_json, ?) > 0
+          AND json_valid(a.content_json)
+          AND j.type = 'text'
+          AND j.atom IN (?, ?)
+        ORDER BY a.id`
+  ).all(OLD_REVIEWER, OLD_REVIEWER, `tmb:${OLD_REVIEWER}`);
+  const update = db.prepare("UPDATE audit SET content_json = json_set(content_json, ?, ?) WHERE id = ?");
+  for (const hit of hits) {
+    update.run(hit.path, REVIEWER_JSON_RENAMES[hit.value], hit.id);
+  }
+}
+function migrateV50toV51(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      db.prepare("UPDATE agent_runs SET agent_type = ? WHERE agent_type = ?").run(REVIEWER, OLD_REVIEWER);
+    }
+    if (tableExists(db, "validation_attempts")) {
+      db.prepare("UPDATE validation_attempts SET agent = ? WHERE agent = ?").run(REVIEWER, OLD_REVIEWER);
+    }
+    if (tableExists(db, "agents")) {
+      db.prepare(`DELETE FROM agents WHERE name = ? AND EXISTS (SELECT 1 FROM agents WHERE name = ?)`).run(
+        OLD_REVIEWER,
+        REVIEWER
+      );
+      db.prepare(
+        `UPDATE agents
+            SET name = ?,
+                file_path = ?,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE name = ?`
+      ).run(REVIEWER, `plugin:agents/${REVIEWER}.md`, OLD_REVIEWER);
+    }
+    if (tableExists(db, "audit")) {
+      renameReviewerInAuditJson(db);
+    }
+    if (tableExists(db, "cheatcodes")) {
+      db.prepare(
+        `UPDATE cheatcodes
+            SET description = replace(replace(description, ?, ?), ?, ?)
+          WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
+            AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`
+      ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, "Code-reviewer", OLD_REVIEWER, OLD_REVIEWER_TITLE);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
 function migrateV22toV23(db) {
   const soleRepo = () => {
     if (!tableExists(db, "repos")) return null;
@@ -3948,7 +4015,7 @@ function symbolById(db, id) {
 var SUBPROCESS_TIMEOUT_MS = 5e3;
 
 // ../mcp/trajectory-server/src/middleware/agent-scope.ts
-var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
+var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
 function normalizeAgent(name) {
   if (typeof name !== "string") return "unknown";
   const lower = name.toLowerCase().replace(/^tmb:/, "");
@@ -3957,14 +4024,14 @@ function normalizeAgent(name) {
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
   return "unknown";
 }
-var VALID_AGENTS = ["bro", "swe", "pr-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
+var VALID_AGENTS = ["bro", "swe", "code-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
 function missingAgentDiagnostics(toolName, allowedRoles, received) {
   const agentReceived = received === void 0 ? null : received;
   return {
     reason: "agent_missing_or_invalid",
     agent_received: agentReceived,
     valid_agents: VALID_AGENTS,
-    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
+    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'code-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
   };
 }
 function forbidden(toolName, agent, allowedRoles, received) {
@@ -4913,7 +4980,7 @@ function histogram(values, edges) {
 }
 var AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'swe' THEN 'swe'
-    WHEN r.agent_type IN ('pr-reviewer', 'code-reviewer') THEN 'reviewer'
+    WHEN r.agent_type = 'code-reviewer' THEN 'reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
 var sinceOf = (range, now2) => {
@@ -6335,7 +6402,7 @@ function issueTools(db, dbPath = "", options = {}) {
     },
     {
       name: "issue_close",
-      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
+      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing code-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
       inputSchema: {
         type: "object",
         properties: {
@@ -6351,7 +6418,7 @@ function issueTools(db, dbPath = "", options = {}) {
           },
           waive_review: {
             type: "boolean",
-            description: "When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
+            description: "When true, close even though closed tasks lack a passing code-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
           },
           waive_review_reason: {
             type: "string",
@@ -6883,7 +6950,7 @@ function issueTools(db, dbPath = "", options = {}) {
       const unreviewed = closedTasksWithoutReview(db, issueId);
       if (unreviewed.length > 0 && !waiveReview) {
         return refusal("tasks_without_review", {
-          message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+          message: `Issue ${issueId} has closed tasks with no passing code-reviewer verdict for their current commit. Run code-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
           tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha }))
         });
       }
@@ -7818,7 +7885,7 @@ function discussionTools(db) {
     }),
     discussion_append: requireRoles(
       "discussion_append",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrapHandler2(async (args) => {
         normalizeAgent(args["agent"]);
         const rawIssueId = args["issue_id"];

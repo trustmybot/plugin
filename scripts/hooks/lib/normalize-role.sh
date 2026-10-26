@@ -2,8 +2,8 @@
 # Library: role normalization helper for TMB hooks.
 # Sourced (not exec'd) by hook scripts that compare agent/subagent type values.
 #
-# CC may deliver role values as bare names ("swe", "pr-reviewer") or with a
-# plugin prefix ("tmb:swe", "tmb:pr-reviewer"). Hooks that compare against the
+# CC may deliver role values as bare names ("swe", "code-reviewer") or with a
+# plugin prefix ("tmb:swe", "tmb:code-reviewer"). Hooks that compare against the
 # bare form silently pass (exit 0) when they receive the prefixed form, turning
 # safety gates into no-ops. Source this helper and normalize before comparing.
 

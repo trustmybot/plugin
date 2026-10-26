@@ -38,19 +38,19 @@ out=$(echo '{"tool_input":{"subagent_type":"tmb:swe","prompt":"task_id=1 do the 
   | TRAJECTORY_DB_PATH="$DB_RTS" bash "$HOOK_RTS" 2>&1 || true)
 assert_eq "" "$out" "tmb:swe with valid task_id passes silently"
 
-# ---- pr-reviewer-no-worktree: tmb:pr-reviewer prefix is denied for worktree ----
+# ---- code-reviewer-no-worktree: tmb:code-reviewer prefix is denied for worktree ----
 
-HOOK_PRW="$PLUGIN_ROOT/scripts/hooks/pr-reviewer-no-worktree.sh"
+HOOK_PRW="$PLUGIN_ROOT/scripts/hooks/code-reviewer-no-worktree.sh"
 
-test_case "pr-reviewer-no-worktree: tmb:pr-reviewer with isolation=worktree is denied"
-out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"tmb:pr-reviewer","isolation":"worktree"}}' \
+test_case "code-reviewer-no-worktree: tmb:code-reviewer with isolation=worktree is denied"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"tmb:code-reviewer","isolation":"worktree"}}' \
   | bash "$HOOK_PRW" 2>&1 || true)
-assert_contains "$out" "permissionDecision" "deny output emitted for tmb:pr-reviewer"
-assert_contains "$out" "deny" "decision is deny for tmb:pr-reviewer"
+assert_contains "$out" "permissionDecision" "deny output emitted for tmb:code-reviewer"
+assert_contains "$out" "deny" "decision is deny for tmb:code-reviewer"
 
-test_case "pr-reviewer-no-worktree: tmb:pr-reviewer without isolation passes silently"
-out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"tmb:pr-reviewer"}}' \
+test_case "code-reviewer-no-worktree: tmb:code-reviewer without isolation passes silently"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"tmb:code-reviewer"}}' \
   | bash "$HOOK_PRW" 2>&1 || true)
-assert_eq "" "$out" "tmb:pr-reviewer without isolation is silent allow"
+assert_eq "" "$out" "tmb:code-reviewer without isolation is silent allow"
 
 summarize

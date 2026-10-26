@@ -19,7 +19,7 @@ test('onboard_apply — bro allowed, others forbidden, missing agent forbidden',
 
   // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
   const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'onboard_apply', { agent: wrongRole, shape: 'local' });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from onboard_apply`);
     assert.equal(res.error?.error, 'forbidden');
@@ -31,7 +31,7 @@ test('onboard_apply — bro allowed, others forbidden, missing agent forbidden',
   assert.equal(allowed.data?.applied?.onboarded, true);
 });
 
-test('config_set — bro only; architect/swe/pr-reviewer all forbidden', async (t) => {
+test('config_set — bro only; architect/swe/code-reviewer all forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -42,7 +42,7 @@ test('config_set — bro only; architect/swe/pr-reviewer all forbidden', async (
   });
   assert.equal(allowed.ok, true, `bro should set config; got ${JSON.stringify(allowed)}`);
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'config_set', {
       agent: wrongRole,
       key: 'smoke',
@@ -53,7 +53,7 @@ test('config_set — bro only; architect/swe/pr-reviewer all forbidden', async (
   }
 });
 
-test('issue_snapshot_md — bro, pr-reviewer and consultants; swe forbidden', async (t) => {
+test('issue_snapshot_md — bro, code-reviewer and consultants; swe forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -131,7 +131,7 @@ test('discussion_append — workflow agents (bro/architect) can append questions
 
 // --- bro-as-planner role contract (Human → bro → SWE; everyone else consults) ---
 
-test('issue_create — bro only; architect/swe/pr-reviewer all forbidden', async (t) => {
+test('issue_create — bro only; architect/swe/code-reviewer all forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -140,7 +140,7 @@ test('issue_create — bro only; architect/swe/pr-reviewer all forbidden', async
 
   // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
   const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'issue_create', { agent: wrongRole, objective: 'x', description: 'y', labels: ['Feature', 'Priority: Medium'] });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from issue_create`);
     assert.equal(res.error?.error, 'forbidden');
@@ -148,21 +148,21 @@ test('issue_create — bro only; architect/swe/pr-reviewer all forbidden', async
   }
 });
 
-test('issue_close — bro only; architect/swe/pr-reviewer all forbidden', async (t) => {
+test('issue_close — bro only; architect/swe/code-reviewer all forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
   const seed = await call(client, 'issue_create', { agent: 'bro', objective: 's', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = seed.data.id;
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'issue_close', { agent: wrongRole, issue_id: issueId });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from issue_close`);
     assert.equal(res.error?.error, 'forbidden');
   }
 });
 
-test('task_create_batch — bro only; architect/swe/pr-reviewer all forbidden', async (t) => {
+test('task_create_batch — bro only; architect/swe/code-reviewer all forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -188,7 +188,7 @@ test('task_create_batch — bro only; architect/swe/pr-reviewer all forbidden', 
     }],
   };
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'task_create_batch', { agent: wrongRole, ...taskInput });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from task_create_batch`);
     assert.equal(res.error?.error, 'forbidden');
@@ -198,7 +198,7 @@ test('task_create_batch — bro only; architect/swe/pr-reviewer all forbidden', 
   assert.equal(ok.ok, true, `bro must succeed; got ${JSON.stringify(ok)}`);
 });
 
-test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidden', async (t) => {
+test('task_update_status — bro and swe allowed; architect/code-reviewer forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -213,7 +213,7 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
 
-  for (const wrongRole of ['architect', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'code-reviewer']) {
     const res = await call(client, 'task_update_status', { agent: wrongRole, task_id: taskId, status: 'running' });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from task_update_status`);
     assert.equal(res.error?.error, 'forbidden');
@@ -240,13 +240,13 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   assert.equal(broClose.ok, true, `bro should close verified work via bro_atomic_close; got ${JSON.stringify(broClose)}`);
   assert.equal(broClose.data.base_moved, false, `the close result carries base_moved; got ${JSON.stringify(broClose)}`);
 
-  // task_brief carries the latest close's scope record for pr-reviewer.
-  const brief = await call(client, 'task_brief', { agent: 'pr-reviewer', task_id: taskId });
-  assert.equal(brief.ok, true, `pr-reviewer reads task_brief; got ${JSON.stringify(brief)}`);
+  // task_brief carries the latest close's scope record for code-reviewer.
+  const brief = await call(client, 'task_brief', { agent: 'code-reviewer', task_id: taskId });
+  assert.equal(brief.ok, true, `code-reviewer reads task_brief; got ${JSON.stringify(brief)}`);
   assert.deepEqual(brief.data.scope, { files: [], extras_accepted: [], base_moved: false });
 });
 
-test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', async (t) => {
+test('validation_record — code-reviewer only; architect/bro/swe all forbidden', async (t) => {
   const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
@@ -272,18 +272,18 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
   }
 
   const unobserved = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
-  assert.equal(unobserved.ok, false, 'pr-reviewer without an observed identity must be refused');
+  assert.equal(unobserved.ok, false, 'code-reviewer without an observed identity must be refused');
   assert.match(String(unobserved.error?.error), /^subagent_session_unavailable/);
 
   seedReviewerObservation(dbPath, taskId, 1, { agentId: 'role-matrix-reviewer', sessionId: 'role-matrix-main' });
   const ok = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
-  assert.equal(ok.ok, true, `pr-reviewer should record after an observed row; got ${JSON.stringify(ok)}`);
+  assert.equal(ok.ok, true, `code-reviewer should record after an observed row; got ${JSON.stringify(ok)}`);
   assert.equal(ok.data?.reviewer_agent_id, 'role-matrix-reviewer');
   assert.equal(ok.data?.subagent_session_id, 'role-matrix-main', 'caller value ignored');
 });
@@ -294,7 +294,7 @@ test('pr_monitor_runs_list — bro allowed, others forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'pr_monitor_runs_list', { agent: wrongRole });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from pr_monitor_runs_list`);
     assert.equal(res.error?.error, 'forbidden');
@@ -306,12 +306,12 @@ test('pr_monitor_runs_list — bro allowed, others forbidden', async (t) => {
 });
 
 // task_reopen / task_update_spec amend a task's fences and lifecycle: bro only.
-test('task_reopen + task_update_spec — bro only; swe/pr-reviewer/architect forbidden', async (t) => {
+test('task_reopen + task_update_spec — bro only; swe/code-reviewer/architect forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
   for (const tool of ['task_reopen', 'task_update_spec']) {
-    for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
       const res = await call(client, tool, { agent: wrongRole, task_id: 1, reason: 'x', files: ['a'] });
       assert.equal(res.ok, false, `${wrongRole} must be forbidden from ${tool}`);
       assert.equal(res.error?.error, 'forbidden');
@@ -328,7 +328,7 @@ test('agent_runs_backfill — bro only; dry run over an empty transcripts dir re
   const dir = mkdtempSync(join(tmpdir(), 'tmb-l3-backfill-'));
   t.after(async () => { await close(); rmSync(dir, { recursive: true, force: true }); });
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'agent_runs_backfill', { agent: wrongRole, transcripts_dir: dir });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from agent_runs_backfill`);
     assert.equal(res.error?.error, 'forbidden');
@@ -344,7 +344,7 @@ test('trajectory_doctor — bro only; read-only unless record:true', async (t) =
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'trajectory_doctor', { agent: wrongRole });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from trajectory_doctor`);
     assert.equal(res.error?.error, 'forbidden');
@@ -368,7 +368,7 @@ test('agent_resolve — bro only; agent_register/agent_list speak plugin:/projec
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+  for (const wrongRole of ['architect', 'swe', 'code-reviewer']) {
     const res = await call(client, 'agent_resolve', { agent: wrongRole, name: 'legal-reviewer' });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from agent_resolve`);
     assert.equal(res.error?.error, 'forbidden');
@@ -426,7 +426,7 @@ test('audit_append — per-event writers decide who may write; from_node is the 
   assert.equal(bro.ok, true, JSON.stringify(bro));
   assert.equal(bro.data.from_node, 'bro');
 
-  for (const agent of ['pr-reviewer', 'swe', 'architect']) {
+  for (const agent of ['code-reviewer', 'swe', 'architect']) {
     const res = await call(client, 'audit_append', {
       agent, issue_id: '-1', from_node: 'bro', event_type: 'scope_gate_waived', summary: 'forged waiver',
     });
@@ -446,8 +446,8 @@ test('audit_append — per-event writers decide who may write; from_node is the 
   assert.equal(hookOnly.error?.error, 'audit_event_not_writable_by_role');
 
   const reviewer = await call(client, 'audit_append', {
-    agent: 'pr-reviewer', issue_id: '-1', event_type: 'mcp_unavailable_fallback_invoked', summary: 'fallback',
+    agent: 'code-reviewer', issue_id: '-1', event_type: 'mcp_unavailable_fallback_invoked', summary: 'fallback',
   });
   assert.equal(reviewer.ok, true, JSON.stringify(reviewer));
-  assert.equal(reviewer.data.from_node, 'pr-reviewer');
+  assert.equal(reviewer.data.from_node, 'code-reviewer');
 });

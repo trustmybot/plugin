@@ -16,7 +16,7 @@ export function tempDB(opts = {}) {
     return db;
 }
 // seedReviewerObservation writes the row the reviewer-identity-observe hook
-// writes when a pr-reviewer subagent calls validation_record, so a test's
+// writes when a code-reviewer subagent calls validation_record, so a test's
 // validation_record call finds a reviewer identity to stamp.
 export function seedReviewerObservation(db, taskId, attemptN, opts = {}) {
     const issueId = db.get('SELECT issue_id FROM tasks WHERE id = ?', [Number(taskId)])?.issue_id ?? -1;

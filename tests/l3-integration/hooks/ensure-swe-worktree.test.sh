@@ -137,7 +137,7 @@ test_case "non-swe spawn → no-op (no worktree created, never denies)"
 setup_repo "fix/1-foo-bar"
 db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo-bar"
-payload=$(make_payload "pr-reviewer" "task_id=1 You are pr-reviewer.")
+payload=$(make_payload "code-reviewer" "task_id=1 You are code-reviewer.")
 out=$(run_hook "$payload" "$db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "non-swe must never deny"
 WT="$REPO_PATH/.claude/worktrees/1-foo-bar"

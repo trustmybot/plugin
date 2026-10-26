@@ -15,7 +15,7 @@ import { bashParser } from '../hooks/cmd-analysis/parser.js';
 import { encode } from '../hooks/cmd-analysis/encode.js';
 import { cmdStatements } from '../hooks/cmd-analysis/index.js';
 import { gitPushGuard, PARSE_REASON } from '../hooks/git-push-guard.js';
-import { PR_REVIEWER_ROLE } from '../hooks/lib/role.js';
+import { CODE_REVIEWER_ROLE } from '../hooks/lib/role.js';
 import { findGate } from '../hooks/registry.js';
 const MID_WORD_QUOTE = (wt) => `W=${wt}; cat <<E"M"\nx\nEM\ngit -C $W push origin HEAD`;
 const DOLLAR_LINE = (wt) => `W=${wt}; cat <<EOF\n$\nEOF\ngit -C $W push origin HEAD`;
@@ -81,8 +81,8 @@ describe('git-push-guard: wiring', () => {
     it('is registered under its gate name', () => {
         assert.equal(findGate('git-push-guard'), gitPushGuard);
     });
-    it('names the pr-reviewer role through the one shared constant', () => {
-        assert.equal(PR_REVIEWER_ROLE, 'pr-reviewer');
+    it('names the code-reviewer role through the one shared constant', () => {
+        assert.equal(CODE_REVIEWER_ROLE, 'code-reviewer');
     });
 });
 //# sourceMappingURL=hooks-git-push-guard.test.js.map

@@ -1,10 +1,10 @@
 ---
 name: tmb_review
-description: PR-reviewer's diff-level push-gate review — check this task's diff against its spec, then write the validation_record verdict that gates the push. Loaded by pr-reviewer when reviewing a committed task. Self-contained.
+description: code-reviewer's diff-level push-gate review — check this task's diff against its spec, then write the validation_record verdict that gates the push. Loaded by code-reviewer when reviewing a committed task. Self-contained.
 allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp__plugin_tmb_trajectory-server__validation_record
 ---
 
-# PR-reviewer protocol (push gate)
+# code-reviewer protocol (push gate)
 
 Your spawn prompt carries only the anchors (`task_id`, `commit_sha`, `branch_id`, `repo`, `repo_path`, `attempt_n`, `subagent_session_id`). Load the rest via `task_brief(task_id)` — `spec_body`, `commit_sha`, the changed dirs' world-model scope, `scope` (bro's close-time scope judgment), `verification_run` (the gate's latest recorded run, null when none), `completion_report` (the swe's per-criterion report), `spawn_note` (bro's note for you, at most 300 characters) and `open_findings` (findings no passing probe has resolved yet).
 
@@ -62,6 +62,6 @@ Run each probe in a `pr_monitor_worktree` checkout of the commit under review be
 
 ## Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row); the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]`: a `fail` requires a non-empty array, and a `pass` refuses one (omit it or pass `[]`).
+After producing a verdict, YOU (the code-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it with `attempt_n` and `mcp_available: true` (the typed signal bro reads off the row); the server derives your reviewer identity itself. If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape, including `subagent_session_id`) — it records `mcp_available = 0` for you. Its sixth argument is the findings as a JSON array, the same entries as `validation_record`'s `findings[]`: a `fail` requires a non-empty array, and a `pass` refuses one (omit it or pass `[]`).
 
-<!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->
+<!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating code-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->

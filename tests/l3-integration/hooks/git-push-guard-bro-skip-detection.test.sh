@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Regression for !2899: bro skipped pr-reviewer on 9 audit-fix MRs because
+# Regression for !2899: bro skipped code-reviewer on 9 audit-fix MRs because
 # git-push-guard.sh exited early on first-push (no @{u} → empty PUSH_SHAS → exit 0).
 #
 # This test simulates the exact !2899 scenario end-to-end:
 #   task created → atomic-close assigns commit_sha → git push -u origin <branch>
-#   with NO pr-reviewer verdict written yet.
+#   with NO code-reviewer verdict written yet.
 #
 # Pre-fix: hook allows the push (PUSH_SHAS empty, exits 0).
 # Post-fix: hook blocks the push (falls back to origin/$pr_target..HEAD).
@@ -88,7 +88,7 @@ sign_task() {
   local db="$1" task_id="$2"
   sqlite3 "$db" "
     INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));
+      VALUES ($task_id, 1, 'code-reviewer', 'pass', 1, 'LGTM', datetime('now'));
   " >/dev/null
 }
 
@@ -107,26 +107,26 @@ cleanup() {
 
 # ----- tests ------------------------------------------------------------
 
-test_case "!2899 regression: bro atomic-close then git push -u origin (no pr-reviewer) — BLOCKED"
+test_case "!2899 regression: bro atomic-close then git push -u origin (no code-reviewer) — BLOCKED"
 setup_bro_skip_repo
 db=$(setup_db "$REPO_PATH")
 set_pr_target "$db" "dev"
 insert_closed_task "$db" "$COMMIT_SHA"
-# No validation_attempts row — simulates bro skipping pr-reviewer
+# No validation_attempts row — simulates bro skipping code-reviewer
 out=$(run_hook "git push -u origin chore/audit-fix-42" "$db")
-assert_contains "$out" '"permissionDecision":"deny"' "push without pr-reviewer verdict must be blocked"
+assert_contains "$out" '"permissionDecision":"deny"' "push without code-reviewer verdict must be blocked"
 assert_contains "$out" "task_id=42" "block message must name the unsigned task"
 assert_contains "$out" "review before push" "block message must direct to review path"
 cleanup
 
-test_case "!2899 regression: bro atomic-close then git push -u origin WITH pr-reviewer pass — ALLOWED"
+test_case "!2899 regression: bro atomic-close then git push -u origin WITH code-reviewer pass — ALLOWED"
 setup_bro_skip_repo
 db=$(setup_db "$REPO_PATH")
 set_pr_target "$db" "dev"
 insert_closed_task "$db" "$COMMIT_SHA"
 sign_task "$db" 42
 out=$(run_hook "git push -u origin chore/audit-fix-42" "$db")
-assert_not_contains "$out" '"permissionDecision":"deny"' "push with pr-reviewer pass verdict must be allowed"
+assert_not_contains "$out" '"permissionDecision":"deny"' "push with code-reviewer pass verdict must be allowed"
 cleanup
 
 test_case "!2899 regression: multiple unsigned tasks on new branch — all blocked"

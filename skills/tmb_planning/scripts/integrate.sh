@@ -3,7 +3,7 @@
 #
 #   bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>
 #
-# Run by bro from the main checkout, after bro's own verify and the pr-reviewer
+# Run by bro from the main checkout, after bro's own verify and the code-reviewer
 # pass. The task's repo, branch_id, commit_sha and verification[] come from
 # the trajectory DB (TRAJECTORY_DB_PATH, else CLAUDE_PROJECT_DIR, else a walk
 # up from cwd).
@@ -98,7 +98,7 @@ ROW=$(tmb_gate_read "$DB" "SELECT 'task' || char(10) || COALESCE(repo, '') || ch
 { read -r _; read -r TASK_REPO; read -r BRANCH; read -r COMMIT_SHA; read -r HAS_PASS; } <<< "$ROW"
 [ -n "$BRANCH" ] || die 4 "task $TASK_ID has no branch_id"
 [ -n "$COMMIT_SHA" ] || die 3 "task $TASK_ID has no commit_sha, so no reviewed commit"
-[ "$HAS_PASS" = 1 ] || die 3 "task $TASK_ID has no passing pr-reviewer verdict for commit $COMMIT_SHA"
+[ "$HAS_PASS" = 1 ] || die 3 "task $TASK_ID has no passing code-reviewer verdict for commit $COMMIT_SHA"
 
 WS_ROOT=$(tmb_workspace_root "$DB")
 if [ -n "$TASK_REPO" ]; then

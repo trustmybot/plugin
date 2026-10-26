@@ -363,7 +363,7 @@ describe('validation_record — validation_attempts.repo', () => {
         const taskId = String(created[0].id);
         seedReviewerObservation(db, taskId, 1);
         const r = await call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'ok',
+            agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'ok',
             subagent_session_id: 'sess-1', mcp_available: true,
         });
         assert.ok(!r.isError, JSON.stringify(parse(r)));
@@ -379,7 +379,7 @@ describe('validation_record — validation_attempts.repo', () => {
         const taskId = db.get(`SELECT id FROM tasks WHERE branch_id = 'fix/no-task-repo'`).id;
         seedReviewerObservation(db, taskId, 1);
         const r = await call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer', task_id: String(taskId), attempt_n: 1, verdict: 'pass', feedback: 'ok',
+            agent: 'code-reviewer', task_id: String(taskId), attempt_n: 1, verdict: 'pass', feedback: 'ok',
             subagent_session_id: 'sess-2', mcp_available: true,
         });
         assert.ok(!r.isError, JSON.stringify(parse(r)));
@@ -423,10 +423,10 @@ describe('lazy embed backfill tick on search', () => {
         const db = tempDB();
         const issueId = seedRepoIssue(db);
         const auditId = insertAudit(db, {
-            issue_id: issueId, from_node: 'bro', event_type: 'planning_complete', summary: 'pr-reviewer verdict recorded',
+            issue_id: issueId, from_node: 'bro', event_type: 'planning_complete', summary: 'code-reviewer verdict recorded',
         });
         for (const mode of ['keyword', 'hybrid']) {
-            const hit = await call(auditTools(db).handlers, 'audit_search', { agent: 'bro', query: 'pr-reviewer', mode, k: 20 });
+            const hit = await call(auditTools(db).handlers, 'audit_search', { agent: 'bro', query: 'code-reviewer', mode, k: 20 });
             assert.ok(!hit.isError, `${mode}: ${JSON.stringify(parse(hit))}`);
             const ids = parse(hit)['results'].map((x) => x.id);
             assert.ok(ids.includes(auditId), `${mode}: expected row ${auditId} in ${JSON.stringify(ids)}`);

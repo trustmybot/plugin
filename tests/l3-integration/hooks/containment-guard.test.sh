@@ -184,7 +184,7 @@ assert_eq "allow" "$(decision "$(run "$PROJECT" "bro" Bash "$(bash_cmd 'echo x >
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Write "$(write "$HOME/.claude/settings.json")")")" "bro Write to ~/.claude/settings.json"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Write "$(write "$HOME/.claude/projects/-Users-someone-else/memory/x.md")")")" "bro Write to another project's slug"
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Write "$(write "$CC_PROJECT/memory/x.md")")")" "swe Write to the project's auto-memory"
-assert_eq "deny" "$(decision "$(run "$WT" "pr-reviewer" Write "$(write "$HOME/.claude/plans/x.md")")")" "pr-reviewer Write to a plan"
+assert_eq "deny" "$(decision "$(run "$WT" "code-reviewer" Write "$(write "$HOME/.claude/plans/x.md")")")" "code-reviewer Write to a plan"
 
 test_case "GH 1553: a session nested below the project writes the auto-memory Claude Code names after CLAUDE_PROJECT_DIR"
 NESTED="$PROJECT/apps/web"

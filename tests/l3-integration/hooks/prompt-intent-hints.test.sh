@@ -111,8 +111,8 @@ assert_contains "$out" "consultant-spawn enforcement" "bare role still routes to
 # ("install <X> for swe", "add <X> to bro") → load tmb_cheatcode, not planning
 # ---------------------------------------------------------------------------
 
-test_case "cheatcode-routing: 'install <X> for swe and pr-reviewer' fires cheatcode cue"
-out=$(run_hook "install typescript-lsp for swe and pr-reviewer")
+test_case "cheatcode-routing: 'install <X> for swe and code-reviewer' fires cheatcode cue"
+out=$(run_hook "install typescript-lsp for swe and code-reviewer")
 assert_contains "$out" "cheatcode-routing" "capability-on-agent install must fire"
 assert_contains "$out" "tmb_cheatcode" "CTX must point to tmb_cheatcode skill"
 
@@ -154,8 +154,8 @@ out=$(run_hook "install it
 then hand the result to swe")
 assert_not_contains "$out" "cheatcode-routing" "a newline ends the clause"
 
-test_case "cheatcode-routing: 'add <X> onto pr-reviewer' fires (GH 1764)"
-out=$(run_hook "add the lint skill onto pr-reviewer")
+test_case "cheatcode-routing: 'add <X> onto code-reviewer' fires (GH 1764)"
+out=$(run_hook "add the lint skill onto code-reviewer")
 assert_contains "$out" "cheatcode-routing" "onto <agent> is an agent target"
 
 test_case "injected blocks: <pasted_content> and <agent-message> spans are stripped (GH 1764)"
@@ -182,7 +182,7 @@ out=$(run_hook "<task-notification>swe reports: ran bun install in plugin/mcp/ t
 assert_not_contains "$out" "additionalContext" "task-notification turn must be fully silent"
 
 test_case "synthetic-turn: [SYSTEM NOTIFICATION] body emits nothing"
-out=$(run_hook "[SYSTEM NOTIFICATION - NOT USER INPUT] pr-reviewer finished reviewing plugin/mcp/dist")
+out=$(run_hook "[SYSTEM NOTIFICATION - NOT USER INPUT] code-reviewer finished reviewing plugin/mcp/dist")
 assert_not_contains "$out" "additionalContext" "system-notification turn must be fully silent"
 
 # ---------------------------------------------------------------------------

@@ -101,7 +101,7 @@ describe('issue_update_description', () => {
         const db = tempDB();
         const tools = issueTools(db);
         const issue = await seedIssue(tools.handlers);
-        for (const wrongRole of ['swe', 'architect', 'pr-reviewer', 'unknown']) {
+        for (const wrongRole of ['swe', 'architect', 'code-reviewer', 'unknown']) {
             const result = await call(tools.handlers, 'issue_update_description', {
                 agent: wrongRole,
                 issue_id: String(issue.id),

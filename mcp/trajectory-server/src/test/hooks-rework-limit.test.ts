@@ -54,7 +54,7 @@ function fixture(): Fixture {
     for (const verdict of list) {
       attempt += 1;
       w.prepare(
-        "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 'f', 1, ?)",
+        "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', ?, 'f', 1, ?)",
       ).run(TASK_ID, attempt, verdict, `2026-10-25T10:0${attempt}:00.000Z`);
     }
     w.close();
@@ -162,7 +162,7 @@ describe('rework-limit', () => {
     assert.deepEqual(run(f), ALLOWED);
     f.verdicts('fail');
     assert.deepEqual(run(f, payload('swe', 'task_id=999')), ALLOWED);
-    assert.deepEqual(run(f, payload('pr-reviewer')), ALLOWED);
+    assert.deepEqual(run(f, payload('code-reviewer')), ALLOWED);
     assert.deepEqual(run(f, payload('swe', 'no task here')), ALLOWED);
     assert.deepEqual(run(f, JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } })), ALLOWED);
     denyReason(run(f, payload('tmb:swe')).stdout);

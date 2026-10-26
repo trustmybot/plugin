@@ -441,7 +441,7 @@ function parseInstallCandidate(raw: unknown): ParsedInstallCandidate {
   };
 }
 
-// The consuming-agent prompt surface lives on an agent md (swe / pr-reviewer /
+// The consuming-agent prompt surface lives on an agent md (swe / code-reviewer /
 // a consultant) for everyone but bro, whose surface is CLAUDE.md. A non-bro
 // target materializes the agent md global→local + a skills: entry; bro
 // materializes a project-local CLAUDE.md reference.
@@ -827,7 +827,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_install',
       description:
-        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
+        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -856,7 +856,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           target: {
             type: 'string',
             description:
-              'The consuming agent to materialize for a skill: bro | swe | pr-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization.',
+              'The consuming agent to materialize for a skill: bro | swe | code-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization.',
           },
         },
         required: ['agent', 'candidate'],
@@ -1051,7 +1051,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
         // binding, so a no-target install is still wired in.
         if (kind === 'skill' && !target) {
           return err(
-            "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to ≥1 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>.",
+            "a skill install requires a target agent (bro|swe|code-reviewer|consultant) so it attaches to ≥1 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>.",
           );
         }
 

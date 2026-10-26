@@ -149,7 +149,7 @@ Other types (`last-prompt`, `permission-mode`, `file-history-snapshot`, `ai-titl
 | Fixture | Description |
 |---|---|
 | `bro-5turn.jsonl` | 5-turn bro session: task_list, task_brief, task_update_status calls with realistic usage fields and hook-injected system-reminders |
-| `bro-with-spawn.jsonl` | Session with two TaskCreate subagent spawns (swe + pr-reviewer) |
+| `bro-with-spawn.jsonl` | Session with two TaskCreate subagent spawns (swe + code-reviewer) |
 | `bro-provision-reads.jsonl` | Two `task_provision` windows with Read/Grep/Glob, reading and non-reading Bash, world-model calls, an MCP-prefixed tool name and a sidechain read |
 
 ## Acceptance Criteria (token-burn issues)

@@ -39,11 +39,11 @@
 #     "attachments": [ { "target": "swe", "artifact": "..." } ] }
 #   PER-CANDIDATE (one file routes many installs): keyed by candidate name →
 #     { "feature-dev": { "installed": true, "attachments":[{target:"swe",...}] },
-#       "code-review": { "installed": true, "attachments":[{target:"pr-reviewer",...}] } }
+#       "code-review": { "installed": true, "attachments":[{target:"code-reviewer",...}] } }
 # When the top level has a key matching the install candidate's name, that entry
 # is used; otherwise the whole object is read as the FLAT shape (backward-compatible).
 # When the chosen entry supplies attachments[], they are passed through verbatim
-# (the per-agent attachment target — feature-dev→swe, code-review→pr-reviewer);
+# (the per-agent attachment target — feature-dev→swe, code-review→code-reviewer);
 # otherwise the kind-derived default attachment is used.
 #
 # Input (one candidate per call):
@@ -328,7 +328,7 @@ printf '%s' "$install_result" \
      elif $kind == "mcp"  then "mcp-register"
      else "skill-proposed-pr" end) as $method
   # Fixture-supplied attachments[] pass through verbatim — that is the per-agent
-  # attachment target (feature-dev→swe, code-review→pr-reviewer). Otherwise the
+  # attachment target (feature-dev→swe, code-review→code-reviewer). Otherwise the
   # kind-derived default attachment is used.
   | (if ($ir.attachments | type) == "array" then $ir.attachments
      elif $kind == "plugin" then

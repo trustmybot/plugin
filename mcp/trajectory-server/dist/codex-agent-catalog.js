@@ -27,7 +27,7 @@ command = "node"
 args = ["--version"]
 enabled = false
 `;
-const REVIEWER_BODY = `name = "tmb_pr_reviewer"
+const REVIEWER_BODY = `name = "tmb_code_reviewer"
 description = "Review a specified diff as an advisory reviewer without editing code or creating trusted TMB validation."
 sandbox_mode = "read-only"
 developer_instructions = '''
@@ -76,7 +76,7 @@ function buildTemplate(agentId, body) {
 }
 export const CODEX_AGENT_CATALOG = Object.freeze([
     buildTemplate('tmb_swe', SWE_BODY),
-    buildTemplate('tmb_pr_reviewer', REVIEWER_BODY),
+    buildTemplate('tmb_code_reviewer', REVIEWER_BODY),
 ]);
 export function sha256(value) {
     return createHash('sha256').update(value).digest('hex');

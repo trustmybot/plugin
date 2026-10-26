@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# validation-record-fallback.sh — honor-system validation_record INSERT for MCP-unavailable pr-reviewer
+# validation-record-fallback.sh — honor-system validation_record INSERT for MCP-unavailable code-reviewer
 #
 # Usage:
 #   validation-record-fallback.sh <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id> [<findings_json>]
@@ -145,7 +145,7 @@ trap 'rm -f "$RESULT_FILE"' EXIT
 if ! tmb_db_write "$DB_PATH" "INSERT INTO validation_attempts
   (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
 VALUES
-  ($TASK_ID, $ATTEMPT_N, 'pr-reviewer', '$VERDICT', '$SAFE_FEEDBACK', 0, '$SAFE_SESSION', '$CREATED_AT')
+  ($TASK_ID, $ATTEMPT_N, 'code-reviewer', '$VERDICT', '$SAFE_FEEDBACK', 0, '$SAFE_SESSION', '$CREATED_AT')
 ON CONFLICT(task_id, attempt_n) DO UPDATE SET
   agent = excluded.agent,
   verdict = excluded.verdict,

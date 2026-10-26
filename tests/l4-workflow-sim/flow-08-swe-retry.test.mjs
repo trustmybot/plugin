@@ -1,8 +1,8 @@
 // Flow 8 — SWE Retry / Escalation (FLOWS.md §8)
 //
-// Trajectory: pr-reviewer fails task → bro reworks it with task_reopen (same
+// Trajectory: code-reviewer fails task → bro reworks it with task_reopen (same
 // branch, same worktree) → SWE commits again and completes → bro_atomic_close →
-// pr-reviewer signs off OR fails again → repeat up to 3 →
+// code-reviewer signs off OR fails again → repeat up to 3 →
 // at 3 fails, bro flips status to 'escalated' and surfaces to Human.
 //
 // Asserts: task_reopen moves the task to running in its existing worktree and
@@ -81,7 +81,7 @@ test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then
 
   seedReviewerObservation(dbPath, taskId, 1);
   const fail = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
     feedback: 'Attempt 1: still has the bug.',
     findings: [{ probe_cmd: 'test -f work-2.txt', expected: 'exit 0', observed: 'exit 1' }],
     subagent_session_id: 'flow08-retry-session-1',
@@ -99,7 +99,7 @@ test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then
 
   seedReviewerObservation(dbPath, taskId, 2);
   const pass = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
     feedback: 'Fixed; LGTM.',
     subagent_session_id: 'flow08-retry-session-2',
   });
@@ -122,16 +122,16 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   // attempt 1: pass
   seedReviewerObservation(dbPath, taskId, 1);
   await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'first',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'first',
     subagent_session_id: 'flow08-upsert-session-1',
   });
 
   // attempt 1 again with different verdict — upsert overwrites the row in place
-  // (intentional: pr-reviewer can revise its own verdict on the same attempt
+  // (intentional: code-reviewer can revise its own verdict on the same attempt
   // before the push happens). UNIQUE(task_id, attempt_n) is enforced via ON CONFLICT.
   seedReviewerObservation(dbPath, taskId, 1);
   const overwrite = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true, feedback: 'second',
+    agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true, feedback: 'second',
     findings: [{ probe_cmd: 'test -f work-2.txt', expected: 'exit 0', observed: 'exit 1' }],
     subagent_session_id: 'flow08-upsert-session-1-revised',
   });
@@ -153,7 +153,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
   for (let n = 1; n <= 3; n++) {
     seedReviewerObservation(dbPath, taskId, n);
     const r = await call(client, 'validation_record', {
-      agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
+      agent: 'code-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
       feedback: `Attempt ${n} still broken.`,
       findings: [{ probe_cmd: `test -f work-${n + 1}.txt`, expected: 'exit 0', observed: 'exit 1' }],
       subagent_session_id: `flow08-escalate-session-${n}`,

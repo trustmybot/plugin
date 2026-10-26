@@ -4,7 +4,7 @@
 # record what the merge finished:
 #   - tasks on the merged head branch that are still live → closed, their open
 #     agent_runs closed exit_reason='completed' (unmeasured when they carry no usage);
-#   - every task on that branch with no passing pr-reviewer verdict for its
+#   - every task on that branch with no passing code-reviewer verdict for its
 #     current commit (and no bro-authored waiver or recorded bypass) → one review_gate_bypassed
 #     audit row: the merge happened, the trajectory says the gate was skipped;
 #   - each issue the PR resolves through an EXPLICIT closing-ref

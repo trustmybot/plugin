@@ -6,7 +6,7 @@ What each plugin-shipped agent is **actually** instructed to do, derived from th
 
 Two layers determine which agents are available in a project.
 
-**Layer 1 — Workflow backbone (always global):** `swe.md` and `pr-reviewer.md` ship in the plugin's `agents/` directory and are always available without any copy or onboarding step. Resolution rule: when bro spawns `swe` or `pr-reviewer`, CC dispatches by name — a project-local `.claude/agents/<name>.md` wins if present; the global serves as fallback. Use `/tmb:agent-create` Template-copy mode to create a project-local override.
+**Layer 1 — Workflow backbone (always global):** `swe.md` and `code-reviewer.md` ship in the plugin's `agents/` directory and are always available without any copy or onboarding step. Resolution rule: when bro spawns `swe` or `code-reviewer`, CC dispatches by name — a project-local `.claude/agents/<name>.md` wins if present; the global serves as fallback. Use `/tmb:agent-create` Template-copy mode to create a project-local override.
 
 **Layer 2 — Consultants (templates, opt-in per project):** `architect`, `cto`, `ceo`, `pm` ship in `templates/agents/` and are instantiated per-project on first use via `/tmb:agent-create` template-copy mode. From then on, the project-local copy serves the consultant.
 
@@ -25,7 +25,7 @@ Three roles split by what each can be trusted to do without making its own homew
   1. **Token-heavy** — letting bro do it pollutes bro's strategic memory with diff noise.
   2. **No self-homework** — the verification gate runs the spec's `verification[]` on SWE's commit and bro judges the recorded run. Same agent can't write + sign off.
   3. **Subagents are fragile** — SWE runs as a CC subagent with narrowed `tools:` allowlist, frontmatter `disallowedTools`, fresh context. Hook denies / MCP errors mid-task can abort it. Critical state writes (workflow status, summaries, audit) stay with bro — the most permissioned + most resilient layer.
-- **pr-reviewer** — independent 3rd party at push gate. Read-only on files (no Edit/Write tool). The only agent allowed to call `validation_record` — the formal sign-off the push gate consumes.
+- **code-reviewer** — independent 3rd party at push gate. Read-only on files (no Edit/Write tool). The only agent allowed to call `validation_record` — the formal sign-off the push gate consumes.
 
 ---
 
@@ -64,7 +64,7 @@ Bro is the only agent allowed to call:
 - `issue_create`, `issue_close`, `issue_resume`
 - `discussion_append` for `kind='intent'`
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
-- `pr_monitor_comments_get` (shared with pr-reviewer)
+- `pr_monitor_comments_get` (shared with code-reviewer)
 - `issue_sync_retry`
 - `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (write `plugin_config('onboarded')` and the related policy keys)
 - `scan_run` (single scan-side tool)
@@ -81,7 +81,7 @@ Bro is the only agent allowed to call:
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
-| `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once pr-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
+| `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once code-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
 | `post-task-close-rescan.sh` | PostToolUse `bro_atomic_close` | Background `scan_run` refreshes the world model |
 
 ### Universal rules
@@ -105,7 +105,7 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 
 - Work in the worktree per the spec's `## Files`, `## Success Criteria`, `## Verification`. `files[]` is guidance at directory granularity: a write outside it is allowed, and the first write to each such path brings a note asking the swe to list it, and why, in its report.
 - Run the tests and lints for the files it touched; the verification gate runs the spec's `verification[]` once when the swe closes and records the run for the commit (`task_brief.verification_run`).
-- Report every path edited outside `files[]` with its reason; add the changelog entry the way the repo records changes; work on the branch bro provisioned; bro integrates the base after the pr-reviewer pass.
+- Report every path edited outside `files[]` with its reason; add the changelog entry the way the repo records changes; work on the branch bro provisioned; bro integrates the base after the code-reviewer pass.
 - Optionally invoke `tmb_swe-checklist` skill when the spec's `## Verification` needs interpretation.
 
 ### Atomic close
@@ -134,7 +134,7 @@ Batch in one response:
 
 ### Scope is judged at close
 
-`bro_atomic_close` diffs the task's own commits — `git diff --name-only $(git merge-base <commit> origin/<pr_target>) <commit>`, `pr_target` from the repo row, else the task's `parent_branch_id`, else the remote's default branch — against `files[]`. Commits the PR target gained after the task branched never count. Extra paths refuse the close, listed by top-level directory (root files under `<root>`) with counts; bro reverts them through the swe or accepts them with `waive_scope_gate: true` + `scope_waiver_reason`, which writes `scope_gate_waived` with `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. The close result carries `base_moved` (true when the merge-base with the task's `parent_branch_id` differs from the merge-base with the target). `task_brief` returns `scope: {files, extras_accepted, base_moved}` from the latest close, so pr-reviewer reads bro's acceptance instead of recomputing the diff.
+`bro_atomic_close` diffs the task's own commits — `git diff --name-only $(git merge-base <commit> origin/<pr_target>) <commit>`, `pr_target` from the repo row, else the task's `parent_branch_id`, else the remote's default branch — against `files[]`. Commits the PR target gained after the task branched never count. Extra paths refuse the close, listed by top-level directory (root files under `<root>`) with counts; bro reverts them through the swe or accepts them with `waive_scope_gate: true` + `scope_waiver_reason`, which writes `scope_gate_waived` with `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. The close result carries `base_moved` (true when the merge-base with the task's `parent_branch_id` differs from the merge-base with the target). `task_brief` returns `scope: {files, extras_accepted, base_moved}` from the latest close, so code-reviewer reads bro's acceptance instead of recomputing the diff.
 
 ### Forbidden
 
@@ -145,15 +145,15 @@ Batch in one response:
 
 ---
 
-## pr-reviewer (`agents/pr-reviewer.md`)
+## code-reviewer (`agents/code-reviewer.md`)
 
 Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server` (no Edit/Write — read-only by design).
 
 ### Spawn contract
 
 - Fires at **push time** over a batch of unsigned tasks (NOT per individual task close).
-- Bro spawns one pr-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
-- First action: `task_brief(agent='pr-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
+- Bro spawns one code-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
+- First action: `task_brief(agent='code-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
 - **MCP availability self-test** — pass the typed `mcp_available` boolean to `validation_record` (`true` = MCP up, `false` = honor-system fallback). It lands in the `validation_attempts.mcp_available` column; the push-gate reads the typed field from the row.
 
 ### Review work
@@ -162,20 +162,20 @@ For each task, trust the swe's checklist of what changed and read the records: t
 
 ### Sign off
 
-`validation_record(agent='pr-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback, mcp_available)`. Server enforces pr-reviewer-only and derives the reviewer's `subagent_session_id` and `reviewer_agent_id` from the `reviewer-identity-observe` hook row.
+`validation_record(agent='code-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback, mcp_available)`. Server enforces code-reviewer-only and derives the reviewer's `subagent_session_id` and `reviewer_agent_id` from the `reviewer-identity-observe` hook row.
 
 ### Server-enforced privileges (Layer 1)
 
-- `validation_record` — pr-reviewer is the **only** writer
+- `validation_record` — code-reviewer is the **only** writer
 - `issue_snapshot_md` (shared with consultants)
 - `pr_monitor_comments_get` (shared with bro)
 - `audit_append`, `discussion_append`
 
-### Hooks fired against pr-reviewer actions
+### Hooks fired against code-reviewer actions
 
 | Hook | When | Effect |
 |---|---|---|
-| `git-push-guard.sh` | PreToolUse Bash | Triggers pr-reviewer spawn — denies `git push` until every unsigned task has a passing `validation_attempts` row |
+| `git-push-guard.sh` | PreToolUse Bash | Triggers code-reviewer spawn — denies `git push` until every unsigned task has a passing `validation_attempts` row |
 
 ### Forbidden
 
@@ -206,7 +206,7 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 
 `requireRoles` reads the role from the `agent` argument the caller passes; the server never sees who is calling. The `agent-arg-matches-caller.sh` PreToolUse hook closes that gap on every trajectory-server call: it compares `agent` with the hook payload's `agent_type` (the subagent's real type, after `tmb_normalize_role`), or with `bro` when the payload has none (the main session), and denies a mismatch with an `agent_arg_mismatch` audit row. A subagent therefore cannot unlock bro's column by passing `agent='bro'`, and the main session cannot act as a subagent; a call without `agent` is left to the server, which treats it as `unknown`.
 
-| Tool | bro | swe | pr-reviewer | consultants |
+| Tool | bro | swe | code-reviewer | consultants |
 |---|:---:|:---:|:---:|:---:|
 | `issue_create` / `issue_close` | ✓ | | | |
 | `task_provision` | ✓ | | | |

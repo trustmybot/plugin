@@ -9,7 +9,7 @@ When editing prompt files or user-visible docs, follow these rules.
 
 ## Docs-update expectation
 
-When functionality changes, the same PR updates the user-visible docs that describe it. The PR-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?).
+When functionality changes, the same PR updates the user-visible docs that describe it. The code-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?).
 
 ## When docs and code disagree
 

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 export const CODEX_AGENT_TEMPLATE_SET_VERSION = 1;
 export const CODEX_AGENT_TEMPLATE_VERSION = 1 as const;
 
-export type CodexAgentId = 'tmb_swe' | 'tmb_pr_reviewer';
+export type CodexAgentId = 'tmb_swe' | 'tmb_code_reviewer';
 
 export interface CodexAgentTemplate {
   readonly agentId: CodexAgentId;
@@ -42,7 +42,7 @@ args = ["--version"]
 enabled = false
 `;
 
-const REVIEWER_BODY = `name = "tmb_pr_reviewer"
+const REVIEWER_BODY = `name = "tmb_code_reviewer"
 description = "Review a specified diff as an advisory reviewer without editing code or creating trusted TMB validation."
 sandbox_mode = "read-only"
 developer_instructions = '''
@@ -96,7 +96,7 @@ function buildTemplate(
 
 export const CODEX_AGENT_CATALOG: readonly CodexAgentTemplate[] = Object.freeze([
   buildTemplate('tmb_swe', SWE_BODY),
-  buildTemplate('tmb_pr_reviewer', REVIEWER_BODY),
+  buildTemplate('tmb_code_reviewer', REVIEWER_BODY),
 ]);
 
 export function sha256(value: string | Uint8Array): string {

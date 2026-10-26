@@ -162,7 +162,7 @@ describe('statsTools — task_stats', () => {
         assert.equal(payload.error, 'forbidden');
         db.close();
     });
-    it('is accessible to all allowed roles (swe, bro, consultant agents, pr-reviewer)', async () => {
+    it('is accessible to all allowed roles (swe, bro, consultant agents, code-reviewer)', async () => {
         const db = tempDB();
         const tools = statsTools(db);
         const now = nowISO();
@@ -170,7 +170,7 @@ describe('statsTools — task_stats', () => {
         const issueId = db.get('SELECT last_insert_rowid() AS id').id;
         db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)", [issueId, now, now]);
         const taskId = db.get('SELECT last_insert_rowid() AS id').id;
-        for (const agent of ['bro', 'swe', 'architect', 'cto', 'legal-reviewer', 'pr-reviewer']) {
+        for (const agent of ['bro', 'swe', 'architect', 'cto', 'legal-reviewer', 'code-reviewer']) {
             const result = await call(tools.handlers, 'task_stats', { agent, task_id: taskId });
             assert.ok(!result.isError, `Expected ${agent} to be allowed`);
         }
@@ -260,13 +260,13 @@ describe('statsTools — task_stats cost_estimate', () => {
                 ['swe', 2000, 'completed'],
                 ['swe', null, 'swept_orphan'],
                 ['swe', 3000, 'completed'],
-                ['pr-reviewer', 500, 'completed'],
+                ['code-reviewer', 500, 'completed'],
             ];
             for (const [agentType, cacheRead, exitReason] of runs) {
                 db.run('INSERT INTO agent_runs (task_id, issue_id, agent_type, cache_read_tokens, exit_reason) VALUES (?, ?, ?, ?, ?)', [taskId, issueId, agentType, cacheRead, exitReason]);
             }
             ['fail', 'fail', 'fail', 'pass'].forEach((verdict, i) => {
-                db.run("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 'f', 1, ?)", [taskId, i + 1, verdict, CREATED]);
+                db.run("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', ?, 'f', 1, ?)", [taskId, i + 1, verdict, CREATED]);
             });
             return taskId;
         }

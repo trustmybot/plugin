@@ -4,12 +4,12 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 export type AgentRole =
   | 'bro'
   | 'swe'
-  | 'pr-reviewer'
+  | 'code-reviewer'
   | 'consultant'
   | 'unknown';
 
-const FIRST_CLASS_ROLES = new Set<AgentRole>(['bro', 'swe', 'pr-reviewer']);
-const ALL_ROLES: AgentRole[] = ['bro', 'swe', 'pr-reviewer', 'consultant'];
+const FIRST_CLASS_ROLES = new Set<AgentRole>(['bro', 'swe', 'code-reviewer']);
+const ALL_ROLES: AgentRole[] = ['bro', 'swe', 'code-reviewer', 'consultant'];
 
 export function normalizeAgent(name?: unknown): AgentRole {
   if (typeof name !== 'string') return 'unknown';
@@ -24,7 +24,7 @@ export type { ValidationAttempt };
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-const VALID_AGENTS = ['bro', 'swe', 'pr-reviewer', 'consultant slug matching ^[a-z][a-z0-9_-]*$'];
+const VALID_AGENTS = ['bro', 'swe', 'code-reviewer', 'consultant slug matching ^[a-z][a-z0-9_-]*$'];
 
 function missingAgentDiagnostics(toolName: string, allowedRoles: AgentRole[], received: unknown) {
   const agentReceived = received === undefined ? null : received;
@@ -35,7 +35,7 @@ function missingAgentDiagnostics(toolName: string, allowedRoles: AgentRole[], re
     message:
       `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). ` +
       'This is a missing-argument error, not a role restriction — retry with agent set to your role: ' +
-      "'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. " +
+      "'bro', 'swe', 'code-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. " +
       `${toolName} accepts: ${allowedRoles.join(', ')}.`,
   };
 }
@@ -94,7 +94,7 @@ export function redactIssue(
     return { ...rest, objective: truncated };
   }
 
-  // Bro, consultants, and pr-reviewer are full-trust; description gated only on opts.include_description.
+  // Bro, consultants, and code-reviewer are full-trust; description gated only on opts.include_description.
   if (!opts?.include_description) {
     const { description: _, ...rest } = issue;
     void _;

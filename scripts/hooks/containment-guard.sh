@@ -11,7 +11,7 @@
 #     with a message naming that piece, audited with content.reason
 #     `unbound_caller`; Bash with no write runs. The root never widens to the
 #     project.
-#   pr-reviewer — the project root (a read-only reviewer; its row opens only
+#   code-reviewer — the project root (a read-only reviewer; its row opens only
 #     at SubagentStop).
 #   bro (no agent_type, or bro) — the project root.
 # The project root is the project holding the resolved trajectory DB, else
@@ -49,7 +49,7 @@
 #     path with every non-alphanumeric character turned into `-`; Claude Code
 #     names it after CLAUDE_PROJECT_DIR, so in a session nested below the
 #     project both that slug and the root's slug are allowed) and its plans
-#     dir (.../plans). swe and pr-reviewer never get these.
+#     dir (.../plans). swe and code-reviewer never get these.
 #
 # Every denial writes one containment_denied audit row (from_node
 # hook:containment-guard, content {tool, path, root, task_id}, plus reason for

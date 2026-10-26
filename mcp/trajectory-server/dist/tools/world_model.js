@@ -664,7 +664,7 @@ export function worldModelTools(db, graphHolder) {
         return { name: resolveSoleRepo(db)?.name ?? '' };
     };
     const handlers = {
-        world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
+        world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'code-reviewer', 'consultant'], wrap(async (args) => {
             let repo = args['repo'] ?? '';
             if (!repo) {
                 const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
@@ -709,7 +709,7 @@ export function worldModelTools(db, graphHolder) {
                 unmerged_work: unmerged.unmerged_work,
             });
         })),
-        world_model_search: requireRoles('world_model_search', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
+        world_model_search: requireRoles('world_model_search', ['bro', 'swe', 'code-reviewer', 'consultant'], wrap(async (args) => {
             const query = args['query'];
             if (!query || typeof query !== 'string')
                 return err('query is required');
@@ -737,7 +737,7 @@ export function worldModelTools(db, graphHolder) {
             const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
             return ok({ results, total_matched: results.length, ...(warning ? { warning } : {}), mode, match });
         })),
-        world_model_symbol: requireRoles('world_model_symbol', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
+        world_model_symbol: requireRoles('world_model_symbol', ['bro', 'swe', 'code-reviewer', 'consultant'], wrap(async (args) => {
             const id = args['id'];
             let symbol = null;
             if (typeof id === 'number') {
@@ -798,7 +798,7 @@ export function worldModelTools(db, graphHolder) {
                 ...(args['source'] === true ? symbolSource(db, symbol) : {}),
             });
         })),
-        world_model_concepts: requireRoles('world_model_concepts', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
+        world_model_concepts: requireRoles('world_model_concepts', ['bro', 'swe', 'code-reviewer', 'consultant'], wrap(async (args) => {
             const query = args['query'];
             if (typeof query !== 'string' || !query.trim())
                 return err('query is required');
@@ -819,7 +819,7 @@ export function worldModelTools(db, graphHolder) {
                 derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null,
             });
         })),
-        world_model_concept_get: requireRoles('world_model_concept_get', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrap(async (args) => {
+        world_model_concept_get: requireRoles('world_model_concept_get', ['bro', 'swe', 'code-reviewer', 'consultant'], wrap(async (args) => {
             const id = args['id'];
             if (typeof id !== 'number')
                 return err('id is required');

@@ -153,14 +153,14 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     feedback            TEXT    NOT NULL DEFAULT '',
     -- LOAD-BEARING-SAFETY: mcp_available is the typed push-gate signal (1=MCP up,
     -- 0=honor-system fallback). Bro reads it off this column via validation_history,
-    -- so the pr-reviewer verdict + availability travel as typed fields, never scraped
+    -- so the code-reviewer verdict + availability travel as typed fields, never scraped
     -- from a free-text feedback prefix. No DEFAULT: every writer states it.
     mcp_available       INTEGER NOT NULL,
     subagent_session_id TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task's repo.
     repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     created_at          TEXT    NOT NULL,
-    -- reviewer_agent_id: the pr-reviewer subagent's Claude Code agent_id
+    -- reviewer_agent_id: the code-reviewer subagent's Claude Code agent_id
     -- (subagent_session_id stays the Claude Code session). NULL until
     -- validation_record writes it, and for honor-system rows.
     reviewer_agent_id   TEXT,
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS verification_run_commands (
     PRIMARY KEY (run_id, ordinal)
 );
 
--- review_findings (v47, GH 1737): one row per defect a pr-reviewer FAIL or
+-- review_findings (v47, GH 1737): one row per defect a code-reviewer FAIL or
 -- escalate verdict names. validation_record writes the row (id F<task_id>-<n>,
 -- n counting up per task; status 'open'); swe-verification-gate.sh runs every
 -- non-wontfix probe_cmd after verification[] on each close attempt and sets
@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS agents (
 -- AUTOINCREMENT counter untouched when the rows are already present.
 WITH seed (name, kind, file_path) AS (VALUES
     ('swe',          'backbone',   'plugin:agents/swe.md'),
-    ('pr-reviewer',  'backbone',   'plugin:agents/pr-reviewer.md'),
+    ('code-reviewer', 'backbone',   'plugin:agents/code-reviewer.md'),
     ('architect',    'consultant', 'plugin:templates/agents/architect.md'),
     ('cto',          'consultant', 'plugin:templates/agents/cto.md'),
     ('ceo',          'consultant', 'plugin:templates/agents/ceo.md'),
@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 50, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 51, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -400,7 +400,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     host                 TEXT CHECK (host IN ('claude','codex')),
     exit_reason          TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed')),
     -- effort: the reasoning effort the run was spawned at, written by
-    -- swe-atomic-close.sh at SubagentStop (swe: the task's effort; pr-reviewer:
+    -- swe-atomic-close.sh at SubagentStop (swe: the task's effort; code-reviewer:
     -- plugin_config.reviewer_effort). NULL on other agent types and on runs
     -- recorded before schema v37.
     effort               TEXT CHECK (effort IN ('low','medium','high')),
@@ -434,7 +434,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
 -- `since` query; `last_comment_id` is the comment-id cursor when the backend
 -- supports id-based deltas (gh REST does; glab uses created_at). task_id links
 -- the PR to the task it ships, so pr_monitor_comments_get resolves
--- pr_number → task → issue when it persists the PR's comments. Pr-reviewer
+-- pr_number → task → issue when it persists the PR's comments. Code-reviewer
 -- verdicts live in validation_attempts.
 CREATE TABLE IF NOT EXISTS pr_review_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -579,8 +579,8 @@ WITH seed (name, kind, origin, description, file_path, scope, trust_tier, status
     ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    ('tmb_review',             'skill', 'builtin', 'PR-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    ('tmb_push-gate',          'skill', 'builtin', 'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.', 'skills/tmb_push-gate/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_review',             'skill', 'builtin', 'Code-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_push-gate',          'skill', 'builtin', 'Bro''s push-gate orchestration — reaping unsigned commits, spawning code-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.', 'skills/tmb_push-gate/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_comment-triage',     'skill', 'builtin', 'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.', 'skills/tmb_comment-triage/SKILL.md',     'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),

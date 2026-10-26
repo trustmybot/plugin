@@ -69,7 +69,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   assert.equal(
     Array.isArray(preValidation.data) ? preValidation.data.length : 0,
     0,
-    'validation_history must be empty before pr-reviewer runs',
+    'validation_history must be empty before code-reviewer runs',
   );
 
   // 6. Closing the issue over its still-pending task is refused; an explicit

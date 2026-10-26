@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SubagentStop hook — atomic-close safety net + per-spawn metering for SWE,
-# and per-spawn metering for pr-reviewer.
+# and per-spawn metering for code-reviewer.
 #
 # Task binding: the `task_id=<N>` in the spawn prompt (tmb_task_id_from_transcript),
 # for a task in any status. A swe transcript with no task id, or an id with no
 # task row, writes one agent_runs_capture_skipped audit row and stops — the hook
-# never guesses a task. An unbound pr-reviewer spawn stops silently.
+# never guesses a task. An unbound code-reviewer spawn stops silently.
 #
 # Fires on: SubagentStop
 # Target: <1s wall time.
@@ -16,12 +16,12 @@
 #                                         + swe_atomic_close_auto_completed audit row
 #   pending|running + HAS_COMMITS=false → additionalContext warning to bro
 #   any other status                    → metrics only, status unchanged
-#   subagent_type pr-reviewer   → metrics only
+#   subagent_type code-reviewer   → metrics only
 #   any other subagent_type     → silent exit 0
 #
-# Effort: a swe row copies tasks.effort of its task; a pr-reviewer row takes
+# Effort: a swe row copies tasks.effort of its task; a code-reviewer row takes
 # plugin_config.reviewer_effort (tmb_effort_defaults; high when unset). A
-# pr-reviewer row is keyed by spawn_id alone, with root_dir the project root
+# code-reviewer row is keyed by spawn_id alone, with root_dir the project root
 # and exit_reason completed.
 #
 # Metering: the spawn's totals and dominant model from its transcript land on
@@ -132,9 +132,9 @@ jq -cn --arg ts "$ENTRY_TS" --argjson keys "$ENTRY_KEYS" --arg agent "$ENTRY_AGE
   '{ts:$ts,kind:"swe-atomic-close-entry",keys:$keys,agent_type_resolved:$agent}' \
   >> "$_LOG_FILE" 2>/dev/null || true
 
-# Only act on swe and pr-reviewer subagent stops.
+# Only act on swe and code-reviewer subagent stops.
 AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
-if [ "$AGENT_TYPE" != "swe" ] && [ "$AGENT_TYPE" != "pr-reviewer" ]; then
+if [ "$AGENT_TYPE" != "swe" ] && [ "$AGENT_TYPE" != "code-reviewer" ]; then
   exit 0
 fi
 
@@ -232,9 +232,9 @@ case "${SAFE_TOKENS_IN}${SAFE_TOKENS_OUT}${SAFE_CACHE_READ_TOKENS}${SAFE_CACHE_C
     ;;
 esac
 
-# pr-reviewer: one metering row per spawn, effort = reviewer_effort; no task
+# code-reviewer: one metering row per spawn, effort = reviewer_effort; no task
 # status side effects.
-if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
+if [ "$AGENT_TYPE" = "code-reviewer" ]; then
   REVIEWER_EFFORT_SQL="NULL"
   EFFORT_DEFAULTS=$(tmb_effort_defaults "$DB")
   case "${EFFORT_DEFAULTS#*|}" in
@@ -251,19 +251,19 @@ UPDATE agent_runs
        ${USAGE_SET_SQL},
        model = COALESCE(${SAFE_MODEL_SQL}, model),
        effort = COALESCE(effort, ${REVIEWER_EFFORT_SQL})
- WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'pr-reviewer' AND spawn_id = '${SAFE_SPAWN_ID}';
+ WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'code-reviewer' AND spawn_id = '${SAFE_SPAWN_ID}';
 INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
                         repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort,
                         plugin_version)
-SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'pr-reviewer', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
+SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'code-reviewer', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
        (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, ${USAGE_INSERT_SQL},
        ${SAFE_MODEL_SQL}, 'claude', '${SAFE_PROJECT_ROOT}', 'completed', ${REVIEWER_EFFORT_SQL},
        ${SAFE_PLUGIN_VERSION_SQL}
  WHERE (SELECT changes()) = 0;"; then
     jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
-      '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid,agent_type:"pr-reviewer"}' \
+      '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid,agent_type:"code-reviewer"}' \
       >> "$_LOG_FILE" 2>/dev/null || true
   fi
   exit 0

@@ -295,7 +295,7 @@ describe('discussions + snapshot integration', () => {
         const issueId = globalThis['testIssueId'];
         const sha = 'deadbeefcafe1234567890abcdef0123456789ab';
         const result = await call(reports.handlers, 'issue_snapshot_md', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             issue_id: issueId,
         });
         const data = parseResult(result);
@@ -319,7 +319,7 @@ describe('discussions + snapshot integration', () => {
         const reports = reportTools(db);
         const issueId = globalThis['testIssueId'];
         const result = await call(reports.handlers, 'issue_snapshot_md', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             issue_id: issueId,
             output_path: '/tmp/dangerous-path.md',
         });
@@ -331,7 +331,7 @@ describe('discussions + snapshot integration', () => {
         const reports = reportTools(db);
         const issueId = globalThis['testIssueId'];
         const result = await call(reports.handlers, 'issue_snapshot_md', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             issue_id: issueId,
             output_path: 'docs/trustmybot/../../../etc/passwd',
         });

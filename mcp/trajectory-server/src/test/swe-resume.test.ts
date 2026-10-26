@@ -257,7 +257,7 @@ describe('swe resumed through SendMessage (GH 1742)', () => {
     run(4, 'agent-b', 4_000, 40, 400, 3);
     run(5, 'tool_use:x', 0, 0, 0, null, 'swept_orphan');
     run(6, 'agent-c', 5_000, 50, 500, null);
-    db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, duration_ms) VALUES (5, 1, 'pr-reviewer', '2026-10-25T10:40:00.000Z', 'agent-r', 9000)");
+    db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, duration_ms) VALUES (5, 1, 'code-reviewer', '2026-10-25T10:40:00.000Z', 'agent-r', 9000)");
     const stats = JSON.parse(((await (statsTools(db).handlers['task_stats'] as Handler)({ agent: 'bro', task_id: 5 })) as RawResult).content[0].text);
     assert.equal(stats.swe_spawn_count, 5);
     assert.equal(stats.rework_count, 4);

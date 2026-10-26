@@ -2,10 +2,10 @@
   "session_id": "corpus",
   "hook_event_name": "PreToolUse",
   "tool_name": "Bash",
-  "cwd": "@SANDBOX@/signed",
+  "cwd": "@SANDBOX@/unsigned",
   "agent_type": "pr-reviewer",
   "tool_input": {
     "command": "git push"
   },
-  "corpus_expect": "BLOCKED: pr-reviewer must not push"
+  "corpus_expect": "unsigned commit(s)"
 }

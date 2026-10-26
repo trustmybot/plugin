@@ -16,7 +16,7 @@ Details: [Sandbox support](./INSTALL.md#sandbox-support).
 
 ## Vision
 
-Many AI coding agents now exist (Claude Code, OpenAI Codex, Cursor, OpenCode, Gemini CLI, GitHub Copilot CLI, others). The bro doctrine — Human → bro → SWE with pr-reviewer as push gate, Lego templates, lazy-bootstrap project setup, full audit trail in SQLite — is **platform-agnostic** in concept. The implementation is currently Claude-Code-shaped, but most of the content (skills, agent templates, planning protocol, MCP server) would port cleanly.
+Many AI coding agents now exist (Claude Code, OpenAI Codex, Cursor, OpenCode, Gemini CLI, GitHub Copilot CLI, others). The bro doctrine — Human → bro → SWE with code-reviewer as push gate, Lego templates, lazy-bootstrap project setup, full audit trail in SQLite — is **platform-agnostic** in concept. The implementation is currently Claude-Code-shaped, but most of the content (skills, agent templates, planning protocol, MCP server) would port cleanly.
 
 This doc describes how the repo is structured to make that port realistic when there's demand.
 
@@ -31,7 +31,7 @@ plugin/
 ├── gemini-extension.json   # Gemini CLI manifest — placeholder
 │
 ├── # Shared cross-platform content (single source of truth)
-├── agents/                 # workflow backbone — swe + pr-reviewer, ship globally
+├── agents/                 # workflow backbone — swe + code-reviewer, ship globally
 ├── skills/                 # tmb_* protocol skills + default workflow skills (all global)
 ├── templates/agents/       # opt-in consultant templates (architect, cto, ceo, pm)
 ├── mcp/trajectory-server/  # Shared MCP core with isolated Claude/Codex entries
@@ -54,7 +54,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 | Asset | Status | Notes |
 |---|---|---|
 | Claude `skills/*` | ⚠️ Portable ideas, host-specific packaging | Codex exposes two separately authored adapter Skills; it does not load the Claude skill catalog. |
-| `agents/*.md` body (swe + pr-reviewer) | ⚠️ Portable workflow doctrine, host-specific standalone contract | Codex Scope 4 generates separately authored TOML personas because its Agents have no task, validation, or delivery authority. Before a later scope grants that authority, Codex must use a shared host-neutral source or mechanical edge translation. |
+| `agents/*.md` body (swe + code-reviewer) | ⚠️ Portable workflow doctrine, host-specific standalone contract | Codex Scope 4 generates separately authored TOML personas because its Agents have no task, validation, or delivery authority. Before a later scope grants that authority, Codex must use a shared host-neutral source or mechanical edge translation. |
 | `agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
 | `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
 | `mcp/trajectory-server/` | ⚠️ Shared core with isolated entries | Claude retains `dist/index.js` and its full registry. Codex uses `dist/codex.js` and a fixed 15-tool registry: 13 local planning tools plus two Agent materialization tools. |

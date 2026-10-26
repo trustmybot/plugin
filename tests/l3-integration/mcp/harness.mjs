@@ -64,7 +64,7 @@ export async function startClient({ env, extraEnv, dbPath: requestedDbPath = ':m
 }
 
 // seedReviewerObservation writes the reviewer_identity_observed row the
-// reviewer-identity-observe hook writes when a pr-reviewer subagent calls
+// reviewer-identity-observe hook writes when a code-reviewer subagent calls
 // validation_record (the server refuses a verdict without one). Needs a
 // startClient({ fileDb: true }) dbPath; uses the sqlite3 CLI so it runs under
 // node and bun alike.

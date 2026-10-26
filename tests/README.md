@@ -290,7 +290,7 @@ Assertion helpers (`tests/lib/assert.sh`):
 
 ### Dry runs as assertions (`assert-sql.sh`)
 
-A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and pr-reviewer re-run it. The helper ships with the plugin at `skills/tmb_planning/scripts/assert-sql.sh`; point it at a `cp` of the reference data, not the live trajectory DB. In a user project, call it through the plugin root:
+A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and code-reviewer re-run it. The helper ships with the plugin at `skills/tmb_planning/scripts/assert-sql.sh`; point it at a `cp` of the reference data, not the live trajectory DB. In a user project, call it through the plugin root:
 
 ```bash
 mkdir -p .claude/tmb/tmp && cp .claude/tmb/trajectory.db .claude/tmb/tmp/ref.db

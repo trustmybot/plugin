@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { normalizeAgent, redactIssue, redactValidationRow, requireAgent, requireRoles, } from '../middleware/agent-scope.js';
 import { registerTools, toolHandlers } from '../tools/index.js';
 import { GraphHolder } from '../graph.js';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 function makeIssue(overrides = {}) {
     return {
         id: 1,
@@ -36,7 +36,7 @@ describe('agent-scope middleware', () => {
     it('normalizeAgent maps first-class names correctly', () => {
         assert.equal(normalizeAgent('bro'), 'bro');
         assert.equal(normalizeAgent('swe'), 'swe');
-        assert.equal(normalizeAgent('pr-reviewer'), 'pr-reviewer');
+        assert.equal(normalizeAgent('code-reviewer'), 'code-reviewer');
     });
     it('normalizeAgent maps architect and other well-formed names to consultant', () => {
         assert.equal(normalizeAgent('architect'), 'consultant');
@@ -52,7 +52,7 @@ describe('agent-scope middleware', () => {
     });
     it('normalizeAgent strips a leading tmb: namespace, case-insensitively', () => {
         assert.equal(normalizeAgent('tmb:swe'), 'swe');
-        assert.equal(normalizeAgent('TMB:Pr-Reviewer'), 'pr-reviewer');
+        assert.equal(normalizeAgent('TMB:Code-Reviewer'), 'code-reviewer');
         assert.equal(normalizeAgent('tmb:bro'), 'bro');
         assert.equal(normalizeAgent('tmb:pm'), 'consultant');
         assert.equal(normalizeAgent('tmb:'), 'unknown');
@@ -148,7 +148,7 @@ describe('agent-scope middleware', () => {
         assert.deepEqual(payload.allowed_roles, ['bro']);
         assert.equal(payload.reason, 'agent_missing_or_invalid');
         assert.equal(payload.agent_received, null);
-        for (const name of ['bro', 'swe', 'pr-reviewer']) {
+        for (const name of ['bro', 'swe', 'code-reviewer']) {
             assert.ok(payload.valid_agents.includes(name), `valid_agents missing ${name}`);
         }
         assert.ok(payload.valid_agents.some((v) => v.includes('consultant')), 'valid_agents missing a consultant-slug entry');
@@ -201,7 +201,7 @@ describe('requireAgent', () => {
         assert.equal(payload.caller_role, 'unknown');
         assert.equal(payload.reason, 'agent_missing_or_invalid');
         assert.equal(payload.agent_received, null);
-        assert.deepEqual(payload.allowed_roles, ['bro', 'swe', 'pr-reviewer', 'consultant']);
+        assert.deepEqual(payload.allowed_roles, ['bro', 'swe', 'code-reviewer', 'consultant']);
     });
     it('rejects an invalid agent and names the gated tool roles', async () => {
         const gated = requireRoles('issue_close', ['bro'], passthrough);
@@ -211,7 +211,7 @@ describe('requireAgent', () => {
         assert.deepEqual(payload.allowed_roles, ['bro']);
     });
     it('passes any recognised caller through to the handler', async () => {
-        for (const agent of ['bro', 'swe', 'pr-reviewer', 'pm', 'tmb:swe']) {
+        for (const agent of ['bro', 'swe', 'code-reviewer', 'pm', 'tmb:swe']) {
             const result = await requireAgent('issue_list', passthrough)({ agent });
             assert.ok(!result.isError, `${agent} should pass`);
         }
@@ -265,6 +265,33 @@ describe('registered tools: consultants on read tools, missing agent everywhere'
         assert.equal(payload.error, 'forbidden');
         assert.equal(payload.caller_role, 'consultant');
         assert.deepEqual(payload.allowed_roles, ['bro', 'swe']);
+    });
+    it('validation_record admits code-reviewer and rejects the pre-rename pr-reviewer name, writing no row (GH 1641)', async () => {
+        const record = (agent, attemptN) => {
+            seedReviewerObservation(db, taskId, attemptN);
+            return callTool('validation_record', {
+                agent,
+                task_id: taskId,
+                attempt_n: attemptN,
+                verdict: 'pass',
+                feedback: '# LGTM',
+                mcp_available: true,
+            });
+        };
+        const rowAgents = (attemptN) => db
+            .all('SELECT agent FROM validation_attempts WHERE task_id = ? AND attempt_n = ?', [taskId, attemptN])
+            .map((row) => row.agent);
+        const accepted = await record('code-reviewer', 1);
+        assert.ok(!accepted.isError, JSON.stringify(accepted.content));
+        assert.deepEqual(rowAgents(1), ['code-reviewer']);
+        for (const legacy of ['pr-reviewer', 'tmb:pr-reviewer']) {
+            const rejected = await record(legacy, 2);
+            assert.ok(rejected.isError, `${legacy} must be rejected`);
+            const payload = payloadOf(rejected);
+            assert.equal(payload.error, 'forbidden');
+            assert.deepEqual(payload.allowed_roles, ['code-reviewer']);
+            assert.deepEqual(rowAgents(2), [], `${legacy} wrote no validation row`);
+        }
     });
     it('an ungated tool rejects a call with no agent', async () => {
         const result = await callTool('issue_list', {});

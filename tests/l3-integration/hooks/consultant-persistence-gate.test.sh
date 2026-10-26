@@ -4,7 +4,7 @@
 # stops without having persisted at least one discussion row on the most recent
 # open issue, block with {"decision":"block","reason":"..."} containing a
 # recovery message teaching discussion_append usage.
-# Silent no-op for backbone roles (bro/swe/pr-reviewer), non-TMB agents,
+# Silent no-op for backbone roles (bro/swe/code-reviewer), non-TMB agents,
 # absent DB, and when stop_hook_active is set.
 set -euo pipefail
 
@@ -51,7 +51,7 @@ sqlite3 "$DB" "
   );
   INSERT INTO agents (name, kind, file_path) VALUES
     ('swe',          'backbone',   'plugin:agents/swe.md'),
-    ('pr-reviewer',  'backbone',   'plugin:agents/pr-reviewer.md'),
+    ('code-reviewer',  'backbone',   'plugin:agents/code-reviewer.md'),
     ('architect',    'consultant', 'plugin:templates/agents/architect.md'),
     ('cto',          'consultant', 'plugin:templates/agents/cto.md');
   INSERT INTO issues (id, objective, status, created_at, updated_at)
@@ -103,12 +103,12 @@ out=$(run_hook "$(consultant_input "swe")")
 assert_eq "" "$out" "no output for swe"
 
 # ========================================================
-# Case 3b: pr-reviewer → pass-through (backbone role)
+# Case 3b: code-reviewer → pass-through (backbone role)
 # ========================================================
 
-test_case "pr-reviewer subagent → pass-through (backbone role)"
-out=$(run_hook "$(jq -n '{subagent_type: "pr-reviewer"}')")
-assert_eq "" "$out" "no output for pr-reviewer"
+test_case "code-reviewer subagent → pass-through (backbone role)"
+out=$(run_hook "$(jq -n '{subagent_type: "code-reviewer"}')")
+assert_eq "" "$out" "no output for code-reviewer"
 
 # ========================================================
 # Case 3c: bro → pass-through (backbone role not in agents table as backbone)

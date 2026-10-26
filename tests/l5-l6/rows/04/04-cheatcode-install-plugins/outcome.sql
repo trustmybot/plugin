@@ -5,7 +5,7 @@
 -- scope. The deterministic proof is (a) two cheatcode_installed audit rows,
 -- (b) the two cheatcodes rows (feature-dev + code-review) written scope='project-local',
 -- and (c) the per-agent attachment records — feature-dev → swe, code-review →
--- pr-reviewer. Marketplace results are stubbed via TMB_CHEATCODE_INSTALL_FIXTURE;
+-- code-reviewer. Marketplace results are stubbed via TMB_CHEATCODE_INSTALL_FIXTURE;
 -- the install/attachment SHAPE is covered by L2/L3, the per-candidate routing
 -- here.
 
@@ -51,6 +51,6 @@ UNION ALL
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'attachment-target-pr-reviewer-written (got ' || COUNT(*) || ')' AS description
+  'attachment-target-code-reviewer-written (got ' || COUNT(*) || ')' AS description
 FROM cheatcode_attachments
-WHERE target = 'pr-reviewer';
+WHERE target = 'code-reviewer';

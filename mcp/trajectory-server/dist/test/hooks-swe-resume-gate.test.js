@@ -35,7 +35,7 @@ function fixture({ runEffort = 'medium', taskEffort = 'medium', status = 'runnin
     d.prepare("INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (?, 'o', 'open', '2026-10-25T09:00:00.000Z', '2026-10-25T09:00:00.000Z')").run(ISSUE_ID);
     d.prepare("INSERT INTO tasks (id, issue_id, branch_id, description, status, effort, created_at, updated_at) VALUES (?, ?, 'feat/3-x', 'd', ?, ?, '2026-10-25T09:00:00.000Z', '2026-10-25T09:00:00.000Z')").run(TASK_ID, ISSUE_ID, status, taskEffort);
     d.prepare("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at, spawn_id, effort, exit_reason) VALUES (?, ?, 'swe', '2026-10-25T09:05:00.000Z', '2026-10-25T09:50:00.000Z', ?, ?, 'completed')").run(TASK_ID, ISSUE_ID, SWE, runEffort);
-    d.prepare("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id) VALUES (?, ?, 'pr-reviewer', '2026-10-25T09:55:00.000Z', 'agent-reviewer-1')").run(TASK_ID, ISSUE_ID);
+    d.prepare("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id) VALUES (?, ?, 'code-reviewer', '2026-10-25T09:55:00.000Z', 'agent-reviewer-1')").run(TASK_ID, ISSUE_ID);
     d.close();
     const exec = (sql, ...params) => {
         const w = new DatabaseSync(db);
@@ -46,7 +46,7 @@ function fixture({ runEffort = 'medium', taskEffort = 'medium', status = 'runnin
     const fails = (n) => {
         for (let i = 0; i < n; i += 1) {
             attempt += 1;
-            exec("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', 'fail', 'f', 1, ?)", TASK_ID, attempt, `2026-10-25T10:0${attempt}:00.000Z`);
+            exec("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', 'fail', 'f', 1, ?)", TASK_ID, attempt, `2026-10-25T10:0${attempt}:00.000Z`);
         }
     };
     return { db, env, exec, fails };

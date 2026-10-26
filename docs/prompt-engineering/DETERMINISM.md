@@ -17,7 +17,7 @@ Skills, CLAUDE.md, and agent files are reserved for the irreducibly judgment-bou
 | 3 | **PreToolUse hooks (block)** | LLM cannot proceed without prerequisite; hook returns `decision: block` | "Don't run X without Y first" — e.g. push-gate, no-source-edit-from-main, require-task-spec, require-feature-branch-active |
 | 4 | **PostToolUse hooks (side-effect)** | After a tool call, auto-emit follow-up events or queue downstream work | Auto-derived audit events, cleanup-worktree-on-task-close |
 | 5 | **UserPromptSubmit hooks (inject)** | Inject directives into the LLM's context at prompt arrival, before the LLM responds | Pattern-detected routing hints ("consultant question → spawn Agent first") |
-| 6 | **`requireRoles` / wire enforcement** | Server rejects forbidden tool calls with `is_error: true` regardless of prompt content | Role-bound tool access — bro/swe/pr-reviewer/consultant boundaries |
+| 6 | **`requireRoles` / wire enforcement** | Server rejects forbidden tool calls with `is_error: true` regardless of prompt content | Role-bound tool access — bro/swe/code-reviewer/consultant boundaries |
 | 7 | **Skill prose + AskUserQuestion** | LLM reads markdown and applies judgment | Irreducibly judgment-bound work only |
 
 Mechanism 7 is the *fallback*, not the default. Anything that fits 1–6 should migrate.
@@ -119,7 +119,7 @@ When in doubt, refactor toward fewer, smaller skills with sharper descriptions r
 
 ## Role identifiers — strip the plugin prefix before comparing
 
-CC passes role names with or without a `<plugin>:` prefix depending on context (project-local override vs global plugin agent vs slash-command vs direct invocation). Hooks that compare raw `subagent_type` / `tool_input.skill` / similar against bare role names ("swe", "pr-reviewer", "tmb_planning") silently skip on prefixed input. **Hooks that silently skip are safety gates being silently disabled.**
+CC passes role names with or without a `<plugin>:` prefix depending on context (project-local override vs global plugin agent vs slash-command vs direct invocation). Hooks that compare raw `subagent_type` / `tool_input.skill` / similar against bare role names ("swe", "code-reviewer", "tmb_planning") silently skip on prefixed input. **Hooks that silently skip are safety gates being silently disabled.**
 
 The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/l1-lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
 

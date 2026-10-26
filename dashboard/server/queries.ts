@@ -582,7 +582,7 @@ interface RunRow {
 
 const AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'swe' THEN 'swe'
-    WHEN r.agent_type IN ('pr-reviewer', 'code-reviewer') THEN 'reviewer'
+    WHEN r.agent_type = 'code-reviewer' THEN 'reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
 

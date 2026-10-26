@@ -134,7 +134,7 @@ set -e
 if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on bad scope"; fi
 
 # Fixture-supplied attachments pass through verbatim — the per-agent attachment
-# target (feature-dev→swe, code-review→pr-reviewer).
+# target (feature-dev→swe, code-review→code-reviewer).
 ATT_FIXTURE="$WORKSPACE/install-att.json"
 cat > "$ATT_FIXTURE" <<'JSON'
 { "installed": true, "version": "1.0.0", "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] }
@@ -148,14 +148,14 @@ assert_eq "swe" "$(printf '%s' "$OUT_ATT" | jq -r '.attachments[0].target')" "at
 
 # Per-candidate keyed fixture: ONE file keyed by candidate name routes each
 # install to its own entry → distinct attachment targets (feature-dev→swe,
-# code-review→pr-reviewer).
+# code-review→code-reviewer).
 KEYED_FIXTURE="$WORKSPACE/install-keyed.json"
 cat > "$KEYED_FIXTURE" <<'JSON'
 {
   "feature-dev": { "installed": true, "version": "1.0.0",
                    "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] },
   "code-review": { "installed": true, "version": "1.0.0",
-                   "attachments": [ { "target": "pr-reviewer", "artifact": "marketplace-plugin:code-review" } ] }
+                   "attachments": [ { "target": "code-reviewer", "artifact": "marketplace-plugin:code-review" } ] }
 }
 JSON
 
@@ -167,8 +167,8 @@ OUT_CR=$(TMB_CHEATCODE_INSTALL_FIXTURE="$KEYED_FIXTURE" bash "$SCRIPT" \
 test_case "per-candidate keyed fixture routes feature-dev to swe"
 assert_eq "swe" "$(printf '%s' "$OUT_FD" | jq -r '.attachments[0].target')" "feature-dev target"
 
-test_case "per-candidate keyed fixture routes code-review to pr-reviewer"
-assert_eq "pr-reviewer" "$(printf '%s' "$OUT_CR" | jq -r '.attachments[0].target')" "code-review target"
+test_case "per-candidate keyed fixture routes code-review to code-reviewer"
+assert_eq "code-reviewer" "$(printf '%s' "$OUT_CR" | jq -r '.attachments[0].target')" "code-review target"
 
 test_case "per-candidate keyed targets are distinct"
 if [ "$(printf '%s' "$OUT_FD" | jq -r '.attachments[0].target')" != \

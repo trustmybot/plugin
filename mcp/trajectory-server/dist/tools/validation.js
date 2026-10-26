@@ -131,7 +131,7 @@ export function validationTools(db) {
                     attempt_n: { type: 'number' },
                     verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
                     feedback: { type: 'string' },
-                    mcp_available: { type: 'boolean', description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
+                    mcp_available: { type: 'boolean', description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
                     subagent_session_id: { type: 'string', description: 'Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists.' },
                     findings: {
                         type: 'array',
@@ -182,7 +182,7 @@ export function validationTools(db) {
         },
     ];
     const handlers = {
-        validation_record: requireRoles('validation_record', ['pr-reviewer'], wrapHandler(async (args) => {
+        validation_record: requireRoles('validation_record', ['code-reviewer'], wrapHandler(async (args) => {
             const agent = requireArg(args, 'agent');
             const taskId = coerceTaskId(requireArg(args, 'task_id'));
             requireArg(args, 'attempt_n');
@@ -190,8 +190,8 @@ export function validationTools(db) {
             requireArg(args, 'feedback');
             const role = normalizeAgent(agent);
             const mcpAvailableArg = args['mcp_available'];
-            if (role === 'pr-reviewer' && typeof mcpAvailableArg !== 'boolean') {
-                throw new Error('precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) — the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).');
+            if (role === 'code-reviewer' && typeof mcpAvailableArg !== 'boolean') {
+                throw new Error('precondition_failed: validation_record with agent="code-reviewer" requires mcp_available (boolean) — the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).');
             }
             const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
             if (!VALID_VERDICTS.has(verdict)) {
@@ -226,14 +226,14 @@ export function validationTools(db) {
                 if (observed) {
                     const observedAgentId = typeof observed.agent_id === 'string' ? observed.agent_id : '';
                     if (observedAgentId === '') {
-                        throw new Error(`reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id — it came from the main loop, not a pr-reviewer subagent.`);
+                        throw new Error(`reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id — it came from the main loop, not a code-reviewer subagent.`);
                     }
                     if (!AGENT_ID_RE.test(observedAgentId)) {
                         throw new Error(`reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`);
                     }
                     const sweRun = db.get(`SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`, [taskId, observedAgentId]);
                     if (sweRun) {
-                        throw new Error(`reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate pr-reviewer.`);
+                        throw new Error(`reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate code-reviewer.`);
                     }
                     subagentSessionId = typeof observed.session_id === 'string' && observed.session_id !== '' ? observed.session_id : null;
                     reviewerAgentId = observedAgentId;
@@ -257,7 +257,7 @@ export function validationTools(db) {
                     throw new Error(`subagent_session_unavailable: the newest unconsumed reviewer_identity_observed row for task ${taskId} attempt ${attemptN} (audit id ${staleRow.id}) is ${age}, past the ${REVIEWER_OBSERVATION_TTL_S}s freshness window; call validation_record again so the reviewer-identity-observe hook records a fresh row.`);
                 }
                 else {
-                    throw new Error(`subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`);
+                    throw new Error(`subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`);
                 }
                 db.run(`INSERT INTO validation_attempts
              (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)

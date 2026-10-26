@@ -55,8 +55,8 @@ envelope:
       "current_content_sha256": "<sha256>"
     },
     {
-      "agent_id": "tmb_pr_reviewer",
-      "target_path": ".codex/agents/tmb_pr_reviewer.toml",
+      "agent_id": "tmb_code_reviewer",
+      "target_path": ".codex/agents/tmb_code_reviewer.toml",
       "status": "current",
       "expected_template_version": 1,
       "expected_body_sha256": "<sha256>",
@@ -98,7 +98,7 @@ Example `data` payload inside the standard success envelope:
   "desired_state": "present",
   "changed": [
     ".codex/agents/tmb_swe.toml",
-    ".codex/agents/tmb_pr_reviewer.toml"
+    ".codex/agents/tmb_code_reviewer.toml"
   ],
   "unchanged": [],
   "overall_status": "current",

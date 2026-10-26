@@ -1,5 +1,5 @@
 /**
- * The pr-reviewer-preflight gate (GH 1740) on temp git repos and a temp
+ * The code-reviewer-preflight gate (GH 1740) on temp git repos and a temp
  * trajectory DB: one deny and one allow per check, each deny naming its typed
  * check, and agent-spawn-dispatch.sh returning the deny before any PREPARE step.
  */
@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { BYPASS_ENV, prReviewerPreflight } from '../hooks/pr-reviewer-preflight.js';
+import { BYPASS_ENV, codeReviewerPreflight } from '../hooks/code-reviewer-preflight.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLUGIN_ROOT = resolve(SERVER_ROOT, '../..');
@@ -85,7 +85,7 @@ function featureCommit(f) {
     f.write('changelog.d/3-x.md', '### Added\n- x (GH 3)\n');
     f.commit('feature');
 }
-const payload = (prompt = `task_id=${TASK_ID} commit_sha=x`, subagent = 'pr-reviewer') => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { subagent_type: subagent, prompt } });
+const payload = (prompt = `task_id=${TASK_ID} commit_sha=x`, subagent = 'code-reviewer') => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { subagent_type: subagent, prompt } });
 function denial(stdout) {
     assert.notEqual(stdout, '', 'expected a deny');
     const out = JSON.parse(stdout);
@@ -93,12 +93,12 @@ function denial(stdout) {
     return JSON.parse(out.hookSpecificOutput.permissionDecisionReason);
 }
 function run(f, input = payload()) {
-    return prReviewerPreflight(input, f.env);
+    return codeReviewerPreflight(input, f.env);
 }
 function assertAllowed(f) {
     assert.deepEqual(run(f), { stdout: '', code: 0 });
 }
-describe('pr-reviewer-preflight', () => {
+describe('code-reviewer-preflight', () => {
     before(() => {
         sandbox = mkdtempSync(join(tmpdir(), 'tmb-preflight-'));
     });
@@ -106,8 +106,8 @@ describe('pr-reviewer-preflight', () => {
         rmSync(sandbox, { recursive: true, force: true });
     });
     it('is registered, so the build lists it in dist/hooks-gates.txt', () => {
-        assert.equal(findGate('pr-reviewer-preflight'), prReviewerPreflight);
-        assert.ok(gateNames().includes('pr-reviewer-preflight'));
+        assert.equal(findGate('code-reviewer-preflight'), codeReviewerPreflight);
+        assert.ok(gateNames().includes('code-reviewer-preflight'));
     });
     describe('sha_mismatch', () => {
         it('denies when the branch tip moved past tasks.commit_sha', () => {
@@ -257,8 +257,8 @@ describe('pr-reviewer-preflight', () => {
             featureCommit(f);
             assert.deepEqual(run(f, payload(`task_id=${TASK_ID}`, 'swe')), { stdout: '', code: 0 });
             assert.deepEqual(run(f, payload('review this')), { stdout: '', code: 0 });
-            assert.deepEqual(prReviewerPreflight(payload(), { ...f.env, [BYPASS_ENV]: '1' }), { stdout: '', code: 0 });
-            assert.equal(denial(run(f, payload(`task_id=${TASK_ID}`, 'tmb:pr-reviewer')).stdout).check, 'sha_mismatch');
+            assert.deepEqual(codeReviewerPreflight(payload(), { ...f.env, [BYPASS_ENV]: '1' }), { stdout: '', code: 0 });
+            assert.equal(denial(run(f, payload(`task_id=${TASK_ID}`, 'tmb:code-reviewer')).stdout).check, 'sha_mismatch');
         });
         it('allows a task with no tasks row', () => {
             const f = fixture();
@@ -267,9 +267,9 @@ describe('pr-reviewer-preflight', () => {
         it('denies when the DB cannot be read', () => {
             const f = fixture();
             writeFileSync(f.db, 'not a database');
-            const out = JSON.parse(prReviewerPreflight(payload(), f.env).stdout);
+            const out = JSON.parse(codeReviewerPreflight(payload(), f.env).stdout);
             assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
-            assert.match(out.hookSpecificOutput.permissionDecisionReason, /trajectory DB unavailable — pr-reviewer-preflight/);
+            assert.match(out.hookSpecificOutput.permissionDecisionReason, /trajectory DB unavailable — code-reviewer-preflight/);
         });
     });
     describe('agent-spawn-dispatch.sh', () => {
@@ -314,4 +314,4 @@ describe('pr-reviewer-preflight', () => {
         });
     });
 });
-//# sourceMappingURL=hooks-pr-reviewer-preflight.test.js.map
+//# sourceMappingURL=hooks-code-reviewer-preflight.test.js.map

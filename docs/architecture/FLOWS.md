@@ -2,7 +2,7 @@
 
 The decision chain is **Human → bro → SWE** with two distinct gates:
 - **bro is the task gate** — closes after SWE returns + verifies.
-- **pr-reviewer is the push gate** — fires only at `git push` over a batch of unsigned commits.
+- **code-reviewer is the push gate** — fires only at `git push` over a batch of unsigned commits.
 
 All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. The full role × tool matrix lives in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
 
@@ -11,19 +11,19 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 | # | Flow | Trigger | Agents | DB tables touched | Distinguishing hooks |
 |---|---|---|---|---|---|
 | 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `repos`, `audit` | `activation-routine` (auto-fire trigger) |
-| 2 | **Code-touching task** (canonical) | Code change ask | bro → swe; pr-reviewer at push | `issues`, `tasks`, `discussions`, `audit` (+ `validation_attempts` at push) | `require-task-spec`, `git-push-guard`, `git-guards`, `cleanup-worktree-on-task-close` |
+| 2 | **Code-touching task** (canonical) | Code change ask | bro → swe; code-reviewer at push | `issues`, `tasks`, `discussions`, `audit` (+ `validation_attempts` at push) | `require-task-spec`, `git-push-guard`, `git-guards`, `cleanup-worktree-on-task-close` |
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | universal `decision_gate` on `task_create_batch` |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `cheatcodes` (skill row via `skill_register`) | — |
-| 6 | Push gate / PR review | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
+| 6 | Push gate / PR review | `git push` to protected branch | bro → code-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
 | 7 | Scan + world-model refresh | First code-touching ask of session when the world model is EMPTY (`source='bro_auto_initial'`), `/scan` (`user_manual`), OR `post-task-close-rescan.sh` after `bro_atomic_close` (`bro_auto_post_close`) | bro (or hook in background) | `repos` (SQLite) + `wm_directories` / `wm_files` (summary preferentially from `<dir>/README.md`) + `cheatcodes` (on-disk resources, `source_url='scan_discovered'`), `audit(event_type='deep_scan_completed'\|'scan_discovered')` | `post-task-close-rescan` |
-| 8 | SWE retry / escalation | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry` composite |
+| 8 | SWE retry / escalation | Bro verification or code-reviewer verdict='fail' | bro ↔ swe (↔ code-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry` composite |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", OR a proactive reuse-check before building | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `prompt-intent-hints` |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
 | 33 | Multi-repo path discipline | Inner repos registered in `repos`; bro indexes them | bro | `wm_directories` rows (repo-relative paths; `repo` column scopes to the right inner git repo) | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | — |
-| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → pr-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
+| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → code-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
 
 ---
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ## 2. Code-touching task (canonical chain)
 
-Bro is both planner AND task gate. pr-reviewer is the push gate, NOT the task gate. Tasks close as soon as SWE returns + bro verifies.
+Bro is both planner AND task gate. code-reviewer is the push gate, NOT the task gate. Tasks close as soon as SWE returns + bro verifies.
 
 ```mermaid
 sequenceDiagram
@@ -114,7 +114,7 @@ sequenceDiagram
 - `require-task-spec.sh` blocks SWE spawn unless the `tasks` row is `pending`, or `running` with no open swe `agent_runs` row, AND has a non-empty `spec_body`. A spec that adds a column, field, tool, table or migration also needs `Writer:` + `Populated:` lines or a `Nullable:` line, unless a `spec_shape_gate_waived` row from `bro` names the task (`content_json.task_id`); `task_create_batch` / `task_provision` with `waive_spec_shape` write that row for each task they create, so no second write is needed.
 - `no-worktree-branch-create.sh` blocks `-b/-B/--create-branch/--detach` — bro pre-creates the branch; the worktree attaches to it directly.
 - `git-push-guard.sh` blocks the eventual push if any pushed commit's task lacks a passing `validation_attempts` row.
-- `swe-verification-gate.sh` fires on SWE's `task_update_status(completed)`: it runs the task's typed `verification[]` commands in the task worktree, records the run in `verification_runs` / `verification_run_commands`, and denies if any fail, naming the command and its timing. A passing run for the same task, worktree HEAD and `verification[]` recorded within the hour is reused instead of re-run; bro and pr-reviewer read the latest run from `task_brief.verification_run`. When the task worktree does not resolve, it does NOT fail open — it denies, naming the expected `<repoRoot>/.claude/worktrees/<slug>` path (#156). An empty `verification[]` skips the gate with a warning; a `waive_verification_gate_reason` (≥10 chars) waives it with an audit row.
+- `swe-verification-gate.sh` fires on SWE's `task_update_status(completed)`: it runs the task's typed `verification[]` commands in the task worktree, records the run in `verification_runs` / `verification_run_commands`, and denies if any fail, naming the command and its timing. A passing run for the same task, worktree HEAD and `verification[]` recorded within the hour is reused instead of re-run; bro and code-reviewer read the latest run from `task_brief.verification_run`. When the task worktree does not resolve, it does NOT fail open — it denies, naming the expected `<repoRoot>/.claude/worktrees/<slug>` path (#156). An empty `verification[]` skips the gate with a warning; a `waive_verification_gate_reason` (≥10 chars) waives it with an audit row.
 - `bro_atomic_close` refuses with `verification_run_missing` when the task has a non-empty `verification[]` and neither a passing `verification_runs` row for the closing commit whose commands match the current `verification[]` nor a `verification_gate_waived` row for that commit (GH 1672). This covers the closes the swe gate never saw: a `swe-atomic-close` SubagentStop auto-complete, and a `task_update_spec` that changed `verification[]` after the run. To get a run, the swe calls `task_update_status(completed)` again on the commit; to waive, it adds `waive_verification_gate_reason` to that call.
 
 ---
@@ -145,7 +145,7 @@ flowchart TD
     I --> J[Subsequent sessions: bro routes to X]
 ```
 
-Reserved names — `bro`, `architect`, `swe`, `pr-reviewer` — are refused. New agent files commit to the project; every dev gets it on next pull.
+Reserved names — `bro`, `architect`, `swe`, `code-reviewer` — are refused. New agent files commit to the project; every dev gets it on next pull.
 
 ---
 
@@ -161,15 +161,15 @@ Same shape as flow 4 — bro drafts via `tmb_skill-creator`, Human approves, fil
 sequenceDiagram
     participant H as Human
     participant B as Bro
-    participant P as pr-reviewer (subagents — parallel)
+    participant P as code-reviewer (subagents — parallel)
     participant DB as SQLite
 
     H->>B: git push origin <feature>
     Note over B: git-push-guard.sh denies if any unsigned commit exists
     B-->>H: surface deny message
     B->>B: list unsigned tasks for the push
-    par one pr-reviewer per unsigned task
-        B->>P: spawn Task(pr-reviewer, task_id=N)
+    par one code-reviewer per unsigned task
+        B->>P: spawn Task(code-reviewer, task_id=N)
         P->>DB: task_get(task_id=N) — read spec + commit_sha
         P->>P: diff against ## Files / ## Success Criteria / ## Verification
         P->>DB: validation_record(verdict='pass'|'fail', feedback)
@@ -183,7 +183,7 @@ sequenceDiagram
     end
 ```
 
-`validation_record` carries a typed `mcp_available` boolean (required for pr-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via the sqlite3 fallback path and records `mcp_available: false`). `feedback` is free-prose rationale. The reviewer's identity comes from the newest unconsumed `reviewer_identity_observed` row for `(task_id, attempt_n)` (written by the `reviewer-identity-observe` hook with the call's `tool_use_id` and `observed_at`) observed within the last 600 s; an older row is never consumed — the call fails `subagent_session_unavailable` naming the row's age, and the reviewer calls again so the hook writes a fresh row. When a row is consumed, every older unconsumed row for the same `(task_id, attempt_n)` (left by a failed or retried call) is marked superseded with the consumed row's audit id, so a routine retry leaves no orphan for `trajectory_doctor` to warn on. An honor-system call (`mcp_available: false`) may only fill an attempt with no verified row: it never overwrites an `mcp_available = 1` verdict (`verified_verdict_exists`), while a verified call may still replace a verified row.
+`validation_record` carries a typed `mcp_available` boolean (required for code-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via the sqlite3 fallback path and records `mcp_available: false`). `feedback` is free-prose rationale. The reviewer's identity comes from the newest unconsumed `reviewer_identity_observed` row for `(task_id, attempt_n)` (written by the `reviewer-identity-observe` hook with the call's `tool_use_id` and `observed_at`) observed within the last 600 s; an older row is never consumed — the call fails `subagent_session_unavailable` naming the row's age, and the reviewer calls again so the hook writes a fresh row. When a row is consumed, every older unconsumed row for the same `(task_id, attempt_n)` (left by a failed or retried call) is marked superseded with the consumed row's audit id, so a routine retry leaves no orphan for `trajectory_doctor` to warn on. An honor-system call (`mcp_available: false`) may only fill an attempt with no verified row: it never overwrites an `mcp_available = 1` verdict (`verified_verdict_exists`), while a verified call may still replace a verified row.
 
 ---
 
@@ -214,7 +214,7 @@ Triggered five ways (the `source` value is verified against `scan.ts`):
 
 ## 8. SWE retry / escalation
 
-Triggered when bro V1/V2/V3 fails OR pr-reviewer verdict='fail'. Bro uses the `task_retry` MCP composite — one transaction inserts: a `discussion_append(kind='note', body='retry rationale: ...')`, a new `tasks` row keyed off the failed task's branch, and an `audit_append(event_type='swe_retry_spawned')`. Then spawns SWE on the new task.
+Triggered when bro V1/V2/V3 fails OR code-reviewer verdict='fail'. Bro uses the `task_retry` MCP composite — one transaction inserts: a `discussion_append(kind='note', body='retry rationale: ...')`, a new `tasks` row keyed off the failed task's branch, and an `audit_append(event_type='swe_retry_spawned')`. Then spawns SWE on the new task.
 
 After 3 consecutive retries, bro flips status to `escalated` and surfaces to Human (CLAUDE.md routing — judgment-bound).
 
@@ -247,7 +247,7 @@ flowchart TD
   APPROVE -->|rejected| STOP[Stop: no install]
   APPROVE -->|approved — PreToolUse gate now open| TARGET{Decide consuming agent}
   TARGET -->|Human named it| HAST[target = named agent]
-  TARGET -->|infer by domain| INFER[coding/test/refactor/debug → swe\nreview/quality → pr-reviewer\norchestration/routing → bro\nconsultant-domain → that consultant]
+  TARGET -->|infer by domain| INFER[coding/test/refactor/debug → swe\nreview/quality → code-reviewer\norchestration/routing → bro\nconsultant-domain → that consultant]
   TARGET -->|ambiguous| ASK[AskUserQuestion: which agent?]
   TARGET -->|pure MCP/plugin server tool,\nno agent surface| NOTGT[no target needed — registration IS attachment]
   HAST --> INSTALL
@@ -281,7 +281,7 @@ flowchart TD
 - **Search** — `cheatcode_search` (forks `scripts/cheatcode-search.sh`) returns ranked candidates + an audit row. No candidate fits → build it (`tmb_skill-creator` or from scratch).
 - **Vet** — `cheatcode_vet` gathers reputation/security signals + a deterministic `trust_tier` and `capabilities[]`; it reports, never decides.
 - **Approve** — `cheatcode_approve` records the per-candidate Human approval; `cheatcode-install-approval.sh` (PreToolUse) fails closed without it. Rejected → stop.
-- **Decide consuming agent** — `target` is optional as an *input* (the Human may not name one), but for a skill it is **mandatory as an output**: a skill install MUST end attached to ≥1 agent's markdown, or it is an **orphan** — installed but bound to nothing, hence unusable. So deciding the consuming agent is mandatory for skills: if the Human named the agent, use it; otherwise bro **resolves one before install** — infer from the cheatcode's domain (coding/test/refactor/debug → `swe`; code-review/quality → `pr-reviewer`; orchestration/routing → `bro`; a consultant domain → that consultant), and ask via AskUserQuestion only when genuinely ambiguous. Exception: a kind=mcp server (or a pure-server plugin) needs no target — its `claude mcp add` registration **is** its attachment, its tools are callable by any agent, so it carries no `skills:` header entry and is **not** an orphan. The mandatory-output-attachment rule applies specifically to skills and skill-contributing plugins.
+- **Decide consuming agent** — `target` is optional as an *input* (the Human may not name one), but for a skill it is **mandatory as an output**: a skill install MUST end attached to ≥1 agent's markdown, or it is an **orphan** — installed but bound to nothing, hence unusable. So deciding the consuming agent is mandatory for skills: if the Human named the agent, use it; otherwise bro **resolves one before install** — infer from the cheatcode's domain (coding/test/refactor/debug → `swe`; code-review/quality → `code-reviewer`; orchestration/routing → `bro`; a consultant domain → that consultant), and ask via AskUserQuestion only when genuinely ambiguous. Exception: a kind=mcp server (or a pure-server plugin) needs no target — its `claude mcp add` registration **is** its attachment, its tools are callable by any agent, so it carries no `skills:` header entry and is **not** an orphan. The mandatory-output-attachment rule applies specifically to skills and skill-contributing plugins.
 - **Install** — `cheatcode_install` installs via the marketplace/MCP path (no seed/copy), idempotent on (name, source_url); one transaction records the `cheatcodes` row + every `cheatcode_attachments` row + the `cheatcode_install`/`cheatcode_installed` audit rows. `scope` defaults to project-local. A live kind=mcp install fails closed: the candidate carries only `name` and `source_url`, and a source URL is not a run command, so it returns `installed:false` without calling `claude mcp add` (GH 1885; run-command resolution is GH 1899).
 - **Materialize / attach (LEGO)** — for a skill or skill-contributing plugin, the install writes the consuming agent's prompt surface IN THE USER PROJECT (never the plugin repo): `target=bro` → a `.claude/CLAUDE.md` reference; any other target → copy the global `agents/<target>.md` into `.claude/agents/<target>.md` (if absent) and add the cheatcode name to its `skills:` frontmatter array — idempotent, the Lego edit. This attachment is mandatory output: a skill with no target lands as an **orphan** — installed but unattached, and not usable until a target is resolved (a defect to eliminate, not a supported path). A kind=mcp server (or pure-server plugin) is exempt: its registration is its attachment, so it needs no `skills:` entry and is never an orphan.
 - **Activate** — `cheatcode_activate`: a skill is usable in-session; an MCP/plugin returns `restart_required` (loads on the next cold start).

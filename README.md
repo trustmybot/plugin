@@ -8,7 +8,7 @@
 
 **An agentic engineering harness for Claude Code — multi-agent orchestration, a persistent memory system, and guardrails enforced in code, not convention. MIT, free forever.**
 
-TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
+TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `code-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
 
 > **Claude Code is the complete workflow today.** Codex supports explicit local planning and can install two standalone project-level Agents for implementation and advisory review. It does not yet provide TMB task orchestration, trusted validation, Push gates, or lifecycle Hooks. Cursor / OpenCode / Gemini CLI remain placeholders. See [`CODEX.md`](CODEX.md) and [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
@@ -47,7 +47,7 @@ Refresh after upstream changes: `claude plugin marketplace update trustmybot`, t
 @bro write a todo cli
 ```
 
-Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code-touching asks route through bro → SWE → pr-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
+Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code-touching asks route through bro → SWE → code-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
 
 Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
@@ -61,7 +61,7 @@ Four structural innovations, each closing a specific single-agent failure mode.
 
 `bro` plans + gates (full picture, long-term). `swe` executes (single task, isolated worktree). **Bro never writes source; swe never self-approves.** Out-of-role calls are rejected at the wire. No more "the same context that wrote the code marks its own homework."
 
-Details: [`CLAUDE.md`](CLAUDE.md), [`agents/swe.md`](agents/swe.md), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
+Details: [`CLAUDE.md`](CLAUDE.md), [`agents/swe.md`](agents/swe.md), [`agents/code-reviewer.md`](agents/code-reviewer.md).
 
 ### 2. Memory System — persistent state + long-context management
 
@@ -77,11 +77,11 @@ Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architec
 
 **Two gates** close around every commit:
 - **Bro's task gate** (per task) re-runs the spec's verification after SWE returns.
-- **PR-reviewer's push gate** (per push) blocks `git push` until every commit has been signed off.
+- **code-reviewer's push gate** (per push) blocks `git push` until every commit has been signed off.
 
 Verdicts persist in the DB next to the code they judged — six months later "why did we ship this commit?" is still queryable.
 
-Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
+Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/code-reviewer.md`](agents/code-reviewer.md).
 
 ### 4. Agentic Orchestration — composable, not monolithic
 
@@ -93,12 +93,12 @@ Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ## Roster on disk
 
-The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two backbone subagents (`swe`, `pr-reviewer`) ship globally in `agents/` and are available in every project the moment the plugin is installed — no copy step required. Consultant agents are templates that get copied into `<project>/.claude/agents/` on demand:
+The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two backbone subagents (`swe`, `code-reviewer`) ship globally in `agents/` and are available in every project the moment the plugin is installed — no copy step required. Consultant agents are templates that get copied into `<project>/.claude/agents/` on demand:
 
 | Agent | Where | When available |
 |---|---|---|
 | `swe.md` | `agents/swe.md` (global) | Always — backbone executor |
-| `pr-reviewer.md` | `agents/pr-reviewer.md` (global) | Always — push gate |
+| `code-reviewer.md` | `agents/code-reviewer.md` (global) | Always — push gate |
 | `architect.md`, `cto.md`, `ceo.md`, `pm.md` | `templates/agents/` (copied on demand) | First time you ask for that consultant |
 
 Domain consultants outside this set are drafted on demand via `/tmb:agent-create`. Override any agent by dropping a project-local file — local wins over the global.

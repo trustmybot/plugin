@@ -20,7 +20,7 @@ export function tempDB(opts: { seedScan?: boolean; path?: string } = {}): Trajec
 }
 
 // seedReviewerObservation writes the row the reviewer-identity-observe hook
-// writes when a pr-reviewer subagent calls validation_record, so a test's
+// writes when a code-reviewer subagent calls validation_record, so a test's
 // validation_record call finds a reviewer identity to stamp.
 export function seedReviewerObservation(
   db: TrajectoryDB,

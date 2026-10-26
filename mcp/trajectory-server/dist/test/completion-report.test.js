@@ -188,7 +188,7 @@ describe('completion report and spawn_note through task_brief, bro_atomic_close 
         assert.match(long, /spawn_note is 301 characters \(max 300\)/);
         const r = await call(composites, 'bro_atomic_close', { ...CLOSE_ARGS, task_id: id, spawn_note: 'Check the v48 migration backup.' });
         assert.ok(!r.isError, JSON.stringify(parse(r)));
-        const brief = parse(await call(composites, 'task_brief', { agent: 'pr-reviewer', task_id: id }));
+        const brief = parse(await call(composites, 'task_brief', { agent: 'code-reviewer', task_id: id }));
         assert.equal(brief['spawn_note'], 'Check the v48 migration backup.');
         assert.deepEqual(brief['completion_report'], FULL_REPORT, 'the close keeps the report');
         db.close();

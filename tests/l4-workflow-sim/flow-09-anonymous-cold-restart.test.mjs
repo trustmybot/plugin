@@ -38,7 +38,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Verify role enforcement',
-    description: 'Confirm validation_record rejects non-pr-reviewer callers.',
+    description: 'Confirm validation_record rejects non-code-reviewer callers.',
     labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
@@ -77,7 +77,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   assert.equal(result.error.error, 'forbidden');
   assert.equal(result.error.tool, 'validation_record');
   assert.equal(result.error.caller_role, 'bro');
-  assert.deepEqual(result.error.allowed_roles, ['pr-reviewer']);
+  assert.deepEqual(result.error.allowed_roles, ['code-reviewer']);
 
   // Confirm no validation row was written
   const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });

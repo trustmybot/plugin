@@ -6,7 +6,7 @@ The row deliberately uses a naturalistic prompt with no role name — bro must c
 
 ## Pre-state
 
-`onboarding-named` fixture + `src/cli.py` (TODO CLI with JSON storage — matches step 04/05 chain output) + an open issue ("Evaluate TODO CLI storage scale-out"). `.claude/agents/` contains only the always-installed `swe.md` and `pr-reviewer.md` — no `cto.md`. The DB registry has cto seeded as a `plugin:` row (`file_path='plugin:templates/agents/cto.md'`, per the schema seed).
+`onboarding-named` fixture + `src/cli.py` (TODO CLI with JSON storage — matches step 04/05 chain output) + an open issue ("Evaluate TODO CLI storage scale-out"). `.claude/agents/` contains only the always-installed `swe.md` and `code-reviewer.md` — no `cto.md`. The DB registry has cto seeded as a `plugin:` row (`file_path='plugin:templates/agents/cto.md'`, per the schema seed).
 
 ## Turns
 

@@ -56,7 +56,7 @@ insert_task() {
 
 sign_task() {
   sqlite3 "$db" ".timeout 5000" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-    VALUES ($1, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));" >/dev/null
+    VALUES ($1, 1, 'code-reviewer', 'pass', 1, 'LGTM', datetime('now'));" >/dev/null
 }
 
 record_run() {

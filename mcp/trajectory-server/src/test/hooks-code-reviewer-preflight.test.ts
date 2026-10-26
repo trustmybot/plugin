@@ -1,5 +1,5 @@
 /**
- * The pr-reviewer-preflight gate (GH 1740) on temp git repos and a temp
+ * The code-reviewer-preflight gate (GH 1740) on temp git repos and a temp
  * trajectory DB: one deny and one allow per check, each deny naming its typed
  * check, and agent-spawn-dispatch.sh returning the deny before any PREPARE step.
  */
@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { BYPASS_ENV, prReviewerPreflight, type PreflightFailure } from '../hooks/pr-reviewer-preflight.js';
+import { BYPASS_ENV, codeReviewerPreflight, type PreflightFailure } from '../hooks/code-reviewer-preflight.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -109,7 +109,7 @@ function featureCommit(f: Fixture): void {
   f.commit('feature');
 }
 
-const payload = (prompt = `task_id=${TASK_ID} commit_sha=x`, subagent = 'pr-reviewer') =>
+const payload = (prompt = `task_id=${TASK_ID} commit_sha=x`, subagent = 'code-reviewer') =>
   JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { subagent_type: subagent, prompt } });
 
 function denial(stdout: string): PreflightFailure {
@@ -120,14 +120,14 @@ function denial(stdout: string): PreflightFailure {
 }
 
 function run(f: Fixture, input = payload()) {
-  return prReviewerPreflight(input, f.env) as { stdout: string; code: number };
+  return codeReviewerPreflight(input, f.env) as { stdout: string; code: number };
 }
 
 function assertAllowed(f: Fixture): void {
   assert.deepEqual(run(f), { stdout: '', code: 0 });
 }
 
-describe('pr-reviewer-preflight', () => {
+describe('code-reviewer-preflight', () => {
   before(() => {
     sandbox = mkdtempSync(join(tmpdir(), 'tmb-preflight-'));
   });
@@ -136,8 +136,8 @@ describe('pr-reviewer-preflight', () => {
   });
 
   it('is registered, so the build lists it in dist/hooks-gates.txt', () => {
-    assert.equal(findGate('pr-reviewer-preflight'), prReviewerPreflight);
-    assert.ok(gateNames().includes('pr-reviewer-preflight'));
+    assert.equal(findGate('code-reviewer-preflight'), codeReviewerPreflight);
+    assert.ok(gateNames().includes('code-reviewer-preflight'));
   });
 
   describe('sha_mismatch', () => {
@@ -302,8 +302,8 @@ describe('pr-reviewer-preflight', () => {
       featureCommit(f);
       assert.deepEqual(run(f, payload(`task_id=${TASK_ID}`, 'swe')), { stdout: '', code: 0 });
       assert.deepEqual(run(f, payload('review this')), { stdout: '', code: 0 });
-      assert.deepEqual(prReviewerPreflight(payload(), { ...f.env, [BYPASS_ENV]: '1' }), { stdout: '', code: 0 });
-      assert.equal(denial(run(f, payload(`task_id=${TASK_ID}`, 'tmb:pr-reviewer')).stdout).check, 'sha_mismatch');
+      assert.deepEqual(codeReviewerPreflight(payload(), { ...f.env, [BYPASS_ENV]: '1' }), { stdout: '', code: 0 });
+      assert.equal(denial(run(f, payload(`task_id=${TASK_ID}`, 'tmb:code-reviewer')).stdout).check, 'sha_mismatch');
     });
 
     it('allows a task with no tasks row', () => {
@@ -314,9 +314,9 @@ describe('pr-reviewer-preflight', () => {
     it('denies when the DB cannot be read', () => {
       const f = fixture();
       writeFileSync(f.db, 'not a database');
-      const out = JSON.parse((prReviewerPreflight(payload(), f.env) as { stdout: string }).stdout);
+      const out = JSON.parse((codeReviewerPreflight(payload(), f.env) as { stdout: string }).stdout);
       assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
-      assert.match(out.hookSpecificOutput.permissionDecisionReason, /trajectory DB unavailable — pr-reviewer-preflight/);
+      assert.match(out.hookSpecificOutput.permissionDecisionReason, /trajectory DB unavailable — code-reviewer-preflight/);
     });
   });
 

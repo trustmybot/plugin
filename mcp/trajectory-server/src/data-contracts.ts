@@ -244,9 +244,9 @@ const POPULATED_COLUMNS: readonly PopulatedColumn[] = [
     table: 'agent_runs',
     column: 'effort',
     created_column: 'started_at',
-    scope: `agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'
+    scope: `agent_type IN ('swe','code-reviewer') AND usage_source = 'subagent_stop'
                AND ${ts('started_at')} >= (SELECT MIN(${ts('started_at')}) FROM agent_runs WHERE effort IS NOT NULL)`,
-    scope_label: 'SubagentStop-metered swe/pr-reviewer rows since the first run carrying an effort',
+    scope_label: 'SubagentStop-metered swe/code-reviewer rows since the first run carrying an effort',
     floor: 0.05,
     min_schema: 37,
   },
@@ -304,15 +304,15 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       id: 'swe_runs_metered',
       severity: 'error',
       min_schema: 30,
-      description: 'swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens',
+      description: 'swe/code-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens',
       sql: `SELECT COUNT(*) FROM agent_runs
-             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts('completed_at')} >= ${daysAgo(7)}
+             WHERE agent_type IN ('swe','code-reviewer') AND completed_at IS NOT NULL AND ${ts('completed_at')} >= ${daysAgo(7)}
                AND (usage_source IS NULL OR usage_source <> 'unmeasured')
                AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
                AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0`,
       expect: { op: '=', value: 0 },
       sample_sql: `SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs
-             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts('completed_at')} >= ${daysAgo(7)}
+             WHERE agent_type IN ('swe','code-reviewer') AND completed_at IS NOT NULL AND ${ts('completed_at')} >= ${daysAgo(7)}
                AND (usage_source IS NULL OR usage_source <> 'unmeasured')
                AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
                AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
@@ -335,7 +335,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'closed_tasks_reviewed',
       severity: 'error',
-      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)',
+      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before code-reviewer runs; tasks has no closed_at, so the close time is updated_at)',
       sql: `SELECT COUNT(*) FROM tasks t
              WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
                AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
@@ -399,7 +399,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'no_unconsumed_reviewer_observations',
       severity: 'warn',
-      description: 'no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer validation_record call that never recorded a verdict)',
+      description: 'no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a code-reviewer validation_record call that never recorded a verdict)',
       sql: `SELECT COUNT(*) FROM audit o
              WHERE ${UNCONSUMED_STALE_OBSERVATION('o')}`,
       expect: { op: '=', value: 0 },

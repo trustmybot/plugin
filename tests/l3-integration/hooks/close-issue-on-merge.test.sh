@@ -101,10 +101,10 @@ add_verification() { # add_verification <task> <commit> <at>
 
 add_verdict() { # add_verdict <task> <at>
   sqlite3 "$DB" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at)
-    VALUES ($1, (SELECT COUNT(*) + 1 FROM validation_attempts WHERE task_id = $1), 'pr-reviewer', 'pass', 1, '$2');"
+    VALUES ($1, (SELECT COUNT(*) + 1 FROM validation_attempts WHERE task_id = $1), 'code-reviewer', 'pass', 1, '$2');"
 }
 
-add_pass() { # add_pass <task> [commit] — bro verifies the commit, then pr-reviewer passes it
+add_pass() { # add_pass <task> [commit] — bro verifies the commit, then code-reviewer passes it
   add_verification "$1" "${2:-abc1234}" "$NOW_MINUS_2H"
   add_verdict "$1" "$NOW_MINUS_1H"
 }
@@ -306,14 +306,14 @@ add_issue 5 122
 add_task 1 5 feat/x completed
 add_run 1
 q "INSERT INTO agent_runs (task_id, agent_type, started_at, tokens_in, tokens_out, usage_source)
-   VALUES (1, 'pr-reviewer', '$NOW_MINUS_2H', 30, 3, 'subagent_stop');"
+   VALUES (1, 'code-reviewer', '$NOW_MINUS_2H', 30, 3, 'subagent_stop');"
 add_pass 1
 EXTRA_ENV=(CLOSING_REFS=122 PR_BODY="Closes GH #122" HEAD_REF=feat/x)
 run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
 assert_eq "closed" "$(task_status 1)" "merged task closed"
 assert_eq "completed|unmeasured" "$(q "SELECT exit_reason, usage_source FROM agent_runs WHERE task_id=1 AND agent_type='swe';")" \
   "the run without usage closes completed and unmeasured (GH 1673)"
-assert_eq "completed|subagent_stop|30" "$(q "SELECT exit_reason, usage_source, tokens_in FROM agent_runs WHERE task_id=1 AND agent_type='pr-reviewer';")" \
+assert_eq "completed|subagent_stop|30" "$(q "SELECT exit_reason, usage_source, tokens_in FROM agent_runs WHERE task_id=1 AND agent_type='code-reviewer';")" \
   "a metered run keeps its source and tokens"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs WHERE completed_at IS NULL;")" "no open run left"
 assert_eq "closed" "$(issue_status 5)" "issue closed once its last task merged"
@@ -368,7 +368,7 @@ add_skip() { # add_skip <event_type> <from_node> <task> [commit]
 }
 
 test_case "(p) a waiver or bypass row not authored by bro does not count as a recorded skip"
-for row in "review_gate_waived pr-reviewer" "review_gate_bypassed pr-reviewer" "review_gate_waived architect" "review_gate_waived hook:close-issue-on-merge"; do
+for row in "review_gate_waived code-reviewer" "review_gate_bypassed code-reviewer" "review_gate_waived architect" "review_gate_waived hook:close-issue-on-merge"; do
   seed_db
   add_issue 5 122
   add_task 1 5 feat/x completed

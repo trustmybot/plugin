@@ -24,7 +24,7 @@
 #   (e) the main thread (no agent_type, no agent_id), cwd = worktree A,
 #       writing <project>/.claude/tmb/issue-drafts/x.md → allowed by every gate.
 #   (f) no containment_denied row has a NULL task_id and the project root.
-#   (g) pr-reviewer, cwd = worktree A, writing in the project → allowed (its
+#   (g) code-reviewer, cwd = worktree A, writing in the project → allowed (its
 #       root is the project, not derived from the cwd).
 set -uo pipefail
 
@@ -184,8 +184,8 @@ OUT=$(run "$WT_A" "tmb:swe" agA Bash "$(bash_cmd "git commit -am x")")
 assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "a swe committing inside its own worktree"
 OUT=$(run "$PROJECT" "" "" Bash "$(bash_cmd "git commit -am x")")
 assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "bro committing in the main checkout"
-OUT=$(run "$PROJECT" "tmb:pr-reviewer" agR Bash "$(bash_cmd "git -C $PROJECT stash")")
-assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "pr-reviewer: its root is the project"
+OUT=$(run "$PROJECT" "tmb:code-reviewer" agR Bash "$(bash_cmd "git -C $PROJECT stash")")
+assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "code-reviewer: its root is the project"
 
 test_case "(d) swe agZ with no transcript and no bound row → denied, naming the missing piece"
 OUT=$(run "$PROJECT" "swe" agZ Write "$(write "$WT_A/src/z.ts")")
@@ -209,8 +209,8 @@ OUT=$(run "$WT_A" "" "" Write "$(write "$PROJECT/.claude/tmb/issue-drafts/x.md")
 assert_eq "" "$(denied_by "$OUT")" "no gate denies"
 assert_not_contains "$OUT" "SWE may only edit files inside its assigned worktree" "never fenced as a swe"
 
-test_case "(g) pr-reviewer, cwd = worktree A: its root is the project"
-OUT=$(run "$WT_A" "tmb:pr-reviewer" agR Write "$(write "$PROJECT/.claude/tmb/issue-drafts/r.md")")
+test_case "(g) code-reviewer, cwd = worktree A: its root is the project"
+OUT=$(run "$WT_A" "tmb:code-reviewer" agR Write "$(write "$PROJECT/.claude/tmb/issue-drafts/r.md")")
 assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "a project write outside worktree A"
 
 test_case "(f) no containment_denied row widens to the project root with a NULL task_id"

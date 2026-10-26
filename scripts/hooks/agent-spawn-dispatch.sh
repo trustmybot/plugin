@@ -8,15 +8,15 @@
 #
 # Hook order:
 #   1. require-task-spec              — swe must cite a valid task_id
-#   2. require-spawn-effort           — swe/pr-reviewer effort must match the DB
+#   2. require-spawn-effort           — swe/code-reviewer effort must match the DB
 #   3. require-feature-branch-active  — task's branch must already exist
-#   4. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
-#   5. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have seven anchors
-#   6. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
-#   7. pr-reviewer-spawn-note         — TypeScript gate (dist/hooks.js): at most
+#   4. code-reviewer-no-worktree      — code-reviewer must not run in worktree
+#   5. code-reviewer-spawn-prompt-shape — code-reviewer prompt must have seven anchors
+#   6. code-reviewer-after-atomic-close — code-reviewer task must be status=closed
+#   7. code-reviewer-spawn-note         — TypeScript gate (dist/hooks.js): at most
 #      300 chars of prose beyond the anchors; more goes into spawn_note via
 #      bro_atomic_close (GH 1744)
-#   8. pr-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
+#   8. code-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
 #      task commit's five deterministic checks; denies {check, expected, actual}
 #   9. rework-limit                   — TypeScript gate (dist/hooks.js): a swe
 #      spawn after two review FAILs since the last pass needs a newer decision
@@ -42,11 +42,11 @@ HOOKS=(
   "$SCRIPT_DIR/require-task-spec.sh"
   "$SCRIPT_DIR/require-spawn-effort.sh"
   "$SCRIPT_DIR/require-feature-branch-active.sh"
-  "$SCRIPT_DIR/pr-reviewer-no-worktree.sh"
-  "$SCRIPT_DIR/pr-reviewer-spawn-prompt-shape.sh"
-  "$SCRIPT_DIR/pr-reviewer-after-atomic-close.sh"
-  pr-reviewer-spawn-note
-  pr-reviewer-preflight
+  "$SCRIPT_DIR/code-reviewer-no-worktree.sh"
+  "$SCRIPT_DIR/code-reviewer-spawn-prompt-shape.sh"
+  "$SCRIPT_DIR/code-reviewer-after-atomic-close.sh"
+  code-reviewer-spawn-note
+  code-reviewer-preflight
   rework-limit
 )
 

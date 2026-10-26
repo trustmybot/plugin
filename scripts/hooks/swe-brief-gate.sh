@@ -36,7 +36,7 @@
 # new row for it with resumed_from = its previous row.
 #
 # Skips:
-#   - Non-SWE callers (bro, pr-reviewer, etc.)
+#   - Non-SWE callers (bro, code-reviewer, etc.)
 #   - When no DB or no sqlite3 (can't enforce without state)
 #   - When task_id cannot be determined from transcript/tool_input
 set -euo pipefail

@@ -44,7 +44,7 @@ Guard scoping is **registration-based**: a git op is enforced only when its git-
 
 ## Rebasing a reviewed task: integrate.sh
 
-SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro's verify and the pr-reviewer, bro runs `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>` from the main checkout. The script:
+SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro's verify and the code-reviewer, bro runs `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>` from the main checkout. The script:
 
 1. Exits 3 when the task has no passing review for its `commit_sha`.
 2. Prints `commit_sha` and exits 0 when `<base>` is already an ancestor of it. No run is recorded.
@@ -134,7 +134,7 @@ plugin/
 ├── agents/swe.md                                      # atomic close: task_update_status(needs_validation)
 ├── scripts/hooks/
 │   ├── swe-atomic-close.sh                           # SubagentStop safety net if SWE skips close
-│   └── cleanup-worktree-on-task-close.sh             # removes worktree once pr-reviewer passes the closed task
+│   └── cleanup-worktree-on-task-close.sh             # removes worktree once code-reviewer passes the closed task
 └── mcp/trajectory-server/src/tools/
     └── tasks.ts                                      # task_update_status(completed, commit_sha)
 ```
@@ -158,8 +158,8 @@ plugin/
 **Push gate / verify**
 ```text
 plugin/
-├── agents/pr-reviewer.md                             # pr-reviewer subagent
-├── skills/tmb_review/SKILL.md                        # pr-reviewer diff-level review protocol
+├── agents/code-reviewer.md                             # code-reviewer subagent
+├── skills/tmb_review/SKILL.md                        # code-reviewer diff-level review protocol
 ├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
 ├── scripts/hooks/git-push-guard.sh                   # final enforcement before origin push
 └── mcp/trajectory-server/src/

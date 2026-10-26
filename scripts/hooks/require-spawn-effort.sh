@@ -5,8 +5,9 @@
 #
 #   swe (subagent_type matching (^|:)swe$) whose prompt carries task_id=<N>:
 #     tool_input.effort must equal tasks.effort of task N.
-#   pr-reviewer (subagent_type matching (^|:)pr-reviewer$): tool_input.effort
-#     must equal plugin_config.reviewer_effort (high when unset).
+#   code-reviewer (subagent_type whose last :-segment normalises to
+#     code-reviewer): tool_input.effort must equal plugin_config.reviewer_effort
+#     (high when unset).
 #   any other agent: allowed.
 #
 # A missing effort is a mismatch. The deny names the expected value and the
@@ -20,6 +21,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
+. "$SCRIPT_DIR/lib/normalize-role.sh"
 
 INPUT=$(cat 2>/dev/null) || INPUT=""
 
@@ -63,7 +66,7 @@ if [[ "$SUBAGENT" =~ (^|:)swe$ ]]; then
   exit 0
 fi
 
-if [[ "$SUBAGENT" =~ (^|:)pr-reviewer$ ]]; then
+if [ "$(tmb_normalize_role "${SUBAGENT##*:}")" = "code-reviewer" ]; then
   DB=$(tmb_db_path 2>/dev/null) || exit 0
   tmb_have_sqlite || exit 0
   DEFAULTS=$(tmb_effort_defaults "$DB")
@@ -73,7 +76,7 @@ if [[ "$SUBAGENT" =~ (^|:)pr-reviewer$ ]]; then
   fi
   EXPECTED="${DEFAULTS#*|}"
   [ "$GIVEN" = "$EXPECTED" ] && exit 0
-  deny_mismatch "pr-reviewer (plugin_config.reviewer_effort, high when unset)" "$EXPECTED" \
+  deny_mismatch "code-reviewer (plugin_config.reviewer_effort, high when unset)" "$EXPECTED" \
     "To change it for every review, config_set(key=\"reviewer_effort\", value=...)."
   exit 0
 fi

@@ -3,8 +3,8 @@
 #
 # The server never sees hook payloads, and every hook in a session carries the
 # main session's session_id; the payload's agent_id is the only per-subagent
-# identifier. When the caller is a pr-reviewer subagent (agent_id present,
-# agent_type normalises to pr-reviewer), this hook writes one
+# identifier. When the caller is a code-reviewer subagent (agent_id present,
+# agent_type normalises to code-reviewer), this hook writes one
 # reviewer_identity_observed audit row on the task's issue:
 #   {task_id, attempt_n, session_id, agent_id, tool_use_id, observed_at, consumed: 0}
 # tool_use_id is null when the payload carries none. validation_record stamps
@@ -36,7 +36,7 @@ esac
 AGENT_ID=$(printf '%s' "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null)
 [ -n "$AGENT_ID" ] || exit 0
 AGENT_TYPE=$(tmb_normalize_role "$(printf '%s' "$INPUT" | jq -r '.agent_type // ""' 2>/dev/null)")
-[ "$AGENT_TYPE" = "pr-reviewer" ] || exit 0
+[ "$AGENT_TYPE" = "code-reviewer" ] || exit 0
 
 SAFE_TASK_ID=$(tmb_sql_int "$(printf '%s' "$INPUT" | jq -r '.tool_input.task_id // ""' 2>/dev/null)")
 ATTEMPT_N=$(tmb_sql_int "$(printf '%s' "$INPUT" | jq -r '.tool_input.attempt_n // ""' 2>/dev/null)")
@@ -62,7 +62,7 @@ CONTENT=$(jq -cn --argjson t "$SAFE_TASK_ID" --argjson a "$ATTEMPT_N" --arg s "$
   '{task_id:$t, attempt_n:$a, session_id:$s, agent_id:$g, tool_use_id:(if $u == "" then null else $u end), observed_at:$o, consumed:0}')
 
 if ! tmb_audit_append "$DB" "$ISSUE_ID" '' "hook:reviewer-identity-observe" "reviewer_identity_observed" \
-  "pr-reviewer ${AGENT_ID} called validation_record for task ${SAFE_TASK_ID} attempt ${ATTEMPT_N}" "$CONTENT"; then
+  "code-reviewer ${AGENT_ID} called validation_record for task ${SAFE_TASK_ID} attempt ${ATTEMPT_N}" "$CONTENT"; then
   tmb_deny_db_unavailable reviewer-identity-observe
 fi
 exit 0

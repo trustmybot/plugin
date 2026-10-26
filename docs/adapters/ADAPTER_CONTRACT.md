@@ -12,7 +12,7 @@ Two terms carry the whole document.
 
 **Protected core.** The parts of TMB that exist once, mean the same thing on every host, and are not an adapter's to change:
 
-- The **doctrine chain** — Human → bro → SWE with bro as the task gate and pr-reviewer as the push gate.
+- The **doctrine chain** — Human → bro → SWE with bro as the task gate and code-reviewer as the push gate.
 - The **trajectory DB schema** — [`../../mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql) and its migrations.
 - The **MCP tool contracts** — tool names, argument shapes, role scoping, and return shapes served by `mcp/trajectory-server/`.
 - The **shared workflow skills and shared protected persona bodies** — `skills/*/SKILL.md`, the prose bodies of `agents/*.md`, and `templates/agents/*.md`. Protected personas include workflow principals and shared consultant templates.
@@ -72,10 +72,10 @@ Each adapter MUST publish its own filled-in copy of this table, one row per load
 
 | Gate | What it enforces | Tier on this host | Mechanism | Notes / degradation rationale |
 |---|---|---|---|---|
-| `git-push-guard` | Push to a protected branch is refused unless every unsigned commit carries a passing `validation_attempts` row — the pr-reviewer push gate | Tier 2 | PreToolUse hook on the shell tool, inspecting the `git push` command line | Needs command-line interception, so a host without deny-capable pre-tool hooks drops to Tier 3 |
+| `git-push-guard` | Push to a protected branch is refused unless every unsigned commit carries a passing `validation_attempts` row — the code-reviewer push gate | Tier 2 | PreToolUse hook on the shell tool, inspecting the `git push` command line | Needs command-line interception, so a host without deny-capable pre-tool hooks drops to Tier 3 |
 | `swe-verification-gate` | SWE's `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree and is denied on any non-zero exit | Tier 2 | PreToolUse hook on the MCP status-update tool | Candidate for Tier 1 promotion — the server knows the task's `verification[]` |
 | Spawn contract (`task_id` required) | A SWE spawn names a real pending task with a non-empty `spec_body`; no free-form SWE dispatch | Tier 2 | PreToolUse hook on the subagent-spawn tool | Hosts without a spawn-time interception point declare Tier 3 and rely on the server rejecting SWE tool calls that name no task |
-| pr-reviewer read-only | The push gate reviews but cannot edit — its verdict is independent of the diff it judges | Tier 2 | Per-agent tool restriction at spawn: the pr-reviewer definition excludes the write and edit tools | Requires per-agent tool restriction (rule 5); a host lacking it declares Tier 3 with prompt-level read-only instruction as the sole barrier |
+| code-reviewer read-only | The push gate reviews but cannot edit — its verdict is independent of the diff it judges | Tier 2 | Per-agent tool restriction at spawn: the code-reviewer definition excludes the write and edit tools | Requires per-agent tool restriction (rule 5); a host lacking it declares Tier 3 with prompt-level read-only instruction as the sole barrier |
 
 Adapters add rows for every other gate their host must cover. [`../prompt-engineering/ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md) is the reference host's full inventory of enforced interactions and is the natural source list when filling this table in.
 

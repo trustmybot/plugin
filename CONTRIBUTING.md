@@ -95,7 +95,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 3. **Typical feature workflow:** branch from `dev` → implement → local L0–L4 green → PR → `dev`. If your branch is the **last one planned before a release**, also run the local L6 chain — at that point you're in the Release workflow (Phase B); follow it.
 4. **All integration goes through GitHub PRs** — `gh pr create` / `gh pr merge`. Never `git merge` locally, never push directly to `dev` or `main`. Rule 5's merge-on-green is carried out by hand: GitHub auto-merge is disabled on this repo, so `--auto` merges at once instead of waiting. Wait for green checks, then merge without `--auto`.
 5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
-6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the local sweep (`tests/run-all.sh` for the tiers they touch) + pr-reviewer + any PR checks. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
+6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the local sweep (`tests/run-all.sh` for the tiers they touch) + code-reviewer + any PR checks. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
 7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
 8. **Prompt engineering follows [`docs/prompt-engineering/DETERMINISM.md`](docs/prompt-engineering/DETERMINISM.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
 9. **Prompt surfaces freeze during autonomous batches.** While a batch of issues is being worked autonomously, `agents/`, `skills/`, `commands/`, `templates/` and `CLAUDE.md` are frozen: prefer a hook, MCP or schema fix; if only a prompt change will do, file an issue for maintainer review instead.
@@ -107,7 +107,7 @@ Then restart Claude Code. Each dev build comments its version and these commands
 
 `.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`): it stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)). It publishes; it is not a gate.
 
-Release-gate is **rc/main-only**: it runs for an rc (the rc tag push, or a dispatch from `rc` before tagging — Release, Phase B) or a dispatch from `main`, and `main` takes only a `dev` carrying a green rc gate. It never runs for `dev` PRs or `dev` merges. Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + pr-reviewer + any PR checks** (rule 6 above).
+Release-gate is **rc/main-only**: it runs for an rc (the rc tag push, or a dispatch from `rc` before tagging — Release, Phase B) or a dispatch from `main`, and `main` takes only a `dev` carrying a green rc gate. It never runs for `dev` PRs or `dev` merges. Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + code-reviewer + any PR checks** (rule 6 above).
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
@@ -187,8 +187,8 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 ## Design principles
 
 1. **SQLite is canonical state.** Files are for SE convention (README / CHANGELOG / ADR) or agent context (prompts / skills / rules). Issues, tasks, discussions, and validation live in the trajectory DB.
-2. **No bypass.** Every code change runs Human → bro → SWE, with bro as the task gate (verifies SWE's return) and pr-reviewer as the push gate (fires at `git push`). Bro never edits source.
-3. **Two-layer agents.** bro is a CLAUDE.md persona; `swe` / `pr-reviewer` ship globally in `agents/`; consultants are templates instantiated per project. A local `.claude/agents/<name>.md` overrides the global.
+2. **No bypass.** Every code change runs Human → bro → SWE, with bro as the task gate (verifies SWE's return) and code-reviewer as the push gate (fires at `git push`). Bro never edits source.
+3. **Two-layer agents.** bro is a CLAUDE.md persona; `swe` / `code-reviewer` ship globally in `agents/`; consultants are templates instantiated per project. A local `.claude/agents/<name>.md` overrides the global.
 4. **Lego layering.** Agent file = identity (immutable); the `skills:` array = capabilities (extend via `tmb_skill-creator`); spawn prompt = per-call context. Add behavior through skills, not by editing the template body.
 5. **Server-enforced chain.** `requireRoles` in the MCP server rejects out-of-role calls — doctrine is wire-enforced, not prompt discipline.
 6. **Dev rules stay in dev docs.** Rules about developing TMB itself (release flow, L0–L6 harness, milestones, contributor workflow) live in `CONTRIBUTING.md`, `docs/`, the test-level READMEs and the tests themselves. Shipped surfaces (`CLAUDE.md`, `agents/`, `skills/`, `commands/`, `hooks/`, `templates/`) carry only what a user's project needs; TMB's own developers use TMB like any other user. See [`PHILOSOPHY.md` §3](docs/architecture/PHILOSOPHY.md#3-dev-vs-user-runtime-boundary).

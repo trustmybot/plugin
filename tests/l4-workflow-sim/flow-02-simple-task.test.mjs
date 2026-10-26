@@ -4,7 +4,7 @@
 // task_provision (decision + task + branch + worktree + planning_complete) →
 // SWE starts with task_brief, commits in the worktree, returns
 // (task_update_status='completed') → bro verifies (no validation row at task close;
-// pr-reviewer fires only at push gate) → bro_atomic_close → issue_close.
+// code-reviewer fires only at push gate) → bro_atomic_close → issue_close.
 //
 // Asserts the structural contract: state transitions, audit events, role
 // enforcement at each call, and the branch + worktree task_provision leaves on
@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { startProjectClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
-test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → bro closes (no per-task pr-reviewer)', async (t) => {
+test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → bro closes (no per-task code-reviewer)', async (t) => {
   const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
@@ -79,15 +79,15 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
   seedPassingVerificationRun(dbPath, taskId, sha);
 
-  // 6. CRITICAL: bro's task gate — verifies and closes (no pr-reviewer at this point).
-  // PR-reviewer is the PUSH gate, not the task gate. validation_attempts stays empty
+  // 6. CRITICAL: bro's task gate — verifies and closes (no code-reviewer at this point).
+  // code-reviewer is the PUSH gate, not the task gate. validation_attempts stays empty
   // until the push gate fires (Flow 6).
   const preCloseValidations = await call(client, 'validation_history', {
     agent: 'bro', task_id: taskId,
   });
   assert.equal(preCloseValidations.ok, true);
   assert.equal(preCloseValidations.data.length, 0,
-    'simple-task close must NOT spawn pr-reviewer (push gate is amortized)');
+    'simple-task close must NOT spawn code-reviewer (push gate is amortized)');
 
   const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId,
@@ -98,12 +98,12 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   });
   assert.equal(closed.ok, true, `bro_atomic_close: ${JSON.stringify(closed)}`);
 
-  // 7. bro closes the issue. pr-reviewer runs at the push gate, not per task, so
+  // 7. bro closes the issue. code-reviewer runs at the push gate, not per task, so
   // the closed task has no verdict yet: the close carries an explicit review waiver.
   const issueClosed = await call(client, 'issue_close', {
     agent: 'bro', issue_id: issueId,
     waive_review: true,
-    waive_review_reason: 'simple task: pr-reviewer runs at the push gate, not at task close',
+    waive_review_reason: 'simple task: code-reviewer runs at the push gate, not at task close',
   });
   assert.equal(issueClosed.ok, true, JSON.stringify(issueClosed));
 

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Tests for scripts/hooks/code-reviewer-no-worktree.sh.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../../lib/assert.sh"
+PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
+HOOK="$PLUGIN_ROOT/scripts/hooks/code-reviewer-no-worktree.sh"
+
+# Pin the project so the hook never resolves one by walking up from the cwd.
+PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-code-reviewer-no-worktree.XXXXXX")"
+trap 'rm -rf "$PROJECT"' EXIT
+export CLAUDE_PROJECT_DIR="$PROJECT"
+
+# code-reviewer with isolation=worktree → deny.
+test_case "code-reviewer with isolation=worktree is denied"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","isolation":"worktree"}}' | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "permissionDecision" "deny output emitted"
+assert_contains "$out" "deny" "decision is deny"
+assert_contains "$out" "must NOT run with isolation" "reason explains workflow"
+
+# code-reviewer without isolation → allow (silent).
+test_case "code-reviewer without isolation is allowed"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer"}}' | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "silent allow"
+
+# code-reviewer with isolation=none → allow.
+test_case "code-reviewer with isolation=none is allowed"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","isolation":"none"}}' | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "silent allow"
+
+# SWE with isolation=worktree → allow (this hook only targets code-reviewer).
+test_case "swe with isolation=worktree is allowed (hook only targets code-reviewer)"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"swe","isolation":"worktree"}}' | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "silent allow for swe"
+
+# Non-Agent tool → silent no-op.
+test_case "non-Agent tool is silent no-op"
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "silent no-op"
+
+# Bypass via env var → allow.
+test_case "TMB_ALLOW_CODE_REVIEWER_WORKTREE=1 bypasses the deny"
+out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","isolation":"worktree"}}' | TMB_ALLOW_CODE_REVIEWER_WORKTREE=1 bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "bypass works"
+
+summarize

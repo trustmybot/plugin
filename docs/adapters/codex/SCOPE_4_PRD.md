@@ -6,7 +6,7 @@
 |---|---|
 | 文档状态 | 已确认，作为 Scope 4 的实施与验收基线 |
 | 产品 | TrustMyBot Codex Adapter |
-| Scope | Scope 4：Codex SWE / PR Reviewer Agent Materialization |
+| Scope | Scope 4：Codex SWE / Code Reviewer Agent Materialization |
 | 目标里程碑 | v1.1.0；本 Scope 不修改正式版本号 |
 | 上级任务 | [Issue #1151](https://github.com/trustmybot/plugin/issues/1151) |
 | 已完成前置 | [PR #1174](https://github.com/trustmybot/plugin/pull/1174)、[Issue #1173](https://github.com/trustmybot/plugin/issues/1173) |
@@ -15,7 +15,7 @@
 | 目标分支 | `dev` |
 | 基线提交 | `390cdcdebf97e0950f49b96af6b565f11829c567` |
 | 基线日期 | 2026-08-15 |
-| 主要读者 | 产品负责人、维护者、实施工程师、PR Reviewer、发布验证人员 |
+| 主要读者 | 产品负责人、维护者、实施工程师、Code Reviewer、发布验证人员 |
 
 这份文档是 Scope 4 的产品、实施和验收基线。用户流程、接口、Agent 行为、文件边界、测试环境和完成条件都在本文中定义。标为“后置硬化”的内容不属于本期。
 
@@ -43,7 +43,7 @@
 Scope 4 的目标很直接：让用户在当前项目里安装两个固定角色，需要时再安全移除。
 
 - `tmb_swe` 接收完整实施简报，在当前工作区修改代码并运行验证。
-- `tmb_pr_reviewer` 阅读指定变更，给出审查意见，不修改代码。
+- `tmb_code_reviewer` 阅读指定变更，给出审查意见，不修改代码。
 
 Codex 从项目的 `.codex/agents/` 读取自定义 Agent，但插件 manifest 不能直接把文件放到这个目录。因此，本期增加一个需要用户主动调用的 Skill `$tmb:tmb-agent-setup`，再给它两个用途受限的 MCP 工具：
 
@@ -53,7 +53,7 @@ Codex 从项目的 `.codex/agents/` 读取自定义 Agent，但插件 manifest �
 工具只管理两个路径：
 
 - `.codex/agents/tmb_swe.toml`
-- `.codex/agents/tmb_pr_reviewer.toml`
+- `.codex/agents/tmb_code_reviewer.toml`
 
 首版故意保持简单。文件只有三种状态：不存在、与当前模板完全相同、同名冲突。只要同名文件不是当前模板，工具就停下来，不覆盖，也不删除。历史模板升级、并发锁、双文件回滚和崩溃恢复留到后续硬化。
 
@@ -129,7 +129,7 @@ Codex 会加上插件命名空间；用户实际看到和调用的是 namespaced
 | 完整本地 plugin ID | `tmb@trustmybot-local` | 用于本地安装证据，不进入 Agent TOML |
 | MCP server name | `trajectory-server` | 同名 MCP 覆盖项依赖该固定名称 |
 | SWE Agent | 不存在 | `tmb_swe` |
-| Reviewer Agent | 不存在 | `tmb_pr_reviewer` |
+| Reviewer Agent | 不存在 | `tmb_code_reviewer` |
 
 已安装插件的精确调用名不能写成裸 `$tmb-bro` 或 `$tmb-agent-setup`。旧草案里的
 `[plugins.tmb...]` Agent MCP 配置也不再使用。`tmb` 是 Codex 安装时加上的插件命名空间，
@@ -231,7 +231,7 @@ Scope 3 的 Bro 能理解项目并保存规划。接下来真正写代码和审�
 
 ### 5.2 工程问题
 
-直接复制 Claude 的 `agents/swe.md` 和 `agents/pr-reviewer.md` 不可行：
+直接复制 Claude 的 `agents/swe.md` 和 `agents/code-reviewer.md` 不可行：
 
 - Claude frontmatter 与 Codex TOML schema 不同。
 - Claude Agent 依赖 task、validation、Hook 和 role-scoped MCP；这些能力在 Scope 4 不存在。
@@ -253,7 +253,7 @@ Scope 3 的 Bro 能理解项目并保存规划。接下来真正写代码和审�
 ### 6.2 次要利益相关者
 
 - TrustMyBot 维护者：确保 Codex 适配不改变 Claude 行为。
-- PR Reviewer：区分机器强制边界和 prompt 级行为。
+- Code Reviewer：区分机器强制边界和 prompt 级行为。
 - 发布验证人员：从 installed-cache 和真实宿主重复验证。
 - 安全审查者：确认路径、文件所有权、MCP 隔离和权限继承边界。
 
@@ -263,7 +263,7 @@ Scope 3 的 Bro 能理解项目并保存规划。接下来真正写代码和审�
 2. 用户确认后，可以安装或移除两个 Agent。
 3. 在受支持的单用户、稳定路径条件下，文件写入只发生在当前 canonical Git worktree 的两个精确目标路径。
 4. 同名未知或已修改文件不会被覆盖或删除。
-5. 新 task 中可以发现并调用 `tmb_swe` 和 `tmb_pr_reviewer`。
+5. 新 task 中可以发现并调用 `tmb_swe` 和 `tmb_code_reviewer`。
 6. SWE 能根据完整简报修改当前工作区并运行指定验证。
 7. Reviewer 能针对指定 diff 输出有文件位置和严重级别的建议。
 8. 两个 Agent 都不能使用本地开发安装中的 TMB `trajectory-server`。
@@ -425,7 +425,7 @@ flowchart LR
     V --> F["项目 .codex/agents 两个 TOML"]
     F --> N["新建 Codex task"]
     N --> SWE["tmb_swe"]
-    N --> REV["tmb_pr_reviewer"]
+    N --> REV["tmb_code_reviewer"]
     SWE -. "静态关闭 TMB trajectory-server" .-> W["当前工作区"]
     REV -. "静态关闭 TMB trajectory-server" .-> W
     BRO["$tmb:tmb-bro"] -. "Scope 4 不自动 spawn" .-> SWE
@@ -543,8 +543,8 @@ Getter 不能创建 `.tmb/`、`.codex/` 或任何其他文件。Setup Skill 直�
         "current_content_sha256": "<sha256>"
       },
       {
-        "agent_id": "tmb_pr_reviewer",
-        "target_path": ".codex/agents/tmb_pr_reviewer.toml",
+        "agent_id": "tmb_code_reviewer",
+        "target_path": ".codex/agents/tmb_code_reviewer.toml",
         "status": "current",
         "expected_template_version": 1,
         "expected_body_sha256": "<sha256>",
@@ -632,7 +632,7 @@ Overall status：
     "desired_state": "present",
     "changed": [
       ".codex/agents/tmb_swe.toml",
-      ".codex/agents/tmb_pr_reviewer.toml"
+      ".codex/agents/tmb_code_reviewer.toml"
     ],
     "unchanged": [],
     "overall_status": "current",
@@ -651,7 +651,7 @@ Overall status：
     "desired_state": "absent",
     "changed": [
       ".codex/agents/tmb_swe.toml",
-      ".codex/agents/tmb_pr_reviewer.toml"
+      ".codex/agents/tmb_code_reviewer.toml"
     ],
     "unchanged": [],
     "overall_status": "absent",
@@ -660,7 +660,7 @@ Overall status：
 }
 ```
 
-`changed` 和 `unchanged` 都按 catalog 固定顺序返回：先 `tmb_swe`，再 `tmb_pr_reviewer`。
+`changed` 和 `unchanged` 都按 catalog 固定顺序返回：先 `tmb_swe`，再 `tmb_code_reviewer`。
 
 两个数组在每次成功响应中都必须存在：
 
@@ -755,8 +755,8 @@ Partial error 示例：
           "status": "current"
         },
         {
-          "agent_id": "tmb_pr_reviewer",
-          "target_path": ".codex/agents/tmb_pr_reviewer.toml",
+          "agent_id": "tmb_code_reviewer",
+          "target_path": ".codex/agents/tmb_code_reviewer.toml",
           "status": "conflict"
         }
       ],
@@ -805,7 +805,7 @@ Partial error 示例：
 # tmb-body-sha256: <sha256>
 ```
 
-Reviewer 文件的 template ID 为 `tmb_pr_reviewer`。
+Reviewer 文件的 template ID 为 `tmb_code_reviewer`。
 
 ### 14.2 Canonical bytes
 
@@ -863,7 +863,7 @@ Reviewer 文件的 template ID 为 `tmb_pr_reviewer`。
 
 1. 对项目根、父目录和两个目标完成全量 preflight。
 2. 任一 conflict 时，在第一次写入或删除前退出。
-3. 按 catalog 固定顺序处理 `tmb_swe`，再处理 `tmb_pr_reviewer`。
+3. 按 catalog 固定顺序处理 `tmb_swe`，再处理 `tmb_code_reviewer`。
 4. 每个创建使用 exclusive no-follow create，禁止覆盖已存在路径。
 5. 每个删除在 unlink 前再次验证 exact bytes。
 6. 操作后重新读取两个目标状态。
@@ -1047,12 +1047,12 @@ SWE 必须拒绝在以下分支实施：
 - 用户原有改动是否保留；
 - 明确声明未 commit、未 push、未写 TMB workflow 数据。
 
-## 19. `tmb_pr_reviewer` 契约
+## 19. `tmb_code_reviewer` 契约
 
 ### 19.1 默认配置
 
 ```toml
-name = "tmb_pr_reviewer"
+name = "tmb_code_reviewer"
 sandbox_mode = "read-only"
 ```
 
@@ -1166,7 +1166,7 @@ Skill 不得：
 >
 > `.codex/agents/tmb_swe.toml`
 >
-> `.codex/agents/tmb_pr_reviewer.toml`
+> `.codex/agents/tmb_code_reviewer.toml`
 >
 > 不会修改 `.claude`、Git 索引、远程仓库或 TMB 规划数据。文件可能出现在 `git status`，是否纳入版本控制由你决定。确认安装吗？
 
@@ -1184,7 +1184,7 @@ Skill 不得：
 
 成功：
 
-> 两个 Agent 配置已写入。Codex 在新 task 或新 CLI session 中读取项目 Agent 配置，请重新打开后再调用 `tmb_swe` 或 `tmb_pr_reviewer`。
+> 两个 Agent 配置已写入。Codex 在新 task 或新 CLI session 中读取项目 Agent 配置，请重新打开后再调用 `tmb_swe` 或 `tmb_code_reviewer`。
 
 Partial：
 
@@ -1914,7 +1914,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 
 - 只手工检查以下两个文件：
   - `.codex/agents/tmb_swe.toml`
-  - `.codex/agents/tmb_pr_reviewer.toml`
+  - `.codex/agents/tmb_code_reviewer.toml`
 - 删除前先建立可信来源链：
   1. 从官方 `trustmybot/plugin` GitHub PR 或 release 页面取得该版本完整 40 字符 commit SHA；短 SHA、文件自己的 header 和本地未知来源文本都不能作为依据。
   2. 从官方仓库 fetch 该精确 Git object，并用 `git cat-file -e '<sha>^{commit}'` 验证对象存在；后续读取都使用该不可变 Git object，不使用可移动分支名。
@@ -1993,7 +1993,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 - `.claude-plugin/plugin.json`；
 - 根 `.mcp.json`；
 - `agents/swe.md`；
-- `agents/pr-reviewer.md`；
+- `agents/code-reviewer.md`；
 - Claude Hook contract；
 - Claude tool registry；
 - database schema。

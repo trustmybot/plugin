@@ -24,7 +24,7 @@ A split stem — the v0.10.0 `cheatcode` skill shipping over a `resource_search`
 
 ## Boundary
 
-The stem names the *feature*, not a *domain word*. Generic uses (e.g. "resource" for per-spawn resource tracking, "3rd party" for the pr-reviewer) are not the feature and never get renamed. Scope any rename to the feature's identifiers — never a blanket `s/<word>/<stem>/`.
+The stem names the *feature*, not a *domain word*. Generic uses (e.g. "resource" for per-spawn resource tracking, "3rd party" for the code-reviewer) are not the feature and never get renamed. Scope any rename to the feature's identifiers — never a blanket `s/<word>/<stem>/`.
 
 ## Choosing a stem
 
