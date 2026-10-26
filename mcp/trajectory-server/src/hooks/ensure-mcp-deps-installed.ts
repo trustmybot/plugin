@@ -16,6 +16,7 @@
  * Bypass, unset CLAUDE_PLUGIN_ROOT, no MCP package.json → exit 0, no output.
  */
 import { spawn, spawnSync, type StdioOptions } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   accessSync,
   closeSync,
@@ -53,9 +54,12 @@ import {
 
 export const GATE_NAME = 'ensure-mcp-deps-installed';
 export const INSTALL_FLAG = '--install';
+export const LOCK_TOKEN_ENV = 'TMB_MCP_DEPS_LOCK_TOKEN';
 
 const MCP_REL = join('mcp', 'trajectory-server');
 const LOCK_STALE_DEFAULT_MIN = 15;
+const RECLAIM_MUTEX_STALE_MS = 30_000;
+const LOCK_OWNER = 'owner';
 const STAGING_STALE_MS = 60 * 60 * 1000;
 const INSTALLED_AT = '.installed-at';
 const STAGING_PREFIX = '.staging-';
@@ -242,27 +246,86 @@ function staleMinutes(env: NodeJS.ProcessEnv): number {
   return /^[0-9]+$/.test(raw) ? Number(raw) : LOCK_STALE_DEFAULT_MIN;
 }
 
-function takeLock(lock: string, staleMin: number): boolean {
+function ageMs(path: string): number | undefined {
   try {
-    if (Date.now() - statSync(lock).mtimeMs > staleMin * 60_000) rmdirSync(lock);
+    return Date.now() - statSync(path).mtimeMs;
   } catch {
-    // no lock, or a stale one another process already reclaimed
-  }
-  try {
-    mkdirSync(dirname(lock), { recursive: true });
-    mkdirSync(lock);
-    return true;
-  } catch {
-    return false;
+    return undefined;
   }
 }
 
-function releaseLock(lock: string): void {
+/** A lock that is gone, or older than `staleMin` minutes. */
+function isStaleLock(lock: string, staleMin: number): boolean {
+  const age = ageMs(lock);
+  return age === undefined || age > staleMin * 60_000;
+}
+
+/** Creates `lock` and writes a fresh owner token into it; undefined when the lock already exists. */
+function claimLock(lock: string): string | undefined {
   try {
-    rmdirSync(lock);
+    mkdirSync(lock);
   } catch {
-    // already gone
+    return undefined;
   }
+  const token = randomUUID();
+  try {
+    writeFileSync(join(lock, LOCK_OWNER), token);
+  } catch {
+    rmSync(lock, { recursive: true, force: true });
+    return undefined;
+  }
+  return token;
+}
+
+/**
+ * Takes over a stale lock under the mutex `<lock>.reclaim`, as dispatch.sh's
+ * reclaim() does: the holder re-checks staleness, so a lock re-created
+ * meanwhile is never removed. A mutex older than 30 s is dropped for the next caller.
+ */
+function reclaimLock(lock: string, staleMin: number): string | undefined {
+  const mutex = `${lock}.reclaim`;
+  try {
+    mkdirSync(mutex);
+  } catch {
+    const age = ageMs(mutex);
+    if (age !== undefined && age > RECLAIM_MUTEX_STALE_MS) rmSync(mutex, { recursive: true, force: true });
+    return undefined;
+  }
+  try {
+    if (!isStaleLock(lock, staleMin)) return undefined;
+    rmSync(lock, { recursive: true, force: true });
+    return claimLock(lock);
+  } finally {
+    try {
+      rmdirSync(mutex);
+    } catch {
+      // dropped as stale by another caller
+    }
+  }
+}
+
+/** The owner token written to `<lock>/owner`, or undefined while another caller holds a lock that is not stale. */
+export function takeLock(lock: string, staleMin: number): string | undefined {
+  try {
+    mkdirSync(dirname(lock), { recursive: true });
+  } catch {
+    return undefined;
+  }
+  return claimLock(lock) ?? (isStaleLock(lock, staleMin) ? reclaimLock(lock, staleMin) : undefined);
+}
+
+/** Removes `lock` only when its owner file reads exactly `token`; a lock with no owner file is never removed. */
+export function releaseLock(lock: string, token: string | undefined): boolean {
+  if (!token) return false;
+  let owner: string;
+  try {
+    owner = readFileSync(join(lock, LOCK_OWNER), 'utf8');
+  } catch {
+    return false;
+  }
+  if (owner !== token) return false;
+  rmSync(lock, { recursive: true, force: true });
+  return true;
 }
 
 function lockPath(ctx: Context): string {
@@ -348,14 +411,14 @@ function noInstallerNotice(ctx: Context, hooksEntry: string): GateResult {
   return notice(`📦 Semantic search is degraded: the MCP server's @huggingface/transformers is not installed and neither bun nor npm is on PATH. Install one and restart Claude Code, or run: ${manual}`);
 }
 
-function startWorker(hooksEntry: string, log: InstallLog): void {
+function startWorker(hooksEntry: string, log: InstallLog, token: string): void {
   const fd = log.path ? openSync(log.path, 'a') : undefined;
   const stdio: StdioOptions = fd === undefined ? 'ignore' : ['ignore', fd, fd];
   try {
     const child = spawn(process.execPath, [hooksEntry, GATE_NAME, INSTALL_FLAG], {
       detached: true,
       stdio,
-      env: log.env,
+      env: { ...log.env, [LOCK_TOKEN_ENV]: token },
     });
     child.on('error', () => undefined);
     child.unref();
@@ -382,12 +445,13 @@ function ensureDeps(env: NodeJS.ProcessEnv): GateResult {
   const installer = findInstaller(env, ctx.legacy ? LEGACY_INSTALLERS : DATA_INSTALLERS);
   if (!installer) return noInstallerNotice(ctx, hooksEntry);
   const lock = lockPath(ctx);
-  if (!takeLock(lock, staleMinutes(env))) return ALLOW;
+  const token = takeLock(lock, staleMinutes(env));
+  if (!token) return ALLOW;
   const log = installLog(ctx);
   try {
-    startWorker(hooksEntry, log);
+    startWorker(hooksEntry, log, token);
   } catch {
-    releaseLock(lock);
+    releaseLock(lock, token);
   }
   const logNote = log.path ? ` Log: ${log.path}` : '';
   return notice(`📦 Installing the MCP server's @huggingface/transformers in the background (${installer.name}); semantic search runs on FTS until then and embeddings go live on the next Claude Code restart.${logNote}`);
@@ -679,16 +743,26 @@ function legacyInstall(ctx: Context, log: Logger): number {
   return rc;
 }
 
-/** `node dist/hooks.js ensure-mcp-deps-installed --install`: the detached worker; releases the gate's lock. */
+/**
+ * `node dist/hooks.js ensure-mcp-deps-installed --install`: the detached
+ * worker. Spawned by the gate, it releases the gate's lock only while it still
+ * owns it; run by hand, it takes the lock itself and refuses while another
+ * install holds it.
+ */
 export function runInstallWorker(env: NodeJS.ProcessEnv): number {
   const ctx = context(env);
   if (!ctx) return 0;
   const lock = lockPath(ctx);
+  const token = env[LOCK_TOKEN_ENV] || takeLock(lock, staleMinutes(env));
+  if (!token) {
+    stdoutLogger(`another install holds ${lock}; not installing`);
+    return 1;
+  }
   try {
     return ctx.legacy
       ? legacyInstall(ctx, stdoutLogger)
       : installRuntimeDeps({ root: ctx.root, dataDir: ctx.dataDir, env });
   } finally {
-    releaseLock(lock);
+    releaseLock(lock, token);
   }
 }
