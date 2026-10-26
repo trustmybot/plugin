@@ -10,6 +10,7 @@ import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
+import { recordEffortInputs } from '../effort-inputs.js';
 import { CLAIMS, CONCEPT_KINDS, CRITERION_STATUSES, HANDOFFS, MAX_CONCEPT_PROPOSALS, parseCompletionReport, specCriteriaProblem, specCriterionIds, } from '../success-criteria.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
@@ -862,6 +863,7 @@ export function taskTools(db) {
                             id: row.id, issue_id: row.issue_id, branch_id: row.branch_id,
                             from_node: args['agent'] ?? 'bro', created_at: now,
                         });
+                        recordEffortInputs(db, { id: row.id, from_node: args['agent'] ?? 'bro' });
                         effortReasons.set(row.id, assigned.reason);
                         results.push({ ...row, effort: assigned.effort });
                     }

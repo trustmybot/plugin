@@ -54,6 +54,7 @@ import {
 } from '../success-criteria.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
+import { recordEffortInputs } from '../effort-inputs.js';
 import { briefLocations } from '../brief-locations.js';
 import { checkoutLag } from './world_model.js';
 
@@ -972,7 +973,7 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base — local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+        "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base — local <base> when it is a fast-forward ahead of origin/<base>, else origin/<base> (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, effort_inputs {suggested_tier, reason}, worktree_path, git_setup, worktree_reused, base_ref, base_diverged?, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1391,6 +1392,7 @@ export function compositeTools(
           const assigned = enrollEffortAb(db, computedEffort, {
             id: row.id, issue_id: issueId, branch_id: branchId, from_node: agent, created_at: now,
           });
+          const effortInputs = recordEffortInputs(db, { id: row.id, from_node: agent });
 
           insertDiscussion(db, {
             issue_id: issueId,
@@ -1427,7 +1429,7 @@ export function compositeTools(
             insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
           }
 
-          return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason };
+          return { task_id: row.id, effort: assigned.effort, effort_reason: assigned.reason, effort_inputs: effortInputs };
         });
 
         // --- WORKTREE SIDE-EFFECT AFTER THE COMMIT (fail-soft) ---
@@ -1455,6 +1457,7 @@ export function compositeTools(
           slug,
           effort: result.effort,
           effort_reason: result.effort_reason,
+          effort_inputs: result.effort_inputs,
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,

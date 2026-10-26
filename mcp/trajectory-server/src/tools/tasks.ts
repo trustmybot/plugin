@@ -19,6 +19,7 @@ import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort, type Effort, type EffortReason } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
+import { recordEffortInputs } from '../effort-inputs.js';
 import {
   CLAIMS,
   CONCEPT_KINDS,
@@ -1016,6 +1017,7 @@ export function taskTools(db: TrajectoryDB): {
               id: row.id, issue_id: row.issue_id, branch_id: row.branch_id,
               from_node: (args['agent'] as string) ?? 'bro', created_at: now,
             });
+            recordEffortInputs(db, { id: row.id, from_node: (args['agent'] as string) ?? 'bro' });
             effortReasons.set(row.id, assigned.reason);
             results.push({ ...row, effort: assigned.effort });
           }
