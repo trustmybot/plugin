@@ -110,7 +110,7 @@ before(async () => {
   const out = await build({
     stdin: {
       contents: `import { renderToStaticMarkup } from 'react-dom/server';
-        import { createElement } from 'react';
+        import { createElement, Fragment } from 'react';
         import { insights, insightFilter, nearestRank, metric, logEdges, histogram, likelyIdle, normalizeCommand, explore } from './server/queries.ts';
         import { parseChangelog, loadReleases, releaseAt } from './server/releases.ts';
         import { exploreTable, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote } from './web/views/insights/explore.tsx';
@@ -134,6 +134,7 @@ before(async () => {
         export const exploreRows = (hash, ex) => exploreTable(ex, paramsOf(hash));
         export const histogramSvg = (props) => renderToStaticMarkup(createElement(Histogram, props));
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
+        export const escaped = (text) => renderToStaticMarkup(createElement(Fragment, null, text));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
         export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, labelBox, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
@@ -607,12 +608,12 @@ describe('Explore view', () => {
     const cache = view('m=cache_hit&a=avg&g=agent').html;
     assert.match(cache, /<option value="sum" disabled="">Sum<\/option>/);
     assert.match(cache, /<option value="avg" selected="">Average<\/option>/);
-    assert.ok(cache.includes(mod.CACHE_HIT_HELP.replace("'", '&#x27;')));
+    assert.ok(cache.includes(mod.escaped(mod.CACHE_HIT_HELP)));
     assert.match(cache, /<option value="cost" disabled="">Cost<\/option>/);
     assert.ok(cache.includes(mod.COST_HELP));
     const plain = view('m=tokens_out&a=sum&g=agent').html;
     assert.doesNotMatch(plain, /<option value="sum" disabled/);
-    assert.ok(!plain.includes(mod.CACHE_HIT_HELP.replace("'", '&#x27;')));
+    assert.ok(!plain.includes(mod.escaped(mod.CACHE_HIT_HELP)));
     const priced = view('m=cost&a=sum&g=agent', pricedDb).html;
     assert.doesNotMatch(priced, /<option value="cost" disabled/);
     assert.ok(!priced.includes(mod.COST_HELP));
