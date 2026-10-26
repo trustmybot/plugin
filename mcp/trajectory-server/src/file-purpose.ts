@@ -433,8 +433,28 @@ function plainMarkdown(s: string): string {
   ).trim();
 }
 
+function backtickRunEnd(line: string, at: number): number {
+  let end = at;
+  while (line[end] === '`') end++;
+  return end;
+}
+
+// Where the code span opened by the backtick run at [open, openEnd) ends on this
+// line: just past a closing run of the same length, or -1 when the run is literal.
+function codeSpanEnd(line: string, open: number, openEnd: number): number {
+  const length = openEnd - open;
+  let j = line.indexOf('`', openEnd);
+  while (j >= 0) {
+    const runEnd = backtickRunEnd(line, j);
+    if (runEnd - j === length) return runEnd;
+    j = line.indexOf('`', runEnd);
+  }
+  return -1;
+}
+
 // The line with every HTML comment span removed, and whether a comment is still
-// open at its end. `<!-->` and `<!--->` close at once, as CommonMark has it.
+// open at its end. `<!-->` and `<!--->` close at once, as CommonMark has it, and
+// a code span that starts before a `<!--` keeps it literal (CommonMark §6.1).
 function withoutComments(line: string, inComment: boolean): { rest: string; inComment: boolean } {
   let rest = '';
   let i = 0;
@@ -446,6 +466,15 @@ function withoutComments(line: string, inComment: boolean): { rest: string; inCo
       inComment = false;
     }
     const start = line.indexOf('<!--', i);
+    const tick = line.indexOf('`', i);
+    if (tick >= 0 && (start < 0 || tick < start)) {
+      const runEnd = backtickRunEnd(line, tick);
+      const spanEnd = codeSpanEnd(line, tick, runEnd);
+      const next = spanEnd < 0 ? runEnd : spanEnd;
+      rest += line.slice(i, next);
+      i = next;
+      continue;
+    }
     if (start < 0) return { rest: rest + line.slice(i), inComment: false };
     rest += line.slice(i, start);
     i = start + 2;
