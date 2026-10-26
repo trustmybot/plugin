@@ -11968,7 +11968,12 @@ function refResolves(repoPath, ref) {
     return false;
   }
 }
-function resolveBaseRef(repoPath, base) {
+function normalizeBase(repoPath, base) {
+  if (!base.startsWith("origin/") || refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return base.slice("origin/".length);
+}
+function resolveBaseRef(repoPath, rawBase) {
+  const base = normalizeBase(repoPath, rawBase);
   if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
   if (refResolves(repoPath, `refs/heads/${base}`)) return base;
   return null;

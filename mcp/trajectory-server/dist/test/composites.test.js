@@ -2266,6 +2266,124 @@ describe('task_provision (#157)', () => {
             }
         });
     });
+    describe('input shape (GH 1855)', () => {
+        const provisionArgs = (branch_id, extra, task = {}) => ({
+            agent: 'bro', issue_id: 1, branch_id, decision_body: 'approach: input shape; trade-off none.',
+            task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], ...task },
+            ...extra,
+        });
+        const addWebRepo = (ws, git) => {
+            const root = join(ws, 'web');
+            mkdirSync(root, { recursive: true });
+            git(root, 'init', '-q', '-b', 'main');
+            git(root, 'config', 'user.email', 't@t.t');
+            git(root, 'config', 'user.name', 't');
+            writeFileSync(join(root, 'w.txt'), 'web\n');
+            git(root, 'add', '.');
+            git(root, 'commit', '-q', '-m', 'web base');
+            git(root, 'update-ref', 'refs/remotes/origin/main', git(root, 'rev-parse', 'HEAD'));
+            return root;
+        };
+        it("base 'origin/dev' against a real origin remote provisions from origin/dev and records parent_branch_id 'dev'", async () => {
+            const { ws, repoRoot, git } = makeRepo();
+            try {
+                git(repoRoot, 'update-ref', '-d', 'refs/remotes/origin/main');
+                git(repoRoot, 'branch', 'dev');
+                const origin = join(ws, 'origin.git');
+                git(ws, 'init', '-q', '--bare', origin);
+                git(repoRoot, 'remote', 'add', 'origin', origin);
+                git(repoRoot, 'push', '-q', 'origin', 'main', 'dev');
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/origin-prefixed', { base: 'origin/dev' }, { repo: 'app' }));
+                assert.ok(!r.isError, JSON.stringify(parse(r)));
+                const out = parse(r);
+                assert.equal(out['base_ref'], 'origin/dev');
+                assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/origin-prefixed'), git(repoRoot, 'rev-parse', 'refs/remotes/origin/dev'));
+                const row = db.get('SELECT parent_branch_id FROM tasks WHERE id = ?', [out['task_id']]);
+                assert.equal(row.parent_branch_id, 'dev');
+                const missing = await call(composites.handlers, 'task_provision', provisionArgs('feat/origin-missing', { base: 'origin/nope' }, { repo: 'app' }));
+                assert.equal(missing.isError, true);
+                assert.match(String(parse(missing)['error']), /base does not resolve as 'origin\/nope' or local 'nope'/);
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it("no task.repo in a two-repo workspace: provisions in the issue's repo", async () => {
+            const { ws, repoRoot, git } = makeRepo();
+            try {
+                const webRoot = addWebRepo(ws, git);
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('web', ?, 'main')`, [webRoot]);
+                db.run(`UPDATE issues SET repo = 'web' WHERE id = 1`);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/issue-repo', {}));
+                assert.ok(!r.isError, JSON.stringify(parse(r)));
+                const out = parse(r);
+                assert.equal(out['repo'], 'web');
+                assert.equal(out['worktree_path'], join(webRoot, '.claude', 'worktrees', 'issue-repo'));
+                assert.equal(git(webRoot, 'rev-parse', '--verify', 'refs/heads/feat/issue-repo').length, 40);
+                assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/issue-repo'));
+                const explicit = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/task-repo', {}, { repo: 'app' })));
+                assert.equal(explicit['repo'], 'app', 'task.repo wins over the issue repo');
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it('no task.repo and no issue repo: sole repo when one, the existing refusal when two', async () => {
+            const { ws, repoRoot, git } = makeRepo();
+            try {
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const sole = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/sole-repo', {})));
+                assert.equal(sole['repo'], 'app');
+                db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('web', ?, 'main')`, [addWebRepo(ws, git)]);
+                const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/no-repo', {}));
+                assert.equal(r.isError, true);
+                assert.match(String(parse(r)['error']), /cannot resolve a repo path for git setup \(task\.repo=''\)/);
+                assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/no-repo'`).c, 0);
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it("an issue-sourced repo gets the same '..' check as task.repo", async () => {
+            const { ws, repoRoot } = makeRepo();
+            try {
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                db.run(`INSERT INTO repos (name, path) VALUES ('../evil', ?)`, [repoRoot]);
+                db.run(`UPDATE issues SET repo = '../evil' WHERE id = 1`);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/evil-repo', {}));
+                assert.equal(r.isError, true);
+                assert.match(String(parse(r)['error']), /Invalid repo "\.\.\/evil": must not contain "\.\."/);
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it("the schema states the required non-empty fields and that base accepts 'origin/<branch>'", () => {
+            const db = tempDB();
+            const def = compositeTools(db, '').definitions.find((d) => d.name === 'task_provision');
+            const props = def.inputSchema.properties;
+            const taskProps = props['task'].properties;
+            assert.match(taskProps['description'].description, /Required, non-empty/);
+            assert.match(taskProps['spec_body'].description, /Required, non-empty/);
+            assert.match(props['base'].description, /'origin\/dev'/);
+            assert.match(taskProps['repo'].description, /defaults to the issue's repo/);
+            db.close();
+        });
+    });
     it('idempotent re-run reuses the existing branch + worktree (git_setup: reused)', async () => {
         const { ws, repoRoot } = makeRepo();
         try {
