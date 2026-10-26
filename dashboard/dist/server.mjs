@@ -1,7 +1,7 @@
 // server/main.ts
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync as existsSync3, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync5, statSync as statSync2 } from "node:fs";
 import { extname, join as join8, normalize, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
@@ -4521,6 +4521,30 @@ function derivedChain(db, repo, query, candidates = keywordSearchSymbols(db, rep
   return { label: DERIVED_LABEL, steps };
 }
 
+// server/releases.ts
+import { readFileSync as readFileSync4 } from "node:fs";
+var HEADING = /^## v(\S+) — (\d{4}-\d{2}-\d{2})\s*$/;
+function parseChangelog(text) {
+  const releases = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = HEADING.exec(line);
+    if (m) releases.push({ version: m[1], date: m[2] });
+  }
+  return releases.map((r, i) => ({ r, i })).sort((a, b) => b.r.date.localeCompare(a.r.date) || a.i - b.i).map(({ r }) => r);
+}
+function loadReleases(path) {
+  try {
+    return parseChangelog(readFileSync4(path, "utf8"));
+  } catch {
+    return [];
+  }
+}
+function releaseAt(releases, at) {
+  if (!at) return null;
+  const day = at.slice(0, 10);
+  return releases.find((r) => r.date <= day) ?? null;
+}
+
 // server/queries.ts
 var RECENT_LIMIT = 200;
 function all(db, sql, ...params) {
@@ -5072,6 +5096,12 @@ function normalizeCommand(command) {
   while (wrapsWhole(s)) s = s.slice(1, -1).trim();
   return s.replace(/\s+/g, " ");
 }
+function bySlowest(a, b) {
+  const ranked = (c) => c.n >= EARLY_DATA_MIN;
+  if (ranked(a) !== ranked(b)) return ranked(a) ? -1 : 1;
+  const key = (c) => (ranked(c) ? c.p95 : c.max) ?? 0;
+  return key(b) - key(a) || a.command.localeCompare(b.command);
+}
 function qualityOf(db, f, since) {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
@@ -5120,10 +5150,7 @@ function qualityOf(db, f, since) {
     list.push(Number(c["elapsed_s"]));
     commands.set(command, list);
   }
-  const slowest = [...commands].map(([command, values]) => {
-    const sorted = [...values].sort((a, b) => a - b);
-    return { command, n: sorted.length, ...metric(sorted), rank: nearestRank(sorted, 0.95) };
-  }).sort((a, b) => b.rank - a.rank || a.command.localeCompare(b.command)).slice(0, TOP_N).map(({ rank: _rank, ...c }) => c);
+  const slowest = [...commands].map(([command, values]) => ({ command, n: values.length, ...metric(values) })).sort(bySlowest).slice(0, TOP_N);
   return {
     first_pass: { passed: [...perTask.values()].filter((t) => t.first === "pass").length, total: perTask.size },
     attempts: [...attemptCounts].sort((a, b) => a[0] - b[0]).map(([attempts2, tasks2]) => ({ attempts: attempts2, tasks: tasks2 })),
@@ -5159,9 +5186,9 @@ function likelyIdle(r) {
 function outliersOf(runs) {
   const perRun = runs.filter((r) => r.measured === 1 && r.agent !== "bro");
   const row = (r, value) => ({ run_id: r.id, agent: r.agent, task_id: r.task_id, task_title: r.task_title, value });
-  const byValue = (a, b) => b.value - a.value || a.run_id - b.run_id;
-  const top = (value) => perRun.map((r) => row(r, value(r))).sort(byValue).slice(0, TOP_N);
-  const durations = perRun.map((r) => ({ ...row(r, r.duration_ms), tool_uses: r.tool_uses, tokens_out: r.tokens_out, idle: likelyIdle(r) })).sort(byValue);
+  const byValue2 = (a, b) => b.value - a.value || a.run_id - b.run_id;
+  const top = (value) => perRun.map((r) => row(r, value(r))).sort(byValue2).slice(0, TOP_N);
+  const durations = perRun.map((r) => ({ ...row(r, r.duration_ms), tool_uses: r.tool_uses, tokens_out: r.tokens_out, idle: likelyIdle(r) })).sort(byValue2);
   const duration_ms = [...durations.filter((r) => !r.idle).slice(0, TOP_N), ...durations.filter((r) => r.idle).slice(0, TOP_N)];
   return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
@@ -5208,6 +5235,196 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
     quality: qualityOf(db, f, since),
     throughput: throughputOf(db, f, since),
     outliers: outliersOf(rows)
+  };
+}
+var EXPLORE_MEASURES = ["tokens_out", "context", "cache_hit", "cost", "duration_ms", "tool_uses"];
+var EXPLORE_AGGS = ["avg", "p50", "p95", "max", "sum", "count"];
+var EXPLORE_DIMS = [
+  "agent",
+  "model",
+  "effort",
+  "repo",
+  "exit_reason",
+  "usage_source",
+  "resumed",
+  "prompt_bearing",
+  "task_status",
+  "day",
+  "week",
+  "review_round",
+  "plugin_version"
+];
+var TOKEN_MEASURES = /* @__PURE__ */ new Set(["tokens_out", "context", "cache_hit", "cost"]);
+var ONE_DIM_MAX = 10;
+var PANELS_NAMED = 3;
+var PANEL_BARS_NAMED = 6;
+var OTHER = "Other";
+var NOT_A_REVIEW = "Not a review";
+var NO_TASK = "No task";
+var UNKNOWN_VERSION = "unknown";
+var estimatedVersion = (version) => `\u2248 v${version} (by date)`;
+var oneOf = (list, v) => list.includes(v);
+function exploreQuery(p) {
+  const measure = p.get("m") || "tokens_out";
+  if (!oneOf(EXPLORE_MEASURES, measure)) return { error: `m must be one of ${EXPLORE_MEASURES.join(", ")}` };
+  const agg = p.get("a") || "p50";
+  if (!oneOf(EXPLORE_AGGS, agg)) return { error: `a must be one of ${EXPLORE_AGGS.join(", ")}` };
+  const dims = (p.get("g") || "agent").split(",");
+  if (dims.length > 2) return { error: "g takes at most two dimensions" };
+  for (const d of dims) if (!oneOf(EXPLORE_DIMS, d)) return { error: `g must be one or two of ${EXPLORE_DIMS.join(", ")}` };
+  if (new Set(dims).size !== dims.length) return { error: "g names the same dimension twice" };
+  if (measure === "cache_hit" && agg !== "avg") return { error: "cache_hit is a ratio of sums: a must be avg" };
+  return { measure, agg, dims };
+}
+var columnsOf = (db, table) => new Set(all(db, `PRAGMA table_info(${table})`).map((c) => String(c["name"])));
+function exploreRows(db, f, since) {
+  const cols = columnsOf(db, "agent_runs");
+  const version = cols.has("plugin_version") ? "r.plugin_version" : "NULL";
+  const resumed = cols.has("resumed_from") ? "r.resumed_from IS NOT NULL" : "0";
+  return all(
+    db,
+    `WITH rounds AS (
+       SELECT id, row_number() OVER (PARTITION BY task_id ORDER BY started_at, id) AS round
+         FROM agent_runs WHERE agent_type = 'code-reviewer' AND task_id IS NOT NULL
+     )
+     SELECT * FROM (
+       SELECT r.id, ${AGENT_OF_RUN} AS agent, r.task_id, t.title AS task_title, r.model, r.effort, r.repo,
+              r.exit_reason, r.usage_source, ${resumed} AS resumed, t.prompt_bearing, t.status AS task_status,
+              COALESCE(r.started_at, r.completed_at) AS at, ${version} AS plugin_version, w.round,
+              (r.usage_source IS NOT NULL AND r.usage_source <> 'unmeasured') AS measured,
+              COALESCE(r.tokens_in, 0) AS tokens_in, COALESCE(r.tokens_out, 0) AS tokens_out,
+              COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
+              r.duration_ms, r.tool_uses
+         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id LEFT JOIN rounds w ON w.id = r.id
+        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+          AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
+     ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
+     ORDER BY id`,
+    since,
+    since,
+    f.repo,
+    f.repo,
+    f.model,
+    f.model,
+    f.effort,
+    f.effort,
+    f.agent,
+    f.agent
+  );
+}
+function mondayOf(at) {
+  const t = at ? Date.parse(`${at.slice(0, 10)}T00:00:00Z`) : NaN;
+  if (Number.isNaN(t)) return UNKNOWN_VERSION;
+  const back = (new Date(t).getUTCDay() + 6) % 7;
+  return new Date(t - back * 864e5).toISOString().slice(0, 10);
+}
+function labelOf(dim, r, releases) {
+  switch (dim) {
+    case "agent":
+      return r.agent;
+    case "model":
+      return r.model ?? "none";
+    case "effort":
+      return r.effort ?? "none";
+    case "repo":
+      return r.repo ?? "none";
+    case "exit_reason":
+      return r.exit_reason ?? "open";
+    case "usage_source":
+      return r.usage_source ?? "none";
+    case "resumed":
+      return r.resumed ? "resumed" : "fresh";
+    case "prompt_bearing":
+      return r.prompt_bearing === null ? NO_TASK : r.prompt_bearing ? "prompt-bearing" : "not prompt-bearing";
+    case "task_status":
+      return r.task_status ?? NO_TASK;
+    case "day":
+      return r.at?.slice(0, 10) ?? UNKNOWN_VERSION;
+    case "week":
+      return mondayOf(r.at);
+    case "review_round":
+      return r.round === null ? NOT_A_REVIEW : r.round >= 3 ? "3+" : String(r.round);
+    case "plugin_version": {
+      if (r.plugin_version !== null) return r.plugin_version;
+      const release = releaseAt(releases, r.at);
+      return release ? estimatedVersion(release.version) : UNKNOWN_VERSION;
+    }
+  }
+}
+function measureOf(measure, prices) {
+  switch (measure) {
+    case "tokens_out":
+      return (r) => r.tokens_out;
+    case "context":
+    case "cache_hit":
+      return context;
+    case "cost":
+      return (r) => priceOf(prices, r);
+    case "duration_ms":
+      return (r) => r.duration_ms;
+    case "tool_uses":
+      return (r) => r.tool_uses;
+  }
+}
+function aggregate(runs, q, value) {
+  if (q.measure === "cache_hit") {
+    const ctx = runs.reduce((s, r) => s + context(r), 0);
+    return ctx > 0 ? runs.reduce((s, r) => s + r.cache_read, 0) / ctx : null;
+  }
+  const values = runs.map((r) => value(r));
+  if (q.agg === "count") return values.length;
+  if (q.agg === "sum") return values.reduce((s, v) => s + v, 0);
+  return metric(values)[q.agg];
+}
+var byValue = (a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity) || b.n - a.n || a.key.localeCompare(b.key);
+function binsOf(runs, label, keep, named, total) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const r of runs) {
+    const key = label(r);
+    const list = byKey.get(key);
+    if (list) list.push(r);
+    else byKey.set(key, [r]);
+  }
+  const bins = [...byKey].map(([key, list]) => ({ key, runs: list, n: list.length, value: total(list) })).sort(byValue);
+  if (bins.length <= keep) return bins;
+  const rest = bins.slice(named).flatMap((b) => b.runs);
+  return [...bins.slice(0, named), { key: OTHER, runs: rest, n: rest.length, value: total(rest) }];
+}
+function reviewRoundMismatch(db, taskIds) {
+  if (taskIds.size === 0) return 0;
+  return all(
+    db,
+    `SELECT c.task_id, c.runs, (SELECT MAX(v.attempt_n) FROM validation_attempts v WHERE v.task_id = c.task_id) AS attempts
+       FROM (SELECT task_id, COUNT(*) AS runs FROM agent_runs
+              WHERE agent_type = 'code-reviewer' AND task_id IS NOT NULL GROUP BY task_id) c`
+  ).filter((t) => taskIds.has(Number(t["task_id"])) && Number(t["runs"]) !== Number(t["attempts"] ?? 0)).length;
+}
+function explore(db, f, p, releases = [], now2 = /* @__PURE__ */ new Date()) {
+  const q = exploreQuery(p);
+  if ("error" in q) return q;
+  const prices = modelPrices(db);
+  if (q.measure === "cost" && prices.size === 0) return { error: "cost needs model prices; none are set" };
+  const since = sinceOf(f.range, now2);
+  const rows = exploreRows(db, f, since);
+  const value = measureOf(q.measure, prices);
+  const runs = rows.filter((r) => (!TOKEN_MEASURES.has(q.measure) || r.measured === 1) && value(r) !== null);
+  const total = (list) => aggregate(list, q, value);
+  const label = (dim) => (r) => labelOf(dim, r, releases);
+  const [first, second] = q.dims;
+  const groups = second === void 0 ? binsOf(runs, label(first), ONE_DIM_MAX, ONE_DIM_MAX - 1, total).map((b) => ({ key: [b.key], n: b.n, value: b.value })) : binsOf(runs, label(first), PANELS_NAMED, PANELS_NAMED, total).flatMap(
+    (panel) => binsOf(panel.runs, label(second), PANEL_BARS_NAMED, PANEL_BARS_NAMED, total).map((b) => ({ key: [panel.key, b.key], n: b.n, value: b.value }))
+  );
+  const reviewed = new Set(rows.filter((r) => r.agent === "code-reviewer" && r.task_id !== null).map((r) => r.task_id));
+  const earliest = rows.reduce((min, r) => r.at !== null && (min === null || r.at < min) ? r.at : min, null);
+  const rangeDays = INSIGHT_RANGES[f.range];
+  return {
+    measure: q.measure,
+    agg: q.agg,
+    dims: q.dims,
+    groups,
+    review_round_mismatch: reviewRoundMismatch(db, reviewed),
+    days: rangeDays ?? (earliest === null ? 0 : Math.max(1, Math.ceil((now2.getTime() - Date.parse(earliest)) / 864e5))),
+    options: { measures: EXPLORE_MEASURES, aggs: EXPLORE_AGGS, dims: EXPLORE_DIMS, priced: prices.size > 0 }
   };
 }
 
@@ -8297,6 +8514,8 @@ var DEFAULT_PORT = 7477;
 var WEB_ROOT = fileURLToPath2(new URL("./web/", import.meta.url));
 var MAX_BODY_BYTES2 = 2 * 1024 * 1024;
 var TOKEN_HEADER = "x-tmb-token";
+var CHANGELOG = process.env["TMB_DASHBOARD_CHANGELOG"] || fileURLToPath2(new URL("../../CHANGELOG.md", import.meta.url));
+var RELEASES = loadReleases(CHANGELOG);
 var INTERNAL_ERROR = { error: "internal_error", message: "the dashboard server hit an error; its terminal has the details" };
 var MIME = {
   ".html": "text/html; charset=utf-8",
@@ -8360,6 +8579,11 @@ function handleApi(db, url, res) {
       }
     }
   }
+  if (parts.length === 2 && resource === "insights" && id === "explore") {
+    const filter = insightFilter(url.searchParams);
+    const body = "error" in filter ? filter : explore(db, filter, url.searchParams, RELEASES);
+    return sendJson(res, "error" in body ? 400 : 200, body);
+  }
   if (parts.length === 2 && resource === "world-model" && id === "search") {
     const p = url.searchParams;
     return sendJson(res, 200, worldModelSearch(db, p.get("q") ?? "", clampHits(p.get("limit"))));
@@ -8390,7 +8614,7 @@ function serveStatic(ctx, pathname, res) {
     return;
   }
   if (file.endsWith("index.html")) {
-    const html = readFileSync4(file, "utf8").replace(
+    const html = readFileSync5(file, "utf8").replace(
       "</head>",
       `<meta name="tmb-token" content="${ctx.token}" />
   </head>`
@@ -8400,7 +8624,7 @@ function serveStatic(ctx, pathname, res) {
     return;
   }
   res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
-  res.end(readFileSync4(file));
+  res.end(readFileSync5(file));
 }
 function tokenMatches(expected, given) {
   if (typeof given !== "string") return false;

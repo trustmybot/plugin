@@ -9,6 +9,7 @@ import { resolveClaudeDbPath } from '../../mcp/trajectory-server/src/platform.ts
 import { conceptsApi } from './concepts.ts';
 import { noEmbeddings } from './no-embeddings.ts';
 import * as q from './queries.ts';
+import { loadReleases } from './releases.ts';
 import { IssueWriter, isWriteAction } from './writes.ts';
 
 setEmbeddingLoader(noEmbeddings);
@@ -18,6 +19,8 @@ const DEFAULT_PORT = 7477;
 const WEB_ROOT = fileURLToPath(new URL('./web/', import.meta.url));
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const TOKEN_HEADER = 'x-tmb-token';
+const CHANGELOG = process.env['TMB_DASHBOARD_CHANGELOG'] || fileURLToPath(new URL('../../CHANGELOG.md', import.meta.url));
+const RELEASES = loadReleases(CHANGELOG);
 const INTERNAL_ERROR = { error: 'internal_error', message: 'the dashboard server hit an error; its terminal has the details' };
 
 interface Ctx {
@@ -86,6 +89,11 @@ function handleApi(db: DatabaseSync, url: URL, res: ServerResponse): void {
         return sendJson(res, 200, q.worldModel(db, p.get('repo') || null, p.get('path') ?? '', q.clampDepth(p.get('depth'))));
       }
     }
+  }
+  if (parts.length === 2 && resource === 'insights' && id === 'explore') {
+    const filter = q.insightFilter(url.searchParams);
+    const body = 'error' in filter ? filter : q.explore(db, filter, url.searchParams, RELEASES);
+    return sendJson(res, 'error' in body ? 400 : 200, body);
   }
   if (parts.length === 2 && resource === 'world-model' && id === 'search') {
     const p = url.searchParams;

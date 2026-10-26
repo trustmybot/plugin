@@ -11,6 +11,7 @@ import {
   SECTIONS,
   activeFilterCount,
   apiPath,
+  exploreApiPath,
   insightHash,
   parseInsightParams,
   writeInsightParams,
@@ -18,8 +19,11 @@ import {
   type InsightParams,
   type Section,
 } from './params.ts';
+import { ExploreSection } from './explore.tsx';
 import { CostSection, EFFORT_CAPTION, QualitySection, ThroughputSection, TimeSection, TokensSection } from './sections.tsx';
-import type { Insights } from './types.ts';
+import type { Explore, Insights } from './types.ts';
+
+type Query<T> = { data?: T; error: Error | null };
 
 const SELECT = `${FIELD} w-auto py-1.5`;
 
@@ -58,7 +62,7 @@ function FilterBar({ params, data }: { params: InsightParams; data: Insights | u
       <div className="flex flex-wrap items-center gap-3">
         <Select label="Period" value={params.range} options={RANGES} onChange={(v) => set({ range: v as InsightParams['range'] })} />
         {params.section === 'tokens' && (
-          <Select label="Metric" value={params.metric} options={METRICS} onChange={(v) => set({ metric: v as InsightParams['metric'] })} />
+          <Select label="Metric" value={params.metric} options={METRICS} onChange={(v) => set({ metric: v as InsightParams['metric'], measure: v as InsightParams['measure'] })} />
         )}
       </div>
       <Disclosure summary={<span className="tabular-nums">Filters ({n})</span>} defaultOpen={n > 0}>
@@ -74,8 +78,9 @@ function FilterBar({ params, data }: { params: InsightParams; data: Insights | u
   );
 }
 
-function SectionView({ data, params }: { data: Insights; params: InsightParams }) {
+function SectionView({ data, params, explore }: { data: Insights; params: InsightParams; explore?: Query<Explore> }) {
   switch (params.section) {
+    case 'explore': return <ExploreSection data={data} params={params} explore={explore} />;
     case 'cost': return <CostSection data={data} params={params} />;
     case 'time': return <TimeSection data={data} params={params} />;
     case 'quality': return <QualitySection data={data} params={params} />;
@@ -84,7 +89,7 @@ function SectionView({ data, params }: { data: Insights; params: InsightParams }
   }
 }
 
-export function InsightsLayout({ params, q }: { params: InsightParams; q: { data?: Insights; error: Error | null } }) {
+export function InsightsLayout({ params, q, explore }: { params: InsightParams; q: Query<Insights>; explore?: Query<Explore> }) {
   const items = SECTIONS.map(([key, label]) => ({ key, label, href: insightHash({ ...params, section: key }) }));
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[12rem_minmax(0,1fr)]">
@@ -94,14 +99,19 @@ export function InsightsLayout({ params, q }: { params: InsightParams; q: { data
           <Select label="Section" value={params.section} options={SECTIONS} onChange={(v) => writeInsightParams({ ...params, section: v as Section })} />
         </div>
         <FilterBar params={params} data={q.data} />
-        <Loading q={q}>{(data) => <SectionView data={data} params={params} />}</Loading>
+        <Loading q={q}>{(data) => <SectionView data={data} params={params} explore={explore} />}</Loading>
       </div>
     </div>
   );
 }
 
+function ExploreView({ params, q }: { params: InsightParams; q: Query<Insights> }) {
+  const explore = useApi<Explore>(exploreApiPath(params), { keepPrevious: true });
+  return <InsightsLayout params={params} q={q} explore={explore} />;
+}
+
 export function InsightsView() {
   const params = useInsightParams();
   const q = useApi<Insights>(apiPath(params), { keepPrevious: true });
-  return <InsightsLayout params={params} q={q} />;
+  return params.section === 'explore' ? <ExploreView params={params} q={q} /> : <InsightsLayout params={params} q={q} />;
 }
