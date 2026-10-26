@@ -2,9 +2,12 @@
 // stripped to their inner text, images and badge rows dropped, and the
 // blocks before the first prose paragraph that carry no prose (only tags,
 // images or links) removed, so the summary clip spends its bytes on prose.
-const LINKED_IMAGE = /\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g;
-const IMAGE = /!\[[^\]]*\]\([^)]*\)/g;
-const LINK = /\[([^\]]*)\]\([^)]*\)/g;
+// Per CommonMark 0.31.2 (§4.6, §6.6) no tag spans a blank line; only HTML
+// comments may, so they are stripped over the whole text and tags per block.
+export const README_CLEAN_MAX_CHARS = 16 * 1024;
+const LINKED_IMAGE = /\[!\[[^[\]]*\]\([^()]*\)\]\([^()]*\)/g;
+const IMAGE = /!\[[^[\]]*\]\([^()]*\)/g;
+const LINK = /\[([^[\]]*)\]\([^()]*\)/g;
 function untilStable(s, step) {
     let prev;
     let out = s;
@@ -15,7 +18,7 @@ function untilStable(s, step) {
     return out;
 }
 const COMMENT = /<!--[\s\S]*?-->/g;
-const TAG = /<[A-Za-z/!?][^>]*>/g;
+const TAG = /<[A-Za-z/!?](?:[^<>\n]|\n(?![ \t]*\n))*>/g;
 const STRAY_TAG_OPEN = /<(?=[A-Za-z/!?])/g;
 const newlinesOf = (m) => m.replace(/[^\n]/g, '');
 function stripMarkup(s) {
@@ -30,7 +33,8 @@ function hasProse(block) {
 function isHeading(block) {
     return block.length === 1 && /^\s*#{1,6}\s/.test(block[0]);
 }
-export function cleanReadme(text) {
+export function cleanReadme(raw) {
+    const text = raw.length > README_CLEAN_MAX_CHARS ? raw.slice(0, README_CLEAN_MAX_CHARS) : raw;
     const lines = text.split('\n');
     const stripped = stripMarkup(text).split('\n');
     let changed = stripped.some((l, i) => l !== lines[i]);

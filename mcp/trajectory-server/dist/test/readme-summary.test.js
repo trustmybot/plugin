@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReadme } from '../readme-summary.js';
+import { cleanReadme, README_CLEAN_MAX_CHARS } from '../readme-summary.js';
 const ROOT_README_HEAD = [
     '# TMB Plugin',
     '',
@@ -66,6 +66,30 @@ describe('cleanReadme (GH 1834)', () => {
         ].join('\n'));
         assert.equal(out, 'Powerful asynchronous state management.\n');
     });
+    it('keeps the prose and blockquote after a non-tag "<" in a paragraph (F158-2)', () => {
+        const out = cleanReadme('# Lib\n\nWorks when x <y holds.\n\nMore prose here.\n\n> Note: something\n');
+        assert.ok(out.includes('More prose here.'), out);
+        assert.ok(out.includes('Note: something'), out);
+    });
+    it('keeps the prose after a heredoc "<<EOF" in a code fence (F158-2)', () => {
+        const out = cleanReadme('# Lib\n\nIntro prose.\n\n```bash\ncat <<EOF\nhi\nEOF\n```\n\nUsage prose here.\n\n```bash\nfoo > out.txt\n```\n');
+        assert.ok(out.includes('Usage prose here.'), out);
+        assert.ok(out.includes('foo > out.txt'), out);
+    });
+    it('never lets a tag match cross a blank line', () => {
+        assert.equal(cleanReadme('# A\n\nSee <b\n\nlater > text.\n'), '# A\n\nSee b\n\nlater > text.\n');
+    });
+    it(`clips the input to ${README_CLEAN_MAX_CHARS} chars before stripping`, () => {
+        const out = cleanReadme(`# Big\n\n${'word '.repeat(README_CLEAN_MAX_CHARS)}\n`);
+        assert.ok(out.length <= README_CLEAN_MAX_CHARS + 1, String(out.length));
+    });
+    for (const unit of ['<a', '<!--', '<a\n', '[![', '![a](', '[![a](', '<a b="']) {
+        it(`strips a crafted ${JSON.stringify(unit)} input of 440 KB in bounded time`, () => {
+            const start = Date.now();
+            cleanReadme(unit.repeat(Math.ceil(440_000 / unit.length)));
+            assert.ok(Date.now() - start < 500, `${Date.now() - start} ms`);
+        });
+    }
     it('keeps no state between calls', () => {
         assert.equal(cleanReadme(ROOT_README_HEAD), cleanReadme(ROOT_README_HEAD));
     });
