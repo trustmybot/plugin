@@ -55,6 +55,7 @@ import {
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 import { enrollEffortAb } from '../effort-ab.js';
 import { briefLocations } from '../brief-locations.js';
+import { checkoutLag } from './world_model.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -1892,7 +1893,12 @@ export function compositeTools(
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
             base_moved: closeScope ? closeScope.base_moved === true : null,
           };
-          return { scope, scope_world_model, ...(world_model_warning ? { world_model_warning } : {}) };
+          return {
+            scope,
+            scope_world_model,
+            ...checkoutLag(db, repo),
+            ...(world_model_warning ? { world_model_warning } : {}),
+          };
         };
 
         const historySection = (): Record<string, unknown> => {
