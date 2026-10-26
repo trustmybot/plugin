@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh api repos/o/r/issues/comments/1 --jq .body > \"$TMPDIR/c.md\" && python3 - \"$TMPDIR/c.md\" <<'EOF'\nimport sys, re\nbody = open(sys.argv[1]).read()\nfor m in re.finditer(r'#(\\d+)', body):\n    print(m.group(1), body[m.start() - 20:m.end() + 20])\nopen(sys.argv[1], 'w').write(body.replace('#5', 'GH-42'))\nEOF",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus"
+}

@@ -16,37 +16,40 @@
 #   (e) bypass env set → allow
 #   (f) gh pr create --body 'Fixes GH-5' → allow (explicit remote marker)
 #   (g) --body 'see remote:5 and trustmybot/plugin#5' → allow
-#   (h) gh issue comment 9 --body 'GH-5 and #5' → deny; reason carries the local title and the marker hint
+#   (h) gh issue comment 9 --body 'GH-5 and #5' → deny; reason carries the local objective and the marker hint
+#   GH 1864: the fixture is the real schema (migrated_db), so the lookup reads issues.objective
+#   GH 1821: the heredoc + compound gh api repro is allowed well under the 6 s
+#            budget; an analysis past TMB_REMOTE_ID_GUARD_DEADLINE_S allows,
+#            notes it on stderr and writes one remote_id_guard_overrun row
+#   corpus: tests/fixtures/hook-corpus/remote-id-guard/ (*-local-id.json deny, the rest allow)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
+# shellcheck source=tests/l3-integration/hooks/fixtures/migrated-db.sh
+. "$HERE/fixtures/migrated-db.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/remote-id-guard.sh"
+CORPUS="$PLUGIN_ROOT/tests/fixtures/hook-corpus/remote-id-guard"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-remote-id-guard.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Fixture DB — issues table with a local→remote iid mismatch.
+# Fixture DB — the trajectory-server's own schema, with a local→remote iid mismatch.
 #   id=5  → gh_iid=42  (mismatch: bare #5 on the remote ≠ local issue 5)
 #   id=42 → gh_iid=42  (aligned)
 #   id=7  → gl_iid=88, gh_iid NULL (GitLab project)
 #   id=9  → gh_iid NULL, gl_iid NULL (unmapped local)
 #   id=10 → gh_iid=50, gl_iid=60 (BOTH set, differ — provider decides which iid)
 DB="$TMPDIR/trajectory.db"
+migrated_db "$DB"
 sqlite3 "$DB" "
-  CREATE TABLE issues (
-    id INTEGER PRIMARY KEY,
-    gh_iid INTEGER,
-    gl_iid INTEGER,
-    title TEXT
-  );
-  INSERT INTO issues (id, gh_iid, gl_iid, title) VALUES
-    (5, 42, NULL, 'Local five | pipe title'),
-    (42, 42, NULL, 'Local forty-two'),
-    (7, NULL, 88, 'Local seven'),
-    (9, NULL, NULL, 'Local nine'),
-    (10, 50, 60, 'Local ten');
+  INSERT INTO issues (id, objective, gh_iid, gl_iid, created_at, updated_at) VALUES
+    (5, 'Local five | pipe title', 42, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+    (42, 'Local forty-two', 42, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+    (7, 'Local seven', NULL, 88, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+    (9, 'Local nine', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+    (10, 'Local ten', 50, 60, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 "
 
 input_bash() {
@@ -63,6 +66,14 @@ run_hook() {
   echo "$input" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>/dev/null || true
 }
 
+now_ms() { perl -MTime::HiRes=time -e 'printf("%d", time() * 1000)'; }
+
+corpus_payload() { sed "s|@SANDBOX@|$TMPDIR|g" "$CORPUS/$1"; }
+
+overrun_rows() {
+  sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type = 'remote_id_guard_overrun';"
+}
+
 # ============================================================================
 # Case (a) — mismatch → deny, naming the correct remote ref
 # ============================================================================
@@ -72,6 +83,9 @@ assert_contains "$out_a" '"permissionDecision":"deny"' "deny decision"
 
 test_case "(a) deny reason names the correct remote ref #42"
 assert_contains "$out_a" "#42" "correct remote ref shown"
+
+test_case "GH 1864: deny reason quotes the local issue's objective"
+assert_contains "$out_a" 'local #5: \"Local five | pipe title\"' "objective quoted"
 
 test_case "(a) deny output is valid JSON"
 if printf '%s' "$out_a" | jq . >/dev/null 2>&1; then _pass; else _fail "not JSON: $out_a"; fi
@@ -172,11 +186,11 @@ test_case "(g) GL-5 marker: allow (silent)"
 out_g2=$(run_hook "$(input_bash "glab mr create --title x --description 'see gl-5'")")
 assert_eq "" "$out_g2" "GL-<n> is an explicit remote id"
 
-test_case "(h) GH-5 plus bare #5: deny, reason shows local title and marker hint"
+test_case "(h) GH-5 plus bare #5: deny, reason shows local objective and marker hint"
 out_h8=$(run_hook "$(input_bash "gh issue comment 9 --body 'GH-5 and #5'")")
 assert_contains "$out_h8" '"permissionDecision":"deny"' "bare #5 still caught"
 assert_contains "$out_h8" "#5 → #42 (GitHub)" "mapping shown"
-assert_contains "$out_h8" "Local five | pipe title" "local title shown, pipe intact"
+assert_contains "$out_h8" "Local five | pipe title" "local objective shown, pipe intact"
 assert_contains "$out_h8" "GH-<n>" "marker hint shown"
 
 # ============================================================================
@@ -189,5 +203,82 @@ assert_eq "" "$out_h" "heredoc content is not a remote write"
 test_case "GH 1196: echo quoting a gh issue comment citing #5: allow"
 out_q=$(run_hook "$(input_bash "echo \"gh issue comment 1 --body 'see #5'\"")")
 assert_eq "" "$out_q" "quoted text is not a remote write"
+
+# ============================================================================
+# GH 1821 — the guard bounds its own work below dispatch's 6 s budget
+# ============================================================================
+test_case "GH 1821: heredoc + compound gh api && python3 - <<'EOF' repro: allowed well under 6 s"
+t0=$(now_ms)
+rc_r=0
+out_r=$(corpus_payload bash-gh-api-heredoc-compound.json | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || rc_r=$?
+elapsed_r=$(( $(now_ms) - t0 ))
+assert_exit_code 0 "$rc_r" "repro exit code"
+assert_eq "" "$out_r" "repro stdout"
+if [ "$elapsed_r" -lt 4000 ]; then _pass; else _fail "repro took ${elapsed_r}ms, want < 4000ms (default 3 s deadline + 1 s)"; fi
+
+PATHOLOGICAL=$(for _ in $(seq 1000); do printf 'echo a && '; done; printf "gh pr create --title x --body 'Closes #5'")
+
+test_case "GH 1821: analysis past TMB_REMOTE_ID_GUARD_DEADLINE_S=1 allows within deadline + 1 s"
+before=$(overrun_rows)
+t0=$(now_ms)
+rc_o=0
+out_o=$(input_bash "$PATHOLOGICAL" | TRAJECTORY_DB_PATH="$DB" TMB_REMOTE_ID_GUARD_DEADLINE_S=1 \
+  bash "$HOOK" 2>"$TMPDIR/overrun.err") || rc_o=$?
+elapsed_o=$(( $(now_ms) - t0 ))
+assert_exit_code 0 "$rc_o" "overrun exit code"
+assert_eq "" "$out_o" "overrun stdout (no deny JSON)"
+if [ "$elapsed_o" -lt 2000 ]; then _pass; else _fail "overrun took ${elapsed_o}ms, want < 2000ms"; fi
+
+test_case "GH 1821: overrun prints one stderr line naming the deadline"
+err_o=$(cat "$TMPDIR/overrun.err")
+assert_eq "1" "$(printf '%s\n' "$err_o" | grep -c .)" "stderr line count"
+assert_contains "$err_o" "1s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S)" "stderr names the deadline"
+
+test_case "GH 1821: overrun writes one remote_id_guard_overrun audit row"
+after=$(overrun_rows)
+assert_eq "$((before + 1))" "$after" "overrun row count"
+if [ "$after" -gt 0 ]; then _pass; else _fail "no remote_id_guard_overrun rows"; fi
+row_o=$(sqlite3 "$DB" "SELECT issue_id || '|' || from_node || '|' || content_json FROM audit WHERE event_type = 'remote_id_guard_overrun' ORDER BY id DESC LIMIT 1;")
+assert_eq "-1|hook:remote-id-guard" "$(printf '%s' "$row_o" | cut -d'|' -f1-2)" "issue and from_node"
+content_o=$(printf '%s' "$row_o" | cut -d'|' -f3-)
+assert_eq "1" "$(printf '%s' "$content_o" | jq -r '.deadline_s')" "content_json.deadline_s"
+if printf '%s' "$content_o" | jq -e '(.elapsed_s | type) == "number" and .elapsed_s >= 1' >/dev/null; then _pass; else _fail "content_json.elapsed_s: $content_o"; fi
+
+test_case "GH 1821: overrun leaves no process of the guard behind"
+sleep 0.3
+pg_rc=0
+pgrep -f "$HOOK" >/dev/null 2>&1 || pg_rc=$?
+case "$pg_rc" in
+  1) _pass ;;
+  0) _fail "a $HOOK process survived the overrun: $(pgrep -fl "$HOOK" || true)" ;;
+  *) printf 'SKIP %s — pgrep cannot list processes here (exit %s)\n' "$CURRENT_TEST" "$pg_rc" ;;
+esac
+
+test_case "GH 1821: overrun with no trajectory DB still allows"
+rc_o2=0
+out_o2=$(input_bash "$PATHOLOGICAL" | TRAJECTORY_DB_PATH="$TMPDIR/no-such.db" TMB_REMOTE_ID_GUARD_DEADLINE_S=1 \
+  bash "$HOOK" 2>/dev/null) || rc_o2=$?
+assert_exit_code 0 "$rc_o2" "overrun without DB exit code"
+assert_eq "" "$out_o2" "overrun without DB stdout"
+
+test_case "GH 1821: an invalid TMB_REMOTE_ID_GUARD_DEADLINE_S falls back to the default"
+out_inv=$(input_bash "gh pr create --title x --body 'Closes #5'" | TRAJECTORY_DB_PATH="$DB" TMB_REMOTE_ID_GUARD_DEADLINE_S=abc \
+  bash "$HOOK" 2>/dev/null || true)
+assert_contains "$out_inv" '"permissionDecision":"deny"' "deny under the default deadline"
+
+# ============================================================================
+# Hook corpus — the payloads a TS port (GH 1692) inherits
+# ============================================================================
+for f in "$CORPUS"/*.json; do
+  name=$(basename "$f")
+  test_case "corpus $name"
+  rc_c=0
+  out_c=$(corpus_payload "$name" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || rc_c=$?
+  assert_exit_code 0 "$rc_c" "$name exit code"
+  case "$name" in
+    *-local-id.json) assert_contains "$out_c" '"permissionDecision":"deny"' "$name denies" ;;
+    *) assert_eq "" "$out_c" "$name allows" ;;
+  esac
+done
 
 summarize
