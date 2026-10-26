@@ -1,4 +1,5 @@
 import { symbolCard, symbolsByName } from './symbol-index.js';
+import { frameUntrusted } from './utils/untrusted.js';
 export const LOCATIONS_MAX_CHARS = 6000;
 const MAX_FILES = 10;
 const MAX_FILE_SYMBOLS = 12;
@@ -112,7 +113,7 @@ export function briefLocations(db, repo, spec, taskFiles, maxChars = LOCATIONS_M
             truncated = true;
             continue;
         }
-        files.push({ path: hit.path, purpose: hit.purpose, symbols: fileSymbols(db, repo, hit.path, ref) });
+        files.push({ path: hit.path, purpose: hit.purpose ? frameUntrusted('file-purpose', hit.purpose) : '', symbols: fileSymbols(db, repo, hit.path, ref) });
     }
     const rank = (s) => (named.has(s.path) ? 0 : underFiles(s.path, taskFiles) ? 1 : 2);
     const picked = [];

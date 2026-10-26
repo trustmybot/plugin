@@ -3,6 +3,7 @@
 // swe reads by line range instead of whole files.
 import type { TrajectoryDB } from './db.js';
 import { symbolCard, symbolsByName, type RefList, type SymbolRow } from './symbol-index.js';
+import { frameUntrusted } from './utils/untrusted.js';
 
 export const LOCATIONS_MAX_CHARS = 6000;
 const MAX_FILES = 10;
@@ -178,7 +179,7 @@ export function briefLocations(
       truncated = true;
       continue;
     }
-    files.push({ path: hit.path, purpose: hit.purpose, symbols: fileSymbols(db, repo, hit.path, ref) });
+    files.push({ path: hit.path, purpose: hit.purpose ? frameUntrusted('file-purpose', hit.purpose) : '', symbols: fileSymbols(db, repo, hit.path, ref) });
   }
 
   const rank = (s: SymbolRow) => (named.has(s.path) ? 0 : underFiles(s.path, taskFiles) ? 1 : 2);
