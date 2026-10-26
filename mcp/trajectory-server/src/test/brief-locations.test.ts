@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { briefLocations, extractSpecRefs, LOCATIONS_MAX_CHARS, type BriefLocations } from '../brief-locations.js';
+import { symbolCard, symbolsByName } from '../symbol-index.js';
 import { compositeTools } from '../tools/composites.js';
 import type { TrajectoryDB } from '../db.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -92,13 +93,17 @@ describe('brief locations (GH 1906)', () => {
   it('resolves a Class.method identifier with its callers from wm_edges', () => {
     const db = fixture();
     const loc = run(db, 'Change `SymbolIndex.lookup`.');
+    const id = db.get<{ id: number }>(`SELECT id FROM wm_symbols WHERE qualified_name = 'SymbolIndex.lookup'`)!.id;
     assert.deepEqual(loc.symbols, [
       {
+        id,
         qualified_name: 'SymbolIndex.lookup',
         kind: 'method',
         path: 'mcp/server/src/symbol-index.ts',
         start_line: 20,
         end_line: 35,
+        caller_count: 1,
+        callers_truncated: false,
         callers: [{ qualified_name: 'statsTools', path: 'mcp/server/src/tools/stats.ts', line_start: 10 }],
         callees: [],
       },
@@ -212,6 +217,66 @@ describe('brief locations (GH 1906)', () => {
       );
       if (section === 'core') assert.match(out.sections!['core']!, /locations/);
     }
+    db.close();
+  });
+});
+
+describe('GH 1985: brief locations caller count', () => {
+  function withCallers(db: TrajectoryDB, name: string, n: number): number {
+    const target = addSymbol(db, 'lib/other/helpers.ts', 'function', name, 200, 210);
+    for (let i = 0; i < n; i++) {
+      const src = addSymbol(db, 'lib/other/stats.ts', 'function', `${name}_caller${i}`, i * 10 + 1, i * 10 + 9);
+      db.run(`INSERT INTO wm_edges (src_id, dst_id, dst_name, kind, resolution, line) VALUES (?, ?, ?, 'calls', 'exact', ?)`, [
+        src,
+        target,
+        name,
+        i * 10 + 2,
+      ]);
+    }
+    return target;
+  }
+
+  it('GH 1985: a symbol with 4+ callers reports caller_count, callers_truncated and a hint naming its id', () => {
+    const db = fixture();
+    const id = withCallers(db, 'manyCallers', 12);
+    const sym = run(db, 'Edit `manyCallers`.').symbols[0]!;
+    assert.equal(sym.id, id);
+    assert.equal(sym.caller_count, 12);
+    assert.ok(sym.caller_count > 3);
+    assert.equal(sym.callers_truncated, true);
+    assert.equal(sym.callers.length, 3);
+    assert.equal(sym.callers_hint, `world_model_symbol(id=${id}, impact=1) lists every caller`);
+    db.close();
+  });
+
+  it('GH 1985: 0 or exactly 3 callers report the count with callers_truncated false and no hint', () => {
+    const db = fixture();
+    const noneId = withCallers(db, 'noCallers', 0);
+    const threeId = withCallers(db, 'threeCallers', 3);
+    const loc = run(db, '`noCallers` and `threeCallers`');
+    const none = loc.symbols.find((s) => s.qualified_name === 'noCallers')!;
+    const three = loc.symbols.find((s) => s.qualified_name === 'threeCallers')!;
+    assert.equal(none.id, noneId);
+    assert.equal(none.caller_count, 0);
+    assert.equal(none.callers_truncated, false);
+    assert.ok(!('callers_hint' in none));
+    assert.equal(three.id, threeId);
+    assert.equal(three.caller_count, 3);
+    assert.equal(three.callers.length, 3);
+    assert.equal(three.callers_truncated, false);
+    assert.ok(!('callers_hint' in three));
+    db.close();
+  });
+
+  it('GH 1985: RefList.total counts every unique caller past CARD_LIST_CAP', () => {
+    const db = fixture();
+    const id = withCallers(db, 'hub', 51);
+    const card = symbolCard(db, symbolsByName(db, REPO, 'hub').find((s) => s.id === id)!);
+    assert.equal(card.callers.refs.length, 50);
+    assert.equal(card.callers.truncated, true);
+    assert.equal(card.callers.total, 51);
+    assert.ok(card.callers.total > 50);
+    assert.equal(card.callees.total, 0);
     db.close();
   });
 });
