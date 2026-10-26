@@ -76,10 +76,10 @@ describe('dashboard shell', () => {
     ({ render } = await import(url));
   });
 
-  test('renders the 8 tab links, one current tab and the colour-mode toggle', () => {
+  test('renders the 7 tab links in nav order, one current tab and the colour-mode toggle', () => {
     const html = render('tasks');
     const hrefs = [...html.matchAll(/<a [^>]*href="([^"]+)"/g)].map((m) => m[1]);
-    assert.deepEqual(hrefs, ['#/overview', '#/issues', '#/tasks', '#/runs', '#/insights', '#/audit', '#/map', '#/concepts']);
+    assert.deepEqual(hrefs, ['#/overview', '#/insights', '#/issues', '#/tasks', '#/runs', '#/audit', '#/map']);
     const current = [...html.matchAll(/<a [^>]*aria-current="page"[^>]*>/g)];
     assert.equal(current.length, 1);
     assert.match(current[0][0], /href="#\/tasks"/);

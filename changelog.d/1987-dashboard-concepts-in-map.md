@@ -1,0 +1,2 @@
+### Changed
+- **Concepts moved into the Project map, and Insights sits next to Overview** (GH 1987): the Concepts tab is gone; a Files | Concepts switch beside the Project map search box picks what it searches, the map's repo picker drives both, and the URL (`#/map?scope=concepts&q=…&concept=…`) keeps the search and selection. Old `#/concepts` links open the new place. The tabs now read Overview, Insights, Issues, Tasks, Runs & gates, Audit, Project map, and the concept code now loads only when you open the Concepts scope.

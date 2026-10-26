@@ -29,3 +29,36 @@ export const subscribeHash = (onChange: () => void) => {
 export function useHashParam(key: string): string | null {
   return useSyncExternalStore(subscribeHash, () => hashParams().get(key), () => null);
 }
+
+export type MapScope = 'files' | 'concepts';
+
+export interface MapQuery {
+  scope: MapScope;
+  q: string;
+  concept?: string;
+}
+
+export function mapHash({ scope = 'files', q = '', concept }: Partial<MapQuery>): string {
+  const params = new URLSearchParams();
+  if (scope === 'concepts') params.set('scope', 'concepts');
+  if (q) params.set('q', q);
+  if (scope === 'concepts' && concept) params.set('concept', concept);
+  const search = params.toString();
+  return `#/map${search ? `?${search}` : ''}`;
+}
+
+export function parseMapQuery(search: string): MapQuery {
+  const params = new URLSearchParams(search);
+  const scope: MapScope = params.get('scope') === 'concepts' ? 'concepts' : 'files';
+  const concept = scope === 'concepts' ? params.get('concept') : null;
+  return { scope, q: params.get('q') ?? '', ...(concept ? { concept } : {}) };
+}
+
+export function legacyConceptsHash(hash: string): string | null {
+  const match = new RegExp('^#/concepts(?:/([^?]*))?(?:\\?(.*))?$').exec(hash);
+  if (!match) return null;
+  const [, id, search = ''] = match;
+  return mapHash({ scope: 'concepts', q: new URLSearchParams(search).get('q') ?? '', ...(id ? { concept: id } : {}) });
+}
+
+export const mapSearch = () => currentHash().split('?')[1] ?? '';
