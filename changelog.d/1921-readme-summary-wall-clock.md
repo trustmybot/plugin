@@ -1,0 +1,2 @@
+### Fixed
+- **The release test run no longer fails on the README-summary ReDoS cases** (GH 1921): the seven crafted 440 KB inputs for `cleanReadme` asserted elapsed wall-clock time, which `no-wall-clock-asserts` rejects and which broke `tests/run-all.sh` on dev. They now run in one child process under a 10 s hang timeout, and the test checks that the child exited 0 without being killed and that each output is well formed.

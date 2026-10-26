@@ -1,6 +1,42 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { cleanReadme, README_CLEAN_MAX_CHARS } from '../readme-summary.js';
+
+const README_SUMMARY_URL = new URL('../readme-summary.js', import.meta.url).href;
+const HANG_GUARD = { timeout: 10_000, encoding: 'utf8' } as const;
+
+const REDOS_SCRIPT = `
+import { cleanReadme, README_CLEAN_MAX_CHARS } from ${JSON.stringify(README_SUMMARY_URL)};
+const TAG_OPENER = /<[!/A-Za-z]/;
+const units = [
+  ['<a', TAG_OPENER],
+  ['<!--', TAG_OPENER],
+  ['<a\\n', TAG_OPENER],
+  ['[![', null],
+  ['![a](', null],
+  ['[![a](', null],
+  ['<a b="', TAG_OPENER],
+];
+for (const [unit, forbidden] of units) {
+  const out = cleanReadme(unit.repeat(Math.ceil(440_000 / unit.length)));
+  if (typeof out !== 'string' || out.length > README_CLEAN_MAX_CHARS + 1) {
+    console.error(JSON.stringify(unit) + ': bad output length ' + String(out?.length));
+    process.exit(1);
+  }
+  const hit = forbidden?.exec(out);
+  if (hit) {
+    console.error(JSON.stringify(unit) + ': tag opener ' + JSON.stringify(hit[0]) + ' survives at ' + hit.index + ' of ' + out.length);
+    process.exit(1);
+  }
+}
+`;
+
+function assertChildFinished(result: SpawnSyncReturns<string>): void {
+  assert.equal(result.error, undefined, `spawn error: ${String(result.error)}\n${result.stderr}`);
+  assert.equal(result.signal, null, `child killed by ${result.signal}\n${result.stderr}`);
+  assert.equal(result.status, 0, `child exited ${result.status}\n${result.stderr}`);
+}
 
 const ROOT_README_HEAD = [
   '# TMB Plugin',
@@ -130,13 +166,16 @@ describe('cleanReadme (GH 1834)', () => {
     assert.ok(out.length <= README_CLEAN_MAX_CHARS + 1, String(out.length));
   });
 
-  for (const unit of ['<a', '<!--', '<a\n', '[![', '![a](', '[![a](', '<a b="']) {
-    it(`strips a crafted ${JSON.stringify(unit)} input of 440 KB in bounded time`, () => {
-      const start = Date.now();
-      cleanReadme(unit.repeat(Math.ceil(440_000 / unit.length)));
-      assert.ok(Date.now() - start < 500, `${Date.now() - start} ms`);
-    });
-  }
+  it('strips seven crafted 440 KB inputs in a child process that finishes before a 10 s hang timeout', () => {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', REDOS_SCRIPT], HANG_GUARD);
+    assertChildFinished(result);
+  });
+
+  it('reports a hung child as killed by SIGTERM', () => {
+    const result = spawnSync(process.execPath, ['-e', 'while(true){}'], { ...HANG_GUARD, timeout: 1_000 });
+    assert.equal(result.signal, 'SIGTERM');
+    assert.equal(result.status, null);
+  });
 
   it('keeps no state between calls', () => {
     assert.equal(cleanReadme(ROOT_README_HEAD), cleanReadme(ROOT_README_HEAD));
