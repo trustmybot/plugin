@@ -1,0 +1,2 @@
+### Fixed
+- **The dispatcher's chain-watchdog tests pass inside the sandbox** (GH 1870): the cases now check their own `sleep`s with `kill -0` on known pids instead of counting them with `ps`, which the Seatbelt sandbox denies. Where only `ps` can prove an assert, a sandboxed run prints `SKIP <case>: ps denied (sandbox)` instead of failing; unsandboxed runs keep every assert. `tests/l3-integration/hooks/fixtures/ps-denied/ps` reproduces the sandboxed `ps` on any host.
