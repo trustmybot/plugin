@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/unsigned",
+  "tool_input": {
+    "command": "git -C @SANDBOX@/unsigned push --force origin main"
+  },
+  "corpus_expect": "allow"
+}

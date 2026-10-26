@@ -280,13 +280,44 @@ function heredocs(src: string, root: Node): Heredoc[] {
   });
 }
 
-/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node. */
+/** The source line holding `at`, without its newline. */
+function lineAt(src: string, at: number): string {
+  const end = src.indexOf('\n', at);
+  return src.slice(src.lastIndexOf('\n', at - 1) + 1, end < 0 ? src.length : end);
+}
+
+/**
+ * GH 1927: bash ends a heredoc at the first line that is exactly its
+ * delimiter (the start word with quotes and backslashes removed, leading tabs
+ * stripped for <<-). A heredoc tree-sitter-bash ends on another line, or past
+ * a body line bash would end it on, has misread where the command resumes.
+ */
+function heredocMisread(src: string, root: Node): boolean {
+  return root.descendantsOfType('heredoc_redirect').some((node) => {
+    if (!node) return false;
+    const kids = node.children.filter((c): c is Node => c !== null);
+    const start = kids.find((c) => c.type === 'heredoc_start');
+    const end = kids.find((c) => c.type === 'heredoc_end');
+    if (!start || !end) return true;
+    const delim = src.slice(start.startIndex, start.endIndex).replace(/['"\\]/g, '');
+    const tabs = kids.some((c) => c.type === '<<-');
+    const line = (text: string): string => (tabs ? text.replace(/^\t+/, '') : text);
+    if (line(lineAt(src, end.startIndex)) !== delim) return true;
+    const from = kids.find((c) => c.type === 'heredoc_body')?.startIndex ?? end.startIndex;
+    const bodyStart = src.lastIndexOf('\n', from - 1) + 1;
+    const endStart = src.lastIndexOf('\n', end.startIndex - 1) + 1;
+    return endStart > bodyStart && src.slice(bodyStart, endStart - 1).split('\n').some((l) => line(l) === delim);
+  });
+}
+
+/** The encoded skeleton of `command` and its heredocs, or not ok when the tree has an ERROR or MISSING node or misreads a heredoc's end (GH 1927). */
 export function encode(parser: Parser, command: string): Encoded {
   const tree = parser.parse(command);
   if (!tree) return { ok: false };
   try {
     const root = tree.rootNode;
     if (root.hasError || broken(root)) return { ok: false };
+    if (command.includes('<<') && heredocMisread(command, root)) return { ok: false };
     const encoder = new Encoder(command);
     const text = encoder.range(root, 0, command.length);
     return { ok: true, text, heredocs: command.includes('<<') ? heredocs(command, root) : [], held: heldWords(encoder, root) };

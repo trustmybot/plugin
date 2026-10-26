@@ -1,0 +1,13 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/signed",
+  "tool_input": {
+    "command": "git push"
+  },
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/bad.db"
+  },
+  "corpus_expect": "trajectory DB unavailable"
+}

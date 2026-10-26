@@ -81,3 +81,5 @@
 {"cmd":"R=/a; echo [a]; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610"}
 {"cmd":"R=/a; echo \"{$R}\"; git -C $R status","dirs":["@","-"],"why":"unresolved since GH 1595 / GH 1610"}
 {"cmd":"O=/b; R=$O; git -C $R status","dirs":["-"],"why":"unresolved since GH 1595 / GH 1610"}
+{"cmd":"W=/w/r; cat <<E\"M\"\nx\nEM\ngit -C $W status","dirs":["@","/w/r"],"why":"GH 1927: tree-sitter-bash runs a mid-word-quoted delimiter's body to EOF","parse":false}
+{"cmd":"W=/w/r; cat <<EOF\n$\nEOF\ngit -C $W status","dirs":["@","-"],"why":"GH 1927: a lone $ body line swallows the delimiter in tree-sitter-bash","parse":false}

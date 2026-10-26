@@ -7,6 +7,7 @@ import type { Gate } from './gate.js';
 import { askuserquestionLengthLint } from './askuserquestion-length-lint.js';
 import { containmentGuard } from './containment-guard.js';
 import { ensureMcpDepsInstalled } from './ensure-mcp-deps-installed.js';
+import { GATE_NAME as PUSH_GUARD_GATE, gitPushGuard } from './git-push-guard.js';
 import { GATE_NAME as PREFLIGHT_GATE, prReviewerPreflight } from './pr-reviewer-preflight.js';
 import { GATE_NAME as SPAWN_NOTE_GATE, prReviewerSpawnNote } from './pr-reviewer-spawn-note.js';
 import { GATE_NAME as REWORK_GATE, reworkLimit } from './rework-limit.js';
@@ -17,6 +18,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
   ['containment-guard', containmentGuard],
   ['ensure-mcp-deps-installed', ensureMcpDepsInstalled],
+  [PUSH_GUARD_GATE, gitPushGuard],
   [PREFLIGHT_GATE, prReviewerPreflight],
   [SPAWN_NOTE_GATE, prReviewerSpawnNote],
   [REWORK_GATE, reworkLimit],

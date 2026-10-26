@@ -9,6 +9,7 @@ import { bashParser, loadWanted } from './parser.js';
 import { writePathsWith } from './write-paths.js';
 export { bashParserLoads, programParserLoads } from './parser.js';
 export { pathCanonical, payloadCwd } from './path.js';
+export { cmdStatements, cwdState, denyAmbiguousGitTarget, gitSubcommand, stmtRepoRoot, } from './git.js';
 /** The lines `tmb_cmd_write_paths "$command" "$cwd" [raw] "$root"` prints. */
 export async function writePaths(command, options = {}) {
     if (command.trim() === '')

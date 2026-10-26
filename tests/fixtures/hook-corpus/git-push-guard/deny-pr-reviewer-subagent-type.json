@@ -1,0 +1,11 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/signed",
+  "subagent_type": "tmb:pr-reviewer",
+  "tool_input": {
+    "command": "git push"
+  },
+  "corpus_expect": "BLOCKED: pr-reviewer must not push"
+}
