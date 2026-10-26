@@ -13148,13 +13148,19 @@ var GATE_NAME7 = "swe-stop-cause";
 var STOP_DETAIL_MAX_CHARS = 500;
 var HOOK_DENY_RE = /^PreToolUse:\S+ hook error:/;
 var SKIPPED_TOOL_RE = /(^|__)(task_update_status|task_brief)$/;
+var STATUS_TOOL_RE = /(^|__)task_update_status$/;
 function resultText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.map((c) => c && typeof c === "object" && typeof c.text === "string" ? c.text : "").filter((t) => t !== "").join("\n");
 }
+function isCompletedReport(name3, input) {
+  return STATUS_TOOL_RE.test(name3) && typeof input === "object" && input !== null && input.status === "completed";
+}
 function hookBlockDetail(transcriptText, sinceMs) {
   const names = /* @__PURE__ */ new Map();
+  const reportUses = /* @__PURE__ */ new Set();
+  let reported = false;
   let last = null;
   for (const line of transcriptText.split("\n")) {
     if (line.trim() === "") continue;
@@ -13173,14 +13179,16 @@ function hookBlockDetail(transcriptText, sinceMs) {
       const block = raw;
       if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
         names.set(block.id, block.name);
+        if (inWindow && isCompletedReport(block.name, block.input)) reportUses.add(block.id);
       } else if (block.type === "tool_result" && inWindow) {
         const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+        if (reportUses.has(toolUseId) && block.is_error !== true) reported = true;
         if (SKIPPED_TOOL_RE.test(names.get(toolUseId) ?? "")) continue;
         last = { toolUseId, isError: block.is_error === true, text: resultText(block.content) };
       }
     }
   }
-  if (!last || !last.isError || !HOOK_DENY_RE.test(last.text)) return null;
+  if (reported || !last || !last.isError || !HOOK_DENY_RE.test(last.text)) return null;
   return last.text.slice(0, STOP_DETAIL_MAX_CHARS);
 }
 function readTranscript(path) {
