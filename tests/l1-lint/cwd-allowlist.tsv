@@ -46,3 +46,4 @@ skills/tmb_planning/scripts/integrate.sh	(cd "$WT" && git rebase --abort)	anchor
 tests/lib/assert.sh	git -C "$(pwd -P)" rev-parse --show-toplevel	test-harness	assert_not_in_plugin_repo refuses a test whose own cwd is the plugin checkout
 tests/lib/live-db-shim.sh	"\$PWD" "\$*"	test-harness	the generated sqlite3 shim logs the dir it was invoked in
 tests/lib/live-db-shim.sh	abs="\$PWD/\$arg"	test-harness	the generated sqlite3 shim joins a relative DB argument to the dir it was invoked in
+mcp/trajectory-server/src/test-run.ts	spawnSync('bash', ['-c', opts.command]	not-location	the test-run wrapper runs its caller's command in the caller's directory, as verification[] entries run; it finds no project, repo or agent
