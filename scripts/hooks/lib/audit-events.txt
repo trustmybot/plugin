@@ -22,6 +22,7 @@ containment_denied	hook
 decision_gate_waived	bro
 deep_scan_completed	bro
 effort_ab_enrolled	bro
+effort_inputs_recorded	bro
 embeddings_degraded	server
 embeddings_recovered	server
 hook_block_bypassed	hook
