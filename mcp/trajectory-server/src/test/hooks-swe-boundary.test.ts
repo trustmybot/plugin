@@ -1,9 +1,11 @@
 /**
  * The TypeScript swe-boundary where it differs from
  * scripts/hooks/swe-boundary.sh (GH 1692), each difference stricter: a
- * command tree-sitter-bash cannot parse is denied with PARSE_REASON, and the
- * DB is read through node:sqlite with no sqlite3 CLI on PATH, where the .sh
- * enforces nothing. Also: the analyzer's never-judged write targets are left
+ * command tree-sitter-bash cannot parse is denied with PARSE_REASON, the DB
+ * is read through node:sqlite with no sqlite3 CLI on PATH, where the .sh
+ * enforces nothing, a gh api verb is upper-cased by toUpperCase in every
+ * locale, and a multibyte prompt-surface name the .sh's macOS awk cannot
+ * convert is still judged (GH 2030). Also: the analyzer's never-judged write targets are left
  * to containment-guard, a deny record whose time bash's arithmetic rejects
  * ends the gate with no output as it ends the .sh, and the gate is
  * registered by name.
@@ -17,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { cmdStatements, writePaths } from '../hooks/cmd-analysis/index.js';
+import { cmdStatements, ghMutation, ghMutationFrom, writePaths } from '../hooks/cmd-analysis/index.js';
 import { haveSqlite } from '../hooks/lib/db.js';
 import { findGate } from '../hooks/registry.js';
 import { GATE_NAME, PARSE_REASON, sweBoundary } from '../hooks/swe-boundary.js';
@@ -92,6 +94,20 @@ describe('swe-boundary.ts: stricter than the .sh, and the rest of its contract',
     const r = await sweBoundary(payload('Bash', { command: UNPARSEABLE }), env);
     assert.equal(r.code, 0);
     assert.equal(decision(r.stdout)?.permissionDecisionReason, PARSE_REASON);
+  });
+
+  it('upper-cases a gh api verb with toUpperCase, so `poſt` is POST in every locale', async () => {
+    assert.equal(ghMutationFrom(['gh', 'api', '-X', 'poſt', 'repos/o/r']), 'POST');
+    assert.equal(ghMutation('gh api --method=poſt repos/o/r'), 'POST');
+    const r = await sweBoundary(payload('Bash', { command: 'gh api -X poſt repos/o/r/issues' }), env);
+    assert.match(decision(r.stdout)?.permissionDecisionReason ?? '', /^BLOCKED: SWE may not run gh\/glab mutating commands/);
+  });
+
+  it('denies a Bash write to a multibyte prompt-surface name such as agents/é.md (GH 2030)', async () => {
+    const r = await sweBoundary(payload('Bash', { command: 'echo x > agents/é.md' }), { ...env, LC_ALL: 'en_US.UTF-8' });
+    const reason = decision(r.stdout)?.permissionDecisionReason ?? '';
+    assert.match(reason, /^BLOCKED: SWE may not write prompt-surface files via Bash /);
+    assert.ok(reason.includes(`Target: ${join(wt, 'agents/é.md')}.`), reason);
   });
 
   it('lets a non-swe caller run the same unparseable command', async () => {

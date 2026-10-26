@@ -12100,7 +12100,7 @@ function ghMutationFrom(w) {
         k += 1;
       } else if (/^(-f|-F|--field=|--raw-field=|--input=)/.test(a)) fields = true;
     }
-    verb = verb.replace(/[a-z]/g, (c) => c.toUpperCase());
+    verb = verb.toUpperCase();
     if (verb === "" && fields) verb = "POST";
     return API_VERBS.has(verb) ? verb : "";
   }
