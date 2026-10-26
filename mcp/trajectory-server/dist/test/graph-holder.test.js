@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { GraphHolder, WorldModelGraph } from '../graph.js';
 import { WorldModelGraph as ShimGraph, resolveGraphDbPath } from '../graph-db.js';
 import { TrajectoryDB } from '../db.js';
@@ -114,6 +115,12 @@ describe('graph-db.js compatibility shim', () => {
         finally {
             rmSync(ws, { recursive: true, force: true });
         }
+    });
+    it('its purpose header names the bundled run-scan entry, not the invokers (F165-1)', () => {
+        const src = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'graph-db.ts');
+        const header = readFileSync(src, 'utf8').split('\n').slice(0, 5).join('\n');
+        assert.doesNotMatch(header, /still import|dist\/graph-db\.js \(run-scan/);
+        assert.match(header, /src\/run-scan\.ts/);
     });
 });
 //# sourceMappingURL=graph-holder.test.js.map
