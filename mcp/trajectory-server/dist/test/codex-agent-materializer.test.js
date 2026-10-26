@@ -31,10 +31,10 @@ afterEach(() => {
 describe('Codex Agent catalog', () => {
     it('is the single canonical source for exactly two parseable Agent files', () => {
         assert.equal(CODEX_AGENT_TEMPLATE_SET_VERSION, 1);
-        assert.deepEqual(CODEX_AGENT_CATALOG.map((entry) => entry.agentId), ['tmb_swe', 'tmb_pr_reviewer']);
+        assert.deepEqual(CODEX_AGENT_CATALOG.map((entry) => entry.agentId), ['tmb_swe', 'tmb_code_reviewer']);
         assert.deepEqual(CODEX_AGENT_CATALOG.map((entry) => entry.targetPath), [
             '.codex/agents/tmb_swe.toml',
-            '.codex/agents/tmb_pr_reviewer.toml',
+            '.codex/agents/tmb_code_reviewer.toml',
         ]);
         const fixture = tempDirectory('tmb-codex-catalog-');
         for (const template of CODEX_AGENT_CATALOG) {

@@ -263,7 +263,7 @@ describe('statsTools — task_stats', () => {
     db.close();
   });
 
-  it('is accessible to all allowed roles (swe, bro, consultant agents, pr-reviewer)', async () => {
+  it('is accessible to all allowed roles (swe, bro, consultant agents, code-reviewer)', async () => {
     const db = tempDB();
     const tools = statsTools(db);
 
@@ -279,7 +279,7 @@ describe('statsTools — task_stats', () => {
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
-    for (const agent of ['bro', 'swe', 'architect', 'cto', 'legal-reviewer', 'pr-reviewer']) {
+    for (const agent of ['bro', 'swe', 'architect', 'cto', 'legal-reviewer', 'code-reviewer']) {
       const result = await call(tools.handlers, 'task_stats', { agent, task_id: taskId });
       assert.ok(!result.isError, `Expected ${agent} to be allowed`);
     }
@@ -396,7 +396,7 @@ describe('statsTools — task_stats cost_estimate', () => {
         ['swe', 2000, 'completed'],
         ['swe', null, 'swept_orphan'],
         ['swe', 3000, 'completed'],
-        ['pr-reviewer', 500, 'completed'],
+        ['code-reviewer', 500, 'completed'],
       ];
       for (const [agentType, cacheRead, exitReason] of runs) {
         db.run(
@@ -406,7 +406,7 @@ describe('statsTools — task_stats cost_estimate', () => {
       }
       ['fail', 'fail', 'fail', 'pass'].forEach((verdict, i) => {
         db.run(
-          "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 'f', 1, ?)",
+          "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', ?, 'f', 1, ?)",
           [taskId, i + 1, verdict, CREATED],
         );
       });

@@ -40,7 +40,7 @@ function openRun(db, taskId, agentType) {
 }
 function recordVerdict(db, taskId, verdict, at) {
     const n = (db.get('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [taskId])?.n ?? 0) + 1;
-    db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 1, ?)`, [taskId, n, verdict, at]);
+    db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', ?, 1, ?)`, [taskId, n, verdict, at]);
 }
 function recordVerificationPass(db, issueId, taskId, sha, at) {
     db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'bro_verification_pass', 'ok', ?, ?)`, [issueId, JSON.stringify({ task_id: taskId, commit_sha: sha }), at]);
@@ -311,7 +311,7 @@ describe('issue_close: review evidence for closed tasks', () => {
         assert.ok(!close.isError, JSON.stringify(parse(close)));
         db.close();
     });
-    for (const [event, author] of [['review_gate_waived', 'pr-reviewer'], ['review_gate_bypassed', 'pr-reviewer'], ['review_gate_waived', 'hook:close-issue-on-merge']]) {
+    for (const [event, author] of [['review_gate_waived', 'code-reviewer'], ['review_gate_bypassed', 'code-reviewer'], ['review_gate_waived', 'hook:close-issue-on-merge']]) {
         it(`a ${event} row authored by ${author} does not unblock the close`, async () => {
             const db = tempDB();
             const issue = seedIssue(db);

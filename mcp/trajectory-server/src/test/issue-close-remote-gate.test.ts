@@ -84,7 +84,7 @@ function seedClosableTask(db: TrajectoryDB, issueId: number, status: 'completed'
     [issueId, JSON.stringify({ task_id: taskId, commit_sha: 'abc1234' }), earlier],
   );
   db.run(
-    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'pr-reviewer', 'pass', 1, ?)`,
+    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, ?)`,
     [taskId, later],
   );
   return taskId;

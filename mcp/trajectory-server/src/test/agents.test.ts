@@ -38,7 +38,7 @@ describe('agentTools', () => {
     assert.equal(rows.length, 6, 'Expected 6 seeded agents');
     assert.deepEqual(rows.map((r) => r.file_path), [
       'plugin:agents/swe.md',
-      'plugin:agents/pr-reviewer.md',
+      'plugin:agents/code-reviewer.md',
       'plugin:templates/agents/architect.md',
       'plugin:templates/agents/cto.md',
       'plugin:templates/agents/ceo.md',
@@ -82,7 +82,7 @@ describe('agentTools', () => {
     const plugin = parseResult(await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'plugin' }));
     assert.deepEqual(
       plugin.agents.map((a: { name: string }) => a.name),
-      ['architect', 'ceo', 'cto', 'pm', 'pr-reviewer', 'swe'],
+      ['architect', 'ceo', 'code-reviewer', 'cto', 'pm', 'swe'],
     );
 
     const project = parseResult(await call(tools.handlers, 'agent_list', { agent: 'bro', root: 'project' }));
@@ -226,7 +226,7 @@ describe('agent_register reserved name gate', () => {
     db.close();
   });
 
-  for (const name of ['swe', 'pr-reviewer']) {
+  for (const name of ['swe', 'code-reviewer']) {
     it(`rejects a project: '${name}' — backbone agents must be plugin:`, async () => {
       const db = tempDB();
       const tools = agentTools(db);

@@ -8,7 +8,7 @@ TMB exposes exactly two Codex Skills, and both require an explicit invocation:
   inventory and world model, clarifies a request, and saves an approved local
   planning issue with Bro-authored decision records.
 - `$tmb:tmb-agent-setup` checks, installs, or removes the fixed `tmb_swe` and
-  `tmb_pr_reviewer` Agent files in that project. It previews the exact paths and
+  `tmb_code_reviewer` Agent files in that project. It previews the exact paths and
   asks before changing them.
 
 Because both Skills set `allow_implicit_invocation: false`, a generic request
@@ -34,7 +34,7 @@ Planning issue creation forces remote synchronization off even when the project
 has a configured Git remote.
 
 Agent setup manages only `.codex/agents/tmb_swe.toml` and
-`.codex/agents/tmb_pr_reviewer.toml`. A same-name file is managed only when its
+`.codex/agents/tmb_code_reviewer.toml`. A same-name file is managed only when its
 bytes exactly match the current built-in template. Any difference, including
 line endings or comments, is a conflict and stops the whole operation. The
 setter never force-overwrites a file, edits `.gitignore`, stages the generated
@@ -82,7 +82,7 @@ instead of guessing ownership.
 
 The installed Agents are intentionally independent of TMB workflow state.
 `tmb_swe` can implement a complete, path-bounded brief in the current worktree;
-`tmb_pr_reviewer` provides an advisory review. Their names are not authenticated
+`tmb_code_reviewer` provides an advisory review. Their names are not authenticated
 roles, and Bro does not spawn them. Each template shadows the plugin-provided
 `trajectory-server` with a disabled same-name entry in its own `mcp_servers`
 table. The required transport is the inert `node --version`; it never starts
@@ -99,7 +99,7 @@ the allowed paths, and reports `NEEDS_CONTEXT` when the brief is incomplete.
 These are Agent instructions, not a Hook-enforced safety boundary. Review its
 diff and Git status after every run.
 
-Give `tmb_pr_reviewer` the requirements, an exact working-tree or commit-range
+Give `tmb_code_reviewer` the requirements, an exact working-tree or commit-range
 diff boundary, and available test evidence. It reports findings from P0 through
 P3 and returns `REQUEST_CHANGES`, `NEEDS_CONTEXT`, or
 `NO_BLOCKING_FINDINGS`; a failed MCP preflight returns

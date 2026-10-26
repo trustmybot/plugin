@@ -18,14 +18,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/../hooks/lib/query-task.sh"
 # shellcheck source=../hooks/lib/db-write.sh
 . "$SCRIPT_DIR/../hooks/lib/db-write.sh"
+# shellcheck source=../hooks/lib/normalize-role.sh
+. "$SCRIPT_DIR/../hooks/lib/normalize-role.sh"
 
 # Allowed roles per MCP tool: each tool's requireRoles list in
 # mcp/trajectory-server/src/tools/*.ts, in the same order.
 # tests/l1-lint/sqlite3-fallback-roles.sh fails when the two drift.
-_TMB_FALLBACK_ROLES_validation_record='pr-reviewer'
+_TMB_FALLBACK_ROLES_validation_record='code-reviewer'
 _TMB_FALLBACK_ROLES_task_update_status='bro,swe'
-_TMB_FALLBACK_ROLES_discussion_append='bro,swe,pr-reviewer,consultant'
-_TMB_FALLBACK_ROLES_audit_append='bro,swe,pr-reviewer,consultant'
+_TMB_FALLBACK_ROLES_discussion_append='bro,swe,code-reviewer,consultant'
+_TMB_FALLBACK_ROLES_audit_append='bro,swe,code-reviewer,consultant'
 _TMB_FALLBACK_ROLES_issue_close='bro'
 
 _tmb_require_db() {
@@ -39,14 +41,16 @@ _tmb_require_db() {
 # _tmb_fallback_role <agent>
 # The role the server's normalizeAgent (middleware/agent-scope.ts) gives
 # <agent>, lowercased with a leading `tmb:` (the namespace a Claude Code
-# subagent_type carries) dropped: bro, swe or pr-reviewer as named; any other
+# subagent_type carries) dropped and a legacy reviewer name mapped by
+# tmb_normalize_role: bro, swe or code-reviewer as named; any other
 # slug matching ^[a-z][a-z0-9_-]*$ is a consultant; anything else is unknown.
 _tmb_fallback_role() {
   local a
   a=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   a="${a#tmb:}"
+  [[ "$a" == *:* ]] || a=$(tmb_normalize_role "$a")
   case "$a" in
-    bro|swe|pr-reviewer) printf '%s' "$a" ;;
+    bro|swe|code-reviewer) printf '%s' "$a" ;;
     *) if [[ "$a" =~ ^[a-z][a-z0-9_-]*$ ]]; then printf consultant; else printf unknown; fi ;;
   esac
 }

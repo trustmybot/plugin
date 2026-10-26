@@ -870,7 +870,7 @@ export function compositeTools(
     {
       name: 'worktree_commits_fetch',
       description:
-        'Commit-reap composite — fetches each task\'s worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.',
+        'Commit-reap composite — fetches each task\'s worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for code-reviewer spawn.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -892,7 +892,7 @@ export function compositeTools(
       name: 'bro_atomic_close',
       description:
         'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
-        'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
+        'Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next). ' +
         'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
         'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
         'Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one `[probe <id>]` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. ' +
@@ -914,7 +914,7 @@ export function compositeTools(
             description:
               'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
               'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
-              'Before pr-reviewer has passed this task the issue stays open (tasks_without_review, review_pending).',
+              'Before code-reviewer has passed this task the issue stays open (tasks_without_review, review_pending).',
           },
           waive_scope_gate: {
             type: 'boolean',
@@ -932,7 +932,7 @@ export function compositeTools(
           spawn_note: {
             type: 'string',
             description:
-              `Optional context for pr-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); ` +
+              `Optional context for code-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); ` +
               'task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.',
           },
         },
@@ -942,8 +942,8 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. ' +
-        'Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed; closed swe/pr-reviewer rows with no tokens and no usage_source are marked usage_source=unmeasured. ' +
+        'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing code-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. ' +
+        'Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed; closed swe/code-reviewer rows with no tokens and no usage_source are marked usage_source=unmeasured. ' +
         'Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} (plus the recovery result when task_id is given).',
       inputSchema: {
         type: 'object',
@@ -1123,7 +1123,7 @@ export function compositeTools(
         "locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; " +
         "plus a `sections` map of what the others hold), " +
         "'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. " +
-        "Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+        "Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1744,7 +1744,7 @@ export function compositeTools(
 
     task_brief: requireRoles(
       'task_brief',
-      ['bro', 'swe', 'pr-reviewer', 'consultant'],
+      ['bro', 'swe', 'code-reviewer', 'consultant'],
       wrap(async (args) => {
         const taskId = args['task_id'];
         if (taskId === undefined || taskId === null) return err('task_id is required');
@@ -1876,7 +1876,7 @@ export function compositeTools(
           }
 
           // The latest bro_atomic_close scope record (extras bro accepted, base
-          // moved) — pr-reviewer reads it instead of recomputing the diff.
+          // moved) — code-reviewer reads it instead of recomputing the diff.
           const closeRow = db.get<{ content_json: string | null }>(
             `SELECT content_json FROM audit
               WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
@@ -2392,7 +2392,7 @@ export function compositeTools(
 
     pr_monitor_worktree: requireRoles(
       'pr_monitor_worktree',
-      ['pr-reviewer'],
+      ['code-reviewer'],
       wrap(async (args) => {
         const commitSha = ((args['commit_sha'] as string) ?? '').toLowerCase();
         const repoPath = args['repo_path'] as string;

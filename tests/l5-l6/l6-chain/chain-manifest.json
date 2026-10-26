@@ -41,7 +41,7 @@
       "partial_test": false,
       "seed_before": null,
       "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/04/04-cheatcode-install-plugins/setup-l5.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
-      "chain_setup_note": "Stage the cheatcode-install fixture exactly as the row's setup-l5.sh does (deterministic marketplace stub, no network): writes $PROJECT/.tmb-cheatcode-install-fixture.json with per-candidate attachment targets (feature-dev\u2192swe, code-review\u2192pr-reviewer). L5 standalone sources the same setup directly.",
+      "chain_setup_note": "Stage the cheatcode-install fixture exactly as the row's setup-l5.sh does (deterministic marketplace stub, no network): writes $PROJECT/.tmb-cheatcode-install-fixture.json with per-candidate attachment targets (feature-dev\u2192swe, code-review\u2192code-reviewer). L5 standalone sources the same setup directly.",
       "seed_after": null,
       "halt_on_fail": true
     },
@@ -96,7 +96,7 @@
       "partial_test": false,
       "seed_before": null,
       "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/09/09-cheatcode-uninstall-plugins/setup-l5.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
-      "chain_setup_note": "Stage the cheatcode-uninstall fixture exactly as the row's setup-l5.sh does (deterministic teardown stub, no network): seeds the INSTALLED state (cheatcodes + attachments + install audit rows for feature-dev\u2192swe, code-review\u2192pr-reviewer) and writes $PROJECT/.tmb-cheatcode-uninstall-fixture.json so the uninstall has concrete state to reverse. L5 standalone sources the same setup directly.",
+      "chain_setup_note": "Stage the cheatcode-uninstall fixture exactly as the row's setup-l5.sh does (deterministic teardown stub, no network): seeds the INSTALLED state (cheatcodes + attachments + install audit rows for feature-dev\u2192swe, code-review\u2192code-reviewer) and writes $PROJECT/.tmb-cheatcode-uninstall-fixture.json so the uninstall has concrete state to reverse. L5 standalone sources the same setup directly.",
       "seed_after": null,
       "halt_on_fail": true
     },

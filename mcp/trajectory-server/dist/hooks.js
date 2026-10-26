@@ -5042,7 +5042,7 @@ function jqCompact(value) {
 import { accessSync as accessSync3, closeSync as closeSync2, constants as constants3, existsSync as existsSync3, openSync as openSync2, readFileSync as readFileSync4, readSync, realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
 
 // src/hooks/lib/role.ts
-var PR_REVIEWER_ROLE = "pr-reviewer";
+var CODE_REVIEWER_ROLE = "code-reviewer";
 function normalizeRole(raw = "") {
   const colon = raw.indexOf(":");
   return colon < 0 ? raw : raw.slice(colon + 1);
@@ -12247,8 +12247,8 @@ var GATE_NAME2 = "git-push-guard";
 var SOURCE_PATHS = [":(top)", ":(top,exclude,glob)mcp/*/dist/**", ":(top,exclude)dashboard/dist"];
 var FORCE = / --force | -f | --force-with-lease | --force-with-lease=/;
 var HEX = /^[0-9a-f]+$/;
-var SWE_REASON = "BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed).";
-var PR_REVIEWER_REASON = `BLOCKED: ${PR_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
+var SWE_REASON = "BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed).";
+var CODE_REVIEWER_REASON = `BLOCKED: ${CODE_REVIEWER_ROLE} must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed.`;
 var WORKTREE_REASON = "BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`.";
 var DB_REASON = "BLOCKED: trajectory DB unavailable \u2014 the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB and retry the push.";
 var PARSE_REASON = "BLOCKED: the push gate could not parse this command, so it cannot tell which statements push or from which checkout. Split it into simpler commands or fix its quoting, then retry the push.";
@@ -12463,12 +12463,12 @@ var Guard2 = class {
       const rows2 = lines(unsigned);
       const list2 = rows2.map((r) => `  - task_id=${field2(r, 1)}  ${field2(r, 2)}  (${field2(r, 3)})`).join("\n");
       return deny(
-        `BLOCKED: pushing ${rows2.length} unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:
+        `BLOCKED: pushing ${rows2.length} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:
 
 ${list2}
 Run: @bro review before push
 
-bro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`
+bro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing.`
       );
     }
     const unchecked = this.uncheckedRebases(dir, pushed);
@@ -12502,7 +12502,7 @@ var gitPushGuard = async (payload, env) => {
   if (pushes.length === 0) return ALLOW;
   const role = agentRole(payload);
   if (role === "swe") return deny(SWE_REASON);
-  if (role === PR_REVIEWER_ROLE) return deny(PR_REVIEWER_REASON);
+  if (role === CODE_REVIEWER_ROLE) return deny(CODE_REVIEWER_REASON);
   const db = dbPath(env, (line) => process.stderr.write(`${line}
 `)) ?? "";
   const guard2 = new Guard2(db, cwd, env);
@@ -12517,7 +12517,7 @@ var gitPushGuard = async (payload, env) => {
   return ALLOW;
 };
 
-// src/hooks/pr-reviewer-preflight.ts
+// src/hooks/code-reviewer-preflight.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
 
 // src/utils/git-refs.ts
@@ -12566,9 +12566,9 @@ function resolveRepoDefaultBranch(repoPath) {
   return gitOut2(repoPath, ["symbolic-ref", "--short", "HEAD"]) ?? "main";
 }
 
-// src/hooks/pr-reviewer-preflight.ts
-var GATE_NAME3 = "pr-reviewer-preflight";
-var BYPASS_ENV = "TMB_SKIP_PR_REVIEWER_PREFLIGHT";
+// src/hooks/code-reviewer-preflight.ts
+var GATE_NAME3 = "code-reviewer-preflight";
+var BYPASS_ENV = "TMB_SKIP_CODE_REVIEWER_PREFLIGHT";
 var GIT_TIMEOUT_MS = 1e4;
 var GIT_MAX_BUFFER2 = 256 * 1024 * 1024;
 var MAX_LISTED = 10;
@@ -12839,10 +12839,10 @@ function preflight(db, taskId, env) {
   }
   return ALLOW;
 }
-var prReviewerPreflight = (payload, env) => {
+var codeReviewerPreflight = (payload, env) => {
   if (env[BYPASS_ENV] === "1") return ALLOW;
   if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
-  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "pr-reviewer") return ALLOW;
+  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "code-reviewer") return ALLOW;
   const m = /task_id\s*=\s*([0-9]+)/.exec(jqAlternatives(payload, [["tool_input", "prompt"]]));
   const taskId = sqlInt(m?.[1] ?? "");
   if (taskId === "") return ALLOW;
@@ -12855,16 +12855,16 @@ var prReviewerPreflight = (payload, env) => {
 // src/success-criteria.ts
 var SPAWN_NOTE_MAX_CHARS = 300;
 
-// src/hooks/pr-reviewer-spawn-note.ts
-var GATE_NAME4 = "pr-reviewer-spawn-note";
-var BYPASS_ENV2 = "TMB_SKIP_PR_REVIEWER_SPAWN_NOTE";
+// src/hooks/code-reviewer-spawn-note.ts
+var GATE_NAME4 = "code-reviewer-spawn-note";
+var BYPASS_ENV2 = "TMB_SKIP_CODE_REVIEWER_SPAWN_NOTE";
 var ANCHORS = ["task_id", "commit_sha", "branch_id", "repo", "repo_path", "attempt_n", "subagent_session_id"];
 var ANCHOR_RE = new RegExp(`\\b(?:${ANCHORS.join("|")})\\s*=\\s*(?:'[^']*'|"[^"]*"|\`[^\`]*\`|\\S+)`, "g");
 function spawnProse(prompt) {
   return prompt.replace(ANCHOR_RE, " ").replace(/\s+/g, " ").trim();
 }
 function denyReason(proseChars) {
-  return `BLOCKED: the pr-reviewer spawn prompt carries ${proseChars} characters of prose beyond its anchors (${ANCHORS.map((a) => `${a}=`).join(", ")}); the cap is ${SPAWN_NOTE_MAX_CHARS}. The reviewer reads the spec, discussions and swe's completion report from task_brief. Store the remaining context as spawn_note (at most ${SPAWN_NOTE_MAX_CHARS} chars) with bro_atomic_close, where task_brief returns it, and respawn with the anchors and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose.`;
+  return `BLOCKED: the code-reviewer spawn prompt carries ${proseChars} characters of prose beyond its anchors (${ANCHORS.map((a) => `${a}=`).join(", ")}); the cap is ${SPAWN_NOTE_MAX_CHARS}. The reviewer reads the spec, discussions and swe's completion report from task_brief. Store the remaining context as spawn_note (at most ${SPAWN_NOTE_MAX_CHARS} chars) with bro_atomic_close, where task_brief returns it, and respawn with the anchors and at most ${SPAWN_NOTE_MAX_CHARS} chars of prose.`;
 }
 function deny3(reason) {
   return {
@@ -12875,10 +12875,10 @@ function deny3(reason) {
     code: 0
   };
 }
-var prReviewerSpawnNote = (payload, env) => {
+var codeReviewerSpawnNote = (payload, env) => {
   if (env[BYPASS_ENV2] === "1") return ALLOW;
   if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;
-  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "pr-reviewer") return ALLOW;
+  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "code-reviewer") return ALLOW;
   const prose = spawnProse(jqAlternatives(payload, [["tool_input", "prompt"]]));
   return prose.length > SPAWN_NOTE_MAX_CHARS ? deny3(denyReason(prose.length)) : ALLOW;
 };
@@ -13080,8 +13080,8 @@ var GATES = /* @__PURE__ */ new Map([
   ["containment-guard", containmentGuard],
   ["ensure-mcp-deps-installed", ensureMcpDepsInstalled],
   [GATE_NAME2, gitPushGuard],
-  [GATE_NAME3, prReviewerPreflight],
-  [GATE_NAME4, prReviewerSpawnNote],
+  [GATE_NAME3, codeReviewerPreflight],
+  [GATE_NAME4, codeReviewerSpawnNote],
   [GATE_NAME5, reworkLimit],
   [GATE_NAME6, sweResumeGate],
   [GATE_NAME7, taskOverrunAlert]

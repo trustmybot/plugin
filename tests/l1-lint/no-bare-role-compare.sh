@@ -2,7 +2,7 @@
 # Regression guard for how hooks decide an agent's role.
 #
 # Rule 1 — normalized compare: any hook that compares a bare role string
-#   (= "swe", = "pr-reviewer", != "swe", etc.) MUST source normalize-role.sh,
+#   (= "swe", = "code-reviewer", != "swe", etc.) MUST source normalize-role.sh,
 #   directly or through lib/cmd-analysis.sh (tmb_agent_role). Without
 #   normalization, CC may deliver "tmb:swe" where the hook expects "swe",
 #   silently disabling safety gates.
@@ -26,7 +26,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-ROLE_COMPARE_REGEX='(=|!=)[[:space:]]+"(swe|pr-reviewer|architect|consultant)"'
+ROLE_COMPARE_REGEX='(=|!=)[[:space:]]+"(swe|code-reviewer|architect|consultant)"'
 NORMALIZE_MARKER='(source|\.) +.*(normalize-role|cmd-analysis)\.sh'
 
 # role_from_path <file> — prints one `<file>:<line>: <reason>` per violation.
@@ -53,7 +53,7 @@ role_from_path() {
         report("role variable assigned from a path")
       if (line ~ /case[[:space:]]+"?\$\{?[A-Z_]*(PWD|CWD)\}?"?[[:space:]]+in/) incase = 1
       else if (incase && line ~ /(^|[[:space:];])esac([[:space:];]|$)/) incase = 0
-      else if (incase && (line ~ /(AGENT_TYPE|AGENT_ROLE|ROLE|SWE_CTX|IS_SWE)=/ || line ~ /echo[[:space:]]+"?(yes|swe|bro|pr-reviewer)"?/))
+      else if (incase && (line ~ /(AGENT_TYPE|AGENT_ROLE|ROLE|SWE_CTX|IS_SWE)=/ || line ~ /echo[[:space:]]+"?(yes|swe|bro|code-reviewer)"?/))
         report("case on a path decides a role")
     }
   ' "$1"

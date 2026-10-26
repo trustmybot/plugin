@@ -6,7 +6,7 @@ import { insertAudit } from './audit.js';
 import { projectRootFromDbPath } from './containment.js';
 import { resolveRepoPath, taskWorktreePath } from './composites.js';
 const UNBOUND_SAMPLE = 20;
-const BACKFILL_AGENTS = new Set(['swe', 'pr-reviewer']);
+const BACKFILL_AGENTS = new Set(['swe', 'code-reviewer']);
 // Parses a JSONL transcript; unparsable lines are dropped.
 function readRecords(path) {
     let text;
@@ -275,7 +275,7 @@ export function agentRunsBackfill(db, opts) {
             spawnTypes.set(session, sessionSpawnTypes(sessionRecords.get(session) ?? []));
         const agentType = spawnAgentType(path, spawnTypes.get(session));
         if (!agentType || !BACKFILL_AGENTS.has(agentType)) {
-            unbound(path, `subagent_type ${agentType ?? 'unknown'} is not swe or pr-reviewer`);
+            unbound(path, `subagent_type ${agentType ?? 'unknown'} is not swe or code-reviewer`);
             continue;
         }
         const taskId = taskIdFromTranscript(path);
@@ -382,7 +382,7 @@ export function agentRunsBackfillTools(db, dbPath) {
     const definitions = [
         {
             name: 'agent_runs_backfill',
-            description: "Recover swe/pr-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+            description: "Recover swe/code-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
             inputSchema: {
                 type: 'object',
                 properties: {

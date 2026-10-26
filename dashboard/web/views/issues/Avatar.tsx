@@ -2,7 +2,7 @@ const AUTHOR_BG: Record<string, string> = {
   bro: 'bg-(--bgColor-accent-emphasis)',
   swe: 'bg-(--bgColor-success-emphasis)',
   frontend: 'bg-(--bgColor-done-emphasis)',
-  'pr-reviewer': 'bg-(--bgColor-severe-emphasis)',
+  'code-reviewer': 'bg-(--bgColor-severe-emphasis)',
   pm: 'bg-(--bgColor-attention-emphasis)',
   human: 'bg-(--bgColor-neutral-emphasis)',
 };
@@ -14,13 +14,10 @@ const FALLBACK_BG = [
   'bg-(--bgColor-upsell-emphasis)',
 ];
 
-const AUTHOR_ALIAS: Record<string, string> = { 'code-reviewer': 'pr-reviewer' };
-
 const authorBg = (author: string) => {
   const name = author.toLowerCase();
-  const key = AUTHOR_ALIAS[name] ?? name;
-  if (AUTHOR_BG[key]) return AUTHOR_BG[key];
-  const hash = [...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
+  if (AUTHOR_BG[name]) return AUTHOR_BG[name];
+  const hash = [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
   return FALLBACK_BG[hash % FALLBACK_BG.length]!;
 };
 

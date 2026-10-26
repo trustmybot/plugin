@@ -152,7 +152,7 @@ describe('validationTools', () => {
         const db = tempDB();
         const tools = validationTools(db);
         const result = await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: 1,
             attempt_n: 1,
             verdict: 'maybe',
@@ -169,7 +169,7 @@ describe('validationTools', () => {
         const db = tempDB();
         const tools = validationTools(db);
         const result = await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: 'task_abc',
             attempt_n: 1,
             verdict: 'fail',
@@ -185,7 +185,7 @@ describe('validationTools', () => {
         const db = tempDB();
         const tools = validationTools(db);
         const result = await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: 9999,
             attempt_n: 1,
             verdict: 'pass',
@@ -208,7 +208,7 @@ describe('validationTools', () => {
         db.run(`INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s) VALUES (1, 1, 'npm test', 0, 600)`);
         seedReviewerObservation(db, taskId, 1);
         await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
@@ -233,7 +233,7 @@ describe('validationTools', () => {
         const tools = validationTools(db);
         seedReviewerObservation(db, taskId, 3);
         await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: 3,
             verdict: 'fail',
@@ -244,7 +244,7 @@ describe('validationTools', () => {
         });
         seedReviewerObservation(db, taskId, 1);
         await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: 1,
             verdict: 'fail',
@@ -255,7 +255,7 @@ describe('validationTools', () => {
         });
         seedReviewerObservation(db, taskId, 2);
         await call(tools.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: 2,
             verdict: 'pass',

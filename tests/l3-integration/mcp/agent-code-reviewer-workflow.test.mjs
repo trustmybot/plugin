@@ -1,4 +1,4 @@
-// Layer 2 agent-workflow: pr-reviewer's MCP responsibilities end-to-end.
+// Layer 2 agent-workflow: code-reviewer's MCP responsibilities end-to-end.
 // Reviewer reads the completed task, records pass/fail via validation_record,
 // and verifies history round-trip. This is the gate that unlocks push.
 
@@ -38,21 +38,21 @@ async function seedCompletedTask(client) {
   return taskId;
 }
 
-test('pr-reviewer — happy path: read task → record pass → history reflects it', async (t) => {
+test('code-reviewer — happy path: read task → record pass → history reflects it', async (t) => {
   const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const taskId = await seedCompletedTask(client);
 
   // Reviewer reads the task spec.
-  const task = await call(client, 'task_get', { agent: 'pr-reviewer', task_id: taskId });
+  const task = await call(client, 'task_get', { agent: 'code-reviewer', task_id: taskId });
   assert.equal(task.ok, true, `task_get: ${JSON.stringify(task)}`);
   assert.equal(task.data.status, 'completed', 'task must be completed before review');
 
   seedReviewerObservation(dbPath, taskId, 1);
   // Record pass.
   const record = await call(client, 'validation_record', {
-    agent: 'pr-reviewer',
+    agent: 'code-reviewer',
     task_id: taskId,
     attempt_n: 1,
     verdict: 'pass',
@@ -64,7 +64,7 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
 
   // History reflects exactly one pass row.
   const history = await call(client, 'validation_history', {
-    agent: 'pr-reviewer', task_id: taskId,
+    agent: 'code-reviewer', task_id: taskId,
   });
   assert.equal(history.ok, true);
   const rows = Array.isArray(history.data) ? history.data : history.data.attempts ?? [];
@@ -72,7 +72,7 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
   assert.equal(rows[0].verdict, 'pass');
 });
 
-test('pr-reviewer — fail path: record fail → bro sees it in history', async (t) => {
+test('code-reviewer — fail path: record fail → bro sees it in history', async (t) => {
   const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
@@ -80,7 +80,7 @@ test('pr-reviewer — fail path: record fail → bro sees it in history', async 
 
   seedReviewerObservation(dbPath, taskId, 1);
   const fail = await call(client, 'validation_record', {
-    agent: 'pr-reviewer',
+    agent: 'code-reviewer',
     task_id: taskId,
     attempt_n: 1,
     verdict: 'fail',
@@ -106,7 +106,7 @@ test('pr-reviewer — fail path: record fail → bro sees it in history', async 
   assert.match(rows[0].feedback, /missing test/);
 });
 
-test('pr-reviewer — multiple attempts accumulate in history (retry loop)', async (t) => {
+test('code-reviewer — multiple attempts accumulate in history (retry loop)', async (t) => {
   const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
@@ -116,7 +116,7 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
   for (let n = 1; n <= 2; n++) {
     seedReviewerObservation(dbPath, taskId, n);
     const fail = await call(client, 'validation_record', {
-      agent: 'pr-reviewer',
+      agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: n,
       verdict: 'fail',
@@ -129,7 +129,7 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
   }
   seedReviewerObservation(dbPath, taskId, 3);
   const pass = await call(client, 'validation_record', {
-    agent: 'pr-reviewer',
+    agent: 'code-reviewer',
     task_id: taskId,
     attempt_n: 3,
     verdict: 'pass',
@@ -140,7 +140,7 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
   assert.equal(pass.ok, true);
 
   const history = await call(client, 'validation_history', {
-    agent: 'pr-reviewer', task_id: taskId,
+    agent: 'code-reviewer', task_id: taskId,
   });
   const rows = Array.isArray(history.data) ? history.data : history.data.attempts ?? [];
   assert.equal(rows.length, 3, `expected 3 history rows; got ${rows.length}`);

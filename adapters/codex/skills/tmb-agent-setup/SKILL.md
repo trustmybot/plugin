@@ -8,7 +8,7 @@ description: Inspect, install, or remove TrustMyBot's two fixed project-level Co
 ## Fixed targets
 
 - `.codex/agents/tmb_swe.toml`
-- `.codex/agents/tmb_pr_reviewer.toml`
+- `.codex/agents/tmb_code_reviewer.toml`
 
 Each generated Agent carries a disabled same-name `trajectory-server` entry in
 its own `mcp_servers` table. The entry has an inert `node --version` transport
@@ -49,7 +49,7 @@ For installation in a Chinese conversation, use:
 >
 > `.codex/agents/tmb_swe.toml`
 >
-> `.codex/agents/tmb_pr_reviewer.toml`
+> `.codex/agents/tmb_code_reviewer.toml`
 >
 > 不会修改 `.claude`、Git 索引、远程仓库或 TMB 规划数据。文件可能出现在 `git status`，是否纳入版本控制由你决定。确认安装吗？
 

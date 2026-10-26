@@ -77,7 +77,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     branch_report_md: requireRoles(
       'branch_report_md',
-      ['bro', 'swe', 'pr-reviewer', 'consultant'],
+      ['bro', 'swe', 'code-reviewer', 'consultant'],
       wrapHandler(async (args) => {
         requireArg(args, 'agent');
         const issueId = requireArg(args, 'issue_id') as string;

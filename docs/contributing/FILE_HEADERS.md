@@ -8,7 +8,7 @@ A new `*.ts`, `*.tsx` or `*.sh` source file opens with a one-line header comment
 
 ```bash
 #!/usr/bin/env bash
-# Blocks a git push from a swe worktree until the pr-reviewer gate passes.
+# Blocks a git push from a swe worktree until the code-reviewer gate passes.
 ```
 
 ## What the header is not

@@ -59,20 +59,20 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Worktree branch must descend from `origin/<pr_target>` | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Scope-limited `tools:` keeps SWE off bro-only MCP writes | 1 + 3 | server `requireRoles` + `agents/swe.md` `tools:` list |
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
-| Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing pr-reviewer-only tools |
+| Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing code-reviewer-only tools |
 | Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `scripts/hooks/swe-verification-gate.sh` |
 | Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
 | Task moved to `running` and its swe `agent_runs` row opened (`spawn_id`, `session_id`, `effort`) at swe-spawn time | 2 | `scripts/hooks/record-swe-spawn.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
 
-### pr-reviewer
+### code-reviewer
 
 | Interaction | Layer | Where |
 |---|---|---|
 | Push to protected branch blocked unless every unsigned commit has passing `validation_attempts` row | 2 | `scripts/hooks/git-push-guard.sh` |
-| MCP calls include `agent: 'pr-reviewer'`, scope-restricted | 1 | server middleware |
-| `validation_record` is pr-reviewer-only | 1 | `requireRoles` |
-| Cannot edit code (read-only review) | 3 | `agents/pr-reviewer.md` `tools:` excludes Edit/Write |
+| MCP calls include `agent: 'code-reviewer'`, scope-restricted | 1 | server middleware |
+| `validation_record` is code-reviewer-only | 1 | `requireRoles` |
+| Cannot edit code (read-only review) | 3 | `agents/code-reviewer.md` `tools:` excludes Edit/Write |
 | Review output format | 6 only | skill |
 
 ### Consultants
@@ -89,7 +89,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 |---|---|---|
 | Force-push to protected branches blocked | 2 | `scripts/hooks/git-guards.sh` |
 | Direct commits to `dev`/`main` outside the dev→main PR flow blocked | 2 | `scripts/hooks/git-guards.sh` |
-| Push gate (see pr-reviewer) | 2 | `scripts/hooks/git-push-guard.sh` |
+| Push gate (see code-reviewer) | 2 | `scripts/hooks/git-push-guard.sh` |
 | Remote-write text citing a LOCAL issue id whose remote `iid` differs blocked (a bare `#N` resolves to the wrong remote issue) | 2 | `scripts/hooks/remote-id-guard.sh` |
 | Issue a merged PR resolved auto-closed (local row + remote twin) on a successful `gh pr merge` / `glab mr merge` | 4 | `scripts/hooks/close-issue-on-merge.sh` |
 | Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |

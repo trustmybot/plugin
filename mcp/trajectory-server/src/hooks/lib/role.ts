@@ -4,7 +4,7 @@
  */
 import { jqAlternatives } from './jq.js';
 
-export const PR_REVIEWER_ROLE = 'pr-reviewer';
+export const CODE_REVIEWER_ROLE = 'code-reviewer';
 
 /** tmb_normalize_role <value>: the value minus everything up to its first colon. */
 export function normalizeRole(raw = ''): string {

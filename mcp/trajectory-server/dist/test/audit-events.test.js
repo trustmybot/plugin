@@ -20,7 +20,7 @@ describe('AUDIT_EVENT_TYPES — the closed audit.event_type set', () => {
         assert.equal(new Set(types).size, types.length);
     });
     it('every value names at least one known writer', () => {
-        const known = new Set(['bro', 'swe', 'pr-reviewer', 'consultant', 'server', 'hook']);
+        const known = new Set(['bro', 'swe', 'code-reviewer', 'consultant', 'server', 'hook']);
         for (const e of AUDIT_EVENT_TYPES) {
             assert.ok(e.writers.length > 0, `${e.type} has writers`);
             for (const w of e.writers)
@@ -87,7 +87,7 @@ describe('audit_append — who may write which event', () => {
         assert.equal(JSON.parse(r.content[0].text).from_node, 'bro');
         db.close();
     });
-    for (const agent of ['pr-reviewer', 'swe', 'architect']) {
+    for (const agent of ['code-reviewer', 'swe', 'architect']) {
         it(`${agent} is refused on scope_gate_waived with the allowed writers`, async () => {
             const db = tempDB();
             const r = await append(db, { agent, from_node: 'bro', event_type: 'scope_gate_waived' });
@@ -102,17 +102,17 @@ describe('audit_append — who may write which event', () => {
     }
     it('a from_node other than the calling agent is refused', async () => {
         const db = tempDB();
-        const r = await append(db, { agent: 'bro', from_node: 'pr-reviewer', event_type: 'roundtable_summary' });
+        const r = await append(db, { agent: 'bro', from_node: 'code-reviewer', event_type: 'roundtable_summary' });
         assert.equal(r.isError, true);
-        assert.match(JSON.parse(r.content[0].text).error, /from_node 'pr-reviewer' does not match/);
+        assert.match(JSON.parse(r.content[0].text).error, /from_node 'code-reviewer' does not match/);
         assert.equal(db.get("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'roundtable_summary'")?.n, 0);
         db.close();
     });
     it('a non-bro writer records its own role as from_node', async () => {
         const db = tempDB();
-        const r = await append(db, { agent: 'pr-reviewer', event_type: 'mcp_unavailable_fallback_invoked' });
+        const r = await append(db, { agent: 'code-reviewer', event_type: 'mcp_unavailable_fallback_invoked' });
         assert.ok(!r.isError, r.content[0].text);
-        assert.equal(JSON.parse(r.content[0].text).from_node, 'pr-reviewer');
+        assert.equal(JSON.parse(r.content[0].text).from_node, 'code-reviewer');
         db.close();
     });
     it('a hook-only or server-only event is refused for every agent', async () => {
@@ -126,7 +126,7 @@ describe('audit_append — who may write which event', () => {
     });
 });
 describe('legacy_event — written only by the schema-38 and schema-39 migrations', () => {
-    for (const agent of ['bro', 'swe', 'pr-reviewer', 'architect']) {
+    for (const agent of ['bro', 'swe', 'code-reviewer', 'architect']) {
         it(`audit_append refuses legacy_event for ${agent}`, async () => {
             const db = tempDB();
             const r = (await auditTools(db).handlers['audit_append']({
@@ -147,7 +147,7 @@ describe('legacy_event — written only by the schema-38 and schema-39 migration
 describe('insertAudit writer check', () => {
     it('throws AuditWriterError and writes nothing when the writer is not listed', () => {
         const db = tempDB();
-        assert.throws(() => insertAudit(db, { issue_id: -1, from_node: 'pr-reviewer', event_type: 'review_gate_waived', summary: 's', writer: 'pr-reviewer' }), (e) => e instanceof AuditWriterError && /audit_event_not_writable_by_role/.test(e.message));
+        assert.throws(() => insertAudit(db, { issue_id: -1, from_node: 'code-reviewer', event_type: 'review_gate_waived', summary: 's', writer: 'code-reviewer' }), (e) => e instanceof AuditWriterError && /audit_event_not_writable_by_role/.test(e.message));
         assert.equal(db.get("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'review_gate_waived'")?.n, 0);
         assert.ok(insertAudit(db, { issue_id: -1, from_node: 'bro', event_type: 'review_gate_waived', summary: 's', writer: 'bro' }) > 0);
         db.close();

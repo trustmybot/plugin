@@ -34,7 +34,7 @@ export function effortRank(value) {
 }
 /**
  * The effort a new swe task runs at when its creator names none, and the
- * effort every pr-reviewer spawn runs at. An unset or unreadable key reads as
+ * effort every code-reviewer spawn runs at. An unset or unreadable key reads as
  * its default (medium, high). The hooks' twin is tmb_effort_defaults in
  * scripts/hooks/lib/query-task.sh.
  */

@@ -127,7 +127,7 @@ export const KEYS = [
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `high`)',
     setBy: 'bro via `config_set` (any other value is refused)',
-    effect: 'The effort every pr-reviewer spawn runs at: `require-spawn-effort.sh` denies a pr-reviewer spawn whose Agent `effort` differs; `swe-atomic-close.sh` records it on the pr-reviewer `agent_runs` row.',
+    effect: 'The effort every code-reviewer spawn runs at: `require-spawn-effort.sh` denies a code-reviewer spawn whose Agent `effort` differs; `swe-atomic-close.sh` records it on the code-reviewer `agent_runs` row.',
   },
 ];
 

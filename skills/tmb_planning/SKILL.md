@@ -71,7 +71,7 @@ swe executes a spec bro already pinned, so medium is the executor default; high 
 The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — split into multiple tasks linked by `parent_branch_id` when it passes any of: 8 `files[]` entries, 8 `verification[]` commands, 5 `SC` ids or about 5000 characters, so each task fits one swe run:
 
 - `## Description` — ≤3 sentences, file paths with line refs, Assumptions bullets
-- `## Success Criteria` — 2–5 testable assertions, each a top-level bullet opening with a unique id (`- SC1: …`, `- SC2: …`); nested `Writer:` / `Populated:` lines carry none. The swe reports against these ids, and pr-reviewer findings cite them.
+- `## Success Criteria` — 2–5 testable assertions, each a top-level bullet opening with a unique id (`- SC1: …`, `- SC2: …`); nested `Writer:` / `Populated:` lines carry none. The swe reports against these ids, and code-reviewer findings cite them.
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
@@ -121,18 +121,18 @@ After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C
 3. `task_brief.completion_report` covers every `SC<n>` id, and the diff bears out each claim: a `met` shows in the diff, a `not_applicable` carries a reason you accept, and a `not_met` fails this check. The changelog entry lands the way the repo records changes (its fragment directory or CHANGELOG section), where it keeps one.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate with the anchors only — the spawn-shape hook enforces them. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn code-reviewer for the push gate with the anchors only — the spawn-shape hook enforces them. Context the reviewer cannot read from `task_brief` goes in `bro_atomic_close`'s `spawn_note` (300 characters max). On a reviewer FAIL: surface it, hold the push, and rework the task (below).
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
 
 ### Integrate after the review pass
 
-When pr-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>`:
+When code-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>`:
 
 - **Exit 0** — rebased and re-verified; push the SHA it prints.
 - **Exit 1** — `verification[]` failed on the rebased commit; surface the failure and rework the task (below).
 - **Exit 2** — conflict or patch drift; `task_retry` on a fresh branch from the current base, with a spec that points at the reviewed commit. The retry goes through verify and review again.
-- **Exit 3** — the task has no passing review; spawn pr-reviewer first.
+- **Exit 3** — the task has no passing review; spawn code-reviewer first.
 
 ### Rework and spec changes
 
@@ -144,4 +144,4 @@ When pr-reviewer passes the task and the base has not moved, push the reviewed c
 
 When the hook alerts that a task has run past 60 minutes, relay it to the Human once, with its attempt count and its current blocker, and decide together whether to continue, redesign the spec or split the task.
 
-The worktree stays in place through `bro_atomic_close` and is removed once pr-reviewer passes the task, so rework continues where SWE left off.
+The worktree stays in place through `bro_atomic_close` and is removed once code-reviewer passes the task, so rework continues where SWE left off.

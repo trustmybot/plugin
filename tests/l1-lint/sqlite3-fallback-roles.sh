@@ -58,16 +58,16 @@ run_self_test() {
   dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-fallback-roles.XXXXXX") || return 1
   mkdir -p "$dir/tools"
   cat >"$dir/tools/x.ts" <<'TS'
-requireRoles('audit_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], agent);
+requireRoles('audit_append', ['bro', 'swe', 'code-reviewer', 'consultant'], agent);
 requireRoles(
   'issue_close',
   ['bro'],
   agent,
 );
 TS
-  printf "%s\n" "_TMB_FALLBACK_ROLES_audit_append='bro,swe,pr-reviewer,consultant'" "_TMB_FALLBACK_ROLES_issue_close='bro'" >"$dir/ok.sh"
-  printf "%s\n" "_TMB_FALLBACK_ROLES_audit_append='bro,swe,pr-reviewer'" "_TMB_FALLBACK_ROLES_issue_close='bro'" >"$dir/drift.sh"
-  printf "%s\n" "_TMB_FALLBACK_ROLES_audit_append='bro,swe,pr-reviewer,consultant'" "_TMB_FALLBACK_ROLES_task_retry='bro'" >"$dir/extra.sh"
+  printf "%s\n" "_TMB_FALLBACK_ROLES_audit_append='bro,swe,code-reviewer,consultant'" "_TMB_FALLBACK_ROLES_issue_close='bro'" >"$dir/ok.sh"
+  printf "%s\n" "_TMB_FALLBACK_ROLES_audit_append='bro,swe,code-reviewer'" "_TMB_FALLBACK_ROLES_issue_close='bro'" >"$dir/drift.sh"
+  printf "%s\n" "_TMB_FALLBACK_ROLES_audit_append='bro,swe,code-reviewer,consultant'" "_TMB_FALLBACK_ROLES_task_retry='bro'" >"$dir/extra.sh"
   check "$dir/ok.sh" "$dir/tools" >/dev/null || { echo "sqlite3-fallback-roles self-test: a matching table was flagged" >&2; fail=1; }
   check "$dir/drift.sh" "$dir/tools" >/dev/null && { echo "sqlite3-fallback-roles self-test: a dropped consultant role was not flagged" >&2; fail=1; }
   check "$dir/extra.sh" "$dir/tools" >/dev/null && { echo "sqlite3-fallback-roles self-test: a tool the server does not gate was not flagged" >&2; fail=1; }

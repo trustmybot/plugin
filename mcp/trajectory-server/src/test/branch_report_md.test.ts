@@ -105,7 +105,7 @@ describe('branchReportMdTools', () => {
     seedReviewerObservation(db, taskId, 1);
     const validation = validationTools(db);
     await call(validation.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
+      agent: 'code-reviewer',
       task_id: taskId,
       attempt_n: 1,
       verdict: 'pass',
@@ -263,7 +263,7 @@ describe('branchReportMdTools', () => {
     db.close();
   });
 
-  it('all allowed agents are accepted (bro, consultant agents, swe, pr-reviewer)', async () => {
+  it('all allowed agents are accepted (bro, consultant agents, swe, code-reviewer)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const branchId = 'feat/agent-test';
@@ -271,7 +271,7 @@ describe('branchReportMdTools', () => {
 
     const tools = branchReportMdTools(db);
 
-    for (const agent of ['bro', 'architect', 'cto', 'legal-reviewer', 'swe', 'pr-reviewer']) {
+    for (const agent of ['bro', 'architect', 'cto', 'legal-reviewer', 'swe', 'code-reviewer']) {
       const result = await call(tools.handlers, 'branch_report_md', {
         agent,
         issue_id: String(issueId),

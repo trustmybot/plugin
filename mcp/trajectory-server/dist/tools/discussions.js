@@ -323,7 +323,7 @@ export function discussionTools(db) {
                 response['warning'] = 'semantic_unavailable';
             return ok(response);
         }),
-        discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
+        discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'code-reviewer', 'consultant'], wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
             const rawIssueId = args['issue_id'];
             const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));

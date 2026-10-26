@@ -44,7 +44,7 @@ const SUMMARY = {
   open_runs: 2,
   recent_runs: [
     { id: 41, agent_type: 'swe', task_id: 9, task_title: 'Build it', started_at: '2026-10-25T10:00:00Z', completed_at: null, exit_reason: null },
-    { id: 40, agent_type: 'pr-reviewer', task_id: 8, task_title: 'Review it', started_at: '2026-10-24T10:00:00Z', completed_at: '2026-10-24T11:00:00Z', exit_reason: 'completed' },
+    { id: 40, agent_type: 'code-reviewer', task_id: 8, task_title: 'Review it', started_at: '2026-10-24T10:00:00Z', completed_at: '2026-10-24T11:00:00Z', exit_reason: 'completed' },
   ],
 };
 

@@ -66,7 +66,7 @@ function fixture(): Fixture {
     fail: (taskId, feedback) => {
       attempt += 1;
       exec(
-        "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', 'fail', ?, 1, ?)",
+        "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', 'fail', ?, 1, ?)",
         taskId,
         attempt,
         feedback,

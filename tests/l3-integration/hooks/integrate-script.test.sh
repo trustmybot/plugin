@@ -66,7 +66,7 @@ setup() {
     INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
       VALUES (1, 'feat/x-1', 'bro', 'bro_verification_pass', 'v', '{\"task_id\":1,\"commit_sha\":\"$COMMIT\"}', '2026-10-19T01:00:00.000Z');
     INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-      VALUES (1, 1, 'pr-reviewer', 'pass', 1, 'LGTM', '2026-10-19T02:00:00.000Z');
+      VALUES (1, 1, 'code-reviewer', 'pass', 1, 'LGTM', '2026-10-19T02:00:00.000Z');
   " >/dev/null; then
     _fail "seed of task 1 into $DB"
   fi

@@ -175,7 +175,7 @@ export function validationTools(db: TrajectoryDB): {
           attempt_n: { type: 'number' },
           verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
           feedback: { type: 'string' },
-          mcp_available: { type: 'boolean', description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
+          mcp_available: { type: 'boolean', description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
           subagent_session_id: { type: 'string', description: 'Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists.' },
           findings: {
             type: 'array',
@@ -229,7 +229,7 @@ export function validationTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    validation_record: requireRoles('validation_record', ['pr-reviewer'], wrapHandler(async (args) => {
+    validation_record: requireRoles('validation_record', ['code-reviewer'], wrapHandler(async (args) => {
       const agent = requireArg(args, 'agent') as string;
       const taskId = coerceTaskId(requireArg(args, 'task_id'));
       requireArg(args, 'attempt_n');
@@ -239,9 +239,9 @@ export function validationTools(db: TrajectoryDB): {
       const role = normalizeAgent(agent);
 
       const mcpAvailableArg = args['mcp_available'];
-      if (role === 'pr-reviewer' && typeof mcpAvailableArg !== 'boolean') {
+      if (role === 'code-reviewer' && typeof mcpAvailableArg !== 'boolean') {
         throw new Error(
-          'precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) — the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).',
+          'precondition_failed: validation_record with agent="code-reviewer" requires mcp_available (boolean) — the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).',
         );
       }
       const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
@@ -294,7 +294,7 @@ export function validationTools(db: TrajectoryDB): {
           const observedAgentId = typeof observed.agent_id === 'string' ? observed.agent_id : '';
           if (observedAgentId === '') {
             throw new Error(
-              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id — it came from the main loop, not a pr-reviewer subagent.`,
+              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id — it came from the main loop, not a code-reviewer subagent.`,
             );
           }
           if (!AGENT_ID_RE.test(observedAgentId)) {
@@ -308,7 +308,7 @@ export function validationTools(db: TrajectoryDB): {
           );
           if (sweRun) {
             throw new Error(
-              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate pr-reviewer.`,
+              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate code-reviewer.`,
             );
           }
           subagentSessionId = typeof observed.session_id === 'string' && observed.session_id !== '' ? observed.session_id : null;
@@ -336,7 +336,7 @@ export function validationTools(db: TrajectoryDB): {
           );
         } else {
           throw new Error(
-            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`,
+            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`,
           );
         }
 

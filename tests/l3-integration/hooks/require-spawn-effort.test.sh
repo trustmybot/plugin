@@ -3,7 +3,7 @@
 #   1. swe — the Agent call's effort must equal tasks.effort of the task named
 #      by task_id=<N>; a mismatched or missing effort is denied naming the
 #      expected value and the fix.
-#   2. pr-reviewer — the effort must equal plugin_config.reviewer_effort (high
+#   2. code-reviewer — the effort must equal plugin_config.reviewer_effort (high
 #      when unset).
 #   3. any other agent passes without an effort.
 #   4. fail-closed: no jq, or a DB read error, denies.
@@ -70,20 +70,20 @@ test_case "swe spawn without a task id or naming no task row is left to require-
 assert_eq "" "$(run_hook "$(payload swe "do the thing")")" "no task id: pass"
 assert_eq "" "$(run_hook "$(payload swe "task_id=99 You are swe.")")" "no row: pass"
 
-test_case "pr-reviewer spawn passes only with reviewer_effort (high when unset)"
-assert_eq "" "$(run_hook "$(payload pr-reviewer "$REVIEW_PROMPT" high)")" "high passes while unset"
-out=$(run_hook "$(payload tmb:pr-reviewer "$REVIEW_PROMPT" medium)")
+test_case "code-reviewer spawn passes only with reviewer_effort (high when unset)"
+assert_eq "" "$(run_hook "$(payload code-reviewer "$REVIEW_PROMPT" high)")" "high passes while unset"
+out=$(run_hook "$(payload tmb:code-reviewer "$REVIEW_PROMPT" medium)")
 assert_contains "$out" '"permissionDecision":"deny"' "medium denied while unset"
 assert_contains "$out" 'config_set(key=\"reviewer_effort\"' "names how to change reviewer_effort"
 assert_contains "$out" 'Pass effort=\"high\" on the Agent call' "names the fix"
-out=$(run_hook "$(payload pr-reviewer "$REVIEW_PROMPT")")
+out=$(run_hook "$(payload code-reviewer "$REVIEW_PROMPT")")
 assert_contains "$out" 'passed no effort' "missing effort denied"
 sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '\"medium\"');"
-assert_eq "" "$(run_hook "$(payload pr-reviewer "$REVIEW_PROMPT" medium)")" "medium passes once configured"
-out=$(run_hook "$(payload pr-reviewer "$REVIEW_PROMPT" high)")
+assert_eq "" "$(run_hook "$(payload code-reviewer "$REVIEW_PROMPT" medium)")" "medium passes once configured"
+out=$(run_hook "$(payload code-reviewer "$REVIEW_PROMPT" high)")
 assert_contains "$out" 'Pass effort=\"medium\" on the Agent call' "high denied once medium is configured"
 sqlite3 "$DB" "UPDATE plugin_config SET value_json = '\"max\"' WHERE key = 'reviewer_effort';"
-assert_eq "" "$(run_hook "$(payload pr-reviewer "$REVIEW_PROMPT" high)")" "an invalid stored value reads as high"
+assert_eq "" "$(run_hook "$(payload code-reviewer "$REVIEW_PROMPT" high)")" "an invalid stored value reads as high"
 sqlite3 "$DB" "DELETE FROM plugin_config WHERE key = 'reviewer_effort';"
 
 test_case "a consultant or other agent passes without an effort"
@@ -103,8 +103,8 @@ printf 'not a sqlite database' > "$BAD"
 out=$(printf '%s' "$(payload swe "task_id=1" medium)" | TRAJECTORY_DB_PATH="$BAD" bash "$HOOK" 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "swe: deny"
 assert_contains "$out" "trajectory DB unavailable" "swe: names the DB"
-out=$(printf '%s' "$(payload pr-reviewer "$REVIEW_PROMPT" high)" | TRAJECTORY_DB_PATH="$BAD" bash "$HOOK" 2>/dev/null || true)
-assert_contains "$out" "trajectory DB unavailable" "pr-reviewer: names the DB"
+out=$(printf '%s' "$(payload code-reviewer "$REVIEW_PROMPT" high)" | TRAJECTORY_DB_PATH="$BAD" bash "$HOOK" 2>/dev/null || true)
+assert_contains "$out" "trajectory DB unavailable" "code-reviewer: names the DB"
 
 test_case "a pre-v37 DB (no tasks.effort) is denied with the restart-to-migrate remedy"
 OLD="$TMPDIR/v36.db"
@@ -117,8 +117,8 @@ assert_contains "$out" '"permissionDecision":"deny"' "swe: deny"
 assert_contains "$out" "tasks.effort is missing" "swe: names the missing column"
 assert_contains "$out" "Restart Claude Code" "swe: names the remedy"
 assert_not_contains "$out" "trajectory DB unavailable" "swe: not the generic deny"
-out=$(printf '%s' "$(payload pr-reviewer "$REVIEW_PROMPT" high)" | TRAJECTORY_DB_PATH="$OLD" bash "$HOOK" 2>/dev/null || true)
-assert_not_contains "$out" "tasks.effort is missing" "pr-reviewer: not denied for the missing column"
+out=$(printf '%s' "$(payload code-reviewer "$REVIEW_PROMPT" high)" | TRAJECTORY_DB_PATH="$OLD" bash "$HOOK" 2>/dev/null || true)
+assert_not_contains "$out" "tasks.effort is missing" "code-reviewer: not denied for the missing column"
 
 test_case "no trajectory DB (project not onboarded): pass"
 out=$(printf '%s' "$(payload swe "task_id=1")" | TRAJECTORY_DB_PATH="$TMPDIR/absent.db" bash "$HOOK" 2>/dev/null || true)

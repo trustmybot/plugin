@@ -221,7 +221,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       desired_state: 'present',
       changed: [
         '.codex/agents/tmb_swe.toml',
-        '.codex/agents/tmb_pr_reviewer.toml',
+        '.codex/agents/tmb_code_reviewer.toml',
       ],
       unchanged: [],
       overall_status: 'current',
@@ -229,10 +229,10 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     });
     const agentDirectory = join(project, '.codex', 'agents');
     assert.deepEqual(readdirSync(agentDirectory).sort(), [
-      'tmb_pr_reviewer.toml',
+      'tmb_code_reviewer.toml',
       'tmb_swe.toml',
     ]);
-    for (const file of ['tmb_swe.toml', 'tmb_pr_reviewer.toml']) {
+    for (const file of ['tmb_swe.toml', 'tmb_code_reviewer.toml']) {
       const target = join(agentDirectory, file);
       execFileSync('bun', [
         '-e',
@@ -276,7 +276,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       (payloadOf(removedAgents)['data'] as { changed: string[] }).changed,
       [
         '.codex/agents/tmb_swe.toml',
-        '.codex/agents/tmb_pr_reviewer.toml',
+        '.codex/agents/tmb_code_reviewer.toml',
       ],
     );
     assert.equal(readFileSync(sentinelAgent, 'utf8'), 'name = "sentinel"\n');
@@ -323,7 +323,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     assert.equal(createdRuntime.project_root, canonicalProject);
     assert.equal(createdRuntime.plugin_name, manifest.name);
     assert.equal(createdRuntime.plugin_version, manifest.version);
-    assert.equal(createdRuntime.schema_version, 50);
+    assert.equal(createdRuntime.schema_version, 51);
     assert.equal(createdRuntime.graph_available, true);
     assert.equal(createdRuntime.graph_status, 'ready');
     assert.ok(
@@ -343,7 +343,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       const row = db
         .prepare('SELECT schema_version, plugin_version FROM plugin_meta WHERE id = 1')
         .get() as { schema_version: number; plugin_version: string };
-      assert.equal(row.schema_version, 50);
+      assert.equal(row.schema_version, 51);
       assert.equal(row.plugin_version, manifest.version);
     } finally {
       db.close();

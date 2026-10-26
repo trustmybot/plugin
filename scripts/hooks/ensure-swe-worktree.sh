@@ -12,7 +12,7 @@
 # never denies the spawn (the non-isolated fallback still works).
 #
 # Scope: only `subagent_type` resolving to `swe` with a `task_id=<N>` in the
-# prompt. Other spawns (pr-reviewer, consultants) → no-op.
+# prompt. Other spawns (code-reviewer, consultants) → no-op.
 #
 # Bypass: TMB_DISABLE_ENSURE_SWE_WORKTREE=1.
 set -uo pipefail

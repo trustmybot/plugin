@@ -61,8 +61,8 @@ function seed(path) {
   const attempt = db.prepare(
     'INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
   );
-  attempt.run(task, 1, 'pr-reviewer', 'fail', 'SC2 fails: no issue link.', now);
-  attempt.run(task, 2, 'pr-reviewer', 'pass', 'All criteria met.', now);
+  attempt.run(task, 1, 'code-reviewer', 'fail', 'SC2 fails: no issue link.', now);
+  attempt.run(task, 2, 'code-reviewer', 'pass', 'All criteria met.', now);
   const finding = db.prepare(
     `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)
      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,

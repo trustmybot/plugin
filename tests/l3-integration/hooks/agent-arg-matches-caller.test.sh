@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/agent-arg-matches-caller.sh (PreToolUse on every
 # trajectory-server tool):
-#   1. a subagent payload's agent_type (swe, pr-reviewer, consultant) must equal
+#   1. a subagent payload's agent_type (swe, code-reviewer, consultant) must equal
 #      tool_input.agent; the main session (no agent_type) must pass bro
 #   2. a mismatch denies naming the tool and both values, and writes one
 #      agent_arg_mismatch row on the task's issue, else the system issue -1
@@ -58,13 +58,13 @@ rows() {
   sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type = 'agent_arg_mismatch';"
 }
 
-test_case "pr-reviewer subagent passing agent='bro' is denied with an audit row"
-OUT=$(run "$PROJ" "$(payload audit_append pr-reviewer bro 42)")
+test_case "code-reviewer subagent passing agent='bro' is denied with an audit row"
+OUT=$(run "$PROJ" "$(payload audit_append code-reviewer bro 42)")
 assert_eq "deny" "$(decision "$OUT")" "denied"
-assert_contains "$OUT" "BLOCKED: audit_append called with agent='bro' but the caller is a pr-reviewer subagent; pass agent='pr-reviewer'." "reason names tool and both values"
+assert_contains "$OUT" "BLOCKED: audit_append called with agent='bro' but the caller is a code-reviewer subagent; pass agent='code-reviewer'." "reason names tool and both values"
 assert_eq "1" "$(rows)" "one row written"
 ROW=$(sqlite3 "$DB" "SELECT issue_id || '|' || from_node || '|' || content_json FROM audit WHERE event_type = 'agent_arg_mismatch';")
-assert_eq '7|hook:agent-arg-matches-caller|{"tool":"audit_append","given":"bro","actual":"pr-reviewer","task_id":42}' "$ROW" "row on the task's issue with tool, given, actual"
+assert_eq '7|hook:agent-arg-matches-caller|{"tool":"audit_append","given":"bro","actual":"code-reviewer","task_id":42}' "$ROW" "row on the task's issue with tool, given, actual"
 
 test_case "swe subagent passing agent='swe' is allowed"
 OUT=$(run "$PROJ" "$(payload task_update_status swe swe 42)")
@@ -100,15 +100,15 @@ assert_contains "$OUT" "a cto subagent; pass agent='cto'" "reason names the cons
 assert_eq "4" "$(rows)" "fourth row written"
 
 test_case "no agent arg is allowed"
-OUT=$(run "$PROJ" "$(payload world_model_get pr-reviewer "")")
+OUT=$(run "$PROJ" "$(payload world_model_get code-reviewer "")")
 assert_eq "allow" "$(decision "$OUT")" "subagent without agent: allowed"
 OUT=$(run "$PROJ" "$(payload world_model_get "" "")")
 assert_eq "allow" "$(decision "$OUT")" "main session without agent: allowed"
 
 test_case "role aliases normalise to the same role"
-OUT=$(run "$PROJ" "$(payload validation_record tmb:pr-reviewer pr-reviewer 42)")
+OUT=$(run "$PROJ" "$(payload validation_record tmb:code-reviewer code-reviewer 42)")
 assert_eq "allow" "$(decision "$OUT")" "prefixed agent_type, bare agent"
-OUT=$(run "$PROJ" "$(payload validation_record pr-reviewer tmb:pr-reviewer 42)")
+OUT=$(run "$PROJ" "$(payload validation_record code-reviewer tmb:code-reviewer 42)")
 assert_eq "allow" "$(decision "$OUT")" "bare agent_type, prefixed agent"
 OUT=$(run "$PROJ" "$(payload task_get "" BRO)")
 assert_eq "allow" "$(decision "$OUT")" "case-blind like the server"
@@ -124,10 +124,10 @@ test_case "unreadable DB: mismatch denies, match allows"
 BROKEN="$TMPDIR/broken"
 mkdir -p "$BROKEN/.claude/tmb"
 printf 'not a database' > "$BROKEN/.claude/tmb/trajectory.db"
-OUT=$(run "$BROKEN" "$(payload audit_append pr-reviewer bro 42)")
+OUT=$(run "$BROKEN" "$(payload audit_append code-reviewer bro 42)")
 assert_eq "deny" "$(decision "$OUT")" "mismatch denied"
-assert_contains "$OUT" "pass agent='pr-reviewer'" "the mismatch reason, not the db-unavailable one"
-OUT=$(run "$BROKEN" "$(payload audit_append pr-reviewer pr-reviewer 42)")
+assert_contains "$OUT" "pass agent='code-reviewer'" "the mismatch reason, not the db-unavailable one"
+OUT=$(run "$BROKEN" "$(payload audit_append code-reviewer code-reviewer 42)")
 assert_eq "allow" "$(decision "$OUT")" "match allowed"
 
 test_case "no trajectory DB: mismatch denies, match allows"
@@ -138,7 +138,7 @@ OUT=$(run "$TMPDIR/bare" "$(payload audit_append swe swe)")
 assert_eq "allow" "$(decision "$OUT")" "match allowed"
 
 test_case "other tools are not judged"
-P=$(payload task_get pr-reviewer bro | jq -c '.tool_name = "mcp__github__get_issue"')
+P=$(payload task_get code-reviewer bro | jq -c '.tool_name = "mcp__github__get_issue"')
 OUT=$(run "$PROJ" "$P")
 assert_eq "allow" "$(decision "$OUT")" "non-trajectory tool allowed"
 
@@ -149,18 +149,18 @@ chain() {
 }
 
 test_case "the trajectory-gates chain denies a mismatch"
-OUT=$(chain "$(payload audit_append pr-reviewer bro 42)")
+OUT=$(chain "$(payload audit_append code-reviewer bro 42)")
 assert_eq "deny" "$(decision "$OUT")" "denied through dispatch.sh"
 assert_eq "6" "$(rows)" "row written through dispatch.sh"
 
-test_case "a pr-reviewer validation_record with agent='bro' through the chain leaves no reviewer_identity_observed row"
+test_case "a code-reviewer validation_record with agent='bro' through the chain leaves no reviewer_identity_observed row"
 observed() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type = 'reviewer_identity_observed';"; }
-VR=$(payload validation_record pr-reviewer bro 42 | jq -c '.tool_input.attempt_n = 1 | .tool_use_id = "tu-vr1"')
+VR=$(payload validation_record code-reviewer bro 42 | jq -c '.tool_input.attempt_n = 1 | .tool_use_id = "tu-vr1"')
 OUT=$(chain "$VR")
 assert_eq "deny" "$(decision "$OUT")" "denied"
-assert_contains "$OUT" "pass agent='pr-reviewer'" "agent-arg-matches-caller's reason"
+assert_contains "$OUT" "pass agent='code-reviewer'" "agent-arg-matches-caller's reason"
 assert_eq "0" "$(observed)" "no observation row"
-VR=$(payload validation_record pr-reviewer pr-reviewer 42 | jq -c '.tool_input.attempt_n = 1 | .tool_use_id = "tu-vr2"')
+VR=$(payload validation_record code-reviewer code-reviewer 42 | jq -c '.tool_input.attempt_n = 1 | .tool_use_id = "tu-vr2"')
 OUT=$(chain "$VR")
 assert_eq "allow" "$(decision "$OUT")" "the matching call is allowed"
 assert_eq "1" "$(observed)" "and reaches reviewer-identity-observe"

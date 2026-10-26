@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cheatcode-uninstall-plugins L5 isolation: pre-seed the INSTALLED state for two
-# plugins (feature-dev → swe, code-review → pr-reviewer) directly into the
+# plugins (feature-dev → swe, code-review → code-reviewer) directly into the
 # trajectory DB so the uninstall has something concrete to reverse, then point
 # cheatcode_uninstall at a deterministic teardown fixture via
 # TMB_CHEATCODE_UNINSTALL_FIXTURE so no live web / real marketplace call is ever
@@ -38,14 +38,14 @@ VALUES
 INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
 VALUES
   (101, 'swe', 'marketplace-plugin:feature-dev', '$NOW'),
-  (102, 'pr-reviewer', 'marketplace-plugin:code-review', '$NOW');
+  (102, 'code-reviewer', 'marketplace-plugin:code-review', '$NOW');
 
 INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
 VALUES
   (-1, NULL, 'bro', 'cheatcode_install', 'Cheatcode install: ''feature-dev'' (kind=plugin, method=marketplace)', '{"name":"feature-dev","kind":"plugin","source_url":"https://example.test/feature-dev","method":"marketplace"}', '$NOW'),
   (-1, NULL, 'bro', 'cheatcode_installed', 'Cheatcode installed: ''feature-dev'' → cheatcode_id=101', '{"cheatcode_id":101,"name":"feature-dev","kind":"plugin","source_url":"https://example.test/feature-dev","installed":true,"attachments":[{"target":"swe","artifact":"marketplace-plugin:feature-dev"}]}', '$NOW'),
   (-1, NULL, 'bro', 'cheatcode_install', 'Cheatcode install: ''code-review'' (kind=plugin, method=marketplace)', '{"name":"code-review","kind":"plugin","source_url":"https://example.test/code-review","method":"marketplace"}', '$NOW'),
-  (-1, NULL, 'bro', 'cheatcode_installed', 'Cheatcode installed: ''code-review'' → cheatcode_id=102', '{"cheatcode_id":102,"name":"code-review","kind":"plugin","source_url":"https://example.test/code-review","installed":true,"attachments":[{"target":"pr-reviewer","artifact":"marketplace-plugin:code-review"}]}', '$NOW');
+  (-1, NULL, 'bro', 'cheatcode_installed', 'Cheatcode installed: ''code-review'' → cheatcode_id=102', '{"cheatcode_id":102,"name":"code-review","kind":"plugin","source_url":"https://example.test/code-review","installed":true,"attachments":[{"target":"code-reviewer","artifact":"marketplace-plugin:code-review"}]}', '$NOW');
 SQL
 fi
 

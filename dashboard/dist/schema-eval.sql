@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS debug_trajectory (
     session_id       TEXT    NOT NULL,
     step_n           INTEGER NOT NULL,
     kind             TEXT    NOT NULL,            -- 'mcp_call' | 'tool_use' | 'agent_thinking'
-    agent            TEXT,                        -- 'bro' | 'swe' | 'pr-reviewer' | NULL
+    agent            TEXT,                        -- 'bro' | 'swe' | 'code-reviewer' | NULL
     tool_or_mcp_name TEXT    NOT NULL,            -- e.g. 'mcp__plugin_tmb_trajectory-server__identity_get' or 'Bash'
     args_json        TEXT    NOT NULL DEFAULT '{}',
     result_json      TEXT    NOT NULL DEFAULT '{}',

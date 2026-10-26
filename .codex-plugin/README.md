@@ -10,7 +10,7 @@ The Codex manifest selects three isolated components:
 
 Invoke `$tmb:tmb-bro` for project-local planning. Invoke `$tmb:tmb-agent-setup` to inspect,
 install, or remove `.codex/agents/tmb_swe.toml` and
-`.codex/agents/tmb_pr_reviewer.toml`. Both Skills are explicit-only. Setup shows
+`.codex/agents/tmb_code_reviewer.toml`. Both Skills are explicit-only. Setup shows
 the fixed paths and asks for confirmation before writing or deleting either
 file; when a file changes, start a new Codex task or CLI session.
 

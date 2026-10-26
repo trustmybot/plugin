@@ -287,9 +287,9 @@ sqlite3 "$DB" "
 out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 
-test_case "an otherwise valid waiver row written by pr-reviewer does not allow"
+test_case "an otherwise valid waiver row written by code-reviewer does not allow"
 sqlite3 "$DB" "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json) VALUES
-  (1, 'feat/col4', 'pr-reviewer', 'spec_shape_gate_waived', 'waive', '{\"task_id\":\"23\",\"gate\":\"spec_shape\",\"reason\":\"column is dropped again in the next task\"}');"
+  (1, 'feat/col4', 'code-reviewer', 'spec_shape_gate_waived', 'waive', '{\"task_id\":\"23\",\"gate\":\"spec_shape\",\"reason\":\"column is dropped again in the next task\"}');"
 out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 

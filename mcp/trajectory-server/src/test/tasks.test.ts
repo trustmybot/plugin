@@ -2473,7 +2473,7 @@ describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673
   it('the close path (task_recover with a commit, as bro_atomic_close) keeps measured runs and marks the rest unmeasured', async () => {
     const { db, taskId } = seed('completed');
     const metered = openRun(db, taskId, { tokens: 70, usageSource: 'subagent_stop' });
-    const unmetered = openRun(db, taskId, { agentType: 'pr-reviewer', spawnId: 'rev-1' });
+    const unmetered = openRun(db, taskId, { agentType: 'code-reviewer', spawnId: 'rev-1' });
     const r = await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_recover', {
       agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'verified',
     });
@@ -2500,7 +2500,7 @@ describe('agent_runs finalize: a run closed without usage is unmeasured (GH 1673
       [old, old],
     );
     const running = db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
-    const reviewer = openRun(db, running, { agentType: 'pr-reviewer', spawnId: 'rev-2' });
+    const reviewer = openRun(db, running, { agentType: 'code-reviewer', spawnId: 'rev-2' });
 
     const r = await call(compositeTools(db, '/tmp/.claude/tmb/trajectory.db').handlers, 'task_recover', { agent: 'bro' });
     assert.ok(!r.isError, r.content[0].text);

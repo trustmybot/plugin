@@ -96,6 +96,7 @@ Migrations are chained one version at a time — `migrateV1toV2`, `migrateV2toV3
 - Re-type legacy duplicate `verification_gate_waived` rows (schema v39): of the swe-written rows without a `commit_sha`, each task keeps its lowest-id row and every later one becomes `legacy_event` the same way, so `waiver_not_duplicated` stops counting them.
 - Add `repos.onboard_scan` (schema v40), a nullable JSON column holding the `/onboard` pre-scan evidence and recommendation; it stays `NULL` until the first `onboard_state_get`, and every other `repos` column is untouched.
 - Add `repo_remotes.sync` (schema v41), the onboard Remote choice issue and milestone sync follow: each repo's primary remote starts as its only synced one, every other remote at `0`; re-run `/onboard` to sync to a second host.
+- Rename the reviewer from `pr-reviewer` to `code-reviewer` in `agent_runs`, `validation_attempts` and `agents` (schema v51), rewrite every `audit.content_json` string value that is exactly `pr-reviewer` or `tmb:pr-reviewer`, and rename the old name in the plugin-seeded cheatcode descriptions; `audit.summary` and other prose are untouched (see [Upgrading into v1.2.0](#upgrading-into-v120--pr-reviewer-is-now-code-reviewer)).
 
 Row data on every workflow table is preserved.
 
@@ -107,6 +108,19 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 ```
 
 Both columns should match the version you just installed.
+
+### Upgrading into v1.2.0 — pr-reviewer is now code-reviewer
+
+The push-gate reviewer agent was renamed from `pr-reviewer` to `code-reviewer` (GH 1641). Its file is now `agents/code-reviewer.md`, and you spawn it as `tmb:code-reviewer`. This is a hard rename with no alias: the old name is not accepted anywhere.
+
+- **Restart after upgrading.** Fully quit and relaunch Claude Code (see [Trigger the new MCP server](#trigger-the-new-mcp-server-required-to-apply-the-migration)). A session that is still running loaded the old agent list, hooks and MCP server, so it cannot spawn `tmb:code-reviewer` and the v51 migration has not run.
+- **Spawns.** An Agent call with `subagent_type` `pr-reviewer` or `tmb:pr-reviewer` names no agent. Spawn `tmb:code-reviewer`.
+- **MCP calls.** A trajectory-server call whose `agent` is `pr-reviewer` gets no reviewer rights: `validation_record` rejects it with `forbidden` and writes no row. Pass `agent: "code-reviewer"`.
+- **Push gate.** A push needs a `code-reviewer` pass row for its commit. A hook payload whose `agent_type` is `pr-reviewer` is not the reviewer, so with no such row the push is denied.
+- **Trajectory DB (schema v51).** On first boot the migration renames `pr-reviewer` to `code-reviewer` in `agent_runs.agent_type`, `validation_attempts.agent` and the `agents` row (whose `file_path` becomes `plugin:agents/code-reviewer.md`). In `audit.content_json` it rewrites every JSON string value that is exactly `pr-reviewer` or `tmb:pr-reviewer`, at any depth, found with `json_tree`; longer strings that mention the old name, `audit.summary` and other prose keep the text they were written with. It also renames the old name in the descriptions of the plugin-seeded cheatcodes (`tmb_review`, `tmb_push-gate` and the `tmb` plugin row): `pr-reviewer` becomes `code-reviewer` and `PR-reviewer` becomes `Code-reviewer`. The audit search index follows the rewritten rows. The usual `.pre-v51.` backup is taken first, and running the migration again changes nothing.
+- **Bypass variables.** Each `TMB_SKIP_PR_REVIEWER_*` variable is now `TMB_SKIP_CODE_REVIEWER_*` (`SPAWN_NOTE`, `PREFLIGHT`, `PROMPT_SHAPE`, `CLOSE_GATE`), and `TMB_ALLOW_PR_REVIEWER_WORKTREE` is now `TMB_ALLOW_CODE_REVIEWER_WORKTREE`. The old names have no effect, so rename any you export.
+- **Local override.** If your project overrides the reviewer at `<project>/.claude/agents/pr-reviewer.md`, rename it to `code-reviewer.md` and change its frontmatter `name:` to `code-reviewer`.
+- **Codex.** The Codex reviewer agent is now `.codex/agents/tmb_code_reviewer.toml`. Run `$tmb:tmb-agent-setup` with `present` to install it, then delete a leftover `.codex/agents/tmb_pr_reviewer.toml` by hand; the setup does not know the old file.
 
 ### Upgrading into v1.1.0 — the bro persona loads from the plugin
 
@@ -137,9 +151,9 @@ bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh            # dry
 bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh --apply    # writes the rows
 ```
 
-bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaults to true). Transcripts are only read. Recovered rows carry `usage_source = 'backfill'`; rows a hook already measured are never overwritten, and a second run inserts nothing. The report lists `transcripts_seen`, `bound`, `unbound` (the first 20 paths with the reason: no `task_id=<N>` in the spawn prompt, no such task, or a subagent other than swe / pr-reviewer), `rows_inserted`, `rows_updated`, `rows_skipped_measured` and `tokens_total_added`; a real run also writes one `agent_runs_backfilled` audit row. `--since <ISO>` limits it to transcripts whose last message is newer; `--transcripts-dir <dir>` reads another directory.
+bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaults to true). Transcripts are only read. Recovered rows carry `usage_source = 'backfill'`; rows a hook already measured are never overwritten, and a second run inserts nothing. The report lists `transcripts_seen`, `bound`, `unbound` (the first 20 paths with the reason: no `task_id=<N>` in the spawn prompt, no such task, or a subagent other than swe / code-reviewer), `rows_inserted`, `rows_updated`, `rows_skipped_measured` and `tokens_total_added`; a real run also writes one `agent_runs_backfilled` audit row. `--since <ISO>` limits it to transcripts whose last message is newer; `--transcripts-dir <dir>` reads another directory.
 
-Run the backfill when no swe or pr-reviewer spawn is active; otherwise the live SubagentStop hook keys the in-flight spawn by its agent id and a second row appears for it.
+Run the backfill when no swe or code-reviewer spawn is active; otherwise the live SubagentStop hook keys the in-flight spawn by its agent id and a second row appears for it.
 
 ### Upgrading into v1.0.3 — L6 chain runs move into the project
 
@@ -261,13 +275,13 @@ Any work done since the upgrade is lost — the rollback restores the DB to the 
 
 ---
 
-## Project-local pr-reviewer override (optional)
+## Project-local code-reviewer override (optional)
 
-The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (the fallback script in `tmb_review`); both paths produce valid verdicts.
+The plugin ships one global code-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/code-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (the fallback script in `tmb_review`); both paths produce valid verdicts.
 
 ### Verifying MCP is wired up
 
-When pr-reviewer writes its verdict, the typed `mcp_available` column is `1` (path 1, MCP-backed) instead of `0` (path 2, honor-system). Query the DB to confirm:
+When code-reviewer writes its verdict, the typed `mcp_available` column is `1` (path 1, MCP-backed) instead of `0` (path 2, honor-system). Query the DB to confirm:
 
 ```bash
 sqlite3 <workspace>/.claude/tmb/trajectory.db \

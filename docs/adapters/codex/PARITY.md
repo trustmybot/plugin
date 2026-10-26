@@ -21,7 +21,7 @@ Skills, and an immutable 15-tool MCP registry.
 - `$tmb:tmb-agent-setup` uses `agent_materialization_get` and
   `agent_materialization_set` to manage two fixed files:
   `.codex/agents/tmb_swe.toml` and
-  `.codex/agents/tmb_pr_reviewer.toml`.
+  `.codex/agents/tmb_code_reviewer.toml`.
 
 The manifest also declares an empty `commands` surface. This prevents Codex
 from migrating the plugin's Claude commands into `source-command-*` Skills.
@@ -44,7 +44,7 @@ recovery.
 
 ## Agent capability boundary
 
-`tmb_swe` and `tmb_pr_reviewer` are native Codex custom Agents that become
+`tmb_swe` and `tmb_code_reviewer` are native Codex custom Agents that become
 discoverable in a new task after setup. They are not TMB workflow principals.
 Their names do not authenticate a role, and they cannot create TMB tasks,
 validation records, audit entries, or delivery state.
@@ -52,7 +52,7 @@ validation records, audit entries, or delivery state.
 The names intentionally reuse familiar role labels, but the persona bodies are
 separately authored for this narrower Codex surface. They are standalone
 adapter personas, not edited copies or translations of the shared workflow
-principals in `agents/swe.md` and `agents/pr-reviewer.md`. Those shared Agents
+principals in `agents/swe.md` and `agents/code-reviewer.md`. Those shared Agents
 assume task lifecycle, isolated worktrees, validation records, and delivery
 gates that Scope 4 does not expose. A later scope must move Codex to a shared
 host-neutral source or mechanical edge translation before granting either
@@ -70,7 +70,7 @@ gate.
 
 Neither template fixes a model or reasoning effort. `tmb_swe` requests
 `workspace-write` and works from a
-complete, path-bounded brief in the current worktree. `tmb_pr_reviewer` requests
+complete, path-bounded brief in the current worktree. `tmb_code_reviewer` requests
 `read-only`, reviews a caller-specified diff, and returns advisory findings.
 
 The parent task may override an Agent's sandbox setting. Other MCP servers may
@@ -111,7 +111,7 @@ not server gates.
 |---|---|---|
 | Functional lifecycle Hooks | **No** | The selected Codex Hook manifest is empty. No activation, source-edit, Git, review, or Push gate ships. |
 | Explicit project-local Skills | **Yes** | Exactly `$tmb:tmb-bro` and `$tmb:tmb-agent-setup`; both set `allow_implicit_invocation: false`. A generic model-visible list may omit them, so acceptance uses package inspection and direct invocation. |
-| Project-level custom Agents | **Yes, explicit setup** | Setup can materialize exactly `tmb_swe` and `tmb_pr_reviewer`; Bro does not spawn them. |
+| Project-level custom Agents | **Yes, explicit setup** | Setup can materialize exactly `tmb_swe` and `tmb_code_reviewer`; Bro does not spawn them. |
 | Per-Agent sandbox default | **Yes, overridable** | SWE requests `workspace-write`; reviewer requests `read-only`. Parent permissions remain authoritative. |
 | Per-Agent TMB MCP isolation | **Static same-name MCP shadow** | Both templates define `mcp_servers."trajectory-server"` as disabled with inert transport metadata. Live child tool-surface checks remain required. |
 | Authenticated workflow role | **No** | Agent names are labels. No server-issued role or Human-provenance token exists. |
@@ -156,7 +156,7 @@ task or validation writes to Codex Agents.
 | No documented Claude-style per-tool allowlist is used | Prompt rules remain advisory outside the fixed TMB MCP disablement. |
 | Fixed MCP server name in generated TOML | Isolation depends on the plugin continuing to expose the server as `trajectory-server`; each Agent checks the live tool surface and stops if that assumption fails. |
 | Plugin-scoped overrides are unreliable | [openai/codex#35289](https://github.com/openai/codex/issues/35289) documents a related CLI `-c` override failure for plugin-provided MCP servers. It does not reproduce the custom-Agent same-name shadow used here, which remains an empirically tested compatibility behavior rather than a documented Codex guarantee. |
-| No Agent authentication | `tmb_swe` and `tmb_pr_reviewer` cannot safely receive TMB workflow-write authority. |
+| No Agent authentication | `tmb_swe` and `tmb_code_reviewer` cannot safely receive TMB workflow-write authority. |
 | No lock, rollback, or crash recovery | Setup is single-user and single-process by contract; races or interruption can leave `mixed` or `conflict` state for explicit recovery. |
 | No historical template catalog | Any old or edited managed file is a conflict, not an automatic upgrade candidate. |
 | Native worktrees are not portable across Codex surfaces | Scope 4 neither promises nor orchestrates isolated execution. |

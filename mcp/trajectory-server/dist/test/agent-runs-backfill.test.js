@@ -70,7 +70,7 @@ function buildFixture(root) {
         { type: 'user', timestamp: at(0), message: { role: 'user', content: '@bro do things' } },
         assistant('m1', at(10), [10, 20, 100, 5], [{ type: 'text', text: 'spawning' }]),
         assistant('m1', at(10.2), [10, 20, 100, 5], [
-            { type: 'tool_use', id: 'toolu_b', name: 'Agent', input: { subagent_type: 'tmb:pr-reviewer', prompt: 'x' } },
+            { type: 'tool_use', id: 'toolu_b', name: 'Agent', input: { subagent_type: 'tmb:code-reviewer', prompt: 'x' } },
         ]),
         {
             type: 'user',
@@ -132,7 +132,7 @@ describe('agent_runs_backfill', () => {
     it('is bro only', async () => {
         const { db, dir } = buildFixture(mkdtempSync(join(root, 'role-')));
         const h = agentRunsBackfillTools(db, ':memory:').handlers['agent_runs_backfill'];
-        for (const agent of ['swe', 'pr-reviewer', 'architect']) {
+        for (const agent of ['swe', 'code-reviewer', 'architect']) {
             const res = (await h({ agent, transcripts_dir: dir }));
             assert.equal(res.isError, true);
             assert.equal(JSON.parse(res.content[0].text).error, 'forbidden');
@@ -155,7 +155,7 @@ describe('agent_runs_backfill', () => {
         assert.equal(snapshot(db), before);
         db.close();
     });
-    it('real run fills swe/pr-reviewer rows labelled backfill, leaves measured and bro rows, writes one audit row, and is idempotent', async () => {
+    it('real run fills swe/code-reviewer rows labelled backfill, leaves measured and bro rows, writes one audit row, and is idempotent', async () => {
         const f = buildFixture(mkdtempSync(join(root, 'real-')));
         const { db } = f;
         const untouched = () => JSON.stringify(db.all('SELECT * FROM agent_runs WHERE id IN (?, ?, ?) ORDER BY id', [f.measuredSweRow, f.broNullRow, f.broMeasuredRow]));
@@ -174,7 +174,7 @@ describe('agent_runs_backfill', () => {
         assert.equal(swe['model'], OPUS);
         assert.equal(swe['host'], 'claude');
         assert.equal(swe['root_dir'], '/work/app/.claude/worktrees/string-prompt');
-        const reviewer = db.get(`SELECT * FROM agent_runs WHERE task_id = ? AND agent_type = 'pr-reviewer'`, [f.t2]);
+        const reviewer = db.get(`SELECT * FROM agent_runs WHERE task_id = ? AND agent_type = 'code-reviewer'`, [f.t2]);
         assert.equal(reviewer['usage_source'], 'backfill');
         assert.equal(reviewer['started_at'], at(21));
         assert.equal(reviewer['completed_at'], at(25));

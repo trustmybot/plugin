@@ -292,7 +292,7 @@ describe('fields projection — validation_history (#210)', () => {
         const validation = validationTools(db);
         seedReviewerObservation(db, taskId, 1);
         await call(validation.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
@@ -323,7 +323,7 @@ describe('fields projection — validation_history (#210)', () => {
         const validation = validationTools(db);
         seedReviewerObservation(db, taskId, 1);
         await call(validation.handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',

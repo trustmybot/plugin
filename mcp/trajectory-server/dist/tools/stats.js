@@ -1,6 +1,6 @@
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { elapsedMs, reworkCount, SWE_SPAWN_SQL } from '../task-rework.js';
-const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'];
+const ALLOWED_ROLES = ['bro', 'swe', 'code-reviewer', 'consultant'];
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -106,9 +106,9 @@ export function costEstimate(rows, prices) {
 }
 const TOKENS_TOTAL_SQL = 'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL' +
     ' ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END';
-// Per-task cost is the task's swe and pr-reviewer runs: bro is metered per
+// Per-task cost is the task's swe and code-reviewer runs: bro is metered per
 // session, so a legacy per-task bro row is history, not task cost.
-const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
+const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'code-reviewer')";
 // The task's swe reworks by kind (GH 1742): fresh = every fresh swe spawn
 // after the first, resumed = every run resumed through SendMessage
 // (resumed_from set). wall_clock_ms sums the runs' duration_ms.
@@ -250,7 +250,7 @@ export function statsTools(db, clock = () => new Date()) {
     const definitions = [
         {
             name: 'task_stats',
-            description: 'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task\'s runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.',
+            description: 'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and code-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task\'s runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.',
             inputSchema: {
                 type: 'object',
                 properties: {

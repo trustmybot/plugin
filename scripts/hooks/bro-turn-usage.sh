@@ -12,7 +12,7 @@
 # the hook is idempotent. A session with no real model (only <synthetic>
 # messages) or no output tokens writes no row; a row an earlier Stop wrote
 # stays as it is.
-# Per-task cost is the task's swe + pr-reviewer runs; no turn is split across
+# Per-task cost is the task's swe + code-reviewer runs; no turn is split across
 # tasks.
 #
 # One tmb_db_write transaction. Analytics, never load-bearing: a failed write

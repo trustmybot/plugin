@@ -35,7 +35,7 @@ issue_close_remote_skipped	server
 issue_linked	bro
 issue_updated	bro
 legacy_event	server
-mcp_unavailable_fallback_invoked	bro,swe,pr-reviewer,consultant
+mcp_unavailable_fallback_invoked	bro,swe,code-reviewer,consultant
 milestone_closed	bro
 milestone_reconcile_failed	bro
 milestone_seed_skipped	bro

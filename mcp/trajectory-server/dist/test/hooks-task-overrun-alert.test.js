@@ -43,7 +43,7 @@ function fixture() {
         sweRun: (taskId, exitReason = null) => exec("INSERT INTO agent_runs (task_id, issue_id, agent_type, exit_reason) VALUES (?, ?, 'swe', ?)", taskId, ISSUE_ID, exitReason),
         fail: (taskId, feedback) => {
             attempt += 1;
-            exec("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', 'fail', ?, 1, ?)", taskId, attempt, feedback, minutesAgo(10));
+            exec("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', 'fail', ?, 1, ?)", taskId, attempt, feedback, minutesAgo(10));
         },
         alertRows: (taskId) => {
             const r = new DatabaseSync(db);

@@ -389,7 +389,7 @@ export function auditTools(db: TrajectoryDB): {
       return ok(response);
     }),
 
-    audit_append: requireRoles('audit_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
+    audit_append: requireRoles('audit_append', ['bro', 'swe', 'code-reviewer', 'consultant'], wrapHandler(async (args) => {
       const agentName = String(requireArg(args, 'agent')).toLowerCase();
       const role = normalizeAgent(agentName) as Exclude<Writer, 'server' | 'hook'>;
       const fromNode = role === 'consultant' ? agentName : role;

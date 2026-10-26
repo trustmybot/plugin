@@ -68,7 +68,7 @@ function openRun(db: TrajectoryDB, taskId: number, agentType: 'bro' | 'swe'): vo
 function recordVerdict(db: TrajectoryDB, taskId: number, verdict: 'pass' | 'fail', at: string): void {
   const n = (db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ?', [taskId])?.n ?? 0) + 1;
   db.run(
-    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 1, ?)`,
+    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', ?, 1, ?)`,
     [taskId, n, verdict, at],
   );
 }
@@ -392,7 +392,7 @@ describe('issue_close: review evidence for closed tasks', () => {
     db.close();
   });
 
-  for (const [event, author] of [['review_gate_waived', 'pr-reviewer'], ['review_gate_bypassed', 'pr-reviewer'], ['review_gate_waived', 'hook:close-issue-on-merge']]) {
+  for (const [event, author] of [['review_gate_waived', 'code-reviewer'], ['review_gate_bypassed', 'code-reviewer'], ['review_gate_waived', 'hook:close-issue-on-merge']]) {
     it(`a ${event} row authored by ${author} does not unblock the close`, async () => {
       const db = tempDB();
       const issue = seedIssue(db);

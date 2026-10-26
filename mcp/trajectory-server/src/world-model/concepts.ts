@@ -381,7 +381,7 @@ interface ProposingTask {
 }
 
 // The concept proposals (report.concepts, GH 1680) of closed tasks with a
-// passing pr-reviewer verdict for their commit, applied to repo: each
+// passing code-reviewer verdict for their commit, applied to repo: each
 // (task, name) is upserted once, as swe, and recorded by a
 // concept_proposal_applied row. A proposal that does not upsert (its anchors
 // are not in this checkout's index yet) stays pending until the task has been

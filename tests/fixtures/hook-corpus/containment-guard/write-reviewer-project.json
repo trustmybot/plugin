@@ -7,6 +7,6 @@
     "file_path": "@SANDBOX@/project/review.md",
     "content": "x"
   },
-  "agent_type": "tmb:pr-reviewer",
+  "agent_type": "tmb:code-reviewer",
   "tool_use_id": "tu-corpus"
 }

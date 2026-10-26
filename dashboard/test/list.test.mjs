@@ -29,7 +29,7 @@ function seed(path) {
   const attempt = db.prepare(
     'INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
   );
-  attempt.run(reviewed, 1, 'pr-reviewer', 'fail', 'SC1 fails.', now);
+  attempt.run(reviewed, 1, 'code-reviewer', 'fail', 'SC1 fails.', now);
   attempt.run(reviewed, 2, 'code-reviewer', 'pass', 'All met.', now);
   const finding = db.prepare(
     `INSERT INTO review_findings (id, task_id, attempt_n, criterion_id, probe_cmd, expected, observed, status, created_at)

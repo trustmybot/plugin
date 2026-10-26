@@ -1,9 +1,9 @@
 askuserquestion-length-lint
+code-reviewer-preflight
+code-reviewer-spawn-note
 containment-guard
 ensure-mcp-deps-installed
 git-push-guard
-pr-reviewer-preflight
-pr-reviewer-spawn-note
 rework-limit
 swe-resume-gate
 task-overrun-alert

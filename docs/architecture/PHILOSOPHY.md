@@ -15,9 +15,9 @@ A practical test: if a paragraph in a core prompt teaches a specialized techniqu
 The workflow has two review gates. Both read the diff line by line — what differs is the context each brings to it, and what that context does to what they catch.
 
 - **bro reviews at the SYSTEM level.** The question bro answers is "does this change fit the whole system?" — does it belong in this milestone, does it respect the role boundaries, does it ripple into surfaces the spec didn't name, is it the right shape of work at all.
-- **pr-reviewer reviews at the DIFF level.** The question pr-reviewer answers is "is this diff correct against its spec?" — does every named file and success criterion have a concrete change, does the verification pass, is anything out of scope.
+- **code-reviewer reviews at the DIFF level.** The question code-reviewer answers is "is this diff correct against its spec?" — does every named file and success criterion have a concrete change, does the verification pass, is anything out of scope.
 
-The two perspectives are complementary because of a context asymmetry. bro carries the full picture — the plan, the decisions, the prior turns — which is what makes the system-fit call possible; but that same context biases bro toward expecting correctness, so bro can read a line for what it was *meant* to do and wave a real low-level bug through. pr-reviewer arrives with fresh memory and little of the big picture, and that freshness is the point: reading the diff cold, unprimed by intent, is what gives it the better odds of catching the local bug bro rationalizes past. Neither substitutes for the other — bro's context catches scope and ripple problems pr-reviewer can't see; pr-reviewer's fresh eyes catch correctness bugs bro's context hides.
+The two perspectives are complementary because of a context asymmetry. bro carries the full picture — the plan, the decisions, the prior turns — which is what makes the system-fit call possible; but that same context biases bro toward expecting correctness, so bro can read a line for what it was *meant* to do and wave a real low-level bug through. code-reviewer arrives with fresh memory and little of the big picture, and that freshness is the point: reading the diff cold, unprimed by intent, is what gives it the better odds of catching the local bug bro rationalizes past. Neither substitutes for the other — bro's context catches scope and ripple problems code-reviewer can't see; code-reviewer's fresh eyes catch correctness bugs bro's context hides.
 
 ## 3. Dev-vs-user-runtime boundary
 
@@ -34,7 +34,7 @@ The #135 and #140 cleanups enforce this boundary, sweeping dev-meta leaks out of
 
 ## 4. Cut entropy at handoffs
 
-TMB's trajectory exists to cut the entropy lost at each handoff: Human → bro → swe → pr-reviewer → the next session. The design priority is stability first, then efficiency.
+TMB's trajectory exists to cut the entropy lost at each handoff: Human → bro → swe → code-reviewer → the next session. The design priority is stability first, then efficiency.
 
 Judge a proposed feature by one question: does it reduce entropy at a handoff, or make a past decision re-findable? One discussion maps to one issue, so every decision is findable from the work it shaped.
 

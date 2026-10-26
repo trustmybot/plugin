@@ -98,7 +98,7 @@
   {
     "name": "Area: Agents",
     "color": "5319e7",
-    "description": "agents/, skills/, commands/, CLAUDE.md and the bro/swe/pr-reviewer workflow",
+    "description": "agents/, skills/, commands/, CLAUDE.md and the bro/swe/code-reviewer workflow",
     "group": "area"
   },
   {

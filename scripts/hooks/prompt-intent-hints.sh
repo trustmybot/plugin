@@ -164,13 +164,13 @@ if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
 
   # capability-on-agent: the whole word install/add, followed in the same clause
   # (no . ; ? ! or newline between) by "for|to|onto <agent>" as whole words, where
-  # agent ∈ {swe, pr-reviewer, bro} plus any active consultant role from the
+  # agent ∈ {swe, code-reviewer, bro} plus any active consultant role from the
   # registry. This is the cheatcode-reuse path — a capability attached to an
   # agent — so it loads tmb_cheatcode. Dependency installs never match: "for the
   # build" / "to get the deps" carry no agent name.
   capability_on_agent=""
   if printf '%s' "$LOWER" | grep -E '(^|[^a-z0-9_])(install|add)([^a-z0-9_]|$)' >/dev/null; then
-    AGENT_TARGETS="swe pr-reviewer bro"
+    AGENT_TARGETS="swe code-reviewer bro"
     DB=$(tmb_db_path 2>/dev/null || true)
     if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
       CONSULTANT_ROLES=$(tmb_sqlite_ro "$DB" "SELECT name FROM agents WHERE kind='consultant';")
@@ -436,11 +436,11 @@ if [ "${TMB_DISABLE_PUSH_INTENT_HINT:-0}" != "1" ]; then
       if [ -n "$PENDING" ]; then
         PENDING_COUNT=$(printf '%s\n' "$PENDING" | wc -l | tr -d ' ')
         LIST=$(printf '%s\n' "$PENDING" | awk -F'|' '{ printf "  - task_id=%s  branch=%s  (%s)\n", $1, $2, $3 }')
-        CTX="🚦 push-intent hint: the user's prompt contains '${matched}'. ${PENDING_COUNT} task(s) await pr-reviewer signoff before push:
+        CTX="🚦 push-intent hint: the user's prompt contains '${matched}'. ${PENDING_COUNT} task(s) await code-reviewer signoff before push:
 
 ${LIST}
 
-Before \`git push\`, spawn pr-reviewer for each pending task via \`Agent(subagent_type='pr-reviewer', isolation=)\` (no worktree — pr-reviewer reviews from the main checkout). On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway."
+Before \`git push\`, spawn code-reviewer for each pending task via \`Agent(subagent_type='code-reviewer', isolation=)\` (no worktree — code-reviewer reviews from the main checkout). On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway."
         emit_context "$CTX"
       fi
     fi

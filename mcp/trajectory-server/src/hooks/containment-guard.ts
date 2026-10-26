@@ -1,7 +1,7 @@
 /**
  * PreToolUse gate (GH 1692), the port of scripts/hooks/containment-guard.sh:
  * an agent writes only under its run's root — a swe under its task's
- * worktree, bro and pr-reviewer under the project — plus the model cache,
+ * worktree, bro and code-reviewer under the project — plus the model cache,
  * the host temp dir, Claude Code's /tmp/claude-<uid>, the devices and, for
  * the main session only, Claude Code's own project and plans dirs.
  *

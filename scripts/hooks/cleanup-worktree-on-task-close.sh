@@ -9,7 +9,7 @@
 #   - validation_record with args.verdict = 'pass', when the task is closed and
 #     carries a passing review for its current commit (_CWC_HAS_PASS)
 #   - the task row has a branch_id with a matching worktree
-# bro_atomic_close runs before pr-reviewer, so it leaves the worktree in place:
+# bro_atomic_close runs before code-reviewer, so it leaves the worktree in place:
 # a failed review reworks in the same worktree (task_reopen).
 #
 # Silent no-op when:

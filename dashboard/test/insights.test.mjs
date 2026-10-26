@@ -1,6 +1,6 @@
 // Insights test: seed a temp trajectory DB from schema.sql with 25 measured
-// swe runs (plus unmeasured ones and one outside the range), 21 pr-reviewer and
-// 2 code-reviewer runs, 3 bro sessions, review verdicts, verification runs and
+// swe runs (plus unmeasured ones and one outside the range), 23 code-reviewer
+// runs, 3 bro sessions, review verdicts, verification runs and
 // closed tasks. Check GET /api/insights over HTTP (shape, 400 on a bad range or
 // agent) and insights() directly against hand-computed values, priced and
 // unpriced. Then bundle the Insights view with esbuild, render every section to
@@ -62,10 +62,10 @@ function seed(path, prices = '{}') {
   add(ids[0], 'swe', { in: 1, out: 999_999, cr: 1, cc: 1, ms: 1, tools: 1 }, 'unmeasured', 'claude-opus', ago(HOUR));
   add(ids[1], 'swe', { in: 1, out: 999_999, cr: 1, cc: 1, ms: 1, tools: 1 }, null, 'claude-opus', ago(HOUR));
   add(ids[2], 'swe', { in: 1, out: 777_777, cr: 1, cc: 1, ms: 1, tools: 1 }, 'subagent_stop', 'claude-opus', ago(100 * DAY));
-  REVIEWER.forEach((r, i) => add(ids[i % 3], i < 21 ? 'pr-reviewer' : 'code-reviewer', r, 'subagent_stop', 'claude-sonnet', ago(i * HOUR)));
+  REVIEWER.forEach((r, i) => add(ids[i % 3], 'code-reviewer', r, 'subagent_stop', 'claude-sonnet', ago(i * HOUR)));
   BRO.forEach((r, i) => add(null, 'bro', r, 'transcript', 'claude-opus', ago(i * HOUR)));
   add(ids[0], 'bro', { in: 1, out: 555_555, cr: 1, cc: 1, ms: 1, tools: 1 }, 'transcript', 'claude-opus', ago(HOUR));
-  const attempt = db.prepare("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, 'pr-reviewer', ?, 1, ?)");
+  const attempt = db.prepare("INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, ?, 'code-reviewer', ?, 1, ?)");
   attempt.run(ids[0], 1, 'pass', now);
   attempt.run(ids[1], 1, 'fail', now);
   attempt.run(ids[1], 2, 'pass', now);
@@ -163,7 +163,7 @@ describe('GET /api/insights', () => {
   });
 
   test('a bad agent or range is 400; the default range is 30d', async () => {
-    for (const q of ['agent=bogus', 'range=bogus', 'range=1y', 'agent=pr-reviewer']) {
+    for (const q of ['agent=bogus', 'range=bogus', 'range=1y', 'agent=code-reviewer']) {
       const res = await fetch(`${server.url}api/insights?${q}`);
       assert.equal(res.status, 400, q);
       assert.match((await res.json()).error, /must be one of/);
@@ -206,7 +206,7 @@ describe('insights()', () => {
     assert.equal(swe.cache_hit.avg, sum(SWE, (r) => r.cr) / sum(SWE, (r) => r.in + r.cr + r.cc));
   });
 
-  test('reviewer is pr-reviewer and code-reviewer together', () => {
+  test('reviewer is the code-reviewer runs', () => {
     const reviewer = agent(data(), 'reviewer');
     assert.equal(reviewer.n, 23);
     assert.equal(reviewer.total, 23);

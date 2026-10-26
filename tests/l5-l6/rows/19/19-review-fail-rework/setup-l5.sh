@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # L5 isolation setup for 19-review-fail-rework: a closed "count subcommand"
-# task whose commit pr-reviewer failed (count prints the store's character
+# task whose commit code-reviewer failed (count prints the store's character
 # count, not its item count), with its branch, its linked worktree, the swe
 # run that worked there and the FAIL validation row. Bro reopens the task,
-# swe reworks it in the same worktree, pr-reviewer reviews it again.
+# swe reworks it in the same worktree, code-reviewer reviews it again.
 set -euo pipefail
 
 PROJECT="$1"
@@ -143,7 +143,7 @@ ORDER BY id DESC LIMIT 1;
 
 INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback,
                                  mcp_available, repo, created_at)
-SELECT id, 1, 'pr-reviewer', 'fail',
+SELECT id, 1, 'code-reviewer', 'fail',
        'FAIL: count prints len(STORE.read_text()), the character count of todos.json, not the number of items. It also raises FileNotFoundError when todos.json does not exist; the spec wants 0. Fix: print len(_load()).',
        1, '$REPO_NAME', datetime('now')
 FROM tasks

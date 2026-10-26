@@ -35,7 +35,7 @@ function decorateWithAgent(tools: Tool[]): Tool[] {
     const mergedAgent: Record<string, unknown> = {
       type: 'string',
       pattern: '^[a-z][a-z0-9_-]*$',
-      description: 'Calling agent: bro, swe, pr-reviewer, or a consultant name.',
+      description: 'Calling agent: bro, swe, code-reviewer, or a consultant name.',
       ...existingAgent,
     };
     return {

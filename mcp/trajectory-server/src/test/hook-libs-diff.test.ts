@@ -311,7 +311,7 @@ function seedTasks(db: DatabaseSync): void {
       (71, 'swe', 'agent-bound', '/old/wt'),
       (69, 'swe', 'agent-bound', '/x/wt'),
       (NULL, 'swe', 'agent-null', NULL),
-      (73, 'pr-reviewer', 'agent-rev', '/r');
+      (73, 'code-reviewer', 'agent-rev', '/r');
   `);
 }
 
@@ -624,12 +624,12 @@ function buildCases(): Case[] {
     add('tmb_branch_slug', label, [v]);
   }
 
-  for (const v of ['tmb:swe', 'swe', 'tmb:pr-reviewer', 'pr-reviewer', '', 'a:b:c', ':x']) {
+  for (const v of ['tmb:swe', 'swe', 'tmb:code-reviewer', 'code-reviewer', '', 'a:b:c', ':x']) {
     add('tmb_normalize_role', v === '' ? 'empty' : v, [v]);
   }
   for (const [label, v] of [
     ['agent-type', '{"agent_type":"tmb:swe"}'],
-    ['subagent-type', '{"subagent_type":"tmb:pr-reviewer"}'],
+    ['subagent-type', '{"subagent_type":"tmb:code-reviewer"}'],
     ['agent-first', '{"agent_type":"swe","subagent_type":"bro"}'],
     ['null-falls-through', '{"agent_type":null,"subagent_type":"swe"}'],
     ['empty-string', '{"agent_type":""}'],
@@ -637,7 +637,7 @@ function buildCases(): Case[] {
     ['invalid-json', '{not json'],
     ['string', '"swe"'],
     ['array', '[1]'],
-    ['multi', '{"agent_type":"swe"}\n{"agent_type":"pr-reviewer"}'],
+    ['multi', '{"agent_type":"swe"}\n{"agent_type":"code-reviewer"}'],
     ['number', '{"agent_type":5}'],
     ['empty-input', ''],
   ]) {
@@ -690,7 +690,7 @@ function buildCases(): Case[] {
 
   add('op_ctx', 'main', ['{}'], { env: { TRAJECTORY_DB_PATH: warm } });
   add('op_ctx', 'main-no-db', ['{"session_id":"s"}'], { env: { CLAUDE_PROJECT_DIR: join(R, 'nodb') } });
-  add('op_ctx', 'reviewer', ['{"agent_type":"tmb:pr-reviewer"}'], { env: { CLAUDE_PROJECT_DIR: link } });
+  add('op_ctx', 'reviewer', ['{"agent_type":"tmb:code-reviewer"}'], { env: { CLAUDE_PROJECT_DIR: link } });
   add('op_ctx', 'swe-own-transcript', [swe({ agent_transcript_path: join(tx, 'own.jsonl') })], { env: { TRAJECTORY_DB_PATH: warm } });
   add('op_ctx', 'swe-worktree', [swe({ transcript_path: join(tx, 'main.jsonl'), agent_id: 'a1' })], { env: { TRAJECTORY_DB_PATH: warm } });
   add('op_ctx', 'swe-subagent-type', [JSON.stringify({ subagent_type: 'swe', agent_transcript_path: join(tx, 'own.jsonl') })], {

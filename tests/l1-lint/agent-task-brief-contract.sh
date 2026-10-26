@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Guards the #300 Architect→SWE handoff contract on the SHIPPED agents.
 #
-# swe + pr-reviewer load their context through the `task_brief` composite (one
+# swe + code-reviewer load their context through the `task_brief` composite (one
 # read: spec + scoped world model + decision thread) instead of orchestrating
 # task_get + world_model_get + discussion_search themselves. The L5/L6 layer
-# can't assert this — swe/pr-reviewer run as Agent subagents whose calls never
+# can't assert this — swe/code-reviewer run as Agent subagents whose calls never
 # appear in bro's scored trajectory — so it's locked here at L1 instead.
 #
-# Checks agents/{swe,pr-reviewer}.md:
+# Checks agents/{swe,code-reviewer}.md:
 #   - both bodies reference task_brief (the contract is the mention + tool grant;
 #     the call shape lives in the tool schema and the brief gate's deny message)
 #   - swe's `tools:` line is narrowed: no task_get / world_model_get /
-#     discussion_search (swe gets context ONLY via task_brief). pr-reviewer
+#     discussion_search (swe gets context ONLY via task_brief). code-reviewer
 #     keeps the full MCP namespace by design (needs discussion/audit search).
 set -uo pipefail
 
@@ -21,7 +21,7 @@ cd "$PLUGIN_ROOT" || exit 1
 
 FAIL=0
 
-for agent in swe pr-reviewer; do
+for agent in swe code-reviewer; do
   f="agents/${agent}.md"
   if [ ! -f "$f" ]; then
     printf 'agent-task-brief-contract: %s missing\n' "$f" >&2

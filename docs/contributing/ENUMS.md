@@ -33,13 +33,13 @@ We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Suc
 
 Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`needs_validation`/`closed`/`escalated`). Schema enforces via `CHECK (status IN (...))` over exactly these seven values (v29).
 
-### `validation_attempts.verdict` — pr-reviewer verdict at push gate
+### `validation_attempts.verdict` — code-reviewer verdict at push gate
 
 | Value | Source | Meaning |
 |---|---|---|
 | `pass` | TMB | Commits OK to push |
 | `fail` | TMB | Issues found; SWE re-spawn or Human override needed |
-| `escalate` | TMB | Outside pr-reviewer's authority; Human decides |
+| `escalate` | TMB | Outside code-reviewer's authority; Human decides |
 
 We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))` (v29).
 
@@ -102,7 +102,7 @@ Returned in the created-issue payload, not stored.
 |---|---|---|
 | `bro` | TMB persona | The single Human entry point |
 | `swe` | TMB agent | Executor (one task per spawn) |
-| `pr-reviewer` | TMB agent | Push-gate reviewer |
+| `code-reviewer` | TMB agent | Push-gate reviewer |
 | `architect` | TMB consultant template | Project consultant |
 | `cto` | TMB consultant template | Project consultant |
 | `ceo` | TMB consultant template | Project consultant |
@@ -138,7 +138,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `cheatcode_search` | `bro` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |
 | `cheatcode_uninstalled` | `bro` | `cheatcode_uninstall` removed a cheatcode |
 | `cheatcode_vet` | `bro` | `cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals |
-| `concept_proposal_applied` | `bro` | `scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name` |
+| `concept_proposal_applied` | `bro` | `scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing code-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name` |
 | `concept_proposal_rejected` | `bro` | `scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error` |
 | `config_changed` | `bro` | reserved — An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append` |
 | `consultant_spawn_nudged` | `hook` | `prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1` |
@@ -159,7 +159,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `issue_linked` | `bro` | `issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced` |
 | `issue_updated` | `bro` | bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields` |
 | `legacy_event` | `server` | A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event |
-| `mcp_unavailable_fallback_invoked` | `bro`, `swe`, `pr-reviewer`, `consultant` | The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1` |
+| `mcp_unavailable_fallback_invoked` | `bro`, `swe`, `code-reviewer`, `consultant` | The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1` |
 | `milestone_closed` | `bro` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results` |
 | `milestone_reconcile_failed` | `bro` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
 | `milestone_seed_skipped` | `bro` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
@@ -176,9 +176,9 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `repo_renamed` | `bro` | `repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed — the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed |
 | `review_finding_wontfix` | `bro` | `task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate no longer probes it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason` |
 | `review_findings_carried` | `bro` | `task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`) |
-| `review_gate_bypassed` | `bro`, `hook` | A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha` |
-| `review_gate_waived` | `bro` | `issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason` |
-| `reviewer_identity_observed` | `hook` | `reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event |
+| `review_gate_bypassed` | `bro`, `hook` | A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha` |
+| `review_gate_waived` | `bro` | `issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason` |
+| `reviewer_identity_observed` | `hook` | `reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event |
 | `roundtable_slash_invoked` | `hook` | `roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row |
 | `roundtable_summary` | `bro` | reserved — Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it |
 | `scan_discovered` | `server`, `hook` | A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source` |
@@ -248,7 +248,7 @@ Schema enforces via `CHECK(scope IN ('global','template','project-local'))`.
 | `plugin:` | Relative to the installed plugin root (`plugin:agents/swe.md`, `plugin:templates/agents/cto.md`) |
 | `project:` | Relative to the workspace root (`project:.claude/agents/<name>.md`) |
 
-Schema enforces via `CHECK(file_path LIKE 'plugin:%' OR file_path LIKE 'project:%')` (schema v34). The backbone agents `swe` and `pr-reviewer` are always `plugin:`. `agent_list` filters by `root` (`plugin`/`project`) and returns each row's absolute `resolved_path`.
+Schema enforces via `CHECK(file_path LIKE 'plugin:%' OR file_path LIKE 'project:%')` (schema v34). The backbone agents `swe` and `code-reviewer` are always `plugin:`. `agent_list` filters by `root` (`plugin`/`project`) and returns each row's absolute `resolved_path`.
 
 ### `cheatcodes.status` — lifecycle
 
@@ -280,7 +280,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | Value | Meaning |
 |---|---|
 | `transcript` | Measured by the bro Stop hook from the session transcript (bro session rows) |
-| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and pr-reviewer rows) |
+| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and code-reviewer rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
 | `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `scripts/maintenance/backfill-agent-runs.sh` (not a live hook); never written over a `transcript` / `subagent_stop` row |
 
@@ -303,7 +303,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 | Value | Set by |
 |---|---|
-| `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every pr-reviewer SubagentStop |
+| `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every code-reviewer SubagentStop |
 | `failed` | `task_update_status` → `failed`; a swe SubagentStop whose task is still pending/running (a resumed spawn's next stop overwrites it) |
 | `escalated` | `task_update_status` → `escalated` |
 | `swept_orphan` | `task_recover` sweeping a never-measured row; an open swe row no subagent bound (`spawn_id` NULL or `tool_use:*`) closed by the next swe spawn (`record-swe-spawn.sh`, older than 90 s) or by `task_brief` (older than 10 min); `swe-spawn-rollback.sh` closing the `tool_use:*` row of a spawn auto mode refused (PermissionDenied); a swe SubagentStop marking the task's other zero-token unbound rows `unmeasured` (`spawn_id` NULL rows from the spawn's window, open `tool_use:*` rows older than 90 s); v33 backfill of an `unmeasured` row. A row bound to an agent id is never swept |
@@ -324,7 +324,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 ### `agent_runs.effort` — the effort a run was spawned at
 
-Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close.sh` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a pr-reviewer row takes `plugin_config.reviewer_effort` (`high` when unset). NULL on other agent types and on runs recorded before schema v37.
+Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close.sh` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a code-reviewer row takes `plugin_config.reviewer_effort` (`high` when unset). NULL on other agent types and on runs recorded before schema v37.
 
 ### Timestamp format
 
@@ -332,7 +332,7 @@ Every timestamp column (`*_at`) holds `YYYY-MM-DDTHH:MM:SS.sssZ` — 24-char UTC
 
 ### `agent_runs.agent_type` (open enum)
 
-Common values: `bro`, `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
+Common values: `bro`, `swe`, `code-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
 
 ### `repo_remotes.provider` — git host provider per remote
 

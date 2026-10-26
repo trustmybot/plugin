@@ -371,7 +371,7 @@ describe('concepts proposed at close, applied by scan once reviewed (GH 1680)', 
                 created_at: new Date(opts.closedAt.getTime() - 2 * 60_000).toISOString(),
                 repo,
             });
-            db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'pr-reviewer', 'pass', 1, ?)`, [id, new Date(opts.closedAt.getTime() - 60_000).toISOString()]);
+            db.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'code-reviewer', 'pass', 1, ?)`, [id, new Date(opts.closedAt.getTime() - 60_000).toISOString()]);
         }
         return id;
     };

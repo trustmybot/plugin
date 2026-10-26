@@ -63,7 +63,7 @@ describe('validation_record review findings (GH 1737)', () => {
     function record(attemptN, extra) {
         seedReviewerObservation(db, taskId, attemptN, { agentId: `reviewer-agent-${String(attemptN).padStart(4, '0')}` });
         return call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: attemptN,
             feedback: '# Review',
@@ -183,7 +183,7 @@ describe('validation_record reviewer identity', () => {
     });
     function record(attemptN, extra = {}) {
         return call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer',
+            agent: 'code-reviewer',
             task_id: taskId,
             attempt_n: attemptN,
             verdict: 'pass',
@@ -307,9 +307,9 @@ describe('validation_record reviewer identity', () => {
         assert.ok(result.isError);
         assert.match(parseResult(result).error, /^reviewer_agent_id_malformed/);
     });
-    it('rejects pr-reviewer call without mcp_available with precondition_failed', async () => {
+    it('rejects code-reviewer call without mcp_available with precondition_failed', async () => {
         const result = await call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: '# LGTM',
+            agent: 'code-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: '# LGTM',
         });
         assert.ok(result.isError);
         const data = parseResult(result);
@@ -345,7 +345,7 @@ describe('validation_record reviewer identity', () => {
         const altIssueId = await createIssue(altDb);
         const altTaskId = await createTask(altDb, altIssueId);
         altDb.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, 1, NULL, datetime('now'))`, [altTaskId, 1, 'pr-reviewer', 'pass', '# Legacy row']);
+       VALUES (?, ?, ?, ?, ?, 1, NULL, datetime('now'))`, [altTaskId, 1, 'code-reviewer', 'pass', '# Legacy row']);
         const result = await call(validationTools(altDb).handlers, 'validation_history', { agent: 'bro', task_id: altTaskId });
         assert.ok(!result.isError);
         const rows = parseResult(result);
@@ -366,7 +366,7 @@ describe('validation_record supersedes older unconsumed observations', () => {
     });
     function record(attemptN, extra = {}) {
         return call(validationTools(db).handlers, 'validation_record', {
-            agent: 'pr-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', feedback: '# LGTM', mcp_available: true, ...extra,
+            agent: 'code-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', feedback: '# LGTM', mcp_available: true, ...extra,
         });
     }
     function state(auditId) {

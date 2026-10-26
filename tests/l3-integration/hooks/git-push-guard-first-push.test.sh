@@ -3,7 +3,7 @@
 #
 # Pre-fix behavior: when `git push -u origin <new-branch>` has no upstream yet,
 # `git log @{u}..HEAD` fails and PUSH_SHAS was empty → hook exited 0 (allowed push)
-# regardless of whether a pr-reviewer pass verdict existed.
+# regardless of whether a code-reviewer pass verdict existed.
 #
 # Post-fix behavior: hook falls back to `git log origin/$pr_target..HEAD` so first
 # pushes of new branches are gated the same as subsequent pushes.
@@ -88,7 +88,7 @@ sign_task() {
   local db="$1" task_id="$2"
   sqlite3 "$db" "
     INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));
+      VALUES ($task_id, 1, 'code-reviewer', 'pass', 1, 'LGTM', datetime('now'));
   " >/dev/null
 }
 
@@ -156,7 +156,7 @@ test_case "first-push (H4): target_branch='main' but origin/main missing → FAI
 # repos.target_branch='main'. The test repo has origin/dev but no origin/main,
 # and origin/HEAD is unset, so no base ref resolves. Pre-H4 the hook computed an
 # empty `origin/main..HEAD` set and exited 0 — letting the unsigned commit BYPASS
-# the pr-reviewer gate. Post-H4 it fails closed (gates the whole branch history),
+# the code-reviewer gate. Post-H4 it fails closed (gates the whole branch history),
 # so the unsigned task is blocked.
 setup_first_push_repo
 db=$(setup_db "$REPO_PATH")

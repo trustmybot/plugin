@@ -100,20 +100,20 @@ test('issue_update_description — agent=cto (consultant) also forbidden (consul
   assert.equal(result.error?.caller_role, 'consultant');
 });
 
-test('issue_update_description — agent=pr-reviewer returns forbidden', async (t) => {
+test('issue_update_description — agent=code-reviewer returns forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
   const issue = await seedIssue(client);
 
   const result = await call(client, 'issue_update_description', {
-    agent: 'pr-reviewer',
+    agent: 'code-reviewer',
     issue_id: String(issue.id),
-    description: 'pr-reviewer trying to update',
+    description: 'code-reviewer trying to update',
   });
-  assert.equal(result.ok, false, 'pr-reviewer should be forbidden');
+  assert.equal(result.ok, false, 'code-reviewer should be forbidden');
   assert.equal(result.error?.error, 'forbidden');
-  assert.equal(result.error?.caller_role, 'pr-reviewer');
+  assert.equal(result.error?.caller_role, 'code-reviewer');
 });
 
 test('issue_update_description — missing agent returns forbidden (unknown role)', async (t) => {

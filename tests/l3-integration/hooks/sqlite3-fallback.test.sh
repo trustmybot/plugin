@@ -90,7 +90,7 @@ audit_count_for() {
 # ---------------------------------------------------------------------------
 
 test_case "validation_record happy path: row inserted"
-call_lib "tmb_fallback_validation_record 42 1 pr-reviewer pass 'looks good'" >/dev/null
+call_lib "tmb_fallback_validation_record 42 1 code-reviewer pass 'looks good'" >/dev/null
 row=$(sqlite3 "$DB" "SELECT verdict, feedback FROM validation_attempts WHERE task_id=42 AND attempt_n=1;")
 assert_eq "pass|looks good" "$row" "validation_attempts row"
 
@@ -111,7 +111,7 @@ count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM validation_attempts WHERE attempt_n=
 assert_eq "0" "$count" "no row written on role rejection"
 
 test_case "validation_record SQL injection: single-quote in feedback round-trips"
-call_lib "tmb_fallback_validation_record 42 3 pr-reviewer pass \"it's fine, don't panic\"" >/dev/null
+call_lib "tmb_fallback_validation_record 42 3 code-reviewer pass \"it's fine, don't panic\"" >/dev/null
 feedback=$(sqlite3 "$DB" "SELECT feedback FROM validation_attempts WHERE task_id=42 AND attempt_n=3;")
 assert_eq "it's fine, don't panic" "$feedback" "single-quote round-trip"
 
@@ -141,7 +141,7 @@ rc=0; call_lib "tmb_fallback_task_update_status 42 needs_validation tmb:swe" >/d
 assert_eq "0" "$rc" "tmb:swe is allowed as swe"
 assert_eq "needs_validation" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")" "status written for tmb:swe"
 out=$(call_lib "tmb_fallback_validation_record 42 9 tmb:swe pass 'nope'" 2>&1 || true)
-assert_contains "$out" "not allowed for 'validation_record'" "tmb:swe is swe, not pr-reviewer or a consultant"
+assert_contains "$out" "not allowed for 'validation_record'" "tmb:swe is swe, not code-reviewer or a consultant"
 
 test_case "task_update_status without commit_sha: status updated, sha unchanged"
 call_lib "tmb_fallback_task_update_status 42 running swe" >/dev/null
@@ -196,11 +196,11 @@ audit_rows() {
   sqlite3 "$DB" "SELECT COUNT(*) FROM audit;"
 }
 
-test_case "audit_append writer check: pr-reviewer cannot write a bro waiver"
+test_case "audit_append writer check: code-reviewer cannot write a bro waiver"
 before=$(audit_rows)
-rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' pr-reviewer review_gate_waived 'x' '{}' pr-reviewer") || rc=$?
+rc=0; out=$(call_lib "tmb_fallback_audit_append 1 '' code-reviewer review_gate_waived 'x' '{}' code-reviewer") || rc=$?
 assert_eq "1" "$rc" "non-zero exit"
-assert_contains "$out" "audit_event_not_writable_by_role: 'pr-reviewer' may not write 'review_gate_waived' (writers: bro)" "names the refusal and the writers"
+assert_contains "$out" "audit_event_not_writable_by_role: 'code-reviewer' may not write 'review_gate_waived' (writers: bro)" "names the refusal and the writers"
 assert_eq "$before" "$(audit_rows)" "no audit row and no fallback marker"
 
 test_case "audit_append writer check: bro cannot write a hook-only event"
@@ -283,7 +283,7 @@ assert_contains "$out" "not allowed for 'issue_close'" "role rejection"
 # ---------------------------------------------------------------------------
 
 test_case "missing DB: validation_record returns clear error"
-out=$(TRAJECTORY_DB_PATH="$TMPDIR_FIXTURE/nonexistent.db" bash -c ". '$LIB'; tmb_fallback_validation_record 1 1 pr-reviewer pass ok" 2>&1 || true)
+out=$(TRAJECTORY_DB_PATH="$TMPDIR_FIXTURE/nonexistent.db" bash -c ". '$LIB'; tmb_fallback_validation_record 1 1 code-reviewer pass ok" 2>&1 || true)
 assert_contains "$out" "no DB found" "missing DB error"
 
 summarize

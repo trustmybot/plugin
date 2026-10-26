@@ -145,7 +145,7 @@ rm -rf "$WORKSPACE_TMP"
 cd "$REPO"
 
 # ---- bro_atomic_close leaves the worktree; a passing review removes it ------
-# pr-reviewer runs after bro_atomic_close, so a failed review must find the
+# code-reviewer runs after bro_atomic_close, so a failed review must find the
 # worktree still there for the rework.
 
 bro_atomic_close_input() {
@@ -160,7 +160,7 @@ validation_input() {
   local verdict="$1" task_id="$2"
   jq -n --arg verdict "$verdict" --argjson tid "$task_id" '{
     tool_name: "mcp__plugin_tmb_trajectory-server__validation_record",
-    tool_input: { agent: "pr-reviewer", task_id: $tid, attempt_n: 1, verdict: $verdict, feedback: "x" }
+    tool_input: { agent: "code-reviewer", task_id: $tid, attempt_n: 1, verdict: $verdict, feedback: "x" }
   }'
 }
 

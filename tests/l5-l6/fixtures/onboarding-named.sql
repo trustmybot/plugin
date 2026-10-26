@@ -6,7 +6,7 @@
 --   - plugin_config defaults (remotes=[], issue_sync='off'); repo policy
 --     (target_branch, branching_model, protected_branches) lives in the `repos`
 --     row created by scan_run
---   - agents registry (swe, pr-reviewer, architect, cto, ceo, pm)
+--   - agents registry (swe, code-reviewer, architect, cto, ceo, pm)
 --   - system issue (id=-1) — parent FK for issue-less recovery audit writes
 --
 -- Filename retained for backward compat; the legacy "named vs anonymous"

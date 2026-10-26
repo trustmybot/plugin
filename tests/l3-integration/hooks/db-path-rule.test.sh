@@ -244,8 +244,8 @@ gate require-task-spec.sh \
 gate require-feature-branch-active.sh \
   '{"tool_name":"Agent","tool_input":{"subagent_type":"swe","prompt":"task_id=1"}}' \
   "needs branch feat/missing-branch"
-gate pr-reviewer-after-atomic-close.sh \
-  '{"tool_name":"Agent","tool_input":{"subagent_type":"pr-reviewer","prompt":"task_id=4"}}' \
+gate code-reviewer-after-atomic-close.sh \
+  '{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"task_id=4"}}' \
   "status=closed but actual status=completed"
 gate stay-on-base-guard.sh \
   '{"tool_name":"Bash","tool_input":{"command":"git checkout feat/open"}}' \

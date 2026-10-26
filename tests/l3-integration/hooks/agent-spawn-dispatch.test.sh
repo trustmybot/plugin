@@ -91,73 +91,73 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "SWE spawn requires task_id" "require-task-spec wording present"
 rm -rf "$WORK"
 
-# ----- tests: first-deny short-circuit (pr-reviewer-spawn-prompt-shape) -----
+# ----- tests: first-deny short-circuit (code-reviewer-spawn-prompt-shape) -----
 
-test_case "pr-reviewer spawn with missing anchors is denied"
+test_case "code-reviewer spawn with missing anchors is denied"
 WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 db=$(setup_db "$WORK")
 insert_task "$db" 5 "closed" "fix/5-pr" "## spec"
-payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:"please review this PR"}}')
-out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 run_dispatcher "$payload" "$db")
+payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",effort:"high",prompt:"please review this PR"}}')
+out=$(TMB_SKIP_CODE_REVIEWER_CLOSE_GATE=1 run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "missing required anchors" "prompt-shape wording present"
 rm -rf "$WORK"
 
-# ----- tests: pr-reviewer-spawn-note caps the prose beyond the anchors -------
+# ----- tests: code-reviewer-spawn-note caps the prose beyond the anchors -------
 
-test_case "pr-reviewer spawn with the seven anchors and over 300 chars of prose is denied naming spawn_note"
+test_case "code-reviewer spawn with the seven anchors and over 300 chars of prose is denied naming spawn_note"
 WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 db=$(setup_db "$WORK")
 insert_task "$db" 5 "closed" "fix/5-pr" "## spec"
 anchors="task_id=5 commit_sha=abc1234 branch_id=fix/5-pr repo=plugin repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-xyz"
 prose=$(printf 'Context the reviewer could read from task_brief. %.0s' 1 2 3 4 5 6 7 8)
-payload=$(jq -n --arg p "$anchors $prose" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:$p}}')
-out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 TMB_SKIP_PR_REVIEWER_PREFLIGHT=1 run_dispatcher "$payload" "$db")
+payload=$(jq -n --arg p "$anchors $prose" '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",effort:"high",prompt:$p}}')
+out=$(TMB_SKIP_CODE_REVIEWER_CLOSE_GATE=1 TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1 run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "spawn_note" "spawn-note wording present"
-payload=$(jq -n --arg p "$anchors Focus on the migration." '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:$p}}')
-out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 TMB_SKIP_PR_REVIEWER_PREFLIGHT=1 run_dispatcher "$payload" "$db")
+payload=$(jq -n --arg p "$anchors Focus on the migration." '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",effort:"high",prompt:$p}}')
+out=$(TMB_SKIP_CODE_REVIEWER_CLOSE_GATE=1 TMB_SKIP_CODE_REVIEWER_PREFLIGHT=1 run_dispatcher "$payload" "$db")
 assert_not_contains "$out" "spawn_note" "anchors plus a short line pass the spawn-note gate"
 rm -rf "$WORK"
 
 # ----- tests: shape hook enforces attempt_n + subagent_session_id anchors ----
 
-SHAPE_HOOK="$PLUGIN_ROOT/scripts/hooks/pr-reviewer-spawn-prompt-shape.sh"
+SHAPE_HOOK="$PLUGIN_ROOT/scripts/hooks/code-reviewer-spawn-prompt-shape.sh"
 
-test_case "pr-reviewer spawn with legacy four anchors but no attempt_n/subagent_session_id is denied"
+test_case "code-reviewer spawn with legacy four anchors but no attempt_n/subagent_session_id is denied"
 prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin"
-payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",prompt:$p}}')
 out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "attempt_n" "missing attempt_n named"
 assert_contains "$out" "subagent_session_id" "missing subagent_session_id named"
 
-test_case "pr-reviewer spawn without repo_path is denied naming repo_path"
+test_case "code-reviewer spawn without repo_path is denied naming repo_path"
 prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin attempt_n=1 subagent_session_id=sess-xyz"
-payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",prompt:$p}}')
 out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "anchors: repo_path." "missing repo_path named alone"
 
-test_case "pr-reviewer spawn with repo_path but no repo= is denied naming repo"
+test_case "code-reviewer spawn with repo_path but no repo= is denied naming repo"
 prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-xyz"
-payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",prompt:$p}}')
 out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "anchors: repo." "missing repo named alone"
 
-test_case "pr-reviewer spawn with all seven anchors passes shape check silently"
+test_case "code-reviewer spawn with all seven anchors passes shape check silently"
 prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-xyz"
-payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",prompt:$p}}')
 out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
 assert_eq "" "$out" "silent pass — all seven anchors present"
 
-# ----- tests: pr-reviewer-no-worktree short-circuits before shape check -----
+# ----- tests: code-reviewer-no-worktree short-circuits before shape check -----
 
-test_case "pr-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
+test_case "code-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
 WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 db=$(setup_db "$WORK")
-payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",isolation:"worktree",prompt:"review"}}')
+payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"code-reviewer",effort:"high",isolation:"worktree",prompt:"review"}}')
 out=$(run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "must NOT run with isolation" "no-worktree wording present (fired before shape check)"
@@ -245,11 +245,11 @@ cat > "$STUB_HOOKS_DIR/require-task-spec.sh" <<'EOF'
 #!/usr/bin/env bash
 jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"part-A"}}'
 EOF
-cat > "$STUB_HOOKS_DIR/pr-reviewer-after-atomic-close.sh" <<'EOF'
+cat > "$STUB_HOOKS_DIR/code-reviewer-after-atomic-close.sh" <<'EOF'
 #!/usr/bin/env bash
 jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"part-B"}}'
 EOF
-chmod +x "$STUB_HOOKS_DIR/require-task-spec.sh" "$STUB_HOOKS_DIR/pr-reviewer-after-atomic-close.sh"
+chmod +x "$STUB_HOOKS_DIR/require-task-spec.sh" "$STUB_HOOKS_DIR/code-reviewer-after-atomic-close.sh"
 
 out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null || true)
 assert_contains "$out" "part-A" "first context part present"
@@ -280,6 +280,43 @@ out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null |
 assert_contains "$out" '"permissionDecision":"deny"' "deny present"
 assert_contains "$out" "first hook denied" "deny reason from first hook"
 assert_not_contains "$out" "should-not-appear" "later gate context not emitted"
+rm -rf "$WORK"
+
+# ----- tests: tmb:code-reviewer passes every Agent-spawn gate (GH 1641) -------
+
+test_case "tmb:code-reviewer spawn for a closed, verified task passes every Agent-spawn gate silently"
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
+mkdir -p "$WORK/repo"
+setup_repo "$WORK/repo" dev fix/5-pr
+git -C "$WORK/repo" checkout -q fix/5-pr
+mkdir -p "$WORK/repo/changelog.d"
+echo "- the change" > "$WORK/repo/changelog.d/5-pr.md"
+git -C "$WORK/repo" add -A
+git -C "$WORK/repo" commit -qm "feature"
+sha=$(git -C "$WORK/repo" rev-parse HEAD)
+db="$WORK/trajectory.db"
+sqlite3 "$db" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL,
+    status TEXT NOT NULL, spec_body TEXT NOT NULL DEFAULT '', repo TEXT, parent_branch_id TEXT, files TEXT,
+    commit_sha TEXT, effort TEXT NOT NULL DEFAULT 'medium');
+  CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT NOT NULL DEFAULT 'test');
+  CREATE TABLE repos (name TEXT, path TEXT, target_branch TEXT);
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+  CREATE TABLE verification_runs (id INTEGER PRIMARY KEY, task_id INTEGER, commit_sha TEXT, exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
+  CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
+  INSERT INTO issues (id) VALUES (1);
+  INSERT INTO repos (name, path, target_branch) VALUES ('plugin', '$WORK/repo', 'dev');
+  INSERT INTO tasks (id, branch_id, status, repo, parent_branch_id, commit_sha) VALUES (5, 'fix/5-pr', 'closed', 'plugin', 'dev', '$sha');
+  INSERT INTO verification_runs (task_id, commit_sha, exit_code) VALUES (5, '$sha', 0);
+" >/dev/null
+anchors="task_id=5 commit_sha=$sha branch_id=fix/5-pr repo=plugin repo_path=$WORK/repo attempt_n=1 subagent_session_id=sess-xyz"
+payload=$(jq -n --arg p "$anchors" '{tool_name:"Agent",tool_input:{subagent_type:"tmb:code-reviewer",effort:"high",prompt:$p}}')
+out=$(cd "$WORK/repo" && run_dispatcher "$payload" "$db")
+assert_eq "" "$out" "no deny, no rewrite, no context for the canonical reviewer name"
+sqlite3 "$db" "UPDATE tasks SET status = 'running' WHERE id = 5;"
+out=$(cd "$WORK/repo" && run_dispatcher "$payload" "$db")
+assert_contains "$out" "status=closed" "control: the same fixture with an open task is denied"
 rm -rf "$WORK"
 
 summarize

@@ -3,9 +3,9 @@
   "hook_event_name": "PreToolUse",
   "tool_name": "Bash",
   "cwd": "@SANDBOX@/signed",
-  "subagent_type": "tmb:pr-reviewer",
+  "agent_type": "code-reviewer",
   "tool_input": {
     "command": "git push"
   },
-  "corpus_expect": "BLOCKED: pr-reviewer must not push"
+  "corpus_expect": "BLOCKED: code-reviewer must not push"
 }

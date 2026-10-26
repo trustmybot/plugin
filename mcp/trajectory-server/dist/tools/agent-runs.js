@@ -54,7 +54,7 @@ export function sweepRunsOfTerminalTasks(db, now) {
     const placeholders = [...TERMINAL_TASK_STATUSES].map(() => '?').join(', ');
     return finalizeOpenRuns(db, now, "CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured' THEN 'swept_orphan' ELSE 'swept_stale' END", `task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`, [...TERMINAL_TASK_STATUSES]);
 }
-// Marks unmeasured the swe/pr-reviewer rows closed with no usage and no
+// Marks unmeasured the swe/code-reviewer rows closed with no usage and no
 // usage_source: rows a finalize path closed before GH 1673 applied the usage
 // rule on close. Open rows, bro rows and rows with tokens or a source are
 // kept. Returns rows marked.
@@ -63,7 +63,7 @@ export function markLegacyUnmeteredRuns(db) {
         SET usage_source = 'unmeasured'
       WHERE completed_at IS NOT NULL
         AND usage_source IS NULL
-        AND agent_type IN ('swe', 'pr-reviewer')
+        AND agent_type IN ('swe', 'code-reviewer')
         AND ${NO_USAGE_SQL}`).changes;
 }
 const RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;

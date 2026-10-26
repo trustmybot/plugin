@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validates that project-local swe + pr-reviewer overrides retain critical
+# Validates that project-local swe + code-reviewer overrides retain critical
 # workflow primitives. No-op when no local override exists.
 set -uo pipefail
 
@@ -48,7 +48,7 @@ lint_file() {
       check_body "$file" "atomic close" "atomic.{0,3}close"          || fail=1
       check_frontmatter_tool "$file" "mcp__plugin_tmb_trajectory-server" || fail=1
       ;;
-    pr-reviewer)
+    code-reviewer)
       check_body "$file" "task_brief(" "task_brief\("                || fail=1
       check_body "$file" "validation_record(" "validation_record\("  || fail=1
       check_frontmatter_tool "$file" "mcp__plugin_tmb_trajectory-server" || fail=1
@@ -121,10 +121,10 @@ run_self_test() {
     fail=1
   fi
 
-  # Case 4: pr-reviewer missing validation_record — expect exit 1, message mentions validation_record
-  printf '\n[self-test] case: pr-reviewer-missing-validation-record (expect exit 1, mentions validation_record)\n'
+  # Case 4: code-reviewer missing validation_record — expect exit 1, message mentions validation_record
+  printf '\n[self-test] case: code-reviewer-missing-validation-record (expect exit 1, mentions validation_record)\n'
   local out4
-  out4="$(run_lint_against "$FIXTURES_DIR/pr-reviewer-missing-validation-record" 2>&1)" || true
+  out4="$(run_lint_against "$FIXTURES_DIR/code-reviewer-missing-validation-record" 2>&1)" || true
   if printf '%s\n' "$out4" | grep "validation_record" >/dev/null; then
     printf '[self-test] PASS: message mentions validation_record\n'
   else
@@ -132,11 +132,11 @@ run_self_test() {
     fail=1
   fi
   local ec4=0
-  (run_lint_against "$FIXTURES_DIR/pr-reviewer-missing-validation-record" >/dev/null 2>&1) || ec4=$?
+  (run_lint_against "$FIXTURES_DIR/code-reviewer-missing-validation-record" >/dev/null 2>&1) || ec4=$?
   if [ "$ec4" -ne 0 ]; then
     printf '[self-test] PASS: exits non-zero\n'
   else
-    printf '[self-test] FAIL: expected non-zero exit for pr-reviewer-missing-validation-record\n'
+    printf '[self-test] FAIL: expected non-zero exit for code-reviewer-missing-validation-record\n'
     fail=1
   fi
 
@@ -190,7 +190,7 @@ fi
 FAIL=0
 CHECKED=""
 
-for name in swe pr-reviewer; do
+for name in swe code-reviewer; do
   file="$AGENT_DIR/${name}.md"
   if [ ! -f "$file" ]; then
     continue

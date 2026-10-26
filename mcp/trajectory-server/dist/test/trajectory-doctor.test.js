@@ -493,7 +493,7 @@ describe('data contracts', () => {
     it('closed_tasks_reviewed does not count a review_gate_waived row bro did not write', () => {
         const db = tempDB();
         const task = seedTask(db, seedIssue(db), 'closed', iso(-25 * HOUR));
-        seedAudit(db, 'review_gate_waived', { task_id: task }, iso(), 'pr-reviewer');
+        seedAudit(db, 'review_gate_waived', { task_id: task }, iso(), 'code-reviewer');
         assert.equal(violated(db, 'closed_tasks_reviewed'), true);
     });
     it('closed_tasks_reviewed does not count a review_gate_bypassed row from another hook', () => {
@@ -853,7 +853,7 @@ describe('trajectory_doctor tool', () => {
     const auditCount = (db) => db.get('SELECT COUNT(*) AS n FROM audit').n;
     it('is bro-only', async () => {
         const db = tempDB();
-        for (const agent of ['swe', 'pr-reviewer', 'architect']) {
+        for (const agent of ['swe', 'code-reviewer', 'architect']) {
             const res = await call(db, { agent });
             assert.equal(res.isError, true);
             assert.equal(JSON.parse(res.content[0].text).error, 'forbidden');

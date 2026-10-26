@@ -25210,7 +25210,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
   { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
   { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
-  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing pr-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
+  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing code-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
   { type: "concept_proposal_rejected", writers: ["bro"], description: "`scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error`" },
   { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
   { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
@@ -25231,7 +25231,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
-  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
+  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
   { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
   { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
@@ -25248,9 +25248,9 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate no longer probes it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
   { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
-  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
-  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
-  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
+  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
@@ -25444,7 +25444,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 50;
+var TARGET_SCHEMA_VERSION = 51;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26001,6 +26001,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 50 && toVersion >= 50) {
     migrateV49toV50(db2);
+  }
+  if (fromVersion < 51 && toVersion >= 51) {
+    migrateV50toV51(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27759,6 +27762,70 @@ function migrateV49toV50(db2) {
     throw err21;
   }
 }
+var OLD_REVIEWER = "pr-reviewer";
+var OLD_REVIEWER_TITLE = "PR-reviewer";
+var REVIEWER = "code-reviewer";
+var REVIEWER_JSON_RENAMES = {
+  [OLD_REVIEWER]: REVIEWER,
+  [`tmb:${OLD_REVIEWER}`]: `tmb:${REVIEWER}`
+};
+function renameReviewerInAuditJson(db2) {
+  const hits = db2.prepare(
+    `SELECT a.id AS id, j.fullkey AS path, j.atom AS value
+         FROM audit a, json_tree(a.content_json) j
+        WHERE instr(a.content_json, ?) > 0
+          AND json_valid(a.content_json)
+          AND j.type = 'text'
+          AND j.atom IN (?, ?)
+        ORDER BY a.id`
+  ).all(OLD_REVIEWER, OLD_REVIEWER, `tmb:${OLD_REVIEWER}`);
+  const update = db2.prepare("UPDATE audit SET content_json = json_set(content_json, ?, ?) WHERE id = ?");
+  for (const hit of hits) {
+    update.run(hit.path, REVIEWER_JSON_RENAMES[hit.value], hit.id);
+  }
+}
+function migrateV50toV51(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "agent_runs")) {
+      db2.prepare("UPDATE agent_runs SET agent_type = ? WHERE agent_type = ?").run(REVIEWER, OLD_REVIEWER);
+    }
+    if (tableExists(db2, "validation_attempts")) {
+      db2.prepare("UPDATE validation_attempts SET agent = ? WHERE agent = ?").run(REVIEWER, OLD_REVIEWER);
+    }
+    if (tableExists(db2, "agents")) {
+      db2.prepare(`DELETE FROM agents WHERE name = ? AND EXISTS (SELECT 1 FROM agents WHERE name = ?)`).run(
+        OLD_REVIEWER,
+        REVIEWER
+      );
+      db2.prepare(
+        `UPDATE agents
+            SET name = ?,
+                file_path = ?,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE name = ?`
+      ).run(REVIEWER, `plugin:agents/${REVIEWER}.md`, OLD_REVIEWER);
+    }
+    if (tableExists(db2, "audit")) {
+      renameReviewerInAuditJson(db2);
+    }
+    if (tableExists(db2, "cheatcodes")) {
+      db2.prepare(
+        `UPDATE cheatcodes
+            SET description = replace(replace(description, ?, ?), ?, ?)
+          WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
+            AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`
+      ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, "Code-reviewer", OLD_REVIEWER, OLD_REVIEWER_TITLE);
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
 function migrateV22toV23(db2) {
   const soleRepo = () => {
     if (!tableExists(db2, "repos")) return null;
@@ -28605,8 +28672,8 @@ function migrateV1toV2(db2) {
 }
 
 // src/middleware/agent-scope.ts
-var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
-var ALL_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
+var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
+var ALL_ROLES = ["bro", "swe", "code-reviewer", "consultant"];
 function normalizeAgent(name2) {
   if (typeof name2 !== "string") return "unknown";
   const lower = name2.toLowerCase().replace(/^tmb:/, "");
@@ -28615,14 +28682,14 @@ function normalizeAgent(name2) {
   if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
   return "unknown";
 }
-var VALID_AGENTS = ["bro", "swe", "pr-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
+var VALID_AGENTS = ["bro", "swe", "code-reviewer", "consultant slug matching ^[a-z][a-z0-9_-]*$"];
 function missingAgentDiagnostics(toolName, allowedRoles, received) {
   const agentReceived = received === void 0 ? null : received;
   return {
     reason: "agent_missing_or_invalid",
     agent_received: agentReceived,
     valid_agents: VALID_AGENTS,
-    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'pr-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
+    message: `\`agent\` was missing or invalid (received: ${JSON.stringify(agentReceived)}). This is a missing-argument error, not a role restriction \u2014 retry with agent set to your role: 'bro', 'swe', 'code-reviewer', or a consultant slug matching ^[a-z][a-z0-9_-]*$. ${toolName} accepts: ${allowedRoles.join(", ")}.`
   };
 }
 function forbidden(toolName, agent, allowedRoles, received) {
@@ -29373,7 +29440,7 @@ function auditTools(db2) {
       if (!semanticAvailable) response["warning"] = "semantic_unavailable";
       return ok(response);
     }),
-    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args2) => {
+    audit_append: requireRoles("audit_append", ["bro", "swe", "code-reviewer", "consultant"], wrapHandler(async (args2) => {
       const agentName2 = String(requireArg(args2, "agent")).toLowerCase();
       const role = normalizeAgent(agentName2);
       const fromNode = role === "consultant" ? agentName2 : role;
@@ -29804,7 +29871,7 @@ function discussionTools(db2) {
     }),
     discussion_append: requireRoles(
       "discussion_append",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrapHandler2(async (args2) => {
         normalizeAgent(args2["agent"]);
         const rawIssueId = args2["issue_id"];
@@ -30803,7 +30870,7 @@ function markLegacyUnmeteredRuns(db2) {
         SET usage_source = 'unmeasured'
       WHERE completed_at IS NOT NULL
         AND usage_source IS NULL
-        AND agent_type IN ('swe', 'pr-reviewer')
+        AND agent_type IN ('swe', 'code-reviewer')
         AND ${NO_USAGE_SQL}`
   ).changes;
 }
@@ -31402,7 +31469,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
     },
     {
       name: "issue_close",
-      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
+      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing code-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
       inputSchema: {
         type: "object",
         properties: {
@@ -31418,7 +31485,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           },
           waive_review: {
             type: "boolean",
-            description: "When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
+            description: "When true, close even though closed tasks lack a passing code-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
           },
           waive_review_reason: {
             type: "string",
@@ -31950,7 +32017,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const unreviewed = closedTasksWithoutReview(db2, issueId);
       if (unreviewed.length > 0 && !waiveReview) {
         return refusal("tasks_without_review", {
-          message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+          message: `Issue ${issueId} has closed tasks with no passing code-reviewer verdict for their current commit. Run code-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
           tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha }))
         });
       }
@@ -33323,7 +33390,7 @@ function elapsedMs(createdAt, endedAt) {
 }
 
 // src/tools/stats.ts
-var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
+var ALLOWED_ROLES = ["bro", "swe", "code-reviewer", "consultant"];
 function ok6(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -33414,7 +33481,7 @@ function costEstimate(rows, prices) {
   };
 }
 var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
-var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
+var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'code-reviewer')";
 function reworkKinds(db2, taskId) {
   const rows = db2.all(
     `SELECT CASE WHEN resumed_from IS NULL THEN 'fresh' ELSE 'resumed' END AS kind,
@@ -33538,7 +33605,7 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.",
+      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and code-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.",
       inputSchema: {
         type: "object",
         properties: {
@@ -34205,7 +34272,7 @@ function taskTools(db2) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing pr-reviewer verdict and their anchors are in the index. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -35138,7 +35205,7 @@ function validationTools(db2) {
           attempt_n: { type: "number" },
           verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
           feedback: { type: "string" },
-          mcp_available: { type: "boolean", description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
+          mcp_available: { type: "boolean", description: 'Required when agent="code-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
           subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." },
           findings: {
             type: "array",
@@ -35184,7 +35251,7 @@ function validationTools(db2) {
     }
   ];
   const handlers = {
-    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler7(async (args2) => {
+    validation_record: requireRoles("validation_record", ["code-reviewer"], wrapHandler7(async (args2) => {
       const agent = requireArg5(args2, "agent");
       const taskId = coerceTaskId(requireArg5(args2, "task_id"));
       requireArg5(args2, "attempt_n");
@@ -35192,9 +35259,9 @@ function validationTools(db2) {
       requireArg5(args2, "feedback");
       const role = normalizeAgent(agent);
       const mcpAvailableArg = args2["mcp_available"];
-      if (role === "pr-reviewer" && typeof mcpAvailableArg !== "boolean") {
+      if (role === "code-reviewer" && typeof mcpAvailableArg !== "boolean") {
         throw new Error(
-          'precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
+          'precondition_failed: validation_record with agent="code-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
         );
       }
       const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
@@ -35241,7 +35308,7 @@ function validationTools(db2) {
           const observedAgentId = typeof observed.agent_id === "string" ? observed.agent_id : "";
           if (observedAgentId === "") {
             throw new Error(
-              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id \u2014 it came from the main loop, not a pr-reviewer subagent.`
+              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id \u2014 it came from the main loop, not a code-reviewer subagent.`
             );
           }
           if (!AGENT_ID_RE.test(observedAgentId)) {
@@ -35255,7 +35322,7 @@ function validationTools(db2) {
           );
           if (sweRun) {
             throw new Error(
-              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate pr-reviewer.`
+              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate code-reviewer.`
             );
           }
           subagentSessionId = typeof observed.session_id === "string" && observed.session_id !== "" ? observed.session_id : null;
@@ -35283,7 +35350,7 @@ function validationTools(db2) {
           );
         } else {
           throw new Error(
-            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`
+            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned code-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`
           );
         }
         db2.run(
@@ -35569,7 +35636,7 @@ function wrapHandler9(fn) {
 var VALID_KINDS = /* @__PURE__ */ new Set(["backbone", "consultant"]);
 var VALID_ROOTS = /* @__PURE__ */ new Set(["plugin", "project"]);
 var RESERVED_NAME = "bro";
-var BACKBONE_PLUGIN_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
+var BACKBONE_PLUGIN_ONLY = /* @__PURE__ */ new Set(["swe", "code-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
   if (env && existsSync4(join9(env, ".claude-plugin", "plugin.json"))) return env;
@@ -35804,7 +35871,7 @@ function reportTools(db2) {
     },
     {
       name: "issue_snapshot_md",
-      description: "Generate a read-only markdown snapshot of an issue (header, discussions, tasks) to docs/trustmybot/snapshots/<issue_id>.md (default) or an explicit output_path. Used by PR reviewer for in-flight review handoff. Rejects paths outside docs/trustmybot/.",
+      description: "Generate a read-only markdown snapshot of an issue (header, discussions, tasks) to docs/trustmybot/snapshots/<issue_id>.md (default) or an explicit output_path. Used by code reviewer for in-flight review handoff. Rejects paths outside docs/trustmybot/.",
       inputSchema: {
         type: "object",
         properties: {
@@ -35932,7 +35999,7 @@ function reportTools(db2) {
       lines2.push("");
       return ok11({ markdown: lines2.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer", "consultant"], wrapHandler10(async (args2) => {
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "code-reviewer", "consultant"], wrapHandler10(async (args2) => {
       requireArg8(args2, "agent");
       const issueId = requireArg8(args2, "issue_id");
       const rawOutputPath = args2["output_path"];
@@ -36082,7 +36149,7 @@ function branchReportMdTools(db2) {
   const handlers = {
     branch_report_md: requireRoles(
       "branch_report_md",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrapHandler11(async (args2) => {
         requireArg9(args2, "agent");
         const issueId = requireArg9(args2, "issue_id");
@@ -39033,7 +39100,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "worktree_commits_fetch",
-      description: "Commit-reap composite \u2014 fetches each task's worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.",
+      description: "Commit-reap composite \u2014 fetches each task's worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for code-reviewer spawn.",
       inputSchema: {
         type: "object",
         properties: {
@@ -39053,7 +39120,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: `Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one \`[probe <id>]\` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. Report gate: a spec whose Success Criteria carry SC<n>: ids closes only when the completion report stored by task_update_status covers every id; otherwise it refuses with completion_report_missing naming the ids. spawn_note (\u2264${SPAWN_NOTE_MAX_CHARS} chars) is stored for task_brief. PostToolUse hooks fire on bro_atomic_close (not task_update_status).`,
+      description: `Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before code-reviewer: the payload carries review_pending=true (spawn code-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). Verification gate: a task with non-empty verification[] or a non-wontfix review finding closes only on a passing verification_runs row for the commit whose commands match the current verification[] plus one \`[probe <id>]\` entry per non-wontfix review finding (a run from before a task_update_spec amend does not count), or a verification_gate_waived row for the commit; otherwise it refuses with verification_run_missing. Report gate: a spec whose Success Criteria carry SC<n>: ids closes only when the completion report stored by task_update_status covers every id; otherwise it refuses with completion_report_missing naming the ids. spawn_note (\u2264${SPAWN_NOTE_MAX_CHARS} chars) is stored for task_brief. PostToolUse hooks fire on bro_atomic_close (not task_update_status).`,
       inputSchema: {
         type: "object",
         properties: {
@@ -39066,7 +39133,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           close_issue_if_last_task: {
             type: "boolean",
-            description: "When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. Before pr-reviewer has passed this task the issue stays open (tasks_without_review, review_pending)."
+            description: "When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. Before code-reviewer has passed this task the issue stays open (tasks_without_review, review_pending)."
           },
           waive_scope_gate: {
             type: "boolean",
@@ -39078,7 +39145,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           spawn_note: {
             type: "string",
-            description: `Optional context for pr-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.`
+            description: `Optional context for code-reviewer beyond what task_brief carries, at most ${SPAWN_NOTE_MAX_CHARS} chars (longer is refused); task_brief returns it as spawn_note. Overwrites any earlier note (NULL when omitted). The reviewer spawn prompt carries only the anchors.`
           }
         },
         required: ["agent", "task_id", "commit_sha", "verification_summary"]
@@ -39086,7 +39153,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_recover",
-      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed; closed swe/pr-reviewer rows with no tokens and no usage_source are marked usage_source=unmeasured. Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} (plus the recovery result when task_id is given).",
+      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing code-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed; closed swe/code-reviewer rows with no tokens and no usage_source are marked usage_source=unmeasured. Returns {tasks_swept, runs_swept, runs_marked_unmeasured, reported} (plus the recovery result when task_id is given).",
       inputSchema: {
         type: "object",
         properties: {
@@ -39250,7 +39317,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, pr-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
+      description: "Context bundle for one task \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, and task_discussions: this task's decision/intent rows, the issue's newest issue-level decision and intent, its last few other rows, superseded rows skipped) with the world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none), and open_findings: the task's open review findings {id, criterion_id, probe_cmd, expected, observed}, whose probes the gate re-runs, plus completion_report: swe's typed report {criteria: [{id, status, evidence_cmd?, note?}], extras?, findings_fixed?} from the move to completed (null when none), and spawn_note: bro's \u2264300-char note from the latest bro_atomic_close / task_reopen (null when none). `section` picks the part returned: 'core' (task row, spec_body, files, open_findings, completion_report, spawn_note, locations {files: [{path, purpose, symbols}], symbols: [{qualified_name, kind, path, start_line, end_line, callers, callees}], truncated}: the paths and identifiers spec_body names in backticks, resolved in the world-model symbol index, at most 6000 chars, null when the repo has no world model; plus a `sections` map of what the others hold), 'verification' (verification[], verification_run), 'scope' (scope, scope_world_model), 'history' (task_discussions) or 'all'. Default: 'core' for swe, 'all' for bro, code-reviewer and consultants. A swe call opens the task's swe agent_runs row when none is open, whatever the section.",
       inputSchema: {
         type: "object",
         properties: {
@@ -39762,7 +39829,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     ),
     task_brief: requireRoles(
       "task_brief",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap3(async (args2) => {
         const taskId = args2["task_id"];
         if (taskId === void 0 || taskId === null) return err16("task_id is required");
@@ -40287,7 +40354,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     ),
     pr_monitor_worktree: requireRoles(
       "pr_monitor_worktree",
-      ["pr-reviewer"],
+      ["code-reviewer"],
       wrap3(async (args2) => {
         const commitSha = (args2["commit_sha"] ?? "").toLowerCase();
         const repoPath = args2["repo_path"];
@@ -44634,7 +44701,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     ),
     repos_list: requireRoles(
       "repos_list",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap4(async () => {
         const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
         return ok17({ repos: rows });
@@ -45627,7 +45694,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
       inputSchema: {
         type: "object",
         properties: {
@@ -45654,7 +45721,7 @@ function cheatcodeTools(db2) {
           },
           target: {
             type: "string",
-            description: "The consuming agent to materialize for a skill: bro | swe | pr-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization."
+            description: "The consuming agent to materialize for a skill: bro | swe | code-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization."
           }
         },
         required: ["agent", "candidate"]
@@ -45823,7 +45890,7 @@ function cheatcodeTools(db2) {
         const target = args2["target"]?.trim() || null;
         if (kind === "skill" && !target) {
           return err18(
-            "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
+            "a skill install requires a target agent (bro|swe|code-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
         const existing = db2.get(
@@ -46689,7 +46756,7 @@ function worldModelTools(db2, graphHolder2) {
   const handlers = {
     world_model_get: requireRoles(
       "world_model_get",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap6(async (args2) => {
         let repo = args2["repo"] ?? "";
         if (!repo) {
@@ -46730,7 +46797,7 @@ function worldModelTools(db2, graphHolder2) {
     ),
     world_model_search: requireRoles(
       "world_model_search",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap6(async (args2) => {
         const query = args2["query"];
         if (!query || typeof query !== "string") return err19("query is required");
@@ -46760,7 +46827,7 @@ function worldModelTools(db2, graphHolder2) {
     ),
     world_model_symbol: requireRoles(
       "world_model_symbol",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap6(async (args2) => {
         const id = args2["id"];
         let symbol2 = null;
@@ -46818,7 +46885,7 @@ function worldModelTools(db2, graphHolder2) {
     ),
     world_model_concepts: requireRoles(
       "world_model_concepts",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap6(async (args2) => {
         const query = args2["query"];
         if (typeof query !== "string" || !query.trim()) return err19("query is required");
@@ -46838,7 +46905,7 @@ function worldModelTools(db2, graphHolder2) {
     ),
     world_model_concept_get: requireRoles(
       "world_model_concept_get",
-      ["bro", "swe", "pr-reviewer", "consultant"],
+      ["bro", "swe", "code-reviewer", "consultant"],
       wrap6(async (args2) => {
         const id = args2["id"];
         if (typeof id !== "number") return err19("id is required");
@@ -46867,7 +46934,7 @@ import { existsSync as existsSync15, readdirSync as readdirSync4, readFileSync a
 import { homedir as homedir4 } from "node:os";
 import { basename as basename10, join as join23 } from "node:path";
 var UNBOUND_SAMPLE = 20;
-var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
+var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "code-reviewer"]);
 function readRecords(path2) {
   let text;
   try {
@@ -47089,7 +47156,7 @@ function agentRunsBackfill(db2, opts) {
     if (!spawnTypes.has(session)) spawnTypes.set(session, sessionSpawnTypes(sessionRecords.get(session) ?? []));
     const agentType = spawnAgentType(path2, spawnTypes.get(session));
     if (!agentType || !BACKFILL_AGENTS.has(agentType)) {
-      unbound(path2, `subagent_type ${agentType ?? "unknown"} is not swe or pr-reviewer`);
+      unbound(path2, `subagent_type ${agentType ?? "unknown"} is not swe or code-reviewer`);
       continue;
     }
     const taskId = taskIdFromTranscript(path2);
@@ -47234,7 +47301,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
   const definitions = [
     {
       name: "agent_runs_backfill",
-      description: "Recover swe/pr-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+      description: "Recover swe/code-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
       inputSchema: {
         type: "object",
         properties: {
@@ -47442,9 +47509,9 @@ var POPULATED_COLUMNS = [
     table: "agent_runs",
     column: "effort",
     created_column: "started_at",
-    scope: `agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'
+    scope: `agent_type IN ('swe','code-reviewer') AND usage_source = 'subagent_stop'
                AND ${ts("started_at")} >= (SELECT MIN(${ts("started_at")}) FROM agent_runs WHERE effort IS NOT NULL)`,
-    scope_label: "SubagentStop-metered swe/pr-reviewer rows since the first run carrying an effort",
+    scope_label: "SubagentStop-metered swe/code-reviewer rows since the first run carrying an effort",
     floor: 0.05,
     min_schema: 37
   }
@@ -47499,15 +47566,15 @@ function buildDataContracts(documentedEventTypes) {
       id: "swe_runs_metered",
       severity: "error",
       min_schema: 30,
-      description: "swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
+      description: "swe/code-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
       sql: `SELECT COUNT(*) FROM agent_runs
-             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
+             WHERE agent_type IN ('swe','code-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
                AND (usage_source IS NULL OR usage_source <> 'unmeasured')
                AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
                AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0`,
       expect: { op: "=", value: 0 },
       sample_sql: `SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs
-             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
+             WHERE agent_type IN ('swe','code-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
                AND (usage_source IS NULL OR usage_source <> 'unmeasured')
                AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
                AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
@@ -47530,7 +47597,7 @@ function buildDataContracts(documentedEventTypes) {
     {
       id: "closed_tasks_reviewed",
       severity: "error",
-      description: "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
+      description: "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing code-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before code-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
       sql: `SELECT COUNT(*) FROM tasks t
              WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
                AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
@@ -47594,7 +47661,7 @@ function buildDataContracts(documentedEventTypes) {
     {
       id: "no_unconsumed_reviewer_observations",
       severity: "warn",
-      description: "no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer validation_record call that never recorded a verdict)",
+      description: "no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a code-reviewer validation_record call that never recorded a verdict)",
       sql: `SELECT COUNT(*) FROM audit o
              WHERE ${UNCONSUMED_STALE_OBSERVATION("o")}`,
       expect: { op: "=", value: 0 },
@@ -47982,7 +48049,7 @@ function decorateWithAgent(tools) {
     const mergedAgent = {
       type: "string",
       pattern: "^[a-z][a-z0-9_-]*$",
-      description: "Calling agent: bro, swe, pr-reviewer, or a consultant name.",
+      description: "Calling agent: bro, swe, code-reviewer, or a consultant name.",
       ...existingAgent
     };
     return {

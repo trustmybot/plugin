@@ -3,7 +3,7 @@
 #
 # Hook contract: block `git push` when commits in the push range are
 # attached to closed tasks (via tasks.commit_sha) that lack a passing
-# pr-reviewer verdict (validation_attempts.verdict='pass').
+# code-reviewer verdict (validation_attempts.verdict='pass').
 #
 # Skips: --force pushes (delegated to git-guards), no upstream (first push),
 # commits with no matching task row (pre-TMB / untracked work), missing DB,
@@ -84,12 +84,12 @@ insert_task() {
   " >/dev/null
 }
 
-# Insert a passing validation row for a task (i.e. pr-reviewer signed off).
+# Insert a passing validation row for a task (i.e. code-reviewer signed off).
 sign_task() {
   local db="$1" task_id="$2"
   sqlite3 "$db" "
     INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
-      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));
+      VALUES ($task_id, 1, 'code-reviewer', 'pass', 1, 'LGTM', datetime('now'));
   " >/dev/null
 }
 
@@ -250,42 +250,42 @@ out=$(run_hook "git push origin main" "$db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "non-SWE caller with all-signed should not be blocked"
 cleanup
 
-# ----- pr-reviewer role deny tests -------------------------------------
+# ----- code-reviewer role deny tests -------------------------------------
 
-# pr-reviewer run_hook helper: injects agent_type into the top-level payload.
-run_hook_as_pr_reviewer() {
+# code-reviewer run_hook helper: injects agent_type into the top-level payload.
+run_hook_as_code_reviewer() {
   local cmd="$1"
   local db="${2:-/nonexistent.db}"
-  local agent_type="${3:-tmb:pr-reviewer}"
+  local agent_type="${3:-tmb:code-reviewer}"
   local payload
   payload=$(jq -cn --arg c "$cmd" --arg a "$agent_type" '{agent_type:$a,tool_input:{command:$c}}')
   (cd "$REPO_PATH" && echo "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true)
 }
 
-test_case "pr-reviewer caller (tmb:pr-reviewer): git push BLOCKED with bro-owns-push message"
+test_case "code-reviewer caller (tmb:code-reviewer): git push BLOCKED with bro-owns-push message"
 setup_repo
 db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "$SHA1"
 sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 sign_task   "$db" 2
-out=$(run_hook_as_pr_reviewer "git push origin main" "$db" "tmb:pr-reviewer")
-assert_contains "$out" '"permissionDecision":"deny"' "pr-reviewer push must be blocked even with all-signed commits"
+out=$(run_hook_as_code_reviewer "git push origin main" "$db" "tmb:code-reviewer")
+assert_contains "$out" '"permissionDecision":"deny"' "code-reviewer push must be blocked even with all-signed commits"
 assert_contains "$out" "verdict row"  "block message must reference the verdict row"
 assert_contains "$out" "bro"          "block message must state push decision belongs to bro"
 cleanup
 
-test_case "pr-reviewer caller (pr-reviewer): git push BLOCKED (bare agent_type variant)"
+test_case "code-reviewer caller (code-reviewer): git push BLOCKED (bare agent_type variant)"
 setup_repo
 db=$(setup_db "$REPO_PATH")
-out=$(run_hook_as_pr_reviewer "git push origin main" "/nonexistent.db" "pr-reviewer")
-assert_contains "$out" '"permissionDecision":"deny"' "bare pr-reviewer agent_type must also be blocked"
+out=$(run_hook_as_code_reviewer "git push origin main" "/nonexistent.db" "code-reviewer")
+assert_contains "$out" '"permissionDecision":"deny"' "bare code-reviewer agent_type must also be blocked"
 cleanup
 
-test_case "pr-reviewer caller: git push --force still exits early (force delegated to git-guards before role check)"
+test_case "code-reviewer caller: git push --force still exits early (force delegated to git-guards before role check)"
 setup_repo
 db=$(setup_db "$REPO_PATH")
-out=$(run_hook_as_pr_reviewer "git push --force origin main" "$db" "tmb:pr-reviewer")
+out=$(run_hook_as_code_reviewer "git push --force origin main" "$db" "tmb:code-reviewer")
 assert_not_contains "$out" '"permissionDecision":"deny"' "force push exits before role check (git-guards handles it)"
 cleanup
 

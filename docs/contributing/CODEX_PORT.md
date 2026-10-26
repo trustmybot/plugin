@@ -146,7 +146,7 @@ path, Agent name, template body, role, identity, or provenance.
 The single catalog owns the canonical bytes for:
 
 - `.codex/agents/tmb_swe.toml`;
-- `.codex/agents/tmb_pr_reviewer.toml`.
+- `.codex/agents/tmb_code_reviewer.toml`.
 
 The getter reports `absent`, `current`, `conflict`, or overall `mixed` without
 creating `.tmb` or `.codex`. A file is current only when its full UTF-8 bytes
@@ -221,7 +221,7 @@ acceptance described above.
    control that the candidate plugin MCP is active. Confirm that its expected
    template hashes match the candidate commit. Materialize both Agents and start
    a fresh child-discovery task.
-4. Invoke `tmb_swe` and `tmb_pr_reviewer`. Record each child Agent's live tool
+4. Invoke `tmb_swe` and `tmb_code_reviewer`. Record each child Agent's live tool
    surface and fail the gate if any TMB `trajectory-server` tool is visible.
    Ask each child to attempt the read-only `agent_materialization_get` operation;
    require explicit unavailable or refused evidence, zero successful TMB MCP

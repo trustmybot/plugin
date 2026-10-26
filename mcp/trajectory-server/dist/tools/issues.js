@@ -514,7 +514,7 @@ export function issueTools(db, dbPath = '', options = {}) {
         },
         {
             name: 'issue_close',
-            description: 'Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.',
+            description: 'Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing code-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -530,7 +530,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                     },
                     waive_review: {
                         type: 'boolean',
-                        description: 'When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason.',
+                        description: 'When true, close even though closed tasks lack a passing code-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason.',
                     },
                     waive_review_reason: {
                         type: 'string',
@@ -1100,8 +1100,8 @@ export function issueTools(db, dbPath = '', options = {}) {
             const unreviewed = closedTasksWithoutReview(db, issueId);
             if (unreviewed.length > 0 && !waiveReview) {
                 return refusal('tasks_without_review', {
-                    message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. ` +
-                        `Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+                    message: `Issue ${issueId} has closed tasks with no passing code-reviewer verdict for their current commit. ` +
+                        `Run code-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
                     tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
                 });
             }

@@ -449,7 +449,7 @@ export function taskTools(db: TrajectoryDB): {
     },
     {
       name: 'task_update_status',
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing pr-reviewer verdict and their anchors are in the index. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to completed on a task whose spec's Success Criteria carry SC<n>: ids needs `report` with one criteria entry per id (no unknown id); the report is stored with the status (tasks.completion_report) and task_brief returns it. `report.concepts` (optional, at most 5) proposes L2 world-model concepts in world_model_concept_upsert's shape, repo defaulting to the task's: only their shape is checked here, and scan_run applies them once the task is closed with a passing code-reviewer verdict and their anchors are in the index. A move to closed with no passing code-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -1064,7 +1064,7 @@ export function taskTools(db: TrajectoryDB): {
           });
         }
 
-        // Audit log for gate waivers so pr-reviewer / human-review can flag
+        // Audit log for gate waivers so code-reviewer / human-review can flag
         // tasks that skipped the alignment loop. Runs inside the same txn as
         // task INSERTs so a crash between commit and audit cannot lose the record.
         // One row per waived gate (#358).

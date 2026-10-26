@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Hook: Block `git push` when the commits being pushed include closed tasks
-# that lack a passing pr-reviewer verdict in the trajectory DB.
+# that lack a passing code-reviewer verdict in the trajectory DB.
 #
 # Doctrine: bro is the task gate (closes tasks atomically after SWE).
-# pr-reviewer is the push gate — runs only when commits are about to ship.
+# code-reviewer is the push gate — runs only when commits are about to ship.
 # This hook enforces that doctrine at the Bash boundary.
 #
 # A push is a `git [-C <p>] push` statement of the command's executable
@@ -65,13 +65,13 @@ done < <(tmb_cmd_statements "$CMD" "$CWD")
 
 ROLE=$(tmb_agent_role "$INPUT")
 if [ "$ROLE" = "swe" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after code-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
   exit 0
 fi
-# pr-reviewer renders a verdict row; the push decision belongs to bro after
-# that verdict — pr-reviewer itself must never initiate a push.
-if [ "$ROLE" = "pr-reviewer" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: pr-reviewer must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed."}}'
+# code-reviewer renders a verdict row; the push decision belongs to bro after
+# that verdict — code-reviewer itself must never initiate a push.
+if [ "$ROLE" = "code-reviewer" ]; then
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: code-reviewer must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed."}}'
   exit 0
 fi
 
@@ -282,12 +282,12 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
   if [ -n "$UNSIGNED" ]; then
     COUNT=$(printf '%s\n' "$UNSIGNED" | wc -l | tr -d ' ')
     LIST=$(printf '%s\n' "$UNSIGNED" | awk -F'|' '{ printf "  - task_id=%s  %s  (%s)\n", $1, $2, $3 }')
-    DENY_REASON="BLOCKED: pushing ${COUNT} unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:
+    DENY_REASON="BLOCKED: pushing ${COUNT} unsigned commit(s). The following tasks lack a code-reviewer pass verdict:
 
 ${LIST}
 Run: @bro review before push
 
-bro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing."
+bro will spawn code-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing."
     jq -nc --arg reason "$DENY_REASON" \
       '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
     exit 0

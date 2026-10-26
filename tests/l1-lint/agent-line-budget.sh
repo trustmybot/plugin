@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Enforce Lego cap on every agent that ships with the plugin.
 #
-# agents/ — workflow backbone (swe + pr-reviewer), ≤30-line total cap.
+# agents/ — workflow backbone (swe + code-reviewer), ≤30-line total cap.
 #
 # templates/agents/ — Lego model:
 #   template.md              ≤25 lines total (carries the full TMB integration contract)
-#   swe.md, pr-reviewer.md  no longer ship as templates (backbone roles live in agents/ only)
+#   swe.md, code-reviewer.md  no longer ship as templates (backbone roles live in agents/ only)
 #   <consultant role>.md    ≤15 lines body (after frontmatter) — role flavor only;
 #                           the contract lives in template.md, not here.
 #
@@ -76,7 +76,7 @@ check_templates() {
   fi
 
   # Backbone roles in templates/ — total line cap (byte-identical to agents/)
-  for name in swe pr-reviewer; do
+  for name in swe code-reviewer; do
     local f="$dir/$name.md"
     if [ ! -f "$f" ]; then continue; fi
     local lines
@@ -91,7 +91,7 @@ check_templates() {
 
   # Consultant role templates — body-only cap
   local files
-  files=$(find "$dir" -maxdepth 1 -name '*.md' -type f ! -name 'template.md' ! -name 'swe.md' ! -name 'pr-reviewer.md' | sort)
+  files=$(find "$dir" -maxdepth 1 -name '*.md' -type f ! -name 'template.md' ! -name 'swe.md' ! -name 'code-reviewer.md' | sort)
   if [ -z "$files" ]; then
     printf "\n"
     return 0
