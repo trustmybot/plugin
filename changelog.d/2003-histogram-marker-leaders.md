@@ -1,0 +1,2 @@
+### Changed
+- **Insights histogram p50/p95 markers point at the bars instead of cutting through them** (GH 2003): each marker was a full-height rule that sliced through the contiguous bars and their caps. A marker is now a short muted leader line from its label down to just above the bar it sits over, plus a 4px tick under the baseline at the exact value, so the shape of the distribution stays whole.

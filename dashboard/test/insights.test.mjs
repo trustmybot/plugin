@@ -120,7 +120,7 @@ before(async () => {
         import { toCsv, csvName } from './web/views/insights/csv.ts';
         import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION } from './web/views/insights/sections.tsx';
         import { AGENT_COLOR, compact, durationTicks } from './web/views/insights/format.ts';
-        import { Histogram, barWidth, histBarWidth, labelBox, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
+        import { Histogram, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
         const withHash = (hash, fn) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
           try { return fn(); } finally { delete globalThis.window; }
@@ -136,7 +136,7 @@ before(async () => {
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const escaped = (text) => renderToStaticMarkup(createElement(Fragment, null, text));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -785,9 +785,26 @@ describe('Insights view', () => {
     assert.match(html, /Early data · 3 of 20 runs/);
     assert.match(html, /p50 13K/);
     assert.match(html, /p95 24K/);
-    const rules = [...html.matchAll(/<g data-marker="">\s*<line[^>]*>/g)].map((m) => m[0]);
-    assert.equal(rules.length, 4);
-    for (const rule of rules) assert.match(rule, /stroke="var\(--fgColor-muted\)" stroke-width="1"/);
+    const innerH = 224 - 36 - 24;
+    const markers = [...html.matchAll(/<g data-marker="">(.*?)<\/g>/g)].map((m) => m[1]);
+    assert.equal(markers.length, 4);
+    const ys = (line) => [/ y1="([\d.-]+)"/, / y2="([\d.-]+)"/].map((re) => Number(re.exec(line)[1]));
+    for (const g of markers) {
+      const lines = [...g.matchAll(/<line[^>]*>/g)].map((m) => m[0]);
+      assert.equal(lines.length, 2, 'one leader and one tick per marker');
+      const leaders = lines.filter((l) => l.includes('data-marker-leader'));
+      const ticks = lines.filter((l) => l.includes('data-marker-tick'));
+      assert.equal(leaders.length, 1);
+      assert.equal(ticks.length, 1);
+      for (const line of lines) {
+        assert.match(line, /stroke="var\(--fgColor-muted\)" stroke-width="1"/);
+        const [y1, y2] = ys(line);
+        assert.ok(!(Math.min(y1, y2) <= 0 && Math.max(y1, y2) >= innerH), 'no marker line spans the plot');
+      }
+      assert.deepEqual(ys(ticks[0]), [innerH, innerH + 4]);
+      const [y1, y2] = ys(leaders[0]);
+      assert.ok(y1 < 0 && y2 >= y1 && y2 < innerH, `leader ${y1}→${y2} drops from the band and stops above the baseline`);
+    }
     assert.doesNotMatch(html, /stroke-dasharray/);
     const broCard = html.slice(html.indexOf('data-agent="bro"'));
     assert.doesNotMatch(broCard, /p50 \d|p95 \d|data-marker/);
@@ -969,6 +986,48 @@ describe('Insights view', () => {
     assert.ok(ticks.length >= 2);
     for (const [, dx, x] of ticks) {
       assert.ok(Number(axisX) + Number(dx) + Number(x) > Math.max(...labels.map((l) => l.right)), 'y tick labels stay right of every marker label');
+    }
+  });
+
+  test('marker leaders: drop from under the label to 4px above the bar they touch, on a crisp pixel', () => {
+    const innerH = 164;
+    const leader = (x, labelBottom, bars) => mod.markerLeader({ x, labelBottom, bars, innerH });
+    const over = leader(15, -3, [{ left: 10, right: 20, top: 60 }]);
+    assert.deepEqual([over.y1, over.y2], [-1, 56]);
+    assert.equal(leader(50, -3, [{ left: 10, right: 20, top: 60 }]).y2, innerH - 4);
+    assert.equal(leader(50, -3, []).y2, innerH - 4);
+    const gap = [{ left: 0, right: 10, top: 80 }, { left: 12, right: 22, top: 40 }];
+    assert.equal(leader(11, -3, gap).y2, 36, 'a marker mid-gap clears the taller neighbour');
+    for (const x of [10.5, 11.5]) assert.equal(leader(x, -3, gap).y2, 36);
+    assert.equal(leader(5, -3, gap).y2, 76, 'inside the shorter bar, away from the gap');
+    const tall = leader(15, -3, [{ left: 10, right: 20, top: -10 }]);
+    assert.equal(tall.y2, tall.y1, 'a bar above the label leaves a zero-length leader');
+    for (const x of [15, 15.2, 15.5, 15.7, 0, 431.9]) assert.equal(leader(x, -3, []).x, Math.round(x) + 0.5);
+  });
+
+  test('marker leaders in the rendered histogram start under their labels and stop above the bars', () => {
+    const edges = Array.from({ length: 11 }, (_, i) => Math.round(10 ** (3 + 0.3 * i)));
+    const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
+    const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
+    for (const [p50, p95] of [[Math.sqrt(edges[8] * edges[9]), 746_200], [edges[3], edges[7]], [edges[1] * 1.1, edges[9]]]) {
+      const svg = mod.histogramSvg({ label: 'swe', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+      const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) h([\d.-]+)\s*a([\d.]+),/g)].map(([, mx, my, run, r]) => {
+        const left = Number(mx) - Number(r);
+        return { left, right: left + Number(run) + 2 * Number(r), top: Number(my) };
+      });
+      assert.equal(bars.length, 9);
+      const groups = [...svg.matchAll(/<g data-marker="">(.*?)<\/g>/g)].map((m) => m[1]);
+      assert.equal(groups.length, 2);
+      for (const g of groups) {
+        const [lx, y1, y2] = /<line[^>]*x1="([\d.-]+)" y1="([\d.-]+)" x2="[\d.-]+" y2="([\d.-]+)"[^>]*data-marker-leader=""/.exec(g).slice(1).map(Number);
+        const [, x, baseline, anchor, text] = /<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*>([^<]+)<\/text>/.exec(g);
+        const w = text.length * 6.6;
+        const left = anchor === 'end' ? Number(x) - w : Number(x);
+        const bottom = mod.labelBox({ x: Number(x), anchor, left, right: left + w, row: 0, baseline: Number(baseline) }).bottom;
+        assert.ok(y1 >= bottom, `${text}: leader y1 ${y1} at or below the label bottom ${bottom}`);
+        assert.equal(lx % 1, 0.5, `${text}: leader on a half pixel`);
+        for (const b of bars.filter((b) => b.left < lx + 0.5 && b.right > lx - 0.5)) assert.ok(y2 <= b.top - 4 || (y2 === y1 && b.top - 4 < y1), `${text}: leader ends ${y2}, 4px above the bar top ${b.top} or zero-length`);
+      }
     }
   });
 
