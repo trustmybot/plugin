@@ -1,0 +1,2 @@
+### Fixed
+- **The remote-id guard catches mis-cited issue ids again** (GH 1864, GH 1821): the guard looked up local issues by a `title` column the trajectory DB does not have, so it never denied anything. It now reads `objective`, and a PR body or issue comment that cites local issue 5 as a bare number when its GitHub issue is 42 is denied again, with the reason naming the GitHub issue and quoting the local objective.
