@@ -1,5 +1,5 @@
-// Compatibility entry point for the maintenance scripts that still import
-// dist/graph-db.js (run-scan.mjs, run-scan-initial.mjs). The world model lives
+// Path-opened world-model graph, re-exported by the bundled scan entry
+// (src/run-scan.ts) that the hook scan invokers import. The world model lives
 // in the trajectory DB (src/graph.ts); a path argument opens its own handle on
 // that DB, which close() releases. ensureGraph/openError let a bare graph
 // stand in where scanTools expects a GraphHolder.

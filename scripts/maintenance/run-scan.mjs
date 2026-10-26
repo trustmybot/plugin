@@ -39,9 +39,9 @@ async function main() {
   if (dbPath === ':memory:' || !existsSync(dbPath)) {
     fail(2, `no trajectory DB at ${dbPath}; nothing scanned`);
   }
-  const { TrajectoryDB } = await import('../../mcp/trajectory-server/dist/db.js');
-  const { GraphHolder, WorldModelGraph } = await import('../../mcp/trajectory-server/dist/graph-db.js');
-  const { scanTools } = await import('../../mcp/trajectory-server/dist/tools/scan.js');
+  const { TrajectoryDB, GraphHolder, WorldModelGraph, scanTools } = await import(
+    '../../mcp/trajectory-server/dist/run-scan.js'
+  );
 
   let db;
   try {

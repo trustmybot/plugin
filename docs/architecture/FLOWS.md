@@ -197,7 +197,7 @@ Triggered five ways (the `source` value is verified against `scan.ts`):
 |---|---|---|
 | First code-touching ask when the world model is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
 | User typed `/scan` | `user_manual` | The slash command body passes it |
-| `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background |
+| `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background; it imports the bundled `mcp/trajectory-server/dist/run-scan.js`, which inlines web-tree-sitter, so symbols index in a plugin cache without devDependencies (GH 1878) |
 | Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
 | trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument |
 
