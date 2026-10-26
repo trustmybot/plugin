@@ -36724,6 +36724,16 @@ function refResolves(repoPath, ref2) {
     return false;
   }
 }
+function normalizeBase(repoPath, base) {
+  if (!base.startsWith("origin/") || refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return base.slice("origin/".length);
+}
+function resolveBaseRef(repoPath, rawBase) {
+  const base = normalizeBase(repoPath, rawBase);
+  if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
+  if (refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return null;
+}
 function gitOut(repoPath, args2) {
   const res = spawnSync7("git", ["-C", repoPath, ...args2], {
     encoding: "utf8",
@@ -36749,6 +36759,8 @@ var WORLD_MODEL_GET_MAX_NODES = 500;
 var RRF_K = 60;
 var SEARCH_BACKFILL_LIMIT = 50;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
+var NET_DIFF_MAX_TARGET_COMMITS = 500;
+var PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
 var SYMBOL_POOL = 40;
 var FILE_RANK_POOL = 20;
 var PATH_RANK_K = 10;
@@ -36756,6 +36768,34 @@ var DEFAULT_IMPACT_DEPTH = 2;
 var SOURCE_MAX_LINES = 200;
 function git2(repoPath, args2) {
   return spawnSync8("git", ["-C", repoPath, ...args2], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+}
+function patchIds(repoPath, args2) {
+  const opts = { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS, maxBuffer: PATCH_ID_MAX_BUFFER };
+  const patch = spawnSync8("git", ["-C", repoPath, ...args2], opts);
+  if (patch.error || patch.status !== 0) return null;
+  if (!patch.stdout.trim()) return [];
+  const ids = spawnSync8("git", ["-C", repoPath, "patch-id", "--stable"], { ...opts, input: patch.stdout });
+  if (ids.error || ids.status !== 0) return null;
+  return ids.stdout.split("\n").map((line) => line.split(" ")[0]?.trim()).filter((id) => !!id);
+}
+function netDiffLandedOn(repoPath, tip, target) {
+  const mb = git2(repoPath, ["merge-base", target, tip]);
+  const base = mb.stdout?.trim();
+  if (mb.status !== 0 || !base) return false;
+  const branch = patchIds(repoPath, ["diff", "--no-color", "--no-ext-diff", base, tip]);
+  if (!branch || branch.length === 0) return false;
+  const landed = patchIds(repoPath, [
+    "log",
+    "-p",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-merges",
+    "--format=commit %H",
+    "-n",
+    String(NET_DIFF_MAX_TARGET_COMMITS),
+    `${base}..${target}`
+  ]);
+  return !!landed && landed.includes(branch[0]);
 }
 function tipIntegratedInto(repoPath, tip, target) {
   const ancestor = git2(repoPath, ["merge-base", "--is-ancestor", tip, target]);
@@ -36770,6 +36810,7 @@ function tipIntegratedInto(repoPath, tip, target) {
   }
   const cherry = git2(repoPath, ["cherry", target, tip]);
   if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return "integrated";
+  if (netDiffLandedOn(repoPath, tip, target)) return "integrated";
   return "unmerged";
 }
 function computeUnmergedWork(db, repo) {
@@ -36780,7 +36821,7 @@ function computeUnmergedWork(db, repo) {
   );
   if (!repoRow) return { unmerged_work: [] };
   const repoPath = repoRowPath(db, repoRow.path);
-  const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
+  const targetBranch = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
   const gitCheck = spawnSync8("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
@@ -36788,6 +36829,8 @@ function computeUnmergedWork(db, repo) {
   if (gitCheck.error || gitCheck.status !== 0) {
     return { unmerged_work: [], warning: "unmerged-work-unavailable" };
   }
+  const target = resolveBaseRef(repoPath, targetBranch);
+  if (!target) return { unmerged_work: [] };
   const rows = db.all(
     `SELECT branch_id, parent_branch_id, commit_sha, status
        FROM tasks
@@ -36799,7 +36842,7 @@ function computeUnmergedWork(db, repo) {
   for (const r of rows) {
     let entry = byBranch.get(r.branch_id);
     if (!entry) {
-      entry = { parent_branch_id: r.parent_branch_id, tip: r.commit_sha, closed_tasks: 0 };
+      entry = { parent_branch_id: r.parent_branch_id, closed_tasks: 0 };
       byBranch.set(r.branch_id, entry);
     }
     if (r.status === "closed") entry.closed_tasks++;
@@ -36812,7 +36855,8 @@ function computeUnmergedWork(db, repo) {
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const integration = tipIntegratedInto(repoPath, entry.tip, target);
+    const tip = refCheck.stdout.trim();
+    const integration = tipIntegratedInto(repoPath, tip, target);
     if (integration === "spawn-error") {
       return { unmerged_work: [], warning: "unmerged-work-unavailable" };
     }
@@ -36820,7 +36864,7 @@ function computeUnmergedWork(db, repo) {
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,
-      tip: entry.tip,
+      tip,
       closed_tasks: entry.closed_tasks,
       merged_into_target: false
     });
