@@ -3,9 +3,10 @@
 #   Part A — scripts/cheatcode-install.sh assembles the install payload from a
 #            fixture (no live marketplace). JSON shape + kind-dependent
 #            attachment + the skill-kind proposed-PR payload.
-#            A claude PATH shim records the live adapter's argv: every call
-#            runs with --scope project, and --scope global is refused with
-#            outside_project before any call (GH 1533).
+#            A claude PATH shim records the live adapter's argv: every plugin
+#            call runs with --scope project, --scope global is refused with
+#            outside_project before any call (GH 1533), and the mcp kind fails
+#            closed with no call (GH 1885).
 #   Part B — scripts/hooks/cheatcode-install-approval.sh fails closed: deny
 #            without an approval record, allow with one.
 # Network is stubbed via TMB_CHEATCODE_INSTALL_FIXTURE or the shim — no live web.
@@ -107,11 +108,14 @@ assert_eq "$PROJECT_REAL
 $PROJECT_REAL
 $PROJECT_REAL" "$(cat "$PWD_LOG")" "plugin claude cwd"
 
-test_case "mcp kind: mcp add runs with --scope project"
+test_case "mcp kind: fails closed with no claude call and no .mcp.json"
 OUT_MCP_LIVE=$(run_live --candidate '{"name":"pdf-mcp","kind":"mcp","source_url":"https://x.test/pdf-mcp"}')
-assert_eq "true" "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.installed')" "live mcp installed"
-assert_eq "mcp add --scope project pdf-mcp https://x.test/pdf-mcp" "$(cat "$ARGV_LOG")" "mcp argv"
-assert_eq "$PROJECT_REAL" "$(cat "$PWD_LOG")" "mcp claude cwd"
+assert_eq "false" "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.installed')" "live mcp installed"
+assert_eq "mcp add needs a run-command (source_url only) — see follow-up" \
+  "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.error')" "live mcp error"
+assert_eq "" "$(cat "$ARGV_LOG")" "mcp claude calls"
+assert_eq "" "$(cat "$PWD_LOG")" "mcp claude cwd"
+if [ ! -e "$TMB_PROJECT_ROOT/.mcp.json" ] && [ ! -e "$NOFIX_CWD/.mcp.json" ]; then _pass; else _fail ".mcp.json written"; fi
 
 test_case "TMB_PROJECT_ROOT unset fails non-zero with a clear message"
 set +e
