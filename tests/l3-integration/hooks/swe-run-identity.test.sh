@@ -48,6 +48,10 @@ sqlite3 "$DB" "
 export TRAJECTORY_DB_PATH="$DB"
 export CLAUDE_PROJECT_DIR="$REPO"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+PLUGIN_VERSION=$(jq -r .version "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json")
+OTHER_ROOT="$TMPDIR/other-plugin"
+mkdir -p "$OTHER_ROOT/.claude-plugin"
+echo '{"name":"tmb","version":"0.0.1-other"}' > "$OTHER_ROOT/.claude-plugin/plugin.json"
 
 for slug in 7-identity 8-resume; do
   git -C "$REPO" branch "fix/$slug" HEAD
@@ -123,6 +127,7 @@ assert_eq "tool_use:toolu_spawn7|sess-main|medium|claude" \
   "$(q "SELECT spawn_id, session_id, effort, host FROM agent_runs WHERE task_id=7;")" \
   "spawn_id, session_id and effort set at spawn"
 assert_eq "$REPO/.claude/worktrees/7-identity" "$(q "SELECT root_dir FROM agent_runs WHERE task_id=7;")" "root_dir is the task worktree"
+assert_eq "$PLUGIN_VERSION" "$(q "SELECT plugin_version FROM agent_runs WHERE task_id=7;")" "record-swe-spawn writes the manifest plugin_version (GH 1884)"
 
 test_case "(b) two task_brief calls from one agent_id leave one row keyed by it"
 assert_eq "ok" "$(brief 7 agent-7 toolu_brief1)" "first task_brief"
@@ -131,6 +136,7 @@ assert_eq "1" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=7 AND agent_ty
 assert_eq "agent-7|sess-main|medium|" \
   "$(q "SELECT spawn_id, session_id, effort, COALESCE(completed_at, '') FROM agent_runs WHERE task_id=7;")" \
   "bound to the agent_id, still open"
+assert_eq "$PLUGIN_VERSION" "$(q "SELECT plugin_version FROM agent_runs WHERE task_id=7;")" "binding the row keeps its plugin_version"
 
 test_case "(e) no open unbound swe row survives spawn + brief"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs WHERE agent_type='swe' AND completed_at IS NULL AND spawn_id IS NULL;")" "zero open spawn_id NULL swe rows"
@@ -144,7 +150,8 @@ assert_eq "agent-7||" "$(q "SELECT spawn_id, COALESCE(exit_reason, ''), COALESCE
 test_case "(d) failed stop, resume, committed stop leave the failed row and a chained completed row"
 spawn 8 toolu_spawn8 >/dev/null
 assert_eq "ok" "$(brief 8 agent-8 toolu_brief4)" "task_brief binds"
-stop 8 agent-8
+CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" stop 8 agent-8
+assert_eq "$PLUGIN_VERSION" "$(q "SELECT plugin_version FROM agent_runs WHERE task_id=8;")" "the stop of the open row under another version keeps its plugin_version"
 assert_eq "running" "$(q "SELECT status FROM tasks WHERE id=8;")" "a stop without commits leaves the task running"
 assert_eq "failed" "$(q "SELECT exit_reason FROM agent_runs WHERE task_id=8;")" "the first stop records failed"
 FIRST8=$(q "SELECT id FROM agent_runs WHERE task_id=8;")
@@ -159,6 +166,9 @@ assert_eq "2" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=8;")" "two row
 assert_eq "agent-8|completed|$FIRST8" \
   "$(q "SELECT spawn_id, exit_reason, resumed_from FROM agent_runs WHERE task_id=8 ORDER BY id DESC LIMIT 1;")" \
   "the resumed row carries the latest stop's exit_reason"
+assert_eq "$PLUGIN_VERSION|$PLUGIN_VERSION" \
+  "$(q "SELECT GROUP_CONCAT(plugin_version, '|') FROM (SELECT plugin_version FROM agent_runs WHERE task_id=8 ORDER BY id);")" \
+  "task_brief's resumed insert carries the server's plugin_version"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=8 AND exit_reason='swept_orphan';")" "zero swept_orphan rows"
 
 test_case "(f) no closed task's latest bound swe row reads failed (GH 1500)"

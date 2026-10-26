@@ -232,14 +232,29 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 49 in plugin_meta', () => {
+  it('fresh DB: agent_runs.plugin_version is the nullable last column and defaults to NULL (v50)', () => {
+    const db = tempDB();
+    const columns = db.all<{ name: string; type: string; notnull: number; dflt_value: unknown }>(
+      'PRAGMA table_info(agent_runs)',
+    );
+    const last = columns[columns.length - 1]!;
+    assert.deepEqual(
+      { name: last.name, type: last.type, notnull: last.notnull, dflt_value: last.dflt_value },
+      { name: 'plugin_version', type: 'TEXT', notnull: 0, dflt_value: null },
+    );
+    db.run(`INSERT INTO agent_runs (agent_type) VALUES ('bro')`);
+    assert.equal(db.get<{ plugin_version: unknown }>('SELECT plugin_version FROM agent_runs')?.plugin_version, null);
+    db.close();
+  });
+
+  it('fresh DB has schema_version = 50 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 49);
+    assert.equal(meta.schema_version, 50);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

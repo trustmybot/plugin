@@ -83,6 +83,9 @@ SESSION_SQL="NULL"
 [ -n "$SESSION_ID" ] && SESSION_SQL="'$(tmb_sql_quote "$SESSION_ID")'"
 MODEL_SQL="NULL"
 [ -n "$MODEL" ] && MODEL_SQL="'$(tmb_sql_quote "$MODEL")'"
+PLUGIN_VERSION=$(tmb_plugin_version)
+PLUGIN_VERSION_SQL="NULL"
+[ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_SQL="'$(tmb_sql_quote "$PLUGIN_VERSION")'"
 NOW=$(tmb_now_iso)
 
 tmb_db_write "$DB" "
@@ -99,9 +102,9 @@ UPDATE agent_runs
 UPDATE tasks SET status = 'running', updated_at = '${NOW}', completed_at = NULL
  WHERE id = ${SAFE_TASK_ID} AND status = 'pending';
 INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host,
-                        session_id, effort, model, spawn_id)
+                        session_id, effort, model, spawn_id, plugin_version)
 SELECT id, issue_id, 'swe', '${NOW}', repo, ${ROOT_DIR_SQL}, 'claude',
-       ${SESSION_SQL}, ${EFFORT_SQL}, ${MODEL_SQL}, '$(tmb_sql_quote "$SPAWN_ID")'
+       ${SESSION_SQL}, ${EFFORT_SQL}, ${MODEL_SQL}, '$(tmb_sql_quote "$SPAWN_ID")', ${PLUGIN_VERSION_SQL}
   FROM tasks WHERE id = ${SAFE_TASK_ID};" >/dev/null 2>&1 || true
 
 exit 0

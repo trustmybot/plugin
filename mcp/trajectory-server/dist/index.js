@@ -25444,7 +25444,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 49;
+var TARGET_SCHEMA_VERSION = 50;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -25998,6 +25998,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 49 && toVersion >= 49) {
     migrateV48toV49(db2);
+  }
+  if (fromVersion < 50 && toVersion >= 50) {
+    migrateV49toV50(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27731,6 +27734,22 @@ function migrateV48toV49(db2) {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
     `);
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
+function migrateV49toV50(db2) {
+  if (!tableExists(db2, "agent_runs")) return;
+  beginImmediate(db2);
+  try {
+    if (!hasColumn(db2, "agent_runs", "plugin_version")) {
+      db2.exec("ALTER TABLE agent_runs ADD COLUMN plugin_version TEXT");
+    }
     commitTransaction(db2);
   } catch (err21) {
     try {
@@ -30845,18 +30864,18 @@ function openSweRun(db2, task, now2, ctx, rootDir) {
   if (resume) {
     db2.transaction(() => {
       db2.run(
-        `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, spawn_id, effort, resumed_from)
-         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?, ?)`,
-        [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host, resume.previous.spawn_id, resume.previous.effort, resume.previous.id]
+        `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, spawn_id, effort, resumed_from, plugin_version)
+         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host, resume.previous.spawn_id, resume.previous.effort, resume.previous.id, db2.pluginVersion]
       );
       db2.run(`UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`, [resume.observationId]);
     });
     return true;
   }
   db2.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
-     VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host]
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, plugin_version)
+     VALUES (?, ?, 'swe', ?, ?, ?, ?, ?)`,
+    [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host, db2.pluginVersion]
   );
   return true;
 }

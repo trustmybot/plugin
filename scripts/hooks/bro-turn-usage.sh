@@ -110,6 +110,10 @@ if [ "$(tmb_db_location "$PROJECT_ROOT")" = "$DB_PATH" ]; then
   ROOT_SQL="'$(tmb_sql_quote "$PROJECT_ROOT")'"
 fi
 
+PLUGIN_VERSION=$(tmb_plugin_version)
+PLUGIN_VERSION_SQL="NULL"
+[ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_SQL="'$(tmb_sql_quote "$PLUGIN_VERSION")'"
+
 SAFE_SESSION=$(tmb_sql_quote "$SESSION_ID")
 SESSION_ROW="agent_type = 'bro' AND task_id IS NULL AND session_id = '${SAFE_SESSION}'"
 DURATION_SQL="MAX(0, CAST(ROUND((julianday('${LAST_TS}') - julianday('${FIRST_TS}')) * 86400000) AS INTEGER))"
@@ -133,9 +137,10 @@ UPDATE agent_runs
 
 INSERT INTO agent_runs (agent_type, task_id, issue_id, session_id, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, started_at, completed_at, duration_ms,
-                        usage_source, model, host, root_dir, exit_reason)
+                        usage_source, model, host, root_dir, exit_reason, plugin_version)
 SELECT 'bro', NULL, NULL, '${SAFE_SESSION}', ${T_IN}, ${T_OUT}, ${T_CR}, ${T_CC}, ${T_TU},
-       '${FIRST_TS}', '${LAST_TS}', ${DURATION_SQL}, 'transcript', ${SAFE_MODEL}, 'claude', ${ROOT_SQL}, 'completed'
+       '${FIRST_TS}', '${LAST_TS}', ${DURATION_SQL}, 'transcript', ${SAFE_MODEL}, 'claude', ${ROOT_SQL}, 'completed',
+       ${PLUGIN_VERSION_SQL}
  WHERE NOT EXISTS (SELECT 1 FROM agent_runs WHERE ${SESSION_ROW});
 " || exit 0
 

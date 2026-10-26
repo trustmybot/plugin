@@ -44,7 +44,7 @@ CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEX
 CREATE TABLE issues (id INTEGER PRIMARY KEY, repo TEXT);
 INSERT INTO issues (id) VALUES (-1), (1);
 CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL, branch_id TEXT, from_node TEXT NOT NULL, event_type TEXT NOT NULL, summary TEXT NOT NULL, content_json TEXT NOT NULL DEFAULT '{}', repo TEXT, created_at TEXT NOT NULL);
-CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, issue_id INTEGER, agent_type TEXT NOT NULL, tokens_in INTEGER, tokens_out INTEGER, cache_read_tokens INTEGER, cache_creation_tokens INTEGER, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT, repo TEXT, spawn_id TEXT, session_id TEXT, usage_source TEXT, root_dir TEXT, model TEXT, host TEXT, exit_reason TEXT, effort TEXT);
+CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, issue_id INTEGER, agent_type TEXT NOT NULL, tokens_in INTEGER, tokens_out INTEGER, cache_read_tokens INTEGER, cache_creation_tokens INTEGER, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, started_at TEXT, completed_at TEXT, repo TEXT, spawn_id TEXT, session_id TEXT, usage_source TEXT, root_dir TEXT, model TEXT, host TEXT, exit_reason TEXT, effort TEXT, plugin_version TEXT);
 CREATE UNIQUE INDEX idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
 CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '""');
 INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '"dev"');

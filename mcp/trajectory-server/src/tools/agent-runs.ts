@@ -214,18 +214,18 @@ export function openSweRun(
   if (resume) {
     db.transaction(() => {
       db.run(
-        `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, spawn_id, effort, resumed_from)
-         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?, ?)`,
-        [task.id, task.issue_id, now, task.repo, rootDir, ctx.host, resume.previous.spawn_id, resume.previous.effort, resume.previous.id],
+        `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, spawn_id, effort, resumed_from, plugin_version)
+         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [task.id, task.issue_id, now, task.repo, rootDir, ctx.host, resume.previous.spawn_id, resume.previous.effort, resume.previous.id, db.pluginVersion],
       );
       db.run(`UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`, [resume.observationId]);
     });
     return true;
   }
   db.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
-     VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, rootDir, ctx.host],
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, plugin_version)
+     VALUES (?, ?, 'swe', ?, ?, ?, ?, ?)`,
+    [task.id, task.issue_id, now, task.repo, rootDir, ctx.host, db.pluginVersion],
   );
   return true;
 }

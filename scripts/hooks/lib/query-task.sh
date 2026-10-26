@@ -30,6 +30,16 @@ tmb_plugin_name() {
   fi
 }
 
+# tmb_plugin_version
+# The version from CLAUDE_PLUGIN_ROOT's manifest; prints nothing when the root,
+# the manifest or jq is missing.
+tmb_plugin_version() {
+  local manifest="${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json"
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$manifest" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -r '.version // empty' "$manifest" 2>/dev/null || true
+}
+
 # tmb_db_location <root>
 # Prints where <root>'s trajectory DB lives (whether or not it exists).
 tmb_db_location() {

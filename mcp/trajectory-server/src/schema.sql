@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 49, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 50, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -408,9 +408,15 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     -- a SendMessage after it stopped). task_brief's openSweRun sets it; it is
     -- NULL on a fresh spawn and on every other agent type (GH 1742; schema
     -- v49). The row meters only the transcript entries from its started_at on.
+    resumed_from         INTEGER REFERENCES agent_runs(id),
+    -- plugin_version: the plugin version of the code that inserted the row
+    -- (GH 1884; schema v50). openSweRun writes it from the TrajectoryDB
+    -- instance and record-swe-spawn.sh and swe-atomic-close.sh and
+    -- bro-turn-usage.sh write it from the plugin manifest. No UPDATE changes
+    -- it. NULL means the row predates v50 or agent_runs_backfill wrote it.
     -- Keep this comment comma-free: SQLite's DROP COLUMN on a last column cuts back to the
     -- nearest comma and would land inside this comment.
-    resumed_from         INTEGER REFERENCES agent_runs(id)
+    plugin_version       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
