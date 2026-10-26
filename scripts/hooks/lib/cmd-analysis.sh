@@ -640,7 +640,9 @@ tmb_cmd_decode() {
 # \022<word>… — to `for VAR in $(cmd …)` (after its `$()`) and to the `read` of
 # `src | while read VAR` / `while read VAR; do …; done < <(src)`, and to the
 # `xargs` of `src | xargs …` — when that source is one simple command (see
-# _tmb_cmd_loop_source).
+# _tmb_cmd_loop_source). Also with `assign`, a loop's statements are framed by
+# a `{<TAB>do` and a `}<TAB>done` line: from its `while` / `until` (the
+# condition runs on every pass) or from the `do` of a `for` / `select`.
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -795,7 +797,7 @@ _tmb_cmd_statements_enc() {
       while (first <= n) {
         if (w[first] == "") { first++; continue }
         if (w[first] == "while") sawwhile = 1
-        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { plain = 0; first++; continue }
+        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|fi|done|esac)$/) { if (assign) loopkw(w[first]); plain = 0; first++; continue }
         if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { asg = asg (asg == "" ? "" : " ") w[first]; aw[++na] = w[first]; first++; continue }
         if (w[first] ~ /^(sudo|env|command|nohup|time|exec)$/) {
           first = unwrap(w, n, first); plain = 0
@@ -812,6 +814,7 @@ _tmb_cmd_statements_enc() {
         return
       }
       a0 = w[first]
+      if (assign && (a0 == "for" || a0 == "select")) ls[++lsp] = "f"
       ok = plain && na == 0
       if (ok && a0 == "export") {
         for (k = first + 1; k <= n; k++) {
@@ -858,6 +861,11 @@ _tmb_cmd_statements_enc() {
       if (!chained) { old = "-"; owhy = "" }
       vend(ok)
     }
+    function loopkw(k) {
+      if (k == "while" || k == "until") { ls[++lsp] = "o"; printf "{\tdo\n" }
+      else if (k == "do") { if (lsp > 0 && ls[lsp] == "f") { ls[lsp] = "o"; printf "{\tdo\n" } }
+      else if (k == "done" && lsp > 0) { if (ls[lsp] == "o") printf "}\tdone\n"; lsp-- }
+    }
     function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; stack[++sp] = cur }
     function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; cur = stack[sp--] } }
     function rawword(t,   k, m, ch, out, x) {
@@ -882,7 +890,7 @@ _tmb_cmd_statements_enc() {
       vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
       if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
       if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
-      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""
+      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0
       qo = sprintf("%c", 7); qc = sprintf("%c", 8)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }
@@ -2472,6 +2480,13 @@ _tmb_cmd_write_paths_in() {
   case "$cmd" in *'<<'*) bodies=$(_tmb_cmd_heredoc_align "$cmd" "$listing") ;; esac
   while IFS="$(printf '\t')" read -r dir stmt; do
     idx=$((idx + 1))
+    case "$dir" in
+      '{')
+        _tmb_cmd_loop_vars "$(printf '%s\n' "$listing" | awk -F'\t' -v s="$idx" 'NR <= s { next } $1 == "{" { d++ } $1 == "}" { if (!d) exit; d-- } { print }')" "$cwd" "$depth"
+        continue
+        ;;
+      '}') continue ;;
+    esac
     old="${dir#*$'\022'}"
     [ "$old" != "$dir" ] || old="-"
     dir="${dir%%$'\022'*}"
@@ -2534,6 +2549,54 @@ _tmb_cmd_write_paths_in() {
     _tmb_cmd_track_vars "${words[@]}"
   done <<< "$listing"
   return 0
+}
+
+# _tmb_cmd_loop_vars <loop-listing> <cwd> <depth>
+# At a loop's `{` line: adds to _TMB_CMD_VARS every value the loop's
+# statements (<loop-listing>, up to its `}`, nested loops included) assign,
+# pass after pass until one adds none, so a use that precedes an in-body
+# assignment also sees what a later pass assigns (GH 1944). A name still
+# gaining values after 8 passes holds \001.
+_tmb_cmd_loop_vars() {
+  local loop="${1:-}" cwd="${2:-}" depth="${3:-0}" seed prev dir stmt w line pass
+  local _TMB_CMD_PWD="${_TMB_CMD_PWD:-}" _TMB_CMD_OLDTOK="${_TMB_CMD_OLDTOK:--}"
+  local -a words
+  _tmb_cmd_vars_uniq
+  seed="$_TMB_CMD_VARS"
+  for pass in 1 2 3 4 5 6 7 8; do
+    prev="$_TMB_CMD_VARS"
+    while IFS="$(printf '\t')" read -r dir stmt; do
+      case "$dir" in '{'|'}') continue ;; esac
+      _TMB_CMD_OLDTOK="${dir#*$'\022'}"
+      [ "$_TMB_CMD_OLDTOK" != "$dir" ] || _TMB_CMD_OLDTOK="-"
+      _TMB_CMD_OLDTOK="${_TMB_CMD_OLDTOK%%$'\022'*}"
+      dir="${dir%%$'\022'*}"
+      read -r -a words <<< "$stmt"
+      [ "${#words[@]}" -gt 0 ] || continue
+      if [ "${dir#=}" != "$dir" ]; then
+        _TMB_CMD_PWD=$(_tmb_cmd_dir_path "${dir#=}" "$cwd")
+        for w in "${words[@]}"; do _tmb_cmd_var_set "${w%%=*}" "$(tmb_cmd_decode "${w#*=}")"; done
+        continue
+      fi
+      [ "$depth" -ge 3 ] || [ -z "$(_tmb_cmd_inner "$stmt")" ] || continue
+      _TMB_CMD_PWD=$(_tmb_cmd_dir_path "$dir" "$cwd")
+      _tmb_cmd_track_vars "${words[@]}"
+    done <<< "$loop"
+    _tmb_cmd_vars_uniq
+    [ "$_TMB_CMD_VARS" != "$prev" ] || return 0
+  done
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case $'\n'"$seed" in *$'\n'"$line"$'\n'*) continue ;; esac
+    _TMB_CMD_VARS="${_TMB_CMD_VARS}${line%%$'\t'*}"$'\t\001\n'
+  done <<< "$_TMB_CMD_VARS"
+  return 0
+}
+
+# _tmb_cmd_vars_uniq: _TMB_CMD_VARS with each line kept once, in first-seen order.
+_tmb_cmd_vars_uniq() {
+  _TMB_CMD_VARS=$(printf '%s' "${_TMB_CMD_VARS:-}" | awk '!seen[$0]++')
+  [ -z "$_TMB_CMD_VARS" ] || _TMB_CMD_VARS="${_TMB_CMD_VARS}"$'\n'
 }
 
 # _tmb_cmd_exec_writes <dir-token> <cwd> <xargs-source-mark> <encoded-statement-words…>
@@ -3112,12 +3175,20 @@ _tmb_cmd_excl_covers() {
 }
 
 # _tmb_cmd_var_get <name>
-# The recorded values of <name>, one per line; non-zero when never assigned.
+# The recorded values of <name>, each once, one per line; non-zero when never
+# assigned.
 _tmb_cmd_var_get() {
-  local line found=1 tab
+  local line found=1 tab seen=$'\n'
   tab="$(printf '\t')"
   while IFS= read -r line; do
-    case "$line" in "${1:-}${tab}"*) printf '%s\n' "${line#*"$tab"}"; found=0 ;; esac
+    case "$line" in
+      "${1:-}${tab}"*)
+        found=0
+        case "$seen" in *$'\n'"$line"$'\n'*) continue ;; esac
+        seen="${seen}${line}"$'\n'
+        printf '%s\n' "${line#*"$tab"}"
+        ;;
+    esac
   done <<< "${_TMB_CMD_VARS:-}"
   return "$found"
 }

@@ -577,6 +577,19 @@ assert_contains "$OUT" "hook_block_bypassed" "the Edit after a judged deny is fl
 assert_eq "$((before + 1))" "$(bypasses)" "one hook_block_bypassed row"
 rm -rf "$DENIES"
 
+test_case "GH 1944: a loop body's later assignment reaches its earlier use"
+for head in 'while :' 'until false' 'for i in 1 2'; do
+  OUT=$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; $head; do echo > \$x; x=/etc/p1944; done")")
+  assert_eq "deny" "$(decision "$OUT")" "$head: echo > \$x before x=/etc/p1944"
+  assert_contains "$OUT" "/etc/p1944" "$head: the in-body value is judged"
+done
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; while :; do while :; do echo > \$x; done; x=/etc/p1944; done")")")" "a use in a nested loop"
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; while :; do echo > \$x; read -r x; done")")
+assert_eq "deny" "$(decision "$OUT")" "an in-body read the guard cannot name"
+assert_contains "$OUT" "cannot be judged" "denied as unjudged"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "for f in a b; do x=$PROJECT/\$f; echo > \$x; done")")")" "a for-loop over in-root targets"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "x=$PROJECT/a; while :; do echo > \$x; done")")")" "a loop that never reassigns"
+
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
 mkdir -p "$BARE"

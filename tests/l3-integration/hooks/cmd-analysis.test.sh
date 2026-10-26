@@ -877,6 +877,16 @@ assert_eq 'UNRESOLVED:PWD:$PWD/f' "$(wpaths 'cd - && touch f' /w)" "cd - && touc
 assert_eq 'UNRESOLVED:U:$U' "$(wpaths 'git -C $U add f' /w)" "git -C \$U add"
 assert_eq '/b/f' "$(wpaths 'D=/b; cd $D && touch f' /w)" "a literal-set variable resolves"
 
+test_case "GH 1944: a loop body's later assignment reaches an earlier use"
+for head in 'while :' 'until false' 'for i in 1 2'; do
+  assert_eq '/w/a,/etc/p1944' "$(wpaths "x=/w/a; $head; do echo > \$x; x=/etc/p1944; done" /w)" "$head"
+done
+assert_eq '/w/a,/etc/p1944' "$(wpaths 'x=/w/a; while :; do while :; do echo > $x; done; x=/etc/p1944; done' /w)" "a nested loop"
+assert_eq 'UNRESOLVED:x:$x' "$(wpaths 'x=/w/a; while :; do echo > $x; read -r x; done' /w)" "an in-body read"
+assert_eq 'UNRESOLVED:x:$x' "$(wpaths 'x=/w; while :; do echo > $x; x=$x/a; done' /w)" "a value that keeps growing"
+assert_eq '/w/a,/w/b' "$(wpaths 'for f in a b; do x=/w/$f; echo > $x; done' /w)" "a for loop over in-root targets"
+assert_eq '/w/a' "$(wpaths 'x=/w/a; while :; do echo > $x; done' /w)" "a loop that never reassigns"
+
 test_case "GH 1602: an inline program's non-literal process call is \$(proc), not \$()"
 assert_eq 'UNRESOLVED:$(proc):$(proc)' "$(pyw 'import subprocess' 'for n in range(3):' "    subprocess.run(['true', str(n)])")" "subprocess.run(['true', str(n)])"
 assert_eq 'UNRESOLVED:X:$X/x' "$(pyw 'import os' 'os.system("cd $X && touch x")')" "a literal shell string still names its variable"

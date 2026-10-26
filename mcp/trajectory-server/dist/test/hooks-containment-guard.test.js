@@ -8,7 +8,8 @@
  * such a deny from recording boundary-deny paths (GH 1750); the deny of a
  * target behind a variable, substitution or cd the guard cannot resolve
  * carries it too (GH 1772). A python target name rebound at top level is
- * judged at every literal it is bound to (GH 1756).
+ * judged at every literal it is bound to (GH 1756). A loop body's later
+ * assignment reaches an earlier use in it (GH 1944).
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -169,6 +170,22 @@ describe('containment-guard (TS): denies that judge no path', () => {
     it('a bare in-root redirect still passes, so the denials above are the reasons, not the paths', async () => {
         const r = await containmentGuard(bash(`echo x > ${project}/src/a`), env);
         assert.deepEqual(r, { stdout: '', code: 0 });
+    });
+    for (const head of ['while :', 'until false', 'for i in 1 2']) {
+        it(`denies a write through $x before a later in-body x=/etc/p1944 under \`${head}\` (GH 1944)`, async () => {
+            const r = await containmentGuard(bash(`x=${project}/src/a; ${head}; do echo > $x; x=/etc/p1944; done`), env);
+            assert.match(reason(r.stdout) ?? '', /\/etc\/p1944/);
+        });
+    }
+    it('denies a nested-loop use and an in-body read it cannot name (GH 1944)', async () => {
+        const nested = await containmentGuard(bash(`x=${project}/src/a; while :; do while :; do echo > $x; done; x=/etc/p1944; done`), env);
+        assert.match(reason(nested.stdout) ?? '', /\/etc\/p1944/);
+        const read = await containmentGuard(bash(`x=${project}/src/a; while :; do echo > $x; read -r x; done`), env);
+        assert.ok((reason(read.stdout) ?? '').includes(UNJUDGED_PHRASE), read.stdout);
+    });
+    it('allows a for-loop and a loop that never reassigns when every target is under the root (GH 1944)', async () => {
+        assert.deepEqual(await containmentGuard(bash(`for f in a b; do x=${project}/src/$f; echo > $x; done`), env), { stdout: '', code: 0 });
+        assert.deepEqual(await containmentGuard(bash(`x=${project}/src/a; while :; do echo > $x; done`), env), { stdout: '', code: 0 });
     });
 });
 //# sourceMappingURL=hooks-containment-guard.test.js.map

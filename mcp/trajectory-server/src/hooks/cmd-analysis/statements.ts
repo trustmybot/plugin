@@ -6,13 +6,16 @@
  * assignment-only statements come out as `=<dir-token>` records, every dir
  * token carries \022<old-dir-token>[\022<why>], an unquoted $( ) or backtick
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
- * \022<dir>\022<word>… mark. The TS keeps `time NAME=value` an assignment
+ * \022<dir>\022<word>… mark, and a loop's statements sit between a `{` and a
+ * `}` record (GH 1944). The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
 import { ENC, HD_DATA, QC, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 
 export const SEP = '\x12';
+export const LOOP_OPEN = '{';
+export const LOOP_CLOSE = '}';
 export const WSEP = '\x14';
 const VSEP = '\x1c';
 const VEQ = '\x1d';
@@ -127,6 +130,22 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
   const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string }> = [];
 
   const emit = (dir: string, text: string) => records.push({ dir, stmt: text });
+  const loops: Array<'f' | 'o'> = [];
+
+  /** With `assign`, frames a loop's statements: `{` from its while / until or the do of a for / select, `}` at its done. */
+  function loopkw(k: string): void {
+    if (k === 'while' || k === 'until') {
+      loops.push('o');
+      emit(LOOP_OPEN, 'do');
+    } else if (k === 'do') {
+      if (loops[loops.length - 1] === 'f') {
+        loops[loops.length - 1] = 'o';
+        emit(LOOP_OPEN, 'do');
+      }
+    } else if (k === 'done' && loops.length > 0) {
+      if (loops.pop() === 'o') emit(LOOP_CLOSE, 'done');
+    }
+  }
 
   function closepar(pos: number): number {
     let d = 0;
@@ -329,6 +348,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       }
       if (w[first] === 'while') sawwhile = true;
       if (KEYWORD.test(w[first])) {
+        if (assign) loopkw(w[first]);
         plain = false;
         first++;
         continue;
@@ -371,6 +391,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       return;
     }
     let a0 = w[first];
+    if (assign && (a0 === 'for' || a0 === 'select')) loops.push('f');
     let ok = plain && aw.length === 0;
     if (ok && a0 === 'export') {
       for (let k = first + 1; k < n; k++) {
