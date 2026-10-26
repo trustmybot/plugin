@@ -6,7 +6,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -157,6 +157,67 @@ describe('test-run wrapper', () => {
       '  ...',
     ]);
     assert.equal(r.log, TAP_FAIL);
+  });
+
+  it('TAP fail: a failing test ends before a sibling nested suite, so each failure prints once', () => {
+    const out = [
+      'TAP version 13',
+      '# Subtest: grp',
+      '    # Subtest: bad1',
+      '    not ok 1 - bad1',
+      '      ---',
+      "      error: 'one'",
+      '      ...',
+      '    # Subtest: inner',
+      '        # Subtest: bad3',
+      '        not ok 1 - bad3',
+      '          ---',
+      "          error: 'deep'",
+      '          ...',
+      '        1..1',
+      '    not ok 2 - inner',
+      '      ---',
+      "      failureType: 'subtestsFailed'",
+      '      ...',
+      '    1..2',
+      'not ok 1 - grp',
+      '  ---',
+      "  failureType: 'subtestsFailed'",
+      '  ...',
+      '1..1',
+      '# pass 0',
+      '# fail 2',
+      '',
+    ].join('\n');
+    const r = run(fixture(out, 1));
+    assert.equal(counts(r), 'exit=1 pass=0 fail=2 skip=0 format=tap');
+    assert.deepEqual(r.lines.slice(1), [
+      '    not ok 1 - bad1',
+      '      ---',
+      "      error: 'one'",
+      '      ...',
+      '        not ok 1 - bad3',
+      '          ---',
+      "          error: 'deep'",
+      '          ...',
+    ]);
+  });
+
+  it('TAP fail under the real node runner: a nested failure prints exactly once', () => {
+    const src = join(dir, 'nested.test.mjs');
+    writeFileSync(
+      src,
+      [
+        'import { describe, it } from "node:test";',
+        'describe("grp", () => { it("bad1", () => { throw new Error("one"); }); describe("inner", () => { it("bad3", () => { throw new Error("deep"); }); }); });',
+        '',
+      ].join('\n'),
+    );
+    const r = run(`env -u NODE_TEST_CONTEXT ${quote(process.execPath)} --test --test-reporter=tap ${quote(src)}`);
+    assert.equal(counts(r), 'exit=1 pass=0 fail=2 skip=0 format=tap');
+    assert.equal(r.lines.filter((l) => l.includes('not ok 1 - bad3')).length, 1);
+    assert.equal(r.lines.filter((l) => l.includes('not ok 1 - bad1')).length, 1);
+    assert.ok(!r.lines.some((l) => l.includes('# Subtest: inner')));
   });
 
   it('spec pass: prints only the summary line', () => {

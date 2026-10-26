@@ -80,7 +80,7 @@ function indentOf(line: string): number {
 }
 
 const TAP_RESULT_RE = /^\s*(not ok|ok)\b/;
-const TAP_STOP_RE = /^\s*(?:(?:not ok|ok)\b|1\.\.\d+)/;
+const TAP_STOP_RE = /^\s*(?:(?:not ok|ok)\b|1\.\.\d+|# Subtest:)/;
 const TAP_TRAILER_RE = /^# (tests|suites|pass|fail|cancelled|skipped|todo|duration_ms) /;
 
 function tapFailures(lines: string[]): string[][] {
@@ -91,11 +91,14 @@ function tapFailures(lines: string[]): string[][] {
     if (!m || m[1] !== 'not ok' || /#\s*(TODO|SKIP)\b/i.test(head)) continue;
     const indent = indentOf(head);
     const block = [head];
+    let yamlIndent: number | null = null;
     for (let j = i + 1; j < lines.length; j++) {
       const line = lines[j];
       if (TAP_TRAILER_RE.test(line)) break;
       if (TAP_STOP_RE.test(line) && indentOf(line) <= indent) break;
       block.push(line);
+      if (block.length === 2 && line.trim() === '---' && indentOf(line) > indent) yamlIndent = indentOf(line);
+      else if (yamlIndent !== null && line.trim() === '...' && indentOf(line) === yamlIndent) break;
     }
     if (block.some((l) => /failureType: 'subtestsFailed'/.test(l))) continue;
     blocks.push(trimBlock(block, /^\s*(# Subtest:.*)?$/));
