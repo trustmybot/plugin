@@ -10,6 +10,15 @@ import { writePathsWith } from './write-paths.js';
 
 export { bashParserLoads, programParserLoads } from './parser.js';
 export { pathCanonical, payloadCwd } from './path.js';
+export {
+  cmdStatements,
+  cwdState,
+  denyAmbiguousGitTarget,
+  gitSubcommand,
+  stmtRepoRoot,
+  type GitStatements,
+  type Statement,
+} from './git.js';
 
 export interface WritePathsOptions {
   cwd?: string;

@@ -1,6 +1,7 @@
 askuserquestion-length-lint
 containment-guard
 ensure-mcp-deps-installed
+git-push-guard
 pr-reviewer-preflight
 pr-reviewer-spawn-note
 rework-limit

@@ -3,6 +3,7 @@
  * of cmd-analysis.sh's tmb_agent_role (GH 1692).
  */
 import { jqAlternatives } from './jq.js';
+export const PR_REVIEWER_ROLE = 'pr-reviewer';
 /** tmb_normalize_role <value>: the value minus everything up to its first colon. */
 export function normalizeRole(raw = '') {
     const colon = raw.indexOf(':');

@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/unsigned",
+  "tool_input": {
+    "command": "cat <<'EOF'\ngit push origin main\nEOF"
+  },
+  "corpus_expect": "allow"
+}

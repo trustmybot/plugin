@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/multi",
+  "tool_input": {
+    "command": "git -C $NOPE push"
+  },
+  "corpus_expect": "comes through a variable"
+}

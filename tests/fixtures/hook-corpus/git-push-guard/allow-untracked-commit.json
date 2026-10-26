@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/project",
+  "tool_input": {
+    "command": "git -C @SANDBOX@/untracked push"
+  },
+  "corpus_expect": "allow"
+}
