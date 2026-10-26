@@ -7,7 +7,7 @@ import { topKByCosine, type WorldModelEmbeddableTable } from '../embeddings/stor
 import { backfillMissing, startWorldModelBackfill, WORLD_MODEL_TABLES } from '../embeddings/backfill.js';
 import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
+import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -47,6 +47,8 @@ const WORLD_MODEL_GET_MAX_NODES = 500;
 const RRF_K = 60;
 const SEARCH_BACKFILL_LIMIT = 50;
 const UNMERGED_WORK_MAX_BRANCHES = 10;
+const NET_DIFF_MAX_TARGET_COMMITS = 500;
+const PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
 const SYMBOL_POOL = 40;
 const FILE_RANK_POOL = 20;
 const PATH_RANK_K = 10;
@@ -67,6 +69,32 @@ function git(repoPath: string, args: string[]): SpawnSyncReturns<string> {
   return spawnSync('git', ['-C', repoPath, ...args], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
 }
 
+function patchIds(repoPath: string, args: string[]): string[] | null {
+  const opts = { encoding: 'utf8' as const, timeout: SUBPROCESS_TIMEOUT_MS, maxBuffer: PATCH_ID_MAX_BUFFER };
+  const patch = spawnSync('git', ['-C', repoPath, ...args], opts);
+  if (patch.error || patch.status !== 0) return null;
+  if (!patch.stdout.trim()) return [];
+  const ids = spawnSync('git', ['-C', repoPath, 'patch-id', '--stable'], { ...opts, input: patch.stdout });
+  if (ids.error || ids.status !== 0) return null;
+  return ids.stdout
+    .split('\n')
+    .map((line) => line.split(' ')[0]?.trim())
+    .filter((id): id is string => !!id);
+}
+
+function netDiffLandedOn(repoPath: string, tip: string, target: string): boolean {
+  const mb = git(repoPath, ['merge-base', target, tip]);
+  const base = mb.stdout?.trim();
+  if (mb.status !== 0 || !base) return false;
+  const branch = patchIds(repoPath, ['diff', '--no-color', '--no-ext-diff', base, tip]);
+  if (!branch || branch.length === 0) return false;
+  const landed = patchIds(repoPath, [
+    'log', '-p', '--no-color', '--no-ext-diff', '--no-merges', '--format=commit %H',
+    '-n', String(NET_DIFF_MAX_TARGET_COMMITS), `${base}..${target}`,
+  ]);
+  return !!landed && landed.includes(branch[0]!);
+}
+
 // Twin of clean-merged-branch.sh's _cmb_integrated (GH 1674). A tip counts as
 // integrated into target when any of these holds, cheapest first, each one
 // bounded git call:
@@ -74,7 +102,11 @@ function git(repoPath: string, args: string[]): SpawnSyncReturns<string> {
 //   2. merging it into target is a no-op — `merge-tree --write-tree` yields
 //      target's own tree (squash or rebase merge of any number of commits);
 //   3. `git cherry` finds every branch commit's patch already in target (a
-//      squashed single commit that target has since edited further).
+//      squashed single commit that target has since edited further);
+//   4. the branch's net diff (merge-base..tip) has the patch-id of one of the
+//      last NET_DIFF_MAX_TARGET_COMMITS target commits since the merge-base (a
+//      multi-commit squash that target has since edited further). Query-only:
+//      _cmb_integrated has no such check, so the deletion gate stays stricter.
 // An upstream reported `[gone]` is not used: a PR closed unmerged looks the same.
 export function tipIntegratedInto(repoPath: string, tip: string, target: string): Integration {
   const ancestor = git(repoPath, ['merge-base', '--is-ancestor', tip, target]);
@@ -91,6 +123,8 @@ export function tipIntegratedInto(repoPath: string, tip: string, target: string)
 
   const cherry = git(repoPath, ['cherry', target, tip]);
   if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return 'integrated';
+
+  if (netDiffLandedOn(repoPath, tip, target)) return 'integrated';
   return 'unmerged';
 }
 
@@ -100,7 +134,8 @@ export function tipIntegratedInto(repoPath: string, tip: string, target: string)
 // have not merged yet — bro then reads an "empty" repo and holds. This walks
 // the tasks table (rows with a commit_sha, grouped by branch_id, newest first)
 // and keeps only branches that still have a live local ref whose tip is not yet
-// integrated into the repo's target branch (tipIntegratedInto: ancestor, or a
+// integrated into the repo's target branch, origin/<target> when it resolves
+// (tipIntegratedInto: ancestor, or a
 // squash/rebase merge whose content target already holds). A deleted ref means
 // the work was integrated or abandoned, so it is skipped. Fail-soft:
 // a non-git repo path or any git spawn failure yields an empty list plus a
@@ -118,7 +153,7 @@ function computeUnmergedWork(
   if (!repoRow) return { unmerged_work: [] };
 
   const repoPath = repoRowPath(db, repoRow.path);
-  const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
+  const targetBranch = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
 
   const gitCheck = spawnSync('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree'], {
     encoding: 'utf8',
@@ -127,6 +162,9 @@ function computeUnmergedWork(
   if (gitCheck.error || gitCheck.status !== 0) {
     return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
   }
+
+  const target = resolveBaseRef(repoPath, targetBranch);
+  if (!target) return { unmerged_work: [] };
 
   const rows = db.all<{
     branch_id: string;
@@ -142,16 +180,13 @@ function computeUnmergedWork(
   );
 
   // Group by branch_id; insertion order (newest updated_at first) is preserved,
-  // so the first row per branch carries the tip. closed_tasks counts the closed
-  // commit-bearing tasks on the branch.
-  const byBranch = new Map<
-    string,
-    { parent_branch_id: string | null; tip: string; closed_tasks: number }
-  >();
+  // so the newest row per branch carries parent_branch_id. closed_tasks counts
+  // the closed commit-bearing tasks on the branch.
+  const byBranch = new Map<string, { parent_branch_id: string | null; closed_tasks: number }>();
   for (const r of rows) {
     let entry = byBranch.get(r.branch_id);
     if (!entry) {
-      entry = { parent_branch_id: r.parent_branch_id, tip: r.commit_sha, closed_tasks: 0 };
+      entry = { parent_branch_id: r.parent_branch_id, closed_tasks: 0 };
       byBranch.set(r.branch_id, entry);
     }
     if (r.status === 'closed') entry.closed_tasks++;
@@ -167,16 +202,19 @@ function computeUnmergedWork(
       { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS },
     );
     if (refCheck.status !== 0) continue; // absent ref → integrated or abandoned, skip
+    const tip = refCheck.stdout.trim();
 
-    const integration = tipIntegratedInto(repoPath, entry.tip, target);
+    // Judge the live ref, not tasks.commit_sha: integrate.sh rebases and
+    // regenerates dist, so the pushed tip differs from the recorded one.
+    const integration = tipIntegratedInto(repoPath, tip, target);
     if (integration === 'spawn-error') {
       return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
     }
-    if (integration !== 'unmerged') continue; // integrated, or a dangling SHA skipped defensively
+    if (integration !== 'unmerged') continue; // integrated, or an unresolvable tip skipped defensively
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,
-      tip: entry.tip,
+      tip,
       closed_tasks: entry.closed_tasks,
       merged_into_target: false,
     });

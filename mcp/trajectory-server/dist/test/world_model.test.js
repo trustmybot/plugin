@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildTree, worldModelTools } from '../tools/world_model.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { resetEmbeddingModelForTests } from '../embeddings/model.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -254,19 +254,20 @@ describe('world_model_get — unmerged_work (#1059)', () => {
             repo.cleanup();
         }
     });
-    it('skips a live-ref branch whose recorded tip is unresolvable, with no warning', async () => {
+    it('lists a live-ref branch by its live tip when the recorded commit_sha is dangling, with no warning (GH 1883)', async () => {
         const repo = gitRepo();
         const db = tempDB();
         try {
             seed(db, repo.repoRoot);
-            // Live ref (fix/unmerged) but a dangling tip → is-ancestor exits 128.
             addTask(db, 'fix/unmerged', 'dev', 'a'.repeat(40), 'closed');
             const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
             const r = (await tools.handlers['world_model_get']({ agent: 'bro' }));
             const out = wmParse(r);
             assert.notEqual(r.isError, true, 'never an is_error');
-            assert.deepEqual(out['unmerged_work'], [], 'dangling tip → skipped');
-            assert.equal(out['warning'], undefined, 'exit-128 is not the spawn .error fail-soft path');
+            const work = out['unmerged_work'];
+            assert.deepEqual(work.map((w) => w['branch_id']), ['fix/unmerged'], 'dangling recorded SHA plays no part');
+            assert.equal(work[0]['tip'], repo.unmergedTip, 'tip is the live ref SHA');
+            assert.equal(out['warning'], undefined);
         }
         finally {
             db.close();
@@ -352,6 +353,107 @@ describe('world_model_get — unmerged_work (#1059)', () => {
             const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
             const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
             assert.deepEqual(out['unmerged_work'], [], 'no qualifying tasks → empty list');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('judges against origin/<target> when local dev lags it (GH 1883)', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            const git = (...a) => execFileSync('git', ['-C', repo.repoRoot, ...a], { encoding: 'utf8' });
+            git('checkout', '-q', '-b', 'fix/other', 'dev');
+            writeFileSync(join(repo.repoRoot, 'o.txt'), 'other\n');
+            git('add', '.');
+            git('commit', '-qm', 'other work');
+            git('checkout', '-q', '-b', 'remote-dev', 'dev');
+            git('merge', '-q', '--squash', 'fix/unmerged');
+            git('commit', '-qm', 'fix/unmerged (#3)');
+            git('update-ref', 'refs/remotes/origin/dev', 'HEAD');
+            git('checkout', '-q', 'dev');
+            git('branch', '-D', 'remote-dev');
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+            addTask(db, 'fix/other', 'dev', git('rev-parse', 'fix/other').trim(), 'closed');
+            const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            const work = out['unmerged_work'];
+            assert.deepEqual(work.map((w) => w['branch_id']), ['fix/other'], 'merged only on origin/dev → omitted');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('judges and reports the live ref tip, not the recorded tasks.commit_sha (GH 1883)', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            const git = (...a) => execFileSync('git', ['-C', repo.repoRoot, ...a], { encoding: 'utf8' });
+            git('checkout', '-q', '-b', 'fix/landed', 'dev');
+            writeFileSync(join(repo.repoRoot, 'l.txt'), 'pre-integrate\n');
+            git('add', '.');
+            git('commit', '-qm', 'landed work');
+            const landedRecorded = git('rev-parse', 'HEAD').trim();
+            git('checkout', '-q', 'dev');
+            writeFileSync(join(repo.repoRoot, 'x.txt'), 'dev moved\n');
+            git('add', '.');
+            git('commit', '-qm', 'dev moves');
+            git('checkout', '-q', 'fix/landed');
+            git('rebase', '-q', 'dev');
+            writeFileSync(join(repo.repoRoot, 'l.txt'), 'integrated\n');
+            git('commit', '-qa', '--amend', '--no-edit');
+            git('checkout', '-q', 'dev');
+            git('merge', '-q', '--ff-only', 'fix/landed');
+            git('checkout', '-q', 'fix/unmerged');
+            writeFileSync(join(repo.repoRoot, 'b.txt'), 'b rebased\n');
+            git('commit', '-qa', '--amend', '--no-edit');
+            const unmergedLive = git('rev-parse', 'HEAD').trim();
+            git('checkout', '-q', 'dev');
+            assert.notEqual(unmergedLive, repo.unmergedTip);
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/landed', 'dev', landedRecorded, 'closed');
+            addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+            const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            const work = out['unmerged_work'];
+            assert.deepEqual(work.map((w) => w['branch_id']), ['fix/unmerged'], 'integrated live tip omitted');
+            assert.equal(work[0]['tip'], unmergedLive, 'tip is the live ref SHA');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('omits a multi-commit squash that target edited afterwards, via net-diff patch-id (GH 1883)', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            const git = (...a) => execFileSync('git', ['-C', repo.repoRoot, ...a], { encoding: 'utf8' });
+            git('checkout', '-q', '-b', 'fix/squashed', 'dev');
+            writeFileSync(join(repo.repoRoot, 'c.txt'), 'c1\n');
+            git('add', '.');
+            git('commit', '-qm', 'squash part 1');
+            writeFileSync(join(repo.repoRoot, 'c.txt'), 'c2\n');
+            git('commit', '-qam', 'squash part 2');
+            const squashedTip = git('rev-parse', 'HEAD').trim();
+            git('checkout', '-q', 'dev');
+            git('merge', '-q', '--squash', 'fix/squashed');
+            git('commit', '-qm', 'fix/squashed (#4)');
+            writeFileSync(join(repo.repoRoot, 'c.txt'), 'c3 edited on dev\n');
+            git('commit', '-qam', 'edit c on dev');
+            const mergeTree = spawnSync('git', ['-C', repo.repoRoot, 'merge-tree', '--write-tree', 'dev', squashedTip], { encoding: 'utf8' });
+            assert.notEqual(mergeTree.status, 0, 'merge-tree check fails');
+            assert.match(git('cherry', 'dev', squashedTip), /^\+/m, 'git cherry check fails');
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+            addTask(db, 'fix/squashed', 'dev', squashedTip, 'closed');
+            const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            const work = out['unmerged_work'];
+            assert.deepEqual(work.map((w) => w['branch_id']), ['fix/unmerged'], 'squash caught by net diff, unmerged kept');
         }
         finally {
             db.close();
