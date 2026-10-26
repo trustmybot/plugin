@@ -37300,7 +37300,7 @@ function prMonitorTools(db2, _spawnFn) {
 
 // src/tools/composites.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync6, realpathSync as realpathSync4 } from "node:fs";
+import { existsSync as existsSync6, realpathSync as realpathSync5 } from "node:fs";
 
 // src/utils/worktree-deps.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
@@ -38542,6 +38542,1635 @@ function briefLocations(db2, repo, spec, taskFiles, maxChars = LOCATIONS_MAX_CHA
   return capToSize({ files, symbols, truncated }, maxChars);
 }
 
+// src/graph.ts
+var SUBTREE_MAX_DEPTH = 256;
+var DIR_COLUMNS = "d.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count, d.summary_sha, d.commits_behind, d.dead_refs";
+var FILE_COLUMNS = "f.id, f.repo, f.path, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at";
+function toDirectoryNode(r) {
+  return {
+    key: WorldModelGraph.dirKey(r.repo, r.path),
+    repo: r.repo,
+    path: r.path,
+    parent_path: r.parent_path,
+    summary: r.summary || null,
+    summary_source: r.summary_source,
+    summary_updated_at: r.summary_updated_at || null,
+    file_count: Number(r.file_count),
+    summary_sha: r.summary_sha ?? null,
+    commits_behind: r.commits_behind === null || r.commits_behind === void 0 ? null : Number(r.commits_behind),
+    dead_refs: parseDeadRefs(r.dead_refs)
+  };
+}
+function parseDeadRefs(raw) {
+  if (raw === null || raw === void 0) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : null;
+  } catch {
+    return null;
+  }
+}
+function toFileNode(r) {
+  return {
+    path: WorldModelGraph.fileKey(r.repo, r.path),
+    repo: r.repo,
+    dir: r.dir,
+    purpose: r.purpose,
+    purpose_source: r.purpose_source,
+    content_md5: r.content_md5,
+    size_bytes: Number(r.size_bytes),
+    last_commit_sha: r.last_commit_sha,
+    updated_at: r.updated_at
+  };
+}
+function rankWithFallback(query, search) {
+  const allTerms = toFtsQuery(query);
+  const all = withFtsGuard(() => search(allTerms));
+  if (all.length > 0) return { rows: all, match: "all_terms" };
+  const any2 = toFtsOrQuery(query);
+  if (any2 === null || any2 === allTerms) return { rows: all, match: "all_terms" };
+  return { rows: withFtsGuard(() => search(any2)), match: "any_term" };
+}
+function placeholders(n) {
+  return Array.from({ length: n }, () => "?").join(", ");
+}
+var WorldModelGraph = class _WorldModelGraph {
+  constructor(db2) {
+    this.db = db2;
+  }
+  db;
+  transaction(fn) {
+    return this.db.transaction(fn);
+  }
+  tableNames() {
+    return this.db.all(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'wm\\_%' ESCAPE '\\' ORDER BY name`
+    ).map((r) => r.name);
+  }
+  // File keys are '<repo>/<repo-relative path>'; repo names are directory
+  // basenames, so the first '/' always separates the two.
+  static fileKey(repo, relPath) {
+    return `${repo}/${relPath}`;
+  }
+  static relativeFilePath(node) {
+    return node.path.startsWith(`${node.repo}/`) ? node.path.slice(node.repo.length + 1) : node.path;
+  }
+  // JSON tuple so a ':' (or any delimiter) in repo/path can't collide. (#282)
+  static dirKey(repo, path2) {
+    return JSON.stringify([repo, path2]);
+  }
+  upsertFile(node) {
+    this.db.run(
+      `INSERT INTO wm_files (repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repo, path) DO UPDATE SET
+         dir = excluded.dir,
+         purpose = excluded.purpose,
+         purpose_source = excluded.purpose_source,
+         content_md5 = excluded.content_md5,
+         size_bytes = excluded.size_bytes,
+         last_commit_sha = excluded.last_commit_sha,
+         updated_at = excluded.updated_at`,
+      [
+        node.repo,
+        _WorldModelGraph.relativeFilePath(node),
+        node.dir,
+        node.purpose,
+        node.purpose_source,
+        node.content_md5,
+        node.size_bytes,
+        node.last_commit_sha,
+        node.updated_at
+      ]
+    );
+  }
+  upsertHasFile(repo, dir, filePath) {
+    this.db.run(`UPDATE wm_files SET dir = ? WHERE repo = ? AND path = ? AND dir IS NOT ?`, [
+      dir,
+      repo,
+      _WorldModelGraph.relativeFilePath({ repo, path: filePath }),
+      dir
+    ]);
+  }
+  allFilesForRepo(repo) {
+    return this.db.all(`SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.repo = ? ORDER BY f.path`, [repo]).map(toFileNode);
+  }
+  filesForDirectory(repo, dir) {
+    return this.db.all(`SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.repo = ? AND f.dir = ? ORDER BY f.path`, [
+      repo,
+      dir
+    ]).map(toFileNode);
+  }
+  filePathsWithDirectory(repo) {
+    const rows = this.db.all(
+      `SELECT f.path FROM wm_files f
+         JOIN wm_directories d ON d.repo = f.repo AND d.path = f.dir
+        WHERE f.repo = ?`,
+      [repo]
+    );
+    return new Set(rows.map((r) => _WorldModelGraph.fileKey(repo, r.path)));
+  }
+  pruneFiles(repo, keepPaths) {
+    const stale = this.db.all(`SELECT id, path FROM wm_files WHERE repo = ?`, [repo]).filter((f) => !keepPaths.has(_WorldModelGraph.fileKey(repo, f.path)));
+    for (const f of stale) {
+      this.db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, f.path]);
+      this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
+    }
+    if (stale.length > 0) {
+      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+    }
+    return stale.length;
+  }
+  fileCoverage(repo) {
+    const rows = this.db.all(
+      `SELECT purpose_source AS source, COUNT(*) AS n, SUM(CASE WHEN purpose <> '' THEN 1 ELSE 0 END) AS with_purpose
+         FROM wm_files WHERE repo = ? GROUP BY purpose_source`,
+      [repo]
+    );
+    const coverage = { files: 0, with_purpose: 0, by_source: {} };
+    for (const r of rows) {
+      const n = Number(r.n);
+      coverage.files += n;
+      coverage.with_purpose += Number(r.with_purpose ?? 0);
+      coverage.by_source[r.source] = n;
+    }
+    return coverage;
+  }
+  // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
+  // better; any-term fallback per rankWithFallback), then case-insensitive
+  // path/purpose substring hits at score 0. CROSS JOIN keeps the FTS match as
+  // the outer loop; a plain JOIN lets the planner walk every repo row instead.
+  keywordSearchFiles(repo, query, k) {
+    const { rows: ranked, match } = rankWithFallback(
+      query,
+      (fts) => this.db.all(
+        `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
+           FROM wm_files_fts CROSS JOIN wm_files f ON f.id = wm_files_fts.rowid
+          WHERE wm_files_fts MATCH ? AND f.repo = ?
+          ORDER BY rank, f.path
+          LIMIT ?`,
+        [fts, repo, k]
+      )
+    );
+    const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
+    if (hits.length >= k) return { hits, match };
+    const seen = new Set(ranked.map((r) => r.id));
+    const needle = query.toLowerCase();
+    const substring = this.db.all(
+      `SELECT ${FILE_COLUMNS} FROM wm_files f
+          WHERE f.repo = ? AND (instr(lower(f.path), ?) > 0 OR instr(lower(f.purpose), ?) > 0)
+          ORDER BY f.path
+          LIMIT ?`,
+      [repo, needle, needle, k + seen.size]
+    ).filter((r) => !seen.has(r.id));
+    return { hits: [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k), match };
+  }
+  filesByIds(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const rows = this.db.all(
+      `SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.id IN (${placeholders(ids.length)})`,
+      ids
+    );
+    return new Map(rows.map((r) => [r.id, toFileNode(r)]));
+  }
+  upsertDirectory(node) {
+    this.db.run(
+      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repo, path) DO UPDATE SET
+         parent_path = excluded.parent_path,
+         summary = excluded.summary,
+         summary_source = excluded.summary_source,
+         summary_updated_at = excluded.summary_updated_at,
+         file_count = excluded.file_count,
+         summary_sha = excluded.summary_sha,
+         commits_behind = excluded.commits_behind,
+         dead_refs = excluded.dead_refs`,
+      [
+        node.repo,
+        node.path,
+        node.parent_path,
+        node.summary,
+        node.summary_source,
+        node.summary_updated_at,
+        node.file_count,
+        node.summary_sha ?? null,
+        node.commits_behind ?? null,
+        node.dead_refs ? JSON.stringify(node.dead_refs) : null
+      ]
+    );
+  }
+  upsertContains(parent, child) {
+    if (parent.repo !== child.repo) return;
+    this.db.run(
+      `UPDATE wm_directories SET parent_path = ?
+        WHERE repo = ? AND path = ? AND parent_path IS NOT ?
+          AND EXISTS (SELECT 1 FROM wm_directories p WHERE p.repo = ? AND p.path = ?)`,
+      [parent.path, child.repo, child.path, parent.path, parent.repo, parent.path]
+    );
+  }
+  pruneDirectories(repo, keepKeys) {
+    const stale = this.db.all(`SELECT id, path FROM wm_directories WHERE repo = ?`, [repo]).filter((d) => !keepKeys.has(_WorldModelGraph.dirKey(repo, d.path)));
+    for (const d of stale) this.db.run(`DELETE FROM wm_directories WHERE id = ?`, [d.id]);
+    return stale.length;
+  }
+  // Move every directory, file, symbol and concept row of oldRepo under newRepo in one
+  // transaction, replacing any leftover rows already filed under newRepo.
+  // Row ids survive, so FTS, embedding and edge rows stay attached. Returns
+  // the number of directories moved.
+  renameRepo(oldRepo, newRepo) {
+    return this.db.transaction(() => {
+      const moved = this.directoryCount(oldRepo);
+      if (moved === 0) return 0;
+      this.db.run(`DELETE FROM wm_directories WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_files WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_symbols WHERE repo = ?`, [newRepo]);
+      this.db.run(`DELETE FROM wm_concepts WHERE repo = ?`, [newRepo]);
+      this.db.run(`UPDATE wm_directories SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_files SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_concepts SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_concept_steps SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
+      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
+      return moved;
+    });
+  }
+  allDirectoriesForRepo(repo) {
+    return this.db.all(`SELECT ${DIR_COLUMNS} FROM wm_directories d WHERE d.repo = ? ORDER BY d.path`, [repo]).map(toDirectoryNode);
+  }
+  // The directory at `path` plus its descendants down to `depth` levels below
+  // it (null = the whole subtree), via a recursive CTE over parent_path.
+  subtree(repo, path2, depth) {
+    const cap = depth === null ? SUBTREE_MAX_DEPTH : Math.max(0, Math.min(depth, SUBTREE_MAX_DEPTH));
+    return this.db.all(
+      `WITH RECURSIVE sub(id, path, lvl) AS (
+           SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+           UNION
+           SELECT c.id, c.path, s.lvl + 1
+             FROM wm_directories c JOIN sub s ON c.parent_path = s.path
+            WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
+         )
+         SELECT ${DIR_COLUMNS} FROM wm_directories d
+          WHERE d.id IN (SELECT id FROM sub)
+          ORDER BY d.path`,
+      [repo, path2, repo, cap]
+    ).map(toDirectoryNode);
+  }
+  // The directory at `path` and each of its ancestors, root first.
+  ancestors(repo, path2) {
+    return this.db.all(
+      `WITH RECURSIVE up(id, parent_path, lvl) AS (
+           SELECT id, parent_path, 0 FROM wm_directories WHERE repo = ? AND path = ?
+           UNION
+           SELECT p.id, p.parent_path, u.lvl + 1
+             FROM wm_directories p JOIN up u ON p.path = u.parent_path
+            WHERE p.repo = ? AND u.lvl < ?
+         )
+         SELECT ${DIR_COLUMNS}, up.lvl FROM up JOIN wm_directories d ON d.id = up.id
+          ORDER BY up.lvl DESC`,
+      [repo, path2, repo, SUBTREE_MAX_DEPTH]
+    ).map(toDirectoryNode);
+  }
+  // FTS5 hits over path + summary ranked by bm25 (score = -bm25, higher is
+  // better; any-term fallback per rankWithFallback), then case-insensitive
+  // path/summary substring hits at score 0.
+  keywordSearchDirectories(repo, query, k) {
+    const { rows: ranked, match } = rankWithFallback(
+      query,
+      (fts) => this.db.all(
+        `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
+           FROM wm_directories_fts CROSS JOIN wm_directories d ON d.id = wm_directories_fts.rowid
+          WHERE wm_directories_fts MATCH ? AND d.repo = ?
+          ORDER BY rank, d.path
+          LIMIT ?`,
+        [fts, repo, k]
+      )
+    );
+    const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
+    if (hits.length >= k) return { hits, match };
+    const seen = new Set(ranked.map((r) => r.id));
+    const needle = query.toLowerCase();
+    const substring = this.db.all(
+      `SELECT ${DIR_COLUMNS} FROM wm_directories d
+          WHERE d.repo = ? AND (instr(lower(d.path), ?) > 0 OR instr(lower(coalesce(d.summary, '')), ?) > 0)
+          ORDER BY d.path
+          LIMIT ?`,
+      [repo, needle, needle, k + seen.size]
+    ).filter((r) => !seen.has(r.id));
+    return { hits: [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k), match };
+  }
+  directoriesByIds(ids) {
+    if (ids.length === 0) return /* @__PURE__ */ new Map();
+    const rows = this.db.all(
+      `SELECT ${DIR_COLUMNS} FROM wm_directories d WHERE d.id IN (${placeholders(ids.length)})`,
+      ids
+    );
+    return new Map(rows.map((r) => [r.id, toDirectoryNode(r)]));
+  }
+  directoryCount(repo) {
+    const row = repo === void 0 ? this.db.get(`SELECT COUNT(*) AS n FROM wm_directories`) : this.db.get(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ?`, [repo]);
+    return Number(row?.n ?? 0);
+  }
+  // The graph borrows the trajectory DB handle; its owner closes it.
+  close() {
+  }
+};
+var GraphHolder = class _GraphHolder {
+  constructor(graph, openError = null) {
+    this.graph = graph;
+    this.openError = openError;
+  }
+  graph;
+  openError;
+  static fixed(graph, openError = null) {
+    return new _GraphHolder(graph, openError);
+  }
+  ensureGraph() {
+    return this.graph;
+  }
+};
+
+// src/tools/world_model.ts
+import { spawnSync as spawnSync8 } from "node:child_process";
+import { readFileSync as readFileSync6, realpathSync as realpathSync4 } from "node:fs";
+import { isAbsolute as isAbsolute4, join as join13, relative as relative3, sep as sep4 } from "node:path";
+
+// src/world-model/concepts.ts
+import { spawnSync as spawnSync7 } from "node:child_process";
+var DERIVED_LABEL = "derived, unverified";
+var DERIVED_MAX_DEPTH = 4;
+var DERIVED_MAX_STEPS = 8;
+var DERIVED_SEED_HITS = 5;
+var DERIVED_HELPER_FAN_IN = 5;
+var DERIVED_EDGES = ["calls", "sources", "runs"];
+var OR_FALLBACK_MIN_HITS2 = 3;
+var PASS = "pass";
+function anchorLabel(ordinal, a) {
+  return `step ${ordinal} ${a.qualified_name || a.path}`;
+}
+function currentHash(db2, a) {
+  if (!a.kind) {
+    return db2.get(`SELECT content_md5 AS h FROM wm_files WHERE repo = ? AND path = ?`, [a.repo, a.path])?.h ?? null;
+  }
+  return db2.get(
+    `SELECT body_hash AS h FROM wm_symbols WHERE repo = ? AND path = ? AND kind = ? AND qualified_name = ?`,
+    [a.repo, a.path, a.kind, a.qualified_name]
+  )?.h ?? null;
+}
+function symbolIdAt(db2, repo, path2, qualifiedName) {
+  if (typeof path2 !== "string" || typeof qualifiedName !== "string") return null;
+  const row = db2.get(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND qualified_name = ? ORDER BY kind = 'module', id LIMIT 1`,
+    [repo, path2, qualifiedName]
+  );
+  return row ? Number(row.id) : null;
+}
+var ref = (v) => typeof v === "object" && v !== null ? v : {};
+function evalClaim(db2, repo, claim, args2) {
+  switch (claim) {
+    case "exists":
+      return symbolIdAt(db2, repo, args2["path"], args2["qualified_name"]) !== null ? PASS : "fail: no such symbol";
+    case "calls": {
+      const from = ref(args2["from"]);
+      const to = ref(args2["to"]);
+      const a = symbolIdAt(db2, repo, from.path, from.qualified_name);
+      const b = symbolIdAt(db2, repo, to.path, to.qualified_name);
+      if (a === null || b === null) return `fail: no such ${a === null ? "caller" : "callee"}`;
+      return db2.get(`SELECT 1 AS hit FROM wm_edges WHERE src_id = ? AND dst_id = ?`, [a, b]) ? PASS : "fail: no edge";
+    }
+    case "only_writers_of": {
+      const table = args2["table"];
+      const writers = args2["writers"];
+      if (typeof table !== "string" || !Array.isArray(writers)) return "fail: needs table and writers[]";
+      const actual = db2.all(
+        `SELECT DISTINCT s.path FROM wm_edges e
+             JOIN wm_symbols s ON s.id = e.src_id
+             JOIN wm_symbols t ON t.id = e.dst_id
+            WHERE e.kind = 'writes_table' AND t.qualified_name = ? AND s.repo = ?
+            ORDER BY s.path`,
+        [table, repo]
+      ).map((r) => r.path).filter((p) => !outsideConceptLane(p));
+      const extra = actual.filter((p) => !writers.includes(p));
+      return extra.length > 0 ? `fail: also written by ${extra.join(", ")}` : PASS;
+    }
+    case "tested_by": {
+      const a = symbolIdAt(db2, repo, args2["path"], args2["qualified_name"]);
+      if (a === null) return "fail: no such symbol";
+      const hit = db2.get(
+        `SELECT 1 AS hit FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id WHERE e.dst_id = ? AND s.path = ?`,
+        [a, args2["test_path"]]
+      );
+      return hit ? PASS : "fail: no reference from test_path";
+    }
+    default:
+      return "fail: unknown claim";
+  }
+}
+function headSha(repoPath) {
+  if (!repoPath) return null;
+  const r = spawnSync7("git", ["-C", repoPath, "rev-parse", "HEAD"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  return r.status === 0 ? r.stdout.trim() || null : null;
+}
+function upsertConcept(db2, input, opts) {
+  const name2 = input.name?.trim();
+  if (!name2) throw new Error("name is required");
+  const kind = input.kind ?? "flow";
+  if (!CONCEPT_KINDS.includes(kind)) throw new Error(`kind must be one of ${CONCEPT_KINDS.join(", ")}`);
+  if (!Array.isArray(input.steps) || input.steps.length === 0) throw new Error("steps must be a non-empty array");
+  const claims = input.claims ?? [];
+  if (!Array.isArray(claims)) throw new Error("claims must be an array");
+  const steps = input.steps.map((s, i2) => {
+    const ordinal = i2 + 1;
+    const anchor = {
+      repo: input.repo,
+      path: typeof s?.path === "string" ? s.path : "",
+      kind: s?.kind ?? "",
+      qualified_name: s?.kind ? s.qualified_name ?? "" : ""
+    };
+    const description = typeof s?.description === "string" ? s.description.trim() : "";
+    if (!anchor.path) throw new Error(`step ${ordinal}: path is required`);
+    if (!description) throw new Error(`step ${ordinal}: description is required`);
+    if (outsideConceptLane(anchor.path)) throw new Error(`step ${ordinal}: ${anchor.path} is a test or fixture path`);
+    const handoff = ordinal === input.steps.length ? null : s.handoff ?? null;
+    if (handoff !== null && !HANDOFFS.includes(handoff)) {
+      throw new Error(`step ${ordinal}: handoff must be one of ${HANDOFFS.join(", ")}`);
+    }
+    const hash2 = currentHash(db2, anchor);
+    if (hash2 === null) {
+      throw new Error(`anchor not found: ${anchorLabel(ordinal, anchor)} (${anchor.path} ${anchor.kind || "file"})`);
+    }
+    return { ...anchor, ordinal, description, handoff, hash: hash2 };
+  });
+  const evaluated = claims.map((c, i2) => {
+    if (!CLAIMS.includes(c?.claim)) throw new Error(`claim ${i2 + 1}: claim must be one of ${CLAIMS.join(", ")}`);
+    const args2 = typeof c.args === "object" && c.args !== null ? c.args : {};
+    const result2 = evalClaim(db2, input.repo, c.claim, args2);
+    if (result2 !== PASS) throw new Error(`claim fails at write time: ${c.claim} ${JSON.stringify(args2)} \u2192 ${result2}`);
+    return { claim: c.claim, args: args2 };
+  });
+  const sha = headSha(opts.repoPath);
+  const now2 = nowISO();
+  const stepsText = steps.map((s) => s.description).join("\n");
+  return db2.transaction(() => {
+    const existing = db2.get(`SELECT id FROM wm_concepts WHERE repo = ? AND name = ?`, [input.repo, name2]);
+    let id;
+    if (existing) {
+      id = Number(existing.id);
+      db2.run(
+        `UPDATE wm_concepts
+            SET kind = ?, body = ?, status = 'verified', status_reason = NULL, verified_sha = ?, verified_by = ?,
+                verified_at = ?, updated_at = ?, steps_text = ?
+          WHERE id = ?`,
+        [kind, input.body ?? "", sha, opts.agent, now2, now2, stepsText, id]
+      );
+      db2.run(`DELETE FROM wm_concept_steps WHERE concept_id = ?`, [id]);
+      db2.run(`DELETE FROM wm_concept_claims WHERE concept_id = ?`, [id]);
+    } else {
+      id = Number(
+        db2.run(
+          `INSERT INTO wm_concepts (repo, kind, name, body, status, verified_sha, verified_by, verified_at, created_at, updated_at, steps_text)
+           VALUES (?, ?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?)`,
+          [input.repo, kind, name2, input.body ?? "", sha, opts.agent, now2, now2, now2, stepsText]
+        ).lastInsertRowid
+      );
+    }
+    for (const s of steps) {
+      db2.run(
+        `INSERT INTO wm_concept_steps (concept_id, ordinal, repo, path, kind, qualified_name, description, handoff, hash_at_verify, trust)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified')`,
+        [id, s.ordinal, s.repo, s.path, s.kind, s.qualified_name, s.description, s.handoff, s.hash]
+      );
+    }
+    for (const c of evaluated) {
+      db2.run(`INSERT INTO wm_concept_claims (concept_id, claim, args, last_result) VALUES (?, ?, ?, ?)`, [
+        id,
+        c.claim,
+        JSON.stringify(c.args),
+        PASS
+      ]);
+    }
+    return { id, status: "verified", steps: steps.length, claims: evaluated.length };
+  });
+}
+var WORST = { verified: 0, suspect: 1, broken: 2 };
+function refreshConcepts(db2, repo) {
+  const concepts = db2.all(
+    `SELECT id, status, status_reason FROM wm_concepts WHERE repo = ? AND status <> 'retired' ORDER BY id`,
+    [repo]
+  );
+  let changed = 0;
+  db2.transaction(() => {
+    for (const c of concepts) {
+      let status = "verified";
+      const reasons = [];
+      for (const s of db2.all(`SELECT * FROM wm_concept_steps WHERE concept_id = ? ORDER BY ordinal`, [c.id])) {
+        const hash2 = currentHash(db2, s);
+        const trust = hash2 === null ? "broken" : hash2 !== s.hash_at_verify ? "suspect" : "verified";
+        const reason2 = trust === "broken" ? "anchor gone" : trust === "suspect" ? "changed since verification" : null;
+        if (reason2) reasons.push(`${anchorLabel(Number(s.ordinal), s)}: ${reason2}`);
+        if (WORST[trust] > WORST[status]) status = trust;
+        if (trust !== s.trust || reason2 !== s.trust_reason) {
+          db2.run(`UPDATE wm_concept_steps SET trust = ?, trust_reason = ? WHERE concept_id = ? AND ordinal = ?`, [
+            trust,
+            reason2,
+            c.id,
+            s.ordinal
+          ]);
+        }
+      }
+      for (const cl of db2.all(`SELECT id, claim, args, last_result FROM wm_concept_claims WHERE concept_id = ? ORDER BY id`, [c.id])) {
+        let args2 = {};
+        try {
+          args2 = JSON.parse(cl.args);
+        } catch {
+          args2 = {};
+        }
+        const result2 = evalClaim(db2, repo, cl.claim, args2);
+        if (result2 !== cl.last_result) db2.run(`UPDATE wm_concept_claims SET last_result = ? WHERE id = ?`, [result2, cl.id]);
+        if (result2 !== PASS) {
+          status = "broken";
+          reasons.push(`claim ${cl.claim}: ${result2}`);
+        }
+      }
+      const reason = reasons.length > 0 ? reasons.join("; ") : null;
+      if (status !== c.status || reason !== c.status_reason) {
+        db2.run(`UPDATE wm_concepts SET status = ?, status_reason = ?, updated_at = ? WHERE id = ?`, [status, reason, nowISO(), c.id]);
+        changed++;
+      }
+    }
+  });
+  return { checked: concepts.length, changed };
+}
+var PROPOSAL_REJECT_AFTER_DAYS = 14;
+var DAY_MS = 864e5;
+var PROPOSAL_EVENTS = ["concept_proposal_applied", "concept_proposal_rejected"];
+function applyConceptProposals(db2, repo, repoPath, now2 = /* @__PURE__ */ new Date()) {
+  const stats = { applied: 0, rejected: 0, pending: 0 };
+  const repos = db2.get(`SELECT COUNT(*) AS n, MAX(name) AS name FROM repos`);
+  const soleRepo = Number(repos?.n) === 1 ? repos?.name ?? null : null;
+  const tasks = db2.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.repo, t.updated_at, t.completion_report FROM tasks t
+      WHERE t.status = 'closed'
+        AND CASE WHEN json_valid(t.completion_report) THEN json_type(t.completion_report, '$.concepts') END = 'array'
+        AND ${HAS_PASS_SQL}
+      ORDER BY t.id`
+  );
+  if (tasks.length === 0) return stats;
+  const settled = new Set(
+    db2.all(
+      `SELECT json_extract(content_json, '$.task_id') AS task_id, json_extract(content_json, '$.name') AS name
+           FROM audit WHERE event_type IN (${PROPOSAL_EVENTS.map((e) => `'${e}'`).join(", ")}) AND json_valid(content_json)`
+    ).map((r) => `${Number(r.task_id)}\0${r.name}`)
+  );
+  const at = now2.toISOString();
+  for (const t of tasks) {
+    const expired = (now2.getTime() - Date.parse(t.updated_at)) / DAY_MS >= PROPOSAL_REJECT_AFTER_DAYS;
+    for (const c of parseStoredReport(t.completion_report)?.concepts ?? []) {
+      if ((c.repo ?? t.repo ?? soleRepo) !== repo) continue;
+      const taskId = Number(t.id);
+      if (settled.has(`${taskId}\0${c.name}`)) continue;
+      const audit = { issue_id: Number(t.issue_id), branch_id: t.branch_id, from_node: "bro", repo, created_at: at };
+      try {
+        const out2 = upsertConcept(db2, { ...c, repo }, { repoPath, agent: "swe" });
+        insertAudit(db2, {
+          ...audit,
+          event_type: "concept_proposal_applied",
+          summary: `Concept '${c.name}' proposed by task ${taskId} applied`,
+          content_json: JSON.stringify({ task_id: taskId, concept_id: out2.id, name: c.name })
+        });
+        stats.applied++;
+      } catch (e) {
+        if (!expired) {
+          stats.pending++;
+          continue;
+        }
+        insertAudit(db2, {
+          ...audit,
+          event_type: "concept_proposal_rejected",
+          summary: `Concept '${c.name}' proposed by task ${taskId} rejected`,
+          content_json: JSON.stringify({ task_id: taskId, name: c.name, error: e.message })
+        });
+        stats.rejected++;
+      }
+    }
+  }
+  return stats;
+}
+function queryWords2(query) {
+  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
+}
+var WORD_MATCH_SQL = {
+  wm_concepts_fts: "SELECT 1 AS hit FROM wm_concepts_fts WHERE wm_concepts_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
+  wm_symbols_fts: "SELECT 1 AS hit FROM wm_symbols_fts WHERE wm_symbols_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
+  wm_files_fts: "SELECT 1 AS hit FROM wm_files_fts WHERE wm_files_fts MATCH ? AND rowid = CAST(? AS INTEGER)"
+};
+function wordsMatched(db2, table, rowid, words) {
+  return words.filter((w) => db2.get(WORD_MATCH_SQL[table], [`"${w}"`, rowid]) !== void 0).length;
+}
+function majority(words) {
+  return Math.floor(words.length / 2) + 1;
+}
+function searchConcepts(db2, repo, query, limit) {
+  const words = queryWords2(query);
+  if (words.length === 0) return [];
+  const search = (op) => db2.all(
+    `SELECT c.id, c.name, c.body
+         FROM wm_concepts_fts CROSS JOIN wm_concepts c ON c.id = wm_concepts_fts.rowid
+        WHERE wm_concepts_fts MATCH ? AND c.repo = ? AND c.status <> 'retired'
+        ORDER BY bm25(wm_concepts_fts, 10.0, 4.0, 2.0), c.id
+        LIMIT ?`,
+    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
+  );
+  let rows = search("AND");
+  if (rows.length < OR_FALLBACK_MIN_HITS2 && words.length > 1) {
+    const seen = new Set(rows.map((r) => Number(r.id)));
+    const covered = (id) => wordsMatched(db2, "wm_concepts_fts", id, words) >= majority(words);
+    rows = [...rows, ...search("OR").filter((r) => !seen.has(Number(r.id)) && covered(Number(r.id)))].slice(0, limit);
+  }
+  return rows.map((r, i2) => {
+    const counts = db2.all(
+      `SELECT trust, COUNT(*) AS n FROM wm_concept_steps WHERE concept_id = ? GROUP BY trust`,
+      [r.id]
+    );
+    const trust = { verified: 0, suspect: 0, broken: 0 };
+    for (const c of counts) trust[c.trust] = Number(c.n);
+    return {
+      id: Number(r.id),
+      name: r.name,
+      body: r.body,
+      step_count: trust.verified + trust.suspect + trust.broken,
+      trust,
+      rank: i2 + 1
+    };
+  });
+}
+function stepSymbol(s) {
+  return {
+    id: s.id,
+    repo: s.repo,
+    path: s.path,
+    kind: s.kind,
+    qualified_name: s.qualified_name,
+    signature: s.signature,
+    doc: s.doc,
+    line_start: s.start_line,
+    line_end: s.end_line
+  };
+}
+function fileAnchor(db2, a) {
+  if (!db2.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? AND path = ?`, [a.repo, a.path])) return null;
+  return {
+    id: null,
+    repo: a.repo,
+    path: a.path,
+    kind: "file",
+    qualified_name: a.path,
+    signature: null,
+    doc: null,
+    line_start: null,
+    line_end: null
+  };
+}
+function anchorSymbol(db2, a) {
+  if (!a.kind) return fileAnchor(db2, a);
+  const row = db2.get(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind = ? AND qualified_name = ?`,
+    [a.repo, a.path, a.kind, a.qualified_name]
+  );
+  const symbol2 = row ? symbolById(db2, Number(row.id)) : null;
+  return symbol2 ? stepSymbol(symbol2) : null;
+}
+function getConcept(db2, id) {
+  const c = db2.get(
+    `SELECT id, name, body, status, status_reason, updated_at FROM wm_concepts WHERE id = ?`,
+    [id]
+  );
+  if (!c) return null;
+  const steps = db2.all(`SELECT * FROM wm_concept_steps WHERE concept_id = ? ORDER BY ordinal`, [id]).map((s) => {
+    const symbol2 = anchorSymbol(db2, s);
+    return {
+      ordinal: Number(s.ordinal),
+      description: s.description,
+      trust: symbol2 === null && s.kind ? "broken" : s.trust,
+      trust_reason: symbol2 === null && s.kind ? "anchor gone" : s.trust_reason,
+      handoff: s.handoff,
+      symbol: symbol2
+    };
+  });
+  return {
+    id: Number(c.id),
+    name: c.name,
+    body: c.body,
+    status: c.status,
+    status_reason: c.status_reason,
+    updated_at: c.updated_at,
+    steps
+  };
+}
+function outgoingDerived(db2, id) {
+  return Number(
+    db2.get(
+      `SELECT COUNT(*) AS n FROM wm_edges
+        WHERE src_id = ? AND resolution = 'exact' AND kind IN (SELECT value FROM json_each(?))`,
+      [id, JSON.stringify(DERIVED_EDGES)]
+    ).n
+  );
+}
+function isLeafHelper(db2, id) {
+  const callers = db2.get(
+    `SELECT COUNT(DISTINCT src_id) AS n FROM wm_edges WHERE dst_id = ? AND kind = 'calls' AND resolution = 'exact'`,
+    [id]
+  ).n;
+  return Number(callers) >= DERIVED_HELPER_FAN_IN && outgoingDerived(db2, id) === 0;
+}
+function fileSeed(db2, repo, path2, words) {
+  const ids = db2.all(
+    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind <> 'module' ORDER BY start_line, id`,
+    [repo, path2]
+  );
+  let best = null;
+  for (const row of ids) {
+    const id = Number(row.id);
+    const c = { id, matched: wordsMatched(db2, "wm_symbols_fts", id, words), out: outgoingDerived(db2, id) };
+    if (!best || c.matched > best.matched || c.matched === best.matched && c.out > best.out) best = c;
+  }
+  return best ? symbolById(db2, best.id) : null;
+}
+function seedSymbol(db2, repo, query, candidates) {
+  const words = queryWords2(query);
+  if (words.length === 0) return null;
+  for (const c of candidates) {
+    if (c.kind === "symbol") {
+      const s2 = symbolById(db2, c.id);
+      if (s2 && !outsideConceptLane(s2.path) && wordsMatched(db2, "wm_symbols_fts", s2.id, words) >= majority(words)) return s2;
+      continue;
+    }
+    if (outsideConceptLane(c.path)) continue;
+    const file2 = db2.get(`SELECT id FROM wm_files WHERE repo = ? AND path = ?`, [repo, c.path]);
+    if (!file2 || wordsMatched(db2, "wm_files_fts", Number(file2.id), words) < majority(words)) continue;
+    const s = fileSeed(db2, repo, c.path, words);
+    if (s) return s;
+  }
+  return null;
+}
+function derivedChain(db2, repo, query, candidates = keywordSearchSymbols(db2, repo, query, DERIVED_SEED_HITS).hits.map((h) => ({ kind: "symbol", id: h.id }))) {
+  const seed = seedSymbol(db2, repo, query, candidates);
+  if (!seed) return null;
+  const order = [];
+  const seen = /* @__PURE__ */ new Set([seed.id]);
+  let frontier = [seed];
+  for (let depth = 0; frontier.length > 0 && order.length < DERIVED_MAX_STEPS; depth++) {
+    const next = [];
+    for (const s of frontier) {
+      if (order.length >= DERIVED_MAX_STEPS) break;
+      const via = /* @__PURE__ */ new Map();
+      order.push({ symbol: s, via });
+      if (depth >= DERIVED_MAX_DEPTH) continue;
+      const out2 = db2.all(
+        `SELECT e.dst_id, e.kind, d.path
+           FROM wm_edges e JOIN wm_symbols d ON d.id = e.dst_id
+          WHERE e.src_id = ? AND e.resolution = 'exact' AND e.kind IN (SELECT value FROM json_each(?))
+          ORDER BY e.line, e.rowid`,
+        [s.id, JSON.stringify(DERIVED_EDGES)]
+      );
+      for (const e of out2) {
+        const dst = Number(e.dst_id);
+        if (seen.has(dst) || outsideConceptLane(e.path)) continue;
+        seen.add(dst);
+        if (isLeafHelper(db2, dst)) continue;
+        const row = symbolById(db2, dst);
+        if (!row) continue;
+        via.set(dst, e.kind);
+        next.push(row);
+      }
+    }
+    frontier = next;
+  }
+  const steps = order.map(({ symbol: symbol2, via }, i2) => {
+    const following = order[i2 + 1]?.symbol.id;
+    return {
+      ordinal: i2 + 1,
+      description: symbol2.doc || symbol2.signature,
+      trust: null,
+      trust_reason: null,
+      handoff: following !== void 0 ? via.get(following) ?? null : null,
+      symbol: stepSymbol(symbol2)
+    };
+  });
+  return { label: DERIVED_LABEL, steps };
+}
+
+// src/tools/world_model.ts
+var WORLD_MODEL_GET_MAX_NODES = 500;
+var RRF_K = 60;
+var SEARCH_BACKFILL_LIMIT = 50;
+var UNMERGED_WORK_MAX_BRANCHES = 10;
+var NET_DIFF_MAX_TARGET_COMMITS = 500;
+var PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
+var SYMBOL_POOL = 40;
+var FILE_RANK_POOL = 20;
+var PATH_RANK_K = 10;
+var DEFAULT_IMPACT_DEPTH = 2;
+var SOURCE_MAX_LINES = 200;
+function git(repoPath, args2) {
+  return spawnSync8("git", ["-C", repoPath, ...args2], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+}
+function patchIds(repoPath, args2) {
+  const opts = { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS, maxBuffer: PATCH_ID_MAX_BUFFER };
+  const patch = spawnSync8("git", ["-C", repoPath, ...args2], opts);
+  if (patch.error || patch.status !== 0) return null;
+  if (!patch.stdout.trim()) return [];
+  const ids = spawnSync8("git", ["-C", repoPath, "patch-id", "--stable"], { ...opts, input: patch.stdout });
+  if (ids.error || ids.status !== 0) return null;
+  return ids.stdout.split("\n").map((line) => line.split(" ")[0]?.trim()).filter((id) => !!id);
+}
+function netDiffLandedOn(repoPath, tip, target) {
+  const mb = git(repoPath, ["merge-base", target, tip]);
+  const base = mb.stdout?.trim();
+  if (mb.status !== 0 || !base) return false;
+  const branch = patchIds(repoPath, ["diff", "--no-color", "--no-ext-diff", base, tip]);
+  if (!branch || branch.length === 0) return false;
+  const landed = patchIds(repoPath, [
+    "log",
+    "-p",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-merges",
+    "--format=commit %H",
+    "-n",
+    String(NET_DIFF_MAX_TARGET_COMMITS),
+    `${base}..${target}`
+  ]);
+  return !!landed && landed.includes(branch[0]);
+}
+function tipIntegratedInto(repoPath, tip, target) {
+  const ancestor = git(repoPath, ["merge-base", "--is-ancestor", tip, target]);
+  if (ancestor.error) return "spawn-error";
+  if (ancestor.status === 0) return "integrated";
+  if (ancestor.status !== 1) return "unresolvable";
+  const merged = git(repoPath, ["merge-tree", "--write-tree", target, tip]);
+  if (merged.status === 0) {
+    const targetTree = git(repoPath, ["rev-parse", `${target}^{tree}`]);
+    const mergedTree = merged.stdout.split("\n")[0]?.trim();
+    if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return "integrated";
+  }
+  const cherry = git(repoPath, ["cherry", target, tip]);
+  if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return "integrated";
+  if (netDiffLandedOn(repoPath, tip, target)) return "integrated";
+  return "unmerged";
+}
+function computeUnmergedWork(db2, repo) {
+  if (!repo) return { unmerged_work: [] };
+  const repoRow = db2.get(
+    `SELECT path, target_branch FROM repos WHERE name = ?`,
+    [repo]
+  );
+  if (!repoRow) return { unmerged_work: [] };
+  const repoPath = repoRowPath(db2, repoRow.path);
+  const targetBranch = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
+  const gitCheck = spawnSync8("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (gitCheck.error || gitCheck.status !== 0) {
+    return { unmerged_work: [], warning: "unmerged-work-unavailable" };
+  }
+  const target = resolveBaseRef(repoPath, targetBranch);
+  if (!target) return { unmerged_work: [] };
+  const rows = db2.all(
+    `SELECT branch_id, parent_branch_id, commit_sha, status
+       FROM tasks
+      WHERE repo = ? AND commit_sha IS NOT NULL
+      ORDER BY updated_at DESC, id DESC`,
+    [repo]
+  );
+  const byBranch = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    let entry = byBranch.get(r.branch_id);
+    if (!entry) {
+      entry = { parent_branch_id: r.parent_branch_id, closed_tasks: 0 };
+      byBranch.set(r.branch_id, entry);
+    }
+    if (r.status === "closed") entry.closed_tasks++;
+  }
+  const unmerged_work = [];
+  for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
+    const refCheck = spawnSync8(
+      "git",
+      ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
+      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
+    );
+    if (refCheck.status !== 0) continue;
+    const tip = refCheck.stdout.trim();
+    const integration = tipIntegratedInto(repoPath, tip, target);
+    if (integration === "spawn-error") {
+      return { unmerged_work: [], warning: "unmerged-work-unavailable" };
+    }
+    if (integration !== "unmerged") continue;
+    unmerged_work.push({
+      branch_id,
+      parent_branch_id: entry.parent_branch_id,
+      tip,
+      closed_tasks: entry.closed_tasks,
+      merged_into_target: false
+    });
+  }
+  return { unmerged_work };
+}
+function checkoutLag(db2, repo) {
+  if (!repo) return null;
+  const repoRow = db2.get(
+    `SELECT path, target_branch FROM repos WHERE name = ?`,
+    [repo]
+  );
+  if (!repoRow) return null;
+  const repoPath = repoRowPath(db2, repoRow.path);
+  const upstream = resolveBaseRef(repoPath, repoRow.target_branch || resolveRepoDefaultBranch(repoPath));
+  if (!upstream?.startsWith("origin/")) return null;
+  const res = spawnSync8("git", ["-C", repoPath, "rev-list", "--count", `HEAD..refs/remotes/${upstream}`], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (res.error || res.status !== 0) return null;
+  const behind = Number.parseInt(res.stdout.trim(), 10);
+  return Number.isInteger(behind) && behind > 0 ? { checkout_behind_upstream: behind, upstream } : null;
+}
+function trustOf(node) {
+  const behind = node.commits_behind ?? null;
+  if (behind === null) return null;
+  const dead = node.dead_refs?.length ?? 0;
+  const parts2 = [];
+  if (behind > 0) parts2.push(`drifting(${behind})`);
+  if (dead > 0) parts2.push(`dead_refs(${dead})`);
+  return parts2.length > 0 ? parts2.join(", ") : "current";
+}
+function driftView(node) {
+  return {
+    summary_sha: node.summary_sha ?? null,
+    commits_behind: node.commits_behind ?? null,
+    dead_refs: node.dead_refs ?? null,
+    trust: trustOf(node)
+  };
+}
+function framedPurpose(purpose) {
+  return purpose ? frameUntrusted("file-purpose", purpose) : "";
+}
+function fileView(f) {
+  return {
+    path: WorldModelGraph.relativeFilePath(f),
+    purpose: framedPurpose(f.purpose),
+    purpose_source: f.purpose_source,
+    content_md5: f.content_md5
+  };
+}
+function dirResult(h) {
+  return {
+    kind: "dir",
+    repo: h.repo,
+    path: h.path,
+    summary: h.summary,
+    summary_source: h.summary_source,
+    file_count: h.file_count,
+    ...driftView(h),
+    score: h.score
+  };
+}
+function fileResult(h) {
+  return {
+    kind: "file",
+    repo: h.repo,
+    path: WorldModelGraph.relativeFilePath(h),
+    dir: h.dir,
+    purpose: framedPurpose(h.purpose),
+    purpose_source: h.purpose_source,
+    score: h.score
+  };
+}
+function framedSymbol(s) {
+  return {
+    ...s,
+    signature: s.signature ? frameUntrusted("symbol-signature", s.signature) : "",
+    doc: s.doc ? frameUntrusted("symbol-doc", s.doc) : ""
+  };
+}
+function symbolSource(db2, symbol2) {
+  const rootArg = resolveSoleRepo(db2, symbol2.repo)?.path;
+  if (!rootArg) return { source: null, source_reason: "repo-path-unknown" };
+  let root;
+  let file2;
+  try {
+    root = realpathSync4(rootArg);
+    file2 = realpathSync4(join13(root, symbol2.path));
+  } catch {
+    return { source: null, source_reason: "file-missing" };
+  }
+  const rel = relative3(root, file2);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute4(rel)) return { source: null, source_reason: "outside-repo-root" };
+  let lines2;
+  try {
+    lines2 = readFileSync6(file2, "utf8").split("\n");
+  } catch {
+    return { source: null, source_reason: "file-unreadable" };
+  }
+  const start2 = Math.max(1, symbol2.start_line);
+  if (start2 > lines2.length) return { source: null, source_reason: "range-past-eof" };
+  const end = Math.min(symbol2.end_line, lines2.length);
+  const truncated = end - start2 + 1 > SOURCE_MAX_LINES;
+  const last = truncated ? start2 + SOURCE_MAX_LINES - 1 : end;
+  const text = frameUntrusted("symbol-source", lines2.slice(start2 - 1, last).join("\n"));
+  return { source: { start_line: start2, end_line: last, text, truncated } };
+}
+function symbolResult(symbol2, score, stale) {
+  const s = framedSymbol(symbol2);
+  return {
+    kind: "symbol",
+    id: s.id,
+    repo: s.repo,
+    qualified_name: s.qualified_name,
+    symbol_kind: s.kind,
+    path: s.path,
+    line_start: s.start_line,
+    line_end: s.end_line,
+    signature: s.signature,
+    doc: s.doc,
+    stale,
+    score
+  };
+}
+function dirHit(node) {
+  return { kind: "dir", key: `dir:${node.key}`, node };
+}
+function fileHit(node) {
+  return { kind: "file", key: `file:${node.path}`, node };
+}
+function symbolHit(node) {
+  return { kind: "symbol", key: `symbol:${node.id}`, node };
+}
+function hitResult(hit, score, stale) {
+  if (hit.kind === "dir") return dirResult({ ...hit.node, score });
+  if (hit.kind === "file") return fileResult({ ...hit.node, score });
+  return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)));
+}
+function isBuildOutput(path2) {
+  return /(^|\/)dist\//.test(path2) || path2.endsWith(".map");
+}
+function pathWeight(path2) {
+  return isTestPath(path2) || /(^|\/)changelog\.d\//.test(path2) ? 0.5 : 1;
+}
+function rankKeyword(dirs, files, symbols) {
+  const pathScore = /* @__PURE__ */ new Map();
+  const bump = (path2, rank) => pathScore.set(path2, (pathScore.get(path2) ?? 0) + pathWeight(path2) / (PATH_RANK_K + rank));
+  const symbolRank = /* @__PURE__ */ new Map();
+  for (const s of symbols) if (!symbolRank.has(s.path)) symbolRank.set(s.path, symbolRank.size);
+  for (const [path2, rank] of symbolRank) bump(path2, rank);
+  files.forEach((f, rank) => bump(WorldModelGraph.relativeFilePath(f), rank));
+  const seen = /* @__PURE__ */ new Map();
+  const share = (path2) => {
+    const n = seen.get(path2) ?? 0;
+    seen.set(path2, n + 1);
+    return (pathScore.get(path2) ?? 0) / (n + 1);
+  };
+  const ranked = [];
+  dirs.forEach((d, rank) => ranked.push({ hit: dirHit(d), score: 1 / (PATH_RANK_K + rank), order: ranked.length }));
+  const firsts = [...pathScore.keys()].sort((a, b) => pathScore.get(b) - pathScore.get(a));
+  const symbolsByPath = /* @__PURE__ */ new Map();
+  for (const s of symbols) symbolsByPath.set(s.path, [...symbolsByPath.get(s.path) ?? [], s]);
+  const fileByPath = new Map(files.map((f) => [WorldModelGraph.relativeFilePath(f), f]));
+  for (const path2 of firsts) {
+    for (const s of symbolsByPath.get(path2) ?? []) ranked.push({ hit: symbolHit(s), score: share(path2), order: ranked.length });
+    const file2 = fileByPath.get(path2);
+    if (file2) ranked.push({ hit: fileHit(file2), score: share(path2), order: ranked.length });
+  }
+  return ranked.sort((a, b) => b.score - a.score || a.order - b.order).map(({ hit, score }) => ({ hit, score }));
+}
+async function backfillWorldModel(db2) {
+  let saturated = false;
+  for (const table of WORLD_MODEL_TABLES) {
+    if (await backfillMissing(db2, table, SEARCH_BACKFILL_LIMIT) >= SEARCH_BACKFILL_LIMIT) saturated = true;
+  }
+  if (saturated) startWorldModelBackfill(db2);
+}
+async function cosineHits(db2, graph, repo, query, k) {
+  const search = (table) => topKByCosine(db2, table, query, k, [repo]);
+  const [dirs, files] = [await search("wm_directories"), await search("wm_files")];
+  const dirNodes = graph.directoriesByIds(dirs.map((d) => d.rowid));
+  const fileNodes = graph.filesByIds(files.map((f) => f.rowid));
+  const hits = [];
+  for (const d of dirs) {
+    const node = dirNodes.get(d.rowid);
+    if (node) hits.push({ hit: dirHit(node), score: d.score });
+  }
+  for (const f of files) {
+    const node = fileNodes.get(f.rowid);
+    if (node) hits.push({ hit: fileHit(node), score: f.score });
+  }
+  return hits.sort((a, b) => b.score - a.score);
+}
+function fuse(lists) {
+  const fused = /* @__PURE__ */ new Map();
+  for (const list of lists) {
+    list.forEach((hit, rank) => {
+      const rrf = 1 / (RRF_K + rank + 1);
+      const entry = fused.get(hit.key);
+      if (entry) entry.score += rrf;
+      else fused.set(hit.key, { hit, score: rrf });
+    });
+  }
+  return [...fused.values()].sort((a, b) => b.score - a.score);
+}
+async function rankWorldModel(db2, graph, repo, query, mode, k) {
+  const pool = mode === "keyword" ? k : k * 4;
+  const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
+  const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
+  const symbolSearch = keywordSearchSymbols(db2, repo, query, SYMBOL_POOL);
+  const match = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === "any_term") ? "any_term" : "all_terms";
+  const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
+  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
+  const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
+  if (mode === "keyword") return { ranked: keywordRanked, match };
+  await backfillWorldModel(db2);
+  const semantic = await cosineHits(db2, graph, repo, query, pool);
+  if (semantic.length === 0) return { ranked: keywordRanked, match, warning: "semantic_unavailable" };
+  if (mode === "semantic") return { ranked: semantic, match };
+  return {
+    ranked: fuse([
+      dirSearch.hits.map(dirHit),
+      hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== "dir")),
+      hitsOf(semantic.filter(({ hit }) => hit.kind === "dir")),
+      hitsOf(semantic.filter(({ hit }) => hit.kind === "file"))
+    ]),
+    match
+  };
+}
+function derivedSeeds(ranked) {
+  return ranked.flatMap(({ hit }) => {
+    if (hit.kind === "symbol") return [{ kind: "symbol", id: hit.node.id }];
+    if (hit.kind === "file") return [{ kind: "file", path: WorldModelGraph.relativeFilePath(hit.node) }];
+    return [];
+  }).slice(0, DERIVED_SEED_HITS);
+}
+function ok15(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err16(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function wrap3(fn) {
+  return async (args2) => {
+    try {
+      return await fn(args2);
+    } catch (e) {
+      return err16(e.message);
+    }
+  };
+}
+var LOGGED_ARGS = ["query", "path", "id", "qualified_name", "name", "mode", "depth", "repo", "k"];
+function treeNodeCount(node) {
+  const children = Array.isArray(node["children"]) ? node["children"] : [];
+  const files = Array.isArray(node["files"]) ? node["files"].length : 0;
+  return 1 + files + children.reduce((n, c) => n + treeNodeCount(c), 0);
+}
+var RESULT_COUNTS = {
+  world_model_get: (p) => p["root"] && typeof p["root"] === "object" ? treeNodeCount(p["root"]) : 0,
+  world_model_search: (p) => Array.isArray(p["results"]) ? p["results"].length : 0,
+  world_model_symbol: (p) => p["symbol"] && typeof p["symbol"] === "object" ? 1 : 0,
+  world_model_concepts: (p) => (Array.isArray(p["concepts"]) ? p["concepts"].length : 0) + (p["derived"] != null ? 1 : 0),
+  world_model_concept_get: () => 1,
+  world_model_concept_upsert: (p) => typeof p["id"] === "number" ? 1 : 0
+};
+function attributedTask(db2, agent) {
+  const runs = db2.all(
+    `SELECT task_id FROM agent_runs WHERE completed_at IS NULL AND agent_type = ? LIMIT 2`,
+    [normalizeAgent(agent)]
+  );
+  const taskId = runs.length === 1 ? runs[0].task_id : null;
+  if (taskId === null) return null;
+  const task = db2.get(
+    `SELECT issue_id, branch_id, repo FROM tasks WHERE id = ?`,
+    [taskId]
+  );
+  return task ? { task_id: taskId, ...task } : null;
+}
+function recordToolCall(db2, tool, args2, result2, latencyMs) {
+  const agent = String(args2["agent"]);
+  const error2 = result2.isError === true;
+  const first = result2.content[0];
+  const payload = error2 || first?.type !== "text" ? {} : JSON.parse(first.text);
+  const resultCount = error2 ? 0 : RESULT_COUNTS[tool](payload);
+  const task = attributedTask(db2, agent);
+  insertAudit(db2, {
+    issue_id: task?.issue_id ?? -1,
+    branch_id: task?.branch_id ?? null,
+    repo: task?.repo ?? null,
+    from_node: agent,
+    event_type: "wm_tool_called",
+    summary: `${tool} by ${agent}: ${resultCount} result(s)`,
+    content_json: JSON.stringify({
+      tool,
+      agent,
+      task_id: task?.task_id ?? null,
+      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])),
+      result_count: resultCount,
+      empty: error2 || resultCount === 0,
+      error: error2,
+      warning: typeof payload["warning"] === "string" ? payload["warning"] : null,
+      match: payload["match"] ?? null,
+      derived: payload["derived"] != null,
+      latency_ms: latencyMs
+    })
+  });
+}
+function logged(db2, tool, fn) {
+  return async (args2) => {
+    const started = performance.now();
+    const result2 = await fn(args2);
+    try {
+      recordToolCall(db2, tool, args2, result2, Math.round(performance.now() - started));
+    } catch (e) {
+      console.error(`[world-model] ${tool} call log failed: ${e.message}`);
+    }
+    return result2;
+  };
+}
+function buildTree(rows, rootPath, depth, opts) {
+  const byParent = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const key = r.parent_path ?? "__ROOT__";
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(r);
+  }
+  const root = rows.find((r) => r.path === rootPath);
+  if (!root) return null;
+  const visited = /* @__PURE__ */ new Set();
+  const counter = opts?.nodeCounter;
+  const depthOffset = opts?.depthOffset ?? 0;
+  function descend(node, remainingDepth, currentDepth) {
+    visited.add(node.path);
+    if (counter) counter.count++;
+    const children = [];
+    if (remainingDepth === null || remainingDepth > 0) {
+      const kids = (byParent.get(node.path) ?? []).filter(
+        (k) => k.path !== node.path && !visited.has(k.path)
+      );
+      kids.sort((a, b) => a.path.localeCompare(b.path));
+      for (const k of kids) {
+        if (counter && counter.count >= counter.limit) break;
+        children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1, currentDepth + 1));
+      }
+    }
+    const absoluteDepth = currentDepth + depthOffset;
+    const summary = absoluteDepth > 1 && node.summary ? node.summary.split("\n").find((l) => l.trim().length > 0) ?? node.summary : node.summary;
+    return {
+      path: node.path,
+      summary,
+      summary_source: node.summary_source,
+      summary_updated_at: node.summary_updated_at,
+      file_count: node.file_count,
+      ...driftView(node),
+      children
+    };
+  }
+  return descend(root, depth, 0);
+}
+var CONCEPT_LIMIT = 10;
+function framedStep(step, derived) {
+  const symbol2 = step.symbol && step.symbol.id !== null ? {
+    ...step.symbol,
+    signature: step.symbol.signature ? frameUntrusted("symbol-signature", step.symbol.signature) : "",
+    doc: step.symbol.doc ? frameUntrusted("symbol-doc", step.symbol.doc) : ""
+  } : step.symbol;
+  const description = derived && step.description ? frameUntrusted("symbol-doc", step.description) : step.description;
+  return { ...step, description, symbol: symbol2 };
+}
+function worldModelTools(db2, graphHolder2) {
+  const definitions = [
+    {
+      name: "world_model_get",
+      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. checkout_behind_upstream (with upstream 'origin/<target>') counts the commits the indexed checkout trails its upstream as of the last fetch, so missing files or shifted line ranges may be checkout lag, not world-model bugs; absent when current. Primary navigation surface for code-touching cold starts.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          repo: {
+            type: "string",
+            description: "Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects."
+          },
+          path: {
+            type: "string",
+            description: "Starting directory path, repo-relative. Defaults to the repo root ('')."
+          },
+          depth: {
+            type: ["integer", "null"],
+            description: "How deep to descend. Defaults to 2 (root + immediate children). Pass null for the full subtree."
+          }
+        },
+        required: ["agent"]
+      }
+    },
+    {
+      name: "world_model_search",
+      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'|'symbol'; a symbol hit carries stale: true when its file changed on disk since the last scan. Without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          query: {
+            type: "string",
+            description: "Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match; when none do, any non-stopword term, reported as match: any_term), plus path/text substrings; semantic matches natural language."
+          },
+          mode: {
+            type: "string",
+            enum: ["keyword", "semantic", "hybrid"],
+            description: "Search mode. Default: hybrid (RRF combines FTS5 + cosine)."
+          },
+          repo: {
+            type: "string",
+            description: "Optional \u2014 restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects."
+          },
+          k: {
+            type: "number",
+            description: "Top-K rows to return. Default 5. Max 20."
+          }
+        },
+        required: ["agent", "query"]
+      }
+    },
+    {
+      name: "world_model_symbol",
+      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          id: { type: "number", description: "Symbol id from a world_model_search hit." },
+          repo: {
+            type: "string",
+            description: "Repo name. Defaults to the sole registered repo; required in multi-repo projects without id."
+          },
+          path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
+          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
+          impact: {
+            type: ["boolean", "integer"],
+            description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`
+          },
+          source: {
+            type: "boolean",
+            description: "Add source {start_line, end_line, text, truncated}: the body read from disk, capped at 200 lines, text framed as untrusted content."
+          }
+        },
+        required: ["agent"]
+      }
+    },
+    {
+      name: "world_model_concepts",
+      description: "Search verified concepts (named, ordered flows over symbols) by bm25. Each hit has step_count and per-step trust counts. With no match, derived is a chain walked from the top symbol hit over exact calls/sources/runs edges, labelled 'derived, unverified'.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          query: { type: "string" },
+          repo: { type: "string", description: "Defaults to the sole registered repo." }
+        },
+        required: ["agent", "query"]
+      }
+    },
+    {
+      name: "world_model_concept_get",
+      description: "One concept with its steps in order: description, trust, handoff and the anchored symbol resolved now (null when the anchor is gone; a file anchor is {id: null, kind: 'file', qualified_name: <path>} with null signature, doc and lines).",
+      inputSchema: {
+        type: "object",
+        properties: { agent: { type: "string" }, id: { type: "number" } },
+        required: ["agent", "id"]
+      }
+    },
+    {
+      name: "world_model_concept_upsert",
+      description: "Write a concept, replacing any of the same repo+name. Every step must anchor a current symbol (kind '' anchors the file) and every claim must pass, or nothing is written. Scans then mark drifted steps suspect or broken.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          repo: { type: "string" },
+          name: { type: "string" },
+          kind: { type: "string", enum: [...CONCEPT_KINDS] },
+          body: { type: "string" },
+          steps: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                path: { type: "string" },
+                kind: { type: "string" },
+                qualified_name: { type: "string" },
+                description: { type: "string" },
+                handoff: { type: ["string", "null"], enum: [...HANDOFFS, null] }
+              },
+              required: ["path", "description"]
+            }
+          },
+          claims: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { claim: { type: "string", enum: [...CLAIMS] }, args: { type: "object" } },
+              required: ["claim", "args"]
+            }
+          }
+        },
+        required: ["agent", "name", "steps"]
+      }
+    }
+  ];
+  const conceptRepo = (arg) => {
+    if (typeof arg === "string" && arg) return { name: arg };
+    const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+    if (available.length >= 2) return { name: "", warning: "repo-unspecified", available_repos: available };
+    return { name: resolveSoleRepo(db2)?.name ?? "" };
+  };
+  const handlers = {
+    world_model_get: requireRoles(
+      "world_model_get",
+      ["bro", "swe", "code-reviewer", "consultant"],
+      logged(db2, "world_model_get", wrap3(async (args2) => {
+        let repo = args2["repo"] ?? "";
+        if (!repo) {
+          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
+            return ok15({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
+          }
+          repo = resolveSoleRepo(db2)?.name ?? "";
+        }
+        const path2 = args2["path"] ?? "";
+        const depthArg = args2["depth"];
+        const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
+        const unmerged = computeUnmergedWork(db2, repo);
+        const lag = checkoutLag(db2, repo);
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        if (!graph) {
+          return ok15({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work, ...lag });
+        }
+        if (graph.directoryCount(repo) === 0) {
+          return ok15({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work, ...lag });
+        }
+        const rows = graph.subtree(repo, path2, depth);
+        const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
+        const tree = buildTree(rows, path2, depth, { nodeCounter });
+        if (!tree) {
+          return ok15({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work, ...lag });
+        }
+        const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
+        if (path2 !== "") tree.files = graph.filesForDirectory(repo, path2).map(fileView);
+        return ok15({
+          repo,
+          root: tree,
+          ...path2 === "" ? { coverage: graph.fileCoverage(repo) } : {},
+          ...truncated ? { truncated: true } : {},
+          ...unmerged.warning ? { warning: unmerged.warning } : {},
+          unmerged_work: unmerged.unmerged_work,
+          ...lag
+        });
+      }))
+    ),
+    world_model_search: requireRoles(
+      "world_model_search",
+      ["bro", "swe", "code-reviewer", "consultant"],
+      logged(db2, "world_model_search", wrap3(async (args2) => {
+        const query = args2["query"];
+        if (!query || typeof query !== "string") return err16("query is required");
+        const mode = args2["mode"] ?? "hybrid";
+        const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
+        let repo = args2["repo"] ?? "";
+        if (!repo) {
+          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
+            return ok15({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
+          }
+          repo = resolveSoleRepo(db2)?.name ?? "";
+        }
+        const lag = checkoutLag(db2, repo);
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        if (!graph) {
+          return ok15({ results: [], total_matched: 0, warning: "world-model-unavailable", mode, ...lag });
+        }
+        const { ranked, match, warning } = await rankWorldModel(db2, graph, repo, query, mode, k);
+        const top = ranked.slice(0, k);
+        const stale = staleFiles(
+          db2,
+          top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
+        );
+        const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
+        return ok15({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match, ...lag });
+      }))
+    ),
+    world_model_symbol: requireRoles(
+      "world_model_symbol",
+      ["bro", "swe", "code-reviewer", "consultant"],
+      logged(db2, "world_model_symbol", wrap3(async (args2) => {
+        const id = args2["id"];
+        let symbol2 = null;
+        if (typeof id === "number") {
+          symbol2 = symbolById(db2, id);
+          if (!symbol2) return err16(`symbol ${id} not found`);
+        } else {
+          const name2 = args2["qualified_name"];
+          if (typeof name2 !== "string" || !name2) return err16("id or qualified_name is required");
+          let repo = args2["repo"] ?? "";
+          if (!repo) {
+            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+            if (available.length >= 2) return ok15({ symbol: null, warning: "repo-unspecified", available_repos: available });
+            repo = resolveSoleRepo(db2)?.name ?? "";
+          }
+          const path2 = args2["path"];
+          const matches = symbolsByName(db2, repo, name2, typeof path2 === "string" && path2 ? path2 : void 0);
+          if (matches.length === 0) return err16(`symbol ${name2} not found in repo ${repo || "(none)"}`);
+          const definitions2 = matches.filter((m) => m.kind !== "module");
+          if (definitions2.length > 1) {
+            return ok15({
+              symbol: null,
+              warning: "ambiguous",
+              matches: definitions2.map((m) => ({
+                id: m.id,
+                qualified_name: m.qualified_name,
+                kind: m.kind,
+                repo: m.repo,
+                path: m.path,
+                line_start: m.start_line
+              })),
+              ...checkoutLag(db2, repo)
+            });
+          }
+          symbol2 = matches[0];
+        }
+        const impactArg = args2["impact"];
+        let impactDepth = null;
+        if (impactArg === true) impactDepth = DEFAULT_IMPACT_DEPTH;
+        else if (typeof impactArg === "number") {
+          if (!Number.isInteger(impactArg) || impactArg < 1 || impactArg > IMPACT_MAX_DEPTH) {
+            return err16(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+          }
+          impactDepth = impactArg;
+        } else if (impactArg !== void 0 && impactArg !== false && impactArg !== null) {
+          return err16(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
+        }
+        const card = symbolCard(db2, symbol2);
+        return ok15({
+          ...card,
+          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
+          ...impactDepth !== null ? { impact: symbolImpact(db2, symbol2, impactDepth) } : {},
+          ...args2["source"] === true ? symbolSource(db2, symbol2) : {},
+          ...checkoutLag(db2, symbol2.repo)
+        });
+      }))
+    ),
+    world_model_concepts: requireRoles(
+      "world_model_concepts",
+      ["bro", "swe", "code-reviewer", "consultant"],
+      logged(db2, "world_model_concepts", wrap3(async (args2) => {
+        const query = args2["query"];
+        if (typeof query !== "string" || !query.trim()) return err16("query is required");
+        const repo = conceptRepo(args2["repo"]);
+        if (repo.warning) return ok15({ available: false, concepts: [], derived: null, ...repo });
+        const available = db2.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== void 0;
+        if (!available) return ok15({ available, concepts: [], derived: null });
+        const concepts = searchConcepts(db2, repo.name, query, CONCEPT_LIMIT);
+        const graph = concepts.length === 0 ? graphHolder2?.ensureGraph() ?? null : null;
+        const derived = graph ? derivedChain(db2, repo.name, query, derivedSeeds((await rankWorldModel(db2, graph, repo.name, query, "hybrid", DERIVED_SEED_HITS)).ranked)) : null;
+        return ok15({
+          available,
+          concepts,
+          derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null
+        });
+      }))
+    ),
+    world_model_concept_get: requireRoles(
+      "world_model_concept_get",
+      ["bro", "swe", "code-reviewer", "consultant"],
+      logged(db2, "world_model_concept_get", wrap3(async (args2) => {
+        const id = args2["id"];
+        if (typeof id !== "number") return err16("id is required");
+        const concept = getConcept(db2, id);
+        if (!concept) return err16(`concept ${id} not found`);
+        return ok15({ ...concept, steps: concept.steps.map((st) => framedStep(st, false)) });
+      }))
+    ),
+    world_model_concept_upsert: requireRoles(
+      "world_model_concept_upsert",
+      ["bro", "consultant"],
+      logged(db2, "world_model_concept_upsert", wrap3(async (args2) => {
+        const repo = conceptRepo(args2["repo"]);
+        if (repo.warning) return ok15({ concept: null, ...repo });
+        const input = { ...args2, repo: repo.name };
+        const repoPath = resolveSoleRepo(db2, repo.name)?.path ?? null;
+        return ok15(upsertConcept(db2, input, { repoPath, agent: String(args2["agent"]) }));
+      }))
+    )
+  };
+  return { definitions, handlers };
+}
+
 // src/tools/composites.ts
 var WORKTREE_TIMEOUT_MS = 6e4;
 function filesToDirs(files) {
@@ -38651,21 +40280,21 @@ function readRepoTargetBranch(db2, repoValue) {
   const v = row?.target_branch;
   return typeof v === "string" && v.length > 0 ? v : null;
 }
-function ok15(data) {
+function ok16(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err16(message2) {
+function err17(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap3(fn) {
+function wrap4(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err16(e.message);
+      return err17(e.message);
     }
   };
 }
@@ -38779,7 +40408,7 @@ function outsideProjectResult(refusal2) {
 function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
 }
-function git(repoPath, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
+function git2(repoPath, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
   return execFileSync3("git", ["-C", repoPath, ...args2], {
     stdio: ["ignore", "pipe", "pipe"],
     timeout
@@ -38787,14 +40416,14 @@ function git(repoPath, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
 }
 function refSha(repoPath, ref2) {
   try {
-    return git(repoPath, ["rev-parse", "--verify", "--quiet", `${ref2}^{commit}`]) || null;
+    return git2(repoPath, ["rev-parse", "--verify", "--quiet", `${ref2}^{commit}`]) || null;
   } catch {
     return null;
   }
 }
 function isAncestor(repoPath, ancestor, descendant) {
   try {
-    git(repoPath, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    git2(repoPath, ["merge-base", "--is-ancestor", ancestor, descendant]);
     return true;
   } catch {
     return false;
@@ -38802,7 +40431,7 @@ function isAncestor(repoPath, ancestor, descendant) {
 }
 function refDistance(repoPath, baseRef, ref2) {
   try {
-    const [behind, ahead] = git(repoPath, ["rev-list", "--left-right", "--count", `${baseRef}...${ref2}`]).split(/\s+/).map((n) => Number.parseInt(n, 10));
+    const [behind, ahead] = git2(repoPath, ["rev-list", "--left-right", "--count", `${baseRef}...${ref2}`]).split(/\s+/).map((n) => Number.parseInt(n, 10));
     if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return null;
     return { ahead, behind };
   } catch {
@@ -38812,7 +40441,7 @@ function refDistance(repoPath, baseRef, ref2) {
 function worktreeOfBranch(repoPath, branchId) {
   let list;
   try {
-    list = git(repoPath, ["worktree", "list", "--porcelain"]);
+    list = git2(repoPath, ["worktree", "list", "--porcelain"]);
   } catch {
     return null;
   }
@@ -38827,15 +40456,15 @@ function ensureTaskWorktree(repoPath, branchId) {
   const worktreePath = taskWorktreePath(repoPath, branchId);
   let reused = false;
   if (existsSync6(worktreePath)) {
-    const canonicalWt = realpathSync4(worktreePath);
+    const canonicalWt = realpathSync5(worktreePath);
     try {
-      reused = git(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
+      reused = git2(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
     } catch {
       reused = false;
     }
   }
   if (!reused) {
-    git(repoPath, ["worktree", "add", worktreePath, branchId], WORKTREE_TIMEOUT_MS);
+    git2(repoPath, ["worktree", "add", worktreePath, branchId], WORKTREE_TIMEOUT_MS);
   }
   try {
     linkWorktreeNodeModules(repoPath, worktreePath);
@@ -38854,7 +40483,7 @@ function ensureTaskBranch(repoPath, branchId, base, reuseExisting = false) {
   if (!baseRef && !(branchExists2 && reuseExisting)) return { kind: "base_unresolved" };
   if (!branchExists2) {
     try {
-      git(repoPath, ["branch", branchId, baseRef]);
+      git2(repoPath, ["branch", branchId, baseRef]);
     } catch (error2) {
       return { kind: "git_failed", what: `failed to create branch '${branchId}' from '${baseRef}'`, error: error2 };
     }
@@ -38864,13 +40493,13 @@ function ensureTaskBranch(repoPath, branchId, base, reuseExisting = false) {
   if (diverged && !reuseExisting) return { kind: "diverged", ref: diverged, baseRef };
   try {
     if (diverged || !baseRef) {
-      if (!localSha) git(repoPath, ["branch", branchId, originRef]);
+      if (!localSha) git2(repoPath, ["branch", branchId, originRef]);
     } else if (!localSha) {
-      git(repoPath, ["branch", branchId, baseRef]);
+      git2(repoPath, ["branch", branchId, baseRef]);
     } else if (localSha !== refSha(repoPath, baseRef)) {
       const checkedOutAt = worktreeOfBranch(repoPath, branchId);
-      if (checkedOutAt) git(checkedOutAt, ["merge", "--ff-only", "--quiet", baseRef]);
-      else git(repoPath, ["branch", "-f", branchId, baseRef]);
+      if (checkedOutAt) git2(checkedOutAt, ["merge", "--ff-only", "--quiet", baseRef]);
+      else git2(repoPath, ["branch", "-f", branchId, baseRef]);
     }
   } catch (error2) {
     return { kind: "git_failed", what: `failed to fast-forward existing branch '${branchId}' to '${baseRef ?? base}'`, error: error2 };
@@ -38883,7 +40512,7 @@ function reworkBase(db2, repoPath, repoValue, parentBranch) {
 }
 function isGitRepo(repoPath) {
   try {
-    git(repoPath, ["rev-parse", "--git-dir"]);
+    git2(repoPath, ["rev-parse", "--git-dir"]);
     return true;
   } catch {
     return false;
@@ -39338,7 +40967,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_provision: requireRoles(
       "task_provision",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const agent = args2["agent"] ?? "bro";
         const issueId = args2["issue_id"];
         const branchId = args2["branch_id"];
@@ -39346,36 +40975,36 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const task = args2["task"];
         parseRunSessionId(args2["session_id"]);
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
-          return err16("issue_id must be a number");
+          return err17("issue_id must be a number");
         }
         if (issueId === -1) {
-          return err16("system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.");
+          return err17("system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.");
         }
         if (!branchId || typeof branchId !== "string") {
-          return err16("branch_id must be a non-empty string");
+          return err17("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err16(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
+          return err17(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
         }
         if (!decisionBody || decisionBody.trim().length === 0) {
-          return err16("decision_body must be a non-empty string");
+          return err17("decision_body must be a non-empty string");
         }
         if (!task || typeof task !== "object") {
-          return err16("task must be an object");
+          return err17("task must be an object");
         }
         if (!task.description || task.description.trim().length === 0) {
-          return err16("task.description must be a non-empty string");
+          return err17("task.description must be a non-empty string");
         }
         if (!task.spec_body || typeof task.spec_body !== "string") {
-          return err16("task.spec_body must be a non-empty string");
+          return err17("task.spec_body must be a non-empty string");
         }
         if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
-          return err16(
+          return err17(
             `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
           );
         }
         const criteriaProblem = specCriteriaProblem(task.spec_body);
-        if (criteriaProblem) return err16(criteriaProblem);
+        if (criteriaProblem) return err17(criteriaProblem);
         const validateStrArray = (value, field2) => {
           if (!Array.isArray(value) || value.length === 0) {
             throw new Error(`task.${field2} must be a non-empty array of strings.`);
@@ -39391,18 +41020,18 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const verification = validateStrArray(task.verification, "verification");
         let repoValue = null;
         const hasTaskRepo = task.repo !== void 0 && task.repo !== null && task.repo !== "";
-        if (hasTaskRepo && typeof task.repo !== "string") return err16("task.repo must be a string");
+        if (hasTaskRepo && typeof task.repo !== "string") return err17("task.repo must be a string");
         const namedRepo = hasTaskRepo ? task.repo : db2.get(`SELECT repo FROM issues WHERE id = ?`, [issueId])?.repo || null;
         if (namedRepo) {
-          if (namedRepo.includes("..")) return err16(`Invalid repo "${namedRepo}": must not contain "..".`);
-          if (namedRepo.startsWith("/")) return err16(`Invalid repo "${namedRepo}": must not start with "/".`);
+          if (namedRepo.includes("..")) return err17(`Invalid repo "${namedRepo}": must not contain "..".`);
+          if (namedRepo.startsWith("/")) return err17(`Invalid repo "${namedRepo}": must not start with "/".`);
           repoValue = namedRepo;
         } else {
           repoValue = resolveSoleRepo(db2)?.name ?? null;
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
         if (task.effort !== void 0 && task.effort !== null && !isEffort(task.effort)) {
-          return err16(
+          return err17(
             `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(task.effort)}.`
           );
         }
@@ -39416,13 +41045,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const specShapeWaived = args2["waive_spec_shape"] === true;
         const specShapeWaiverReason = args2["waive_spec_shape_reason"] ?? "";
         if (specShapeWaived && (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10)) {
-          return err16("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err17("waive_spec_shape_reason must be a string \u226510 chars.");
         }
         const registryGateWaived = args2["waive_registry_gate"] === true;
         const registryGateWaiverReason = args2["waive_registry_gate_reason"] ?? "";
         if (registryGateWaived) {
           if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-            return err16("waive_registry_gate_reason must be a string \u226510 chars.");
+            return err17("waive_registry_gate_reason must be a string \u226510 chars.");
           }
         } else {
           const scanRow = db2.get(
@@ -39452,13 +41081,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (reposRow) {
             repoPath = repoRowPath(db2, reposRow.path);
           } else {
-            return err16(
+            return err17(
               `task_provision: repo '${repoValue}' is not registered (no repos row). Run /scan or pass a registered task.repo \u2014 tasks.repo is a foreign key to repos(name). No task row or branch was created.`
             );
           }
         }
         if (!repoPath) {
-          return err16(
+          return err17(
             `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
           );
         }
@@ -39473,12 +41102,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const reuseExisting = args2["reuse_existing"] === true;
         const branch = ensureTaskBranch(repoPath, branchId, base, reuseExisting);
         if (branch.kind === "base_unresolved") {
-          return err16(
+          return err17(
             `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
           );
         }
         if (branch.kind === "git_failed") {
-          return err16(
+          return err17(
             `task_provision: ${branch.what} in repo '${repoValue}' (${branch.error.message.split("\n")[0] || "git failed"}). No task row was created \u2014 retry with the same branch_id.`
           );
         }
@@ -39572,7 +41201,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           gitSetup = "error";
           diagnostic = e.message;
         }
-        return ok15({
+        return ok16({
           task_id: result2.task_id,
           branch_id: branchId,
           repo: repoValue,
@@ -39596,20 +41225,20 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_reopen: requireRoles(
       "task_reopen",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const agent = args2["agent"] ?? "bro";
         const taskId = Number(args2["task_id"]);
         const reason = args2["reason"];
-        if (!Number.isInteger(taskId)) return err16("task_id must be a number");
+        if (!Number.isInteger(taskId)) return err17("task_id must be a number");
         if (typeof reason !== "string" || reason.trim().length === 0) {
-          return err16("reason must be a non-empty string");
+          return err17("reason must be a non-empty string");
         }
         parseRunSessionId(args2["session_id"]);
         const filesAdd = validateFenceAdditions(args2["files_add"], "files_add");
         const verificationAdd = validateFenceAdditions(args2["verification_add"], "verification_add");
         const effortArg = args2["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
-          return err16(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+          return err17(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
         const spawnNote = parseSpawnNote(args2["spawn_note"], "task_reopen");
         const task = db2.get(
@@ -39618,14 +41247,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId]
         );
-        if (!task) return err16(`task_reopen: task ${taskId} not found`);
+        if (!task) return err17(`task_reopen: task ${taskId} not found`);
         if (!REOPENABLE_STATUSES.has(task.status)) {
-          return err16(
+          return err17(
             `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. Amend a live task's spec with task_update_spec.`
           );
         }
         if (task.issue_status === "closed") {
-          return err16(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+          return err17(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
         }
         const wontfix = parseWontfix(db2, taskId, args2["wontfix"]);
         const repoPath = resolveRepoPath(db2, task.repo);
@@ -39706,7 +41335,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           try {
             if (!refSha(repoPath, `refs/heads/${task.branch_id}`)) {
               if (refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
-                git(repoPath, ["branch", task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
+                git2(repoPath, ["branch", task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
               } else {
                 const base = reworkBase(db2, repoPath, task.repo, task.parent_branch_id);
                 const branch = ensureTaskBranch(repoPath, task.branch_id, base);
@@ -39727,7 +41356,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         } else {
           diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ""}'; worktree not checked`;
         }
-        return ok15({
+        return ok16({
           task_id: taskId,
           from_status: task.status,
           status: "running",
@@ -39745,13 +41374,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     task_update_spec: requireRoles(
       "task_update_spec",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const agent = args2["agent"] ?? "bro";
         const taskId = Number(args2["task_id"]);
         const reason = args2["reason"];
-        if (!Number.isInteger(taskId)) return err16("task_id must be a number");
+        if (!Number.isInteger(taskId)) return err17("task_id must be a number");
         if (typeof reason !== "string" || reason.trim().length === 0) {
-          return err16("reason must be a non-empty string");
+          return err17("reason must be a non-empty string");
         }
         const replacement = (field2) => {
           if (args2[field2] === void 0) return void 0;
@@ -39764,21 +41393,21 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const newSpec = args2["spec_body"];
         if (newSpec !== void 0) {
           if (typeof newSpec !== "string" || newSpec.trim().length === 0) {
-            return err16("spec_body must be a non-empty string");
+            return err17("spec_body must be a non-empty string");
           }
           if (newSpec.length > SPEC_BODY_MAX_BYTES) {
-            return err16(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
+            return err17(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
           }
           const criteriaProblem = specCriteriaProblem(newSpec);
-          if (criteriaProblem) return err16(criteriaProblem);
+          if (criteriaProblem) return err17(criteriaProblem);
         }
         if (newFiles === void 0 && newVerification === void 0 && newSpec === void 0) {
-          return err16("task_update_spec: pass at least one of files, verification, spec_body");
+          return err17("task_update_spec: pass at least one of files, verification, spec_body");
         }
         const task = db2.get(`SELECT id, issue_id, branch_id, status, files, verification, spec_body FROM tasks WHERE id = ?`, [taskId]);
-        if (!task) return err16(`task_update_spec: task ${taskId} not found`);
+        if (!task) return err17(`task_update_spec: task ${taskId} not found`);
         if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
-          return err16(
+          return err17(
             `task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`
           );
         }
@@ -39825,19 +41454,19 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             created_at: now2
           });
         });
-        return ok15({ task_id: taskId, changed, files, verification });
+        return ok16({ task_id: taskId, changed, files, verification });
       })
     ),
     task_brief: requireRoles(
       "task_brief",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const taskId = args2["task_id"];
-        if (taskId === void 0 || taskId === null) return err16("task_id is required");
+        if (taskId === void 0 || taskId === null) return err17("task_id is required");
         const isSwe = normalizeAgent(args2["agent"]) === "swe";
         const section = args2["section"] ?? (isSwe ? "core" : "all");
         if (!isBriefSection(section)) {
-          return err16(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(", ")}`);
+          return err17(`unknown section ${JSON.stringify(section)}; valid values: ${BRIEF_SECTIONS.join(", ")}`);
         }
         const want = (s) => section === "all" || section === s;
         const task = db2.get(
@@ -39847,7 +41476,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             WHERE t.id = ? LIMIT 1`,
           [taskId]
         );
-        if (!task) return err16(`No task with id=${taskId}`);
+        if (!task) return err17(`No task with id=${taskId}`);
         if (isSwe) {
           const repoPath = resolveRepoPath(db2, task.repo);
           openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null);
@@ -39940,7 +41569,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
             base_moved: closeScope ? closeScope.base_moved === true : null
           };
-          return { scope, scope_world_model, ...world_model_warning ? { world_model_warning } : {} };
+          return {
+            scope,
+            scope_world_model,
+            ...checkoutLag(db2, repo),
+            ...world_model_warning ? { world_model_warning } : {}
+          };
         };
         const historySection = () => {
           const NOTE_CAP = 500;
@@ -39992,7 +41626,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const task_discussions_omitted = omittedCount > 0 ? { count: omittedCount, hint: `older, other-task and superseded rows are omitted; ${historyHint}` } : void 0;
           return { task_discussions, ...task_discussions_omitted ? { task_discussions_omitted } : {} };
         };
-        return ok15({
+        return ok16({
           ...want("core") ? coreSection() : {},
           ...section === "core" ? { sections: BRIEF_SECTION_HINTS } : {},
           ...want("verification") ? { verification: parseTaskFiles(task.verification), verification_run: latestVerificationRun(db2, task.id) } : {},
@@ -40004,27 +41638,27 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     branch_id_propose: requireRoles(
       "branch_id_propose",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const intent = args2["intent"];
         if (typeof intent !== "string" || intent.trim().length === 0) {
-          return err16("intent must be a non-empty string");
+          return err17("intent must be a non-empty string");
         }
         const objective = args2["objective"] ?? intent;
         const { prefix, confidence } = intentToType(intent);
         const slug = slugify2(objective) || slugify2(intent) || "task";
         const branchId = `${prefix}/${slug}`;
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err16(
+          return err17(
             `Derived branch_id "${branchId}" does not match the conventional regex. Pick a clearer objective and re-call.`
           );
         }
-        return ok15({ branch_id: branchId, confidence });
+        return ok16({ branch_id: branchId, confidence });
       })
     ),
     task_retry: requireRoles(
       "task_retry",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const agent = args2["agent"] ?? "bro";
         const failedTaskId = args2["failed_task_id"];
         const newBranchId = args2["new_branch_id"];
@@ -40036,23 +41670,23 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         parseRunSessionId(args2["session_id"]);
         const effortArg = args2["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
-          return err16(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+          return err17(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
         }
         if (!BRANCH_ID_RE.test(newBranchId)) {
-          return err16(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
+          return err17(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
         if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
-          return err16(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
+          return err17(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
         }
         if (!rationale || rationale.length > 200) {
-          return err16("retry_rationale must be 1..200 chars.");
+          return err17("retry_rationale must be 1..200 chars.");
         }
         if (repoOverride !== null) {
           if (repoOverride.includes("..")) {
-            return err16(`Invalid repo "${repoOverride}": must not contain "..".`);
+            return err17(`Invalid repo "${repoOverride}": must not contain "..".`);
           }
           if (repoOverride.startsWith("/")) {
-            return err16(`Invalid repo "${repoOverride}": must not start with "/".`);
+            return err17(`Invalid repo "${repoOverride}": must not start with "/".`);
           }
         }
         const failed = db2.get(
@@ -40061,14 +41695,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
-        if (!failed) return err16(`No task with id=${failedTaskId}`);
+        if (!failed) return err17(`No task with id=${failedTaskId}`);
         if (failed.status !== "failed" && failed.status !== "escalated") {
-          return err16(
+          return err17(
             `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry only operates on terminally-failed tasks.`
           );
         }
         if (failed.branch_id === newBranchId) {
-          return err16("new_branch_id must differ from the failed task's branch_id.");
+          return err17("new_branch_id must differ from the failed task's branch_id.");
         }
         {
           const RETRY_CAP = 3;
@@ -40088,7 +41722,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             depth++;
           }
           if (depth >= RETRY_CAP) {
-            return err16(
+            return err17(
               `retry limit reached (3) \u2014 escalate to Human. Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. Use discussion_append(kind='question') to involve the Human before retrying further.`
             );
           }
@@ -40112,12 +41746,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const base = normalizeBase(repoPath, reworkBase(db2, repoPath, repoValue, failed.parent_branch_id));
           const branch = ensureTaskBranch(repoPath, newBranchId, base);
           if (branch.kind === "base_unresolved") {
-            return err16(
+            return err17(
               `task_retry: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue ?? ""}'. No task row was created.`
             );
           }
           if (branch.kind === "git_failed") {
-            return err16(
+            return err17(
               `task_retry: ${branch.what} in repo '${repoValue ?? ""}' (${branch.error.message.split("\n")[0] || "git failed"}). No task row was created.`
             );
           }
@@ -40200,7 +41834,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           return { ...newTask, carried };
         });
         if (!repoPath || !branchSetup) {
-          return ok15({
+          return ok16({
             task_id: result2.id,
             branch_id: result2.branch_id,
             effort,
@@ -40216,7 +41850,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         } catch (e) {
           diagnostic = e.message;
         }
-        return ok15({
+        return ok16({
           task_id: result2.id,
           branch_id: result2.branch_id,
           effort,
@@ -40231,28 +41865,28 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     intent_start: requireRoles(
       "intent_start",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const objective = args2["objective"];
         const intentVerbatim = args2["intent_verbatim"];
         const branchId = args2["branch_id"];
         if (!objective || objective.trim().length === 0) {
-          return err16("objective must be a non-empty string");
+          return err17("objective must be a non-empty string");
         }
         if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err16("intent_verbatim must be a non-empty string");
+          return err17("intent_verbatim must be a non-empty string");
         }
         if (!branchId || branchId.trim().length === 0) {
-          return err16("branch_id must be a non-empty string");
+          return err17("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err16(`branch_id "${branchId}" does not match the conventional format.`);
+          return err17(`branch_id "${branchId}" does not match the conventional format.`);
         }
         const explicitRepoRaw = args2["repo"];
         const explicitRepo = typeof explicitRepoRaw === "string" && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
         if (explicitRepo !== null) {
           const repoRow = db2.get(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
           if (!repoRow) {
-            return err16(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
+            return err17(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
           }
         }
         const suppliedLabels = args2["labels"];
@@ -40263,10 +41897,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           void 0,
           "intent_start"
         );
-        if ("error" in inference) return err16(inference.error);
+        if ("error" in inference) return err17(inference.error);
         const { labels, areaInferred } = inference;
         const labelError = validateIssueLabels(db2, labels);
-        if (labelError !== null) return err16(labelError);
+        if (labelError !== null) return err17(labelError);
         const now2 = nowISO();
         const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
         const result2 = db2.transaction(() => {
@@ -40305,31 +41939,31 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             area_inferred: areaInferred
           };
         });
-        return ok15(result2);
+        return ok16(result2);
       })
     ),
     bro_verification_fail_record: requireRoles(
       "bro_verification_fail_record",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const taskId = args2["task_id"];
         const whichCheck = args2["which_check"];
         const details = args2["details"];
-        if (!taskId) return err16("task_id is required");
+        if (!taskId) return err17("task_id is required");
         if (!whichCheck || whichCheck.trim().length === 0) {
-          return err16("which_check must be a non-empty string");
+          return err17("which_check must be a non-empty string");
         }
         if (!details || details.trim().length === 0) {
-          return err16("details must be a non-empty string");
+          return err17("details must be a non-empty string");
         }
         if (details.length > 500) {
-          return err16("details must be \u2264500 chars");
+          return err17("details must be \u2264500 chars");
         }
         const task = db2.get(
           "SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err16(`No task with id=${taskId}`);
+        if (!task) return err17(`No task with id=${taskId}`);
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
         const now2 = nowISO();
         db2.transaction(() => {
@@ -40350,24 +41984,24 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             created_at: now2
           });
         });
-        return ok15({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
+        return ok16({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
       })
     ),
     pr_monitor_worktree: requireRoles(
       "pr_monitor_worktree",
       ["code-reviewer"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const commitSha = (args2["commit_sha"] ?? "").toLowerCase();
         const repoPath = args2["repo_path"];
         const command = args2["command"];
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err16("commit_sha must be a 7..40-char hex SHA");
+          return err17("commit_sha must be a 7..40-char hex SHA");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err16("repo_path must be an absolute path");
+          return err17("repo_path must be an absolute path");
         }
         if (!command || command.trim().length === 0) {
-          return err16("command must be a non-empty string");
+          return err17("command must be a non-empty string");
         }
         const repoRefusal = outsideProject("pr_monitor_worktree", runContext.projectRoot, repoPath);
         if (repoRefusal) return outsideProjectResult(repoRefusal);
@@ -40381,7 +42015,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             timeout: WORKTREE_TIMEOUT_MS
           });
         } catch (e) {
-          return err16(`worktree add failed: ${e.message}`);
+          return err17(`worktree add failed: ${e.message}`);
         }
         try {
           const result2 = execFileSync3("bash", ["-c", command], {
@@ -40425,14 +42059,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     worktree_commits_fetch: requireRoles(
       "worktree_commits_fetch",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const taskIds = args2["task_ids"];
         const repoPath = args2["repo_path"];
         if (!Array.isArray(taskIds) || taskIds.length === 0) {
-          return err16("task_ids must be a non-empty array");
+          return err17("task_ids must be a non-empty array");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err16("repo_path must be an absolute path");
+          return err17("repo_path must be an absolute path");
         }
         const results = [];
         for (const tid of taskIds) {
@@ -40490,19 +42124,19 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     bro_atomic_close: requireRoles(
       "bro_atomic_close",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const taskId = args2["task_id"];
-        if (!taskId) return err16("Missing required arg: task_id");
+        if (!taskId) return err17("Missing required arg: task_id");
         const commitSha = (args2["commit_sha"] ?? "").toLowerCase();
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err16("commit_sha must be a 7..40-char hex SHA.");
+          return err17("commit_sha must be a 7..40-char hex SHA.");
         }
         const verificationSummary = args2["verification_summary"];
         if (verificationSummary === void 0 || verificationSummary === null) {
-          return err16("Missing required arg: verification_summary");
+          return err17("Missing required arg: verification_summary");
         }
         if (typeof verificationSummary !== "string") {
-          return err16("verification_summary must be a string");
+          return err17("verification_summary must be a string");
         }
         const closeIssueIfLast = args2["close_issue_if_last_task"] === true;
         const waiveScopeGate = args2["waive_scope_gate"] === true;
@@ -40512,28 +42146,28 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
              FROM tasks WHERE id = ? LIMIT 1`,
           [taskId]
         );
-        if (!task) return err16(`No task with id=${taskId}`);
+        if (!task) return err17(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
-          return err16(
+          return err17(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
         const unreported = reportMissingIds(task.completion_report, specCriterionIds(task.spec_body));
         if (unreported.length > 0) {
-          return err16(
+          return err17(
             `completion_report_missing: task ${task.id}'s spec carries Success Criteria ids the stored completion report ${task.completion_report ? "does not cover" : "is missing for"}: ${unreported.join(", ")}. Resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}', report={criteria: [{id, status}, ...]}) with one entry per id, then retry bro_atomic_close.`
           );
         }
         const verificationCommands = gateCommands(parseTaskFiles(task.verification), activeFindingProbes(db2, task.id));
         if (verificationCommands.length > 0 && passingRunForCommit(db2, task.id, commitSha, verificationCommands) === null && !verificationWaivedForCommit(db2, task.id, commitSha)) {
-          return err16(
+          return err17(
             `verification_run_missing: task ${task.id} has ${verificationCommands.length} gate command(s) (verification[] lines plus review finding probes) and no passing verification run of its current verification[] and findings recorded for commit ${commitSha} (a run made before verification[] was amended or a finding was recorded does not count), and no verification_gate_waived row for that commit. Get a run: resume the swe on task_id=${task.id} to call task_update_status(status='completed', commit_sha='${commitSha}') \u2014 swe-verification-gate runs verification[] in the task worktree and records the run \u2014 then retry bro_atomic_close. Or waive: that call with waive_verification_gate_reason (at least 10 characters) records verification_gate_waived for the commit.`
           );
         }
         const now2 = nowISO();
         const scopeWaiverReason = typeof args2["scope_waiver_reason"] === "string" ? args2["scope_waiver_reason"].trim() : "";
         if (waiveScopeGate && scopeWaiverReason.length < 10) {
-          return err16("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
+          return err17("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
         }
         const repoPath = resolveRepoPath(db2, task.repo);
         const targetCandidates = [readRepoTargetBranch(db2, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
@@ -40561,7 +42195,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         };
         if (!waiveScopeGate) {
           if (!scope.checked) {
-            return err16(
+            return err17(
               `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true with scope_waiver_reason if this close is intentional outside a git checkout.`
             );
           }
@@ -40620,29 +42254,29 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           };
         });
         const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args2["_spawnFn"]) : void 0;
-        return ok15(remote ? { ...result2, remote } : result2);
+        return ok16(remote ? { ...result2, remote } : result2);
       })
     ),
     task_recover: requireRoles(
       "task_recover",
       ["bro"],
-      wrap3(async (args2) => {
+      wrap4(async (args2) => {
         const taskArg = args2["task_id"];
         const taskId = taskArg === void 0 || taskArg === null || taskArg === "" ? null : String(taskArg);
         const commitArg = args2["commit_sha"];
         let commitSha = null;
         if (commitArg !== void 0 && commitArg !== null && commitArg !== "") {
-          if (typeof commitArg !== "string") return err16("commit_sha must be a string");
+          if (typeof commitArg !== "string") return err17("commit_sha must be a string");
           const lowered = commitArg.toLowerCase();
           if (!/^[0-9a-f]{7,40}$/.test(lowered)) {
-            return err16("commit_sha must be a 7..40-char hex SHA.");
+            return err17("commit_sha must be a 7..40-char hex SHA.");
           }
           commitSha = lowered;
         }
         const verificationSummary = typeof args2["verification_summary"] === "string" ? args2["verification_summary"] : `task_recover: stuck-pending recovery for task ${taskId}`;
         const closeIssueIfLast = args2["close_issue_if_last_task"] === true;
         const task = taskId === null ? null : db2.get("SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1", [taskId]);
-        if (taskId !== null && !task) return err16(`No task with id=${taskId}`);
+        if (taskId !== null && !task) return err17(`No task with id=${taskId}`);
         const sweep = sweepStaleTasks(db2, nowISO());
         const sweepResult = {
           tasks_swept: sweep.tasks_swept,
@@ -40650,10 +42284,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           runs_marked_unmeasured: markLegacyUnmeteredRuns(db2),
           reported: sweep.reported
         };
-        if (!task) return ok15(sweepResult);
+        if (!task) return ok16(sweepResult);
         const current = db2.get("SELECT status FROM tasks WHERE id = ?", [task.id]);
         if (current.status !== "pending" && current.status !== "completed") {
-          return ok15({
+          return ok16({
             recovered: false,
             action: "noop",
             task_id: task.id,
@@ -40663,7 +42297,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           });
         }
         if (!commitSha) {
-          return ok15({
+          return ok16({
             recovered: false,
             action: "re-dispatch",
             task_id: task.id,
@@ -40685,7 +42319,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           return closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, "task_recover");
         });
         const remote = result2.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args2["_spawnFn"]) : void 0;
-        return ok15({
+        return ok16({
           recovered: true,
           action: "closed",
           task_id: task.id,
@@ -40703,21 +42337,21 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 }
 
 // src/tools/onboard.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
-import { existsSync as existsSync10, lstatSync as lstatSync5, mkdirSync as mkdirSync6, realpathSync as realpathSync5, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename as basename7, dirname as dirname10, isAbsolute as isAbsolute4, join as join16 } from "node:path";
+import { spawnSync as spawnSync11 } from "node:child_process";
+import { existsSync as existsSync10, lstatSync as lstatSync5, mkdirSync as mkdirSync6, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename as basename7, dirname as dirname10, isAbsolute as isAbsolute5, join as join17 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync7, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync8, chmodSync, rmSync } from "node:fs";
-import { dirname as dirname9, join as join14 } from "node:path";
+import { readFileSync as readFileSync8, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync8, chmodSync, rmSync } from "node:fs";
+import { dirname as dirname9, join as join15 } from "node:path";
 
 // src/tools/onboard-sandbox.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
-import { appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync6, statSync as statSync3, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname8, join as join13 } from "node:path";
+import { spawnSync as spawnSync9 } from "node:child_process";
+import { appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync7, statSync as statSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname8, join as join14 } from "node:path";
 function settingsPath(projectRoot) {
-  return join13(projectRoot, ".claude", "settings.local.json");
+  return join14(projectRoot, ".claude", "settings.local.json");
 }
 function isObject4(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -40725,7 +42359,7 @@ function isObject4(v) {
 function readSettings(path2) {
   if (!existsSync7(path2)) return { settings: {} };
   try {
-    const raw = readFileSync6(path2, "utf8").trim();
+    const raw = readFileSync7(path2, "utf8").trim();
     const parsed = raw.length > 0 ? JSON.parse(raw) : {};
     return isObject4(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
   } catch {
@@ -40735,13 +42369,13 @@ function readSettings(path2) {
 var LOCAL_SETTINGS_REL = ".claude/settings.local.json";
 function ensureLocalSettingsIgnored(projectRoot) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const inTree = spawnSync7("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], opts);
+  const inTree = spawnSync9("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], opts);
   if (inTree.status !== 0 || (inTree.stdout ?? "").trim() !== "true") return { appended: false };
-  const ignored = spawnSync7("git", ["-C", projectRoot, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
+  const ignored = spawnSync9("git", ["-C", projectRoot, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
   if (ignored.status !== 1) return { appended: false };
-  const gitignore = join13(projectRoot, ".gitignore");
+  const gitignore = join14(projectRoot, ".gitignore");
   try {
-    const current = existsSync7(gitignore) ? readFileSync6(gitignore, "utf8") : "";
+    const current = existsSync7(gitignore) ? readFileSync7(gitignore, "utf8") : "";
     const lead = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
     appendFileSync3(gitignore, `${lead}${LOCAL_SETTINGS_REL}
 `);
@@ -40805,10 +42439,10 @@ function sandboxRecommended(remoteUrls, platform = process.platform, probes = SA
   return probe !== void 0 && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
 function sandboxToolCacheDir(projectRoot) {
-  return join13(projectRoot, ".claude", resolveClaudePluginName(), "cache");
+  return join14(projectRoot, ".claude", resolveClaudePluginName(), "cache");
 }
 function sandboxToolEnv(toolCacheDir) {
-  return { npm_config_cache: join13(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join13(toolCacheDir, "bun") };
+  return { npm_config_cache: join14(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join14(toolCacheDir, "bun") };
 }
 function stringList(v) {
   return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
@@ -40969,18 +42603,18 @@ function installedMarketplace(pluginRoot) {
 }
 function pluginNameOf(pluginRoot) {
   try {
-    const parsed = JSON.parse(readFileSync7(join14(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync8(join15(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
     if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
   } catch {
   }
   return "tmb";
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join14(pluginRoot, "hooks", "hooks.json");
+  const hooksJsonPath = join15(pluginRoot, "hooks", "hooks.json");
   if (!existsSync8(hooksJsonPath)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync7(hooksJsonPath, "utf8"));
+    parsed = JSON.parse(readFileSync8(hooksJsonPath, "utf8"));
   } catch {
     return null;
   }
@@ -41010,13 +42644,13 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
   return groups;
 }
 function resolverPathFor(projectRoot, pluginName2) {
-  return join14(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
+  return join15(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
 }
 function materializeResolver(pluginRoot, resolverPath) {
-  const canonical = join14(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  const canonical = join15(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync8(canonical)) return null;
   mkdirSync5(dirname9(resolverPath), { recursive: true });
-  writeFileSync3(resolverPath, readFileSync7(canonical, "utf8"));
+  writeFileSync3(resolverPath, readFileSync8(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
@@ -41045,12 +42679,12 @@ function installedPluginGuard(pluginRoot) {
   return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 function settingsFile(projectRoot) {
-  return join14(projectRoot, ...SETTINGS_REL);
+  return join15(projectRoot, ...SETTINGS_REL);
 }
 function readSettings2(path2) {
   if (!existsSync8(path2)) return { settings: {}, exists: false };
   try {
-    const raw = readFileSync7(path2, "utf8").trim();
+    const raw = readFileSync8(path2, "utf8").trim();
     return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
   } catch {
     return { reason: "existing settings.local.json is not valid JSON" };
@@ -41142,9 +42776,9 @@ function removeProjectEnforcementShim(opts) {
 }
 
 // src/tools/onboard-scan.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
+import { spawnSync as spawnSync10 } from "node:child_process";
 import { existsSync as existsSync9, readdirSync as readdirSync3, statSync as statSync4 } from "node:fs";
-import { basename as basename6, join as join15 } from "node:path";
+import { basename as basename6, join as join16 } from "node:path";
 var GIT_TIMEOUT_MS = 3e3;
 var MAX_GIT_CALLS = 6;
 var MERGE_WINDOW = 50;
@@ -41157,7 +42791,7 @@ function gitRunner(cwd) {
   return (args2) => {
     if (calls >= MAX_GIT_CALLS) return { ok: false, note: "git call budget spent" };
     calls++;
-    const r = spawnSync8("git", args2, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+    const r = spawnSync10("git", args2, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
     if (r.error) {
       const code = r.error.code;
       return { ok: false, note: code === "ETIMEDOUT" ? "git timed out" : `git unavailable (${code ?? r.error.message})` };
@@ -41176,7 +42810,7 @@ function isDirectory2(path2) {
 }
 function hasWorkflows(repoPath) {
   try {
-    return readdirSync3(join15(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
+    return readdirSync3(join16(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
   } catch {
     return false;
   }
@@ -41184,7 +42818,7 @@ function hasWorkflows(repoPath) {
 function ciFiles(repoPath) {
   const found = [];
   if (hasWorkflows(repoPath)) found.push(".github/workflows");
-  if (existsSync9(join15(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
+  if (existsSync9(join16(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
   return found;
 }
 function parseRemotes(stdout) {
@@ -41262,7 +42896,7 @@ function scanRepoEvidence(repoPath, opts = {}) {
     evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
   }
   evidence.ci_files = ciFiles(repoPath);
-  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync9(join15(repoPath, p)));
+  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync9(join16(repoPath, p)));
   return done();
 }
 function contextLines(e) {
@@ -41363,17 +42997,17 @@ function scanWorkspace(db2) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync10(join16(env, ".claude-plugin", "plugin.json"))) return env;
+  if (env && existsSync10(join17(env, ".claude-plugin", "plugin.json"))) return env;
   let dir = dirname10(fileURLToPath5(import.meta.url));
   for (; ; ) {
-    if (existsSync10(join16(dir, ".claude-plugin", "plugin.json"))) return dir;
+    if (existsSync10(join17(dir, ".claude-plugin", "plugin.json"))) return dir;
     const parent = dirname10(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
 }
-function ok16(data) {
+function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function wrapHandler13(fn) {
@@ -41390,10 +43024,10 @@ function wrapHandler13(fn) {
 }
 function probeGit(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync9("git", ["rev-parse", "--show-toplevel"], opts);
+  const inGitR = spawnSync11("git", ["rev-parse", "--show-toplevel"], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync9("git", ["remote", "-v"], opts);
+  const remotesR = spawnSync11("git", ["remote", "-v"], opts);
   const detected_remotes = [];
   if (remotesR.status === 0) {
     const seen = /* @__PURE__ */ new Set();
@@ -41415,7 +43049,7 @@ function probeGit(cwd) {
   };
 }
 function branchExists(cwd, branch) {
-  const r = spawnSync9("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+  const r = spawnSync11("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
     encoding: "utf8",
     timeout: 3e3
   });
@@ -41423,16 +43057,16 @@ function branchExists(cwd, branch) {
 }
 function repoDefaultBranch(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync9("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  const head = spawnSync11("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
   if (head.status === 0) {
     const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
     if (b) return b;
   }
   for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync9("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    const r = spawnSync11("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync9("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  const cur = spawnSync11("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
   if (cur.status === 0) {
     const b = (cur.stdout ?? "").trim();
     if (b) return b;
@@ -41440,11 +43074,11 @@ function repoDefaultBranch(cwd) {
   return "main";
 }
 function probeCli(cmd) {
-  const which = spawnSync9("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
+  const which = spawnSync11("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
   if (!installed) return { installed: false, authed: false };
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync9(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = spawnSync11(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 function readConfig(db2, key) {
@@ -41943,12 +43577,12 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       );
     }
     const stateDir = claudeStateDir(where.session_dir, basename7(dirname10(dbPath2)));
-    const newDb = join16(stateDir, "trajectory.db");
+    const newDb = join17(stateDir, "trajectory.db");
     mkdirSync6(stateDir, { recursive: true });
     new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => {
     }, sqlLog: () => {
     } }).close();
-    const marker = join16(stateDir, CLAUDE_STANDALONE_MARKER);
+    const marker = join17(stateDir, CLAUDE_STANDALONE_MARKER);
     writeFileSync4(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
     insertAudit(db2, {
       issue_id: -1,
@@ -41980,7 +43614,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       return outside;
     };
     const check2 = (path2) => {
-      if (!isAbsolute4(path2)) return { reason: "not an absolute path" };
+      if (!isAbsolute5(path2)) return { reason: "not an absolute path" };
       if (!existsSync10(path2)) return { reason: "no such file" };
       if (claudeProjectRootOfDb(path2) === null || basename7(path2) !== "trajectory.db" || basename7(dirname10(path2)) !== pluginName2) {
         return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
@@ -41988,7 +43622,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       if (canonicalExisting(path2) === self2) return { reason: "the current trajectory DB" };
       const link = linkOrOutside(path2);
       if (link !== null) return { reason: link };
-      const stateDir = realpathSync5(dirname10(path2));
+      const stateDir = realpathSync6(dirname10(path2));
       const strayProject = dirname10(dirname10(stateDir));
       if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
       if (isStandaloneClaudeDb(path2)) return { reason: "a standalone TMB project" };
@@ -42003,7 +43637,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         continue;
       }
       const { stateDir } = verdict;
-      const file2 = join16(stateDir, basename7(path2));
+      const file2 = join17(stateDir, basename7(path2));
       for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
       rmSync2(stateDir, { recursive: true, force: true });
       insertAudit(db2, {
@@ -42029,7 +43663,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const first_run = !onboarded;
         const policies = readRepoPolicies(db2);
         const first = policies[0];
-        return ok16({
+        return ok17({
           first_run,
           current: {
             ...workspacePolicyView(policies, {
@@ -42065,12 +43699,12 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const repo = args2["repo"];
         const git4 = probeGit(probeDir());
         if (round === "shape") {
-          return ok16({ questions: [shapeQuestion(git4.origin_kind, shapeAdvice(scanWorkspace(db2), git4.origin_kind))] });
+          return ok17({ questions: [shapeQuestion(git4.origin_kind, shapeAdvice(scanWorkspace(db2), git4.origin_kind))] });
         }
         if (round === "sandbox") {
           const current = readConfig(db2, "sandbox_enforcement");
           const detected = git4.detected_remotes.map((r) => r.url);
-          return ok16({
+          return ok17({
             questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)]
           });
         }
@@ -42087,7 +43721,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             branchingQuestion(repoRow.branching_model, repoRow.branching_model !== null, advice.branching),
             prTargetQuestion(repoRow.target_branch, repoRow.branching_model, repoRow.target_branch !== null, advice.prTarget)
           ];
-          return ok16({ questions: repoQuestions });
+          return ok17({ questions: repoQuestions });
         }
         const isReonboard = readOnboardedFlag(db2);
         const policy = readRepoPolicy(db2);
@@ -42120,7 +43754,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         } else {
           throw new Error(`unknown round '${String(round)}'`);
         }
-        return ok16({ questions });
+        return ok17({ questions });
       })
     ),
     onboard_apply: requireRoles(
@@ -42137,7 +43771,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           if (others.length > 0) {
             throw new Error(`standalone=true is applied alone \u2014 drop ${others.join(", ")}; the new project onboards after the session restart`);
           }
-          return ok16(makeStandalone());
+          return ok17(makeStandalone());
         }
         const rawStray = args2["remove_stray_dbs"];
         if (rawStray !== void 0 && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== "string"))) {
@@ -42145,7 +43779,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         }
         const strayPaths = rawStray;
         if (strayPaths !== void 0 && args2["shape"] === void 0) {
-          return ok16({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
+          return ok17({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
         }
         if (args2["shape"] === void 0 && args2["headless_enforcement"] !== void 0) {
           const others = Object.keys(args2).filter(
@@ -42159,7 +43793,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           }
           const headless2 = resolveHeadless(args2["headless_enforcement"]);
           writeConfig(db2, "headless_enforcement", headless2.value);
-          return ok16({
+          return ok17({
             ok: true,
             applied: { headless_enforcement: headless2.value, headless_shim: applyHeadlessShim(headless2) }
           });
@@ -42215,7 +43849,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             if (remoteRepo.length > 0) repoWarnings = applyRemoteChoice(db2, repo, remoteRepo);
           });
           const repoWarning = repoWarnings.length > 0 ? repoWarnings.join("; ") : void 0;
-          return ok16({
+          return ok17({
             ok: true,
             ...repoWarning ? { warning: repoWarning } : {},
             applied: {
@@ -42353,7 +43987,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             const result2 = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
               remoteUrls: knownRemoteUrls(managedRemotes.map((r) => r.url)),
-              toolCacheDir: join16(dirname10(dbPath2), "cache"),
+              toolCacheDir: join17(dirname10(dbPath2), "cache"),
               platform: shimEnv.platform ?? process.platform,
               previous: record2
             });
@@ -42376,7 +44010,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         } catch (e) {
           sandbox = { reason: e.message };
         }
-        return ok16({
+        return ok17({
           ok: true,
           ...warning ? { warning } : {},
           ...strayPaths !== void 0 ? { stray_dbs: removeStrayDbs(strayPaths) } : {},
@@ -42403,358 +44037,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync12 } from "node:child_process";
-import { existsSync as existsSync12, readFileSync as readFileSync8, realpathSync as realpathSync6, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
-import { dirname as dirname11, join as join19 } from "node:path";
+import { spawn, spawnSync as spawnSync13 } from "node:child_process";
+import { existsSync as existsSync12, readFileSync as readFileSync9, realpathSync as realpathSync7, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname11, join as join20 } from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
-
-// src/graph.ts
-var SUBTREE_MAX_DEPTH = 256;
-var DIR_COLUMNS = "d.id, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count, d.summary_sha, d.commits_behind, d.dead_refs";
-var FILE_COLUMNS = "f.id, f.repo, f.path, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at";
-function toDirectoryNode(r) {
-  return {
-    key: WorldModelGraph.dirKey(r.repo, r.path),
-    repo: r.repo,
-    path: r.path,
-    parent_path: r.parent_path,
-    summary: r.summary || null,
-    summary_source: r.summary_source,
-    summary_updated_at: r.summary_updated_at || null,
-    file_count: Number(r.file_count),
-    summary_sha: r.summary_sha ?? null,
-    commits_behind: r.commits_behind === null || r.commits_behind === void 0 ? null : Number(r.commits_behind),
-    dead_refs: parseDeadRefs(r.dead_refs)
-  };
-}
-function parseDeadRefs(raw) {
-  if (raw === null || raw === void 0) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : null;
-  } catch {
-    return null;
-  }
-}
-function toFileNode(r) {
-  return {
-    path: WorldModelGraph.fileKey(r.repo, r.path),
-    repo: r.repo,
-    dir: r.dir,
-    purpose: r.purpose,
-    purpose_source: r.purpose_source,
-    content_md5: r.content_md5,
-    size_bytes: Number(r.size_bytes),
-    last_commit_sha: r.last_commit_sha,
-    updated_at: r.updated_at
-  };
-}
-function rankWithFallback(query, search) {
-  const allTerms = toFtsQuery(query);
-  const all = withFtsGuard(() => search(allTerms));
-  if (all.length > 0) return { rows: all, match: "all_terms" };
-  const any2 = toFtsOrQuery(query);
-  if (any2 === null || any2 === allTerms) return { rows: all, match: "all_terms" };
-  return { rows: withFtsGuard(() => search(any2)), match: "any_term" };
-}
-function placeholders(n) {
-  return Array.from({ length: n }, () => "?").join(", ");
-}
-var WorldModelGraph = class _WorldModelGraph {
-  constructor(db2) {
-    this.db = db2;
-  }
-  db;
-  transaction(fn) {
-    return this.db.transaction(fn);
-  }
-  tableNames() {
-    return this.db.all(
-      `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'wm\\_%' ESCAPE '\\' ORDER BY name`
-    ).map((r) => r.name);
-  }
-  // File keys are '<repo>/<repo-relative path>'; repo names are directory
-  // basenames, so the first '/' always separates the two.
-  static fileKey(repo, relPath) {
-    return `${repo}/${relPath}`;
-  }
-  static relativeFilePath(node) {
-    return node.path.startsWith(`${node.repo}/`) ? node.path.slice(node.repo.length + 1) : node.path;
-  }
-  // JSON tuple so a ':' (or any delimiter) in repo/path can't collide. (#282)
-  static dirKey(repo, path2) {
-    return JSON.stringify([repo, path2]);
-  }
-  upsertFile(node) {
-    this.db.run(
-      `INSERT INTO wm_files (repo, path, dir, purpose, purpose_source, content_md5, size_bytes, last_commit_sha, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(repo, path) DO UPDATE SET
-         dir = excluded.dir,
-         purpose = excluded.purpose,
-         purpose_source = excluded.purpose_source,
-         content_md5 = excluded.content_md5,
-         size_bytes = excluded.size_bytes,
-         last_commit_sha = excluded.last_commit_sha,
-         updated_at = excluded.updated_at`,
-      [
-        node.repo,
-        _WorldModelGraph.relativeFilePath(node),
-        node.dir,
-        node.purpose,
-        node.purpose_source,
-        node.content_md5,
-        node.size_bytes,
-        node.last_commit_sha,
-        node.updated_at
-      ]
-    );
-  }
-  upsertHasFile(repo, dir, filePath) {
-    this.db.run(`UPDATE wm_files SET dir = ? WHERE repo = ? AND path = ? AND dir IS NOT ?`, [
-      dir,
-      repo,
-      _WorldModelGraph.relativeFilePath({ repo, path: filePath }),
-      dir
-    ]);
-  }
-  allFilesForRepo(repo) {
-    return this.db.all(`SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.repo = ? ORDER BY f.path`, [repo]).map(toFileNode);
-  }
-  filesForDirectory(repo, dir) {
-    return this.db.all(`SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.repo = ? AND f.dir = ? ORDER BY f.path`, [
-      repo,
-      dir
-    ]).map(toFileNode);
-  }
-  filePathsWithDirectory(repo) {
-    const rows = this.db.all(
-      `SELECT f.path FROM wm_files f
-         JOIN wm_directories d ON d.repo = f.repo AND d.path = f.dir
-        WHERE f.repo = ?`,
-      [repo]
-    );
-    return new Set(rows.map((r) => _WorldModelGraph.fileKey(repo, r.path)));
-  }
-  pruneFiles(repo, keepPaths) {
-    const stale = this.db.all(`SELECT id, path FROM wm_files WHERE repo = ?`, [repo]).filter((f) => !keepPaths.has(_WorldModelGraph.fileKey(repo, f.path)));
-    for (const f of stale) {
-      this.db.run(`DELETE FROM wm_symbols WHERE repo = ? AND path = ?`, [repo, f.path]);
-      this.db.run(`DELETE FROM wm_files WHERE id = ?`, [f.id]);
-    }
-    if (stale.length > 0) {
-      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
-    }
-    return stale.length;
-  }
-  fileCoverage(repo) {
-    const rows = this.db.all(
-      `SELECT purpose_source AS source, COUNT(*) AS n, SUM(CASE WHEN purpose <> '' THEN 1 ELSE 0 END) AS with_purpose
-         FROM wm_files WHERE repo = ? GROUP BY purpose_source`,
-      [repo]
-    );
-    const coverage = { files: 0, with_purpose: 0, by_source: {} };
-    for (const r of rows) {
-      const n = Number(r.n);
-      coverage.files += n;
-      coverage.with_purpose += Number(r.with_purpose ?? 0);
-      coverage.by_source[r.source] = n;
-    }
-    return coverage;
-  }
-  // FTS5 hits over path + purpose ranked by bm25 (score = -bm25, higher is
-  // better; any-term fallback per rankWithFallback), then case-insensitive
-  // path/purpose substring hits at score 0. CROSS JOIN keeps the FTS match as
-  // the outer loop; a plain JOIN lets the planner walk every repo row instead.
-  keywordSearchFiles(repo, query, k) {
-    const { rows: ranked, match } = rankWithFallback(
-      query,
-      (fts) => this.db.all(
-        `SELECT ${FILE_COLUMNS}, bm25(wm_files_fts) AS rank
-           FROM wm_files_fts CROSS JOIN wm_files f ON f.id = wm_files_fts.rowid
-          WHERE wm_files_fts MATCH ? AND f.repo = ?
-          ORDER BY rank, f.path
-          LIMIT ?`,
-        [fts, repo, k]
-      )
-    );
-    const hits = ranked.map((r) => ({ ...toFileNode(r), score: -r.rank }));
-    if (hits.length >= k) return { hits, match };
-    const seen = new Set(ranked.map((r) => r.id));
-    const needle = query.toLowerCase();
-    const substring = this.db.all(
-      `SELECT ${FILE_COLUMNS} FROM wm_files f
-          WHERE f.repo = ? AND (instr(lower(f.path), ?) > 0 OR instr(lower(f.purpose), ?) > 0)
-          ORDER BY f.path
-          LIMIT ?`,
-      [repo, needle, needle, k + seen.size]
-    ).filter((r) => !seen.has(r.id));
-    return { hits: [...hits, ...substring.map((r) => ({ ...toFileNode(r), score: 0 }))].slice(0, k), match };
-  }
-  filesByIds(ids) {
-    if (ids.length === 0) return /* @__PURE__ */ new Map();
-    const rows = this.db.all(
-      `SELECT ${FILE_COLUMNS} FROM wm_files f WHERE f.id IN (${placeholders(ids.length)})`,
-      ids
-    );
-    return new Map(rows.map((r) => [r.id, toFileNode(r)]));
-  }
-  upsertDirectory(node) {
-    this.db.run(
-      `INSERT INTO wm_directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count, summary_sha, commits_behind, dead_refs)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(repo, path) DO UPDATE SET
-         parent_path = excluded.parent_path,
-         summary = excluded.summary,
-         summary_source = excluded.summary_source,
-         summary_updated_at = excluded.summary_updated_at,
-         file_count = excluded.file_count,
-         summary_sha = excluded.summary_sha,
-         commits_behind = excluded.commits_behind,
-         dead_refs = excluded.dead_refs`,
-      [
-        node.repo,
-        node.path,
-        node.parent_path,
-        node.summary,
-        node.summary_source,
-        node.summary_updated_at,
-        node.file_count,
-        node.summary_sha ?? null,
-        node.commits_behind ?? null,
-        node.dead_refs ? JSON.stringify(node.dead_refs) : null
-      ]
-    );
-  }
-  upsertContains(parent, child) {
-    if (parent.repo !== child.repo) return;
-    this.db.run(
-      `UPDATE wm_directories SET parent_path = ?
-        WHERE repo = ? AND path = ? AND parent_path IS NOT ?
-          AND EXISTS (SELECT 1 FROM wm_directories p WHERE p.repo = ? AND p.path = ?)`,
-      [parent.path, child.repo, child.path, parent.path, parent.repo, parent.path]
-    );
-  }
-  pruneDirectories(repo, keepKeys) {
-    const stale = this.db.all(`SELECT id, path FROM wm_directories WHERE repo = ?`, [repo]).filter((d) => !keepKeys.has(_WorldModelGraph.dirKey(repo, d.path)));
-    for (const d of stale) this.db.run(`DELETE FROM wm_directories WHERE id = ?`, [d.id]);
-    return stale.length;
-  }
-  // Move every directory, file, symbol and concept row of oldRepo under newRepo in one
-  // transaction, replacing any leftover rows already filed under newRepo.
-  // Row ids survive, so FTS, embedding and edge rows stay attached. Returns
-  // the number of directories moved.
-  renameRepo(oldRepo, newRepo) {
-    return this.db.transaction(() => {
-      const moved = this.directoryCount(oldRepo);
-      if (moved === 0) return 0;
-      this.db.run(`DELETE FROM wm_directories WHERE repo = ?`, [newRepo]);
-      this.db.run(`DELETE FROM wm_files WHERE repo = ?`, [newRepo]);
-      this.db.run(`DELETE FROM wm_symbols WHERE repo = ?`, [newRepo]);
-      this.db.run(`DELETE FROM wm_concepts WHERE repo = ?`, [newRepo]);
-      this.db.run(`UPDATE wm_directories SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
-      this.db.run(`UPDATE wm_files SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
-      this.db.run(`UPDATE wm_symbols SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
-      this.db.run(`UPDATE wm_concepts SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
-      this.db.run(`UPDATE wm_concept_steps SET repo = ? WHERE repo = ?`, [newRepo, oldRepo]);
-      this.db.run(`UPDATE wm_edges SET resolution = 'unresolved' WHERE dst_id IS NULL AND resolution <> 'unresolved'`);
-      return moved;
-    });
-  }
-  allDirectoriesForRepo(repo) {
-    return this.db.all(`SELECT ${DIR_COLUMNS} FROM wm_directories d WHERE d.repo = ? ORDER BY d.path`, [repo]).map(toDirectoryNode);
-  }
-  // The directory at `path` plus its descendants down to `depth` levels below
-  // it (null = the whole subtree), via a recursive CTE over parent_path.
-  subtree(repo, path2, depth) {
-    const cap = depth === null ? SUBTREE_MAX_DEPTH : Math.max(0, Math.min(depth, SUBTREE_MAX_DEPTH));
-    return this.db.all(
-      `WITH RECURSIVE sub(id, path, lvl) AS (
-           SELECT id, path, 0 FROM wm_directories WHERE repo = ? AND path = ?
-           UNION
-           SELECT c.id, c.path, s.lvl + 1
-             FROM wm_directories c JOIN sub s ON c.parent_path = s.path
-            WHERE c.repo = ? AND c.path <> s.path AND s.lvl < ?
-         )
-         SELECT ${DIR_COLUMNS} FROM wm_directories d
-          WHERE d.id IN (SELECT id FROM sub)
-          ORDER BY d.path`,
-      [repo, path2, repo, cap]
-    ).map(toDirectoryNode);
-  }
-  // The directory at `path` and each of its ancestors, root first.
-  ancestors(repo, path2) {
-    return this.db.all(
-      `WITH RECURSIVE up(id, parent_path, lvl) AS (
-           SELECT id, parent_path, 0 FROM wm_directories WHERE repo = ? AND path = ?
-           UNION
-           SELECT p.id, p.parent_path, u.lvl + 1
-             FROM wm_directories p JOIN up u ON p.path = u.parent_path
-            WHERE p.repo = ? AND u.lvl < ?
-         )
-         SELECT ${DIR_COLUMNS}, up.lvl FROM up JOIN wm_directories d ON d.id = up.id
-          ORDER BY up.lvl DESC`,
-      [repo, path2, repo, SUBTREE_MAX_DEPTH]
-    ).map(toDirectoryNode);
-  }
-  // FTS5 hits over path + summary ranked by bm25 (score = -bm25, higher is
-  // better; any-term fallback per rankWithFallback), then case-insensitive
-  // path/summary substring hits at score 0.
-  keywordSearchDirectories(repo, query, k) {
-    const { rows: ranked, match } = rankWithFallback(
-      query,
-      (fts) => this.db.all(
-        `SELECT ${DIR_COLUMNS}, bm25(wm_directories_fts) AS rank
-           FROM wm_directories_fts CROSS JOIN wm_directories d ON d.id = wm_directories_fts.rowid
-          WHERE wm_directories_fts MATCH ? AND d.repo = ?
-          ORDER BY rank, d.path
-          LIMIT ?`,
-        [fts, repo, k]
-      )
-    );
-    const hits = ranked.map((r) => ({ ...toDirectoryNode(r), score: -r.rank }));
-    if (hits.length >= k) return { hits, match };
-    const seen = new Set(ranked.map((r) => r.id));
-    const needle = query.toLowerCase();
-    const substring = this.db.all(
-      `SELECT ${DIR_COLUMNS} FROM wm_directories d
-          WHERE d.repo = ? AND (instr(lower(d.path), ?) > 0 OR instr(lower(coalesce(d.summary, '')), ?) > 0)
-          ORDER BY d.path
-          LIMIT ?`,
-      [repo, needle, needle, k + seen.size]
-    ).filter((r) => !seen.has(r.id));
-    return { hits: [...hits, ...substring.map((r) => ({ ...toDirectoryNode(r), score: 0 }))].slice(0, k), match };
-  }
-  directoriesByIds(ids) {
-    if (ids.length === 0) return /* @__PURE__ */ new Map();
-    const rows = this.db.all(
-      `SELECT ${DIR_COLUMNS} FROM wm_directories d WHERE d.id IN (${placeholders(ids.length)})`,
-      ids
-    );
-    return new Map(rows.map((r) => [r.id, toDirectoryNode(r)]));
-  }
-  directoryCount(repo) {
-    const row = repo === void 0 ? this.db.get(`SELECT COUNT(*) AS n FROM wm_directories`) : this.db.get(`SELECT COUNT(*) AS n FROM wm_directories WHERE repo = ?`, [repo]);
-    return Number(row?.n ?? 0);
-  }
-  // The graph borrows the trajectory DB handle; its owner closes it.
-  close() {
-  }
-};
-var GraphHolder = class _GraphHolder {
-  constructor(graph, openError = null) {
-    this.graph = graph;
-    this.openError = openError;
-  }
-  graph;
-  openError;
-  static fixed(graph, openError = null) {
-    return new _GraphHolder(graph, openError);
-  }
-  ensureGraph() {
-    return this.graph;
-  }
-};
 
 // src/file-purpose.ts
 var PURPOSE_HEAD_BYTES = 4096;
@@ -43236,7 +44522,7 @@ function purposeFromSymbols(path2, symbols, head = "") {
 
 // src/symbol-purpose.ts
 import { closeSync as closeSync2, openSync as openSync2, readSync } from "node:fs";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 function readFileHead(absPath) {
   let fd = null;
   try {
@@ -43282,7 +44568,7 @@ function refreshSymbolPurposes(db2, repo) {
   let updated = 0;
   db2.transaction(() => {
     for (const f of files) {
-      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join17(repoPath, f.path)) : "";
+      const head = repoPath !== null && needsHeadForSymbols(f.path) ? readFileHead(join18(repoPath, f.path)) : "";
       const next = purposeFromSymbols(f.path, byPath.get(f.path) ?? [], head);
       const purpose = next?.purpose ?? "";
       const source = next ? "symbols" : "none";
@@ -43295,14 +44581,14 @@ function refreshSymbolPurposes(db2, repo) {
 }
 
 // src/readme-drift.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
+import { spawnSync as spawnSync12 } from "node:child_process";
 import { existsSync as existsSync11 } from "node:fs";
-import { join as join18, posix as posix2 } from "node:path";
+import { join as join19, posix as posix2 } from "node:path";
 var HISTORY_TIMEOUT_MS = 3e4;
 var HISTORY_MAX_BUFFER = 64 * 1024 * 1024;
-function git2(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
+function git3(root, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
   try {
-    const r = spawnSync10("git", ["-C", root, ...args2], { encoding: "utf8", timeout, maxBuffer: HISTORY_MAX_BUFFER });
+    const r = spawnSync12("git", ["-C", root, ...args2], { encoding: "utf8", timeout, maxBuffer: HISTORY_MAX_BUFFER });
     return r.status === 0 && !r.error ? r.stdout : null;
   } catch {
     return null;
@@ -43316,9 +44602,9 @@ function lines(out2) {
   return out2.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
 }
 function readRepoHistory(root, trackedDirs) {
-  const out2 = git2(root, ["log", "--diff-filter=DR", "--name-status", "--format="], HISTORY_TIMEOUT_MS);
+  const out2 = git3(root, ["log", "--diff-filter=DR", "--name-status", "--format="], HISTORY_TIMEOUT_MS);
   if (out2 === null) return null;
-  const tracked = git2(root, ["-c", "core.quotePath=false", "ls-files"], HISTORY_TIMEOUT_MS);
+  const tracked = git3(root, ["-c", "core.quotePath=false", "ls-files"], HISTORY_TIMEOUT_MS);
   if (tracked === null) return null;
   const deleted = /* @__PURE__ */ new Set();
   const renamedAway = /* @__PURE__ */ new Set();
@@ -43387,7 +44673,7 @@ function deadRefs(readme, dir, history) {
   const dead = /* @__PURE__ */ new Set();
   for (const { ref: ref2, link } of readmeCandidates(readme, dir, history.trackedDirs)) {
     const fromDir = relativeToDir(dir, ref2);
-    if (existsSync11(join18(history.root, fromDir)) || existsSync11(join18(history.root, ref2))) continue;
+    if (existsSync11(join19(history.root, fromDir)) || existsSync11(join19(history.root, ref2))) continue;
     const deletedHit = history.deleted.has(fromDir) ? fromDir : history.deleted.has(ref2) ? ref2 : deletedBareName(ref2, history);
     if (deletedHit) dead.add(deletedHit);
     else if (link) dead.add(fromDir);
@@ -43408,12 +44694,12 @@ function referencedFiles(readme, dir, readmePath, history) {
 }
 function readmeDrift(history, dir, readmeName, readme) {
   const readmePath = dir === "" ? readmeName : `${dir}/${readmeName}`;
-  const sha = git2(history.root, ["log", "-1", "--format=%H", "--", `:(literal)${readmePath}`])?.trim();
+  const sha = git3(history.root, ["log", "-1", "--format=%H", "--", `:(literal)${readmePath}`])?.trim();
   if (!sha) return null;
   const range = `${sha}..HEAD`;
   const refs = referencedFiles(readme, dir, readmePath, history).slice(0, MAX_REFERENCED_PATHSPECS);
   const pathspecs = refs.map((r) => `:(literal)${r}`);
-  const touched = refs.length === 0 ? "" : git2(history.root, ["log", "--diff-filter=a", "--format=%H", range, "--", ...pathspecs]);
+  const touched = refs.length === 0 ? "" : git3(history.root, ["log", "--diff-filter=a", "--format=%H", range, "--", ...pathspecs]);
   if (touched === null) return null;
   const commits_behind = new Set(lines(touched)).size;
   return { summary_sha: sha, commits_behind, dead_refs: deadRefs(readme, dir, history) };
@@ -43478,500 +44764,35 @@ function cleanReadme(raw) {
 ` : text;
 }
 
-// src/world-model/concepts.ts
-import { spawnSync as spawnSync11 } from "node:child_process";
-var DERIVED_LABEL = "derived, unverified";
-var DERIVED_MAX_DEPTH = 4;
-var DERIVED_MAX_STEPS = 8;
-var DERIVED_SEED_HITS = 5;
-var DERIVED_HELPER_FAN_IN = 5;
-var DERIVED_EDGES = ["calls", "sources", "runs"];
-var OR_FALLBACK_MIN_HITS2 = 3;
-var PASS = "pass";
-function anchorLabel(ordinal, a) {
-  return `step ${ordinal} ${a.qualified_name || a.path}`;
-}
-function currentHash(db2, a) {
-  if (!a.kind) {
-    return db2.get(`SELECT content_md5 AS h FROM wm_files WHERE repo = ? AND path = ?`, [a.repo, a.path])?.h ?? null;
-  }
-  return db2.get(
-    `SELECT body_hash AS h FROM wm_symbols WHERE repo = ? AND path = ? AND kind = ? AND qualified_name = ?`,
-    [a.repo, a.path, a.kind, a.qualified_name]
-  )?.h ?? null;
-}
-function symbolIdAt(db2, repo, path2, qualifiedName) {
-  if (typeof path2 !== "string" || typeof qualifiedName !== "string") return null;
-  const row = db2.get(
-    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND qualified_name = ? ORDER BY kind = 'module', id LIMIT 1`,
-    [repo, path2, qualifiedName]
-  );
-  return row ? Number(row.id) : null;
-}
-var ref = (v) => typeof v === "object" && v !== null ? v : {};
-function evalClaim(db2, repo, claim, args2) {
-  switch (claim) {
-    case "exists":
-      return symbolIdAt(db2, repo, args2["path"], args2["qualified_name"]) !== null ? PASS : "fail: no such symbol";
-    case "calls": {
-      const from = ref(args2["from"]);
-      const to = ref(args2["to"]);
-      const a = symbolIdAt(db2, repo, from.path, from.qualified_name);
-      const b = symbolIdAt(db2, repo, to.path, to.qualified_name);
-      if (a === null || b === null) return `fail: no such ${a === null ? "caller" : "callee"}`;
-      return db2.get(`SELECT 1 AS hit FROM wm_edges WHERE src_id = ? AND dst_id = ?`, [a, b]) ? PASS : "fail: no edge";
-    }
-    case "only_writers_of": {
-      const table = args2["table"];
-      const writers = args2["writers"];
-      if (typeof table !== "string" || !Array.isArray(writers)) return "fail: needs table and writers[]";
-      const actual = db2.all(
-        `SELECT DISTINCT s.path FROM wm_edges e
-             JOIN wm_symbols s ON s.id = e.src_id
-             JOIN wm_symbols t ON t.id = e.dst_id
-            WHERE e.kind = 'writes_table' AND t.qualified_name = ? AND s.repo = ?
-            ORDER BY s.path`,
-        [table, repo]
-      ).map((r) => r.path).filter((p) => !outsideConceptLane(p));
-      const extra = actual.filter((p) => !writers.includes(p));
-      return extra.length > 0 ? `fail: also written by ${extra.join(", ")}` : PASS;
-    }
-    case "tested_by": {
-      const a = symbolIdAt(db2, repo, args2["path"], args2["qualified_name"]);
-      if (a === null) return "fail: no such symbol";
-      const hit = db2.get(
-        `SELECT 1 AS hit FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id WHERE e.dst_id = ? AND s.path = ?`,
-        [a, args2["test_path"]]
-      );
-      return hit ? PASS : "fail: no reference from test_path";
-    }
-    default:
-      return "fail: unknown claim";
-  }
-}
-function headSha(repoPath) {
-  if (!repoPath) return null;
-  const r = spawnSync11("git", ["-C", repoPath, "rev-parse", "HEAD"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
-  return r.status === 0 ? r.stdout.trim() || null : null;
-}
-function upsertConcept(db2, input, opts) {
-  const name2 = input.name?.trim();
-  if (!name2) throw new Error("name is required");
-  const kind = input.kind ?? "flow";
-  if (!CONCEPT_KINDS.includes(kind)) throw new Error(`kind must be one of ${CONCEPT_KINDS.join(", ")}`);
-  if (!Array.isArray(input.steps) || input.steps.length === 0) throw new Error("steps must be a non-empty array");
-  const claims = input.claims ?? [];
-  if (!Array.isArray(claims)) throw new Error("claims must be an array");
-  const steps = input.steps.map((s, i2) => {
-    const ordinal = i2 + 1;
-    const anchor = {
-      repo: input.repo,
-      path: typeof s?.path === "string" ? s.path : "",
-      kind: s?.kind ?? "",
-      qualified_name: s?.kind ? s.qualified_name ?? "" : ""
-    };
-    const description = typeof s?.description === "string" ? s.description.trim() : "";
-    if (!anchor.path) throw new Error(`step ${ordinal}: path is required`);
-    if (!description) throw new Error(`step ${ordinal}: description is required`);
-    if (outsideConceptLane(anchor.path)) throw new Error(`step ${ordinal}: ${anchor.path} is a test or fixture path`);
-    const handoff = ordinal === input.steps.length ? null : s.handoff ?? null;
-    if (handoff !== null && !HANDOFFS.includes(handoff)) {
-      throw new Error(`step ${ordinal}: handoff must be one of ${HANDOFFS.join(", ")}`);
-    }
-    const hash2 = currentHash(db2, anchor);
-    if (hash2 === null) {
-      throw new Error(`anchor not found: ${anchorLabel(ordinal, anchor)} (${anchor.path} ${anchor.kind || "file"})`);
-    }
-    return { ...anchor, ordinal, description, handoff, hash: hash2 };
-  });
-  const evaluated = claims.map((c, i2) => {
-    if (!CLAIMS.includes(c?.claim)) throw new Error(`claim ${i2 + 1}: claim must be one of ${CLAIMS.join(", ")}`);
-    const args2 = typeof c.args === "object" && c.args !== null ? c.args : {};
-    const result2 = evalClaim(db2, input.repo, c.claim, args2);
-    if (result2 !== PASS) throw new Error(`claim fails at write time: ${c.claim} ${JSON.stringify(args2)} \u2192 ${result2}`);
-    return { claim: c.claim, args: args2 };
-  });
-  const sha = headSha(opts.repoPath);
-  const now2 = nowISO();
-  const stepsText = steps.map((s) => s.description).join("\n");
-  return db2.transaction(() => {
-    const existing = db2.get(`SELECT id FROM wm_concepts WHERE repo = ? AND name = ?`, [input.repo, name2]);
-    let id;
-    if (existing) {
-      id = Number(existing.id);
-      db2.run(
-        `UPDATE wm_concepts
-            SET kind = ?, body = ?, status = 'verified', status_reason = NULL, verified_sha = ?, verified_by = ?,
-                verified_at = ?, updated_at = ?, steps_text = ?
-          WHERE id = ?`,
-        [kind, input.body ?? "", sha, opts.agent, now2, now2, stepsText, id]
-      );
-      db2.run(`DELETE FROM wm_concept_steps WHERE concept_id = ?`, [id]);
-      db2.run(`DELETE FROM wm_concept_claims WHERE concept_id = ?`, [id]);
-    } else {
-      id = Number(
-        db2.run(
-          `INSERT INTO wm_concepts (repo, kind, name, body, status, verified_sha, verified_by, verified_at, created_at, updated_at, steps_text)
-           VALUES (?, ?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?)`,
-          [input.repo, kind, name2, input.body ?? "", sha, opts.agent, now2, now2, now2, stepsText]
-        ).lastInsertRowid
-      );
-    }
-    for (const s of steps) {
-      db2.run(
-        `INSERT INTO wm_concept_steps (concept_id, ordinal, repo, path, kind, qualified_name, description, handoff, hash_at_verify, trust)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified')`,
-        [id, s.ordinal, s.repo, s.path, s.kind, s.qualified_name, s.description, s.handoff, s.hash]
-      );
-    }
-    for (const c of evaluated) {
-      db2.run(`INSERT INTO wm_concept_claims (concept_id, claim, args, last_result) VALUES (?, ?, ?, ?)`, [
-        id,
-        c.claim,
-        JSON.stringify(c.args),
-        PASS
-      ]);
-    }
-    return { id, status: "verified", steps: steps.length, claims: evaluated.length };
-  });
-}
-var WORST = { verified: 0, suspect: 1, broken: 2 };
-function refreshConcepts(db2, repo) {
-  const concepts = db2.all(
-    `SELECT id, status, status_reason FROM wm_concepts WHERE repo = ? AND status <> 'retired' ORDER BY id`,
-    [repo]
-  );
-  let changed = 0;
-  db2.transaction(() => {
-    for (const c of concepts) {
-      let status = "verified";
-      const reasons = [];
-      for (const s of db2.all(`SELECT * FROM wm_concept_steps WHERE concept_id = ? ORDER BY ordinal`, [c.id])) {
-        const hash2 = currentHash(db2, s);
-        const trust = hash2 === null ? "broken" : hash2 !== s.hash_at_verify ? "suspect" : "verified";
-        const reason2 = trust === "broken" ? "anchor gone" : trust === "suspect" ? "changed since verification" : null;
-        if (reason2) reasons.push(`${anchorLabel(Number(s.ordinal), s)}: ${reason2}`);
-        if (WORST[trust] > WORST[status]) status = trust;
-        if (trust !== s.trust || reason2 !== s.trust_reason) {
-          db2.run(`UPDATE wm_concept_steps SET trust = ?, trust_reason = ? WHERE concept_id = ? AND ordinal = ?`, [
-            trust,
-            reason2,
-            c.id,
-            s.ordinal
-          ]);
-        }
-      }
-      for (const cl of db2.all(`SELECT id, claim, args, last_result FROM wm_concept_claims WHERE concept_id = ? ORDER BY id`, [c.id])) {
-        let args2 = {};
-        try {
-          args2 = JSON.parse(cl.args);
-        } catch {
-          args2 = {};
-        }
-        const result2 = evalClaim(db2, repo, cl.claim, args2);
-        if (result2 !== cl.last_result) db2.run(`UPDATE wm_concept_claims SET last_result = ? WHERE id = ?`, [result2, cl.id]);
-        if (result2 !== PASS) {
-          status = "broken";
-          reasons.push(`claim ${cl.claim}: ${result2}`);
-        }
-      }
-      const reason = reasons.length > 0 ? reasons.join("; ") : null;
-      if (status !== c.status || reason !== c.status_reason) {
-        db2.run(`UPDATE wm_concepts SET status = ?, status_reason = ?, updated_at = ? WHERE id = ?`, [status, reason, nowISO(), c.id]);
-        changed++;
-      }
-    }
-  });
-  return { checked: concepts.length, changed };
-}
-var PROPOSAL_REJECT_AFTER_DAYS = 14;
-var DAY_MS = 864e5;
-var PROPOSAL_EVENTS = ["concept_proposal_applied", "concept_proposal_rejected"];
-function applyConceptProposals(db2, repo, repoPath, now2 = /* @__PURE__ */ new Date()) {
-  const stats = { applied: 0, rejected: 0, pending: 0 };
-  const repos = db2.get(`SELECT COUNT(*) AS n, MAX(name) AS name FROM repos`);
-  const soleRepo = Number(repos?.n) === 1 ? repos?.name ?? null : null;
-  const tasks = db2.all(
-    `SELECT t.id, t.issue_id, t.branch_id, t.repo, t.updated_at, t.completion_report FROM tasks t
-      WHERE t.status = 'closed'
-        AND CASE WHEN json_valid(t.completion_report) THEN json_type(t.completion_report, '$.concepts') END = 'array'
-        AND ${HAS_PASS_SQL}
-      ORDER BY t.id`
-  );
-  if (tasks.length === 0) return stats;
-  const settled = new Set(
-    db2.all(
-      `SELECT json_extract(content_json, '$.task_id') AS task_id, json_extract(content_json, '$.name') AS name
-           FROM audit WHERE event_type IN (${PROPOSAL_EVENTS.map((e) => `'${e}'`).join(", ")}) AND json_valid(content_json)`
-    ).map((r) => `${Number(r.task_id)}\0${r.name}`)
-  );
-  const at = now2.toISOString();
-  for (const t of tasks) {
-    const expired = (now2.getTime() - Date.parse(t.updated_at)) / DAY_MS >= PROPOSAL_REJECT_AFTER_DAYS;
-    for (const c of parseStoredReport(t.completion_report)?.concepts ?? []) {
-      if ((c.repo ?? t.repo ?? soleRepo) !== repo) continue;
-      const taskId = Number(t.id);
-      if (settled.has(`${taskId}\0${c.name}`)) continue;
-      const audit = { issue_id: Number(t.issue_id), branch_id: t.branch_id, from_node: "bro", repo, created_at: at };
-      try {
-        const out2 = upsertConcept(db2, { ...c, repo }, { repoPath, agent: "swe" });
-        insertAudit(db2, {
-          ...audit,
-          event_type: "concept_proposal_applied",
-          summary: `Concept '${c.name}' proposed by task ${taskId} applied`,
-          content_json: JSON.stringify({ task_id: taskId, concept_id: out2.id, name: c.name })
-        });
-        stats.applied++;
-      } catch (e) {
-        if (!expired) {
-          stats.pending++;
-          continue;
-        }
-        insertAudit(db2, {
-          ...audit,
-          event_type: "concept_proposal_rejected",
-          summary: `Concept '${c.name}' proposed by task ${taskId} rejected`,
-          content_json: JSON.stringify({ task_id: taskId, name: c.name, error: e.message })
-        });
-        stats.rejected++;
-      }
-    }
-  }
-  return stats;
-}
-function queryWords2(query) {
-  return [...new Set(splitWords(query).split(" ").filter((w) => w.length > 1 && !STOPWORDS2.has(w)))];
-}
-var WORD_MATCH_SQL = {
-  wm_concepts_fts: "SELECT 1 AS hit FROM wm_concepts_fts WHERE wm_concepts_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
-  wm_symbols_fts: "SELECT 1 AS hit FROM wm_symbols_fts WHERE wm_symbols_fts MATCH ? AND rowid = CAST(? AS INTEGER)",
-  wm_files_fts: "SELECT 1 AS hit FROM wm_files_fts WHERE wm_files_fts MATCH ? AND rowid = CAST(? AS INTEGER)"
-};
-function wordsMatched(db2, table, rowid, words) {
-  return words.filter((w) => db2.get(WORD_MATCH_SQL[table], [`"${w}"`, rowid]) !== void 0).length;
-}
-function majority(words) {
-  return Math.floor(words.length / 2) + 1;
-}
-function searchConcepts(db2, repo, query, limit) {
-  const words = queryWords2(query);
-  if (words.length === 0) return [];
-  const search = (op) => db2.all(
-    `SELECT c.id, c.name, c.body
-         FROM wm_concepts_fts CROSS JOIN wm_concepts c ON c.id = wm_concepts_fts.rowid
-        WHERE wm_concepts_fts MATCH ? AND c.repo = ? AND c.status <> 'retired'
-        ORDER BY bm25(wm_concepts_fts, 10.0, 4.0, 2.0), c.id
-        LIMIT ?`,
-    [words.map((w) => `"${w}"`).join(` ${op} `), repo, limit]
-  );
-  let rows = search("AND");
-  if (rows.length < OR_FALLBACK_MIN_HITS2 && words.length > 1) {
-    const seen = new Set(rows.map((r) => Number(r.id)));
-    const covered = (id) => wordsMatched(db2, "wm_concepts_fts", id, words) >= majority(words);
-    rows = [...rows, ...search("OR").filter((r) => !seen.has(Number(r.id)) && covered(Number(r.id)))].slice(0, limit);
-  }
-  return rows.map((r, i2) => {
-    const counts = db2.all(
-      `SELECT trust, COUNT(*) AS n FROM wm_concept_steps WHERE concept_id = ? GROUP BY trust`,
-      [r.id]
-    );
-    const trust = { verified: 0, suspect: 0, broken: 0 };
-    for (const c of counts) trust[c.trust] = Number(c.n);
-    return {
-      id: Number(r.id),
-      name: r.name,
-      body: r.body,
-      step_count: trust.verified + trust.suspect + trust.broken,
-      trust,
-      rank: i2 + 1
-    };
-  });
-}
-function stepSymbol(s) {
-  return {
-    id: s.id,
-    repo: s.repo,
-    path: s.path,
-    kind: s.kind,
-    qualified_name: s.qualified_name,
-    signature: s.signature,
-    doc: s.doc,
-    line_start: s.start_line,
-    line_end: s.end_line
-  };
-}
-function fileAnchor(db2, a) {
-  if (!db2.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? AND path = ?`, [a.repo, a.path])) return null;
-  return {
-    id: null,
-    repo: a.repo,
-    path: a.path,
-    kind: "file",
-    qualified_name: a.path,
-    signature: null,
-    doc: null,
-    line_start: null,
-    line_end: null
-  };
-}
-function anchorSymbol(db2, a) {
-  if (!a.kind) return fileAnchor(db2, a);
-  const row = db2.get(
-    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind = ? AND qualified_name = ?`,
-    [a.repo, a.path, a.kind, a.qualified_name]
-  );
-  const symbol2 = row ? symbolById(db2, Number(row.id)) : null;
-  return symbol2 ? stepSymbol(symbol2) : null;
-}
-function getConcept(db2, id) {
-  const c = db2.get(
-    `SELECT id, name, body, status, status_reason, updated_at FROM wm_concepts WHERE id = ?`,
-    [id]
-  );
-  if (!c) return null;
-  const steps = db2.all(`SELECT * FROM wm_concept_steps WHERE concept_id = ? ORDER BY ordinal`, [id]).map((s) => {
-    const symbol2 = anchorSymbol(db2, s);
-    return {
-      ordinal: Number(s.ordinal),
-      description: s.description,
-      trust: symbol2 === null && s.kind ? "broken" : s.trust,
-      trust_reason: symbol2 === null && s.kind ? "anchor gone" : s.trust_reason,
-      handoff: s.handoff,
-      symbol: symbol2
-    };
-  });
-  return {
-    id: Number(c.id),
-    name: c.name,
-    body: c.body,
-    status: c.status,
-    status_reason: c.status_reason,
-    updated_at: c.updated_at,
-    steps
-  };
-}
-function outgoingDerived(db2, id) {
-  return Number(
-    db2.get(
-      `SELECT COUNT(*) AS n FROM wm_edges
-        WHERE src_id = ? AND resolution = 'exact' AND kind IN (SELECT value FROM json_each(?))`,
-      [id, JSON.stringify(DERIVED_EDGES)]
-    ).n
-  );
-}
-function isLeafHelper(db2, id) {
-  const callers = db2.get(
-    `SELECT COUNT(DISTINCT src_id) AS n FROM wm_edges WHERE dst_id = ? AND kind = 'calls' AND resolution = 'exact'`,
-    [id]
-  ).n;
-  return Number(callers) >= DERIVED_HELPER_FAN_IN && outgoingDerived(db2, id) === 0;
-}
-function fileSeed(db2, repo, path2, words) {
-  const ids = db2.all(
-    `SELECT id FROM wm_symbols WHERE repo = ? AND path = ? AND kind <> 'module' ORDER BY start_line, id`,
-    [repo, path2]
-  );
-  let best = null;
-  for (const row of ids) {
-    const id = Number(row.id);
-    const c = { id, matched: wordsMatched(db2, "wm_symbols_fts", id, words), out: outgoingDerived(db2, id) };
-    if (!best || c.matched > best.matched || c.matched === best.matched && c.out > best.out) best = c;
-  }
-  return best ? symbolById(db2, best.id) : null;
-}
-function seedSymbol(db2, repo, query, candidates) {
-  const words = queryWords2(query);
-  if (words.length === 0) return null;
-  for (const c of candidates) {
-    if (c.kind === "symbol") {
-      const s2 = symbolById(db2, c.id);
-      if (s2 && !outsideConceptLane(s2.path) && wordsMatched(db2, "wm_symbols_fts", s2.id, words) >= majority(words)) return s2;
-      continue;
-    }
-    if (outsideConceptLane(c.path)) continue;
-    const file2 = db2.get(`SELECT id FROM wm_files WHERE repo = ? AND path = ?`, [repo, c.path]);
-    if (!file2 || wordsMatched(db2, "wm_files_fts", Number(file2.id), words) < majority(words)) continue;
-    const s = fileSeed(db2, repo, c.path, words);
-    if (s) return s;
-  }
-  return null;
-}
-function derivedChain(db2, repo, query, candidates = keywordSearchSymbols(db2, repo, query, DERIVED_SEED_HITS).hits.map((h) => ({ kind: "symbol", id: h.id }))) {
-  const seed = seedSymbol(db2, repo, query, candidates);
-  if (!seed) return null;
-  const order = [];
-  const seen = /* @__PURE__ */ new Set([seed.id]);
-  let frontier = [seed];
-  for (let depth = 0; frontier.length > 0 && order.length < DERIVED_MAX_STEPS; depth++) {
-    const next = [];
-    for (const s of frontier) {
-      if (order.length >= DERIVED_MAX_STEPS) break;
-      const via = /* @__PURE__ */ new Map();
-      order.push({ symbol: s, via });
-      if (depth >= DERIVED_MAX_DEPTH) continue;
-      const out2 = db2.all(
-        `SELECT e.dst_id, e.kind, d.path
-           FROM wm_edges e JOIN wm_symbols d ON d.id = e.dst_id
-          WHERE e.src_id = ? AND e.resolution = 'exact' AND e.kind IN (SELECT value FROM json_each(?))
-          ORDER BY e.line, e.rowid`,
-        [s.id, JSON.stringify(DERIVED_EDGES)]
-      );
-      for (const e of out2) {
-        const dst = Number(e.dst_id);
-        if (seen.has(dst) || outsideConceptLane(e.path)) continue;
-        seen.add(dst);
-        if (isLeafHelper(db2, dst)) continue;
-        const row = symbolById(db2, dst);
-        if (!row) continue;
-        via.set(dst, e.kind);
-        next.push(row);
-      }
-    }
-    frontier = next;
-  }
-  const steps = order.map(({ symbol: symbol2, via }, i2) => {
-    const following = order[i2 + 1]?.symbol.id;
-    return {
-      ordinal: i2 + 1,
-      description: symbol2.doc || symbol2.signature,
-      trust: null,
-      trust_reason: null,
-      handoff: following !== void 0 ? via.get(following) ?? null : null,
-      symbol: stepSymbol(symbol2)
-    };
-  });
-  return { label: DERIVED_LABEL, steps };
-}
-
 // src/tools/scan.ts
-function ok17(data) {
+function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err17(message2) {
+function err18(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap4(fn) {
+function wrap5(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err17(e.message);
+      return err18(e.message);
     }
   };
 }
 function resolveScanScript() {
   const here = dirname11(fileURLToPath6(import.meta.url));
   const candidates = [
-    join19(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join19(here, "..", "..", "..", "scripts", "scan.sh")
+    join20(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join20(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync12(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join19(pluginRoot, "scripts", "scan.sh");
+    const c = join20(pluginRoot, "scripts", "scan.sh");
     if (existsSync12(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -44124,10 +44945,10 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
 }
 function readReadme(absDirPath, candidates = README_CANDIDATES) {
   for (const name2 of candidates) {
-    const readmePath = join19(absDirPath, name2);
+    const readmePath = join20(absDirPath, name2);
     if (!existsSync12(readmePath)) continue;
     try {
-      return { name: name2, text: readFileSync8(readmePath, "utf8") };
+      return { name: name2, text: readFileSync9(readmePath, "utf8") };
     } catch {
     }
   }
@@ -44159,7 +44980,7 @@ function planReadmeDrift(out2) {
     if (!root || tracked.length === 0) continue;
     const history = historyFor(entry.repo, root);
     if (!history) continue;
-    const readme = readReadme(entry.path === "" ? root : join19(root, entry.path), tracked);
+    const readme = readReadme(entry.path === "" ? root : join20(root, entry.path), tracked);
     if (!readme) continue;
     const d = readmeDrift(history, entry.path, readme.name, readme.text);
     if (d) drift.set(`${entry.repo} ${entry.path}`, d);
@@ -44184,7 +45005,7 @@ function persistDirectoriesGraph(graph, out2, now2, purposesByDir = /* @__PURE__
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join19(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join20(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -44238,7 +45059,7 @@ function planFiles(graph, out2, now2) {
     const md52 = f.content_md5 ?? "";
     if (prev && md52 !== "" && prev.content_md5 === md52) {
       if (prev.purpose_source === "none" && isPurposeCandidate(f.path)) {
-        const extracted = extractPurpose(f.path, readFileHead(join19(repoPath, f.path)));
+        const extracted = extractPurpose(f.path, readFileHead(join20(repoPath, f.path)));
         plan.extracted++;
         if (extracted.source !== "none") {
           const node2 = { ...prev, purpose: extracted.purpose, purpose_source: extracted.source, updated_at: now2 };
@@ -44263,7 +45084,7 @@ function planFiles(graph, out2, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join19(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join20(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -44300,12 +45121,12 @@ function persistFilesGraph(graph, out2, plan) {
 function readRepoRemotes(path2) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync12("git", ["-C", path2, "remote"], opts);
+    const listR = spawnSync13("git", ["-C", path2, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name2 of names) {
-      const urlR = spawnSync12("git", ["-C", path2, "remote", "get-url", name2], opts);
+      const urlR = spawnSync13("git", ["-C", path2, "remote", "get-url", name2], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -44318,7 +45139,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath2(p) {
   try {
-    return realpathSync6(p);
+    return realpathSync7(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -44538,7 +45359,7 @@ async function persistScan(db2, graph, out2, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync8(lockPath, "utf8"));
+    return JSON.parse(readFileSync9(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -44604,23 +45425,23 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     scan_run: requireRoles(
       "scan_run",
       ["bro"],
-      wrap4(async (args2) => {
+      wrap5(async (args2) => {
         const sessionDir = args2["session_dir"] ?? projectRootFromDbPath(dbPath2);
         if (!sessionDir) {
-          return err17("session_dir is required: the project root is unknown for this trajectory DB");
+          return err18("session_dir is required: the project root is unknown for this trajectory DB");
         }
         const rawSource = args2["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         const graph = graphHolder2 ? graphHolder2.ensureGraph() : new WorldModelGraph(db2);
         const graphOpenError = graphHolder2?.openError ?? null;
         if (!graph && graphOpenError) {
-          return err17(`graph_db_open_failed: ${graphOpenError}`);
+          return err18(`graph_db_open_failed: ${graphOpenError}`);
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join19(dirname11(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join20(dirname11(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
-            return err17(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+            return err18(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
           }
           let acquired = false;
           let acquireThrew = false;
@@ -44632,17 +45453,17 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           if (!acquired) {
             const recheck = readLock(lockPath);
             if (recheck && pidAlive(recheck.pid)) {
-              return err17(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+              return err18(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
             }
             if (!acquireThrew) {
-              return err17("scan lock could not be acquired");
+              return err18("scan lock could not be acquired");
             }
           }
         }
         try {
           const out2 = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath2);
           if (!graph && out2.files.length > 0) {
-            return err17("world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged");
+            return err18("world_model_unavailable: no world-model graph to write; repos and deep_scan_completed left unchanged");
           }
           const dirsBefore = graph?.directoryCount() ?? 0;
           const stats = await persistScan(db2, graph, out2, sessionDir);
@@ -44684,7 +45505,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
               top_dirs: Array.from(topDirs).sort()
             })
           });
-          return ok17({
+          return ok18({
             session_dir: out2.session_dir,
             scanned_at: out2.scanned_at,
             repos: out2.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
@@ -44703,9 +45524,9 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     repos_list: requireRoles(
       "repos_list",
       ["bro", "swe", "code-reviewer", "consultant"],
-      wrap4(async () => {
+      wrap5(async () => {
         const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
-        return ok17({ repos: rows });
+        return ok18({ repos: rows });
       })
     )
   };
@@ -44847,7 +45668,7 @@ function renameRepo(db2, graph, input) {
     db2.run("PRAGMA foreign_keys = ON");
   }
 }
-function ok18(data) {
+function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function refuse(data) {
@@ -44882,7 +45703,7 @@ function repoTools(db2, graphHolder2 = null) {
       try {
         const graph = graphHolder2?.ensureGraph() ?? null;
         const out2 = renameRepo(db2, graph, { old, new: next, reason, force: args2["force"] === true });
-        return out2.renamed ? ok18(out2) : refuse(out2);
+        return out2.renamed ? ok19(out2) : refuse(out2);
       } catch (e) {
         return refuse({ error: "rename_failed", message: e.message });
       }
@@ -44893,16 +45714,16 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync10, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname13, join as join21 } from "node:path";
+import { existsSync as existsSync14, mkdirSync as mkdirSync8, readFileSync as readFileSync11, writeFileSync as writeFileSync7 } from "node:fs";
+import { dirname as dirname13, join as join22 } from "node:path";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
 import { createHash as createHash3 } from "node:crypto";
-import { existsSync as existsSync13, mkdirSync as mkdirSync7, readFileSync as readFileSync9, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync13, mkdirSync as mkdirSync7, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname12, isAbsolute as isAbsolute5, join as join20 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute6, join as join21 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -44945,7 +45766,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync9(join20(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync10(join21(homedir3(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -44987,7 +45808,7 @@ async function probeListings(timeoutSec, projectRoot) {
 var PROBE_TTL_MS = 24 * 60 * 60 * 1e3;
 function readJson(path2) {
   try {
-    return JSON.parse(readFileSync9(path2, "utf8"));
+    return JSON.parse(readFileSync10(path2, "utf8"));
   } catch {
     return null;
   }
@@ -45005,23 +45826,23 @@ function stableJson(value) {
 }
 function cliConfigFingerprint(projectRoot) {
   const home = homedir3();
-  const claudeJson = readJson(join20(home, ".claude.json"));
-  const inProject = (...parts2) => projectRoot === null ? null : readJson(join20(projectRoot, ...parts2));
+  const claudeJson = readJson(join21(home, ".claude.json"));
+  const inProject = (...parts2) => projectRoot === null ? null : readJson(join21(projectRoot, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
     claudeJsonProjectMcpServers: projectRoot === null ? null : field(field(field(claudeJson, "projects"), projectRoot), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
-      user: field(readJson(join20(home, ".claude", "settings.json")), "enabledPlugins"),
+      user: field(readJson(join21(home, ".claude", "settings.json")), "enabledPlugins"),
       project: field(inProject(".claude", "settings.json"), "enabledPlugins"),
       local: field(inProject(".claude", "settings.local.json"), "enabledPlugins")
     },
-    installedPlugins: readJson(join20(home, ".claude", "plugins", "installed_plugins.json"))
+    installedPlugins: readJson(join21(home, ".claude", "plugins", "installed_plugins.json"))
   };
   return createHash3("sha256").update(stableJson(inputs)).digest("hex");
 }
 function probeCachePath(projectRoot) {
-  return join20(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
+  return join21(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
 }
 function readProbeCache(projectRoot) {
   if (projectRoot === null) return null;
@@ -45059,7 +45880,7 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join20(pluginRoot, row.file_path);
+      const resolved = isAbsolute6(row.file_path) || !pluginRoot ? row.file_path : join21(pluginRoot, row.file_path);
       return existsSync13(resolved) ? "active" : "broken";
     }
     case "mcp": {
@@ -45140,34 +45961,34 @@ async function reconcileAtStartup(db2) {
 }
 
 // src/tools/cheatcode.ts
-function ok19(data) {
+function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err18(message2) {
+function err19(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
-function wrap5(fn) {
+function wrap6(fn) {
   return async (args2) => {
     try {
       return await fn(args2);
     } catch (e) {
-      return err18(e.message);
+      return err19(e.message);
     }
   };
 }
 function resolveScriptsFile(name2) {
   const here = dirname13(fileURLToPath7(import.meta.url));
   const candidates = [
-    join21(here, "..", "..", "..", "..", "scripts", name2),
-    join21(here, "..", "..", "..", "scripts", name2)
+    join22(here, "..", "..", "..", "..", "scripts", name2),
+    join22(here, "..", "..", "..", "scripts", name2)
   ];
   for (const c of candidates) if (existsSync14(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join21(pluginRoot, "scripts", name2);
+    const c = join22(pluginRoot, "scripts", name2);
     if (existsSync14(c)) return c;
   }
   throw new Error(`${name2} not found \u2014 expected at <plugin>/scripts/${name2}`);
@@ -45427,18 +46248,18 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join21(pluginRoot, "agents", `${target}.md`);
+    const c2 = join22(pluginRoot, "agents", `${target}.md`);
     if (existsSync14(c2)) return c2;
   }
   const here = dirname13(fileURLToPath7(import.meta.url));
-  const c = join21(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  const c = join22(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync14(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync10(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync11(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -45454,12 +46275,12 @@ function readManifestProvidedTools(manifestPath) {
 function resolveInstalledPluginManifest(name2) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
   if (override) return existsSync14(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join21(process.env["HOME"] || "", ".claude");
-  const registry2 = join21(claudeHome, "plugins", "installed_plugins.json");
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join22(process.env["HOME"] || "", ".claude");
+  const registry2 = join22(claudeHome, "plugins", "installed_plugins.json");
   if (!existsSync14(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync10(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync11(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -45471,7 +46292,7 @@ function resolveInstalledPluginManifest(name2) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join21(installPath, ".claude-plugin", "plugin.json");
+      const manifest = join22(installPath, ".claude-plugin", "plugin.json");
       if (existsSync14(manifest)) return manifest;
     }
   }
@@ -45557,11 +46378,11 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join21(projectRoot, ".claude");
+  const claudeDir = join22(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join21(claudeDir, "CLAUDE.md");
+    const claudeMd = join22(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body2 = existsSync14(claudeMd) ? readFileSync10(claudeMd, "utf8") : "";
+    let body2 = existsSync14(claudeMd) ? readFileSync11(claudeMd, "utf8") : "";
     if (!body2.includes(reference)) {
       const prefix = body2.length === 0 || body2.endsWith("\n") ? "" : "\n";
       body2 = body2.length === 0 ? `${reference}
@@ -45572,14 +46393,14 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join21(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join22(claudeDir, "agents", `${target}.md`);
   let content;
   if (existsSync14(localAgentMd)) {
-    content = readFileSync10(localAgentMd, "utf8");
+    content = readFileSync11(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync10(globalAgentMd, "utf8");
+    content = readFileSync11(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -45600,9 +46421,9 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join21(projectRoot, rel);
+    const filePath = join22(projectRoot, rel);
     if (!existsSync14(filePath)) return;
-    const content = readFileSync10(filePath, "utf8");
+    const content = readFileSync11(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync7(filePath, updated);
@@ -45610,10 +46431,10 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join21(projectRoot, rel);
+    const filePath = join22(projectRoot, rel);
     if (!existsSync14(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body2 = readFileSync10(filePath, "utf8");
+    const body2 = readFileSync11(filePath, "utf8");
     if (!body2.includes(reference)) return;
     const updated = body2.split("\n").filter((line) => line !== reference).join("\n");
     writeFileSync7(filePath, updated);
@@ -45795,9 +46616,9 @@ function cheatcodeTools(db2) {
     cheatcode_search: requireRoles(
       "cheatcode_search",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const query = args2["capability_query"]?.trim();
-        if (!query) return err18("capability_query is required");
+        if (!query) return err19("capability_query is required");
         const rawKind = args2["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const out2 = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
@@ -45812,19 +46633,19 @@ function cheatcodeTools(db2) {
           }),
           nowISO()
         );
-        return ok19({ query, kind, candidates: out2.candidates });
+        return ok20({ query, kind, candidates: out2.candidates });
       })
     ),
     cheatcode_vet: requireRoles(
       "cheatcode_vet",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const raw = args2["candidate"];
-        if (!raw || typeof raw !== "object") return err18("candidate is required");
+        if (!raw || typeof raw !== "object") return err19("candidate is required");
         const name2 = raw["name"]?.trim();
         const sourceUrl = raw["source_url"]?.trim();
-        if (!name2) return err18("candidate.name is required");
-        if (!sourceUrl) return err18("candidate.source_url is required");
+        if (!name2) return err19("candidate.name is required");
+        if (!sourceUrl) return err19("candidate.source_url is required");
         const rawKind = raw["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const tierVal = raw["tier"];
@@ -45846,15 +46667,15 @@ function cheatcodeTools(db2) {
           }),
           nowISO()
         );
-        return ok19(out2);
+        return ok20(out2);
       })
     ),
     cheatcode_approve: requireRoles(
       "cheatcode_approve",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const parsed = parseInstallCandidate(args2["candidate"]);
-        if ("error" in parsed) return err18(parsed.error);
+        if ("error" in parsed) return err19(parsed.error);
         const { name: name2, kind, sourceUrl } = parsed;
         auditCheatcode(
           "cheatcode_approved",
@@ -45862,15 +46683,15 @@ function cheatcodeTools(db2) {
           JSON.stringify({ name: name2, kind, source_url: sourceUrl }),
           nowISO()
         );
-        return ok19({ approved: true, candidate: { name: name2, kind, source_url: sourceUrl } });
+        return ok20({ approved: true, candidate: { name: name2, kind, source_url: sourceUrl } });
       })
     ),
     cheatcode_install: requireRoles(
       "cheatcode_install",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const parsed = parseInstallCandidate(args2["candidate"]);
-        if ("error" in parsed) return err18(parsed.error);
+        if ("error" in parsed) return err19(parsed.error);
         const { name: name2, kind, sourceUrl, tier } = parsed;
         const trustTier = args2["trust_tier"]?.trim() ?? null;
         const rawScope = args2["scope"]?.trim();
@@ -45890,7 +46711,7 @@ function cheatcodeTools(db2) {
         const scope = "local";
         const target = args2["target"]?.trim() || null;
         if (kind === "skill" && !target) {
-          return err18(
+          return err19(
             "a skill install requires a target agent (bro|swe|code-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
@@ -45903,7 +46724,7 @@ function cheatcodeTools(db2) {
             `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
             [existing.id]
           );
-          return ok19({
+          return ok20({
             installed: false,
             idempotent: true,
             cheatcode: existing,
@@ -45918,16 +46739,16 @@ function cheatcodeTools(db2) {
           [sourceUrl]
         );
         if (!approval) {
-          return err18(
+          return err19(
             `cheatcode install blocked: no approval on record for '${name2}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
         }
         const projectRoot = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot === null) return null;
-          const paths = [join21(projectRoot, ".claude", "skills", name2, "SKILL.md")];
+          const paths = [join22(projectRoot, ".claude", "skills", name2, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join21(projectRoot, ".claude", "CLAUDE.md") : join21(projectRoot, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join22(projectRoot, ".claude", "CLAUDE.md") : join22(projectRoot, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
@@ -45951,7 +46772,7 @@ function cheatcodeTools(db2) {
           scriptRoot()
         );
         if (kind !== "skill" && out2.installed === false && out2.error) {
-          return err18(
+          return err19(
             `cheatcode install failed for '${name2}' (${kind}): ${out2.error}. No row recorded.`
           );
         }
@@ -46025,7 +46846,7 @@ function cheatcodeTools(db2) {
           );
           return id;
         });
-        return ok19({
+        return ok20({
           installed,
           cheatcode_id: cheatcodeId,
           candidate: out2.candidate,
@@ -46052,17 +46873,17 @@ function cheatcodeTools(db2) {
     cheatcode_uninstall: requireRoles(
       "cheatcode_uninstall",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const idVal = args2["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err18("cheatcode_id is required (integer)");
+          return err19("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
         if (!existing) {
-          return ok19({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+          return ok20({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
         }
         const attachments = db2.all(
           `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
@@ -46109,7 +46930,7 @@ function cheatcodeTools(db2) {
           }
           auditCheatcode("cheatcode_uninstalled", auditSummary, auditContent, uninstalledAt);
         });
-        return ok19({
+        return ok20({
           uninstalled: reversal.removed,
           cheatcode_id: existing.id,
           name: existing.name,
@@ -46124,16 +46945,16 @@ function cheatcodeTools(db2) {
     cheatcode_activate: requireRoles(
       "cheatcode_activate",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const idVal = args2["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err18("cheatcode_id is required (integer)");
+          return err19("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
-        if (!existing) return err18(`no cheatcode with id ${idVal}`);
+        if (!existing) return err19(`no cheatcode with id ${idVal}`);
         const restartReason = {
           plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
           mcp: "MCP server registers on the next claude -p cold start"
@@ -46163,7 +46984,7 @@ function cheatcodeTools(db2) {
             activatedAt
           );
         });
-        return ok19({
+        return ok20({
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,
@@ -46176,12 +46997,12 @@ function cheatcodeTools(db2) {
     cheatcode_reconcile: requireRoles(
       "cheatcode_reconcile",
       ["bro"],
-      wrap5(async () => ok19(await reconcileNow(db2, { fromNode: "bro", writer: "bro" })))
+      wrap6(async () => ok20(await reconcileNow(db2, { fromNode: "bro", writer: "bro" })))
     ),
     cheatcode_list: requireRoles(
       "cheatcode_list",
       ["bro"],
-      wrap5(async (args2) => {
+      wrap6(async (args2) => {
         const rawKind = args2["kind"]?.trim();
         const rawStatus = args2["status"]?.trim();
         const where = [];
@@ -46200,799 +47021,8 @@ function cheatcodeTools(db2) {
              FROM cheatcodes ${clause} ORDER BY id`,
           params
         );
-        return ok19({ cheatcodes: rows });
+        return ok20({ cheatcodes: rows });
       })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/world_model.ts
-import { spawnSync as spawnSync13 } from "node:child_process";
-import { readFileSync as readFileSync11, realpathSync as realpathSync7 } from "node:fs";
-import { isAbsolute as isAbsolute6, join as join22, relative as relative3, sep as sep4 } from "node:path";
-var WORLD_MODEL_GET_MAX_NODES = 500;
-var RRF_K = 60;
-var SEARCH_BACKFILL_LIMIT = 50;
-var UNMERGED_WORK_MAX_BRANCHES = 10;
-var NET_DIFF_MAX_TARGET_COMMITS = 500;
-var PATCH_ID_MAX_BUFFER = 256 * 1024 * 1024;
-var SYMBOL_POOL = 40;
-var FILE_RANK_POOL = 20;
-var PATH_RANK_K = 10;
-var DEFAULT_IMPACT_DEPTH = 2;
-var SOURCE_MAX_LINES = 200;
-function git3(repoPath, args2) {
-  return spawnSync13("git", ["-C", repoPath, ...args2], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
-}
-function patchIds(repoPath, args2) {
-  const opts = { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS, maxBuffer: PATCH_ID_MAX_BUFFER };
-  const patch = spawnSync13("git", ["-C", repoPath, ...args2], opts);
-  if (patch.error || patch.status !== 0) return null;
-  if (!patch.stdout.trim()) return [];
-  const ids = spawnSync13("git", ["-C", repoPath, "patch-id", "--stable"], { ...opts, input: patch.stdout });
-  if (ids.error || ids.status !== 0) return null;
-  return ids.stdout.split("\n").map((line) => line.split(" ")[0]?.trim()).filter((id) => !!id);
-}
-function netDiffLandedOn(repoPath, tip, target) {
-  const mb = git3(repoPath, ["merge-base", target, tip]);
-  const base = mb.stdout?.trim();
-  if (mb.status !== 0 || !base) return false;
-  const branch = patchIds(repoPath, ["diff", "--no-color", "--no-ext-diff", base, tip]);
-  if (!branch || branch.length === 0) return false;
-  const landed = patchIds(repoPath, [
-    "log",
-    "-p",
-    "--no-color",
-    "--no-ext-diff",
-    "--no-merges",
-    "--format=commit %H",
-    "-n",
-    String(NET_DIFF_MAX_TARGET_COMMITS),
-    `${base}..${target}`
-  ]);
-  return !!landed && landed.includes(branch[0]);
-}
-function tipIntegratedInto(repoPath, tip, target) {
-  const ancestor = git3(repoPath, ["merge-base", "--is-ancestor", tip, target]);
-  if (ancestor.error) return "spawn-error";
-  if (ancestor.status === 0) return "integrated";
-  if (ancestor.status !== 1) return "unresolvable";
-  const merged = git3(repoPath, ["merge-tree", "--write-tree", target, tip]);
-  if (merged.status === 0) {
-    const targetTree = git3(repoPath, ["rev-parse", `${target}^{tree}`]);
-    const mergedTree = merged.stdout.split("\n")[0]?.trim();
-    if (targetTree.status === 0 && mergedTree && mergedTree === targetTree.stdout.trim()) return "integrated";
-  }
-  const cherry = git3(repoPath, ["cherry", target, tip]);
-  if (cherry.status === 0 && !/^\+/m.test(cherry.stdout)) return "integrated";
-  if (netDiffLandedOn(repoPath, tip, target)) return "integrated";
-  return "unmerged";
-}
-function computeUnmergedWork(db2, repo) {
-  if (!repo) return { unmerged_work: [] };
-  const repoRow = db2.get(
-    `SELECT path, target_branch FROM repos WHERE name = ?`,
-    [repo]
-  );
-  if (!repoRow) return { unmerged_work: [] };
-  const repoPath = repoRowPath(db2, repoRow.path);
-  const targetBranch = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
-  const gitCheck = spawnSync13("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
-    encoding: "utf8",
-    timeout: SUBPROCESS_TIMEOUT_MS
-  });
-  if (gitCheck.error || gitCheck.status !== 0) {
-    return { unmerged_work: [], warning: "unmerged-work-unavailable" };
-  }
-  const target = resolveBaseRef(repoPath, targetBranch);
-  if (!target) return { unmerged_work: [] };
-  const rows = db2.all(
-    `SELECT branch_id, parent_branch_id, commit_sha, status
-       FROM tasks
-      WHERE repo = ? AND commit_sha IS NOT NULL
-      ORDER BY updated_at DESC, id DESC`,
-    [repo]
-  );
-  const byBranch = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    let entry = byBranch.get(r.branch_id);
-    if (!entry) {
-      entry = { parent_branch_id: r.parent_branch_id, closed_tasks: 0 };
-      byBranch.set(r.branch_id, entry);
-    }
-    if (r.status === "closed") entry.closed_tasks++;
-  }
-  const unmerged_work = [];
-  for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync13(
-      "git",
-      ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
-      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
-    );
-    if (refCheck.status !== 0) continue;
-    const tip = refCheck.stdout.trim();
-    const integration = tipIntegratedInto(repoPath, tip, target);
-    if (integration === "spawn-error") {
-      return { unmerged_work: [], warning: "unmerged-work-unavailable" };
-    }
-    if (integration !== "unmerged") continue;
-    unmerged_work.push({
-      branch_id,
-      parent_branch_id: entry.parent_branch_id,
-      tip,
-      closed_tasks: entry.closed_tasks,
-      merged_into_target: false
-    });
-  }
-  return { unmerged_work };
-}
-function trustOf(node) {
-  const behind = node.commits_behind ?? null;
-  if (behind === null) return null;
-  const dead = node.dead_refs?.length ?? 0;
-  const parts2 = [];
-  if (behind > 0) parts2.push(`drifting(${behind})`);
-  if (dead > 0) parts2.push(`dead_refs(${dead})`);
-  return parts2.length > 0 ? parts2.join(", ") : "current";
-}
-function driftView(node) {
-  return {
-    summary_sha: node.summary_sha ?? null,
-    commits_behind: node.commits_behind ?? null,
-    dead_refs: node.dead_refs ?? null,
-    trust: trustOf(node)
-  };
-}
-function framedPurpose(purpose) {
-  return purpose ? frameUntrusted("file-purpose", purpose) : "";
-}
-function fileView(f) {
-  return {
-    path: WorldModelGraph.relativeFilePath(f),
-    purpose: framedPurpose(f.purpose),
-    purpose_source: f.purpose_source,
-    content_md5: f.content_md5
-  };
-}
-function dirResult(h) {
-  return {
-    kind: "dir",
-    repo: h.repo,
-    path: h.path,
-    summary: h.summary,
-    summary_source: h.summary_source,
-    file_count: h.file_count,
-    ...driftView(h),
-    score: h.score
-  };
-}
-function fileResult(h) {
-  return {
-    kind: "file",
-    repo: h.repo,
-    path: WorldModelGraph.relativeFilePath(h),
-    dir: h.dir,
-    purpose: framedPurpose(h.purpose),
-    purpose_source: h.purpose_source,
-    score: h.score
-  };
-}
-function framedSymbol(s) {
-  return {
-    ...s,
-    signature: s.signature ? frameUntrusted("symbol-signature", s.signature) : "",
-    doc: s.doc ? frameUntrusted("symbol-doc", s.doc) : ""
-  };
-}
-function symbolSource(db2, symbol2) {
-  const rootArg = resolveSoleRepo(db2, symbol2.repo)?.path;
-  if (!rootArg) return { source: null, source_reason: "repo-path-unknown" };
-  let root;
-  let file2;
-  try {
-    root = realpathSync7(rootArg);
-    file2 = realpathSync7(join22(root, symbol2.path));
-  } catch {
-    return { source: null, source_reason: "file-missing" };
-  }
-  const rel = relative3(root, file2);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute6(rel)) return { source: null, source_reason: "outside-repo-root" };
-  let lines2;
-  try {
-    lines2 = readFileSync11(file2, "utf8").split("\n");
-  } catch {
-    return { source: null, source_reason: "file-unreadable" };
-  }
-  const start2 = Math.max(1, symbol2.start_line);
-  if (start2 > lines2.length) return { source: null, source_reason: "range-past-eof" };
-  const end = Math.min(symbol2.end_line, lines2.length);
-  const truncated = end - start2 + 1 > SOURCE_MAX_LINES;
-  const last = truncated ? start2 + SOURCE_MAX_LINES - 1 : end;
-  const text = frameUntrusted("symbol-source", lines2.slice(start2 - 1, last).join("\n"));
-  return { source: { start_line: start2, end_line: last, text, truncated } };
-}
-function symbolResult(symbol2, score, stale) {
-  const s = framedSymbol(symbol2);
-  return {
-    kind: "symbol",
-    id: s.id,
-    repo: s.repo,
-    qualified_name: s.qualified_name,
-    symbol_kind: s.kind,
-    path: s.path,
-    line_start: s.start_line,
-    line_end: s.end_line,
-    signature: s.signature,
-    doc: s.doc,
-    stale,
-    score
-  };
-}
-function dirHit(node) {
-  return { kind: "dir", key: `dir:${node.key}`, node };
-}
-function fileHit(node) {
-  return { kind: "file", key: `file:${node.path}`, node };
-}
-function symbolHit(node) {
-  return { kind: "symbol", key: `symbol:${node.id}`, node };
-}
-function hitResult(hit, score, stale) {
-  if (hit.kind === "dir") return dirResult({ ...hit.node, score });
-  if (hit.kind === "file") return fileResult({ ...hit.node, score });
-  return symbolResult(hit.node, score, stale.has(fileRefKey(hit.node)));
-}
-function isBuildOutput(path2) {
-  return /(^|\/)dist\//.test(path2) || path2.endsWith(".map");
-}
-function pathWeight(path2) {
-  return isTestPath(path2) || /(^|\/)changelog\.d\//.test(path2) ? 0.5 : 1;
-}
-function rankKeyword(dirs, files, symbols) {
-  const pathScore = /* @__PURE__ */ new Map();
-  const bump = (path2, rank) => pathScore.set(path2, (pathScore.get(path2) ?? 0) + pathWeight(path2) / (PATH_RANK_K + rank));
-  const symbolRank = /* @__PURE__ */ new Map();
-  for (const s of symbols) if (!symbolRank.has(s.path)) symbolRank.set(s.path, symbolRank.size);
-  for (const [path2, rank] of symbolRank) bump(path2, rank);
-  files.forEach((f, rank) => bump(WorldModelGraph.relativeFilePath(f), rank));
-  const seen = /* @__PURE__ */ new Map();
-  const share = (path2) => {
-    const n = seen.get(path2) ?? 0;
-    seen.set(path2, n + 1);
-    return (pathScore.get(path2) ?? 0) / (n + 1);
-  };
-  const ranked = [];
-  dirs.forEach((d, rank) => ranked.push({ hit: dirHit(d), score: 1 / (PATH_RANK_K + rank), order: ranked.length }));
-  const firsts = [...pathScore.keys()].sort((a, b) => pathScore.get(b) - pathScore.get(a));
-  const symbolsByPath = /* @__PURE__ */ new Map();
-  for (const s of symbols) symbolsByPath.set(s.path, [...symbolsByPath.get(s.path) ?? [], s]);
-  const fileByPath = new Map(files.map((f) => [WorldModelGraph.relativeFilePath(f), f]));
-  for (const path2 of firsts) {
-    for (const s of symbolsByPath.get(path2) ?? []) ranked.push({ hit: symbolHit(s), score: share(path2), order: ranked.length });
-    const file2 = fileByPath.get(path2);
-    if (file2) ranked.push({ hit: fileHit(file2), score: share(path2), order: ranked.length });
-  }
-  return ranked.sort((a, b) => b.score - a.score || a.order - b.order).map(({ hit, score }) => ({ hit, score }));
-}
-async function backfillWorldModel(db2) {
-  let saturated = false;
-  for (const table of WORLD_MODEL_TABLES) {
-    if (await backfillMissing(db2, table, SEARCH_BACKFILL_LIMIT) >= SEARCH_BACKFILL_LIMIT) saturated = true;
-  }
-  if (saturated) startWorldModelBackfill(db2);
-}
-async function cosineHits(db2, graph, repo, query, k) {
-  const search = (table) => topKByCosine(db2, table, query, k, [repo]);
-  const [dirs, files] = [await search("wm_directories"), await search("wm_files")];
-  const dirNodes = graph.directoriesByIds(dirs.map((d) => d.rowid));
-  const fileNodes = graph.filesByIds(files.map((f) => f.rowid));
-  const hits = [];
-  for (const d of dirs) {
-    const node = dirNodes.get(d.rowid);
-    if (node) hits.push({ hit: dirHit(node), score: d.score });
-  }
-  for (const f of files) {
-    const node = fileNodes.get(f.rowid);
-    if (node) hits.push({ hit: fileHit(node), score: f.score });
-  }
-  return hits.sort((a, b) => b.score - a.score);
-}
-function fuse(lists) {
-  const fused = /* @__PURE__ */ new Map();
-  for (const list of lists) {
-    list.forEach((hit, rank) => {
-      const rrf = 1 / (RRF_K + rank + 1);
-      const entry = fused.get(hit.key);
-      if (entry) entry.score += rrf;
-      else fused.set(hit.key, { hit, score: rrf });
-    });
-  }
-  return [...fused.values()].sort((a, b) => b.score - a.score);
-}
-async function rankWorldModel(db2, graph, repo, query, mode, k) {
-  const pool = mode === "keyword" ? k : k * 4;
-  const dirSearch = graph.keywordSearchDirectories(repo, query, pool);
-  const fileSearch = graph.keywordSearchFiles(repo, query, Math.max(pool, FILE_RANK_POOL));
-  const symbolSearch = keywordSearchSymbols(db2, repo, query, SYMBOL_POOL);
-  const match = [dirSearch, fileSearch, symbolSearch].some((r) => r.match === "any_term") ? "any_term" : "all_terms";
-  const files = fileSearch.hits.filter((f) => !isBuildOutput(WorldModelGraph.relativeFilePath(f)));
-  const keywordRanked = rankKeyword(dirSearch.hits, files, symbolSearch.hits);
-  const hitsOf = (ranked) => ranked.map(({ hit }) => hit);
-  if (mode === "keyword") return { ranked: keywordRanked, match };
-  await backfillWorldModel(db2);
-  const semantic = await cosineHits(db2, graph, repo, query, pool);
-  if (semantic.length === 0) return { ranked: keywordRanked, match, warning: "semantic_unavailable" };
-  if (mode === "semantic") return { ranked: semantic, match };
-  return {
-    ranked: fuse([
-      dirSearch.hits.map(dirHit),
-      hitsOf(keywordRanked.filter(({ hit }) => hit.kind !== "dir")),
-      hitsOf(semantic.filter(({ hit }) => hit.kind === "dir")),
-      hitsOf(semantic.filter(({ hit }) => hit.kind === "file"))
-    ]),
-    match
-  };
-}
-function derivedSeeds(ranked) {
-  return ranked.flatMap(({ hit }) => {
-    if (hit.kind === "symbol") return [{ kind: "symbol", id: hit.node.id }];
-    if (hit.kind === "file") return [{ kind: "file", path: WorldModelGraph.relativeFilePath(hit.node) }];
-    return [];
-  }).slice(0, DERIVED_SEED_HITS);
-}
-function ok20(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err19(message2) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
-    isError: true
-  };
-}
-function wrap6(fn) {
-  return async (args2) => {
-    try {
-      return await fn(args2);
-    } catch (e) {
-      return err19(e.message);
-    }
-  };
-}
-var LOGGED_ARGS = ["query", "path", "id", "qualified_name", "name", "mode", "depth", "repo", "k"];
-function treeNodeCount(node) {
-  const children = Array.isArray(node["children"]) ? node["children"] : [];
-  const files = Array.isArray(node["files"]) ? node["files"].length : 0;
-  return 1 + files + children.reduce((n, c) => n + treeNodeCount(c), 0);
-}
-var RESULT_COUNTS = {
-  world_model_get: (p) => p["root"] && typeof p["root"] === "object" ? treeNodeCount(p["root"]) : 0,
-  world_model_search: (p) => Array.isArray(p["results"]) ? p["results"].length : 0,
-  world_model_symbol: (p) => p["symbol"] && typeof p["symbol"] === "object" ? 1 : 0,
-  world_model_concepts: (p) => (Array.isArray(p["concepts"]) ? p["concepts"].length : 0) + (p["derived"] != null ? 1 : 0),
-  world_model_concept_get: () => 1,
-  world_model_concept_upsert: (p) => typeof p["id"] === "number" ? 1 : 0
-};
-function attributedTask(db2, agent) {
-  const runs = db2.all(
-    `SELECT task_id FROM agent_runs WHERE completed_at IS NULL AND agent_type = ? LIMIT 2`,
-    [normalizeAgent(agent)]
-  );
-  const taskId = runs.length === 1 ? runs[0].task_id : null;
-  if (taskId === null) return null;
-  const task = db2.get(
-    `SELECT issue_id, branch_id, repo FROM tasks WHERE id = ?`,
-    [taskId]
-  );
-  return task ? { task_id: taskId, ...task } : null;
-}
-function recordToolCall(db2, tool, args2, result2, latencyMs) {
-  const agent = String(args2["agent"]);
-  const error2 = result2.isError === true;
-  const first = result2.content[0];
-  const payload = error2 || first?.type !== "text" ? {} : JSON.parse(first.text);
-  const resultCount = error2 ? 0 : RESULT_COUNTS[tool](payload);
-  const task = attributedTask(db2, agent);
-  insertAudit(db2, {
-    issue_id: task?.issue_id ?? -1,
-    branch_id: task?.branch_id ?? null,
-    repo: task?.repo ?? null,
-    from_node: agent,
-    event_type: "wm_tool_called",
-    summary: `${tool} by ${agent}: ${resultCount} result(s)`,
-    content_json: JSON.stringify({
-      tool,
-      agent,
-      task_id: task?.task_id ?? null,
-      args: Object.fromEntries(LOGGED_ARGS.filter((k) => args2[k] !== void 0).map((k) => [k, args2[k]])),
-      result_count: resultCount,
-      empty: error2 || resultCount === 0,
-      error: error2,
-      warning: typeof payload["warning"] === "string" ? payload["warning"] : null,
-      match: payload["match"] ?? null,
-      derived: payload["derived"] != null,
-      latency_ms: latencyMs
-    })
-  });
-}
-function logged(db2, tool, fn) {
-  return async (args2) => {
-    const started = performance.now();
-    const result2 = await fn(args2);
-    try {
-      recordToolCall(db2, tool, args2, result2, Math.round(performance.now() - started));
-    } catch (e) {
-      console.error(`[world-model] ${tool} call log failed: ${e.message}`);
-    }
-    return result2;
-  };
-}
-function buildTree(rows, rootPath, depth, opts) {
-  const byParent = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const key = r.parent_path ?? "__ROOT__";
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key).push(r);
-  }
-  const root = rows.find((r) => r.path === rootPath);
-  if (!root) return null;
-  const visited = /* @__PURE__ */ new Set();
-  const counter = opts?.nodeCounter;
-  const depthOffset = opts?.depthOffset ?? 0;
-  function descend(node, remainingDepth, currentDepth) {
-    visited.add(node.path);
-    if (counter) counter.count++;
-    const children = [];
-    if (remainingDepth === null || remainingDepth > 0) {
-      const kids = (byParent.get(node.path) ?? []).filter(
-        (k) => k.path !== node.path && !visited.has(k.path)
-      );
-      kids.sort((a, b) => a.path.localeCompare(b.path));
-      for (const k of kids) {
-        if (counter && counter.count >= counter.limit) break;
-        children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1, currentDepth + 1));
-      }
-    }
-    const absoluteDepth = currentDepth + depthOffset;
-    const summary = absoluteDepth > 1 && node.summary ? node.summary.split("\n").find((l) => l.trim().length > 0) ?? node.summary : node.summary;
-    return {
-      path: node.path,
-      summary,
-      summary_source: node.summary_source,
-      summary_updated_at: node.summary_updated_at,
-      file_count: node.file_count,
-      ...driftView(node),
-      children
-    };
-  }
-  return descend(root, depth, 0);
-}
-var CONCEPT_LIMIT = 10;
-function framedStep(step, derived) {
-  const symbol2 = step.symbol && step.symbol.id !== null ? {
-    ...step.symbol,
-    signature: step.symbol.signature ? frameUntrusted("symbol-signature", step.symbol.signature) : "",
-    doc: step.symbol.doc ? frameUntrusted("symbol-doc", step.symbol.doc) : ""
-  } : step.symbol;
-  const description = derived && step.description ? frameUntrusted("symbol-doc", step.description) : step.description;
-  return { ...step, description, symbol: symbol2 };
-}
-function worldModelTools(db2, graphHolder2) {
-  const definitions = [
-    {
-      name: "world_model_get",
-      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          repo: {
-            type: "string",
-            description: "Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects."
-          },
-          path: {
-            type: "string",
-            description: "Starting directory path, repo-relative. Defaults to the repo root ('')."
-          },
-          depth: {
-            type: ["integer", "null"],
-            description: "How deep to descend. Defaults to 2 (root + immediate children). Pass null for the full subtree."
-          }
-        },
-        required: ["agent"]
-      }
-    },
-    {
-      name: "world_model_search",
-      description: "Search dir summaries + file purposes. keyword: FTS5; semantic: embedding cosine; hybrid (default): both fused by RRF. Returns top-K hits tagged kind 'dir'|'file'|'symbol'; a symbol hit carries stale: true when its file changed on disk since the last scan. Without embeddings, falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' \u2014 cheaper than world_model_get.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: {
-            type: "string",
-            description: "Search query. Keyword terms match whole words in paths, summaries and purposes (all terms must match; when none do, any non-stopword term, reported as match: any_term), plus path/text substrings; semantic matches natural language."
-          },
-          mode: {
-            type: "string",
-            enum: ["keyword", "semantic", "hybrid"],
-            description: "Search mode. Default: hybrid (RRF combines FTS5 + cosine)."
-          },
-          repo: {
-            type: "string",
-            description: "Optional \u2014 restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects."
-          },
-          k: {
-            type: "number",
-            description: "Top-K rows to return. Default 5. Max 20."
-          }
-        },
-        required: ["agent", "query"]
-      }
-    },
-    {
-      name: "world_model_symbol",
-      description: "Card for one indexed symbol: callers, callees, imports, reads_table, writes_table and tests (up to 50 refs each). Pass id from a world_model_search hit, or qualified_name plus optional path. note flags by-name resolution, so lists may be incomplete. symbol.stale is true when the file on disk no longer matches the index (rescan to refresh). impact adds transitive callers by depth (levels[].refs) plus the tests reached, up to 200 refs (truncated). source: true adds the body read from disk, up to 200 lines.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          id: { type: "number", description: "Symbol id from a world_model_search hit." },
-          repo: {
-            type: "string",
-            description: "Repo name. Defaults to the sole registered repo; required in multi-repo projects without id."
-          },
-          path: { type: "string", description: "Repo-relative file path, to pick one of several same-named symbols." },
-          qualified_name: { type: "string", description: "Name as indexed, e.g. 'persistScan' or 'WorldModelGraph.pruneFiles'." },
-          impact: {
-            type: ["boolean", "integer"],
-            description: `Transitive inbound callers. true walks 2 hops; an integer 1-${IMPACT_MAX_DEPTH} sets the depth. Test callers go to impact.tests and are not walked past.`
-          },
-          source: {
-            type: "boolean",
-            description: "Add source {start_line, end_line, text, truncated}: the body read from disk, capped at 200 lines, text framed as untrusted content."
-          }
-        },
-        required: ["agent"]
-      }
-    },
-    {
-      name: "world_model_concepts",
-      description: "Search verified concepts (named, ordered flows over symbols) by bm25. Each hit has step_count and per-step trust counts. With no match, derived is a chain walked from the top symbol hit over exact calls/sources/runs edges, labelled 'derived, unverified'.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: { type: "string" },
-          repo: { type: "string", description: "Defaults to the sole registered repo." }
-        },
-        required: ["agent", "query"]
-      }
-    },
-    {
-      name: "world_model_concept_get",
-      description: "One concept with its steps in order: description, trust, handoff and the anchored symbol resolved now (null when the anchor is gone; a file anchor is {id: null, kind: 'file', qualified_name: <path>} with null signature, doc and lines).",
-      inputSchema: {
-        type: "object",
-        properties: { agent: { type: "string" }, id: { type: "number" } },
-        required: ["agent", "id"]
-      }
-    },
-    {
-      name: "world_model_concept_upsert",
-      description: "Write a concept, replacing any of the same repo+name. Every step must anchor a current symbol (kind '' anchors the file) and every claim must pass, or nothing is written. Scans then mark drifted steps suspect or broken.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          repo: { type: "string" },
-          name: { type: "string" },
-          kind: { type: "string", enum: [...CONCEPT_KINDS] },
-          body: { type: "string" },
-          steps: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                path: { type: "string" },
-                kind: { type: "string" },
-                qualified_name: { type: "string" },
-                description: { type: "string" },
-                handoff: { type: ["string", "null"], enum: [...HANDOFFS, null] }
-              },
-              required: ["path", "description"]
-            }
-          },
-          claims: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: { claim: { type: "string", enum: [...CLAIMS] }, args: { type: "object" } },
-              required: ["claim", "args"]
-            }
-          }
-        },
-        required: ["agent", "name", "steps"]
-      }
-    }
-  ];
-  const conceptRepo = (arg) => {
-    if (typeof arg === "string" && arg) return { name: arg };
-    const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-    if (available.length >= 2) return { name: "", warning: "repo-unspecified", available_repos: available };
-    return { name: resolveSoleRepo(db2)?.name ?? "" };
-  };
-  const handlers = {
-    world_model_get: requireRoles(
-      "world_model_get",
-      ["bro", "swe", "code-reviewer", "consultant"],
-      logged(db2, "world_model_get", wrap6(async (args2) => {
-        let repo = args2["repo"] ?? "";
-        if (!repo) {
-          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-          if (available.length >= 2) {
-            return ok20({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
-          }
-          repo = resolveSoleRepo(db2)?.name ?? "";
-        }
-        const path2 = args2["path"] ?? "";
-        const depthArg = args2["depth"];
-        const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
-        const unmerged = computeUnmergedWork(db2, repo);
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        if (!graph) {
-          return ok20({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
-        }
-        if (graph.directoryCount(repo) === 0) {
-          return ok20({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
-        }
-        const rows = graph.subtree(repo, path2, depth);
-        const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
-        const tree = buildTree(rows, path2, depth, { nodeCounter });
-        if (!tree) {
-          return ok20({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
-        }
-        const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        if (path2 !== "") tree.files = graph.filesForDirectory(repo, path2).map(fileView);
-        return ok20({
-          repo,
-          root: tree,
-          ...path2 === "" ? { coverage: graph.fileCoverage(repo) } : {},
-          ...truncated ? { truncated: true } : {},
-          ...unmerged.warning ? { warning: unmerged.warning } : {},
-          unmerged_work: unmerged.unmerged_work
-        });
-      }))
-    ),
-    world_model_search: requireRoles(
-      "world_model_search",
-      ["bro", "swe", "code-reviewer", "consultant"],
-      logged(db2, "world_model_search", wrap6(async (args2) => {
-        const query = args2["query"];
-        if (!query || typeof query !== "string") return err19("query is required");
-        const mode = args2["mode"] ?? "hybrid";
-        const k = Math.min(Math.max(1, args2["k"] ?? 5), 20);
-        let repo = args2["repo"] ?? "";
-        if (!repo) {
-          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-          if (available.length >= 2) {
-            return ok20({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
-          }
-          repo = resolveSoleRepo(db2)?.name ?? "";
-        }
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        if (!graph) {
-          return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
-        }
-        const { ranked, match, warning } = await rankWorldModel(db2, graph, repo, query, mode, k);
-        const top = ranked.slice(0, k);
-        const stale = staleFiles(
-          db2,
-          top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
-        );
-        const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
-        return ok20({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match });
-      }))
-    ),
-    world_model_symbol: requireRoles(
-      "world_model_symbol",
-      ["bro", "swe", "code-reviewer", "consultant"],
-      logged(db2, "world_model_symbol", wrap6(async (args2) => {
-        const id = args2["id"];
-        let symbol2 = null;
-        if (typeof id === "number") {
-          symbol2 = symbolById(db2, id);
-          if (!symbol2) return err19(`symbol ${id} not found`);
-        } else {
-          const name2 = args2["qualified_name"];
-          if (typeof name2 !== "string" || !name2) return err19("id or qualified_name is required");
-          let repo = args2["repo"] ?? "";
-          if (!repo) {
-            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-            if (available.length >= 2) return ok20({ symbol: null, warning: "repo-unspecified", available_repos: available });
-            repo = resolveSoleRepo(db2)?.name ?? "";
-          }
-          const path2 = args2["path"];
-          const matches = symbolsByName(db2, repo, name2, typeof path2 === "string" && path2 ? path2 : void 0);
-          if (matches.length === 0) return err19(`symbol ${name2} not found in repo ${repo || "(none)"}`);
-          const definitions2 = matches.filter((m) => m.kind !== "module");
-          if (definitions2.length > 1) {
-            return ok20({
-              symbol: null,
-              warning: "ambiguous",
-              matches: definitions2.map((m) => ({
-                id: m.id,
-                qualified_name: m.qualified_name,
-                kind: m.kind,
-                repo: m.repo,
-                path: m.path,
-                line_start: m.start_line
-              }))
-            });
-          }
-          symbol2 = matches[0];
-        }
-        const impactArg = args2["impact"];
-        let impactDepth = null;
-        if (impactArg === true) impactDepth = DEFAULT_IMPACT_DEPTH;
-        else if (typeof impactArg === "number") {
-          if (!Number.isInteger(impactArg) || impactArg < 1 || impactArg > IMPACT_MAX_DEPTH) {
-            return err19(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
-          }
-          impactDepth = impactArg;
-        } else if (impactArg !== void 0 && impactArg !== false && impactArg !== null) {
-          return err19(`impact must be true or an integer 1-${IMPACT_MAX_DEPTH}`);
-        }
-        const card = symbolCard(db2, symbol2);
-        return ok20({
-          ...card,
-          symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
-          ...impactDepth !== null ? { impact: symbolImpact(db2, symbol2, impactDepth) } : {},
-          ...args2["source"] === true ? symbolSource(db2, symbol2) : {}
-        });
-      }))
-    ),
-    world_model_concepts: requireRoles(
-      "world_model_concepts",
-      ["bro", "swe", "code-reviewer", "consultant"],
-      logged(db2, "world_model_concepts", wrap6(async (args2) => {
-        const query = args2["query"];
-        if (typeof query !== "string" || !query.trim()) return err19("query is required");
-        const repo = conceptRepo(args2["repo"]);
-        if (repo.warning) return ok20({ available: false, concepts: [], derived: null, ...repo });
-        const available = db2.get(`SELECT 1 AS hit FROM wm_files WHERE repo = ? LIMIT 1`, [repo.name]) !== void 0;
-        if (!available) return ok20({ available, concepts: [], derived: null });
-        const concepts = searchConcepts(db2, repo.name, query, CONCEPT_LIMIT);
-        const graph = concepts.length === 0 ? graphHolder2?.ensureGraph() ?? null : null;
-        const derived = graph ? derivedChain(db2, repo.name, query, derivedSeeds((await rankWorldModel(db2, graph, repo.name, query, "hybrid", DERIVED_SEED_HITS)).ranked)) : null;
-        return ok20({
-          available,
-          concepts,
-          derived: derived ? { label: derived.label, steps: derived.steps.map((st) => framedStep(st, true)) } : null
-        });
-      }))
-    ),
-    world_model_concept_get: requireRoles(
-      "world_model_concept_get",
-      ["bro", "swe", "code-reviewer", "consultant"],
-      logged(db2, "world_model_concept_get", wrap6(async (args2) => {
-        const id = args2["id"];
-        if (typeof id !== "number") return err19("id is required");
-        const concept = getConcept(db2, id);
-        if (!concept) return err19(`concept ${id} not found`);
-        return ok20({ ...concept, steps: concept.steps.map((st) => framedStep(st, false)) });
-      }))
-    ),
-    world_model_concept_upsert: requireRoles(
-      "world_model_concept_upsert",
-      ["bro", "consultant"],
-      logged(db2, "world_model_concept_upsert", wrap6(async (args2) => {
-        const repo = conceptRepo(args2["repo"]);
-        if (repo.warning) return ok20({ concept: null, ...repo });
-        const input = { ...args2, repo: repo.name };
-        const repoPath = resolveSoleRepo(db2, repo.name)?.path ?? null;
-        return ok20(upsertConcept(db2, input, { repoPath, agent: String(args2["agent"]) }));
-      }))
     )
   };
   return { definitions, handlers };

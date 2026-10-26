@@ -36992,6 +36992,24 @@ function computeUnmergedWork(db, repo) {
   }
   return { unmerged_work };
 }
+function checkoutLag(db, repo) {
+  if (!repo) return null;
+  const repoRow = db.get(
+    `SELECT path, target_branch FROM repos WHERE name = ?`,
+    [repo]
+  );
+  if (!repoRow) return null;
+  const repoPath = repoRowPath(db, repoRow.path);
+  const upstream = resolveBaseRef(repoPath, repoRow.target_branch || resolveRepoDefaultBranch(repoPath));
+  if (!upstream?.startsWith("origin/")) return null;
+  const res = spawnSync8("git", ["-C", repoPath, "rev-list", "--count", `HEAD..refs/remotes/${upstream}`], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (res.error || res.status !== 0) return null;
+  const behind = Number.parseInt(res.stdout.trim(), 10);
+  return Number.isInteger(behind) && behind > 0 ? { checkout_behind_upstream: behind, upstream } : null;
+}
 function trustOf(node) {
   const behind = node.commits_behind ?? null;
   if (behind === null) return null;
@@ -37346,7 +37364,7 @@ function worldModelTools(db, graphHolder) {
   const definitions = [
     {
       name: "world_model_get",
-      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback; README nodes add trust ('current', 'drifting(n)', 'dead_refs(k)'), summary_sha, commits_behind and dead_refs. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. checkout_behind_upstream (with upstream 'origin/<target>') counts the commits the indexed checkout trails its upstream as of the last fetch, so missing files or shifted line ranges may be checkout lag, not world-model bugs; absent when current. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: "object",
         properties: {
@@ -37504,18 +37522,19 @@ function worldModelTools(db, graphHolder) {
         const depthArg = args2["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
         const unmerged = computeUnmergedWork(db, repo);
+        const lag = checkoutLag(db, repo);
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
-          return ok4({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
+          return ok4({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work, ...lag });
         }
         if (graph.directoryCount(repo) === 0) {
-          return ok4({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
+          return ok4({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work, ...lag });
         }
         const rows = graph.subtree(repo, path, depth);
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path, depth, { nodeCounter });
         if (!tree) {
-          return ok4({ repo, root: null, warning: "path-not-found", path, unmerged_work: unmerged.unmerged_work });
+          return ok4({ repo, root: null, warning: "path-not-found", path, unmerged_work: unmerged.unmerged_work, ...lag });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
         if (path !== "") tree.files = graph.filesForDirectory(repo, path).map(fileView);
@@ -37525,7 +37544,8 @@ function worldModelTools(db, graphHolder) {
           ...path === "" ? { coverage: graph.fileCoverage(repo) } : {},
           ...truncated ? { truncated: true } : {},
           ...unmerged.warning ? { warning: unmerged.warning } : {},
-          unmerged_work: unmerged.unmerged_work
+          unmerged_work: unmerged.unmerged_work,
+          ...lag
         });
       }))
     ),
@@ -37545,9 +37565,10 @@ function worldModelTools(db, graphHolder) {
           }
           repo = resolveSoleRepo(db)?.name ?? "";
         }
+        const lag = checkoutLag(db, repo);
         const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
-          return ok4({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          return ok4({ results: [], total_matched: 0, warning: "world-model-unavailable", mode, ...lag });
         }
         const { ranked, match, warning } = await rankWorldModel(db, graph, repo, query, mode, k);
         const top = ranked.slice(0, k);
@@ -37556,7 +37577,7 @@ function worldModelTools(db, graphHolder) {
           top.flatMap(({ hit }) => hit.kind === "symbol" ? [hit.node] : [])
         );
         const results = top.map(({ hit, score }) => hitResult(hit, score, stale));
-        return ok4({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match });
+        return ok4({ results, total_matched: results.length, ...warning ? { warning } : {}, mode, match, ...lag });
       }))
     ),
     world_model_symbol: requireRoles(
@@ -37592,7 +37613,8 @@ function worldModelTools(db, graphHolder) {
                 repo: m.repo,
                 path: m.path,
                 line_start: m.start_line
-              }))
+              })),
+              ...checkoutLag(db, repo)
             });
           }
           symbol2 = matches[0];
@@ -37613,7 +37635,8 @@ function worldModelTools(db, graphHolder) {
           ...card,
           symbol: { ...framedSymbol(card.symbol), stale: card.symbol.stale },
           ...impactDepth !== null ? { impact: symbolImpact(db, symbol2, impactDepth) } : {},
-          ...args2["source"] === true ? symbolSource(db, symbol2) : {}
+          ...args2["source"] === true ? symbolSource(db, symbol2) : {},
+          ...checkoutLag(db, symbol2.repo)
         });
       }))
     ),
