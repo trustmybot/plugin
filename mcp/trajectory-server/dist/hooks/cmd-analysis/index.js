@@ -9,6 +9,8 @@ import { bashParser, loadWanted } from './parser.js';
 import { writePathsWith } from './write-paths.js';
 export { bashParserLoads, programParserLoads } from './parser.js';
 export { pathCanonical, payloadCwd } from './path.js';
+export { ghMutation, ghMutationFrom } from './forge.js';
+export { isPromptSurfacePath, surfaceRoot, WRITE_SHAPES, writeShapes } from './surface.js';
 export { stripLiterals } from './strip-literals.js';
 export { cmdStatements, cwdState, denyAmbiguousGitTarget, gitSubcommand, stmtRepoRoot, } from './git.js';
 /** The lines `tmb_cmd_write_paths "$command" "$cwd" [raw] "$root"` prints. */
