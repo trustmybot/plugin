@@ -115,10 +115,10 @@ before(async () => {
         import { parseChangelog, loadReleases, releaseAt } from './server/releases.ts';
         import { exploreTable, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote } from './web/views/insights/explore.tsx';
         import { InsightsLayout } from './web/views/insights/InsightsView.tsx';
-        import { parseInsightParams, insightHash } from './web/views/insights/params.ts';
+        import { parseInsightParams, insightHash, clearFilters } from './web/views/insights/params.ts';
         import { ChartCard, DataTableView } from './web/views/insights/ChartCard.tsx';
         import { toCsv, csvName } from './web/views/insights/csv.ts';
-        import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION } from './web/views/insights/sections.tsx';
+        import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable } from './web/views/insights/sections.tsx';
         import { AGENT_COLOR, compact, durationTicks } from './web/views/insights/format.ts';
         import { Histogram, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
         const withHash = (hash, fn) => {
@@ -136,7 +136,7 @@ before(async () => {
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const escaped = (text) => renderToStaticMarkup(createElement(Fragment, null, text));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, clearFilters, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -240,14 +240,29 @@ describe('insights()', () => {
     assert.equal(bro.cache_hit.avg, sum(BRO, (r) => r.cr) / sum(BRO, (r) => r.in + r.cr + r.cc));
   });
 
-  test('histograms have at most 10 log-spaced buckets covering every measured run', () => {
+  test('SC1: one histogram per metric, at most 10 buckets covering every measured run; cache-hit on fixed 10% edges', () => {
     const d = data();
+    const METRIC_KEYS = ['tokens_out', 'context', 'cache_hit', 'tool_uses'];
+    const tenths = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
     for (const a of d.agents) {
-      assert.ok(a.histogram.length <= 10, a.agent);
-      assert.equal(sum(a.histogram, (b) => b.count), a.n, a.agent);
-      for (let i = 1; i < a.histogram.length; i++) assert.equal(a.histogram[i].from, a.histogram[i - 1].to);
+      assert.ok(!('histogram' in a), a.agent);
+      assert.deepEqual(Object.keys(a.histograms).sort(), [...METRIC_KEYS].sort(), a.agent);
+      for (const m of METRIC_KEYS) {
+        const h = a.histograms[m];
+        assert.ok(h.length > 0 && h.length <= 10, `${a.agent} ${m}`);
+        assert.equal(sum(h, (b) => b.count), a.n, `${a.agent} ${m}`);
+        for (let i = 1; i < h.length; i++) assert.equal(h[i].from, h[i - 1].to);
+      }
+      assert.deepEqual([...a.histograms.cache_hit.map((b) => b.from), a.histograms.cache_hit.at(-1).to], tenths, a.agent);
     }
-    assert.deepEqual(agent(d, 'swe').histogram.map((b) => b.from), agent(d, 'code-reviewer').histogram.map((b) => b.from));
+    for (const m of METRIC_KEYS) assert.deepEqual(agent(d, 'swe').histograms[m].map((b) => b.from), agent(d, 'code-reviewer').histograms[m].map((b) => b.from), m);
+    assert.notDeepEqual(agent(d, 'swe').histograms.context.map((b) => b.from), agent(d, 'bro').histograms.context.map((b) => b.from));
+    const swe = agent(d, 'swe').histograms;
+    assert.equal(swe.tool_uses[0].from, 1);
+    assert.equal(swe.tool_uses.at(-1).to, 25);
+    assert.equal(swe.context[0].from, Math.min(...[...SWE, ...REVIEWER].map((r) => r.in + r.cr + r.cc)));
+    const hits = SWE.map((r) => r.cr / (r.in + r.cr + r.cc));
+    assert.equal(swe.cache_hit[Math.floor(hits[0] * 10)].count, hits.filter((h) => Math.floor(h * 10) === Math.floor(hits[0] * 10)).length);
     const edges = mod.logEdges([1, 10_000]);
     assert.equal(edges.length, 11);
     assert.ok(Math.abs(edges[5] - 100) <= 1);
@@ -587,7 +602,7 @@ describe('Explore view', () => {
     const params = mod.parseInsightParams(path, new URLSearchParams(query));
     assert.deepEqual([params.section, params.range, params.measure, params.agg, params.dims], ['explore', '30d', 'tokens_out', 'p95', ['agent', 'review_round']]);
     const again = mod.insightHash(params);
-    assert.match(again, /&m=tokens_out&a=p95&g=agent,review_round$/);
+    assert.match(again, /&m=tokens_out&x=tokens_out&a=p95&g=agent,review_round$/);
     const [path2, query2] = again.slice(2).split('?');
     assert.deepEqual(mod.parseInsightParams(path2, new URLSearchParams(query2)), params);
     assert.equal(mod.parseInsightParams('insights/explore', new URLSearchParams('g=agent,agent,model,bogus')).dims.join(), 'agent,model');
@@ -735,9 +750,9 @@ describe('Insights view', () => {
   const at = (section, query = 'range=30d') => mod.page(`#/insights/${section}?${query}`, data);
 
   test('the hash round-trips every param; an unknown section falls back to Tokens', () => {
-    const params = { section: 'quality', range: '90d', metric: 'cache_hit', measure: 'cache_hit', agg: 'p50', dims: ['agent'], filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
+    const params = { section: 'quality', range: '90d', metric: 'cache_hit', measure: 'duration_ms', agg: 'p50', dims: ['agent'], filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
     const hash = mod.insightHash(params);
-    assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=code-reviewer&model=claude-opus&effort=high&m=cache_hit');
+    assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=code-reviewer&model=claude-opus&effort=high&m=cache_hit&x=duration_ms');
     const [path, query] = hash.slice(2).split('?');
     assert.deepEqual(mod.parseInsightParams(path, new URLSearchParams(query)), params);
     assert.equal(mod.parseInsightParams('insights/bogus', new URLSearchParams('range=nope&m=nope')).section, 'tokens');
@@ -751,7 +766,7 @@ describe('Insights view', () => {
     const links = [...nav.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
     assert.deepEqual(links.map((l) => l[2]), ['Tokens', 'Cost', 'Time', 'Quality', 'Throughput', 'Explore']);
     assert.match(links[2][0], /aria-current="page"/);
-    assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out$/);
+    assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out&amp;x=tokens_out$/);
     assert.match(html, /class="max-md:hidden"/);
     assert.match(html, /<div class="md:hidden"><label[^>]*>Section<select/);
     assert.match(html, /Period<select[^>]*>.*<option value="7d" selected="">Last 7 days<\/option>/);
@@ -779,8 +794,8 @@ describe('Insights view', () => {
     assert.match(html, /Tokens measured for 25 of 27 runs/);
     assert.match(html, /Tokens measured for 23 of 23 runs/);
     assert.match(html, /Tokens measured for 3 of 3 sessions/);
-    assert.match(html, /Last 30 days · Per run · runs by output tokens/);
-    assert.match(html, /Last 30 days · Per session · sessions by output tokens/);
+    assert.match(html, /Last 30 days · Per run · Runs by Output Tokens/);
+    assert.match(html, /Last 30 days · Per session · Sessions by Output Tokens/);
     assert.ok(html.includes(mod.BRO_CAPTION));
     assert.match(html, /Early data · 3 of 20 runs/);
     assert.match(html, /p50 13K/);
@@ -818,6 +833,168 @@ describe('Insights view', () => {
     const html = at('tokens', 'range=30d&m=cache_hit');
     assert.match(html, /p50 Cache-hit %/);
     assert.match(html, /Rank \d of 2 by average cache-hit %/);
+  });
+
+  const decode = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+  const cardOf = (html, who) => {
+    const start = html.indexOf(`data-agent="${who}"`);
+    const ends = [html.indexOf('data-agent="', start + 1), html.indexOf('aria-label="Top runs', start)].filter((i) => i !== -1);
+    return html.slice(start, Math.min(...ends));
+  };
+  const agentsShown = (html) => [...html.matchAll(/data-agent="([^"]+)"/g)].map((m) => m[1]);
+  const sectionBody = (html, title) => html.slice(html.indexOf(`>${title}</h2>`));
+
+  test('SC2: the Metric drives each card subtitle, table columns, aria label and bars', () => {
+    const cases = [
+      ['context', 'Context Size', ['From (Tokens)', 'To (Tokens)'], 'context'],
+      ['cache_hit', 'Cache-Hit %', ['From (%)', 'To (%)'], 'cache-hit %'],
+      ['tool_uses', 'Tool Uses', ['From (Uses)', 'To (Uses)'], 'tool uses'],
+    ];
+    for (const [m, by, cols, noun] of cases) {
+      const html = at('tokens', `range=30d&m=${m}`);
+      assert.ok(html.includes(`Last 30 days · Per run · Runs by ${by}`), m);
+      assert.ok(html.includes(`Last 30 days · Per session · Sessions by ${by}`), m);
+      for (const a of data.agents) {
+        assert.deepEqual(mod.histogramTable(a, m).columns, [...cols, a.per === 'session' ? 'Sessions' : 'Runs'], `${m} ${a.agent}`);
+        const card = cardOf(html, a.agent);
+        assert.ok(!card.includes('output tokens'), `${m} ${a.agent}`);
+        const label = /<svg width="\d+" height="\d+"[^>]*aria-label="([^"]+)"/.exec(card)[1];
+        assert.ok(label.startsWith(`${a.agent} ${noun} per `), label);
+        const bars = [...card.matchAll(new RegExp(`aria-label="${a.agent}, [^"]+ ${noun}: (\\d+) (?:runs?|sessions?)"`, 'g'))].map((x) => Number(x[1]));
+        assert.deepEqual(bars, a.histograms[m].map((b) => b.count), `${m} ${a.agent}`);
+      }
+    }
+    assert.deepEqual(mod.histogramTable(data.agents[0], 'cache_hit').rows.map((r) => [r[0], r[1]]), Array.from({ length: 10 }, (_, i) => [10 * i, 10 * i + 10]));
+    const empty = structuredClone(data);
+    empty.agents[0].histograms.context = [];
+    const html = mod.page('#/insights/tokens?range=30d&m=context', empty);
+    const swe = cardOf(html, 'swe');
+    assert.ok(swe.includes('No context data in this period.'));
+    assert.doesNotMatch(swe, /<svg width="\d+"/);
+    assert.match(cardOf(html, 'code-reviewer'), /<svg width="\d+"/);
+    assert.ok(!html.includes('No output tokens data'));
+  });
+
+  test('F236-1: an agent with no measured runs shows the empty state for every metric, cache-hit included', () => {
+    const unmeasured = new DatabaseSync(join(tmp, 'view-unmeasured.db'));
+    unmeasured.exec(readFileSync(SCHEMA, 'utf8'));
+    const now = NOW.toISOString();
+    const issue = Number(unmeasured.prepare('INSERT INTO issues (objective, created_at, updated_at) VALUES (?, ?, ?)').run('i', now, now).lastInsertRowid);
+    const task = Number(unmeasured.prepare("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'b', 't', 'd', 'running', ?, ?)").run(issue, now, now).lastInsertRowid);
+    unmeasured
+      .prepare(
+        `INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+         VALUES (?, 'swe', 1, 1, 1, 1, 1, 1, ?, ?, 'unmeasured', 'm')`,
+      )
+      .run(task, now, now);
+    const only = mod.insights(unmeasured, filter('range=30d'), NOW);
+    const swe = only.agents.find((a) => a.agent === 'swe');
+    assert.equal(swe.total, 1);
+    assert.equal(swe.n, 0);
+    assert.equal(swe.histograms.cache_hit.length, 10);
+    for (const [m, noun] of [['cache_hit', 'cache-hit %'], ['context', 'context'], ['tokens_out', 'output tokens'], ['tool_uses', 'tool uses']]) {
+      const card = cardOf(mod.page(`#/insights/tokens?range=30d&m=${m}`, only), 'swe');
+      assert.ok(card.includes(`No ${noun} data in this period.`), m);
+      assert.doesNotMatch(card, /<svg width=/, m);
+    }
+  });
+
+  test('SC3: a filter hides the agents it leaves without runs on Tokens, Time and Cost; none left is one empty state', () => {
+    const onlySwe = mod.insights(db, filter('range=30d&agent=swe'), NOW);
+    const onlySwePriced = mod.insights(pricedDb, filter('range=30d&agent=swe'), NOW);
+    const tokens = mod.page('#/insights/tokens?range=30d&agent=swe', onlySwe);
+    assert.deepEqual(agentsShown(tokens), ['swe']);
+    assert.doesNotMatch(tokens, /Rank \d of/);
+    const bodies = [
+      sectionBody(tokens, 'Tokens'),
+      sectionBody(mod.page('#/insights/time?range=30d&agent=swe', onlySwe), 'Time'),
+      sectionBody(mod.page('#/insights/cost?range=30d&agent=swe', onlySwePriced), 'Cost'),
+    ];
+    for (const body of bodies) {
+      assert.doesNotMatch(body, /code-reviewer|\bbro\b/);
+      assert.match(body, /\bswe\b/);
+    }
+
+    const modelDbPath = join(tmp, 'view-model.db');
+    const { db: modelDb, ids } = seed(modelDbPath, JSON.stringify({ 'claude-swe-only': OPUS }));
+    modelDb
+      .prepare(
+        `INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+         VALUES (?, 'swe', 10, 500, 100, 10, 4, 60000, ?, ?, 'subagent_stop', 'claude-swe-only')`,
+      )
+      .run(ids[0], NOW.toISOString(), NOW.toISOString());
+    const byModel = mod.insights(modelDb, filter('range=30d&model=claude-swe-only'), NOW);
+    modelDb.close();
+    assert.deepEqual(byModel.agents.map((a) => a.total), [1, 0, 0]);
+    for (const [section, title] of [['tokens', 'Tokens'], ['time', 'Time'], ['cost', 'Cost']]) {
+      const body = sectionBody(mod.page(`#/insights/${section}?range=30d&model=claude-swe-only`, byModel), title);
+      assert.doesNotMatch(body, /code-reviewer|\bbro\b/, section);
+      assert.match(body, /\bswe\b/, section);
+    }
+
+    const none = mod.insights(db, filter('range=30d&model=nope'), NOW);
+    for (const [section, title] of [['tokens', 'Tokens'], ['time', 'Time'], ['cost', 'Cost']]) {
+      const html = mod.page(`#/insights/${section}?range=7d&repo=x&agent=swe&model=nope&effort=high&m=context`, mod.insights(pricedDb, filter('range=7d&repo=x&agent=swe&model=nope&effort=high'), NOW));
+      const body = decode(sectionBody(html, title));
+      assert.ok(body.includes(mod.NO_MATCH_HEADING), section);
+      assert.ok(body.includes('Nothing in last 7 days matches Repo: x · Agent: swe · Model: nope · Effort: high.'), section);
+      assert.equal(agentsShown(body).length, 0, section);
+      assert.equal((body.match(/No Runs Match These Filters/g) ?? []).length, 1, section);
+      const href = /<a href="([^"]+)"[^>]*>Clear Filters<\/a>/.exec(body)[1];
+      const [path, query] = href.slice(2).split('?');
+      const cleared = mod.parseInsightParams(path, new URLSearchParams(query));
+      assert.deepEqual(cleared.filters, { repo: '', agent: '', model: '', effort: '' }, section);
+      assert.deepEqual([cleared.section, cleared.range, cleared.metric], [section, '7d', 'context'], section);
+    }
+    assert.ok(decode(mod.page('#/insights/tokens?range=30d&model=nope', none)).includes('Nothing in last 30 days matches Model: nope.'));
+    assert.deepEqual(mod.clearFilters({ ...onlySwe, filters: { repo: 'a', agent: 'swe', model: 'b', effort: 'low' } }).filters, { repo: '', agent: '', model: '', effort: '' });
+
+    const all = at('tokens');
+    assert.deepEqual(agentsShown(all), ['swe', 'code-reviewer', 'bro']);
+    assert.match(all, /Rank 1 of 2/);
+    assert.doesNotMatch(all, /No Runs Match/);
+  });
+
+  test('SC4: Quality and Throughput hide Agent and Model, with a caption only while one is set', () => {
+    const caption = (html) => decode(html).includes(mod.TASK_LEVEL_CAPTION);
+    for (const section of ['quality', 'throughput']) {
+      const html = at(section, 'range=30d&repo=plugin&agent=swe&model=claude-opus&effort=high');
+      assert.doesNotMatch(html, />Agent<select/, section);
+      assert.doesNotMatch(html, />Model<select/, section);
+      assert.match(html, />Repo<select/, section);
+      assert.match(html, />Effort<select/, section);
+      assert.ok(caption(html), section);
+      assert.match(html, /href="#\/insights\/tokens\?range=30d&amp;repo=plugin&amp;agent=swe&amp;model=claude-opus&amp;effort=high/, section);
+      assert.ok(caption(at(section, 'range=30d&model=claude-opus')), section);
+      assert.ok(caption(at(section, 'range=30d&agent=swe')), section);
+      assert.ok(!caption(at(section, 'range=30d&repo=plugin&effort=high')), section);
+      assert.ok(!caption(at(section)), section);
+    }
+    const tokens = at('tokens', 'range=30d&agent=swe&model=claude-opus');
+    assert.match(tokens, />Agent<select[^>]*>(?:<option[^>]*>[^<]*<\/option>)*<option value="swe" selected="">/);
+    assert.match(tokens, />Model<select[^>]*>(?:<option[^>]*>[^<]*<\/option>)*<option value="claude-opus" selected="">/);
+    assert.ok(!caption(tokens));
+  });
+
+  test('SC5: Metric is m and Measure is x; neither overwrites the other; a legacy explore m is the Measure', () => {
+    const reparse = (hash) => {
+      const [path, query] = hash.slice(2).split('?');
+      return mod.parseInsightParams(path, new URLSearchParams(query));
+    };
+    const p = mod.parseInsightParams('insights/tokens', new URLSearchParams('m=context&x=duration_ms'));
+    assert.deepEqual([p.metric, p.measure], ['context', 'duration_ms']);
+    assert.match(mod.insightHash(p), /&m=context&x=duration_ms$/);
+    for (const section of ['tokens', 'explore', 'quality']) {
+      const back = reparse(mod.insightHash({ ...p, section }));
+      assert.deepEqual([back.metric, back.measure], ['context', 'duration_ms'], section);
+    }
+    assert.equal(reparse(mod.insightHash({ ...p, metric: 'tool_uses' })).measure, 'duration_ms');
+    assert.equal(reparse(mod.insightHash({ ...p, measure: 'cost' })).metric, 'context');
+    const legacy = mod.parseInsightParams('insights/explore', new URLSearchParams('m=cost'));
+    assert.equal(legacy.measure, 'cost');
+    assert.match(mod.insightHash(legacy), /&x=cost$/);
+    assert.equal(mod.parseInsightParams('insights/tokens', new URLSearchParams('m=context')).measure, 'tokens_out');
+    assert.equal(mod.parseInsightParams('insights/explore', new URLSearchParams('m=context&x=cost')).measure, 'cost');
   });
 
   test('swe and code-reviewer histograms share one y scale; bro has its own', () => {
@@ -924,7 +1101,7 @@ describe('Insights view', () => {
     const edges = Array.from({ length: 11 }, (_, i) => 10 ** (3 + 0.3 * i));
     const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
-    const svg = mod.histogramSvg({ label: 'swe', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50: null, p95: null, format: mod.compact });
+    const svg = mod.histogramSvg({ label: 'swe', measure: 'output tokens', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50: null, p95: null, format: mod.compact });
     const band = (480 - 8 - 40) / 10;
     const hits = [...svg.matchAll(/<rect x="([\d.]+)" y="0" width="([\d.]+)"[^>]*data-hit=""/g)].map((m) => Number(m[1]));
     assert.equal(hits.length, 10);
@@ -960,7 +1137,7 @@ describe('Insights view', () => {
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
     const p50 = Math.sqrt(edges[8] * edges[9]);
     const p95 = 746_200;
-    const svg = mod.histogramSvg({ label: 'bro', who: 'bro', noun: (n) => (n === 1 ? 'session' : 'sessions'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+    const svg = mod.histogramSvg({ label: 'bro', measure: 'output tokens', who: 'bro', noun: (n) => (n === 1 ? 'session' : 'sessions'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
     const innerW = 480 - 8 - 40;
     const [, gx, gy] = /<g class="visx-group" transform="translate\(([\d.]+), ([\d.]+)\)"/.exec(svg);
     assert.deepEqual([Number(gx), Number(gy)], [8, 36]);
@@ -1010,7 +1187,7 @@ describe('Insights view', () => {
     const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
     for (const [p50, p95] of [[Math.sqrt(edges[8] * edges[9]), 746_200], [edges[3], edges[7]], [edges[1] * 1.1, edges[9]]]) {
-      const svg = mod.histogramSvg({ label: 'swe', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+      const svg = mod.histogramSvg({ label: 'swe', measure: 'output tokens', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
       const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) h([\d.-]+)\s*a([\d.]+),/g)].map(([, mx, my, run, r]) => {
         const left = Number(mx) - Number(r);
         return { left, right: left + Number(run) + 2 * Number(r), top: Number(my) };
