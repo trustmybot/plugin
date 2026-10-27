@@ -36,6 +36,7 @@ import { GATE_NAME as TOOL_OUTPUT_SIZE_GATE, toolOutputSize } from './tool-outpu
 import { GATE_NAME as CR_NO_WORKTREE_GATE, codeReviewerNoWorktree } from './code-reviewer-no-worktree.js';
 import { GATE_NAME as CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape } from './code-reviewer-spawn-prompt-shape.js';
 import { GATE_NAME as CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose } from './code-reviewer-after-atomic-close.js';
+import { GATE_NAME as SWE_VERIFICATION_GATE, sweVerificationGate } from './swe-verification-gate.js';
 import { GATE_NAME as SWE_BRIEF_GATE, sweBriefGate } from './swe-brief-gate.js';
 import { GATE_NAME as SWE_SPAWN_BIND_GATE, sweSpawnBind } from './swe-spawn-bind.js';
 import { GATE_NAME as SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback } from './swe-spawn-rollback.js';
@@ -47,6 +48,9 @@ import { GATE_NAME as STAY_ON_BASE_GATE, stayOnBaseGuard } from './stay-on-base-
 import { GATE_NAME as BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote } from './branch-up-to-date-with-remote.js';
 import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } from './no-worktree-branch-create.js';
 import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
+import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
+import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -86,6 +90,7 @@ const GATES = new Map([
     [CR_NO_WORKTREE_GATE, codeReviewerNoWorktree],
     [CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape],
     [CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose],
+    [SWE_VERIFICATION_GATE, sweVerificationGate],
     [SWE_BRIEF_GATE, sweBriefGate],
     [SWE_SPAWN_BIND_GATE, sweSpawnBind],
     [SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback],
@@ -97,6 +102,9 @@ const GATES = new Map([
     [BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote],
     [NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate],
     [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
+    [PROMPT_INTENT_GATE, promptIntentHints],
+    [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+    [README_STALENESS_GATE, postAtomicCloseReadme],
 ]);
 export function findGate(name) {
     return GATES.get(name);

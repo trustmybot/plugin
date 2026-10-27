@@ -26,7 +26,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -175,11 +175,19 @@ function caseEnv(s, locale, extra, cwd) {
     }
     return env;
 }
-function run(cmd, args, c, env) {
-    const r = spawnSync(cmd, args, { input: c.input, env, cwd: c.cwd, encoding: 'utf8', timeout: 30_000 });
-    if (r.error)
-        throw r.error;
-    return { code: r.status, stdout: r.stdout };
+/** stdin comes from a file, not a pipe: a .sh that exits before reading it would make a piped write fail with EPIPE. */
+function run(cmd, args, c, stdinFile, env) {
+    writeFileSync(stdinFile, c.input);
+    const fd = openSync(stdinFile, 'r');
+    try {
+        const r = spawnSync(cmd, args, { stdio: [fd, 'pipe', 'pipe'], env, cwd: c.cwd, encoding: 'utf8', timeout: 30_000 });
+        if (r.error)
+            throw r.error;
+        return { code: r.status, stdout: r.stdout };
+    }
+    finally {
+        closeSync(fd);
+    }
 }
 /** `empty`: no stdout; anything else: a deny whose reason holds the phrase. */
 function assertExpect(side, r, expect) {
@@ -231,8 +239,9 @@ export function gitBranchGuardsParityShard(k, n) {
             it(`${gate} / ${f} (LC_ALL=${locale})`, () => {
                 const c = materialize(join(CORPUS_ROOT, gate, f), s, paths);
                 const env = caseEnv(s, locale, c.env, c.cwd);
-                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, env);
-                const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, env);
+                const stdinFile = join(base, 'stdin');
+                const bash = run('bash', [join(PLUGIN_ROOT, 'scripts/hooks', `${gate}.sh`)], c, stdinFile, env);
+                const node = run(process.execPath, [HOOKS_BUNDLE, gate], c, stdinFile, env);
                 assert.equal(bash.code, 0, 'bash exit');
                 assert.equal(node.code, 0, 'node exit');
                 if (c.divergent === undefined) {

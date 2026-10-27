@@ -1,7 +1,7 @@
 /**
  * PreToolUse gate (GH 1692), the port of scripts/hooks/swe-brief-gate.sh:
  * deny-until-briefed for swe. A swe calling a trajectory-server MCP tool, or
- * Edit, Write or NotebookEdit, is denied until the task_brief handler has
+ * Edit, Write, MultiEdit or NotebookEdit, is denied until the task_brief handler has
  * written the task's swe_brief_fetched audit row; every other tool passes. The
  * task comes from the swe's own spawn transcript, else tool_input.task_id,
  * never from the cwd (GH 1550). No task, no resolvable DB or another role
@@ -15,7 +15,8 @@
  *
  * Unlike the .sh, it needs neither jq nor the sqlite3 CLI, so without them it
  * still denies an unbriefed swe where the .sh let every call through
- * (decision 703).
+ * (decision 703). It also denies MultiEdit, which the .sh lets through though
+ * hooks.json routes MultiEdit to it (GH 2070).
  */
 import { ALLOW, type GateResult, type SyncGate } from './gate.js';
 import { agentTranscript } from './lib/agent-context.js';
@@ -27,7 +28,7 @@ import { normalizeRole } from './lib/role.js';
 
 export const GATE_NAME = 'swe-brief-gate';
 
-const BLOCKED_MUTATIONS: ReadonlySet<string> = new Set(['Edit', 'Write', 'NotebookEdit']);
+const BLOCKED_MUTATIONS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const TRAJECTORY_TOOL = /^mcp__[\s\S]*trajectory-server__/;
 
 export type BriefSurface = 'task_brief' | 'mutation' | 'trajectory' | 'other';

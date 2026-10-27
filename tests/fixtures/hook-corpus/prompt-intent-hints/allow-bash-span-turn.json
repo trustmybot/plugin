@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"<bash-input>git push</bash-input><bash-stdout>keep going</bash-stdout><bash-stderr></bash-stderr>","corpus_expect":"empty"}

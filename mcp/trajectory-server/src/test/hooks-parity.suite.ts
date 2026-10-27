@@ -238,6 +238,10 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'branch-up-to-date-with-remote',
   'no-worktree-branch-create',
   'no-remote-auth-guard',
+  'prompt-intent-hints',
+  'swe-scope-fence',
+  'swe-verification-gate',
+  'post-atomic-close-readme',
 ]);
 
 function parityCases(): ParityCase[] {
