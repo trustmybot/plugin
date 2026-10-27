@@ -27,10 +27,10 @@ export function AppHeader() {
     <header className="bg-(--header-bgColor) text-(--header-fgColor-default)">
       <div className="mx-auto flex w-full max-w-[120rem] items-center gap-3 px-4 py-3 sm:px-6 2xl:px-10">
         <PulseIcon size={24} className="text-(--header-fgColor-logo)" aria-hidden="true" />
-        <h1 className="text-base font-semibold text-(--header-fgColor-logo)">TMB dashboard</h1>
+        <h1 className="text-base font-semibold text-(--header-fgColor-logo)">TMB Dashboard</h1>
         <span className="ml-auto flex items-center gap-1.5 text-xs">
           <span aria-hidden="true" className="size-2 rounded-full bg-(--bgColor-success-emphasis)" />
-          live
+          Live
         </span>
         <ColorModeToggle />
       </div>

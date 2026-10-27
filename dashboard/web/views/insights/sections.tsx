@@ -11,7 +11,7 @@ import { Label } from '../../ui/Label.tsx';
 import { ProgressBar, StackedProgressBar } from '../../ui/ProgressBar.tsx';
 import { ChartCard } from './ChartCard.tsx';
 import { BarList, ColumnChart, Histogram, niceAxis, type Column } from './charts.tsx';
-import { AGENT_COLOR, THROUGHPUT_COLOR, compact, duration, durationTicks, pct, plain, ratio, shortDay, usd } from './format.ts';
+import { AGENT_COLOR, AGENT_FILL, SERIES_COLOR, compact, duration, durationTicks, pct, plain, ratio, shortDay, usd } from './format.ts';
 import {
   METRICS,
   METRIC_COPY,
@@ -104,7 +104,7 @@ function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: Insi
   const fmt = formatFor(params.metric);
   const what = METRIC_COPY[params.metric].noun;
   const buckets = s.histograms[params.metric];
-  const per = s.per === 'session' ? 'Per session' : 'Per run';
+  const per = s.per === 'session' ? 'Per Session' : 'Per Run';
   const early = s.n < EARLY_MIN;
   return (
     <ChartCard
@@ -147,7 +147,7 @@ function rankOf(agents: AgentStats[], metric: MetricKey): Map<AgentKey, string> 
   return new Map(ranked.map((a, i) => [a.agent, `Rank ${i + 1} of ${ranked.length} by average ${metricLabel(metric).toLowerCase()}`]));
 }
 
-const OUTLIER_TITLE = { tokens_out: 'Top runs by output tokens', context: 'Top runs by context', duration_ms: 'Top runs by duration' } as const;
+const OUTLIER_TITLE = { tokens_out: 'Top Runs by Output Tokens', context: 'Top Runs by Context', duration_ms: 'Top Runs by Duration' } as const;
 
 const count = (v: unknown) => (v === null || v === undefined ? '—' : plain(Number(v)));
 
@@ -168,14 +168,14 @@ function Outliers({ kind, rows }: { kind: keyof typeof OUTLIER_TITLE; rows: Outl
       cell: (r) => (
         <span className={`inline-flex items-center gap-2 ${NUMERIC}`}>
           {fmt(Number(r['value']))}
-          {r['idle'] === true && <Label variant="secondary">Likely idle</Label>}
+          {r['idle'] === true && <Label variant="secondary">Likely Idle</Label>}
         </span>
       ),
     },
     ...(isDuration
       ? ([
-          { key: 'tool_uses', header: 'Tool uses', cell: (r) => numeric(count(r['tool_uses'])), hideBelow: 'sm' },
-          { key: 'tokens_out', header: 'Output tokens', cell: (r) => numeric(r['tokens_out'] == null ? '—' : compact(Number(r['tokens_out']))), hideBelow: 'sm' },
+          { key: 'tool_uses', header: 'Tool Uses', cell: (r) => numeric(count(r['tool_uses'])), hideBelow: 'sm' },
+          { key: 'tokens_out', header: 'Output Tokens', cell: (r) => numeric(r['tokens_out'] == null ? '—' : compact(Number(r['tokens_out']))), hideBelow: 'sm' },
         ] satisfies TableColumn[])
       : []),
   ];
@@ -272,7 +272,7 @@ interface TimeCardProps {
 }
 
 function TimeCard({ title, unit, agents, pick, fmt, axis, params, bars }: TimeCardProps) {
-  const per = agents[0]?.per === 'session' ? 'Per session' : 'Per run';
+  const per = agents[0]?.per === 'session' ? 'Per Session' : 'Per Run';
   const columns = metricColumns(agents, pick, fmt);
   return (
     <ChartCard
@@ -306,10 +306,10 @@ export function TimeSection({ data, params }: SectionProps) {
       ) : (
         <>
           <Grid>
-            {runs.length > 0 && <TimeCard title="Duration per run" unit="duration; bars show the average" agents={runs} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars />}
-            {runs.length > 0 && <TimeCard title="Tool uses per run" unit="tool uses; bars show the average" agents={runs} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars />}
-            {b && <TimeCard title="bro duration per session" unit="duration" agents={[b]} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars={false} />}
-            {b && <TimeCard title="bro tool uses per session" unit="tool uses" agents={[b]} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars={false} />}
+            {runs.length > 0 && <TimeCard title="Duration per Run" unit="Duration; Bars Show the Average" agents={runs} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars />}
+            {runs.length > 0 && <TimeCard title="Tool Uses per Run" unit="Tool Uses; Bars Show the Average" agents={runs} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars />}
+            {b && <TimeCard title="bro Duration per Session" unit="Duration" agents={[b]} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars={false} />}
+            {b && <TimeCard title="bro Tool Uses per Session" unit="Tool Uses" agents={[b]} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars={false} />}
           </Grid>
           <Outliers kind="duration_ms" rows={data.outliers.duration_ms} />
         </>
@@ -371,11 +371,11 @@ export function CostSection({ data, params }: SectionProps) {
         </Flash>
       )}
       <Grid>
-        {runAgents.length > 0 && <CostCard title="Cost by agent" rows={agentRows(runAgents)} label="runs" params={params} />}
-        {broRows.length > 0 && <CostTile title="bro cost" rows={broRows} label="sessions" params={params} />}
+        {runAgents.length > 0 && <CostCard title="Cost by Agent" rows={agentRows(runAgents)} label="runs" params={params} />}
+        {broRows.length > 0 && <CostTile title="bro Cost" rows={broRows} label="sessions" params={params} />}
         <CostCard
-          title="Cost by model"
-          rows={cost.by_model.map((m) => ({ key: m.model, usd: m.usd, runs: m.runs, color: THROUGHPUT_COLOR }))}
+          title="Cost by Model"
+          rows={cost.by_model.map((m) => ({ key: m.model, usd: m.usd, runs: m.runs, color: SERIES_COLOR }))}
           label="runs"
           params={params}
         />
@@ -384,22 +384,34 @@ export function CostSection({ data, params }: SectionProps) {
   );
 }
 
-function RateTile({ title, passed, total, what }: { title: string; passed: number; total: number; what: string }) {
-  const r = ratio(passed, total);
+interface RateTileProps {
+  title: string;
+  passed: number;
+  total: number;
+  what: string;
+  bar: (caption: string) => ReactNode;
+  children?: ReactNode;
+}
+
+function RateTile({ title, passed, total, what, bar, children }: RateTileProps) {
+  const caption = `${passed} of ${total} ${what}`;
   return (
-    <Box className="space-y-2 px-4 py-3">
+    <Box className="space-y-2 px-4 py-3" data-rate-tile="">
       <h3 className="text-sm font-semibold text-fg">{title}</h3>
-      <p className="text-2xl font-semibold text-fg tabular-nums">{pct(r)}</p>
-      <ProgressBar value={passed} max={total} label={`${passed} of ${total} ${what}`} />
-      <p className="text-xs text-fg-muted tabular-nums">{`${passed} of ${total} ${what}`}</p>
+      <p className="text-2xl font-semibold text-fg tabular-nums">{pct(ratio(passed, total))}</p>
+      {bar(caption)}
+      <p className="text-xs text-fg-muted tabular-nums">{caption}</p>
+      {children}
     </Box>
   );
 }
 
+const progress = (passed: number, total: number, fill: string) => (caption: string) => <ProgressBar value={passed} max={total} label={caption} fill={fill} />;
+
 const VERDICTS = [
-  ['pass', 'Pass', 'bg-(--bgColor-success-emphasis)'],
-  ['fail', 'Fail', 'bg-(--bgColor-danger-emphasis)'],
-  ['escalate', 'Escalate', 'bg-(--bgColor-severe-emphasis)'],
+  ['pass', 'Pass', AGENT_FILL['code-reviewer']],
+  ['fail', 'Fail', AGENT_FILL.swe],
+  ['escalate', 'Escalate', AGENT_FILL.bro],
 ] as const;
 
 export function QualitySection({ data, params }: SectionProps) {
@@ -407,7 +419,7 @@ export function QualitySection({ data, params }: SectionProps) {
   const totalVerdicts = q.verdicts.pass + q.verdicts.fail + q.verdicts.escalate;
   const attempts: Column[] = q.attempts.map((a) => {
     const label = `${a.attempts} ${a.attempts === 1 ? 'attempt' : 'attempts'}`;
-    return { key: String(a.attempts), label: String(a.attempts), value: a.tasks, color: THROUGHPUT_COLOR, aria: `${label}: ${a.tasks} ${a.tasks === 1 ? 'task' : 'tasks'}`, tip: `${label}: ${a.tasks}` };
+    return { key: String(a.attempts), label: String(a.attempts), value: a.tasks, color: AGENT_COLOR['code-reviewer'], aria: `${label}: ${a.tasks} ${a.tasks === 1 ? 'task' : 'tasks'}`, tip: `${label}: ${a.tasks}` };
   });
   const seconds = (v: number | null) => (v === null ? '—' : `${plain(v)}s`);
   const slowColumns: TableColumn[] = [
@@ -421,14 +433,32 @@ export function QualitySection({ data, params }: SectionProps) {
     <div className="space-y-4">
       <SectionHeading>Quality</SectionHeading>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <RateTile title="First-pass rate" passed={q.first_pass.passed} total={q.first_pass.total} what="tasks passed review on the first attempt" />
-        <RateTile title="Verification pass rate" passed={q.verification.passed} total={q.verification.total} what="verification runs passed" />
-        <Box className="space-y-2 px-4 py-3">
-          <h3 className="text-sm font-semibold text-fg">Verdict mix</h3>
-          <StackedProgressBar
-            label={`Review verdicts: ${VERDICTS.map(([k, label]) => `${label} ${q.verdicts[k]}`).join(', ')} of ${totalVerdicts}`}
-            segments={VERDICTS.map(([k, label, fill]) => ({ label, value: q.verdicts[k], fill }))}
-          />
+        <RateTile
+          title="First-Pass Rate"
+          passed={q.first_pass.passed}
+          total={q.first_pass.total}
+          what="tasks passed review on the first attempt"
+          bar={progress(q.first_pass.passed, q.first_pass.total, AGENT_FILL['code-reviewer'])}
+        />
+        <RateTile
+          title="Verification Pass Rate"
+          passed={q.verification.passed}
+          total={q.verification.total}
+          what="verification runs passed"
+          bar={progress(q.verification.passed, q.verification.total, AGENT_FILL.swe)}
+        />
+        <RateTile
+          title="Verdict Mix"
+          passed={q.verdicts.pass}
+          total={totalVerdicts}
+          what="review verdicts passed"
+          bar={() => (
+            <StackedProgressBar
+              label={`Review verdicts: ${VERDICTS.map(([k, label]) => `${label} ${q.verdicts[k]}`).join(', ')} of ${totalVerdicts}`}
+              segments={VERDICTS.map(([k, label, fill]) => ({ label, value: q.verdicts[k], fill }))}
+            />
+          )}
+        >
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted tabular-nums">
             {VERDICTS.map(([k, label, fill]) => (
               <li key={k} className="inline-flex items-center gap-1.5">
@@ -437,12 +467,12 @@ export function QualitySection({ data, params }: SectionProps) {
               </li>
             ))}
           </ul>
-        </Box>
+        </RateTile>
       </div>
       <Grid>
         <ChartCard
-          title="Review attempts per task"
-          subtitle={`${period(params)} · tasks by attempt count`}
+          title="Review Attempts per Task"
+          subtitle={`${period(params)} · Tasks by Attempt Count`}
           section="quality"
           range={params.range}
           table={{ columns: ['Attempts', 'Tasks'], rows: q.attempts.map((a) => [a.attempts, a.tasks]) }}
@@ -451,7 +481,7 @@ export function QualitySection({ data, params }: SectionProps) {
         </ChartCard>
       </Grid>
       <section className="space-y-2" aria-label="Slowest verification commands">
-        <h3 className="text-sm font-semibold text-fg">Slowest verification commands</h3>
+        <h3 className="text-sm font-semibold text-fg">Slowest Verification Commands</h3>
         <DataTable rows={q.slowest_commands as unknown as Row[]} columns={slowColumns} filter={false} />
       </section>
     </div>
@@ -480,7 +510,7 @@ export function ThroughputSection({ data, params }: SectionProps) {
     key: d.day,
     label: shortDay(d.day),
     value: d.closed,
-    color: THROUGHPUT_COLOR,
+    color: SERIES_COLOR,
     aria: `${shortDay(d.day)}: ${d.closed} closed ${d.closed === 1 ? 'task' : 'tasks'}`,
     tip: `${shortDay(d.day)}: ${d.closed}`,
   }));
@@ -488,11 +518,11 @@ export function ThroughputSection({ data, params }: SectionProps) {
     <div className="space-y-4">
       <SectionHeading>Throughput</SectionHeading>
       <ChartCard
-        title="Closed tasks per day"
-        subtitle={`${period(params)} · tasks per day`}
+        title="Closed Tasks per Day"
+        subtitle={`${period(params)} · Tasks per Day`}
         section="throughput"
         range={params.range}
-        table={{ columns: ['Day', 'Closed tasks'], rows: days.map((d) => [d.day, d.closed]) }}
+        table={{ columns: ['Day', 'Closed Tasks'], rows: days.map((d) => [d.day, d.closed]) }}
       >
         <ColumnChart label={`Closed tasks per day: ${total} over ${days.length} days`} columns={columns} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
       </ChartCard>

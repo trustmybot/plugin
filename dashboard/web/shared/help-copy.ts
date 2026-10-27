@@ -6,7 +6,7 @@ export interface HelpEntry {
   uses: string[];
 }
 
-export const HELP_USES_HEADING = 'Use it to';
+export const HELP_USES_HEADING = 'Use It To';
 
 export const HELP: Record<HelpKey, HelpEntry> = {
   overview: {
@@ -59,7 +59,7 @@ export const HELP: Record<HelpKey, HelpEntry> = {
   },
 };
 
-export const DETAIL_PAGE: Record<'issue' | 'task', string> = { issue: 'Issue detail', task: 'Task detail' };
+export const DETAIL_PAGE: Record<'issue' | 'task', string> = { issue: 'Issue Detail', task: 'Task Detail' };
 
 export function helpKey(tab: string, id: string | undefined): HelpKey {
   if (id && tab === 'issues') return 'issue';

@@ -7,7 +7,7 @@ export type StateLabelStatus = 'open' | 'closed' | 'notPlanned' | 'draft';
 const STATE: Record<StateLabelStatus, { icon: Icon; text: string; bg: string }> = {
   open: { icon: IssueOpenedIcon, text: 'Open', bg: 'bg-(--bgColor-open-emphasis)' },
   closed: { icon: IssueClosedIcon, text: 'Closed', bg: 'bg-(--bgColor-done-emphasis)' },
-  notPlanned: { icon: SkipIcon, text: 'Not planned', bg: 'bg-(--bgColor-neutral-emphasis)' },
+  notPlanned: { icon: SkipIcon, text: 'Not Planned', bg: 'bg-(--bgColor-neutral-emphasis)' },
   draft: { icon: IssueDraftIcon, text: 'Draft', bg: 'bg-(--bgColor-neutral-emphasis)' },
 };
 

@@ -9,10 +9,10 @@ export const SECTIONS = [
 export type Section = (typeof SECTIONS)[number][0];
 
 export const RANGES = [
-  ['7d', 'Last 7 days'],
-  ['30d', 'Last 30 days'],
-  ['90d', 'Last 90 days'],
-  ['all', 'All time'],
+  ['7d', 'Last 7 Days'],
+  ['30d', 'Last 30 Days'],
+  ['90d', 'Last 90 Days'],
+  ['all', 'All Time'],
 ] as const;
 export type Range = (typeof RANGES)[number][0];
 
@@ -24,10 +24,10 @@ export const PERIOD_LOWER: Record<Range, string> = {
 };
 
 export const METRICS = [
-  ['tokens_out', 'Output tokens'],
+  ['tokens_out', 'Output Tokens'],
   ['context', 'Context'],
-  ['cache_hit', 'Cache-hit %'],
-  ['tool_uses', 'Tool uses'],
+  ['cache_hit', 'Cache-Hit %'],
+  ['tool_uses', 'Tool Uses'],
 ] as const;
 export type MetricKey = (typeof METRICS)[number][0];
 
@@ -44,12 +44,12 @@ export const histogramSubtitle = (m: MetricKey, per: 'run' | 'session') => `${pe
 export const histogramColumns = (m: MetricKey) => [`From (${METRIC_COPY[m].unit})`, `To (${METRIC_COPY[m].unit})`] as const;
 
 export const MEASURES = [
-  ['tokens_out', 'Output tokens'],
+  ['tokens_out', 'Output Tokens'],
   ['context', 'Context'],
-  ['cache_hit', 'Cache-hit %'],
+  ['cache_hit', 'Cache-Hit %'],
   ['cost', 'Cost'],
   ['duration_ms', 'Duration'],
-  ['tool_uses', 'Tool uses'],
+  ['tool_uses', 'Tool Uses'],
 ] as const;
 export type MeasureKey = (typeof MEASURES)[number][0];
 
@@ -64,19 +64,19 @@ export const AGGS = [
 export type AggKey = (typeof AGGS)[number][0];
 
 export const DIMS = [
-  ['agent', 'agent'],
-  ['model', 'model'],
-  ['effort', 'effort'],
-  ['repo', 'repo'],
-  ['exit_reason', 'exit reason'],
-  ['usage_source', 'usage source'],
-  ['resumed', 'resumed or fresh'],
-  ['prompt_bearing', 'prompt-bearing'],
-  ['task_status', 'task status'],
-  ['day', 'day'],
-  ['week', 'week'],
-  ['review_round', 'review round'],
-  ['plugin_version', 'plugin version'],
+  ['agent', 'Agent'],
+  ['model', 'Model'],
+  ['effort', 'Effort'],
+  ['repo', 'Repo'],
+  ['exit_reason', 'Exit Reason'],
+  ['usage_source', 'Usage Source'],
+  ['resumed', 'Resumed or Fresh'],
+  ['prompt_bearing', 'Prompt-Bearing'],
+  ['task_status', 'Task Status'],
+  ['day', 'Day'],
+  ['week', 'Week'],
+  ['review_round', 'Review Round'],
+  ['plugin_version', 'Plugin Version'],
 ] as const;
 export type DimKey = (typeof DIMS)[number][0];
 

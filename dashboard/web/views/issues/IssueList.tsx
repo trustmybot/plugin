@@ -9,7 +9,7 @@ import { IssueLabel, parseLabels } from './labels.tsx';
 export type IssueState = 'open' | 'closed';
 
 const SORTS: Record<string, ListSort> = {
-  updated: { label: 'Recently updated', key: 'updated_at', dir: -1 },
+  updated: { label: 'Recently Updated', key: 'updated_at', dir: -1 },
   newest: { label: 'Newest', key: 'created_at', dir: -1 },
   oldest: { label: 'Oldest', key: 'created_at', dir: 1 },
 };
@@ -52,12 +52,12 @@ function IssueRow({ issue }: { issue: Row }) {
       aside={
         <>
           {taskCount > 0 && (
-            <span className="hidden items-center gap-1 sm:flex" title="Tasks done">
+            <span className="hidden items-center gap-1 sm:flex" title="Tasks Done">
               <TasklistIcon size={16} aria-hidden="true" />
               {String(issue['tasks_done'] ?? 0)}/{taskCount}
             </span>
           )}
-          <span className="flex items-center gap-1" title="Discussion entries">
+          <span className="flex items-center gap-1" title="Discussion Entries">
             <CommentIcon size={16} aria-hidden="true" />
             {String(issue['discussion_count'] ?? 0)}
           </span>
@@ -77,7 +77,7 @@ export function IssueList({ rows, state }: { rows: Row[]; state: IssueState }) {
       renderRow={(r) => <IssueRow issue={r} />}
       tab={state}
       path="issues"
-      noun={['issue', 'issues']}
+      noun={['issue', 'issues', 'Issues']}
       emptyIcon={IssueOpenedIcon}
       searchPlaceholder="Search by objective, label or #id"
     />

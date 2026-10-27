@@ -390,10 +390,10 @@ describe('GH 1948: idle runs and subshell command variants', () => {
 
   test('the Top runs table labels idle rows and lists them last', () => {
     const html = mod.page('#/insights/time?range=30d', data());
-    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
-    const labelled = [...top.matchAll(/<tr[^>]*>.*?<\/tr>/gs)].filter((r) => r[0].includes('Likely idle'));
+    const top = html.slice(html.indexOf('aria-label="Top Runs by Duration"'));
+    const labelled = [...top.matchAll(/<tr[^>]*>.*?<\/tr>/gs)].filter((r) => r[0].includes('Likely Idle'));
     assert.equal(labelled.length, 2);
-    assert.match(labelled[0][0], /border-\(--borderColor-muted\) text-fg-muted[^>]*>Likely idle</);
+    assert.match(labelled[0][0], /border-\(--borderColor-muted\) text-fg-muted[^>]*>Likely Idle</);
     assert.ok(top.includes(mod.IDLE_CAPTION));
   });
 });
@@ -672,7 +672,7 @@ describe('Explore view', () => {
   test('the CSV equals the table rows', () => {
     const { hash, ex } = view('m=tokens_out&a=p95&g=agent,review_round');
     const t = mod.exploreRows(hash, ex);
-    assert.deepEqual(t.columns, ['Agent', 'Review round', 'Runs', 'p95 output tokens']);
+    assert.deepEqual(t.columns, ['Agent', 'Review Round', 'Runs', 'p95 Output Tokens']);
     assert.equal(t.rows.length, ex.groups.length);
     assert.ok(t.rows.some((r) => r[3] === mod.NEEDS_RUNS));
     const html = mod.table('cap', t);
@@ -716,7 +716,7 @@ describe('GH 1347 polish: histogram nouns and slowest-command order', () => {
 
   test('the heading reads "Slowest verification commands"; the n<20 p95 cell is —', () => {
     const html = mod.page('#/insights/quality?range=30d', data());
-    assert.match(html, /<h3[^>]*>Slowest verification commands<\/h3>/);
+    assert.match(html, /<h3[^>]*>Slowest Verification Commands<\/h3>/);
     assert.ok(!html.includes('(by p95)'));
     const slow = html.slice(html.indexOf('aria-label="Slowest verification commands"'));
     const row = slow.slice(slow.indexOf('title="rare outlier"'), slow.indexOf('</tr>', slow.indexOf('title="rare outlier"')));
@@ -769,10 +769,10 @@ describe('Insights view', () => {
     assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out&amp;x=tokens_out$/);
     assert.match(html, /class="max-md:hidden"/);
     assert.match(html, /<div class="md:hidden"><label[^>]*>Section<select/);
-    assert.match(html, /Period<select[^>]*>.*<option value="7d" selected="">Last 7 days<\/option>/);
+    assert.match(html, /Period<select[^>]*>.*<option value="7d" selected="">Last 7 Days<\/option>/);
     assert.match(html, /Filters \(2\)/);
     assert.doesNotMatch(html, />Metric<select/);
-    assert.match(at('tokens'), />Metric<select[^>]*><option value="tokens_out" selected="">Output tokens<\/option><option value="context">Context<\/option><option value="cache_hit">Cache-hit %<\/option><option value="tool_uses">Tool uses<\/option>/);
+    assert.match(at('tokens'), />Metric<select[^>]*><option value="tokens_out" selected="">Output Tokens<\/option><option value="context">Context<\/option><option value="cache_hit">Cache-Hit %<\/option><option value="tool_uses">Tool Uses<\/option>/);
     assert.ok(html.includes(mod.EFFORT_CAPTION));
     for (const label of ['Repo', 'Agent', 'Model', 'Effort']) assert.match(html, new RegExp(`>${label}<select`));
   });
@@ -794,8 +794,8 @@ describe('Insights view', () => {
     assert.match(html, /Tokens measured for 25 of 27 runs/);
     assert.match(html, /Tokens measured for 23 of 23 runs/);
     assert.match(html, /Tokens measured for 3 of 3 sessions/);
-    assert.match(html, /Last 30 days · Per run · Runs by Output Tokens/);
-    assert.match(html, /Last 30 days · Per session · Sessions by Output Tokens/);
+    assert.match(html, /Last 30 Days · Per Run · Runs by Output Tokens/);
+    assert.match(html, /Last 30 Days · Per Session · Sessions by Output Tokens/);
     assert.ok(html.includes(mod.BRO_CAPTION));
     assert.match(html, /Early data · 3 of 20 runs/);
     assert.match(html, /p50 13K/);
@@ -824,21 +824,21 @@ describe('Insights view', () => {
     const broCard = html.slice(html.indexOf('data-agent="bro"'));
     assert.doesNotMatch(broCard, /p50 \d|p95 \d|data-marker/);
     assert.match(html, /aria-label="swe, [^"]+ output tokens: \d+ runs?"/);
-    assert.match(html, /Top runs by output tokens/);
-    assert.match(html, /Top runs by context/);
+    assert.match(html, /Top Runs by Output Tokens/);
+    assert.match(html, /Top Runs by Context/);
     assert.match(html, /href="#\/tasks\/\d+"/);
   });
 
   test('Tokens: the Metric select switches the stats shown', () => {
     const html = at('tokens', 'range=30d&m=cache_hit');
-    assert.match(html, /p50 Cache-hit %/);
+    assert.match(html, /p50 Cache-Hit %/);
     assert.match(html, /Rank \d of 2 by average cache-hit %/);
   });
 
   const decode = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
   const cardOf = (html, who) => {
     const start = html.indexOf(`data-agent="${who}"`);
-    const ends = [html.indexOf('data-agent="', start + 1), html.indexOf('aria-label="Top runs', start)].filter((i) => i !== -1);
+    const ends = [html.indexOf('data-agent="', start + 1), html.indexOf('aria-label="Top Runs', start)].filter((i) => i !== -1);
     return html.slice(start, Math.min(...ends));
   };
   const agentsShown = (html) => [...html.matchAll(/data-agent="([^"]+)"/g)].map((m) => m[1]);
@@ -852,8 +852,8 @@ describe('Insights view', () => {
     ];
     for (const [m, by, cols, noun] of cases) {
       const html = at('tokens', `range=30d&m=${m}`);
-      assert.ok(html.includes(`Last 30 days · Per run · Runs by ${by}`), m);
-      assert.ok(html.includes(`Last 30 days · Per session · Sessions by ${by}`), m);
+      assert.ok(html.includes(`Last 30 Days · Per Run · Runs by ${by}`), m);
+      assert.ok(html.includes(`Last 30 Days · Per Session · Sessions by ${by}`), m);
       for (const a of data.agents) {
         assert.deepEqual(mod.histogramTable(a, m).columns, [...cols, a.per === 'session' ? 'Sessions' : 'Runs'], `${m} ${a.agent}`);
         const card = cardOf(html, a.agent);
@@ -1231,7 +1231,7 @@ describe('Insights view', () => {
 
   test('Time: duration and tool uses, bro separate, duration outliers', () => {
     const html = at('time');
-    for (const title of ['Duration per run', 'Tool uses per run', 'bro duration per session', 'bro tool uses per session', 'Top runs by duration']) assert.ok(html.includes(title), title);
+    for (const title of ['Duration per Run', 'Tool Uses per Run', 'bro Duration per Session', 'bro Tool Uses per Session', 'Top Runs by Duration']) assert.ok(html.includes(title), title);
     assert.match(html, /aria-label="swe: average [^"]+ over 25 runs"/);
     const cards = html.split('data-chart-card=""').slice(1);
     assert.equal(cards.length, 4);
@@ -1242,7 +1242,7 @@ describe('Insights view', () => {
       assert.match(card, /<text x="0" y="12" fill="var\(--fgColor-default\)" font-size="12">swe<\/text>/);
       assert.doesNotMatch(card, /height="224"/);
     }
-    assert.match(cards[0], /Per run · duration; bars show the average/);
+    assert.match(cards[0], /Per Run · Duration; Bars Show the Average/);
     assert.match(cards[0], />0<\/tspan>.*>\d+m<\/tspan>/s);
     for (const card of cards.slice(2)) {
       assert.equal((card.match(/data-tile=""/g) ?? []).length, 1);
@@ -1255,7 +1255,7 @@ describe('Insights view', () => {
     assert.equal(long.length, 120);
     const [first, ...rest] = data.outliers.duration_ms;
     const html = mod.page('#/insights/time?range=30d', { ...data, outliers: { ...data.outliers, duration_ms: [{ ...first, task_title: long }, ...rest] } });
-    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
+    const top = html.slice(html.indexOf('aria-label="Top Runs by Duration"'));
     const cell = new RegExp(`<td class="([^"]*)" title="${long}">`).exec(top);
     assert.ok(cell, 'the title cell carries the full title');
     assert.match(cell[1], /(^| )truncate( |$)/);
@@ -1266,7 +1266,7 @@ describe('Insights view', () => {
     const quality = at('quality');
     const slow = quality.slice(quality.indexOf('aria-label="Slowest verification commands"'));
     assert.match(slow, /<td class="[^"]*w-full min-w-32 max-w-0 truncate[^"]*" title="node --test">/);
-    for (const kind of ['Top runs by output tokens', 'Top runs by context']) {
+    for (const kind of ['Top Runs by Output Tokens', 'Top Runs by Context']) {
       const t = at('tokens').slice(at('tokens').indexOf(`aria-label="${kind}"`));
       assert.match(t, /<td class="[^"]*w-full min-w-32 max-w-0 truncate[^"]*" title="Task [abc]">/, kind);
     }
@@ -1274,20 +1274,48 @@ describe('Insights view', () => {
 
   test('Time: duration outliers show tool uses and output tokens, with the idle caption', () => {
     const html = at('time');
-    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
-    assert.match(top, />Tool uses<.*>Output tokens</s);
+    const top = html.slice(html.indexOf('aria-label="Top Runs by Duration"'));
+    assert.match(top, />Tool Uses<.*>Output Tokens</s);
     assert.ok(top.includes(mod.IDLE_CAPTION));
     assert.equal(mod.IDLE_CAPTION, 'Likely idle: over 30 min with under 1 tool use and 500 output tokens a minute. Listed last.');
   });
 
   test('Quality: first-pass rate, attempts, stacked verdict mix, verification rate, slowest commands', () => {
     const html = at('quality');
-    assert.match(html, /First-pass rate.*?33\.3%/s);
+    assert.match(html, /First-Pass Rate.*?33\.3%/s);
     assert.match(html, /1 of 3 tasks passed review on the first attempt/);
     assert.match(html, /role="img" aria-label="Review verdicts: Pass 2, Fail 1, Escalate 1 of 4"/);
-    assert.match(html, /Verification pass rate.*?66\.7%/s);
+    assert.match(html, /Verification Pass Rate.*?66\.7%/s);
     assert.match(html, /aria-label="1 attempt: 2 tasks"/);
     assert.match(html, /Slowest verification commands.*node --test.*bun run build/s);
+  });
+
+  test('GH 2049: Insights marks use the agent color family', () => {
+    const quality = at('quality');
+    const tiles = quality.split('data-rate-tile=""').slice(1);
+    assert.equal(tiles.length, 3);
+    assert.match(tiles[0], /role="progressbar"[^>]*><span class="h-full bg-\(--data-orange-color-emphasis\)"/);
+    assert.match(tiles[1], /role="progressbar"[^>]*><span class="h-full bg-\(--data-pink-color-emphasis\)"/);
+    const attempts = quality.split('data-chart-card=""')[1];
+    assert.match(attempts, /stroke="var\(--data-orange-color-emphasis\)" stroke-width="2" data-cap=""/);
+    assert.match(at('throughput'), /stroke="var\(--data-blue-color-emphasis\)" stroke-width="2" data-cap=""/);
+    const cost = mod.page('#/insights/cost?range=30d', priced).split('data-chart-card=""').find((c) => c.includes('>Cost by Model</h3>'));
+    assert.match(cost, /stroke="var\(--data-blue-color-emphasis\)" stroke-width="2" data-cap=""/);
+    const marks = (html) => html.replace(/<span[^>]*class="inline-grid shrink-0 place-items-center rounded-full[^"]*"[^>]*>[^<]*<\/span>/g, '');
+    for (const section of SECTIONS) assert.doesNotMatch(marks(at(section)), /data-purple|bgColor-success|bgColor-danger|bgColor-severe/, section);
+  });
+
+  test('GH 2049: Verdict Mix has the RateTile anatomy with a headline percent and orange, pink, blue segments', () => {
+    const verdict = at('quality').split('data-rate-tile=""')[3];
+    assert.match(
+      verdict,
+      /<h3[^>]*>Verdict Mix<\/h3><p class="text-2xl[^"]*">50%<\/p><span role="img" aria-label="Review verdicts: Pass 2, Fail 1, Escalate 1 of 4"[^>]*><span class="h-full bg-\(--data-orange-color-emphasis\)"[^>]*><\/span><span class="h-full bg-\(--data-pink-color-emphasis\)"[^>]*><\/span><span class="h-full bg-\(--data-blue-color-emphasis\)"[^>]*><\/span><\/span><p class="text-xs[^"]*">2 of 4 review verdicts passed<\/p><ul/,
+    );
+    const empty = mod.page('#/insights/quality?range=30d', { ...data, quality: { ...data.quality, verdicts: { pass: 0, fail: 0, escalate: 0 } } });
+    const zero = empty.split('data-rate-tile=""')[3];
+    assert.match(zero, /<h3[^>]*>Verdict Mix<\/h3><p class="text-2xl[^"]*">—<\/p>/);
+    assert.match(zero, /aria-label="Review verdicts: Pass 0, Fail 0, Escalate 0 of 0"/);
+    assert.match(zero, /0 of 0 review verdicts passed/);
   });
 
   test('Cost, no prices: only the Flash, and no "$" anywhere in Insights', () => {
@@ -1300,33 +1328,33 @@ describe('Insights view', () => {
   test('Cost, priced: USD columns by agent and model, unpriced runs flagged', () => {
     const html = mod.page('#/insights/cost?range=30d', priced);
     assert.ok(!html.includes(mod.NO_PRICES));
-    assert.match(html, /Cost by agent/);
-    assert.match(html, /Cost by model/);
+    assert.match(html, /Cost by Agent/);
+    assert.match(html, /Cost by Model/);
     assert.match(html, /aria-label="swe: \$[\d,.]+ over 25 runs"/);
     assert.match(html, /23 measured runs have no price/);
     const cards = html.split('data-chart-card=""').slice(1);
     const byTitle = (t) => cards.find((c) => c.includes(`>${t}</h3>`));
-    for (const t of ['Cost by agent', 'Cost by model']) {
+    for (const t of ['Cost by Agent', 'Cost by Model']) {
       assert.doesNotMatch(byTitle(t), /height="224"/, t);
       assert.match(byTitle(t), /data-cap=""/, t);
     }
-    assert.match(byTitle('bro cost'), /data-tile=""/);
-    assert.doesNotMatch(byTitle('bro cost'), /<svg width/);
+    assert.match(byTitle('bro Cost'), /data-tile=""/);
+    assert.doesNotMatch(byTitle('bro Cost'), /<svg width/);
   });
 
   test('ChartCard: h3, subheader, kebab menu with both actions, legend only for 2+ series', () => {
     const t = { columns: ['Day', 'Closed'], rows: [['2026-10-24', 1]] };
-    const one = mod.card({ title: 'T', subtitle: 'Last 7 days · tasks', section: 'throughput', range: '7d', table: t, legend: [{ label: 'a', color: 'red' }] });
-    assert.match(one, /<h3[^>]*>T<\/h3><p[^>]*>Last 7 days · tasks<\/p>/);
+    const one = mod.card({ title: 'T', subtitle: 'Last 7 Days · tasks', section: 'throughput', range: '7d', table: t, legend: [{ label: 'a', color: 'red' }] });
+    assert.match(one, /<h3[^>]*>T<\/h3><p[^>]*>Last 7 Days · tasks<\/p>/);
     assert.match(one, /<button[^>]*aria-label="T options"[^>]*aria-haspopup="menu"/);
-    assert.match(one, /role="menuitem"[^>]*>.*?View as table<\/button>/);
+    assert.match(one, /role="menuitem"[^>]*>.*?View as Table<\/button>/);
     assert.match(one, /role="menuitem"[^>]*>.*?Download CSV<\/button>/);
     assert.doesNotMatch(one, /aria-label="Legend"/);
     const two = mod.card({ title: 'T', subtitle: 's', section: 'x', range: '7d', table: t, legend: [{ label: 'a', color: 'red' }, { label: 'b', color: 'blue' }] });
     assert.match(two, /aria-label="Legend"/);
     const tabled = mod.card({ title: 'T', subtitle: 's', section: 'x', range: '7d', table: t, defaultTable: true });
     assert.match(tabled, /<caption tabindex="-1"[^>]*>T, s<\/caption>/);
-    assert.match(tabled, /View as chart/);
+    assert.match(tabled, /View as Chart/);
     assert.doesNotMatch(tabled, /<svg role="img"/);
   });
 

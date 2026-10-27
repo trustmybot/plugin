@@ -15,7 +15,7 @@ export const recentOpen = (issues: Row[]) =>
 
 function IssueRows({ issues }: { issues: Row[] }) {
   const rows = recentOpen(issues);
-  if (rows.length === 0) return <Blankslate icon={IssueOpenedIcon} heading="No open issues" description="Every issue is closed." />;
+  if (rows.length === 0) return <Blankslate icon={IssueOpenedIcon} heading="No Open Issues" description="Every issue is closed." />;
   return (
     <div>
       {rows.map((i) => (
@@ -40,7 +40,7 @@ export function OpenIssues({ q }: { q: { data?: Row[]; error: Error | null } }) 
     <Box className="min-w-0">
       <BoxHeader className="flex items-center gap-2">
         <IssueOpenedIcon size={16} className="text-fg-muted" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-fg">Open issues</h2>
+        <h2 className="text-sm font-semibold text-fg">Open Issues</h2>
       </BoxHeader>
       {q.error || q.data === undefined ? (
         <div className="p-4">
@@ -51,7 +51,7 @@ export function OpenIssues({ q }: { q: { data?: Row[]; error: Error | null } }) 
       )}
       <div className="border-t border-(--borderColor-muted) px-4 py-2 text-center text-sm">
         <a href="#/issues" className="text-accent hover:underline">
-          View all issues
+          View All Issues
         </a>
       </div>
     </Box>

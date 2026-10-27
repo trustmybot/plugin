@@ -7,9 +7,9 @@ export const CONCEPT_COPY = {
   help: 'A concept is a feature, like cold start, traced step by step through the functions that make it up.',
   empty: 'No saved concept matches. Try a function name.',
   unavailable: 'Concepts need a fresh scan. Run /scan in a Claude Code session.',
-  derived: 'Unverified — built from the call graph',
-  showGraph: 'Show graph',
-  showTable: 'Show as table',
+  derived: 'Unverified — Built from the Call Graph',
+  showGraph: 'Show Graph',
+  showTable: 'Show as Table',
 };
 
 export const TRUST_LABEL: Record<Trust, { icon: Icon; label: string }> = {

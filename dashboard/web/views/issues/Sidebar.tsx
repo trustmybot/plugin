@@ -51,7 +51,7 @@ export function Sidebar({ issue, labels, tasks }: { issue: Row; labels: string[]
       <Section title="Tasks" aside={<span data-progress>{done} / {tasks.length}</span>}>
         <div
           role="progressbar"
-          aria-label="Tasks done"
+          aria-label="Tasks Done"
           aria-valuemin={0}
           aria-valuemax={tasks.length}
           aria-valuenow={done}
