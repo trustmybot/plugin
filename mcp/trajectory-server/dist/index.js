@@ -46924,7 +46924,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url); a target not yet attached to an already-registered skill/plugin is attached (approval-gated, materialized, attachment row added) and returns attached:true. Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
       inputSchema: {
         type: "object",
         properties: {
@@ -47123,34 +47123,19 @@ function cheatcodeTools(db2) {
             "a skill install requires a target agent (bro|swe|code-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
-        const existing = db2.get(
-          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
-          [name2, sourceUrl]
-        );
-        if (existing) {
-          const attachments2 = db2.all(
-            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
-            [existing.id]
+        const approvalRefusal = () => {
+          const approval = db2.get(
+            `SELECT id FROM audit
+               WHERE event_type = 'cheatcode_approved'
+                 AND json_extract(content_json, '$.source_url') = ?
+             LIMIT 1`,
+            [sourceUrl]
           );
-          return ok20({
-            installed: false,
-            idempotent: true,
-            cheatcode: existing,
-            attachments: attachments2
-          });
-        }
-        const approval = db2.get(
-          `SELECT id FROM audit
-             WHERE event_type = 'cheatcode_approved'
-               AND json_extract(content_json, '$.source_url') = ?
-           LIMIT 1`,
-          [sourceUrl]
-        );
-        if (!approval) {
+          if (approval) return null;
           return err19(
             `cheatcode install blocked: no approval on record for '${name2}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
-        }
+        };
         const projectRoot = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot === null) return null;
@@ -47164,6 +47149,67 @@ function cheatcodeTools(db2) {
           }
           return null;
         };
+        const existing = db2.get(
+          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
+          [name2, sourceUrl]
+        );
+        if (existing) {
+          const listAttachments = () => db2.all(
+            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
+            [existing.id]
+          );
+          const attachments2 = listAttachments();
+          if (target === null || existing.kind !== "skill" && existing.kind !== "plugin" || attachments2.some((a) => a.target === target)) {
+            return ok20({
+              installed: false,
+              idempotent: true,
+              cheatcode: existing,
+              attachments: attachments2
+            });
+          }
+          const refusedAttachApproval = approvalRefusal();
+          if (refusedAttachApproval) return refusedAttachApproval;
+          const refusedAttachTarget = writesOutside([target]);
+          if (refusedAttachTarget) return refusedAttachTarget;
+          const providedTools = existing.kind === "plugin" && target !== "bro" ? detectProvidedTools(name2) : [];
+          const result2 = materializeConsumingAgent(db2.dbPath, target, name2, providedTools);
+          if (!result2) {
+            return err19(
+              `cheatcode attach failed for '${name2}' \u2192 ${target}: no project root or agent md to materialize. No attachment recorded.`
+            );
+          }
+          const attachedAt = nowISO();
+          db2.transaction(() => {
+            db2.run(
+              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+               VALUES (?, ?, ?, ?)`,
+              [existing.id, result2.target, result2.artifact, attachedAt]
+            );
+            auditCheatcode(
+              "cheatcode_installed",
+              `Cheatcode attached: '${name2}' \u2192 ${result2.target} (cheatcode_id=${existing.id})`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name: name2,
+                kind: existing.kind,
+                source_url: sourceUrl,
+                attached: true,
+                target: result2.target,
+                artifact: result2.artifact
+              }),
+              attachedAt
+            );
+          });
+          return ok20({
+            installed: false,
+            attached: true,
+            cheatcode: existing,
+            attachments: listAttachments(),
+            materialized: [{ target: result2.target, artifact: result2.artifact, path: result2.path }]
+          });
+        }
+        const refusedApproval = approvalRefusal();
+        if (refusedApproval) return refusedApproval;
         const refusedBeforeInstall = writesOutside(target ? [target] : []);
         if (refusedBeforeInstall) return refusedBeforeInstall;
         const candidate = {
