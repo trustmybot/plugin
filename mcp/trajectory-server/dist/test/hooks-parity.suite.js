@@ -163,8 +163,20 @@ function auditRowsAfter(db, mark) {
         d.close();
     }
 }
+/**
+ * Gates that write markers, logs or DB rows into the project, so they run in
+ * hooks-session-parity.suite.ts, which rebuilds its sandbox before each side.
+ */
+const OWN_SANDBOX_GATES = new Set([
+    'activation-routine',
+    'debug-trajectory',
+    'plugin-hooks-marker',
+    'session-log-capture',
+    'session-start-persona',
+    'user-prompt-persona',
+]);
 function parityCases() {
-    return PARITY_GATES.flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
+    return PARITY_GATES.filter((gate) => !OWN_SANDBOX_GATES.has(gate)).flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
 }
 export function hooksParityShard(k, n) {
     const cases = shardOf(parityCases(), k, n);

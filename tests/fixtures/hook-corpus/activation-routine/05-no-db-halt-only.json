@@ -1,0 +1,9 @@
+{
+  "prompt": "bro?",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/bare",
+    "PGREP_STUB": "down"
+  },
+  "corpus_cwd": "bare",
+  "corpus_expect": "\"additionalContext\":\"⛔ MCP trajectory-server is not running at this prompt"
+}

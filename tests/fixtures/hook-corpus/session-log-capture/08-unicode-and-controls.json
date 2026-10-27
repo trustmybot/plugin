@@ -1,0 +1,5 @@
+{
+  "session_id": "log-session-0005",
+  "prompt": "café \u0001 tab\t del emoji 🚀 \"quoted\" \\ back",
+  "corpus_expect": "{\"continue\": true}"
+}

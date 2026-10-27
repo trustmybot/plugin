@@ -14,6 +14,12 @@ import { GATE_NAME as SWE_BOUNDARY_GATE, sweBoundary } from './swe-boundary.js';
 import { GATE_NAME as SWE_RESUME_GATE, sweResumeGate } from './swe-resume-gate.js';
 import { GATE_NAME as SWE_STOP_CAUSE_GATE, sweStopCause } from './swe-stop-cause.js';
 import { GATE_NAME as OVERRUN_GATE, taskOverrunAlert } from './task-overrun-alert.js';
+import { GATE_NAME as ACTIVATION_GATE, activationRoutine } from './activation-routine.js';
+import { GATE_NAME as DEBUG_TRAJECTORY_GATE, debugTrajectory } from './debug-trajectory.js';
+import { GATE_NAME as PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker } from './plugin-hooks-marker.js';
+import { GATE_NAME as SESSION_LOG_GATE, sessionLogCapture } from './session-log-capture.js';
+import { GATE_NAME as SESSION_START_PERSONA_GATE, sessionStartPersona } from './session-start-persona.js';
+import { GATE_NAME as USER_PROMPT_PERSONA_GATE, userPromptPersona } from './user-prompt-persona.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [FOOTER_GATE, attributionFooter],
@@ -31,6 +37,12 @@ const GATES = new Map([
     [SWE_RESUME_GATE, sweResumeGate],
     [SWE_STOP_CAUSE_GATE, sweStopCause],
     [OVERRUN_GATE, taskOverrunAlert],
+    [ACTIVATION_GATE, activationRoutine],
+    [DEBUG_TRAJECTORY_GATE, debugTrajectory],
+    [PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker],
+    [SESSION_LOG_GATE, sessionLogCapture],
+    [SESSION_START_PERSONA_GATE, sessionStartPersona],
+    [USER_PROMPT_PERSONA_GATE, userPromptPersona],
 ]);
 export function findGate(name) {
     return GATES.get(name);
