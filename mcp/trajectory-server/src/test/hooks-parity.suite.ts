@@ -244,6 +244,8 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'swe-scope-fence',
   'swe-verification-gate',
   'post-atomic-close-readme',
+  'cleanup-worktree-on-task-close',
+  'worktree-create',
   'remote-id-guard',
 ]);
 

@@ -1,0 +1,21 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "sess-wt",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
+  "tool_input": {
+    "agent": "bro",
+    "task_id": 1,
+    "status": "closed"
+  },
+  "tool_response": {
+    "ok": true
+  },
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "without the sqlite3 CLI the .sh exits 0 silently; the gate reads the DB with node:sqlite and still cleans up",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "tmb: cleaned up worktree @SANDBOX@/ws/project/.claude/worktrees/clean-a after task #1 closed"
+  }
+}

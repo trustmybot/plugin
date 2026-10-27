@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "sess-wt",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
+  "tool_input": {
+    "agent": "bro",
+    "task_id": "1a",
+    "status": "closed"
+  },
+  "tool_response": {
+    "ok": true
+  },
+  "corpus_expect": "empty"
+}

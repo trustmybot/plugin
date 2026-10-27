@@ -5,6 +5,7 @@ attribution-footer
 branch-up-to-date-with-remote
 bro-turn-usage
 cheatcode-install-approval
+cleanup-worktree-on-task-close
 code-quality-lint
 code-reviewer-after-atomic-close
 code-reviewer-no-worktree
@@ -52,3 +53,4 @@ swe-verification-gate
 task-overrun-alert
 tool-output-size
 user-prompt-persona
+worktree-create
