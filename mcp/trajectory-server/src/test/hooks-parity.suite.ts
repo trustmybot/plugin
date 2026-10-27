@@ -231,6 +231,9 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'swe-spawn-bind',
   'swe-spawn-rollback',
   'post-task-create-spawn-hint',
+  'agent-arg-matches-caller',
+  'reviewer-identity-observe',
+  'cheatcode-install-approval',
 ]);
 
 function parityCases(): ParityCase[] {

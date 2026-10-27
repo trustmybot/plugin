@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/reviewer-identity-observe.sh (PreToolUse on
+# Tests for scripts/hooks/reviewer-identity-observe.sh, or its TypeScript port under
+# TMB_HOOK_TEST_IMPL=ts (PreToolUse on
 # validation_record):
 #   1. a code-reviewer subagent payload (agent_id + agent_type code-reviewer, bare
 #      or plugin-prefixed) writes one reviewer_identity_observed row on the
@@ -21,6 +22,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/reviewer-identity-observe.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/reviewer-identity-observe.sh"
+[ "$HOOK_IMPL" != ts ] || export TMB_TEST_NODE="$(node -p process.execPath)"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-reviewer-identity-observe.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -110,14 +114,22 @@ mkdir -p "$TMPDIR/bare"
 OUT=$(run "$TMPDIR/bare" "$(payload code-reviewer a1b2c3d4e5f6a7b8c)")
 assert_eq "allow" "$(decision "$OUT")" "unresolved DB: allowed"
 
-test_case "no jq: allowed with a stderr note, nothing written"
 . "$HERE/fixtures/no-jq-path.sh"
 NOJQ=$(no_jq_path "$TMPDIR/nojq")
 rc=0
 ERR=$(cd "$PROJ" && payload code-reviewer e1b2c3d4e5f6a7b8c | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$PROJ" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1 >/dev/null) || rc=$?
-assert_eq "0" "$rc" "exit 0"
-assert_contains "$ERR" "jq not found" "stderr names jq"
-assert_eq "3" "$(rows)" "no row"
+if [ "$HOOK_IMPL" = ts ]; then
+  test_case "no jq: the TypeScript port needs none and records the caller"
+  assert_eq "0" "$rc" "exit 0"
+  assert_eq "" "$ERR" "no stderr note"
+  assert_eq "4" "$(rows)" "the row is written"
+  sqlite3 "$DB" "DELETE FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.agent_id') = 'e1b2c3d4e5f6a7b8c';"
+else
+  test_case "no jq: allowed with a stderr note, nothing written"
+  assert_eq "0" "$rc" "exit 0"
+  assert_contains "$ERR" "jq not found" "stderr names jq"
+  assert_eq "3" "$(rows)" "no row"
+fi
 
 # chain <payload> — the payload through the trajectory-gates registration.
 chain() {
