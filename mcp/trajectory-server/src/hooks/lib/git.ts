@@ -13,13 +13,19 @@ export interface GitRun {
   stdout: string;
 }
 
-export function gitRun(dir: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env, input = ''): GitRun {
+export function gitRun(
+  dir: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  input = '',
+  stderr: 'ignore' | 'inherit' = 'ignore',
+): GitRun {
   const r = spawnSync('git', ['-C', dir, ...args], {
     encoding: 'utf8',
     env,
     input,
     maxBuffer: GIT_MAX_BUFFER,
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', stderr],
   });
   return { code: r.error ? -1 : (r.status ?? -1), stdout: r.stdout ?? '' };
 }
@@ -29,8 +35,14 @@ export function gitOut(dir: string, args: readonly string[], env: NodeJS.Process
   return gitRun(dir, args, env, input).stdout.replace(/\n+$/, '');
 }
 
-export function gitOk(dir: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env): boolean {
-  return gitRun(dir, args, env).code === 0;
+/** `git -C <dir> <args>` succeeded; `stderr: 'inherit'` for a call the .sh leaves unsilenced. */
+export function gitOk(
+  dir: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  stderr: 'ignore' | 'inherit' = 'ignore',
+): boolean {
+  return gitRun(dir, args, env, '', stderr).code === 0;
 }
 
 /** `[ -d <path> ]`. */

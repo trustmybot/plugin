@@ -6930,21 +6930,21 @@ function encode(parser2, command) {
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { statSync as statSync8 } from "node:fs";
 var GIT_MAX_BUFFER = 256 * 1024 * 1024;
-function gitRun(dir, args2, env = process.env, input = "") {
+function gitRun(dir, args2, env = process.env, input = "", stderr = "ignore") {
   const r = spawnSync4("git", ["-C", dir, ...args2], {
     encoding: "utf8",
     env,
     input,
     maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", "ignore"]
+    stdio: ["pipe", "pipe", stderr]
   });
   return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
 }
 function gitOut(dir, args2, env = process.env, input = "") {
   return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
 }
-function gitOk(dir, args2, env = process.env) {
-  return gitRun(dir, args2, env).code === 0;
+function gitOk(dir, args2, env = process.env, stderr = "ignore") {
+  return gitRun(dir, args2, env, "", stderr).code === 0;
 }
 function isDir(path) {
   if (path === "") return false;
@@ -15343,8 +15343,321 @@ var reworkLimit = (payload, env) => {
   return reworkLimitVerdict(GATE_NAME13, db, taskId, env);
 };
 
+// src/hooks/require-feature-branch-active.ts
+import { posix } from "node:path";
+var GATE_NAME14 = "require-feature-branch-active";
+function cutField2(text, n2) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n2 - 1] ?? "" : line);
+  return stripTrailingNewlines(lines2.join("\n"));
+}
+function resolveRepo(db, taskId, repo, env) {
+  const workspaceRoot = posix.dirname(posix.dirname(posix.dirname(db)));
+  if (repo !== "") {
+    const found = gateRead(db, `SELECT path FROM repos WHERE name = '${sqlQuote(repo)}' LIMIT 1;`, env);
+    if (found === GATE_READ_ERROR) return denyUnreadable(GATE_NAME14, env);
+    const abs2 = found.split("\n")[0] || `${workspaceRoot}/${repo}`;
+    if (isDir(`${abs2}/.git`)) return abs2;
+    return denyPreToolUse(
+      `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo=${repo} does not point to a git repo at ${abs2}. Verify the path is correct.`
+    );
+  }
+  const single = gateRead(db, "SELECT CASE WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END;", env);
+  if (single === GATE_READ_ERROR) return denyUnreadable(GATE_NAME14, env);
+  const abs = single || workspaceRoot;
+  if (isDir(`${abs}/.git`)) return abs;
+  return denyPreToolUse(
+    `BLOCKED: cannot resolve repo for task ${taskId}. tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task's repo (task_create repo=<name>) so it maps to a repos row.`
+  );
+}
+var requireFeatureBranchActive = (payload, env) => {
+  if ((env.TMB_ALLOW_BRANCH_MISMATCH ?? "0") === "1") return ALLOW;
+  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "swe") return ALLOW;
+  const rawId = /task_id=([0-9]+)/.exec(jqAlternatives(payload, [["tool_input", "prompt"]]))?.[1] ?? "";
+  const taskId = sqlInt(rawId);
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+  const row = gateRead(db, `SELECT branch_id, repo, parent_branch_id FROM tasks WHERE id=${taskId};`, env);
+  if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME14, env);
+  if (row === "") return ALLOW;
+  const expected = cutField2(row, 1);
+  const repoAbs = resolveRepo(db, rawId, cutField2(row, 2), env);
+  if (typeof repoAbs !== "string") return repoAbs;
+  if (gitOk(repoAbs, ["show-ref", "--verify", "--quiet", `refs/heads/${expected}`], env, "inherit")) return ALLOW;
+  const base2 = cutField2(row, 3) || "<base>";
+  const baseRef = gitOk(repoAbs, ["remote", "get-url", "origin"], env) ? `origin/${base2}` : base2;
+  return denyPreToolUse(
+    `BLOCKED: SWE spawn for task ${rawId} needs branch ${expected} to exist first \u2014 bro pre-creates it ("git -C ${repoAbs} branch ${expected} ${baseRef}") and stays on ${base2}; SWE's worktree owns the branch.`
+  );
+};
+
+// src/hooks/lib/effort.ts
+var configuredEffort = (key2, fallback) => `COALESCE((SELECT v FROM (SELECT CASE WHEN json_valid(value_json) THEN json_extract(value_json, '$') END AS v
+                               FROM plugin_config WHERE key = '${key2}')
+               WHERE v IN ('low','medium','high')), '${fallback}')`;
+function effortDefaults(db, env = process.env) {
+  return gateRead(
+    db,
+    `SELECT ${configuredEffort("swe_default_effort", "medium")} || '|' || ${configuredEffort("reviewer_effort", "high")};`,
+    env
+  );
+}
+
+// src/hooks/require-task-spec.ts
+var GATE_NAME15 = "require-task-spec";
+function promptTaskId(prompt) {
+  return /task_id[=:][ \t\v\f\r]*([0-9]+)/.exec(prompt)?.[1] ?? "";
+}
+var CONTRACT_FILE = /(\.sql$|(^|\/)schema\.[^/]*$|(^|\/)(migrations|migration|migrate)\/|(^|\/)db\.ts$)/i;
+var UNICODE_SPACE_POINTS = [
+  160,
+  5760,
+  8192,
+  8193,
+  8194,
+  8195,
+  8196,
+  8197,
+  8198,
+  8199,
+  8200,
+  8201,
+  8202,
+  8203,
+  8232,
+  8233,
+  8239,
+  8287,
+  12288,
+  65279
+];
+var UNICODE_SPACES = new RegExp(`[${String.fromCodePoint(...UNICODE_SPACE_POINTS)}]`, "g");
+var CONTRACT_BODY = /(add +column|new[ _-]+(column|tool|field|table))/i;
+function needsContract(body2, files) {
+  if (files.split("\n").some((f) => CONTRACT_FILE.test(f))) return true;
+  return CONTRACT_BODY.test(body2.replace(UNICODE_SPACES, " ").replace(/[\n\r\t\v\f]/g, " "));
+}
+function hasLine(body2, label) {
+  const line = new RegExp(`^[ \\t\\v\\f\\r>*+-]*([0-9]+[.)][ \\t\\v\\f\\r]+)?[\`*_]*${label}:[\`*_]*([^\\n]*)$`);
+  return body2.split("\n").some((l) => /[^ \t\v\f\r`*_]/.test(line.exec(l)?.[2] ?? ""));
+}
+function rawField(value) {
+  return value === null || value === void 0 || value === false ? "" : stripTrailingNewlines(jqRawText(value));
+}
+function deny5(reason) {
+  return denyPreToolUse(reason);
+}
+function worktreeState(repo, branch, env) {
+  const ref = `branch refs/heads/${branch}`;
+  let entry = 0;
+  let main = false;
+  let linked = false;
+  for (const line of gitOut(repo, ["worktree", "list", "--porcelain"], env).split("\n")) {
+    if (line.startsWith("worktree ")) entry += 1;
+    if (line === ref) {
+      if (entry === 1) main = true;
+      else linked = true;
+    }
+  }
+  return linked ? "linked" : main ? "main" : "none";
+}
+function worktreeDeny(db, taskId, safeId, env) {
+  const wt = gateRead(
+    db,
+    `SELECT json_object('branch', COALESCE(t.branch_id, ''),
+      'path', COALESCE((SELECT path FROM repos WHERE name = t.repo), CASE WHEN COALESCE(t.repo, '') = '' AND (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END, ''))
+    FROM tasks t WHERE t.id = ${safeId};`,
+    env
+  );
+  if (wt === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+  let row;
+  try {
+    row = wt === "" ? {} : JSON.parse(wt);
+  } catch {
+    return denyUnreadable(GATE_NAME15, env);
+  }
+  const branch = rawField(row.branch);
+  const path = rawField(row.path);
+  const repo = path === "" ? env.CLAUDE_PROJECT_DIR ?? "" : repoPathAbs(db, path);
+  if (repo === "" || branch === "") return null;
+  if (gitOut(repo, ["rev-parse", "--is-inside-work-tree"], env) !== "true") return null;
+  const state = worktreeState(repo, branch, env);
+  if (state === "linked") return null;
+  const expected = `${repo.replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
+  const sw = state === "main" ? ` The main checkout currently has ${branch} checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere).` : "";
+  return deny5(
+    `BLOCKED: task_id=${taskId} is pending and branch ${branch} has no linked worktree (expected ${expected}).${sw} Call task_reopen(task_id=${taskId}, reason="<why>") to create the worktree, then respawn swe.`
+  );
+}
+function specShapeVerdict(db, taskId, safeId, env) {
+  const spec = gateRead(
+    db,
+    `SELECT json_object('body', COALESCE(spec_body, ''),
+    'files', CASE WHEN json_valid(COALESCE(files, '')) THEN json(files) ELSE json('[]') END)
+  FROM tasks WHERE id = ${safeId};`,
+    env
+  );
+  if (spec === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+  let row;
+  try {
+    row = spec === "" ? {} : JSON.parse(spec);
+  } catch {
+    return denyUnreadable(GATE_NAME15, env);
+  }
+  const body2 = rawField(row.body);
+  const files = Array.isArray(row.files) ? stripTrailingNewlines(row.files.filter((f) => typeof f === "string").join("\n")) : "";
+  if (!needsContract(body2, files)) return ALLOW;
+  if (hasLine(body2, "Nullable")) return ALLOW;
+  const missing = [hasLine(body2, "Writer") ? "" : "Writer:", hasLine(body2, "Populated") ? "" : "Populated:"].filter((m) => m !== "").join(" and ");
+  if (missing === "") return ALLOW;
+  const waived = gateRead(
+    db,
+    `SELECT count(*) FROM audit
+  WHERE event_type = 'spec_shape_gate_waived' AND from_node = 'bro' AND json_valid(content_json)
+    AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ${safeId}
+    AND json_extract(content_json, '$.gate') = 'spec_shape'
+    AND length(trim(COALESCE(json_extract(content_json, '$.reason'), ''))) >= 10;`,
+    env
+  );
+  if (waived === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+  if (Number(waived || "0") > 0) return ALLOW;
+  let ref = gateRead(
+    db,
+    `SELECT COALESCE(issue_id, '<issue>') || '|' || COALESCE(branch_id, '<branch>') FROM tasks WHERE id = ${safeId};`,
+    env
+  );
+  if (ref === GATE_READ_ERROR || ref === "") ref = "<issue>|<branch>";
+  const bar = ref.indexOf("|");
+  const issue = bar < 0 ? ref : ref.slice(0, bar);
+  const branch = bar < 0 ? ref : ref.slice(bar + 1);
+  return deny5(
+    `BLOCKED: task_id=${taskId} adds a column, field, tool, table or migration, and its spec_body is missing a ${missing} line. Under ## Success Criteria, name each new item with \`Writer: <tool/hook/function>\` and \`Populated: <verification[] command proving a non-null sample or count > 0>\`, or \`Nullable: <reason>\`; fix it with task_update_spec. To waive, bro first records audit_append(event_type="spec_shape_gate_waived", from_node="bro", issue_id=${issue}, branch_id="${branch}", summary=<why>, content_json={"task_id":${taskId},"gate":"spec_shape","reason":"<why, >= 10 chars>"}) and then respawns.`
+  );
+}
+var requireTaskSpec = (payload, env) => {
+  if (normalizeRole(jqAlternatives(payload, [["tool_input", "subagent_type"]])) !== "swe") return ALLOW;
+  const taskId = promptTaskId(jqAlternatives(payload, [["tool_input", "prompt"]]));
+  if (taskId === "") {
+    return deny5(
+      "BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id)."
+    );
+  }
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const safeId = sqlInt(taskId);
+  const row = gateRead(db, `SELECT status, LENGTH(COALESCE(spec_body, '')) FROM tasks WHERE id = ${safeId};`, env);
+  if (row === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+  if (row === "") return deny5(`BLOCKED: task_id=${taskId} does not exist in the tasks table.`);
+  const fields = row.split(/[|\n]/);
+  const status = fields[0] ?? "";
+  const bodyLen = (fields[1] ?? "").trim();
+  if (status === "running") {
+    const live = gateRead(
+      db,
+      `SELECT id || ' (started ' || COALESCE(started_at, '?') || ')' FROM agent_runs
+    WHERE task_id = ${safeId} AND agent_type = 'swe' AND completed_at IS NULL
+      AND NOT ((spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+               AND started_at IS NOT NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds'))
+    ORDER BY id DESC LIMIT 1;`,
+      env
+    );
+    if (live === GATE_READ_ERROR) return denyUnreadable(GATE_NAME15, env);
+    if (live !== "") {
+      return deny5(
+        `BLOCKED: task_id=${taskId} is running with a live swe run: agent_runs ${live}. Wait for that swe to return; if it is gone, move the task to failed (task_update_status) and task_reopen it.`
+      );
+    }
+  }
+  if (status !== "pending" && status !== "running") {
+    return deny5(
+      `BLOCKED: task_id=${taskId} has status=${status}, expected pending, or running with no live swe run. Reopen finished work with task_reopen.`
+    );
+  }
+  if (/^-?[0-9]+$/.test(bodyLen || "0") && Number(bodyLen || "0") === 0) {
+    return deny5(
+      `BLOCKED: task_id=${taskId} has empty spec_body. bro must populate spec_body via task_create_batch before SWE can execute.`
+    );
+  }
+  if (status === "pending") {
+    const blocked = worktreeDeny(db, taskId, safeId, env);
+    if (blocked !== null) return blocked;
+  }
+  return specShapeVerdict(db, taskId, safeId, env);
+};
+
+// src/hooks/require-spawn-effort.ts
+var GATE_NAME16 = "require-spawn-effort";
+function toolInputRaw(payload, key2) {
+  return stripTrailingNewlines(
+    jqMap(payload, (v) => jqRawText(jqOr(jqIndex(jqIndex(v, "tool_input"), key2), ""))).join("\n")
+  );
+}
+function givenEffort(payload) {
+  return stripTrailingNewlines(
+    jqMap(
+      payload,
+      (v) => {
+        const effort = jqOr(jqIndex(jqIndex(v, "tool_input"), "effort"), "");
+        return typeof effort === "string" ? effort : jqCompact(effort);
+      },
+      jqLiteralNumbers
+    ).join("\n")
+  );
+}
+function denyMismatch(who, expected, given, change) {
+  const passed = given !== "" ? `passed effort="${given}"` : "passed no effort";
+  return denyPreToolUse(
+    `BLOCKED: ${who} runs at effort "${expected}", but the Agent call ${passed}. Pass effort="${expected}" on the Agent call. ${change}`
+  );
+}
+function sweVerdict(payload, given, env) {
+  const taskId = sqlInt(promptTaskId(toolInputRaw(payload, "prompt")));
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const expected = gateRead(db, `SELECT effort FROM tasks WHERE id = ${taskId};`, env);
+  if (expected === GATE_READ_ERROR) {
+    if (gateRead(db, "SELECT name FROM pragma_table_info('tasks') WHERE name = 'effort';", env) === "") {
+      return denyPreToolUse(
+        "BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet. Restart Claude Code so the server migrates the DB, then retry the spawn."
+      );
+    }
+    return denyUnreadable(GATE_NAME16, env);
+  }
+  if (expected === "" || given === expected) return ALLOW;
+  return denyMismatch(
+    `task_id=${taskId} (tasks.effort)`,
+    expected,
+    given,
+    `To run it at another effort, change the task first: task_reopen(task_id=${taskId}, effort=...) for rework, task_retry(effort=...) for a retry.`
+  );
+}
+function reviewerVerdict(given, env) {
+  const db = dbPath(env);
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const defaults = effortDefaults(db, env);
+  if (defaults === GATE_READ_ERROR || defaults === "") return denyUnreadable(GATE_NAME16, env);
+  const bar = defaults.indexOf("|");
+  const expected = bar < 0 ? defaults : defaults.slice(bar + 1);
+  if (given === expected) return ALLOW;
+  return denyMismatch(
+    "code-reviewer (plugin_config.reviewer_effort, high when unset)",
+    expected,
+    given,
+    'To change it for every review, config_set(key="reviewer_effort", value=...).'
+  );
+}
+var requireSpawnEffort = (payload, env) => {
+  const subagent = toolInputRaw(payload, "subagent_type");
+  const given = givenEffort(payload);
+  if (/(^|:)swe$/.test(subagent)) return sweVerdict(payload, given, env);
+  if (normalizeRole(subagent.slice(subagent.lastIndexOf(":") + 1)) === CODE_REVIEWER_ROLE) return reviewerVerdict(given, env);
+  return ALLOW;
+};
+
 // src/hooks/substrate-preflight.ts
-var GATE_NAME14 = "substrate-preflight";
+var GATE_NAME17 = "substrate-preflight";
 var PROBES = [
   ["jq", "most PreToolUse gates and the bro/swe doctrine hooks are inoperative"],
   ["sqlite3", "task/spawn gates cannot verify state"],
@@ -15395,7 +15708,7 @@ var substratePreflight = (_payload, env) => {
 
 // src/hooks/naming-lint.ts
 import { existsSync as existsSync9 } from "node:fs";
-var GATE_NAME15 = "naming-lint";
+var GATE_NAME18 = "naming-lint";
 var TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var FIXED_NAMES = /* @__PURE__ */ new Set([
   "__init__.py",
@@ -15566,7 +15879,7 @@ var ScopeFence = class {
 };
 
 // src/hooks/swe-boundary.ts
-var GATE_NAME16 = "swe-boundary";
+var GATE_NAME19 = "swe-boundary";
 var EDIT_TOOLS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var FORCE2 = / --force | -f | --force-with-lease | --force-with-lease=/;
 var GLOB_CHAR2 = /[*?[]/;
@@ -15585,7 +15898,7 @@ function field4(input, ...paths) {
 function canonical2(path) {
   return capture2(pathCanonical2(path));
 }
-function deny5(reason) {
+function deny6(reason) {
   const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
   return { stdout: `${jqCompact(decision)}
 `, code: 0 };
@@ -15647,7 +15960,7 @@ var Boundary = class {
         this.worktree = ctx.worktree;
         return null;
       case 2:
-        return { stdout: `${denyDbUnavailable(GATE_NAME16, this.env)}
+        return { stdout: `${denyDbUnavailable(GATE_NAME19, this.env)}
 `, code: 0 };
       case 3:
         this.ctxState = "nodb";
@@ -15670,7 +15983,7 @@ var Boundary = class {
     return ctxInWorktree(path, this.worktree) ? this.worktree : worktreeRootForTarget(path);
   }
   dbDenied() {
-    return { stdout: `${denyDbUnavailable(GATE_NAME16, this.env)}
+    return { stdout: `${denyDbUnavailable(GATE_NAME19, this.env)}
 `, code: 0 };
   }
   /** prompt_bearing of <task>: "1" lifts, GATE_READ_ERROR denies. */
@@ -15684,7 +15997,7 @@ var Boundary = class {
     const command = field4(this.input, ["tool_input", "command"]);
     const cwd = payloadCwd(this.input, this.env);
     const listed2 = await cmdStatements(command, cwd, this.env);
-    if (!listed2.ok) return deny5(PARSE_REASON3);
+    if (!listed2.ok) return deny6(PARSE_REASON3);
     let push = false;
     let mutating = false;
     for (const { stmt } of listed2.statements) {
@@ -15692,8 +16005,8 @@ var Boundary = class {
       if ((sub === "push" || sub.startsWith("push ")) && !FORCE2.test(` ${sub} `)) push = true;
       if (ghMutation(stmt) !== "") mutating = true;
     }
-    if (push) return deny5(PUSH_REASON);
-    if (mutating) return deny5(GH_REASON);
+    if (push) return deny6(PUSH_REASON);
+    if (mutating) return deny6(GH_REASON);
     const root = this.worktree || capture2(projectRoot(this.env));
     let surface = "";
     let anchor = "";
@@ -15724,7 +16037,7 @@ var Boundary = class {
       }
       if (wt !== "") fence.push(path);
     }
-    if (rootClaudeMd !== "") return deny5(claudeMdReason(rootClaudeMd));
+    if (rootClaudeMd !== "") return deny6(claudeMdReason(rootClaudeMd));
     const db = surface !== "" || unresolved !== "" || fence.length > 0 ? this.dbPath() : "";
     if ((surface !== "" || unresolved !== "") && dbState(this.env) === "error") return this.dbDenied();
     let lifted = false;
@@ -15740,16 +16053,16 @@ var Boundary = class {
       const glob = surface.search(GLOB_CHAR2);
       if (glob >= 0) {
         const over = capture2(posixDirname(`${surface.slice(0, glob)}x`));
-        return deny5(
+        return deny6(
           `BLOCKED: a loop or glob over ${over} reaches prompt-surface paths (${surface}); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.`
         );
       }
-      return deny5(
+      return deny6(
         `BLOCKED: SWE may not write prompt-surface files via Bash (${writeShapes()}). Target: ${surface}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.`
       );
     }
     if (unresolved !== "" && !lifted) {
-      return deny5(
+      return deny6(
         `BLOCKED: write target "${unresolved}" ${UNJUDGED_PHRASE} depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.`
       );
     }
@@ -15843,12 +16156,12 @@ var Boundary = class {
       {
         issueId: issue,
         branchId: "",
-        fromNode: `hook:${GATE_NAME16}`,
+        fromNode: `hook:${GATE_NAME19}`,
         eventType: "hook_block_bypassed",
         summary: `${this.toolName} to ${rel} after ${gate} denied a Bash write to it`,
         contentJson: content
       },
-      { caller: GATE_NAME16, env: this.env }
+      { caller: GATE_NAME19, env: this.env }
     );
     if (!written.ok) {
       if (written.error !== "") process.stderr.write(`${written.error}
@@ -15866,7 +16179,7 @@ var Boundary = class {
     const target = this.target;
     if (target === "") return ALLOW;
     if (this.ctxState === "missing") {
-      return deny5(
+      return deny6(
         `BLOCKED: swe-boundary cannot resolve this swe's worktree: ${this.missing}. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: ${target}. Report this to bro.`
       );
     }
@@ -15877,7 +16190,7 @@ var Boundary = class {
       const base2 = `${canonical2("/tmp")}/claude-${uid}`;
       if (this.scratchpadAllows(abs, session, base2)) return ALLOW;
       const hint = this.scratchHint(session, base2, uid);
-      return deny5(
+      return deny6(
         `BLOCKED: SWE may only edit files inside its assigned worktree (${this.worktree}) of task ${this.callerTask}. Target '${target}' is outside the worktree. Scratch files go in this session's scratchpad, ${hint}/.`
       );
     }
@@ -15889,7 +16202,7 @@ var Boundary = class {
       this.wtD = worktreeRootForTarget(target);
       subject = this.wtD === "" ? target : stripDir(target, this.wtD);
     }
-    if (this.wtD !== "" && subject === "CLAUDE.md") return deny5(claudeMdReason(target));
+    if (this.wtD !== "" && subject === "CLAUDE.md") return deny6(claudeMdReason(target));
     if (!isPromptSurfacePath2(subject, this.wtD, this.env)) return this.bypassCheck();
     const db = this.dbPath();
     if (dbState(this.env) === "error") return this.dbDenied();
@@ -15901,7 +16214,7 @@ var Boundary = class {
         if (pb === "1") return this.bypassCheck();
       }
     }
-    return deny5(
+    return deny6(
       `BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: ${target}. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch.`
     );
   }
@@ -15923,7 +16236,7 @@ var sweBoundary = async (payload, env) => {
 };
 
 // src/hooks/swe-resume-gate.ts
-var GATE_NAME17 = "swe-resume-gate";
+var GATE_NAME20 = "swe-resume-gate";
 function effortMismatchReason(agentId, target) {
   return `BLOCKED: swe ${agentId} ran task ${target.task_id} at effort ${target.run_effort}; the task's effort is now ${target.task_effort}. A resumed swe keeps the effort it was spawned at, so resuming it would ignore the change. Spawn a fresh swe at the task's effort instead: Agent(subagent_type='swe', effort='${target.task_effort}', prompt starting 'task_id=${target.task_id}').`;
 }
@@ -15933,7 +16246,7 @@ var sweResumeGate = (payload, env) => {
   if (to === "") return ALLOW;
   const db = dbPath(env);
   if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME17, env);
+  if (!haveSqlite(env)) return denyUnreadable(GATE_NAME20, env);
   const out2 = gateRead(
     db,
     `SELECT json_object('task_id', r.task_id, 'status', t.status, 'run_effort', r.effort, 'task_effort', t.effort)
@@ -15942,11 +16255,11 @@ var sweResumeGate = (payload, env) => {
       ORDER BY r.id DESC LIMIT 1;`,
     env
   );
-  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME17, env);
+  if (out2 === GATE_READ_ERROR) return denyUnreadable(GATE_NAME20, env);
   if (out2 === "") return ALLOW;
   const target = JSON.parse(out2.split("\n")[0]);
   if (target.status === "closed") return ALLOW;
-  const verdict = reworkLimitVerdict(GATE_NAME17, db, String(target.task_id), env);
+  const verdict = reworkLimitVerdict(GATE_NAME20, db, String(target.task_id), env);
   if (verdict !== ALLOW) return verdict;
   if (target.run_effort !== null && target.task_effort !== null && target.run_effort !== target.task_effort) {
     return denyPreToolUse(effortMismatchReason(to, target));
@@ -15956,7 +16269,7 @@ var sweResumeGate = (payload, env) => {
 
 // src/hooks/swe-stop-cause.ts
 import { readFileSync as readFileSync10 } from "node:fs";
-var GATE_NAME18 = "swe-stop-cause";
+var GATE_NAME21 = "swe-stop-cause";
 var STOP_DETAIL_MAX_CHARS = 500;
 var HOOK_DENY_RE = /^PreToolUse:\S+ hook error:/;
 var SKIPPED_TOOL_RE = /(^|__)(task_update_status|task_brief)$/;
@@ -16040,7 +16353,7 @@ function sweStopCause(payload, env) {
         WHERE id = (SELECT id FROM agent_runs
                      WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${sqlQuote(spawnId)}'
                      ORDER BY id DESC LIMIT 1);`,
-      { caller: GATE_NAME18, env }
+      { caller: GATE_NAME21, env }
     );
   } catch {
   }
@@ -16048,11 +16361,11 @@ function sweStopCause(payload, env) {
 }
 
 // src/hooks/task-overrun-alert.ts
-var GATE_NAME19 = "task-overrun-alert";
+var GATE_NAME22 = "task-overrun-alert";
 var OVERRUN_ENV = "TMB_TASK_OVERRUN_MIN";
 var DEFAULT_OVERRUN_MIN = 60;
 var EVENT = "task_overrun_alerted";
-var FROM_NODE = `hook:${GATE_NAME19}`;
+var FROM_NODE = `hook:${GATE_NAME22}`;
 var MS_PER_MIN = 6e4;
 function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
@@ -16093,7 +16406,7 @@ function claim(db, found, now, env) {
   const statements2 = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
-    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME19 });
+    const guard2 = dedupeGuard(EVENT, content, ["$.task_id"], { caller: GATE_NAME22 });
     const row = auditSql(
       {
         issueId: String(o.issueId),
@@ -16104,12 +16417,12 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME19, env, now: nowIso(now) }
+      { caller: GATE_NAME22, env, now: nowIso(now) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements2.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
   }
-  const w = dbWrite(db, statements2.join("\n"), { caller: GATE_NAME19, env });
+  const w = dbWrite(db, statements2.join("\n"), { caller: GATE_NAME22, env });
   if (!w.ok) return null;
   return new Set(w.stdout.split("\n").map((l) => sqlInt(l.trim())).filter((id) => id !== "").map(Number));
 }
@@ -16317,7 +16630,7 @@ function personaEmit(p, event, context3) {
 }
 
 // src/hooks/activation-routine.ts
-var GATE_NAME20 = "activation-routine";
+var GATE_NAME23 = "activation-routine";
 var HALT_TEXT = "\u26D4 MCP trajectory-server is not running at this prompt \u2014 trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery \xA7B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.";
 var FIRST_RUN_LINE = "onboarded=<no \u2014 FIRST CONTACT, auto-fire /onboard before any reply>";
 var SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -16417,7 +16730,7 @@ function activationRoutine(payload, env) {
     if (!saysBro(prompt, grep) && !isStickyBro(readTranscript2(field5("transcript_path")), grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
-    const db = dbPathAdvisory(GATE_NAME20, env, (line) => process.stderr.write(`${line}
+    const db = dbPathAdvisory(GATE_NAME23, env, (line) => process.stderr.write(`${line}
 `));
     if (db === null || !haveSqlite(env)) return haltOnly();
     const onboarded = sqliteRo(db, "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';", env);
@@ -16437,7 +16750,7 @@ function activationRoutine(payload, env) {
 }
 
 // src/hooks/debug-trajectory.ts
-var GATE_NAME21 = "debug-trajectory";
+var GATE_NAME24 = "debug-trajectory";
 var ARGS_MAX_BYTES = 4e3;
 var pad = (n2) => String(n2).padStart(2, "0");
 function hourStamp(date) {
@@ -16464,7 +16777,7 @@ function debugTrajectory(payload, env) {
   try {
     if ((env.TMB_EVAL_MODE || "0") !== "1" || (env.TMB_DEBUG_TRAJECTORY || "0") !== "1") return ALLOW;
     const writeEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "500", TMB_DB_WRITE_RUN_BUDGET_MS: "1200" };
-    const db = dbPathAdvisory(GATE_NAME21, writeEnv, (line) => process.stderr.write(`${line}
+    const db = dbPathAdvisory(GATE_NAME24, writeEnv, (line) => process.stderr.write(`${line}
 `));
     if (db === null) return ALLOW;
     const echoed = `${commandSubstitution(payload)}
@@ -16472,7 +16785,7 @@ function debugTrajectory(payload, env) {
     const tool = commandSubstitution(jqAlternatives(echoed, [["tool_name"], ["tool"]]));
     if (tool === "" || tool.startsWith("mcp__")) return ALLOW;
     const sessionId = env.CLAUDE_SESSION_ID || hourStamp(/* @__PURE__ */ new Date());
-    const w = dbWrite(db, debugTrajectorySql(sessionId, tool, argsJson(echoed), nowIso()), { caller: GATE_NAME21, env: writeEnv });
+    const w = dbWrite(db, debugTrajectorySql(sessionId, tool, argsJson(echoed), nowIso()), { caller: GATE_NAME24, env: writeEnv });
     if (!w.ok) process.stderr.write(`${w.error}
 `);
     return { stdout: w.stdout, code: 0 };
@@ -16483,7 +16796,7 @@ function debugTrajectory(payload, env) {
 
 // src/hooks/plugin-hooks-marker.ts
 import { mkdirSync as mkdirSync5, statSync as statSync21 } from "node:fs";
-var GATE_NAME22 = "plugin-hooks-marker";
+var GATE_NAME25 = "plugin-hooks-marker";
 var SUFFIX = ".plugin-hooks";
 function safeSessionId(input) {
   const sid = commandSubstitution(jqAlternatives(commandSubstitution(input), [["session_id"]]));
@@ -16525,7 +16838,7 @@ function pluginHooksMarker(payload, env) {
 
 // src/hooks/session-log-capture.ts
 import { appendFileSync as appendFileSync3, mkdirSync as mkdirSync6, readFileSync as readFileSync13, statSync as statSync22 } from "node:fs";
-var GATE_NAME23 = "session-log-capture";
+var GATE_NAME26 = "session-log-capture";
 var CONTINUE = '{"continue": true}\n';
 function utcStamp2(date) {
   const iso2 = date.toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -16580,7 +16893,7 @@ function sessionLogCapture(payload, env) {
 }
 
 // src/hooks/session-start-persona.ts
-var GATE_NAME24 = "session-start-persona";
+var GATE_NAME27 = "session-start-persona";
 function sessionStartPersona(payload, env) {
   try {
     const input = commandSubstitution(payload);
@@ -16598,7 +16911,7 @@ function sessionStartPersona(payload, env) {
 
 // src/hooks/user-prompt-persona.ts
 import { existsSync as existsSync11 } from "node:fs";
-var GATE_NAME25 = "user-prompt-persona";
+var GATE_NAME28 = "user-prompt-persona";
 var PERSONA_UNREADABLE_NOTICE = `{"systemMessage":"TMB could not read the plugin CLAUDE.md that carries bro's persona, so this session runs without it. Start a new Claude Code session to load it."}
 `;
 function userPromptPersona(payload, env) {
@@ -16624,7 +16937,7 @@ function userPromptPersona(payload, env) {
 }
 
 // src/hooks/consultant-persistence-gate.ts
-var GATE_NAME26 = "consultant-persistence-gate";
+var GATE_NAME29 = "consultant-persistence-gate";
 var BACKBONE_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
 var block = (reason) => ({ stdout: `${jqCompact({ decision: "block", reason })}
 `, code: 0 });
@@ -16644,7 +16957,7 @@ function consultantPersistenceGate(payload, env) {
   if (agent === "" || BACKBONE_ROLES.has(agent)) return ALLOW;
   const db = dbPath(env);
   if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
-  const unavailable = () => block(dbUnavailableReason(GATE_NAME26, env));
+  const unavailable = () => block(dbUnavailableReason(GATE_NAME29, env));
   const safeAgent = sqlQuote(agent);
   const isConsultant = gateRead(db, `SELECT COUNT(*) FROM agents WHERE name='${safeAgent}' AND kind='consultant';`, env);
   if (isConsultant === GATE_READ_ERROR) return unavailable();
@@ -16660,7 +16973,7 @@ function consultantPersistenceGate(payload, env) {
 }
 
 // src/hooks/roundtable-auq-shape.ts
-var GATE_NAME27 = "roundtable-auq-shape";
+var GATE_NAME30 = "roundtable-auq-shape";
 var MAX_QUESTIONS = 4;
 var AWAITING_SQL = `
   SELECT r.id FROM roundtables r
@@ -16748,7 +17061,7 @@ function roundtableAuqShape(payload, env) {
 }
 
 // src/hooks/roundtable-cleanup-postcheck.ts
-var GATE_NAME28 = "roundtable-cleanup-postcheck";
+var GATE_NAME31 = "roundtable-cleanup-postcheck";
 var CLOSE_TOOLS = ["roundtable_close", "roundtable_close_with_decisions"];
 function roundtableIdField(echoed) {
   return commandSubstitution(
@@ -16806,7 +17119,7 @@ function roundtableCleanupPostcheck(payload, env) {
 }
 
 // src/hooks/roundtable-slash-detect.ts
-var GATE_NAME29 = "roundtable-slash-detect";
+var GATE_NAME32 = "roundtable-slash-detect";
 var SUMMARY_MAX_BYTES = 200;
 var WRITE_ENV = { TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
 function slashInvoked(prompt) {
@@ -16828,12 +17141,12 @@ function roundtableSlashDetect(payload, env) {
       {
         issueId: "-1",
         branchId: "",
-        fromNode: `hook:${GATE_NAME29}`,
+        fromNode: `hook:${GATE_NAME32}`,
         eventType: "roundtable_slash_invoked",
         summary: `User typed /roundtable: ${promptSummary(prompt)}`,
         contentJson: "{}"
       },
-      { caller: GATE_NAME29, env: { ...env, ...WRITE_ENV } }
+      { caller: GATE_NAME32, env: { ...env, ...WRITE_ENV } }
     );
     if (!written.ok) {
       if (written.error !== "") process.stderr.write(`${written.error}
@@ -16850,7 +17163,7 @@ function roundtableSlashDetect(payload, env) {
 }
 
 // src/hooks/code-reviewer-no-worktree.ts
-var GATE_NAME30 = "code-reviewer-no-worktree";
+var GATE_NAME33 = "code-reviewer-no-worktree";
 var BYPASS_ENV3 = "TMB_ALLOW_CODE_REVIEWER_WORKTREE";
 var DENY_REASON = `code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin \u2014 from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.
 
@@ -16876,7 +17189,7 @@ var codeReviewerNoWorktree = (payload, env) => {
 };
 
 // src/hooks/code-reviewer-spawn-prompt-shape.ts
-var GATE_NAME31 = "code-reviewer-spawn-prompt-shape";
+var GATE_NAME34 = "code-reviewer-spawn-prompt-shape";
 var BYPASS_ENV4 = "TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE";
 var RUBBER_STAMP_PHRASES = ["trust the prior verdict", "fast-track if", "rubber.stamp", "prior verdict"];
 var ANCHOR_LIST = `${ANCHORS.slice(0, -1).join(", ")}, and ${ANCHORS[ANCHORS.length - 1]}`;
@@ -16922,7 +17235,7 @@ var codeReviewerSpawnPromptShape = (payload, env) => {
 };
 
 // src/hooks/code-reviewer-after-atomic-close.ts
-var GATE_NAME32 = "code-reviewer-after-atomic-close";
+var GATE_NAME35 = "code-reviewer-after-atomic-close";
 var BYPASS_ENV5 = "TMB_SKIP_CODE_REVIEWER_CLOSE_GATE";
 function notClosedReason(taskId, status) {
   return `BLOCKED: code-reviewer spawn requires task ${taskId} status=closed but actual status=${status}.
@@ -16936,7 +17249,7 @@ SWE returning completed does not close the trajectory task \u2014 that is bro_at
 
 Fix: call bro_atomic_close(agent='bro', task_id=${taskId}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.`;
 }
-function promptTaskId(prompt, multibyte) {
+function promptTaskId2(prompt, multibyte) {
   const space2 = grepSpace(multibyte);
   const re = new RegExp(`task_id[${space2}]*=[${space2}]*([0-9]+)`, multibyte ? "u" : "");
   const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
@@ -16949,12 +17262,12 @@ function promptTaskId(prompt, multibyte) {
 var codeReviewerAfterAtomicClose = (payload, env) => {
   if (env[BYPASS_ENV5] === "1") return ALLOW;
   if (!isCodeReviewerSpawn(payload)) return ALLOW;
-  const taskId = sqlInt(promptTaskId(spawnField(payload, "tool_input", "prompt"), grepMultibyte(env)));
+  const taskId = sqlInt(promptTaskId2(spawnField(payload, "tool_input", "prompt"), grepMultibyte(env)));
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
   if (db === null || !haveSqlite(env)) return ALLOW;
   const status = gateRead(db, `SELECT status FROM tasks WHERE id = ${taskId};`, env);
-  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME32, env)}
+  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME35, env)}
 `, code: 0 };
   if (status === "" || status === "closed") return ALLOW;
   return spawnDeny(notClosedReason(taskId, status));
@@ -16977,25 +17290,28 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME11, codeReviewerPreflight],
   [GATE_NAME12, codeReviewerSpawnNote],
   [GATE_NAME13, reworkLimit],
-  [GATE_NAME14, substratePreflight],
-  [GATE_NAME15, namingLint],
-  [GATE_NAME16, sweBoundary],
-  [GATE_NAME17, sweResumeGate],
-  [GATE_NAME18, sweStopCause],
-  [GATE_NAME19, taskOverrunAlert],
-  [GATE_NAME20, activationRoutine],
-  [GATE_NAME21, debugTrajectory],
-  [GATE_NAME22, pluginHooksMarker],
-  [GATE_NAME23, sessionLogCapture],
-  [GATE_NAME24, sessionStartPersona],
-  [GATE_NAME25, userPromptPersona],
-  [GATE_NAME26, consultantPersistenceGate],
-  [GATE_NAME27, roundtableAuqShape],
-  [GATE_NAME28, roundtableCleanupPostcheck],
-  [GATE_NAME29, roundtableSlashDetect],
-  [GATE_NAME30, codeReviewerNoWorktree],
-  [GATE_NAME31, codeReviewerSpawnPromptShape],
-  [GATE_NAME32, codeReviewerAfterAtomicClose]
+  [GATE_NAME14, requireFeatureBranchActive],
+  [GATE_NAME16, requireSpawnEffort],
+  [GATE_NAME15, requireTaskSpec],
+  [GATE_NAME17, substratePreflight],
+  [GATE_NAME18, namingLint],
+  [GATE_NAME19, sweBoundary],
+  [GATE_NAME20, sweResumeGate],
+  [GATE_NAME21, sweStopCause],
+  [GATE_NAME22, taskOverrunAlert],
+  [GATE_NAME23, activationRoutine],
+  [GATE_NAME24, debugTrajectory],
+  [GATE_NAME25, pluginHooksMarker],
+  [GATE_NAME26, sessionLogCapture],
+  [GATE_NAME27, sessionStartPersona],
+  [GATE_NAME28, userPromptPersona],
+  [GATE_NAME29, consultantPersistenceGate],
+  [GATE_NAME30, roundtableAuqShape],
+  [GATE_NAME31, roundtableCleanupPostcheck],
+  [GATE_NAME32, roundtableSlashDetect],
+  [GATE_NAME33, codeReviewerNoWorktree],
+  [GATE_NAME34, codeReviewerSpawnPromptShape],
+  [GATE_NAME35, codeReviewerAfterAtomicClose]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
