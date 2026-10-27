@@ -24,6 +24,7 @@ naming-lint
 plugin-hooks-marker
 post-atomic-close-readme
 post-task-create-spawn-hint
+prompt-intent-hints
 require-feature-branch-active
 require-spawn-effort
 require-task-spec
