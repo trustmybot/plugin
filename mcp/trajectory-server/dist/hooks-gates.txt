@@ -1,11 +1,16 @@
 askuserquestion-length-lint
+bro-turn-usage
 code-reviewer-preflight
 code-reviewer-spawn-note
 containment-guard
+deferred-tools-drift-warn
+ensure-gitignore
 ensure-mcp-deps-installed
 git-guards
 git-push-guard
+mcp-health-check
 rework-limit
+substrate-preflight
 swe-boundary
 swe-resume-gate
 swe-stop-cause

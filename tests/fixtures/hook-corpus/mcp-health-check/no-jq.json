@@ -1,0 +1,20 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "nojq-session",
+  "source": "startup",
+  "corpus_env": {
+    "PATH": "@PATH_WITHOUT:jq@",
+    "PGREP_OUT": ""
+  },
+  "corpus_expect": "trajectory-server not detected yet at SessionStart",
+  "corpus_expect_tree": [
+    "\"session_id\":\"nojq-session\""
+  ],
+  "corpus_divergence": {
+    "why": "the .sh exits silently without jq",
+    "bash_expect": "empty",
+    "bash_expect_tree": [
+      "!project/.claude/tmb/logs"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "corpus_stdin": "not json {",
+  "corpus_env": {
+    "PGREP_OUT": ""
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "\"event\":\"unknown\",\"mcp_alive\":false",
+    "\"session_id\":\"\""
+  ]
+}
