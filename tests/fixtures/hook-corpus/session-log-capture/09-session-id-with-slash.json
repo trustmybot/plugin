@@ -1,0 +1,5 @@
+{
+  "session_id": "nested/log-session-0006",
+  "prompt": "lost",
+  "corpus_expect": "{\"continue\": true}"
+}

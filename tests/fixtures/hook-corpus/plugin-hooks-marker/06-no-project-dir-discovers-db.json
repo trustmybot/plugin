@@ -1,0 +1,7 @@
+{
+  "session_id": "hooks-session-0003",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": null
+  },
+  "corpus_expect": "empty"
+}

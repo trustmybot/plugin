@@ -1,11 +1,17 @@
+activation-routine
 askuserquestion-length-lint
 code-reviewer-preflight
 code-reviewer-spawn-note
 containment-guard
+debug-trajectory
 ensure-mcp-deps-installed
 git-guards
 git-push-guard
+plugin-hooks-marker
 rework-limit
+session-log-capture
+session-start-persona
 swe-resume-gate
 swe-stop-cause
 task-overrun-alert
+user-prompt-persona

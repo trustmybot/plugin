@@ -1,0 +1,7 @@
+{
+  "session_id": "start-session-0008",
+  "corpus_env": {
+    "CLAUDE_PLUGIN_ROOT": "@SANDBOX@/plugin-nomd"
+  },
+  "corpus_expect": "empty"
+}
