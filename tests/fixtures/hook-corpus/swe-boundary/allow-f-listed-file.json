@@ -1,0 +1,13 @@
+{
+  "session_id": "corpus",
+  "transcript_path": "@SANDBOX@/tr/main.jsonl",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/sb-task",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo x >> docs/guide.md"
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/tr/task-10.jsonl",
+  "corpus_expect": "allow"
+}

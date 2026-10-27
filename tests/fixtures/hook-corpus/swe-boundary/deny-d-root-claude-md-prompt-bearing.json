@@ -1,0 +1,15 @@
+{
+  "session_id": "corpus",
+  "transcript_path": "@SANDBOX@/tr/main.jsonl",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/sb-prompt",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "@SANDBOX@/project/.claude/worktrees/sb-prompt/CLAUDE.md",
+    "old_string": "a",
+    "new_string": "b"
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/tr/task-11.jsonl",
+  "corpus_expect": "CLAUDE.md at the repo root"
+}
