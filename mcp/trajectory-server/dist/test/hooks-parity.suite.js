@@ -229,6 +229,7 @@ export function hooksParityShard(k, n) {
                     'swe-resume-gate',
                     'swe-stop-cause',
                     'task-overrun-alert',
+                    'tool-output-size',
                 ]);
             });
             it('self-test: a registered gate without a corpus, or with too few inputs, fails the check', () => {
