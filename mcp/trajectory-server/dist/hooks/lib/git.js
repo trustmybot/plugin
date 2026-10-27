@@ -6,13 +6,13 @@
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
-export function gitRun(dir, args, env = process.env, input = '') {
+export function gitRun(dir, args, env = process.env, input = '', stderr = 'ignore') {
     const r = spawnSync('git', ['-C', dir, ...args], {
         encoding: 'utf8',
         env,
         input,
         maxBuffer: GIT_MAX_BUFFER,
-        stdio: ['pipe', 'pipe', 'ignore'],
+        stdio: ['pipe', 'pipe', stderr],
     });
     return { code: r.error ? -1 : (r.status ?? -1), stdout: r.stdout ?? '' };
 }
@@ -20,8 +20,9 @@ export function gitRun(dir, args, env = process.env, input = '') {
 export function gitOut(dir, args, env = process.env, input = '') {
     return gitRun(dir, args, env, input).stdout.replace(/\n+$/, '');
 }
-export function gitOk(dir, args, env = process.env) {
-    return gitRun(dir, args, env).code === 0;
+/** `git -C <dir> <args>` succeeded; `stderr: 'inherit'` for a call the .sh leaves unsilenced. */
+export function gitOk(dir, args, env = process.env, stderr = 'ignore') {
+    return gitRun(dir, args, env, '', stderr).code === 0;
 }
 /** `[ -d <path> ]`. */
 export function isDir(path) {

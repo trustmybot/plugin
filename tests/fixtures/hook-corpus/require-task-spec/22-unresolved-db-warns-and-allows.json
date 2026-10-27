@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=6 go"},"corpus_env":{"TRAJECTORY_DB_PATH":null,"CLAUDE_PROJECT_DIR":null,"TMB_TEST_RUN_ID":"parity"},"corpus_expect":"empty","corpus_expect_stderr":"tmb: trajectory DB unresolved: TMB_TEST_RUN_ID is set"}
