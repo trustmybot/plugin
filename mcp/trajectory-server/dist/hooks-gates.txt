@@ -6,7 +6,9 @@ attribution-footer
 branch-up-to-date-with-remote
 bro-turn-usage
 cheatcode-install-approval
+clean-merged-branch
 cleanup-worktree-on-task-close
+close-issue-on-merge
 code-quality-lint
 code-reviewer-after-atomic-close
 code-reviewer-no-worktree
