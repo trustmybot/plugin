@@ -1,0 +1,10 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
+  "tool_input": {
+    "agent": "swe",
+    "task_id": 31,
+    "status": "completed",
+    "waive_verification_gate_reason": "short"
+  },
+  "corpus_expect": "BLOCKED: verification failed."
+}

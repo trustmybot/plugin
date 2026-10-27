@@ -1,0 +1,2 @@
+### Fixed
+- **The README-staleness nudge no longer flags READMEs a commit on another branch adds or edits** (GH 2044): it read `README.md` from the main checkout, so a commit on a branch the checkout had not checked out was flagged for a README the checkout did not have yet. The TypeScript `post-atomic-close-readme` gate reads each README from the closed commit's own tree, and it skips any directory with a `dist` path segment.

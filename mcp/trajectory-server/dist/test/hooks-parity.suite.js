@@ -202,6 +202,8 @@ const OWN_SANDBOX_GATES = new Set([
     'reviewer-identity-observe',
     'cheatcode-install-approval',
     'swe-scope-fence',
+    'swe-verification-gate',
+    'post-atomic-close-readme',
     'remote-id-guard',
 ]);
 function parityCases() {

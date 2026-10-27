@@ -22,6 +22,7 @@ git-push-guard
 mcp-health-check
 naming-lint
 plugin-hooks-marker
+post-atomic-close-readme
 post-task-create-spawn-hint
 remote-id-guard
 require-feature-branch-active
@@ -42,6 +43,7 @@ swe-scope-fence
 swe-spawn-bind
 swe-spawn-rollback
 swe-stop-cause
+swe-verification-gate
 task-overrun-alert
 tool-output-size
 user-prompt-persona
