@@ -23,6 +23,7 @@ mcp-health-check
 naming-lint
 plugin-hooks-marker
 post-task-create-spawn-hint
+remote-id-guard
 require-feature-branch-active
 require-spawn-effort
 require-task-spec

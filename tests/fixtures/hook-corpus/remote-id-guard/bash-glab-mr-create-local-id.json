@@ -7,5 +7,6 @@
     "command": "glab mr create --title x --description 'see #7'",
     "description": "corpus"
   },
-  "tool_use_id": "tu-corpus"
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "#7 → #88 (GitLab)  local #7: \"Local seven\""
 }

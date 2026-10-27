@@ -203,7 +203,9 @@ interface ParityCase {
  * host's processes and installs, so they run in hooks-session-parity.suite.ts
  * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side;
  * and the task-DB Agent-spawn gates, which read a sandbox of git repos and
- * trajectory DBs in hooks-spawn-gates-parity.suite.ts.
+ * trajectory DBs in hooks-spawn-gates-parity.suite.ts; and remote-id-guard,
+ * which reads a sandbox DB of local issues in
+ * hooks-remote-id-guard-parity.suite.ts.
  */
 const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'activation-routine',
@@ -235,6 +237,7 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'reviewer-identity-observe',
   'cheatcode-install-approval',
   'swe-scope-fence',
+  'remote-id-guard',
 ]);
 
 function parityCases(): ParityCase[] {
