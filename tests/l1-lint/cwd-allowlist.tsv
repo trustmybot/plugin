@@ -47,3 +47,5 @@ tests/lib/assert.sh	git -C "$(pwd -P)" rev-parse --show-toplevel	test-harness	as
 tests/lib/live-db-shim.sh	"\$PWD" "\$*"	test-harness	the generated sqlite3 shim logs the dir it was invoked in
 tests/lib/live-db-shim.sh	abs="\$PWD/\$arg"	test-harness	the generated sqlite3 shim joins a relative DB argument to the dir it was invoked in
 mcp/trajectory-server/src/test-run.ts	spawnSync('bash', ['-c', opts.command]	not-location	the test-run wrapper runs its caller's command in the caller's directory, as verification[] entries run; it finds no project, repo or agent
+mcp/trajectory-server/src/hooks/orphan-scan.ts	const r = spawnSync(cmd, args, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });	not-location	ps / lsof by pid or path for the orphan scan; reads no project or repo location
+mcp/trajectory-server/src/hooks/session-start-prescan.ts	const child = spawn('node', ['--experimental-sqlite', invoker], {	not-location	run-scan-initial.mjs takes its project from CLAUDE_PROJECT_DIR and its DB from TRAJECTORY_DB_PATH, never the cwd
