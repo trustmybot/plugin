@@ -52,12 +52,12 @@ function IssueRow({ issue }: { issue: Row }) {
       aside={
         <>
           {taskCount > 0 && (
-            <span className="hidden items-center gap-1 sm:flex" title="Tasks Done">
+            <span className="hidden items-center gap-1 sm:flex" title="Tasks done">
               <TasklistIcon size={16} aria-hidden="true" />
               {String(issue['tasks_done'] ?? 0)}/{taskCount}
             </span>
           )}
-          <span className="flex items-center gap-1" title="Discussion Entries">
+          <span className="flex items-center gap-1" title="Discussion entries">
             <CommentIcon size={16} aria-hidden="true" />
             {String(issue['discussion_count'] ?? 0)}
           </span>

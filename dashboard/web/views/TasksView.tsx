@@ -98,7 +98,7 @@ export function TaskRow({ task }: { task: Row }) {
           ) : null}
           {task['repo'] ? <span className="hidden sm:inline">{String(task['repo'])}</span> : null}
           {findings > 0 && (
-            <span className="hidden items-center gap-1 sm:flex" title="Open Review Findings">
+            <span className="hidden items-center gap-1 sm:flex" title="Open review findings">
               <ReportIcon size={16} aria-hidden="true" />
               {findings}
               <span className="sr-only">open findings</span>
