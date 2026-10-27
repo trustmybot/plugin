@@ -827,7 +827,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_install',
       description:
-        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
+        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url); a target not yet attached to an already-registered skill/plugin is attached (approval-gated, materialized, attachment row added) and returns attached:true. Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|code-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1055,43 +1055,25 @@ export function cheatcodeTools(db: TrajectoryDB): {
           );
         }
 
-        // Idempotent re-install: the (name, source_url) pair is the candidate
-        // identity. If it is already installed, no-op — never duplicate the row
-        // or re-run the marketplace install.
-        const existing = db.get<CheatcodeRow>(
-          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
-          [name, sourceUrl],
-        );
-        if (existing) {
-          const attachments = db.all<{ target: string; artifact: string }>(
-            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
-            [existing.id],
+        // Server-side approval gate (#1023): fail-closed. The install (or an
+        // attach to an existing row) only runs when a matching
+        // `cheatcode_approved` audit row exists for this candidate's source_url —
+        // the same row cheatcode_approve writes. The check is self-contained here
+        // so the gate holds even without the hook.
+        const approvalRefusal = (): CallToolResult | null => {
+          const approval = db.get<{ id: number }>(
+            `SELECT id FROM audit
+               WHERE event_type = 'cheatcode_approved'
+                 AND json_extract(content_json, '$.source_url') = ?
+             LIMIT 1`,
+            [sourceUrl],
           );
-          return ok({
-            installed: false,
-            idempotent: true,
-            cheatcode: existing,
-            attachments,
-          });
-        }
-
-        // Server-side approval gate (#1023): fail-closed. The install only runs
-        // when a matching `cheatcode_approved` audit row exists for this
-        // candidate's source_url — the same row cheatcode_approve writes. The
-        // check is self-contained here so the gate holds even without the hook.
-        const approval = db.get<{ id: number }>(
-          `SELECT id FROM audit
-             WHERE event_type = 'cheatcode_approved'
-               AND json_extract(content_json, '$.source_url') = ?
-           LIMIT 1`,
-          [sourceUrl],
-        );
-        if (!approval) {
+          if (approval) return null;
           return err(
             `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). ` +
               `Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`,
           );
-        }
+        };
 
         const projectRoot = projectRootFromDbPath(db.dbPath);
         const writesOutside = (targets: Iterable<string>): CallToolResult | null => {
@@ -1106,6 +1088,85 @@ export function cheatcodeTools(db: TrajectoryDB): {
           }
           return null;
         };
+
+        // The (name, source_url) pair is the candidate identity. An existing row
+        // never duplicates or re-runs the marketplace install: with no target, or
+        // with a target already attached, it no-ops. A skill/plugin target with
+        // no attachment row yet is attached to the existing row, whose
+        // cheatcodes row stays unchanged.
+        const existing = db.get<CheatcodeRow>(
+          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
+          [name, sourceUrl],
+        );
+        if (existing) {
+          const listAttachments = () =>
+            db.all<{ target: string; artifact: string }>(
+              `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
+              [existing.id],
+            );
+          const attachments = listAttachments();
+          if (
+            target === null ||
+            (existing.kind !== 'skill' && existing.kind !== 'plugin') ||
+            attachments.some((a) => a.target === target)
+          ) {
+            return ok({
+              installed: false,
+              idempotent: true,
+              cheatcode: existing,
+              attachments,
+            });
+          }
+
+          const refusedAttachApproval = approvalRefusal();
+          if (refusedAttachApproval) return refusedAttachApproval;
+          const refusedAttachTarget = writesOutside([target]);
+          if (refusedAttachTarget) return refusedAttachTarget;
+
+          const providedTools =
+            existing.kind === 'plugin' && target !== 'bro' ? detectProvidedTools(name) : [];
+          const result = materializeConsumingAgent(db.dbPath, target, name, providedTools);
+          if (!result) {
+            return err(
+              `cheatcode attach failed for '${name}' → ${target}: no project root or agent md to materialize. No attachment recorded.`,
+            );
+          }
+
+          const attachedAt = nowISO();
+          db.transaction(() => {
+            db.run(
+              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+               VALUES (?, ?, ?, ?)`,
+              [existing.id, result.target, result.artifact, attachedAt],
+            );
+            auditCheatcode(
+              'cheatcode_installed',
+              `Cheatcode attached: '${name}' → ${result.target} (cheatcode_id=${existing.id})`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name,
+                kind: existing.kind,
+                source_url: sourceUrl,
+                attached: true,
+                target: result.target,
+                artifact: result.artifact,
+              }),
+              attachedAt,
+            );
+          });
+
+          return ok({
+            installed: false,
+            attached: true,
+            cheatcode: existing,
+            attachments: listAttachments(),
+            materialized: [{ target: result.target, artifact: result.artifact, path: result.path }],
+          });
+        }
+
+        const refusedApproval = approvalRefusal();
+        if (refusedApproval) return refusedApproval;
+
         const refusedBeforeInstall = writesOutside(target ? [target] : []);
         if (refusedBeforeInstall) return refusedBeforeInstall;
 

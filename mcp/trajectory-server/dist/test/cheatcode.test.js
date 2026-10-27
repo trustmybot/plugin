@@ -1501,6 +1501,95 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
             cleanup();
         }
     });
+    describe('attaching a new target to an already-registered cheatcode (GH 2121)', () => {
+        const CANDIDATE = { name: 'typescript-lsp', kind: 'plugin', source_url: 'https://github.com/x/typescript-lsp' };
+        function registerUnattached(db) {
+            const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, scope, status, installed_at)
+         VALUES (?, 'plugin', 'external', 'reconciled', ?, NULL, '1.0.0', 'project-local', 'active', 'then')`, [CANDIDATE.name, CANDIDATE.source_url]);
+            return Number(res.lastInsertRowid);
+        }
+        function attachmentCount(db, id, target) {
+            return db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ? AND target = ?`, [id, target]).n;
+        }
+        function withAttachEnv(body) {
+            const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+            process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+            const { root, db, cleanup } = tempProject();
+            const mf = withManifest({ name: CANDIDATE.name, lsp: { command: 'typescript-language-server' } });
+            process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+            const id = registerUnattached(db);
+            return body({ root, db, id }).finally(() => {
+                delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+                delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+                if (prev === undefined)
+                    delete process.env['CLAUDE_PLUGIN_ROOT'];
+                else
+                    process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+                mf.cleanup();
+                db.close();
+                cleanup();
+            });
+        }
+        it('approved target=swe materializes the tool grant, records one attachment, and uninstall reverses it', () => withAttachEnv(async ({ root, db, id }) => {
+            const snapshot = pluginRepoSnapshot();
+            const rowBefore = db.get('SELECT * FROM cheatcodes WHERE id = ?', [id]);
+            const tools = cheatcodeTools(db);
+            const r = await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE, target: 'swe' });
+            assert.notEqual(r.isError, true, `attach errored: ${r.content[0]?.text}`);
+            const out = parse(r);
+            assert.equal(out['attached'], true);
+            assert.equal(out['installed'], false);
+            assert.equal(out['materialized'].length, 1);
+            const localSwe = join(root, '.claude', 'agents', 'swe.md');
+            assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized');
+            const toolsLine = readFileSync(localSwe, 'utf8').match(/^tools:\s*(.*)$/m)[1];
+            assert.ok(toolsLine.split(',').map((s) => s.trim()).includes('LSP'), `LSP granted, got: ${toolsLine}`);
+            assert.equal(attachmentCount(db, id, 'swe'), 1, 'exactly one swe attachment row');
+            assert.deepEqual(db.get('SELECT * FROM cheatcodes WHERE id = ?', [id]), rowBefore, 'cheatcodes row unchanged on attach');
+            const audit = db.get(`SELECT content_json FROM audit WHERE event_type = 'cheatcode_installed' ORDER BY id DESC LIMIT 1`);
+            assert.ok(audit, 'attach audit row written');
+            assert.equal(JSON.parse(audit.content_json)['attached'], true);
+            assertPluginRepoUntouched(snapshot);
+            const unfxDir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-unfx-'));
+            const unfx = join(unfxDir, 'uninstall.json');
+            writeFileSync(unfx, JSON.stringify({ removed: true, error: null }));
+            process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = unfx;
+            try {
+                await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+            }
+            finally {
+                rmSync(unfxDir, { recursive: true, force: true });
+            }
+            const afterTools = readFileSync(localSwe, 'utf8').match(/^tools:\s*(.*)$/m)[1].split(',').map((s) => s.trim());
+            assert.ok(!afterTools.includes('LSP'), 'uninstall removed the LSP grant');
+            assert.ok(afterTools.includes('Read'), 'original tools preserved through uninstall');
+        }));
+        it('refuses the attach without an approval record and writes no file or attachment row', () => withAttachEnv(async ({ root, db, id }) => {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: CANDIDATE, target: 'swe' });
+            assert.equal(r.isError, true, 'unapproved attach refused');
+            assert.match(parse(r)['error'], /no approval on record/);
+            assert.ok(!existsSync(join(root, '.claude', 'agents', 'swe.md')), 'no agent md written');
+            assert.equal(attachmentCount(db, id, 'swe'), 0, 'no attachment row');
+        }));
+        it('a repeat call for an attached target, or a call with no target, is an idempotent no-op', () => withAttachEnv(async ({ root, db, id }) => {
+            const tools = cheatcodeTools(db);
+            const noTarget = parse(await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE }));
+            assert.equal(noTarget['idempotent'], true);
+            assert.ok(!existsSync(join(root, '.claude', 'agents')), 'no-target call wrote no agent md');
+            assert.equal(db.get('SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ?', [id]).n, 0);
+            await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE, target: 'swe' });
+            const localSwe = join(root, '.claude', 'agents', 'swe.md');
+            const bodyBefore = readFileSync(localSwe, 'utf8');
+            const auditsBefore = db.get('SELECT COUNT(*) AS n FROM audit WHERE event_type = \'cheatcode_installed\'').n;
+            const repeat = parse(await callInstall(tools.handlers, { agent: 'bro', candidate: CANDIDATE, target: 'swe' }));
+            assert.equal(repeat['idempotent'], true);
+            assert.equal(repeat['attached'], undefined);
+            assert.equal(readFileSync(localSwe, 'utf8'), bodyBefore, 'agent md unchanged');
+            assert.equal(attachmentCount(db, id, 'swe'), 1, 'still exactly one swe attachment row');
+            assert.equal(db.get('SELECT COUNT(*) AS n FROM audit WHERE event_type = \'cheatcode_installed\'').n, auditsBefore, 'no new audit row');
+        }));
+    });
     it('no target: a skill install is rejected and writes no agent md (orphan guard)', async () => {
         const prev = process.env['CLAUDE_PLUGIN_ROOT'];
         process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
