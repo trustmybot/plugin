@@ -20,7 +20,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/substrate-preflight.sh"
 HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
 [ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/substrate-preflight.sh"
-[ "$HOOK_IMPL" != ts ] || export TMB_TEST_NODE="$(command -v node)"
+[ "$HOOK_IMPL" != ts ] || export TMB_TEST_NODE="$(node -p process.execPath)"
 
 STUB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-substrate-preflight.XXXXXX")
 trap 'rm -rf "$STUB_DIR"' EXIT
