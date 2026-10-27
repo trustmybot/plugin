@@ -235,6 +235,8 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'reviewer-identity-observe',
   'cheatcode-install-approval',
   'swe-scope-fence',
+  'clean-merged-branch',
+  'close-issue-on-merge',
 ]);
 
 function parityCases(): ParityCase[] {

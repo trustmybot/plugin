@@ -4,6 +4,8 @@ askuserquestion-length-lint
 attribution-footer
 bro-turn-usage
 cheatcode-install-approval
+clean-merged-branch
+close-issue-on-merge
 code-quality-lint
 code-reviewer-after-atomic-close
 code-reviewer-no-worktree

@@ -44,6 +44,8 @@ import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
+import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -91,6 +93,8 @@ const GATES = new Map([
     [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
     [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
     [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+    [CLEAN_MERGED_GATE, cleanMergedBranch],
+    [CLOSE_ISSUE_GATE, closeIssueOnMerge],
 ]);
 export function findGate(name) {
     return GATES.get(name);
