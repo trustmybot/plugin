@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
@@ -432,6 +433,26 @@ function isRegisteredWorktree(repoPath, worktreePath) {
         return false;
     }
 }
+function canonicalPath(path) {
+    try {
+        return realpathSync(path);
+    }
+    catch {
+        return resolve(path);
+    }
+}
+// The live task whose effective worktree (taskWorktreeDir: its recorded path,
+// else its slug path) is `realWorktree`, compared by realpath.
+function worktreeHolder(db, taskId, repoPath, realWorktree) {
+    const live = db.all('SELECT id, status, branch_id, worktree_path, repo FROM tasks WHERE id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id', [taskId, JSON.stringify(ADOPT_HOLDING_STATUSES)]);
+    for (const t of live) {
+        const ownRepo = resolveRepoPath(db, t.repo);
+        const dir = taskWorktreeDir(ownRepo?.startsWith('/') ? ownRepo : repoPath, t);
+        if (canonicalPath(dir) === realWorktree)
+            return { id: t.id, status: t.status };
+    }
+    return null;
+}
 // Records the linked worktree at `worktreePath` as the task's worktree, then
 // checks the task branch out in it. Each refused check writes nothing; a
 // failed `git switch` keeps the record and reports git_setup 'error' with the
@@ -502,7 +523,7 @@ export function adoptTaskWorktree(db, input, options = {}) {
         };
     }
     const holder = db.transaction(() => {
-        const other = db.get('SELECT id, status FROM tasks WHERE worktree_path = ? AND id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id LIMIT 1', [realWorktree, task.id, JSON.stringify(ADOPT_HOLDING_STATUSES)]);
+        const other = worktreeHolder(db, task.id, repoPath, realWorktree);
         if (other)
             return other;
         db.run('UPDATE tasks SET worktree_path = ?, worktree_adopted = 1, updated_at = ? WHERE id = ?', [

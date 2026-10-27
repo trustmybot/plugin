@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
@@ -588,6 +589,34 @@ function isRegisteredWorktree(repoPath: string, worktreePath: string): boolean {
   }
 }
 
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+// The live task whose effective worktree (taskWorktreeDir: its recorded path,
+// else its slug path) is `realWorktree`, compared by realpath.
+function worktreeHolder(
+  db: TrajectoryDB,
+  taskId: number,
+  repoPath: string,
+  realWorktree: string,
+): { id: number; status: string } | null {
+  const live = db.all<{ id: number; status: string; branch_id: string; worktree_path: string | null; repo: string | null }>(
+    'SELECT id, status, branch_id, worktree_path, repo FROM tasks WHERE id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id',
+    [taskId, JSON.stringify(ADOPT_HOLDING_STATUSES)],
+  );
+  for (const t of live) {
+    const ownRepo = resolveRepoPath(db, t.repo);
+    const dir = taskWorktreeDir(ownRepo?.startsWith('/') ? ownRepo : repoPath, t);
+    if (canonicalPath(dir) === realWorktree) return { id: t.id, status: t.status };
+  }
+  return null;
+}
+
 // Records the linked worktree at `worktreePath` as the task's worktree, then
 // checks the task branch out in it. Each refused check writes nothing; a
 // failed `git switch` keeps the record and reports git_setup 'error' with the
@@ -666,10 +695,7 @@ export function adoptTaskWorktree(
   }
 
   const holder = db.transaction(() => {
-    const other = db.get<{ id: number; status: string }>(
-      'SELECT id, status FROM tasks WHERE worktree_path = ? AND id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id LIMIT 1',
-      [realWorktree, task.id, JSON.stringify(ADOPT_HOLDING_STATUSES)],
-    );
+    const other = worktreeHolder(db, task.id, repoPath, realWorktree);
     if (other) return other;
     db.run('UPDATE tasks SET worktree_path = ?, worktree_adopted = 1, updated_at = ? WHERE id = ?', [
       realWorktree,

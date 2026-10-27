@@ -217,5 +217,26 @@ describe('adoptTaskWorktree (GH 2032)', () => {
         { worktree_path: session, worktree_adopted: 1 },
       );
     });
+
+    it(`adopting a ${holding} task's slug worktree (worktree_path NULL) returns worktree_in_use naming it and switches nothing`, () => {
+      seedTask(7, 'fix/b', holding);
+      seedTask(8, 'fix/a');
+      const slug = taskWorktreePath(repo, 'fix/b');
+      git(repo, 'worktree', 'add', '-q', '--detach', slug, 'fix/b');
+      try {
+        const slugHead = git(slug, 'rev-parse', 'HEAD');
+        const before = state();
+        const r = adoptTaskWorktree(db, { taskId: 8, repoPath: repo, worktreePath: slug }, ENABLED);
+        assert.equal(!r.ok && r.error, 'worktree_in_use');
+        assert.equal(!r.ok && r.task_id, 7);
+        assert.match(!r.ok ? r.message : '', /task 7/);
+        assert.deepEqual(state(), before);
+        assert.equal(db.get<{ worktree_path: string | null }>('SELECT worktree_path FROM tasks WHERE id = 8')?.worktree_path, null);
+        assert.equal(git(slug, 'rev-parse', '--abbrev-ref', 'HEAD'), 'HEAD');
+        assert.equal(git(slug, 'rev-parse', 'HEAD'), slugHead);
+      } finally {
+        git(repo, 'worktree', 'remove', '--force', slug);
+      }
+    });
   }
 });
