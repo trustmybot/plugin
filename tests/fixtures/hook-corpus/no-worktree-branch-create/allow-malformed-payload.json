@@ -1,0 +1,5 @@
+{
+  "corpus_stdin": "[1,2",
+  "corpus_cwd": "project",
+  "corpus_expect": "empty"
+}

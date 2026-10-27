@@ -15,7 +15,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-verification-gate.sh"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 . "$HERE/fixtures/wal-no-holder.sh"
+
+# An inherited verification budget or tail cap (a gate run's own environment,
+# GH 1829) would override the values each case sets or expects.
+while IFS= read -r knob; do
+  unset "$knob"
+done < <(compgen -v TMB_VERIFICATION_ || true)
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-verification-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -465,8 +477,10 @@ mkdir -p "$WAL_WS/.claude/tmb"
 sqlite3 "$DB" ".backup '$WAL_WS/.claude/tmb/trajectory.db'"
 # Task 3's verification[] fails: an empty verification[] read would print the
 # "no typed verification" skip instead of the deny.
+[ "$HOOK_IMPL" != ts ] || export TMB_HOOKS_SQLITE=cli
 wal_gate_cases "swe-verification-gate" "$HOOK" "$WAL_WS/.claude/tmb/trajectory.db" "$WAL_WS" \
   "$(make_input swe completed 3)" "verification failed" "no typed verification" "$REPO_DIR"
+unset TMB_HOOKS_SQLITE
 
 # ---- Run lock: one verification run per (task, worktree HEAD) ---------------
 # Two concurrent invocations (the gate registered twice) serialize on the lock;

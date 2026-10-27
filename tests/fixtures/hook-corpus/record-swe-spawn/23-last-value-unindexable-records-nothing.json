@@ -1,0 +1,1 @@
+{"corpus_stdin":"{\"tool_name\":\"Agent\",\"tool_use_id\":\"toolu_r23\",\"tool_input\":{\"subagent_type\":\"swe\",\"prompt\":\"task_id=11\"}} \"tail\"","corpus_expect":"empty"}

@@ -42,6 +42,7 @@ import { GATE_NAME as TOOL_OUTPUT_SIZE_GATE, toolOutputSize } from './tool-outpu
 import { GATE_NAME as CR_NO_WORKTREE_GATE, codeReviewerNoWorktree } from './code-reviewer-no-worktree.js';
 import { GATE_NAME as CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape } from './code-reviewer-spawn-prompt-shape.js';
 import { GATE_NAME as CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose } from './code-reviewer-after-atomic-close.js';
+import { GATE_NAME as SWE_VERIFICATION_GATE, sweVerificationGate } from './swe-verification-gate.js';
 import { GATE_NAME as SWE_BRIEF_GATE, sweBriefGate } from './swe-brief-gate.js';
 import { GATE_NAME as SWE_SPAWN_BIND_GATE, sweSpawnBind } from './swe-spawn-bind.js';
 import { GATE_NAME as SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback } from './swe-spawn-rollback.js';
@@ -49,9 +50,21 @@ import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-ta
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
+import { GATE_NAME as STAY_ON_BASE_GATE, stayOnBaseGuard } from './stay-on-base-guard.js';
+import { GATE_NAME as BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote } from './branch-up-to-date-with-remote.js';
+import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } from './no-worktree-branch-create.js';
+import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
+import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
 import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
 import { GATE_NAME as TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan } from './post-task-close-rescan.js';
+import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
+import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
+import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
+import { GATE_NAME as RECORD_SWE_SPAWN_GATE, recordSweSpawn } from './record-swe-spawn.js';
+import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from './cleanup-worktree-on-task-close.js';
+import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
+import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -92,6 +105,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [CR_NO_WORKTREE_GATE, codeReviewerNoWorktree],
   [CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape],
   [CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose],
+  [SWE_VERIFICATION_GATE, sweVerificationGate],
   [SWE_BRIEF_GATE, sweBriefGate],
   [SWE_SPAWN_BIND_GATE, sweSpawnBind],
   [SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback],
@@ -99,9 +113,21 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [AGENT_ARG_GATE, agentArgMatchesCaller],
   [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
   [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
+  [STAY_ON_BASE_GATE, stayOnBaseGuard],
+  [BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote],
+  [NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate],
+  [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
+  [PROMPT_INTENT_GATE, promptIntentHints],
   [SWE_SCOPE_FENCE_GATE, sweScopeFence],
   [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
   [TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan],
+  [README_STALENESS_GATE, postAtomicCloseReadme],
+  [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
+  [RECORD_SWE_SPAWN_GATE, recordSweSpawn],
+  [CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose],
+  [WORKTREE_CREATE_GATE, worktreeCreate],
+  [REMOTE_ID_GATE, remoteIdGuard],
 ]);
 
 export function findGate(name: string): Gate | undefined {

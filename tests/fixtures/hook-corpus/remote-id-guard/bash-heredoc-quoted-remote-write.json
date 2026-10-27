@@ -7,5 +7,6 @@
     "command": "cat > notes.md <<'EOF'\ngh pr create --body 'Closes #5'\nEOF",
     "description": "corpus"
   },
-  "tool_use_id": "tu-corpus"
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "allow"
 }
