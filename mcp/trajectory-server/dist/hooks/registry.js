@@ -44,6 +44,8 @@ import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as ORPHAN_SCAN_GATE, orphanScan } from './orphan-scan.js';
+import { GATE_NAME as SESSION_START_PRESCAN_GATE, sessionStartPrescan } from './session-start-prescan.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -91,6 +93,8 @@ const GATES = new Map([
     [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
     [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
     [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+    [ORPHAN_SCAN_GATE, orphanScan],
+    [SESSION_START_PRESCAN_GATE, sessionStartPrescan],
 ]);
 export function findGate(name) {
     return GATES.get(name);

@@ -21,6 +21,7 @@ git-guards
 git-push-guard
 mcp-health-check
 naming-lint
+orphan-scan
 plugin-hooks-marker
 post-task-create-spawn-hint
 require-feature-branch-active
@@ -33,6 +34,7 @@ roundtable-cleanup-postcheck
 roundtable-slash-detect
 session-log-capture
 session-start-persona
+session-start-prescan
 substrate-preflight
 swe-boundary
 swe-brief-gate

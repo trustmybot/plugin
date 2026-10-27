@@ -66,8 +66,8 @@ function unmarshalCaptures(query, tree, address, patternIndex, result) {
   }
   return address;
 }
-function marshalNode(node, index5 = 0) {
-  let address = TRANSFER_BUFFER + index5 * SIZE_OF_NODE;
+function marshalNode(node, index6 = 0) {
+  let address = TRANSFER_BUFFER + index6 * SIZE_OF_NODE;
   C.setValue(address, node.id, "i32");
   address += SIZE_OF_INT;
   C.setValue(address, node.startIndex, "i32");
@@ -82,7 +82,7 @@ function unmarshalNode(tree, address = TRANSFER_BUFFER) {
   const id = C.getValue(address, "i32");
   address += SIZE_OF_INT;
   if (id === 0) return null;
-  const index5 = C.getValue(address, "i32");
+  const index6 = C.getValue(address, "i32");
   address += SIZE_OF_INT;
   const row = C.getValue(address, "i32");
   address += SIZE_OF_INT;
@@ -92,7 +92,7 @@ function unmarshalNode(tree, address = TRANSFER_BUFFER) {
   const result = new Node(INTERNAL, {
     id,
     tree,
-    startIndex: index5,
+    startIndex: index6,
     startPosition: { row, column },
     other
   });
@@ -162,7 +162,7 @@ function unmarshalLanguageMetadata(address) {
   const patch_version = C.getValue(address += SIZE_OF_INT, "i32");
   return { major_version, minor_version, patch_version };
 }
-function parseAnyPredicate(steps, index5, operator, textPredicates) {
+function parseAnyPredicate(steps, index6, operator, textPredicates) {
   if (steps.length !== 3) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}`
@@ -178,7 +178,7 @@ function parseAnyPredicate(steps, index5, operator, textPredicates) {
   if (isCaptureStep(steps[2])) {
     const captureName1 = steps[1].name;
     const captureName2 = steps[2].name;
-    textPredicates[index5].push((captures) => {
+    textPredicates[index6].push((captures) => {
       const nodes1 = [];
       const nodes2 = [];
       for (const c of captures) {
@@ -195,7 +195,7 @@ function parseAnyPredicate(steps, index5, operator, textPredicates) {
     const stringValue = steps[2].value;
     const matches = /* @__PURE__ */ __name((n2) => n2.text === stringValue, "matches");
     const doesNotMatch = /* @__PURE__ */ __name((n2) => n2.text !== stringValue, "doesNotMatch");
-    textPredicates[index5].push((captures) => {
+    textPredicates[index6].push((captures) => {
       const nodes = [];
       for (const c of captures) {
         if (c.name === captureName) nodes.push(c.node);
@@ -205,7 +205,7 @@ function parseAnyPredicate(steps, index5, operator, textPredicates) {
     });
   }
 }
-function parseMatchPredicate(steps, index5, operator, textPredicates) {
+function parseMatchPredicate(steps, index6, operator, textPredicates) {
   if (steps.length !== 3) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}.`
@@ -225,7 +225,7 @@ function parseMatchPredicate(steps, index5, operator, textPredicates) {
   const matchAll = !operator.startsWith("any-");
   const captureName = steps[1].name;
   const regex2 = new RegExp(steps[2].value);
-  textPredicates[index5].push((captures) => {
+  textPredicates[index6].push((captures) => {
     const nodes = [];
     for (const c of captures) {
       if (c.name === captureName) nodes.push(c.node.text);
@@ -237,7 +237,7 @@ function parseMatchPredicate(steps, index5, operator, textPredicates) {
     return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
   });
 }
-function parseAnyOfPredicate(steps, index5, operator, textPredicates) {
+function parseAnyOfPredicate(steps, index6, operator, textPredicates) {
   if (steps.length < 2) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected at least 1. Got ${steps.length - 1}.`
@@ -257,7 +257,7 @@ function parseAnyOfPredicate(steps, index5, operator, textPredicates) {
     );
   }
   const values = stringSteps.map((s) => s.value);
-  textPredicates[index5].push((captures) => {
+  textPredicates[index6].push((captures) => {
     const nodes = [];
     for (const c of captures) {
       if (c.name === captureName) nodes.push(c.node.text);
@@ -266,7 +266,7 @@ function parseAnyOfPredicate(steps, index5, operator, textPredicates) {
     return nodes.every((text) => values.includes(text)) === isPositive;
   });
 }
-function parseIsPredicate(steps, index5, operator, assertedProperties, refutedProperties) {
+function parseIsPredicate(steps, index6, operator, assertedProperties, refutedProperties) {
   if (steps.length < 2 || steps.length > 3) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`
@@ -278,20 +278,20 @@ function parseIsPredicate(steps, index5, operator, assertedProperties, refutedPr
     );
   }
   const properties = operator === "is?" ? assertedProperties : refutedProperties;
-  if (!properties[index5]) properties[index5] = {};
-  properties[index5][steps[1].value] = steps[2]?.value ?? null;
+  if (!properties[index6]) properties[index6] = {};
+  properties[index6][steps[1].value] = steps[2]?.value ?? null;
 }
-function parseSetDirective(steps, index5, setProperties) {
+function parseSetDirective(steps, index6, setProperties) {
   if (steps.length < 2 || steps.length > 3) {
     throw new Error(`Wrong number of arguments to \`#set!\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`);
   }
   if (!steps.every(isStringStep)) {
     throw new Error(`Arguments to \`#set!\` predicate must be strings.".`);
   }
-  if (!setProperties[index5]) setProperties[index5] = {};
-  setProperties[index5][steps[1].value] = steps[2]?.value ?? null;
+  if (!setProperties[index6]) setProperties[index6] = {};
+  setProperties[index6][steps[1].value] = steps[2]?.value ?? null;
 }
-function parsePattern(index5, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
+function parsePattern(index6, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
   if (stepType === PREDICATE_STEP_TYPE_CAPTURE) {
     const name22 = captureNames[stepValueId];
     steps.push({ type: "capture", name: name22 });
@@ -307,27 +307,27 @@ function parsePattern(index5, stepType, stepValueId, captureNames, stringValues,
       case "not-eq?":
       case "any-eq?":
       case "eq?":
-        parseAnyPredicate(steps, index5, operator, textPredicates);
+        parseAnyPredicate(steps, index6, operator, textPredicates);
         break;
       case "any-not-match?":
       case "not-match?":
       case "any-match?":
       case "match?":
-        parseMatchPredicate(steps, index5, operator, textPredicates);
+        parseMatchPredicate(steps, index6, operator, textPredicates);
         break;
       case "not-any-of?":
       case "any-of?":
-        parseAnyOfPredicate(steps, index5, operator, textPredicates);
+        parseAnyOfPredicate(steps, index6, operator, textPredicates);
         break;
       case "is?":
       case "is-not?":
-        parseIsPredicate(steps, index5, operator, assertedProperties, refutedProperties);
+        parseIsPredicate(steps, index6, operator, assertedProperties, refutedProperties);
         break;
       case "set!":
-        parseSetDirective(steps, index5, setProperties);
+        parseSetDirective(steps, index6, setProperties);
         break;
       default:
-        predicates[index5].push({ operator, operands: steps.slice(1) });
+        predicates[index6].push({ operator, operands: steps.slice(1) });
     }
     steps.length = 0;
   }
@@ -974,9 +974,9 @@ var init_tree_sitter = __esm({
        * you might be iterating over a long list of children, you should use
        * {@link Node#children} instead.
        */
-      child(index5) {
+      child(index6) {
         marshalNode(this);
-        C._ts_node_child_wasm(this.tree[0], index5);
+        C._ts_node_child_wasm(this.tree[0], index6);
         return unmarshalNode(this.tree);
       }
       /**
@@ -987,9 +987,9 @@ var init_tree_sitter = __esm({
        * you might be iterating over a long list of children, you should use
        * {@link Node#namedChildren} instead.
        */
-      namedChild(index5) {
+      namedChild(index6) {
         marshalNode(this);
-        C._ts_node_named_child_wasm(this.tree[0], index5);
+        C._ts_node_named_child_wasm(this.tree[0], index6);
         return unmarshalNode(this.tree);
       }
       /**
@@ -1015,16 +1015,16 @@ var init_tree_sitter = __esm({
         return null;
       }
       /** Get the field name of this node's child at the given index. */
-      fieldNameForChild(index5) {
+      fieldNameForChild(index6) {
         marshalNode(this);
-        const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index5);
+        const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index6);
         if (!address) return null;
         return C.AsciiToString(address);
       }
       /** Get the field name of this node's named child at the given index. */
-      fieldNameForNamedChild(index5) {
+      fieldNameForNamedChild(index6) {
         marshalNode(this);
-        const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index5);
+        const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index6);
         if (!address) return null;
         return C.AsciiToString(address);
       }
@@ -1060,18 +1060,18 @@ var init_tree_sitter = __esm({
         return result;
       }
       /** Get the node's first child that contains or starts after the given byte offset. */
-      firstChildForIndex(index5) {
+      firstChildForIndex(index6) {
         marshalNode(this);
         const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-        C.setValue(address, index5, "i32");
+        C.setValue(address, index6, "i32");
         C._ts_node_first_child_for_byte_wasm(this.tree[0]);
         return unmarshalNode(this.tree);
       }
       /** Get the node's first named child that contains or starts after the given byte offset. */
-      firstNamedChildForIndex(index5) {
+      firstNamedChildForIndex(index6) {
         marshalNode(this);
         const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-        C.setValue(address, index5, "i32");
+        C.setValue(address, index6, "i32");
         C._ts_node_first_named_child_for_byte_wasm(this.tree[0]);
         return unmarshalNode(this.tree);
       }
@@ -1401,11 +1401,11 @@ var init_tree_sitter = __esm({
       PatternStructure: 5
     };
     QueryError = class _QueryError extends Error {
-      constructor(kind, info2, index5, length) {
+      constructor(kind, info2, index6, length) {
         super(_QueryError.formatMessage(kind, info2));
         this.kind = kind;
         this.info = info2;
-        this.index = index5;
+        this.index = index6;
         this.length = length;
         this.name = "QueryError";
       }
@@ -1736,14 +1736,14 @@ var init_tree_sitter = __esm({
           captures.length = captureCount;
           address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
           if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-            const capture3 = captures[captureIndex];
+            const capture4 = captures[captureIndex];
             const setProperties = this.setProperties[patternIndex];
-            capture3.setProperties = setProperties;
+            capture4.setProperties = setProperties;
             const assertedProperties = this.assertedProperties[patternIndex];
-            capture3.assertedProperties = assertedProperties;
+            capture4.assertedProperties = assertedProperties;
             const refutedProperties = this.refutedProperties[patternIndex];
-            capture3.refutedProperties = refutedProperties;
-            result.push(capture3);
+            capture4.refutedProperties = refutedProperties;
+            result.push(capture4);
           }
         }
         C._free(startAddress);
@@ -3356,9 +3356,9 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
         }
         __name(_tree_sitter_log_callback, "_tree_sitter_log_callback");
-        function _tree_sitter_parse_callback(inputBufferAddress, index5, row, column, lengthAddress) {
+        function _tree_sitter_parse_callback(inputBufferAddress, index6, row, column, lengthAddress) {
           const INPUT_BUFFER_SIZE = 10 * 1024;
-          const string = Module.currentParseCallback(index5, {
+          const string = Module.currentParseCallback(index6, {
             row,
             column
           });
@@ -3854,7 +3854,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
        */
       parse(callback, oldTree, options) {
         if (typeof callback === "string") {
-          C.currentParseCallback = (index5) => callback.slice(index5);
+          C.currentParseCallback = (index6) => callback.slice(index6);
         } else if (typeof callback === "function") {
           C.currentParseCallback = callback;
         } else {
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync15 } from "node:fs";
+import { readFileSync as readFileSync17 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -5693,6 +5693,7 @@ var GATE_READ_ERROR = "__ERR__";
 var DEFAULT_READ_TIMEOUT_MS = 1500;
 var SQLITE_RO_TIMEOUT_MS = 500;
 var CANTOPEN = 14;
+var BUDGET_KILLED = 124;
 function stripTrailingNewlines(text) {
   return text.replace(/\n+$/, "");
 }
@@ -5738,6 +5739,25 @@ function gateRead(db, sql, env = process.env) {
   let r = sqliteOnce(ro, ms, db, sql, env);
   if (r.code === CANTOPEN && ro) r = sqliteOnce(false, ms, db, sql, env);
   return r.code === 0 ? r.out : GATE_READ_ERROR;
+}
+function dbReadBudget(db, budgetMs, script, env = process.env) {
+  if (db === "" || !isFile2(db)) return { code: 1, out: "" };
+  let ms = digitsOr(budgetMs, DEFAULT_READ_TIMEOUT_MS);
+  if (ms <= 0) ms = 1;
+  const input = `${stripTrailingNewlines(script)}
+`;
+  const run4 = (ro) => {
+    const r2 = sqliteRun({ target: db, readonly: ro, timeoutMs: ms, script: input, killAfterMs: ms }, env);
+    return { code: r2.code === 127 ? 1 : r2.code, out: stripTrailingNewlines(r2.stdout) };
+  };
+  let r;
+  if (walCold(db)) {
+    r = run4(false);
+  } else {
+    r = run4(true);
+    if (r.code !== 0 && r.code !== BUDGET_KILLED && walCold(db)) r = run4(false);
+  }
+  return r;
 }
 function immutableUri(db, env = process.env) {
   let p = db.startsWith("/") ? db : `${shellPwd(env).replace(/\/$/, "")}/${db}`;
@@ -6137,6 +6157,10 @@ function sleepSeconds(raw) {
 }
 function commandSubstitution2(text) {
   return text.replaceAll("\0", "").replace(/\n+$/, "");
+}
+function firstLine(text) {
+  const nl = text.indexOf("\n");
+  return nl < 0 ? text : text.slice(0, nl);
 }
 function byteCompare(a, b) {
   return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
@@ -7308,13 +7332,13 @@ function statementsEnc(buf, base2, home, assign) {
   const frames = { ext: [], runs: [], grew: /* @__PURE__ */ new Set(), lost: /* @__PURE__ */ new Set() };
   for (; ; ) {
     frames.grew.clear();
-    const records = scan(buf, base2, home, assign, frames);
-    if (frames.grew.size === 0) return records;
+    const records2 = scan(buf, base2, home, assign, frames);
+    if (frames.grew.size === 0) return records2;
     for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
   }
 }
 function scan(buf, base2, home, assign, frames) {
-  const records = [];
+  const records2 = [];
   let old = "-";
   let cwhy = "";
   let owhy = "";
@@ -7354,7 +7378,7 @@ function scan(buf, base2, home, assign, frames) {
   const astack = [];
   const oastack = [];
   const q = [];
-  const emit2 = (dir, text) => records.push({ dir, stmt: text });
+  const emit2 = (dir, text) => records2.push({ dir, stmt: text });
   const loops = [];
   const fids = [];
   const fent = [];
@@ -7923,7 +7947,7 @@ function scan(buf, base2, home, assign, frames) {
   }
   flush();
   if (assign && (unbal || loops.length > 0)) emit2(UNBALANCED, "unbalanced");
-  return records.filter((r) => r.stmt !== "");
+  return records2.filter((r) => r.stmt !== "");
 }
 
 // src/hooks/cmd-analysis/git.ts
@@ -12716,14 +12740,14 @@ var WritePaths = class _WritePaths {
   runEncoded(text, heredocs2, base2, depth, vars) {
     const level = { vars, oldtok: "-", why: "" };
     const { cwd } = this.opts;
-    const records = statementsEnc(text, base2, this.opts.env.HOME ?? "", true).filter((r) => !/^\t*$/.test(r.stmt));
-    const bodies = heredocAlign(heredocs2, records);
-    if (records.some((r) => r.dir === UNBALANCED)) this.unbalanced = true;
+    const records2 = statementsEnc(text, base2, this.opts.env.HOME ?? "", true).filter((r) => !/^\t*$/.test(r.stmt));
+    const bodies = heredocAlign(heredocs2, records2);
+    if (records2.some((r) => r.dir === UNBALANCED)) this.unbalanced = true;
     let idx = 0;
-    for (const record of records) {
+    for (const record of records2) {
       idx++;
       if (record.dir === LOOP_OPEN) {
-        this.loopVars(level, loopBody(records, idx), idx, bodies, depth);
+        this.loopVars(level, loopBody(records2, idx), idx, bodies, depth);
         continue;
       }
       if (record.dir === LOOP_CLOSE || record.dir === UNBALANCED) continue;
@@ -12821,25 +12845,25 @@ var WritePaths = class _WritePaths {
     }
   }
 };
-function loopBody(records, from) {
+function loopBody(records2, from) {
   let depth = 0;
   let k = from;
-  for (; k < records.length; k++) {
-    if (records[k].dir === LOOP_OPEN) depth++;
-    else if (records[k].dir === LOOP_CLOSE && depth-- === 0) break;
+  for (; k < records2.length; k++) {
+    if (records2[k].dir === LOOP_OPEN) depth++;
+    else if (records2[k].dir === LOOP_CLOSE && depth-- === 0) break;
   }
-  return records.slice(from, k);
+  return records2.slice(from, k);
 }
 function varsUniq(vars) {
   const lines2 = [...new Set(vars.split("\n").filter((l) => l !== ""))];
   return lines2.length === 0 ? "" : lines2.join("\n") + "\n";
 }
-function heredocAlign(heredocs2, records) {
+function heredocAlign(heredocs2, records2) {
   const out2 = /* @__PURE__ */ new Map();
   if (heredocs2.length === 0) return out2;
   const used = /* @__PURE__ */ new Set();
   let p = -1;
-  records.forEach((record, i2) => {
+  records2.forEach((record, i2) => {
     for (const m of record.stmt.matchAll(/<<+([^ \t;&|<>()]*)/g)) {
       if (m[0].length - m[1].length !== 2 || m[1] === "") continue;
       let j = p + 1;
@@ -13035,7 +13059,7 @@ function isFile6(path) {
     return false;
   }
 }
-function firstLine(text) {
+function firstLine2(text) {
   const nl = text.indexOf("\n");
   return nl < 0 ? text : text.slice(0, nl);
 }
@@ -13061,7 +13085,7 @@ function repoGitRoot(target, env = process.env) {
 }
 function repoNameForRoot(db, root, env = process.env) {
   if (!readable2(db, env) || root === "") return "";
-  const name3 = firstLine(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
+  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
   if (name3 !== "") return name3;
   const want = realdir(root);
   for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
@@ -13078,7 +13102,7 @@ function repoResolve(db, root, env = process.env) {
   if (!readable2(db, env) || root === "") return "";
   const name3 = repoNameForRoot(db, root, env);
   if (name3 === "") return "";
-  return firstLine(
+  return firstLine2(
     sqliteRo(
       db,
       `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
@@ -13092,7 +13116,7 @@ function repoIsRegistered(db, root, env = process.env) {
 function repoSinglePath(db, env = process.env) {
   if (!readable2(db, env)) return "";
   if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
-  return firstLine(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
+  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
 }
 var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
 function repoRemotes(db, gitRoot, env = process.env) {
@@ -13100,10 +13124,10 @@ function repoRemotes(db, gitRoot, env = process.env) {
   const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
   let out2 = "";
   if (name3 !== "") {
-    out2 = firstLine(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
   }
   if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
-    out2 = firstLine(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
   }
   return out2;
 }
@@ -13968,17 +13992,17 @@ var commitMsgLint = async (payload, env) => {
   const padded = ` ${commit.subcommand} `;
   if (SKIPPED_MODES.some((mode) => padded.includes(mode))) return ALLOW;
   if (commit.message === "") return ALLOW;
-  const firstLine2 = commit.message.split("\n")[0];
-  const { prefix, rest } = splitSubject(firstLine2, env);
+  const firstLine3 = commit.message.split("\n")[0];
+  const { prefix, rest } = splitSubject(firstLine3, env);
   let violation = "";
   if (!prefixOk(prefix) || !restOk(rest, grepMultibyte(env))) {
     violation = `commit subject does not match '<emoji> <type>(<scope>): <description>' (allowed types: ${TYPES})`;
   } else {
-    const length = charCount(firstLine2, env);
+    const length = charCount(firstLine3, env);
     if (length > 72) violation = `commit subject is ${length} chars (>72)`;
   }
   if (violation === "") return ALLOW;
-  const ctx = `commit-msg-lint: ${violation}. Subject seen: "${firstLine2}". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.`;
+  const ctx = `commit-msg-lint: ${violation}. Subject seen: "${firstLine3}". Set TMB_SKIP_COMMIT_MSG_LINT=1 to bypass.`;
   return { stdout: preToolContext(ctx), code: 0 };
 };
 
@@ -15012,6 +15036,144 @@ function duplicateNames(rows) {
 function duplicateDisableCmds(rows, env = process.env) {
   const name3 = installPluginName(env);
   return rows.map((r) => `claude plugin disable ${name3}@${r.marketplace} --scope ${r.scope}`).join("; ");
+}
+function userSettingsJson(env = process.env) {
+  return `${configDir(env)}/settings.json`;
+}
+var LEGACY_USER_HOOKS_DOC = "docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks";
+var HOOK_NAME = /--hook[ \t]+([A-Za-z0-9._-]+)/;
+function leftover(hook) {
+  return hook._tmb_managed === true || typeof hook.command === "string" && hook.command.includes("resolve-hook.sh");
+}
+function hookName(command) {
+  if (typeof command !== "string") return "?";
+  const text = command.includes("resolve-hook.sh") ? command.split("resolve-hook.sh")[1] ?? "" : command;
+  return HOOK_NAME.exec(text)?.[1] ?? "?";
+}
+function leftoverPaths(doc) {
+  let hooks = index4(doc, "hooks");
+  if (hooks === null || hooks === false) hooks = {};
+  if (!isObject3(hooks)) return [];
+  const out2 = [];
+  for (const [ev, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) continue;
+    groups.forEach((group, i2) => {
+      if (!isObject3(group)) return;
+      const inner4 = group.hooks;
+      if (!Array.isArray(inner4)) return;
+      inner4.forEach((hook, j) => {
+        if (isObject3(hook) && leftover(hook)) out2.push(["hooks", ev, i2, "hooks", j]);
+      });
+    });
+  }
+  return out2;
+}
+function commandPaths(value, at2 = [], out2 = []) {
+  if (Array.isArray(value)) {
+    value.forEach((v, i2) => commandPaths(v, [...at2, i2], out2));
+  } else if (isObject3(value)) {
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "command") out2.push([...at2, k]);
+      commandPaths(v, [...at2, k], out2);
+    }
+  }
+  return out2;
+}
+function getPath2(value, path) {
+  let v = value;
+  for (const key2 of path) v = v[key2];
+  return v;
+}
+function versionPart(text) {
+  const t = text.trim();
+  if (/^[+-]?inf(inity)?$/i.test(t)) return t.startsWith("-") ? -Number.MAX_VALUE : Number.MAX_VALUE;
+  return /^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$/.test(t) ? Number(t) : -1;
+}
+function belowV110(version) {
+  const parts2 = (version.split("-")[0] ?? "").split(".").map(versionPart);
+  const floor = [1, 1, 0];
+  for (let i2 = 0; i2 < Math.min(parts2.length, floor.length); i2 += 1) {
+    if (parts2[i2] !== floor[i2]) return parts2[i2] < floor[i2];
+  }
+  return parts2.length < floor.length;
+}
+function legacyHookRows(settings) {
+  let text;
+  try {
+    text = readFileSync9(settings, "utf8");
+  } catch {
+    return null;
+  }
+  const stream = jsonStream(text);
+  if (!stream.complete) return null;
+  const want = /* @__PURE__ */ new Map();
+  let n2 = 0;
+  let orphans = 0;
+  try {
+    for (const doc of stream.values) {
+      const left = leftoverPaths(doc);
+      if (left.length === 0) continue;
+      const keys = new Set(left.map((p) => JSON.stringify(p)));
+      for (const path of commandPaths(doc)) {
+        n2 += 1;
+        const owner = path.slice(0, -1);
+        if (keys.has(JSON.stringify(owner))) want.set(n2, hookName(getPath2(doc, owner).command));
+      }
+      for (const p of left) if (!Object.hasOwn(getPath2(doc, p), "command")) orphans += 1;
+    }
+  } catch (e) {
+    if (e instanceof JqError5) return null;
+    throw e;
+  }
+  if (n2 === 0 && orphans === 0) return [];
+  const rows = [];
+  let k = 0;
+  text.split("\n").forEach((line, i2) => {
+    for (const _ of line.matchAll(/"command"[ \t]*:/g)) {
+      k += 1;
+      const name3 = want.get(k);
+      if (name3 !== void 0) rows.push({ line: String(i2 + 1), name: name3 });
+    }
+  });
+  for (let i2 = k + 1; i2 <= n2; i2 += 1) {
+    const name3 = want.get(i2);
+    if (name3 !== void 0) rows.push({ line: "?", name: name3 });
+  }
+  for (let i2 = 0; i2 < orphans; i2 += 1) rows.push({ line: "?", name: "?" });
+  return rows;
+}
+function legacyUserHooks(project, env = process.env) {
+  const none = { hooks: [], projects: [] };
+  const hooks = legacyHookRows(userSettingsJson(env));
+  if (hooks === null || hooks.length === 0) return none;
+  const here = project === "" ? "" : canonicalDir(project);
+  const prefix = `${installPluginName(env)}@`;
+  const raw = jqRows(installedJson(env), (doc, push) => {
+    for (const [, value] of pluginEntries(doc, prefix)) {
+      for (const e of elements(value)) {
+        const p = index4(e, "projectPath");
+        const v = index4(e, "version");
+        if (typeof p !== "string" || p === "" || typeof v !== "string") continue;
+        if (belowV110(v)) push([tsvEscape(p), tsvEscape(v)]);
+      }
+    }
+  });
+  const projects = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const [p, v] of raw) {
+    if (!isDir4(p)) continue;
+    const path = canonicalDir(p);
+    if (path === here || seen.has(path)) continue;
+    seen.add(path);
+    projects.push({ path, version: v });
+  }
+  return { hooks, projects };
+}
+function legacyHookEntries(hooks) {
+  return hooks.map((h) => `line ${h.line} ${h.name}`).join(", ");
+}
+function legacyHookProjects(projects) {
+  return projects.map((p) => `${p.path} (${p.version})`).join(", ");
 }
 
 // src/hooks/mcp-health-check.ts
@@ -16656,14 +16818,14 @@ function overruns(db, now, limitMin, env) {
   for (const r of rows) {
     const ms = elapsedMs(r.created_at, now);
     if (ms === null || ms <= limitMin * MS_PER_MIN) continue;
-    const firstLine2 = (r.fail ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+    const firstLine3 = (r.fail ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
     found.push({
       taskId: r.id,
       issueId: r.issue_id,
       branchId: r.branch_id,
       minutes: Math.floor(ms / MS_PER_MIN),
       attempts: r.attempts,
-      blocker: firstLine2 === "" ? `status ${r.status}` : firstLine2
+      blocker: firstLine3 === "" ? `status ${r.status}` : firstLine3
     });
   }
   return found.sort((a, b) => a.taskId - b.taskId);
@@ -16798,16 +16960,16 @@ function defaultPluginRoot() {
   }
 }
 function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
-  const pluginRoot2 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
-  if (pluginRoot2 === "") return null;
+  const pluginRoot3 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot3 === "") return null;
   let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
   const projectReal = physicalDir2(project);
-  const pluginReal = physicalDir2(pluginRoot2);
+  const pluginReal = physicalDir2(pluginRoot3);
   if (pluginReal !== "" && projectReal === pluginReal) return null;
   if (projectReal !== "") project = projectReal;
-  const version = manifestField(pluginRoot2, "version", haveJq);
-  const name3 = manifestField(pluginRoot2, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
-  return { haveJq, pluginRoot: pluginRoot2, source: `${pluginRoot2}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+  const version = manifestField(pluginRoot3, "version", haveJq);
+  const name3 = manifestField(pluginRoot3, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot3, source: `${pluginRoot3}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
 }
 function personaSessionId(input, haveJq) {
   const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
@@ -18161,6 +18323,716 @@ var sweScopeFence = (payload, env) => {
   return note === "" ? ALLOW : { stdout: scopeNote(note), code: 0 };
 };
 
+// src/hooks/orphan-scan.ts
+import { spawnSync as spawnSync10 } from "node:child_process";
+import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync15, rmSync as rmSync4, statSync as statSync23 } from "node:fs";
+var GATE_NAME45 = "orphan-scan";
+var DEADLINE_S = 4;
+var ANCESTRY_GUARD2 = 40;
+var INT64_MIN2 = -(2n ** 63n);
+var INT64_MAX2 = 2n ** 63n - 1n;
+var CC_WORD = /^(claude|claude\.exe|.*\/claude|.*\/claude\.exe|.*\/claude\/versions\/.*|.*\/claude-code\/cli\.js|.*\/claude-code\/cli\.mjs)$/s;
+function signal(pid, sig) {
+  if (!/^[0-9]+$/.test(pid)) return false;
+  try {
+    process.kill(Number(pid), sig);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var REAL_PROCESS_OPS = {
+  alive: (pid) => signal(pid, 0),
+  terminate: (pid) => signal(pid, "SIGTERM")
+};
+function bashInt(text) {
+  const m = /^[ \t\n]*([+-]?[0-9]+)[ \t\n]*$/.exec(text);
+  if (m === null) return null;
+  const n2 = BigInt(m[1]);
+  return n2 < INT64_MIN2 || n2 > INT64_MAX2 ? null : n2;
+}
+function projectSlug(dir) {
+  return stripTrailingNewlines(
+    dir.split("\n").map((line) => line.replace(/[^A-Za-z0-9]+/g, "-")).join("\n")
+  );
+}
+function isCcCommand2(command) {
+  return firstLine(command).split(/[ \t]+/).some((word) => word !== "" && CC_WORD.test(word));
+}
+function capture3(cmd, args2, env) {
+  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  return r.error ? "" : r.stdout ?? "";
+}
+function procPpid2(pid, env) {
+  return stripTrailingNewlines(capture3("ps", ["-o", "ppid=", "-p", pid], env).replaceAll(" ", ""));
+}
+function procCmd2(pid, env) {
+  return stripTrailingNewlines(capture3("ps", ["-o", "command=", "-p", pid], env));
+}
+function aboveInit(pid) {
+  const n2 = pid === "" ? null : bashInt(pid);
+  return n2 !== null && n2 > 1n;
+}
+function nearestCcAncestor2(start2, env) {
+  let pid = start2;
+  for (let guard2 = 1; aboveInit(pid) && guard2 <= ANCESTRY_GUARD2; guard2 += 1) {
+    if (isCcCommand2(procCmd2(pid, env))) return pid;
+    pid = procPpid2(pid, env);
+  }
+  return "";
+}
+function chainContains2(start2, target, env) {
+  if (target === "") return false;
+  let pid = start2;
+  for (let guard2 = 1; aboveInit(pid) && guard2 <= ANCESTRY_GUARD2; guard2 += 1) {
+    if (pid === target) return true;
+    pid = procPpid2(pid, env);
+  }
+  return false;
+}
+function isTrajectoryServer(pid, env) {
+  return capture3("ps", ["-p", pid, "-o", "command="], env).includes("trajectory-server");
+}
+function holders(liveDb, env) {
+  const override = env.TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE ?? "";
+  if (override !== "") return override.replaceAll(" ", "\n").split("\n");
+  if (!commandOnPath("lsof", env)) return [];
+  const lines2 = stripTrailingNewlines(capture3("lsof", ["-t", "--", liveDb], env)).split("\n");
+  return [...new Set(lines2)].sort(byteCompare);
+}
+function exists(path) {
+  return existsSync12(path);
+}
+function nonEmpty(path) {
+  try {
+    return statSync23(path).size > 0;
+  } catch {
+    return false;
+  }
+}
+function isFile11(path) {
+  try {
+    return statSync23(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function isDir6(path) {
+  try {
+    return statSync23(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+var JqError6 = class extends Error {
+};
+function index5(value, key2) {
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new JqError6(key2);
+  const v = value[key2];
+  return v === void 0 ? null : v;
+}
+function children(value) {
+  if (Array.isArray(value)) return value;
+  if (value !== null && typeof value === "object") return Object.values(value);
+  return [];
+}
+function pinnedPaths(json) {
+  let text;
+  try {
+    text = readFileSync15(json, "utf8");
+  } catch {
+    return [];
+  }
+  const out2 = [];
+  for (const doc of jsonStream(text).values) {
+    try {
+      let plugins = index5(doc, "plugins");
+      if (plugins === null || plugins === false) plugins = {};
+      if (typeof plugins !== "object") throw new JqError6("has no keys");
+      for (const value of children(plugins)) {
+        for (const install of children(value)) {
+          const path = index5(install, "installPath");
+          if (path !== null && path !== false) out2.push(...jqRawText(path).split("\n"));
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof JqError6)) throw e;
+    }
+  }
+  return out2;
+}
+function globRegex2(glob) {
+  let re = "";
+  for (const c of glob) re += c === "*" ? ".*" : c.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${re}$`, "s");
+}
+function cacheVersionDirs(root, plugin, within) {
+  const match2 = globRegex2(`*/${plugin}/*`);
+  const out2 = [];
+  const walk = (dir, depth) => {
+    let handle2;
+    try {
+      handle2 = opendirSync(dir);
+    } catch {
+      return;
+    }
+    try {
+      for (let entry = handle2.readSync(); entry !== null; entry = handle2.readSync()) {
+        if (!within()) return;
+        const path = `${dir}/${entry.name}`;
+        let directory;
+        try {
+          directory = lstatSync8(path).isDirectory();
+        } catch {
+          continue;
+        }
+        if (!directory) continue;
+        if (depth === 3) {
+          if (match2.test(path)) out2.push(path);
+        } else {
+          walk(path, depth + 1);
+        }
+      }
+    } finally {
+      handle2.closeSync();
+    }
+  };
+  try {
+    if (!lstatSync8(root).isDirectory()) return out2;
+  } catch {
+    return out2;
+  }
+  walk(root, 1);
+  return out2;
+}
+function liveDbOf(env, warn) {
+  const pinned = env.TMB_ORPHAN_SCAN_PROJECT_DIR ?? "";
+  if (pinned !== "") {
+    return { liveDb: dbPath({ ...env, CLAUDE_PROJECT_DIR: pinned }, warn) ?? "", projectDir: pinned };
+  }
+  const liveDb = dbPath(env, warn) ?? "";
+  let projectDir = projectRoot(env);
+  if (liveDb !== "" && (env.TRAJECTORY_DB_PATH ?? "") === "") projectDir = posixDirname(posixDirname(posixDirname(liveDb)));
+  return { liveDb, projectDir };
+}
+function orphanScanRun(env, ops, stderr) {
+  const deadline = Math.floor(Date.now() / 1e3) + DEADLINE_S;
+  const within = () => Math.floor(Date.now() / 1e3) < deadline;
+  const clean = (env.TMB_ORPHAN_SCAN_CLEAN ?? "") === "1";
+  const plugin = pluginName2(env);
+  const scanHome = env.TMB_ORPHAN_SCAN_HOME || (env.HOME ?? "");
+  const resolved = liveDbOf(env, (line) => stderr(`${line}
+`));
+  const projectDir = resolved.projectDir;
+  if (projectDir === "") return ALLOW;
+  const liveDb = resolved.liveDb || dbLocation(projectDir, env);
+  if (exists(liveDb) && gateRead(liveDb, "SELECT count(*) FROM sqlite_master;", env) === GATE_READ_ERROR) {
+    stderr(`orphan-scan: trajectory DB unavailable (${liveDb}) \u2014 scan continues without its schema version
+`);
+  }
+  const historyDir = `${scanHome}/.claude/projects/${projectSlug(projectDir)}`;
+  const schemaVersion = (db) => haveSqlite(env) ? sqliteRo(db, "SELECT schema_version FROM plugin_meta ORDER BY id DESC LIMIT 1;", env) : "";
+  const liveSchema = nonEmpty(liveDb) ? schemaVersion(liveDb) : "";
+  const report = [];
+  const staleDbs = [];
+  const considerStaleDb = (db) => {
+    if (!exists(db) || db === liveDb) return;
+    if (!nonEmpty(db)) {
+      staleDbs.push(db);
+      return;
+    }
+    const v = schemaVersion(db);
+    if (v === "" || liveSchema === "") return;
+    const a = bashInt(v);
+    const b = bashInt(liveSchema);
+    if (a !== null && b !== null && a < b) staleDbs.push(db);
+  };
+  considerStaleDb(`${historyDir}/${TMB_DB_FILENAME}`);
+  considerStaleDb(`${historyDir}/memory/${TMB_DB_FILENAME}`);
+  if (!nonEmpty(liveDb)) considerStaleDb(dbLocation(scanHome, env));
+  for (const db of staleDbs) report.push(`stale trajectory DB (this project): ${db}`);
+  const installedJson2 = `${scanHome}/.claude/plugins/installed_plugins.json`;
+  const cacheRoot = `${scanHome}/.claude/plugins/cache`;
+  const unusedCache = [];
+  if (isFile11(installedJson2) && isDir6(cacheRoot) && within()) {
+    const pinned = new Set(pinnedPaths(installedJson2));
+    for (const vdir of cacheVersionDirs(cacheRoot, plugin, within)) {
+      if (!isDir6(vdir)) continue;
+      if (!within()) break;
+      if (pinned.has(vdir)) continue;
+      unusedCache.push(vdir);
+    }
+  }
+  for (const vdir of unusedCache) report.push(`unused cache version (pinned by no project): ${vdir}`);
+  const ownCc = nearestCcAncestor2(env.TMB_ORPHAN_SCAN_SELF_PID || String(process.pid), env);
+  const staleProcs = [];
+  if (nonEmpty(liveDb) && within()) {
+    for (const pid of holders(liveDb, env)) {
+      if (pid === "") continue;
+      if (!isTrajectoryServer(pid, env)) continue;
+      if (chainContains2(pid, ownCc, env)) continue;
+      const owner = nearestCcAncestor2(pid, env);
+      if (owner !== "" && ops.alive(owner)) continue;
+      staleProcs.push(pid);
+    }
+  }
+  for (const pid of staleProcs) report.push(`stale duplicate trajectory-server on this project's live DB: pid ${pid}`);
+  const cleaned = [];
+  if (clean) {
+    for (const db of staleDbs) {
+      if (db === liveDb) continue;
+      try {
+        rmSync4(db, { force: true });
+        cleaned.push(`removed stale DB: ${db}`);
+      } catch {
+      }
+    }
+    for (const vdir of unusedCache) {
+      if (!vdir.startsWith(`${cacheRoot}/`)) continue;
+      try {
+        rmSync4(vdir, { recursive: true, force: true });
+        cleaned.push(`removed unused cache version: ${vdir}`);
+      } catch {
+      }
+    }
+    for (const pid of staleProcs) {
+      if (ops.alive(pid) && isTrajectoryServer(pid, env) && ops.terminate(pid)) {
+        cleaned.push(`terminated stale duplicate trajectory-server: pid ${pid}`);
+      }
+    }
+  }
+  if (report.length === 0) return ALLOW;
+  const mode = clean ? "cleanup enabled (TMB_ORPHAN_SCAN_CLEAN=1)" : "report-only (set TMB_ORPHAN_SCAN_CLEAN=1 to clean)";
+  let ctx = `=== TMB orphan scan (project-scoped) ===
+project: ${projectDir}
+mode: ${mode}
+${report.map((l) => `${l}
+`).join("")}`;
+  if (cleaned.length > 0) ctx += `--- cleaned ---
+${cleaned.map((l) => `${l}
+`).join("")}`;
+  ctx += "========================================";
+  return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } })}
+`, code: 0 };
+}
+var orphanScan = (_payload, env) => {
+  try {
+    return orphanScanRun(env, REAL_PROCESS_OPS, (text) => process.stderr.write(text));
+  } catch {
+    return ALLOW;
+  }
+};
+
+// src/hooks/session-start-prescan.ts
+import { spawn as spawn2 } from "node:child_process";
+import { readdirSync as readdirSync6, readFileSync as readFileSync16, statSync as statSync24 } from "node:fs";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
+var GATE_NAME46 = "session-start-prescan";
+var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
+var SUBDIR_STACKS_MAX = 3;
+var TOPLEVEL_MAX = 10;
+var WORLD_MODEL_STALE_SECS = 7n * 24n * 3600n;
+var DOCTOR_BUDGET_DEFAULT = 1500n;
+var DOCTOR_BUDGET_MAX = 3000n;
+var NO_PROJECT = "(no project resolves)";
+var SOURCE_EXCLUDED = /^(\.claude\/|node_modules\/|dist\/|build\/|\.git\/)/;
+function isFile12(path) {
+  try {
+    return statSync24(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function isDir7(path) {
+  if (path === "") return false;
+  try {
+    return statSync24(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function order(s, pos) {
+  if (pos === s.length) return -1;
+  const c = s.charCodeAt(pos);
+  if (c >= 48 && c <= 57) return 0;
+  if (c >= 65 && c <= 90 || c >= 97 && c <= 122) return c;
+  if (c === 126) return -2;
+  return c + 256;
+}
+function isDigit(s, pos) {
+  const c = s.charCodeAt(pos);
+  return c >= 48 && c <= 57;
+}
+function verrevcmp(a, alen, b, blen) {
+  let i2 = 0;
+  let j = 0;
+  while (i2 < alen || j < blen) {
+    let firstDiff = 0;
+    while (i2 < alen && !isDigit(a, i2) || j < blen && !isDigit(b, j)) {
+      const ac = order(a.slice(0, alen), i2);
+      const bc = order(b.slice(0, blen), j);
+      if (ac !== bc) return ac - bc;
+      i2 += 1;
+      j += 1;
+    }
+    while (i2 < alen && a[i2] === "0") i2 += 1;
+    while (j < blen && b[j] === "0") j += 1;
+    while (i2 < alen && j < blen && isDigit(a, i2) && isDigit(b, j)) {
+      if (firstDiff === 0) firstDiff = a.charCodeAt(i2) - b.charCodeAt(j);
+      i2 += 1;
+      j += 1;
+    }
+    if (i2 < alen && isDigit(a, i2)) return 1;
+    if (j < blen && isDigit(b, j)) return -1;
+    if (firstDiff !== 0) return firstDiff;
+  }
+  return 0;
+}
+function prefixLen(s) {
+  let prefix = 0;
+  let i2 = 0;
+  const alnum = (c) => /[A-Za-z0-9~]/.test(c);
+  while (i2 < s.length) {
+    i2 += 1;
+    prefix = i2;
+    while (i2 + 1 < s.length && s[i2] === "." && /[A-Za-z~]/.test(s[i2 + 1])) {
+      for (i2 += 2; i2 < s.length && alnum(s[i2]); i2 += 1) ;
+    }
+  }
+  return prefix;
+}
+function filevercmp(a, b) {
+  if (a === b) return 0;
+  if (a === "") return -1;
+  if (b === "") return 1;
+  if (a[0] === ".") {
+    if (b[0] !== ".") return -1;
+    const adot = a.length === 1;
+    const bdot = b.length === 1;
+    if (adot || bdot) return Number(bdot) - Number(adot);
+    const a2 = a[1] === "." && a.length === 2;
+    const b2 = b[1] === "." && b.length === 2;
+    if (a2 || b2) return Number(b2) - Number(a2);
+  } else if (b[0] === ".") {
+    return 1;
+  }
+  const ap = prefixLen(a);
+  const bp = prefixLen(b);
+  const onePass = ap === a.length && bp === b.length;
+  const r = verrevcmp(a, ap, b, bp);
+  return r !== 0 || onePass ? r : verrevcmp(a, a.length, b, b.length);
+}
+function sortVMax(a, b) {
+  const r = filevercmp(a, b) || byteCompare(a, b);
+  return r > 0 ? a : b;
+}
+function globNames(dir, env, suffix = "") {
+  let names;
+  try {
+    names = readdirSync6(dir);
+  } catch {
+    return [];
+  }
+  const collator = localeCollates(env) ? new Intl.Collator("en") : null;
+  const compare = (a, b) => {
+    const x = a + suffix;
+    const y = b + suffix;
+    return (collator ? collator.compare(x, y) : 0) || byteCompare(x, y);
+  };
+  return names.filter((n2) => !n2.startsWith(".")).sort(compare);
+}
+function jqVersion(manifest) {
+  let text;
+  try {
+    text = readFileSync16(manifest, "utf8");
+  } catch {
+    return "";
+  }
+  const out2 = [];
+  for (const doc of jsonStream(text).values) {
+    if (doc === null) continue;
+    if (typeof doc !== "object" || Array.isArray(doc)) break;
+    const v = doc.version;
+    if (v !== void 0 && v !== null && v !== false) out2.push(jqRawText(v));
+  }
+  return stripTrailingNewlines(out2.join("\n"));
+}
+function versionSkew(env) {
+  const root = env.CLAUDE_PLUGIN_ROOT ?? "";
+  const manifest = `${root}/.claude-plugin/plugin.json`;
+  if (root === "" || !isFile12(manifest)) return { running: "", newer: "" };
+  const running = jqVersion(manifest);
+  const versionsDir = posixDirname(root);
+  if (running === "" || !isDir7(versionsDir)) return { running, newer: "" };
+  let highest = "";
+  let names = [];
+  try {
+    names = readdirSync6(versionsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    names = [];
+  }
+  for (const name3 of names) {
+    if (!/^[0-9]/.test(name3)) continue;
+    highest = highest === "" ? name3 : sortVMax(highest, name3);
+  }
+  const newer = highest !== "" && highest !== running && sortVMax(running, highest) === highest ? highest : "";
+  return { running, newer };
+}
+function readPair(line) {
+  const bar = line.indexOf("|");
+  if (bar < 0) return { name: line, path: "" };
+  const rest = line.slice(bar + 1);
+  const path = rest.endsWith("|") && !rest.slice(0, -1).includes("|") ? rest.slice(0, -1) : rest;
+  return { name: line.slice(0, bar), path };
+}
+function listRepos(db, root, env) {
+  const rows = sqliteRo(db, "SELECT name || '|' || path FROM repos WHERE COALESCE(path, '') <> '' ORDER BY name;", env);
+  if (rows === "") return root === "" ? [] : [readPair(`${posixBasename(root)}|${root}`)];
+  return rows.split("\n").map((row) => {
+    const { name: name3, path: raw } = readPair(row);
+    const path = raw.startsWith("/") ? raw : realdir(`${posixDirname(db)}/${raw}`);
+    return readPair(`${name3}|${path.endsWith("/") ? path.slice(0, -1) : path}`);
+  });
+}
+function stacksIn(dir) {
+  const has = (f) => isFile12(`${dir}/${f}`);
+  const out2 = [];
+  if (has("package.json")) out2.push("Node");
+  if (has("pyproject.toml") || has("setup.py") || has("requirements.txt")) out2.push("Python");
+  if (has("go.mod")) out2.push("Go");
+  if (has("Cargo.toml")) out2.push("Rust");
+  if (has("Gemfile")) out2.push("Ruby");
+  if (has("composer.json")) out2.push("PHP");
+  return out2;
+}
+function detectStacks(dir, env) {
+  const root = stacksIn(dir);
+  if (root.length > 0) return root.join(" ");
+  const labels = [];
+  let n2 = 0;
+  for (const name3 of globNames(dir, env, "/")) {
+    const sub = `${dir}/${name3}/`;
+    if (!isDir7(sub)) continue;
+    for (const stack of stacksIn(sub)) {
+      n2 += 1;
+      if (n2 <= SUBDIR_STACKS_MAX) labels.push(`${stack} (${name3}/)`);
+    }
+  }
+  let s = labels.join(", ");
+  if (n2 > SUBDIR_STACKS_MAX) s += `, +${n2 - SUBDIR_STACKS_MAX} more`;
+  return s || "(none detected)";
+}
+function gitOr(dir, args2, fallback, env) {
+  const r = gitRun(dir, args2, env);
+  return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}${fallback}
+`);
+}
+function lineCount2(text) {
+  return text.split("\n").length - 1;
+}
+function records(text) {
+  if (text === "") return [];
+  const lines2 = text.split("\n");
+  if (lines2[lines2.length - 1] === "") lines2.pop();
+  return lines2;
+}
+function topLevel(root, env) {
+  if (root === "" || !isDir7(root)) return NO_PROJECT;
+  const names = globNames(root, env).filter((n2) => isDir7(`${root}/${n2}`));
+  return names.join(" ").split(/[ \t\n]+/).filter((w) => w !== "").slice(0, TOPLEVEL_MAX).join(" ");
+}
+function relativeAge(raw) {
+  const secs = raw < 0n ? 0n : raw;
+  if (secs < 60n) return "just now";
+  if (secs < 3600n) return `${secs / 60n}m ago`;
+  if (secs < 86400n) return `${secs / 3600n}h ago`;
+  return `${secs / 86400n}d ago`;
+}
+function worldModelLine(wmDirs, sourceFiles, scanRow) {
+  const bar = scanRow.indexOf("|");
+  const ageText = bar < 0 ? scanRow : scanRow.slice(0, bar);
+  const scanned = bar < 0 ? scanRow : scanRow.slice(scanRow.lastIndexOf("|") + 1);
+  if (wmDirs === "0") return `cold (no scan yet; ${sourceFiles} source files)`;
+  if (!/^-?[0-9]+$/.test(ageText)) return "stale (last scan unknown) \u2014 run /scan";
+  const age = BigInt(ageText);
+  if (age < WORLD_MODEL_STALE_SECS) return `warm (${scanned} files, last scan ${relativeAge(age)})`;
+  return `stale (last scan ${relativeAge(age)}) \u2014 run /scan`;
+}
+function decimalLiteral(text) {
+  const [int, frac] = text.split(".");
+  const whole = int.replace(/^0+(?=.)/, "");
+  return frac === void 0 ? whole : `${whole}.${frac}`;
+}
+function paramValue(raw, fallback) {
+  const v = raw ?? "";
+  if (/^[0-9]+([.][0-9]+)?$/.test(v) && Number(v) > 0) return decimalLiteral(v);
+  return jqRawText(fallback);
+}
+function contractScript(contracts, env) {
+  const params = [
+    ...new Set(contracts.flatMap((c) => (c.params ?? []).map((p) => `.parameter set :${p.name} ${paramValue(env[p.env], p.default)}`)))
+  ].sort(byteCompare);
+  return [
+    "SELECT '__schema|' || COALESCE((SELECT schema_version FROM plugin_meta LIMIT 1), '');",
+    ...params,
+    ...contracts.map((c) => `SELECT '${c.id}|' || CASE WHEN (${c.sql}) ${c.expect.op} ${jqRawText(c.expect.value)} THEN 'ok' ELSE 'fail' END;`)
+  ].join("\n");
+}
+function doctorBudget(raw) {
+  const v = raw || String(DOCTOR_BUDGET_DEFAULT);
+  if (!/^[0-9]+$/.test(v)) return String(DOCTOR_BUDGET_DEFAULT);
+  return BigInt(v) > DOCTOR_BUDGET_MAX ? String(DOCTOR_BUDGET_MAX) : v;
+}
+function doctorState(root, db, env) {
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync16(`${root}/scripts/hooks/lib/data-contracts.json`, "utf8"));
+  } catch {
+    return "unchecked (no contract list)";
+  }
+  const contracts = Array.isArray(doc.contracts) ? doc.contracts : [];
+  const ids = contracts.flatMap((c) => jqRawText(c.id ?? null).split("\n")).filter((id) => id !== "");
+  if (ids.length === 0) return "unchecked (no contract list)";
+  const requiredText = doc.schema_version === void 0 || doc.schema_version === null || doc.schema_version === false ? "0" : jqRawText(doc.schema_version);
+  const required = /^[0-9]+$/.test(requiredText) ? BigInt(requiredText) : 0n;
+  const r = dbReadBudget(db, doctorBudget(env.TMB_DOCTOR_BUDGET_MS), contractScript(contracts, env), env);
+  if (r.code === 124) return "unchecked (timeout)";
+  const lines2 = r.out.split("\n");
+  const storedText = lines2.find((l) => l.startsWith("__schema|"))?.slice("__schema|".length) ?? "";
+  const schemaNote = /^[0-9]+$/.test(storedText) && BigInt(storedText) < required ? `schema v${storedText} < v${required} \u2014 start the trajectory server to migrate` : "";
+  const failed = [];
+  let unchecked = 0;
+  for (const id of ids) {
+    const hit = lines2.find((l) => l === `${id}|ok` || l === `${id}|fail`);
+    if (hit === `${id}|ok`) continue;
+    if (hit === `${id}|fail`) failed.push(id);
+    else unchecked += 1;
+  }
+  if (failed.length > 0) {
+    let state = `${failed.length} contract violation(s) [${failed.join(", ")}] \u2014 run trajectory_doctor`;
+    if (unchecked > 0) state += ` (${unchecked} unchecked${schemaNote ? `: ${schemaNote}` : ""})`;
+    else if (schemaNote) state += ` (${schemaNote})`;
+    return state;
+  }
+  if (unchecked > 0 || schemaNote) return `unchecked (${schemaNote || "read error"})`;
+  return "healthy";
+}
+function startInitialScan(invoker, db, env) {
+  const child = spawn2("node", ["--experimental-sqlite", invoker], {
+    env: { ...env, TRAJECTORY_DB_PATH: db },
+    detached: true,
+    stdio: "ignore"
+  });
+  child.on("error", () => void 0);
+  child.unref();
+}
+function coldNote(root, db, env) {
+  const invoker = `${root}/scripts/hooks/../maintenance/run-scan-initial.mjs`;
+  if ((env.TMB_SKIP_AUTO_PRESCAN ?? "0") !== "1" && isFile12(`${root}/scripts/scan.sh`) && isFile12(invoker) && commandOnPath("node", env)) {
+    startInitialScan(invoker, db, env);
+    return "world model was cold \u2014 a deterministic scan is running in the background; re-read world_model_get before planning";
+  }
+  return "world model is cold \u2014 run /scan before planning so world_model_get has a project map";
+}
+function pluginRoot2() {
+  return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
+}
+function sessionStartPrescanRun(env, root, stderr) {
+  if (!commandOnPath("jq", env)) return { stdout: NO_JQ_LINE, code: 0 };
+  const db = dbPathAdvisory(GATE_NAME46, env, (line) => stderr(`${line}
+`));
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env) || !commandOnPath("git", env)) return ALLOW;
+  const skew = versionSkew(env);
+  const project = projectRoot(env);
+  const repos = listRepos(db, project, env);
+  const repoN = repos.length;
+  const stacks = [];
+  const branches = [];
+  const last5 = [];
+  for (const { name: name3, path } of repos) {
+    if (name3 === "") continue;
+    if (!isDir7(path)) {
+      stacks.push(`${name3}: missing (${path})`);
+      branches.push(`${name3}: missing (${path})`);
+      continue;
+    }
+    stacks.push(`${name3}: ${detectStacks(path, env)}`);
+    const branch = gitOr(path, ["rev-parse", "--abbrev-ref", "HEAD"], "unknown", env);
+    const commits = gitOr(path, ["rev-list", "--count", "HEAD"], "0", env);
+    const dirty = lineCount2(gitRun(path, ["status", "--porcelain"], env).stdout);
+    branches.push(`${name3}: ${branch} (${commits} commits, ${dirty} dirty paths)`);
+    const prefix = repoN > 1 ? `  [${name3}] ` : "  ";
+    const log = records(gitRun(path, ["log", "--oneline", "-5"], env).stdout).map((l) => `${prefix}${l}`);
+    if (log.length > 0) last5.push(log.join("\n"));
+  }
+  const counts = sqliteRo(
+    db,
+    "SELECT\n  (SELECT COUNT(*) FROM issues WHERE status='open'),\n  (SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running'));",
+    env
+  ).split("\n")[0];
+  const [openIssues = "", pendingTasks = ""] = counts.split("|");
+  const wmRaw = sqliteRo(db, "SELECT COUNT(*) FROM wm_directories;", env);
+  const wmDirs = /^[0-9]+$/.test(wmRaw) ? wmRaw : "0";
+  let sourceFiles = 0;
+  for (const { name: name3, path } of repos) {
+    if (name3 === "" || !isDir7(path)) continue;
+    sourceFiles += records(gitRun(path, ["ls-files"], env).stdout).filter((l) => !SOURCE_EXCLUDED.test(l)).length;
+  }
+  const scanRow = sqliteRo(
+    db,
+    "SELECT CAST(strftime('%s','now') - strftime('%s', MAX(last_scanned_at)) AS INTEGER), COALESCE(SUM(file_count), 0) FROM repos;",
+    env
+  );
+  const worldModel = worldModelLine(wmDirs, sourceFiles, scanRow);
+  const cold = wmDirs === "0" && sourceFiles !== 0 ? coldNote(root, db, env) : "";
+  const doctor = doctorState(root, db, env);
+  let suffix = cold === "" ? "" : `
+${cold}`;
+  if (skew.newer !== "") {
+    suffix += `
+newer plugin version ${skew.newer} is installed but ${skew.running} is still running \u2014 fully quit and relaunch Claude Code to apply`;
+  }
+  const dups = duplicateInstalls(projectRoot(env), env);
+  if (dups.length > 0) {
+    const marketplaces = dups.map((r) => r.marketplace).join(",").replaceAll(",", ", ");
+    suffix += `
+Plugin: duplicate ${installPluginName(env)} copies enabled (${marketplaces}) \u2014 hooks from one are dropped; keep one and disable the others from the project root (${duplicateDisableCmds(dups, env)}), then fully quit and relaunch Claude Code`;
+  }
+  const legacy = legacyUserHooks(projectRoot(env), env);
+  if (legacy.hooks.length > 0) {
+    const projects = legacyHookProjects(legacy.projects);
+    suffix += `
+Plugin: ${userSettingsJson(env)} holds ${legacy.hooks.length} pre-1.1.0 TMB hook(s) (${legacyHookEntries(legacy.hooks)}) \u2014 they run in every project and can deny what this version allows; the Human removes them by hand, see ${LEGACY_USER_HOOKS_DOC}${projects ? `; projects on TMB < 1.1.0 lose them too: ${projects}` : ""}`;
+  }
+  const inventory = stripTrailingNewlines(
+    [
+      "=== Project Inventory (auto, deterministic) ===",
+      `Plugin version:    ${skew.running || "(unknown)"}`,
+      `Top-level dirs:    ${topLevel(project, env)}`,
+      `Stacks detected:   ${stacks.join("; ") || NO_PROJECT}`,
+      `World model:       ${worldModel}`,
+      `Trajectory DB:     ${doctor}`,
+      `Git branch:        ${branches.join("; ") || NO_PROJECT}`,
+      `Open issues:       ${openIssues || "0"}`,
+      `Pending tasks:     ${pendingTasks || "0"}`,
+      "Last 5 commits:",
+      last5.join("\n"),
+      `================================================${suffix}`
+    ].join("\n")
+  );
+  return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: inventory } })}
+`, code: 0 };
+}
+var sessionStartPrescan = (_payload, env) => {
+  try {
+    return sessionStartPrescanRun(env, pluginRoot2(), (text) => process.stderr.write(text));
+  } catch {
+    return ALLOW;
+  }
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -18208,7 +19080,9 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME41, agentArgMatchesCaller],
   [GATE_NAME42, reviewerIdentityObserve],
   [GATE_NAME43, cheatcodeInstallApproval],
-  [GATE_NAME44, sweScopeFence]
+  [GATE_NAME44, sweScopeFence],
+  [GATE_NAME45, orphanScan],
+  [GATE_NAME46, sessionStartPrescan]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -18242,7 +19116,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync15(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync17(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

@@ -235,6 +235,8 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'reviewer-identity-observe',
   'cheatcode-install-approval',
   'swe-scope-fence',
+  'orphan-scan',
+  'session-start-prescan',
 ]);
 
 function parityCases(): ParityCase[] {
