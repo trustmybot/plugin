@@ -1,0 +1,4 @@
+// Shard 1 of 8 of hooks-worktree-lifecycle-parity.suite.ts, run as its own node --test process (GH 1947, GH 2118).
+import { worktreeLifecycleParityShard } from './hooks-worktree-lifecycle-parity.suite.js';
+worktreeLifecycleParityShard(1, 8);
+//# sourceMappingURL=hooks-worktree-lifecycle-parity.shard-1of8.test.js.map

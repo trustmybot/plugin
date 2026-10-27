@@ -69,6 +69,7 @@ import { GATE_NAME as RECORD_SWE_SPAWN_GATE, recordSweSpawn } from './record-swe
 import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from './cleanup-worktree-on-task-close.js';
 import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
 import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
+import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-source-edit-from-main.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -136,6 +137,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose],
   [WORKTREE_CREATE_GATE, worktreeCreate],
   [REMOTE_ID_GATE, remoteIdGuard],
+  [NO_SOURCE_EDIT_GATE, noSourceEditFromMain],
 ]);
 
 export function findGate(name: string): Gate | undefined {
