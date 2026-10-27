@@ -1,0 +1,9 @@
+{
+  "prompt": "go",
+  "transcript_path": "@SANDBOX@/transcripts/latin1.jsonl",
+  "corpus_expect": {
+    "C": "pending=#3",
+    "en_US.UTF-8": "empty",
+    "UTF-8": "pending=#3"
+  }
+}
