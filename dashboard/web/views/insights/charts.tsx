@@ -5,8 +5,11 @@ import { ParentSize } from '@visx/responsive';
 import { scaleLinear } from '@visx/scale';
 import { BarRounded, Line } from '@visx/shape';
 import { Tooltip, useTooltip } from '@visx/tooltip';
+import { OUTLINE_DASH } from './ChartCard.tsx';
 import type { Tick } from './format.ts';
+import { overlayTip } from './params.ts';
 import type { Bucket } from './types.ts';
+import type { ReactNode } from 'react';
 
 export type { Tick } from './format.ts';
 
@@ -23,6 +26,7 @@ export interface Column {
 export interface Marker {
   at: number;
   label: string;
+  hollow?: boolean;
 }
 
 interface EdgeTick extends Tick {
@@ -184,16 +188,26 @@ export interface ColumnChartProps {
   edgeTicks?: Tick[];
   markers?: Marker[];
   contiguous?: boolean;
+  outline?: { values: number[]; color: string };
 }
 
-function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contiguous }: ColumnChartProps & { width: number }) {
+export const OUTLINE_WIDTH = 1.5;
+
+// A step line along each band's top, dropping to the baseline at both ends.
+export function stepPath(values: readonly number[], x: (i: number) => number, y: (v: number) => number, baseline: number): string {
+  if (values.length === 0) return '';
+  const steps = values.map((v, i) => `V${y(v)}H${x(i + 1)}`).join('');
+  return `M${x(0)},${baseline}${steps}V${baseline}`;
+}
+
+function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contiguous, outline }: ColumnChartProps & { width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
   const marginTop = markers?.length ? MARKER_TOP : MARGIN.top;
   const innerW = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerH = HEIGHT - marginTop - MARGIN.bottom;
   const n = Math.max(1, columns.length);
   const x = scaleLinear<number>({ domain: [0, n], range: [0, innerW] });
-  const top = Math.max(1, yMax ?? 0, ...columns.map((c) => c.value));
+  const top = Math.max(1, yMax ?? 0, ...columns.map((c) => c.value), ...(outline?.values ?? []));
   const y = scaleLinear<number>({ domain: [0, top], range: [innerH, 0], nice: true });
   const band = innerW / n;
   const bar = contiguous ? histBarWidth(band) : barWidth(band);
@@ -209,7 +223,8 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contigu
     const left = x(i) + (band - bar) / 2;
     return [{ c, left, right: left + bar, top: innerH - h, h }];
   });
-  const callouts = placeMarkerCallouts(markerX, bars, innerW, innerH);
+  const outlineTops: BarTop[] = (outline?.values ?? []).flatMap((v, i) => (v > 0 ? [{ left: x(i), right: x(i + 1), top: y(v) }] : []));
+  const callouts = placeMarkerCallouts(markerX, [...bars, ...outlineTops], innerW, innerH);
   const show = (c: Column, i: number) => () =>
     showTooltip({ tooltipData: { title: c.tip }, tooltipLeft: MARGIN.left + x(i + 0.5), tooltipTop: marginTop + y(c.value) - 8 });
   return (
@@ -220,11 +235,30 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contigu
           {bars.map((b) => (
             <Mark key={b.c.key} x={b.left} y={b.top} width={bar} height={b.h} color={b.c.color} horizontal={false} />
           ))}
+          {outline && (
+            <path
+              d={stepPath(outline.values, x, y, innerH)}
+              fill="none"
+              stroke={outline.color}
+              strokeWidth={OUTLINE_WIDTH}
+              strokeDasharray={OUTLINE_DASH}
+              pointerEvents="none"
+              data-outline=""
+            />
+          )}
           {markerX.map((m, i) => {
             const c = callouts[i]!;
+            const hollow = markers![i]!.hollow;
             return (
-              <g key={m.label} data-marker="">
-                <path d={arrowPath(c.ax, c.tip)} fill={MUTED} stroke="none" pointerEvents="none" data-marker-arrow="" />
+              <g key={`${i}-${m.label}`} data-marker={hollow ? 'hollow' : ''}>
+                <path
+                  d={arrowPath(c.ax, c.tip)}
+                  fill={hollow ? 'none' : MUTED}
+                  stroke={hollow ? MUTED : 'none'}
+                  strokeWidth={hollow ? 1 : undefined}
+                  pointerEvents="none"
+                  data-marker-arrow=""
+                />
                 <text x={c.labelX} y={c.baseline} textAnchor={c.anchor} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }} data-marker-label="">
                   {m.label}
                 </text>
@@ -418,4 +452,183 @@ export function Histogram({ label, measure, buckets, linear = false, color, who,
   if (p95 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p95, linear), label: `p95 ${format(p95)}` });
   const edges: Tick[] = buckets.map((b, i) => ({ at: i, label: format(b.from) })).concat(buckets.length > 0 ? [{ at: buckets.length, label: format(buckets.at(-1)!.to) }] : []);
   return <ColumnChart label={label} columns={columns} yMax={yMax} format={(v) => (Number.isInteger(v) ? String(v) : '')} edgeTicks={edges} markers={markers} contiguous />;
+}
+
+export interface OverlayPeriod {
+  buckets: Bucket[];
+  n: number;
+  p50: number | null;
+  p95: number | null;
+}
+
+export const shareOf = (count: number, n: number) => (n > 0 ? (100 * count) / n : 0);
+const shareText = (v: number) => `${Math.round(v)}%`;
+
+export interface OverlayHistogramProps {
+  label: string;
+  measure: string;
+  who: string;
+  per: 'run' | 'session';
+  linear?: boolean;
+  color: string;
+  yMax?: number;
+  format: (v: number) => string;
+  p1: OverlayPeriod;
+  p2: OverlayPeriod;
+}
+
+const periodMarkers = (p: OverlayPeriod, buckets: readonly Bucket[], linear: boolean, format: (v: number) => string, hollow: boolean): Marker[] =>
+  (['p50', 'p95'] as const).flatMap((k) => {
+    const v = p[k];
+    return v === null || buckets.length === 0 ? [] : [{ at: bucketPosition(buckets, v, linear), label: `${k} ${format(v)}`, hollow }];
+  });
+
+// Period 2 as filled bars and Period 1 as a dashed step outline, both as the
+// share of their period's measured runs on the shared buckets.
+export function OverlayHistogram({ label, measure, who, per, linear = false, color, yMax, format, p1, p2 }: OverlayHistogramProps) {
+  const buckets = p2.buckets;
+  const columns: Column[] = buckets.map((b, i) => {
+    const range = `${format(b.from)}–${format(b.to)}`;
+    const c1 = p1.buckets[i]?.count ?? 0;
+    const shares = [
+      { share: shareText(shareOf(c1, p1.n)), count: c1 },
+      { share: shareText(shareOf(b.count, p2.n)), count: b.count },
+    ];
+    const tip = overlayTip(range, shares, per);
+    return { key: `${b.from}`, label: format(b.from), value: shareOf(b.count, p2.n), color, aria: `${who}, ${measure} ${tip}`, tip };
+  });
+  const markers = [...periodMarkers(p2, buckets, linear, format, false), ...periodMarkers(p1, buckets, linear, format, true)];
+  const edges: Tick[] = buckets.map((b, i) => ({ at: i, label: format(b.from) })).concat(buckets.length > 0 ? [{ at: buckets.length, label: format(buckets.at(-1)!.to) }] : []);
+  const outline = { values: buckets.map((_, i) => shareOf(p1.buckets[i]?.count ?? 0, p1.n)), color };
+  return <ColumnChart label={label} columns={columns} yMax={yMax} format={shareText} edgeTicks={edges} markers={markers} contiguous outline={outline} />;
+}
+
+const PAIR_ROW = 48;
+const PAIR_THICK = 10;
+const PAIR_P1 = 18;
+const PAIR_P2 = 32;
+const DELTA_H = 20;
+const DELTA_GAP = 6;
+const DELTA_ICON = 24;
+
+export interface PairedRow {
+  key: string;
+  label: string;
+  color: string;
+  p1: number | null;
+  p2: number | null;
+  aria: string;
+  tip: string;
+  delta: ReactNode;
+  deltaText: string;
+}
+
+export interface PairedBarListProps {
+  label: string;
+  rows: PairedRow[];
+  format: (v: number) => string;
+  axis: (max: number) => { top: number; ticks: Tick[] };
+}
+
+const pairText = (v: number | null, format: (v: number) => string) => (v === null ? '—' : format(v));
+
+function PairedBarListPlot({ width, label, rows, format, axis }: PairedBarListProps & { width: number }) {
+  const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
+  const deltaW = (r: PairedRow) => textWidth(r.deltaText) + DELTA_ICON;
+  const reserve =
+    Math.max(0, ...rows.map((r) => Math.max(textWidth(pairText(r.p1, format)), textWidth(pairText(r.p2, format)) + DELTA_GAP + deltaW(r)))) + 2 * LABEL_PAD + 4;
+  const innerW = Math.max(0, width - 1 - reserve);
+  const { top, ticks } = axis(Math.max(0, ...rows.map((r) => Math.max(r.p1 ?? 0, r.p2 ?? 0))));
+  const x = scaleLinear<number>({ domain: [0, Math.max(top, Number.EPSILON)], range: [0, innerW] });
+  const shown = thinEdgeTicks(ticks, innerW);
+  const labels = new Map(shown.map((t) => [t.at, t]));
+  const plotH = rows.length * PAIR_ROW;
+  const end = (v: number | null) => (v !== null && v > 0 ? Math.max(CAP, x(v)) : 0);
+  const show = (r: PairedRow, i: number) => () =>
+    showTooltip({ tooltipData: { title: r.tip }, tooltipLeft: 1 + Math.max(end(r.p1), end(r.p2)), tooltipTop: i * PAIR_ROW + PAIR_P1 - 4 });
+  return (
+    <div className="relative">
+      <svg width={width} height={plotH + AXIS_H} role="img" aria-label={label} className="block max-w-full overflow-visible tabular-nums">
+        <Group left={1}>
+          {rows.map((r, i) => {
+            const rowY = i * PAIR_ROW;
+            const e1 = end(r.p1);
+            const e2 = end(r.p2);
+            const v2 = pairText(r.p2, format);
+            return (
+              <g key={r.key} data-pair="">
+                <text x={0} y={rowY + 12} fill={TEXT} fontSize={12}>
+                  {r.label}
+                </text>
+                <Line from={{ x: 0, y: rowY + PAIR_P1 - 2 }} to={{ x: 0, y: rowY + PAIR_P2 + PAIR_THICK + 2 }} stroke={BASELINE} strokeWidth={1} />
+                {e1 > 0 && (
+                  <rect
+                    x={OUTLINE_WIDTH / 2}
+                    y={rowY + PAIR_P1 + OUTLINE_WIDTH / 2}
+                    width={Math.max(0, e1 - OUTLINE_WIDTH)}
+                    height={PAIR_THICK - OUTLINE_WIDTH}
+                    fill="none"
+                    stroke={r.color}
+                    strokeWidth={OUTLINE_WIDTH}
+                    strokeDasharray={OUTLINE_DASH}
+                    data-outline=""
+                  />
+                )}
+                <text x={e1 + LABEL_PAD} y={rowY + PAIR_P1 + 9} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {pairText(r.p1, format)}
+                </text>
+                <Mark x={0} y={rowY + PAIR_P2} width={e2} height={PAIR_THICK} color={r.color} horizontal />
+                <text x={e2 + LABEL_PAD} y={rowY + PAIR_P2 + 9} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {v2}
+                </text>
+                <foreignObject x={e2 + LABEL_PAD + textWidth(v2) + DELTA_GAP} y={rowY + PAIR_P2 + PAIR_THICK / 2 - DELTA_H / 2} width={deltaW(r)} height={DELTA_H}>
+                  {r.delta}
+                </foreignObject>
+              </g>
+            );
+          })}
+          <AxisBottom
+            top={plotH}
+            scale={x}
+            tickValues={shown.map((t) => t.at)}
+            tickFormat={(v) => labels.get(Number(v))?.label ?? ''}
+            hideAxisLine
+            hideTicks
+            tickLabelProps={(v) => ({ ...tickLabel, textAnchor: labels.get(Number(v))?.anchor ?? 'middle' })}
+          />
+          {rows.map((r, i) => (
+            <rect
+              key={r.key}
+              x={0}
+              y={i * PAIR_ROW}
+              width={innerW}
+              height={PAIR_ROW}
+              fill="transparent"
+              data-hit=""
+              tabIndex={0}
+              role="graphics-symbol"
+              aria-label={r.aria}
+              className={FOCUS}
+              onMouseMove={show(r, i)}
+              onFocus={show(r, i)}
+              onMouseLeave={hideTooltip}
+              onBlur={hideTooltip}
+            />
+          ))}
+        </Group>
+      </svg>
+      <ChartTooltip open={tooltipOpen} data={tooltipData} left={tooltipLeft} top={tooltipTop} />
+    </div>
+  );
+}
+
+export function PairedBarList(props: PairedBarListProps) {
+  const height = props.rows.length * PAIR_ROW + AXIS_H;
+  return (
+    <div style={{ height }}>
+      <ParentSize initialSize={{ width: 480, height }} debounceTime={50}>
+        {({ width }) => <PairedBarListPlot {...props} width={width || 480} />}
+      </ParentSize>
+    </div>
+  );
 }

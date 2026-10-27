@@ -10,9 +10,39 @@ import { Flash } from '../../ui/Flash.tsx';
 import { Label } from '../../ui/Label.tsx';
 import { ProgressBar, StackedProgressBar } from '../../ui/ProgressBar.tsx';
 import { ChartCard } from './ChartCard.tsx';
-import { BarList, ColumnChart, Histogram, niceAxis, type Column } from './charts.tsx';
+import { BarList, ColumnChart, Histogram, OverlayHistogram, PairedBarList, niceAxis, shareOf, type Column, type OverlayPeriod, type PairedRow } from './charts.tsx';
+import { POLARITY, compareSlug, delta, sliceLabel, type Compare, type DeltaMeasure } from './compare.ts';
+import { CompareTile, DeltaLabel, PerTaskStrip, totalRuns } from './compare.tsx';
 import { AGENT_COLOR, AGENT_FILL, SERIES_COLOR, compact, duration, durationTicks, pct, plain, ratio, shortDay, usd } from './format.ts';
 import {
+  BRO_COST_PER_SESSION,
+  BRO_EXCLUDED_CAPTION,
+  BRO_TASKS_CAPTION,
+  CHANGE_HEADER,
+  COMPARE_SUBTITLE,
+  COST_PER_RUN_AGENT,
+  COST_PER_RUN_MODEL,
+  COST_PER_RUN_UNIT,
+  COST_PER_SESSION_UNIT,
+  HIGHER_BETTER,
+  LOWER_BETTER,
+  MEASURE_HEADER,
+  NAME_HEADER,
+  NO_RUNS_EITHER,
+  OUTLIERS_P2,
+  costPerRunSubject,
+  compareMeasured,
+  noRunsEither,
+  noRunsIn,
+  overlayAria,
+  pairText,
+  periodCost,
+  periodEarly,
+  periodLabel,
+  periodName,
+  periodRuns,
+  periodShare,
+  periodUnpriced,
   METRICS,
   METRIC_COPY,
   PERIOD_LOWER,
@@ -26,7 +56,7 @@ import {
   type InsightParams,
   type MetricKey,
 } from './params.ts';
-import type { AgentKey, AgentStats, Insights, Metric, Outlier } from './types.ts';
+import type { AgentKey, AgentStats, Comparison, Insights, Metric, Outlier } from './types.ts';
 import type { TableData } from './csv.ts';
 
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
@@ -154,7 +184,7 @@ const count = (v: unknown) => (v === null || v === undefined ? '—' : plain(Num
 const NUMERIC = 'whitespace-nowrap tabular-nums';
 const numeric = (text: ReactNode) => <span className={NUMERIC}>{text}</span>;
 
-function Outliers({ kind, rows }: { kind: keyof typeof OUTLIER_TITLE; rows: Outlier[] }) {
+function Outliers({ kind, rows, suffix = '' }: { kind: keyof typeof OUTLIER_TITLE; rows: Outlier[]; suffix?: string }) {
   const isDuration = kind === 'duration_ms';
   const fmt = isDuration ? duration : compact;
   const columns: TableColumn[] = [
@@ -180,8 +210,8 @@ function Outliers({ kind, rows }: { kind: keyof typeof OUTLIER_TITLE; rows: Outl
       : []),
   ];
   return (
-    <section className="space-y-2" aria-label={OUTLIER_TITLE[kind]}>
-      <h3 className="text-sm font-semibold text-fg">{OUTLIER_TITLE[kind]}</h3>
+    <section className="space-y-2" aria-label={`${OUTLIER_TITLE[kind]}${suffix}`}>
+      <h3 className="text-sm font-semibold text-fg">{`${OUTLIER_TITLE[kind]}${suffix}`}</h3>
       <DataTable rows={rows as unknown as Row[]} columns={columns} filter={false} />
       {isDuration && <p className="text-xs text-fg-muted">{IDLE_CAPTION}</p>}
     </section>
@@ -526,6 +556,316 @@ export function ThroughputSection({ data, params }: SectionProps) {
       >
         <ColumnChart label={`Closed tasks per day: ${total} over ${days.length} days`} columns={columns} format={(v) => (Number.isInteger(v) ? String(v) : '')} />
       </ChartCard>
+    </div>
+  );
+}
+
+interface CompareProps {
+  cmp: Comparison;
+  params: InsightParams;
+  compare: Compare;
+}
+
+const polarityCaption = (measure: DeltaMeasure) => (POLARITY[measure] === 'lower' ? LOWER_BETTER : POLARITY[measure] === 'higher' ? HIGHER_BETTER : undefined);
+
+const withBro = (caption: string | undefined, s: AgentStats) => (s.per === 'session' ? [caption, BRO_CAPTION].filter(Boolean).join(' ') : caption);
+
+interface AgentPair {
+  agent: AgentKey;
+  a1: AgentStats;
+  a2: AgentStats;
+}
+
+function agentPairs({ cmp, params }: CompareProps): AgentPair[] {
+  const pairs = cmp.p2.agents.flatMap((a2) => {
+    const a1 = cmp.p1.agents.find((a) => a.agent === a2.agent);
+    return a1 ? [{ agent: a2.agent, a1, a2 }] : [];
+  });
+  const kept = cmp.bro_excluded ? pairs.filter((p) => p.agent !== 'bro') : pairs;
+  return activeFilterCount(params) > 0 ? kept.filter((p) => p.a1.total + p.a2.total > 0) : kept;
+}
+
+const broNote = ({ cmp, compare }: CompareProps) =>
+  !cmp.bro_excluded ? null : compare.p1.kind === 'tasks' && compare.p2.kind === 'tasks' ? BRO_TASKS_CAPTION : BRO_EXCLUDED_CAPTION;
+
+function BothEmpty({ params, compare }: { params: InsightParams; compare: Compare }) {
+  return (
+    <Box>
+      <Blankslate
+        icon={FilterIcon}
+        heading={NO_RUNS_EITHER}
+        description={noRunsEither(sliceLabel(compare.p1), sliceLabel(compare.p2))}
+        action={<Button href={insightHash(clearFilters(params))}>Clear Filters</Button>}
+      />
+    </Box>
+  );
+}
+
+function OneEmpty({ cmp, compare }: { cmp: Comparison; compare: Compare }) {
+  const empty = ([1, 2] as const).filter((n) => totalRuns(n === 1 ? cmp.p1 : cmp.p2) === 0);
+  return (
+    <>
+      {empty.map((n) => (
+        <p key={n} className="text-sm text-fg-muted" data-period-empty={n}>
+          {noRunsIn(n, sliceLabel(n === 1 ? compare.p1 : compare.p2))}
+        </p>
+      ))}
+    </>
+  );
+}
+
+const bothEmpty = (cmp: Comparison) => totalRuns(cmp.p1) === 0 && totalRuns(cmp.p2) === 0;
+
+function CompareStats({ rows, measure, fmt, what }: { rows: Array<[string, number | null, number | null]>; measure: DeltaMeasure; fmt: (v: number | null) => string; what: string }) {
+  const cell = 'px-1 py-1 whitespace-nowrap';
+  return (
+    <table className="w-full text-sm tabular-nums" data-compare-stats="">
+      <thead>
+        <tr className="border-b border-(--borderColor-muted) text-left text-xs text-fg-muted">
+          {[MEASURE_HEADER, periodName(1), periodName(2), CHANGE_HEADER].map((h) => (
+            <th key={h} scope="col" className={`${cell} font-semibold`}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([k, v1, v2]) => (
+          <tr key={k}>
+            <th scope="row" className={`${cell} text-left font-normal text-fg-muted`}>
+              {k}
+            </th>
+            <td className={`${cell} text-fg`}>{fmt(v1)}</td>
+            <td className={`${cell} font-semibold text-fg`}>{fmt(v2)}</td>
+            <td className={cell}>
+              <DeltaLabel measure={measure} subject={`${k} ${what}`} p1={v1} p2={v2} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function compareHistogramTable(a1: AgentStats, a2: AgentStats, metric: MetricKey): TableData {
+  const share = (count: number, n: number) => pct(shareOf(count, n) / 100);
+  return {
+    columns: [...histogramColumns(metric), periodRuns(1, a2.per), periodShare(1), periodRuns(2, a2.per), periodShare(2)],
+    rows: a2.histograms[metric].map((b, i) => {
+      const c1 = a1.histograms[metric][i]?.count ?? 0;
+      return [tableValue(metric, b.from), tableValue(metric, b.to), c1, share(c1, a1.n), b.count, share(b.count, a2.n)];
+    }),
+  };
+}
+
+const maxShare = (pairs: AgentPair[], metric: MetricKey) =>
+  Math.max(0, ...pairs.flatMap((p) => [p.a1, p.a2].flatMap((s) => s.histograms[metric].map((b) => shareOf(b.count, s.n)))));
+
+function CompareAgentCard({ pair, params, compare, yMax }: { pair: AgentPair; params: InsightParams; compare: Compare; yMax?: number }) {
+  const { a1, a2 } = pair;
+  const metric = params.metric;
+  const fmt = formatFor(metric);
+  const what = METRIC_COPY[metric].noun;
+  const per = a2.per === 'session' ? 'Per Session' : 'Per Run';
+  const m1 = a1[metric];
+  const m2 = a2[metric];
+  const early = (s: AgentStats) => s.n < EARLY_MIN;
+  const color = AGENT_COLOR[pair.agent];
+  const hasData = [a1, a2].some((s) => s.histograms[metric].some((b) => b.count > 0));
+  const period = (s: AgentStats, m: Metric): OverlayPeriod => ({ buckets: s.histograms[metric], n: s.n, p50: early(s) ? null : m.p50, p95: early(s) ? null : m.p95 });
+  const markerText = (s: AgentStats, v: number | null) => (early(s) || v === null ? null : fmt(v));
+  return (
+    <ChartCard
+      title={pair.agent}
+      subtitle={`${COMPARE_SUBTITLE} · ${per} · ${histogramSubtitle(metric, a2.per)}`}
+      section="tokens"
+      range={compareSlug(compare)}
+      table={compareHistogramTable(a1, a2, metric)}
+      legend={[
+        { label: periodLabel(1, sliceLabel(compare.p1)), color, kind: 'outline' },
+        { label: periodLabel(2, sliceLabel(compare.p2)), color, kind: 'fill' },
+      ]}
+      caption={withBro(polarityCaption(metric), a2)}
+    >
+      <div className="space-y-2" data-agent={pair.agent}>
+        <p className="text-xs text-fg-muted tabular-nums">{compareMeasured([{ n: a1.n, total: a1.total }, { n: a2.n, total: a2.total }], a2.per)}</p>
+        <CompareStats rows={[['p50', m1.p50, m2.p50], ['p95', m1.p95, m2.p95], ['avg', m1.avg, m2.avg]]} measure={metric} fmt={fmt} what={what} />
+        {([1, 2] as const).map((n) => {
+          const s = n === 1 ? a1 : a2;
+          return early(s) ? (
+            <p key={n} className="text-xs font-semibold text-(--fgColor-attention)">
+              {periodEarly(n, earlyData(s.n))}
+            </p>
+          ) : null;
+        })}
+        {!hasData ? (
+          <p className="text-sm text-fg-muted">{`No ${what} data in this period.`}</p>
+        ) : (
+          <OverlayHistogram
+            label={overlayAria(`${pair.agent} ${what} ${per.toLowerCase()}`, [
+              { n: a1.n, p50: markerText(a1, m1.p50), p95: markerText(a1, m1.p95) },
+              { n: a2.n, p50: markerText(a2, m2.p50), p95: markerText(a2, m2.p95) },
+            ])}
+            measure={what}
+            who={pair.agent}
+            per={a2.per}
+            linear={metric === 'cache_hit'}
+            color={color}
+            yMax={yMax}
+            format={fmt}
+            p1={period(a1, m1)}
+            p2={period(a2, m2)}
+          />
+        )}
+      </div>
+    </ChartCard>
+  );
+}
+
+function CompareCaption({ text }: { text: string | null }) {
+  return text ? (
+    <p className="text-xs text-fg-muted" data-bro-caption="">
+      {text}
+    </p>
+  ) : null;
+}
+
+export function CompareTokensSection(props: CompareProps) {
+  const { cmp, params, compare } = props;
+  const pairs = agentPairs(props);
+  const runs = pairs.filter((p) => p.a2.per === 'run');
+  const b = pairs.find((p) => p.agent === 'bro');
+  const shared = maxShare(runs, params.metric);
+  return (
+    <div className="space-y-4">
+      <SectionHeading>Tokens</SectionHeading>
+      {bothEmpty(cmp) ? (
+        <BothEmpty params={params} compare={compare} />
+      ) : (
+        <>
+          <OneEmpty cmp={cmp} compare={compare} />
+          <PerTaskStrip cmp={cmp} />
+          <Grid>
+            {runs.map((p) => (
+              <CompareAgentCard key={p.agent} pair={p} params={params} compare={compare} yMax={shared} />
+            ))}
+            {b && <CompareAgentCard pair={b} params={params} compare={compare} />}
+          </Grid>
+          <CompareCaption text={broNote(props)} />
+          <Outliers kind="tokens_out" rows={cmp.p2.outliers.tokens_out} suffix={OUTLIERS_P2} />
+          <Outliers kind="context" rows={cmp.p2.outliers.context} suffix={OUTLIERS_P2} />
+        </>
+      )}
+    </div>
+  );
+}
+
+const costPer = (usdTotal: number | undefined, runs: number | undefined) => (usdTotal === undefined || !runs ? null : usdTotal / runs);
+
+interface PairCost {
+  key: string;
+  color: string;
+  p1: number | null;
+  p2: number | null;
+  runs1: number;
+  runs2: number;
+}
+
+const money = (v: number | null) => (v === null ? '—' : usd(v));
+const usdCell = (v: number | null) => (v === null ? '—' : Math.round(v * 10_000) / 10_000);
+
+function CompareCostCard({ title, rows, compare }: { title: string; rows: PairCost[]; compare: Compare }) {
+  const paired: PairedRow[] = rows.map((r) => {
+    const subject = costPerRunSubject(r.key);
+    const d = delta('cost', subject, r.p1, r.p2);
+    const text = pairText(r.key, money(r.p1), money(r.p2));
+    return { key: r.key, label: r.key, color: r.color, p1: r.p1, p2: r.p2, aria: `${text}. ${d.aria}`, tip: `${text}, ${d.text}`, deltaText: d.text, delta: <DeltaLabel measure="cost" subject={subject} p1={r.p1} p2={r.p2} /> };
+  });
+  return (
+    <ChartCard
+      title={title}
+      subtitle={`${COMPARE_SUBTITLE} · ${COST_PER_RUN_UNIT}`}
+      section="cost"
+      range={compareSlug(compare)}
+      table={{
+        columns: [NAME_HEADER, periodCost(1), periodCost(2), periodRuns(1, 'run'), periodRuns(2, 'run')],
+        rows: rows.map((r) => [r.key, usdCell(r.p1), usdCell(r.p2), r.runs1, r.runs2]),
+      }}
+      legend={[
+        { label: periodLabel(1, sliceLabel(compare.p1)), color: LEGEND_COLOR, kind: 'outline' },
+        { label: periodLabel(2, sliceLabel(compare.p2)), color: LEGEND_COLOR, kind: 'fill' },
+      ]}
+      caption={LOWER_BETTER}
+    >
+      <PairedBarList label={`${title}: ${paired.map((r) => r.aria).join('; ')}`} rows={paired} format={usd} axis={niceAxis(usd)} />
+    </ChartCard>
+  );
+}
+
+const LEGEND_COLOR = 'var(--fgColor-muted)';
+
+export function CompareCostSection(props: CompareProps) {
+  const { cmp, params, compare } = props;
+  const { p1, p2 } = cmp;
+  if (!p1.cost.priced && !p2.cost.priced) {
+    return (
+      <div className="space-y-4">
+        <SectionHeading>Cost</SectionHeading>
+        <Flash>{NO_PRICES}</Flash>
+      </div>
+    );
+  }
+  if (bothEmpty(cmp)) {
+    return (
+      <div className="space-y-4">
+        <SectionHeading>Cost</SectionHeading>
+        <BothEmpty params={params} compare={compare} />
+      </div>
+    );
+  }
+  const shown = new Set(agentPairs(props).map((p) => p.agent));
+  const agentCost = (agent: AgentKey): PairCost => {
+    const c1 = p1.cost.by_agent.find((a) => a.agent === agent);
+    const c2 = p2.cost.by_agent.find((a) => a.agent === agent);
+    return { key: agent, color: AGENT_COLOR[agent], p1: costPer(c1?.usd, c1?.runs), p2: costPer(c2?.usd, c2?.runs), runs1: c1?.runs ?? 0, runs2: c2?.runs ?? 0 };
+  };
+  const runAgents = (['swe', 'code-reviewer'] as const).filter((a) => shown.has(a));
+  const models = [...new Set([...p1.cost.by_model, ...p2.cost.by_model].map((m) => m.model))];
+  const modelRows = models.map((model): PairCost => {
+    const c1 = p1.cost.by_model.find((m) => m.model === model);
+    const c2 = p2.cost.by_model.find((m) => m.model === model);
+    return { key: model, color: SERIES_COLOR, p1: costPer(c1?.usd, c1?.runs), p2: costPer(c2?.usd, c2?.runs), runs1: c1?.runs ?? 0, runs2: c2?.runs ?? 0 };
+  });
+  const broCost = shown.has('bro') ? agentCost('bro') : null;
+  return (
+    <div className="space-y-4">
+      <SectionHeading>Cost</SectionHeading>
+      {([1, 2] as const).map((n) => {
+        const unpriced = (n === 1 ? p1 : p2).cost.unpriced_runs;
+        return unpriced > 0 ? (
+          <Flash key={n} variant="warning">
+            {periodUnpriced(n, unpriced)}
+          </Flash>
+        ) : null;
+      })}
+      <OneEmpty cmp={cmp} compare={compare} />
+      <Grid>
+        {runAgents.length > 0 && <CompareCostCard title={COST_PER_RUN_AGENT} rows={runAgents.map(agentCost)} compare={compare} />}
+        {broCost && (
+          <ChartCard
+            title={BRO_COST_PER_SESSION}
+            subtitle={`${COMPARE_SUBTITLE} · ${COST_PER_SESSION_UNIT}`}
+            section="cost"
+            range={compareSlug(compare)}
+            table={{ columns: [NAME_HEADER, periodName(1), periodName(2), periodRuns(1, 'session'), periodRuns(2, 'session')], rows: [['bro', usdCell(broCost.p1), usdCell(broCost.p2), broCost.runs1, broCost.runs2]] }}
+            caption={`${LOWER_BETTER} ${BRO_CAPTION}`}
+          >
+            <CompareTile title="bro" measure="cost" subject={costPerRunSubject('bro')} p1={broCost.p1} p2={broCost.p2} format={money} />
+          </ChartCard>
+        )}
+        <CompareCostCard title={COST_PER_RUN_MODEL} rows={modelRows} compare={compare} />
+      </Grid>
+      <CompareCaption text={broNote(props)} />
     </div>
   );
 }
