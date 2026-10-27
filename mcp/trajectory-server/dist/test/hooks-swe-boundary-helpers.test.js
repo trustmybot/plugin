@@ -7,13 +7,14 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { ghMutation, isPromptSurfacePath, writeShapes } from '../hooks/cmd-analysis/index.js';
-import { pathDigest, resolveTaskIdForTarget, sqlLikeEscape, worktreeRootForTarget } from '../hooks/lib/target-task.js';
+import { sqlLikeEscape } from '../hooks/lib/db.js';
+import { pathDigest, resolveTaskIdForTarget, worktreeRootForTarget } from '../hooks/lib/target-task.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const LIB = join(PLUGIN_ROOT, 'scripts/hooks/lib');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -72,6 +73,13 @@ describe('swe-boundary helpers: the bash originals agree', () => {
     it('sqlLikeEscape matches tmb_sql_like_escape', () => {
         for (const v of ['plain', 'a_b%c', "it's", 'back\\slash'])
             assert.equal(sqlLikeEscape(v), bashLib('tmb_sql_like_escape', [v]).stdout, v);
+    });
+    it('lib/db.ts is the one module defining taskBySlug and sqlLikeEscape (F203-2)', () => {
+        const libDir = join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/lib');
+        const definers = readdirSync(libDir)
+            .filter((f) => f.endsWith('.ts'))
+            .filter((f) => /^export function (taskBySlug|sqlLikeEscape)\b/m.test(readFileSync(join(libDir, f), 'utf8')));
+        assert.deepEqual(definers, ['db.ts']);
     });
     describe('over a sandbox repo', () => {
         let dir;

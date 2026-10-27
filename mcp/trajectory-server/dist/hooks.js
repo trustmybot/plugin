@@ -12296,29 +12296,6 @@ function worktreeRootForTarget(target) {
     target.split("\n").map((line) => line.replace(WORKTREE_ROOT, "$1")).join("\n")
   );
 }
-function sqlLikeEscape2(value) {
-  return value.replace(/[\\%_]/g, "\\$&").replace(/'/g, "''");
-}
-function taskBySlug2(db, slug, column = "id", env = process.env) {
-  if (db === "" || slug === "") return "";
-  const rows = sqliteRo(
-    db,
-    `SELECT id || '|' || branch_id FROM tasks WHERE branch_id LIKE '%/${sqlLikeEscape2(slug)}' ESCAPE '\\' ORDER BY id DESC;`,
-    env
-  );
-  if (rows === "") return "";
-  const lines2 = rows.split("\n");
-  const count = lines2.filter((l) => l !== "").length;
-  if (count > 1) {
-    const branches = lines2.map((l) => l.includes("|") ? l.split("|")[1] : l).join(",");
-    process.stderr.write(`tmb: worktree slug "${slug}" matches ${count} tasks (${branches}); using the newest
-`);
-  }
-  const first = lines2[0];
-  const bar = first.indexOf("|");
-  if (column === "id") return bar < 0 ? first : first.slice(0, bar);
-  return bar < 0 ? first : first.slice(bar + 1);
-}
 function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
   const resolved = db !== "" ? db : dbPath(env) ?? "";
   const wt = worktreeRootForTarget(target);
@@ -12339,7 +12316,11 @@ function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
         )
       );
     }
-    if (task === "") task = sqlInt(taskBySlug2(resolved, stripTrailingNewlines(posixBasename(wt)), "id", env));
+    if (task === "") {
+      const slug = stripTrailingNewlines(posixBasename(wt));
+      task = sqlInt(taskBySlug(resolved, slug, "id", "", env, (line) => process.stderr.write(`${line}
+`)));
+    }
   }
   if (task === "" && input !== "") {
     task = taskIdFromTranscript(stripTrailingNewlines(jqAlternatives(input, [["agent_transcript_path"]])));

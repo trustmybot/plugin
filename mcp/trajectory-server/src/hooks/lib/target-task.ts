@@ -1,12 +1,11 @@
 /**
  * The target-to-task helpers of scripts/hooks/lib/query-task.sh and
  * cmd-analysis.sh (GH 1692): tmb_worktree_root_for_target,
- * tmb_sql_like_escape, tmb_task_by_slug, tmb_resolve_task_id_for_target and
- * tmb_path_digest.
+ * tmb_resolve_task_id_for_target and tmb_path_digest.
  */
 import { createHash } from 'node:crypto';
 import { pathCanonical } from './agent-context.js';
-import { dbPath, haveSqlite, sqlInt, sqliteRo, sqlQuote, stripTrailingNewlines, taskIdFromTranscript } from './db.js';
+import { dbPath, haveSqlite, sqlInt, sqliteRo, sqlQuote, stripTrailingNewlines, taskBySlug, taskIdFromTranscript } from './db.js';
 import { gitOut } from './git.js';
 import { jqAlternatives } from './jq.js';
 import { posixBasename } from './project-env.js';
@@ -23,35 +22,6 @@ export function worktreeRootForTarget(target: string): string {
       .map((line) => line.replace(WORKTREE_ROOT, '$1'))
       .join('\n'),
   );
-}
-
-/** tmb_sql_like_escape <value>: \, % and _ backslash-escaped, single quotes doubled. */
-export function sqlLikeEscape(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&').replace(/'/g, "''");
-}
-
-/**
- * tmb_task_by_slug <db> <slug> <column>: <column> (id or branch_id) of the
- * newest task whose branch_id ends in /<slug>; several matches warn on stderr.
- */
-export function taskBySlug(db: string, slug: string, column: 'id' | 'branch_id' = 'id', env: NodeJS.ProcessEnv = process.env): string {
-  if (db === '' || slug === '') return '';
-  const rows = sqliteRo(
-    db,
-    `SELECT id || '|' || branch_id FROM tasks WHERE branch_id LIKE '%/${sqlLikeEscape(slug)}' ESCAPE '\\' ORDER BY id DESC;`,
-    env,
-  );
-  if (rows === '') return '';
-  const lines = rows.split('\n');
-  const count = lines.filter((l) => l !== '').length;
-  if (count > 1) {
-    const branches = lines.map((l) => (l.includes('|') ? l.split('|')[1] : l)).join(',');
-    process.stderr.write(`tmb: worktree slug "${slug}" matches ${count} tasks (${branches}); using the newest\n`);
-  }
-  const first = lines[0];
-  const bar = first.indexOf('|');
-  if (column === 'id') return bar < 0 ? first : first.slice(0, bar);
-  return bar < 0 ? first : first.slice(bar + 1);
 }
 
 /**
@@ -79,7 +49,10 @@ export function resolveTaskIdForTarget(target: string, input: string, db = '', e
         ),
       );
     }
-    if (task === '') task = sqlInt(taskBySlug(resolved, stripTrailingNewlines(posixBasename(wt)), 'id', env));
+    if (task === '') {
+      const slug = stripTrailingNewlines(posixBasename(wt));
+      task = sqlInt(taskBySlug(resolved, slug, 'id', '', env, (line) => process.stderr.write(`${line}\n`)));
+    }
   }
   if (task === '' && input !== '') {
     task = taskIdFromTranscript(stripTrailingNewlines(jqAlternatives(input, [['agent_transcript_path']])));
