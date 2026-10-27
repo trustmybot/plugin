@@ -1,0 +1,8 @@
+{
+  "tool_name": "Agent",
+  "tool_input": {
+    "subagent_type": "code-reviewer",
+    "prompt": "task_id=13 commit_sha=abc1234 branch_id=feat/x repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-1"
+  },
+  "corpus_expect": "missing required anchors: repo."
+}

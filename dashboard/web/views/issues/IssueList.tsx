@@ -9,7 +9,7 @@ import { IssueLabel, parseLabels } from './labels.tsx';
 export type IssueState = 'open' | 'closed';
 
 const SORTS: Record<string, ListSort> = {
-  updated: { label: 'Recently updated', key: 'updated_at', dir: -1 },
+  updated: { label: 'Recently Updated', key: 'updated_at', dir: -1 },
   newest: { label: 'Newest', key: 'created_at', dir: -1 },
   oldest: { label: 'Oldest', key: 'created_at', dir: 1 },
 };
@@ -77,7 +77,7 @@ export function IssueList({ rows, state }: { rows: Row[]; state: IssueState }) {
       renderRow={(r) => <IssueRow issue={r} />}
       tab={state}
       path="issues"
-      noun={['issue', 'issues']}
+      noun={['issue', 'issues', 'Issues']}
       emptyIcon={IssueOpenedIcon}
       searchPlaceholder="Search by objective, label or #id"
     />

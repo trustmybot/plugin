@@ -54,7 +54,7 @@ function CardMenu({ title, asTable, onToggle, onDownload }: { title: string; asT
       >
         <button type="button" role="menuitem" className={MENU_ITEM} onClick={choose(onToggle)}>
           {asTable ? <GraphIcon size={16} aria-hidden="true" /> : <TableIcon size={16} aria-hidden="true" />}
-          {asTable ? 'View as chart' : 'View as table'}
+          {asTable ? 'View as Chart' : 'View as Table'}
         </button>
         <button type="button" role="menuitem" className={MENU_ITEM} onClick={choose(onDownload)}>
           <DownloadIcon size={16} aria-hidden="true" />

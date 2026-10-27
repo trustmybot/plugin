@@ -124,14 +124,14 @@ describe('directory listing', () => {
 describe('project map view', () => {
   test('a missing world model renders a Blankslate with the existing copy', () => {
     const html = map.render({ 'world-model?repo=&depth=0': { available: false, repos: [], nodes: [] } }, map.h(map.ProjectMapView));
-    assert.match(html, /<h2[^>]*>World model not built yet<\/h2>/);
+    assert.match(html, /<h2[^>]*>World Model Not Built Yet<\/h2>/);
     assert.match(html, /Open a Claude Code session to upgrade the DB and run \/scan\./);
     assert.doesNotMatch(html, /role="tree"/);
   });
 
   test('an empty world model renders a Blankslate with the existing copy', () => {
     const html = map.render({ 'world-model?repo=&depth=0': { available: true, repos: [], nodes: [] } }, map.h(map.ProjectMapView));
-    assert.match(html, /<h2[^>]*>The world model is empty<\/h2>/);
+    assert.match(html, /<h2[^>]*>The World Model Is Empty<\/h2>/);
     assert.match(html, /Run \/scan in a Claude Code session\./);
   });
 
@@ -180,7 +180,7 @@ describe('search scope', () => {
     assert.match(html, /Repository<\/span>/);
     assert.doesNotMatch(html, /role="tree"/);
     assert.doesNotMatch(html, /No dependency graph yet/);
-    assert.doesNotMatch(html, /Dependency graph/);
+    assert.doesNotMatch(html, /Dependency Graph/);
     assert.ok(html.indexOf('role="radiogroup"') < html.indexOf('<input type="search"'), 'toggle sits left of the field');
   });
 

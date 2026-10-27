@@ -131,7 +131,7 @@ describe('dashboard issues', () => {
 
   test('the closed list is empty and shows a Blankslate', async () => {
     const html = views.list(await get('issues'), 'closed');
-    assert.match(html, /No closed issues/);
+    assert.match(html, /No Closed Issues/);
   });
 
   test('the issue page shows a StateLabel, a comment card per discussion and the Tasks progress', async () => {

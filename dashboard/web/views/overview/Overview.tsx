@@ -15,9 +15,9 @@ export function Overview({ summary, issues }: { summary: Summary; issues: { data
       </div>
       <section className="min-w-0 space-y-3">
         <div className="flex items-center justify-between gap-2 border-b border-(--borderColor-muted) pb-2">
-          <h2 className="text-xl font-normal text-fg">Recent agent runs</h2>
+          <h2 className="text-xl font-normal text-fg">Recent Agent Runs</h2>
           <a href="#/runs" className="text-sm text-accent hover:underline">
-            View all runs
+            View All Runs
           </a>
         </div>
         <DataTable rows={summary.recent_runs} columns={RUN_COLUMNS} filter={false} />

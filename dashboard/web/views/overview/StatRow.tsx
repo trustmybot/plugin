@@ -4,9 +4,9 @@ import type { Summary } from '../../api.ts';
 type Stat = { label: string; value: number; href: string; icon: Icon; iconClass: string };
 
 export const stats = (s: Summary): Stat[] => [
-  { label: 'Open issues', value: s.issues.open ?? 0, href: '#/issues', icon: IssueOpenedIcon, iconClass: 'text-(--fgColor-open)' },
-  { label: 'Closed issues', value: s.issues.closed ?? 0, href: '#/issues', icon: IssueClosedIcon, iconClass: 'text-(--fgColor-done)' },
-  { label: 'Agents running', value: s.open_runs, href: '#/runs', icon: PlayIcon, iconClass: 'text-(--fgColor-attention)' },
+  { label: 'Open Issues', value: s.issues.open ?? 0, href: '#/issues', icon: IssueOpenedIcon, iconClass: 'text-(--fgColor-open)' },
+  { label: 'Closed Issues', value: s.issues.closed ?? 0, href: '#/issues', icon: IssueClosedIcon, iconClass: 'text-(--fgColor-done)' },
+  { label: 'Agents Running', value: s.open_runs, href: '#/runs', icon: PlayIcon, iconClass: 'text-(--fgColor-attention)' },
   { label: 'Tasks', value: s.tasks_by_status.reduce((n, t) => n + t.count, 0), href: '#/tasks', icon: TasklistIcon, iconClass: 'text-fg-muted' },
 ];
 

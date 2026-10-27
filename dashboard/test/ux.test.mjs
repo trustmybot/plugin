@@ -216,10 +216,10 @@ describe('help marker', () => {
   });
 
   test('the closed marker is a labelled button controlling its panel', () => {
-    const html = ui.tip({ page: 'Project map', help: ui.HELP.map });
+    const html = ui.tip({ page: 'Project Map', help: ui.HELP.map });
     const button = /<button [^>]*>/.exec(html)[0];
     assert.match(button, /type="button"/);
-    assert.match(button, /aria-label="About this page: Project map"/);
+    assert.match(button, /aria-label="About this page: Project Map"/);
     assert.match(button, /aria-expanded="false"/);
     const controls = /aria-controls="([^"]+)"/.exec(button)[1];
     assert.match(html, /<\/button><div id="[^"]+" role="region"/, 'the panel follows the button in the DOM');
@@ -230,12 +230,12 @@ describe('help marker', () => {
   });
 
   test('the open marker renders a region labelled by its h2 with the layers and uses', () => {
-    const html = ui.tip({ page: 'Project map', help: ui.HELP.map, defaultOpen: true });
+    const html = ui.tip({ page: 'Project Map', help: ui.HELP.map, defaultOpen: true });
     assert.match(html, /aria-expanded="true"/);
     const labelledBy = /role="region" aria-labelledby="([^"]+)"/.exec(html)[1];
     assert.ok(html.includes(`<h2 id="${labelledBy}"`));
-    assert.match(html, /<h2 [^>]*>Project map<\/h2>/);
-    assert.match(html, />Use it to</);
+    assert.match(html, /<h2 [^>]*>Project Map<\/h2>/);
+    assert.match(html, />Use It To</);
     assert.match(html, />Structure:</);
     assert.match(html, />Concepts:</);
     assert.equal(html.match(/<li>/g).length, 4);
@@ -255,7 +255,7 @@ describe('help marker', () => {
   });
 
   test('the app puts the marker on detail pages and Insights sections', () => {
-    for (const [hash, page] of [['#/issues/5', 'Issue detail'], ['#/tasks/9', 'Task detail'], ['#/insights/explore', 'Insights'], ['#/map', 'Project map'], ['', 'Overview']]) {
+    for (const [hash, page] of [['#/issues/5', 'Issue Detail'], ['#/tasks/9', 'Task Detail'], ['#/insights/explore', 'Insights'], ['#/map', 'Project Map'], ['', 'Overview']]) {
       const { html } = ui.app(hash);
       assert.ok(html.includes(`aria-label="About this page: ${page}"`), hash);
       assert.match(html, /<main [^>]*><div class="flex justify-end"><div class="relative"/, hash);
@@ -266,7 +266,7 @@ describe('help marker', () => {
     const { html, hash } = ui.app('#/concepts/7?q=cold');
     assert.equal(hash, '#/map?scope=concepts&q=cold&concept=7');
     assert.match(html, /<a [^>]*href="#\/map" aria-current="page"/);
-    assert.ok(html.includes('aria-label="About this page: Project map"'));
+    assert.ok(html.includes('aria-label="About this page: Project Map"'));
     assert.equal(ui.app('#/issues').hash, '#/issues');
   });
 });
