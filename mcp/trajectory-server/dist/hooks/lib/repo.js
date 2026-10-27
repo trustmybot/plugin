@@ -94,6 +94,16 @@ export function repoSinglePath(db, env = process.env) {
         return '';
     return firstLine(sqliteRo(db, 'SELECT path FROM repos LIMIT 1;', env));
 }
+/** tmb_repo_path_by_name <db> <name>: repos.path of the row named <name>, as stored. */
+export function repoPathByName(db, name, env = process.env) {
+    if (!readable(db, env) || name === '')
+        return '';
+    return firstLine(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name)}' LIMIT 1;`, env));
+}
+/** tmb_repo_resolve_path <db> <name>: the path of the repo named <name>, else of the sole registered repo, else "". */
+export function repoResolvePath(db, name, env = process.env) {
+    return (name === '' ? '' : repoPathByName(db, name, env)) || repoSinglePath(db, env);
+}
 const REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
 /** tmb_repo_remotes <db> <git_root>: the remotes JSON array of <git_root>'s row, else of the sole repo, else "". */
 export function repoRemotes(db, gitRoot, env = process.env) {
