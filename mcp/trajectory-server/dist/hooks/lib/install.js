@@ -232,6 +232,186 @@ export function duplicateDisableCmds(rows, env = process.env) {
     const name = installPluginName(env);
     return rows.map((r) => `claude plugin disable ${name}@${r.marketplace} --scope ${r.scope}`).join('; ');
 }
+/** tmb_user_settings_json: the user-scope settings.json. */
+export function userSettingsJson(env = process.env) {
+    return `${configDir(env)}/settings.json`;
+}
+/** tmb_legacy_user_hooks_doc. */
+export const LEGACY_USER_HOOKS_DOC = 'docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks';
+const HOOK_NAME = /--hook[ \t]+([A-Za-z0-9._-]+)/;
+function leftover(hook) {
+    return hook._tmb_managed === true || (typeof hook.command === 'string' && hook.command.includes('resolve-hook.sh'));
+}
+function hookName(command) {
+    if (typeof command !== 'string')
+        return '?';
+    const text = command.includes('resolve-hook.sh') ? (command.split('resolve-hook.sh')[1] ?? '') : command;
+    return HOOK_NAME.exec(text)?.[1] ?? '?';
+}
+/** jq's `.hooks[ev][i].hooks[j]` leftover hook objects of one settings value, as paths. */
+function leftoverPaths(doc) {
+    let hooks = index(doc, 'hooks');
+    if (hooks === null || hooks === false)
+        hooks = {};
+    if (!isObject(hooks))
+        return [];
+    const out = [];
+    for (const [ev, groups] of Object.entries(hooks)) {
+        if (!Array.isArray(groups))
+            continue;
+        groups.forEach((group, i) => {
+            if (!isObject(group))
+                return;
+            const inner = group.hooks;
+            if (!Array.isArray(inner))
+                return;
+            inner.forEach((hook, j) => {
+                if (isObject(hook) && leftover(hook))
+                    out.push(['hooks', ev, i, 'hooks', j]);
+            });
+        });
+    }
+    return out;
+}
+/** jq's `paths | select(.[-1] == "command")`, in document order. */
+function commandPaths(value, at = [], out = []) {
+    if (Array.isArray(value)) {
+        value.forEach((v, i) => commandPaths(v, [...at, i], out));
+    }
+    else if (isObject(value)) {
+        for (const [k, v] of Object.entries(value)) {
+            if (k === 'command')
+                out.push([...at, k]);
+            commandPaths(v, [...at, k], out);
+        }
+    }
+    return out;
+}
+function getPath(value, path) {
+    let v = value;
+    for (const key of path)
+        v = v[key];
+    return v;
+}
+/** jq 1.7's `tonumber? // -1` over one version component ("nan" reads as null, so -1). */
+function versionPart(text) {
+    const t = text.trim();
+    if (/^[+-]?inf(inity)?$/i.test(t))
+        return t.startsWith('-') ? -Number.MAX_VALUE : Number.MAX_VALUE;
+    return /^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$/.test(t) ? Number(t) : -1;
+}
+/** jq's `(.version | split("-")[0] | split(".") | map(tonumber? // -1)) < [1, 1, 0]`. */
+export function belowV110(version) {
+    const parts = (version.split('-')[0] ?? '').split('.').map(versionPart);
+    const floor = [1, 1, 0];
+    for (let i = 0; i < Math.min(parts.length, floor.length); i += 1) {
+        if (parts[i] !== floor[i])
+            return parts[i] < floor[i];
+    }
+    return parts.length < floor.length;
+}
+function legacyHookRows(settings) {
+    let text;
+    try {
+        text = readFileSync(settings, 'utf8');
+    }
+    catch {
+        return null;
+    }
+    const stream = jsonStream(text);
+    if (!stream.complete)
+        return null;
+    const want = new Map();
+    let n = 0;
+    let orphans = 0;
+    try {
+        for (const doc of stream.values) {
+            const left = leftoverPaths(doc);
+            if (left.length === 0)
+                continue;
+            const keys = new Set(left.map((p) => JSON.stringify(p)));
+            for (const path of commandPaths(doc)) {
+                n += 1;
+                const owner = path.slice(0, -1);
+                if (keys.has(JSON.stringify(owner)))
+                    want.set(n, hookName(getPath(doc, owner).command));
+            }
+            for (const p of left)
+                if (!Object.hasOwn(getPath(doc, p), 'command'))
+                    orphans += 1;
+        }
+    }
+    catch (e) {
+        if (e instanceof JqError)
+            return null;
+        throw e;
+    }
+    if (n === 0 && orphans === 0)
+        return [];
+    const rows = [];
+    let k = 0;
+    text.split('\n').forEach((line, i) => {
+        for (const _ of line.matchAll(/"command"[ \t]*:/g)) {
+            k += 1;
+            const name = want.get(k);
+            if (name !== undefined)
+                rows.push({ line: String(i + 1), name });
+        }
+    });
+    for (let i = k + 1; i <= n; i += 1) {
+        const name = want.get(i);
+        if (name !== undefined)
+            rows.push({ line: '?', name });
+    }
+    for (let i = 0; i < orphans; i += 1)
+        rows.push({ line: '?', name: '?' });
+    return rows;
+}
+/**
+ * tmb_legacy_user_hooks [project]: the pre-1.1.0 TMB hook objects left in the
+ * user-scope settings.json, and, when there are any, the other existing
+ * projects whose recorded install of this plugin is below 1.1.0.
+ */
+export function legacyUserHooks(project, env = process.env) {
+    const none = { hooks: [], projects: [] };
+    const hooks = legacyHookRows(userSettingsJson(env));
+    if (hooks === null || hooks.length === 0)
+        return none;
+    const here = project === '' ? '' : canonicalDir(project);
+    const prefix = `${installPluginName(env)}@`;
+    const raw = jqRows(installedJson(env), (doc, push) => {
+        for (const [, value] of pluginEntries(doc, prefix)) {
+            for (const e of elements(value)) {
+                const p = index(e, 'projectPath');
+                const v = index(e, 'version');
+                if (typeof p !== 'string' || p === '' || typeof v !== 'string')
+                    continue;
+                if (belowV110(v))
+                    push([tsvEscape(p), tsvEscape(v)]);
+            }
+        }
+    });
+    const projects = [];
+    const seen = new Set();
+    for (const [p, v] of raw) {
+        if (!isDir(p))
+            continue;
+        const path = canonicalDir(p);
+        if (path === here || seen.has(path))
+            continue;
+        seen.add(path);
+        projects.push({ path, version: v });
+    }
+    return { hooks, projects };
+}
+/** tmb_legacy_user_hooks_entries: "line 12 swe-scope-guard, line 20 bash-guard". */
+export function legacyHookEntries(hooks) {
+    return hooks.map((h) => `line ${h.line} ${h.name}`).join(', ');
+}
+/** tmb_legacy_user_hooks_projects: "/a (1.0.2), /b (1.0.1)". */
+export function legacyHookProjects(projects) {
+    return projects.map((p) => `${p.path} (${p.version})`).join(', ');
+}
 /**
  * tmb_active_install: the install every hook of this project runs. A
  * CLAUDE_PLUGIN_ROOT outside the plugins cache that no install names is

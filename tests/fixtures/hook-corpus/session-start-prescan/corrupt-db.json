@@ -1,0 +1,1 @@
+{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/bad/.claude/tmb/trajectory.db"},"corpus_expect":"session-start-prescan: trajectory DB unavailable (@SANDBOX@/bad/.claude/tmb/trajectory.db) — skipped"}

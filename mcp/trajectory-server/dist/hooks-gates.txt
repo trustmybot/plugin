@@ -30,6 +30,7 @@ naming-lint
 no-remote-auth-guard
 no-source-edit-from-main
 no-worktree-branch-create
+orphan-scan
 plugin-hooks-marker
 post-atomic-close-readme
 post-task-close-rescan
@@ -47,6 +48,7 @@ roundtable-cleanup-postcheck
 roundtable-slash-detect
 session-log-capture
 session-start-persona
+session-start-prescan
 stay-on-base-guard
 substrate-preflight
 swe-atomic-close

@@ -244,6 +244,8 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'no-remote-auth-guard',
   'prompt-intent-hints',
   'swe-scope-fence',
+  'orphan-scan',
+  'session-start-prescan',
   'clean-merged-branch',
   'close-issue-on-merge',
   'swe-atomic-close',

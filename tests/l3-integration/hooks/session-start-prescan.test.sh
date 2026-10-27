@@ -12,6 +12,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh"
+# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-start-prescan.sh"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-start-prescan.XXXXXX")
 
@@ -220,6 +227,16 @@ cp "$FAKE_INVOKER_DIR/run-scan-initial.mjs" "$FAKE_SCRIPTS/maintenance/run-scan-
 echo '#!/usr/bin/env bash' > "$FAKE_SCRIPTS/scan.sh"
 chmod +x "$FAKE_SCRIPTS/scan.sh"
 FAKE_HOOK="$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
+# The TypeScript gate reads scripts/ from the install root holding its bundle.
+if [ "$HOOK_IMPL" = ts ]; then
+  FAKE_ROOT="$TMPDIR/fake-root"
+  mkdir -p "$FAKE_ROOT/.claude-plugin" "$FAKE_ROOT/mcp/trajectory-server/dist"
+  printf '{"name":"tmb"}\n' > "$FAKE_ROOT/.claude-plugin/plugin.json"
+  cp "$PLUGIN_ROOT/mcp/trajectory-server/dist/hooks.js" "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js"
+  cp -R "$FAKE_SCRIPTS" "$FAKE_ROOT/scripts"
+  FAKE_HOOK="$FAKE_ROOT/session-start-prescan.sh"
+  printf '#!/usr/bin/env bash\nexec "$TMB_TEST_NODE" "%s" session-start-prescan\n' "$FAKE_ROOT/mcp/trajectory-server/dist/hooks.js" > "$FAKE_HOOK"
+fi
 
 test_case "cold + invoker present: context says scan started"
 kill_fixture_node

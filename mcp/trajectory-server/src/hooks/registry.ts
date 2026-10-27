@@ -56,6 +56,8 @@ import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } f
 import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as ORPHAN_SCAN_GATE, orphanScan } from './orphan-scan.js';
+import { GATE_NAME as SESSION_START_PRESCAN_GATE, sessionStartPrescan } from './session-start-prescan.js';
 import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
 import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
 import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
@@ -122,6 +124,8 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
   [PROMPT_INTENT_GATE, promptIntentHints],
   [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+  [ORPHAN_SCAN_GATE, orphanScan],
+  [SESSION_START_PRESCAN_GATE, sessionStartPrescan],
   [CLEAN_MERGED_GATE, cleanMergedBranch],
   [CLOSE_ISSUE_GATE, closeIssueOnMerge],
   [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
