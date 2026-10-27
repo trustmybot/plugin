@@ -14,6 +14,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-task-spec.sh"
 . "$HERE/fixtures/wal-no-holder.sh"
 
 # Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
@@ -225,8 +227,11 @@ assert_contains "$out" "trajectory DB unavailable" "reason cites the unavailable
 WAL_PROJ="$TMPDIR/wal-project"
 mkdir -p "$WAL_PROJ/.claude/tmb"
 sqlite3 "$DB" ".backup '$WAL_PROJ/.claude/tmb/trajectory.db'"
+# The WAL cases log the sqlite3 CLI's invocations, so the TS gate reads through it.
+[ "$HOOK_IMPL" != ts ] || export TMB_HOOKS_SQLITE=cli
 wal_gate_cases "require-task-spec" "$HOOK" "$WAL_PROJ/.claude/tmb/trajectory.db" "$WAL_PROJ" \
   "$(swe_input 'task_id=2 please do the thing')" "has empty spec_body" "does not exist in the tasks table"
+unset TMB_HOOKS_SQLITE
 
 test_case "schema-touching task without Writer:/Populated: is blocked, naming both lines"
 out=$(run_hook "$(swe_input 'task_id=20 please do the thing')")

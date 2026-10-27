@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"tmb:swe","prompt":"task_id=2 You are swe.","effort":"medium"},"corpus_expect":"BLOCKED: task_id=2 (tasks.effort) runs at effort \\\"high\\\", but the Agent call passed effort=\\\"medium\\\"."}

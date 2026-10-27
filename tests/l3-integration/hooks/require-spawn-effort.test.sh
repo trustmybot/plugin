@@ -15,6 +15,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/fixtures/no-jq-path.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-spawn-effort.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-spawn-effort.sh"
 DISPATCHER="$PLUGIN_ROOT/scripts/hooks/agent-spawn-dispatch.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-require-spawn-effort.XXXXXX")
@@ -91,11 +93,18 @@ assert_eq "" "$(run_hook "$(payload security-consultant "review the auth flow")"
 assert_eq "" "$(run_hook "$(payload general-purpose "task_id=2 look around")")" "general-purpose"
 assert_eq "" "$(run_hook "$(payload swe-helper "task_id=2")")" "a name that only starts with swe"
 
-test_case "missing jq fails closed"
 NOJQ=$(no_jq_path "$TMPDIR/nojq")
-out=$(printf '%s' "$(payload swe "task_id=1" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)
-assert_contains "$out" '"permissionDecision":"deny"' "deny"
-assert_contains "$out" "jq not found" "names jq"
+if [ "$HOOK_IMPL" = ts ]; then
+  test_case "missing jq: the TS gate needs no jq and still decides"
+  assert_eq "" "$(printf '%s' "$(payload swe "task_id=1" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)" "matching effort passes"
+  out=$(printf '%s' "$(payload swe "task_id=2" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)
+  assert_contains "$out" 'task_id=2 (tasks.effort) runs at effort \"high\"' "a mismatch is still denied"
+else
+  test_case "missing jq fails closed"
+  out=$(printf '%s' "$(payload swe "task_id=1" medium)" | PATH="$NOJQ" bash "$HOOK" 2>/dev/null || true)
+  assert_contains "$out" '"permissionDecision":"deny"' "deny"
+  assert_contains "$out" "jq not found" "names jq"
+fi
 
 test_case "a DB read error fails closed"
 BAD="$TMPDIR/bad.db"

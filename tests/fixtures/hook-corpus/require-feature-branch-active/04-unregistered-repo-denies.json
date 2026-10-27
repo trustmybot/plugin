@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=15 go"},"corpus_expect":"cannot resolve repo for task 15. tasks.repo=ghost does not point to a git repo at @SANDBOX@/project/ghost."}

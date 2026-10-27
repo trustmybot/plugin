@@ -19,6 +19,9 @@ import { GATE_NAME as MCP_HEALTH_GATE, mcpHealthCheck } from './mcp-health-check
 import { GATE_NAME as PREFLIGHT_GATE, codeReviewerPreflight } from './code-reviewer-preflight.js';
 import { GATE_NAME as SPAWN_NOTE_GATE, codeReviewerSpawnNote } from './code-reviewer-spawn-note.js';
 import { GATE_NAME as REWORK_GATE, reworkLimit } from './rework-limit.js';
+import { GATE_NAME as FEATURE_BRANCH_GATE, requireFeatureBranchActive } from './require-feature-branch-active.js';
+import { GATE_NAME as SPAWN_EFFORT_GATE, requireSpawnEffort } from './require-spawn-effort.js';
+import { GATE_NAME as TASK_SPEC_GATE, requireTaskSpec } from './require-task-spec.js';
 import { GATE_NAME as SUBSTRATE_GATE, substratePreflight } from './substrate-preflight.js';
 import { GATE_NAME as NAMING_LINT_GATE, namingLint } from './naming-lint.js';
 import { GATE_NAME as SWE_BOUNDARY_GATE, sweBoundary } from './swe-boundary.js';
@@ -48,6 +51,9 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [PREFLIGHT_GATE, codeReviewerPreflight],
   [SPAWN_NOTE_GATE, codeReviewerSpawnNote],
   [REWORK_GATE, reworkLimit],
+  [FEATURE_BRANCH_GATE, requireFeatureBranchActive],
+  [SPAWN_EFFORT_GATE, requireSpawnEffort],
+  [TASK_SPEC_GATE, requireTaskSpec],
   [SUBSTRATE_GATE, substratePreflight],
   [NAMING_LINT_GATE, namingLint],
   [SWE_BOUNDARY_GATE, sweBoundary],
