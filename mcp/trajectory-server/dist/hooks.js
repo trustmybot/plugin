@@ -7242,6 +7242,9 @@ var LOOP_OPEN = "{";
 var LOOP_CLOSE = "}";
 var UNBALANCED = "!";
 var WSEP = "";
+var ALT = "";
+var MAX_GROWTH = 8;
+var MAX_DIRS = 8;
 var VSEP = "";
 var VEQ = "";
 var BAD = "";
@@ -7266,6 +7269,7 @@ function norm(p) {
       out2.pop();
       continue;
     }
+    if (part === ".." && out2.length === 0 && lead === "") continue;
     out2.push(part);
   }
   const joined = out2.map((x) => "/" + x).join("");
@@ -7301,6 +7305,15 @@ function srcmark(body2, dir) {
   return SEP + dir + SEP + body2;
 }
 function statementsEnc(buf, base2, home, assign) {
+  const frames = { ext: [], runs: [], grew: /* @__PURE__ */ new Set(), lost: /* @__PURE__ */ new Set() };
+  for (; ; ) {
+    frames.grew.clear();
+    const records = scan(buf, base2, home, assign, frames);
+    if (frames.grew.size === 0) return records;
+    for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
+  }
+}
+function scan(buf, base2, home, assign, frames) {
   const records = [];
   let old = "-";
   let cwhy = "";
@@ -7327,7 +7340,9 @@ function statementsEnc(buf, base2, home, assign) {
     cwhy = old.slice(s + 1);
     old = old.slice(0, s);
   }
-  let cur = base2;
+  let alts = base2.split(ALT);
+  let cur = alts.shift();
+  let oalts = [];
   let sp = 0;
   let bt = false;
   let stmt = "";
@@ -7336,43 +7351,111 @@ function statementsEnc(buf, base2, home, assign) {
   const ostack = [];
   const wstack = [];
   const owstack = [];
+  const astack = [];
+  const oastack = [];
   const q = [];
   const emit2 = (dir, text) => records.push({ dir, stmt: text });
   const loops = [];
+  const fids = [];
+  const fent = [];
+  let nf = 0;
   let unbal = false;
   let wq = [];
   function loopkw(k) {
     const top = loops.length > 0 ? loops[loops.length - 1] : "";
     if (k === "while" || k === "until") {
       loops.push("w");
-      emit2(LOOP_OPEN, "do");
+      fopen();
     } else if (k === "do") {
       if (top === "w") loops[loops.length - 1] = "o";
       else if (top === "f") {
         loops[loops.length - 1] = "o";
-        emit2(LOOP_OPEN, "do");
+        fopen();
       } else {
         unbal = true;
         loops.push("o");
-        emit2(LOOP_OPEN, "do");
+        fopen();
       }
     } else if (k === "{") {
       if (top === "f") {
         loops[loops.length - 1] = "b";
-        emit2(LOOP_OPEN, "do");
+        fopen();
       } else loops.push("g");
     } else if (k === "done") {
       if (top === "o") {
         loops.pop();
-        emit2(LOOP_CLOSE, "done");
+        fclose();
       } else unbal = true;
     } else if (k === "}") {
       if (top === "b") {
         loops.pop();
-        emit2(LOOP_CLOSE, "done");
+        fclose();
       } else if (top === "g") loops.pop();
       else unbal = true;
     }
+  }
+  function fopen() {
+    const fo = nf++;
+    fids.push(fo);
+    frames.ext[fo] ??= [];
+    frames.runs[fo] ??= 0;
+    alts = [...alts];
+    for (const t of frames.ext[fo]) altadd(alts, t, cur, cwhy);
+    if (frames.lost.has(fo)) lose();
+    bound();
+    fent[fo] = { cur, why: cwhy, alts: [...alts] };
+    emit2(LOOP_OPEN, "do");
+  }
+  function fclose() {
+    const fo = fids.pop();
+    const e = fent[fo];
+    const ends = cur === e.cur && cwhy === e.why ? [...alts] : [cur, ...alts];
+    const known = e.cur === "-" && e.why !== "" ? e.alts : [e.cur, ...e.alts];
+    alts = [...e.alts];
+    for (const t of ends) {
+      if (!known.includes(t) && frames.runs[fo] < MAX_GROWTH && !frames.ext[fo].includes(t)) {
+        frames.ext[fo].push(t);
+        frames.grew.add(fo);
+      }
+      altadd(alts, t, e.cur, e.why);
+    }
+    cur = e.cur;
+    cwhy = e.why;
+    bound();
+    emit2(LOOP_CLOSE, "done");
+  }
+  function lose() {
+    cur = "-";
+    cwhy = "";
+    alts = [];
+  }
+  function bound() {
+    if (alts.length >= MAX_DIRS) lose();
+  }
+  function altadd(as, t, d, dw) {
+    if (t === d && (t !== "-" || dw === "")) return;
+    if (!as.includes(t)) as.push(t);
+  }
+  function cdalts(as, p, d, dw) {
+    const out2 = [];
+    for (const a of as) {
+      const t = resolve3(a, p);
+      if (t === "-" && d === "-" && dw.includes(WSEP)) {
+        const aw = whyof(a, "", p);
+        if (aw.includes(WSEP) && aw.slice(aw.indexOf(WSEP)) === dw.slice(dw.indexOf(WSEP))) {
+          if (aw.slice(0, aw.indexOf(WSEP)) !== dw.slice(0, dw.indexOf(WSEP))) dw = "-" + dw.slice(dw.indexOf(WSEP));
+          continue;
+        }
+      }
+      altadd(out2, t, d, dw);
+    }
+    return [out2, dw];
+  }
+  function here() {
+    return alts.length > 0 ? "-" : cur;
+  }
+  function altTok(as) {
+    return as.map((a) => ALT + a).join("");
   }
   function forhead(w, k) {
     loops.push("f");
@@ -7417,7 +7500,7 @@ function statementsEnc(buf, base2, home, assign) {
     let k = j + 1;
     while (k < buf.length && /[ \t]/.test(buf[k])) k++;
     if (k < buf.length && !/[;\n]/.test(buf[k])) return "";
-    return srcmark(buf.slice(pos + 1, j), cur);
+    return srcmark(buf.slice(pos + 1, j), here());
   }
   function donesrc(pos) {
     let depth = 0;
@@ -7477,7 +7560,7 @@ function statementsEnc(buf, base2, home, assign) {
         if (buf.slice(k, k + 2) !== "<(") return "!";
         const j = closepar(k + 1);
         if (j < 0) return "!";
-        const mark = srcmark(buf.slice(k + 2, j), cur);
+        const mark = srcmark(buf.slice(k + 2, j), here());
         return mark === "" ? "!" : mark;
       }
       atcmd = atcmd && /^(then|else|elif|if|while|until|!|\{|\}|time)$/.test(w);
@@ -7581,7 +7664,7 @@ function statementsEnc(buf, base2, home, assign) {
     const waspiped = piped;
     piped = false;
     lastout = "";
-    lastdir = cur;
+    lastdir = here();
     let sawwhile = false;
     while (first < n2) {
       if (w[first] === "") {
@@ -7625,10 +7708,11 @@ function statementsEnc(buf, base2, home, assign) {
         for (const a of aw) if (!assignword(a, !csure)) ok2 = false;
       }
       if (assign && asg !== "") {
-        emit2("=" + cur + SEP + old, asg);
+        emit2("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg);
         if (!chained) {
           old = "-";
           owhy = "";
+          oalts = [];
         }
       }
       vend(ok2);
@@ -7655,7 +7739,8 @@ function statementsEnc(buf, base2, home, assign) {
     }
     lastout = out2;
     let d = cur;
-    const o = old;
+    let da = alts;
+    const o = oalts.length > 0 ? "-" : old;
     let dw = cwhy;
     if (a0 === "cd" || a0 === "pushd") {
       let p = "";
@@ -7668,22 +7753,29 @@ function statementsEnc(buf, base2, home, assign) {
       if (p === "-" && a0 === "cd") {
         [cur, old] = [old, cur];
         [cwhy, owhy] = [owhy, cwhy];
+        [alts, oalts] = [oalts, alts];
       } else if (p === "" || p === "-") {
         old = cur;
         owhy = cwhy;
+        oalts = alts;
         cur = "-";
+        alts = [];
         cwhy = p === "" && a0 === "cd" ? "-" + WSEP + "$HOME" : "";
       } else {
         old = cur;
         owhy = cwhy;
+        oalts = alts;
         const t = resolve3(cur, p);
         cwhy = t === "-" ? whyof(cur, cwhy, p) : "";
         cur = t;
+        [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
       }
     } else if (a0 === "popd") {
       old = cur;
       owhy = cwhy;
+      oalts = alts;
       cur = "-";
+      alts = [];
       cwhy = "";
     } else if (assign && a0 === "read") {
       let mk = sawwhile ? donesrc(i2) : "";
@@ -7698,6 +7790,7 @@ function statementsEnc(buf, base2, home, assign) {
           const t = resolve3(d, w[k + 1] ?? "");
           dw = t === "-" ? whyof(d, dw, w[k + 1] ?? "") : "";
           d = t;
+          [da, dw] = cdalts(da, w[k + 1] ?? "", d, dw);
           k++;
           continue;
         }
@@ -7709,10 +7802,11 @@ function statementsEnc(buf, base2, home, assign) {
         break;
       }
     }
-    emit2(d + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
+    emit2(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
     if (!chained) {
       old = "-";
       owhy = "";
+      oalts = [];
     }
     vend(ok);
   }
@@ -7720,6 +7814,8 @@ function statementsEnc(buf, base2, home, assign) {
     ostack[sp + 1] = old;
     wstack[sp + 1] = cwhy;
     owstack[sp + 1] = owhy;
+    astack[sp + 1] = alts;
+    oastack[sp + 1] = oalts;
     stack[++sp] = cur;
   }
   function pop() {
@@ -7727,6 +7823,8 @@ function statementsEnc(buf, base2, home, assign) {
       old = ostack[sp];
       cwhy = wstack[sp];
       owhy = owstack[sp];
+      alts = astack[sp];
+      oalts = oastack[sp];
       cur = stack[sp--];
     }
   }
@@ -7736,7 +7834,7 @@ function statementsEnc(buf, base2, home, assign) {
     const prev = i2 > 0 ? buf[i2 - 1] : "";
     if (c === QO) {
       qsp++;
-      q[qsp] = { stmt, cur, old, start: i2 + 1, sp, why: cwhy, owhy };
+      q[qsp] = { stmt, cur, old, start: i2 + 1, sp, why: cwhy, owhy, alts, oalts };
       vkill = true;
       stmt = "";
       continue;
@@ -7751,6 +7849,8 @@ function statementsEnc(buf, base2, home, assign) {
       sp = f.sp;
       cwhy = f.why;
       owhy = f.owhy;
+      alts = f.alts;
+      oalts = f.oalts;
       qsp--;
       continue;
     }
@@ -11408,15 +11508,15 @@ function progWrites(lang, program, operands, procWrites) {
   return { ...found, unproven };
 }
 function progFound(lang, program, scanned, operands, procWrites) {
-  const scan = chomp(scanned.join("\n"));
+  const scan2 = chomp(scanned.join("\n"));
   const has = (line) => `
-${scan}
+${scan2}
 `.includes(`
 ${line}
 `);
   const cd = has("C");
   const run4 = has("R");
-  const names = scan.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
+  const names = scan2.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
   const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run4 ? lex(lang === "py", program) : void 0;
   const held = new Map(names.map((name3) => [name3, lexed && heldLiterals(lexed, name3)]));
   const unread = has("A") || has("F") || [...held.values()].includes(void 0);
@@ -11427,7 +11527,7 @@ ${line}
   }
   let out2 = "";
   let src = "";
-  for (const line of scan.split("\n")) {
+  for (const line of scan2.split("\n")) {
     const rest = line.slice(2);
     if (line === "U") out2 += "$(proc)\n";
     else if (line === "H") out2 += "$(alias-write)\n";
@@ -12571,16 +12671,20 @@ var WritePaths = class _WritePaths {
         const words2 = shellWords(record.stmt);
         if (words2.length === 0) return;
         if (dir.startsWith("=")) {
-          this.pwd = dirPath(dir.slice(1), cwd);
-          for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+            this.pwd = dirPath(d, cwd);
+            for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+          });
           return;
         }
         this.poisonSet(level, words2);
         for (const h of bodies.get(from + k + 1) ?? []) if (h.expands) for (const name3 of setInText(h.body)) this.poison(level, name3);
         const body2 = inner3(record.stmt);
         if (body2 !== "" && (!evalArgs(words2) && heldProgram(body2) || depth < MAX_DEPTH3)) return;
-        this.pwd = dirPath(dir, cwd);
-        this.trackVars(level, words2);
+        this.eachDir(level, dir.split(ALT), why, (d) => {
+          this.pwd = dirPath(d, cwd);
+          this.trackVars(level, words2);
+        });
       });
       level.vars = varsUniq(level.vars);
       converged = level.vars === prev;
@@ -12591,6 +12695,23 @@ var WritePaths = class _WritePaths {
     this.pwd = saved.pwd;
     level.oldtok = saved.oldtok;
     level.why = saved.why;
+  }
+  /**
+   * Runs `fn` for each dir a statement may run in (a loop's back-edge can
+   * list more than one, GH 1977), with its why on the first only; each run
+   * starts from the variables the statement found and keeps what it adds.
+   */
+  eachDir(level, dirs, why, fn) {
+    const vars = level.vars;
+    let added = "";
+    dirs.forEach((d, n2) => {
+      level.vars = vars;
+      level.why = n2 === 0 ? why : "";
+      fn(d);
+      added += level.vars.slice(vars.length);
+    });
+    level.vars = vars + added;
+    level.why = why;
   }
   runEncoded(text, heredocs2, base2, depth, vars) {
     const level = { vars, oldtok: "-", why: "" };
@@ -12619,12 +12740,15 @@ var WritePaths = class _WritePaths {
       let words2 = shellWords(record.stmt);
       if (words2.length === 0) continue;
       if (dir.startsWith("=")) {
-        this.pwd = dirPath(dir.slice(1), cwd);
-        for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+        this.eachDir(level, dir.slice(1).split(ALT), why, (d) => {
+          this.pwd = dirPath(d, cwd);
+          for (const w of words2) this.varSet(level, before(w, "="), dec(after(w, "=")));
+        });
         continue;
       }
       const tok = dir + SEP + old + (why === "" ? "" : SEP + why);
-      const chain2 = dir === "-" && why === "";
+      const dirs = dir.split(ALT);
+      const each = (fn) => this.eachDir(level, dirs, why, (d) => fn(d, d === "-" && level.why === "", d + SEP + old + (level.why === "" ? "" : SEP + level.why)));
       const body2 = inner3(record.stmt);
       const evaluated = evalArgs(words2);
       this.poisonSet(level, words2);
@@ -12635,7 +12759,9 @@ var WritePaths = class _WritePaths {
       else if (body2 !== "" && !evaluated && this.isHeld(body2)) this.out += unprovenLine(`${basename5(dec(words2[0]))} ${dec(body2)}`);
       const ownWords = body2 !== "" && !evaluated && basename5(words2[0]) !== "watch";
       if (ownWords) {
-        for (const p of stmtWritePaths(record.stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
+        each((d, chain2) => {
+          for (const p of stmtWritePaths(record.stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, d, dec(p));
+        });
       }
       if (body2 !== "" && !evaluated && heldProgram(body2)) {
         this.out += computedLine(`${basename5(dec(words2[0]))} ${dec(body2)}`);
@@ -12654,9 +12780,11 @@ var WritePaths = class _WritePaths {
         stmt = words2.join(" ");
       }
       if (!ownWords) {
-        for (const p of stmtWritePaths(stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, dir, dec(p));
+        each((d, chain2) => {
+          for (const p of stmtWritePaths(stmt, chain2, this.interp).paths) if (p !== "") this.emit(level, d, dec(p));
+        });
       }
-      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words2[0]))) this.execWrites(level, dir, mark, words2, tok, depth);
+      if (/^(find|fd|fdfind|xargs)$/.test(basename5(words2[0]))) each((d, _, t) => this.execWrites(level, d, mark, words2, t, depth));
       const { kind, info: info2 } = stdinProgram(words2);
       if (kind !== "") {
         const progs = [];
@@ -12678,14 +12806,18 @@ var WritePaths = class _WritePaths {
             else this.out += computedLine(prog);
           } else {
             const found = progWrites(kind, prog, false, (c) => this.procWrites(c));
-            for (const p of found.lines) if (p !== "") this.emit(level, dir, p);
+            each((d) => {
+              for (const p of found.lines) if (p !== "") this.emit(level, d, p);
+            });
             if (found.computed) this.out += computedLine(shownArgv0);
             if (partly || found.unproven) this.out += unprovenLine(`${shownArgv0} ${prog}`);
           }
         }
       }
-      this.pwd = dirPath(dir, cwd);
-      this.trackVars(level, words2);
+      each((d) => {
+        this.pwd = dirPath(d, cwd);
+        this.trackVars(level, words2);
+      });
     }
   }
 };
