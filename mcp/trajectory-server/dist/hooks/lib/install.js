@@ -230,7 +230,7 @@ export function duplicateNames(rows) {
 /** tmb_duplicate_installs_disable_cmds: one `claude plugin disable` per copy, at its own scope. */
 export function duplicateDisableCmds(rows, env = process.env) {
     const name = installPluginName(env);
-    return rows.map((r) => `claude plugin disable ${name}@${r.marketplace} --scope ${r.scope}`).join('; ');
+    return rows.map((r) => `claude plugin disable ${name}@${r.marketplace} --scope ${r.scope}`).join('; '); // cli-config-scope: printed
 }
 /** tmb_user_settings_json: the user-scope settings.json. */
 export function userSettingsJson(env = process.env) {

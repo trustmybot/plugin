@@ -522,6 +522,10 @@ out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$TMPDIR/missing-dir/x.ts" "$TR
 assert_contains "$out" '"permissionDecision":"deny"' "absent parent directory still fails closed"
 
 test_case "GH 1597: .claude/tmb/scratch/ is sanctioned scratch: ALLOWED; .claude/scratch/ is not"
+TMB_PLUGIN_ROOT_FIX="$TMPDIR/tmb-plugin"
+mkdir -p "$TMB_PLUGIN_ROOT_FIX/.claude-plugin"
+echo '{"name":"tmb"}' > "$TMB_PLUGIN_ROOT_FIX/.claude-plugin/plugin.json"
+export CLAUDE_PLUGIN_ROOT="$TMB_PLUGIN_ROOT_FIX"
 out=$(run_hook "$(input 'Write' '.claude/tmb/scratch/x.py' "$TRANSCRIPT_BRO")")
 assert_eq "" "$out" "relative .claude/tmb/scratch/x.py"
 mkdir -p "$MANAGED_ROOT/.claude/tmb/scratch"
@@ -534,5 +538,6 @@ out=$(run_hook "$(input 'Write' '.claude/tmb/scratch/../../../src/x.py' "$TRANSC
 assert_contains "$out" '"permissionDecision":"deny"' "a .. climbing out of scratch stays guarded"
 out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$MANAGED_ROOT/.claude/tmb/scratch/../../../src/x.py" "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "an absolute .. climbing out of scratch stays guarded"
+export CLAUDE_PLUGIN_ROOT="$FIXTURE_PLUGIN_ROOT"
 
 summarize

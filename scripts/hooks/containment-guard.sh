@@ -195,7 +195,7 @@ deny() {
   fi
   tmb_audit_append "$DB" "$issue" '' "hook:containment-guard" "containment_denied" \
     "${TOOL_NAME} denied: ${path} is outside ${ROOT:-any root (unbound swe ${AGENT_ID})}" "$content" || true
-  [ -n "$reason" ] || reason="BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${ROOT%/}/.claude/tmb/scratch/ (or /tmp/claude-$(id -u))."
+  [ -n "$reason" ] || reason="BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${ROOT%/}/${TMB_STATE_HOST_DIR}/$(tmb_plugin_name)/scratch/ (or /tmp/claude-$(id -u))."
   jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0

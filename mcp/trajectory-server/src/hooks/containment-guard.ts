@@ -41,7 +41,7 @@ import {
   sweContext,
 } from './lib/db.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
-import { ctypeUtf8, posixDirname, shellPwd } from './lib/project-env.js';
+import { ctypeUtf8, pluginName, posixDirname, shellPwd, TMB_STATE_HOST_DIR } from './lib/project-env.js';
 import { normalizeRole } from './lib/role.js';
 import { writePaths, type WritePathsOptions } from './cmd-analysis/index.js';
 
@@ -199,7 +199,7 @@ class Guard {
     );
     if (written.error !== '') process.stderr.write(`${written.error}\n`);
     if (reason === '') {
-      reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/.claude/tmb/scratch/ (or /tmp/claude-${this.uid}).`;
+      reason = `BLOCKED: containment — ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName(this.env)}/scratch/ (or /tmp/claude-${this.uid}).`;
     }
     const decision = jqCompact({
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
