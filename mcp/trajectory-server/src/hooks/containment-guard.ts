@@ -85,8 +85,8 @@ function under(path: string, dir: string): boolean {
   return path === dir || path.startsWith(`${stripSlash(dir)}/`);
 }
 
-/** /tmp/claude-<uid> counts only when absent, or a real dir (not a link) this user owns. */
-function harnessTmp(uid: number): string {
+/** The canonical /tmp/claude-<uid>, which counts only when absent or a real dir (not a link) this user owns; "" otherwise. */
+export function harnessTmp(uid: number): string {
   const dir = `/tmp/claude-${uid}`;
   let link: ReturnType<typeof lstatSync> | undefined;
   try {

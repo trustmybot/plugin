@@ -21,6 +21,7 @@ git-guards
 git-push-guard
 mcp-health-check
 naming-lint
+no-source-edit-from-main
 plugin-hooks-marker
 post-task-create-spawn-hint
 require-feature-branch-active

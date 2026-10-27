@@ -1736,14 +1736,14 @@ var init_tree_sitter = __esm({
           captures.length = captureCount;
           address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
           if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-            const capture3 = captures[captureIndex];
+            const capture4 = captures[captureIndex];
             const setProperties = this.setProperties[patternIndex];
-            capture3.setProperties = setProperties;
+            capture4.setProperties = setProperties;
             const assertedProperties = this.assertedProperties[patternIndex];
-            capture3.assertedProperties = assertedProperties;
+            capture4.assertedProperties = assertedProperties;
             const refutedProperties = this.refutedProperties[patternIndex];
-            capture3.refutedProperties = refutedProperties;
-            result.push(capture3);
+            capture4.refutedProperties = refutedProperties;
+            result.push(capture4);
           }
         }
         C._free(startAddress);
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync15 } from "node:fs";
+import { readFileSync as readFileSync16 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -16990,10 +16990,10 @@ function activationRoutine(payload, env) {
   try {
     const echoed = `${commandSubstitution(payload)}
 `;
-    const field5 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
-    const prompt = field5("prompt");
+    const field6 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
+    const prompt = field6("prompt");
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field5("transcript_path")), grep)) return ALLOW;
+    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field6("transcript_path")), grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
     const db = dbPathAdvisory(GATE_NAME24, env, (line) => process.stderr.write(`${line}
@@ -17007,7 +17007,7 @@ function activationRoutine(payload, env) {
     );
     let context3 = activationContext(onboarded, pending2);
     if (halt !== "") context3 = `${halt} ${context3}`;
-    const sessionId = field5("session_id");
+    const sessionId = field6("session_id");
     if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context3 = `${context3} session_id=${sessionId}`;
     return emit(context3);
   } catch {
@@ -18161,6 +18161,156 @@ var sweScopeFence = (payload, env) => {
   return note === "" ? ALLOW : { stdout: scopeNote(note), code: 0 };
 };
 
+// src/hooks/no-source-edit-from-main.ts
+import { readFileSync as readFileSync15, statSync as statSync23 } from "node:fs";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
+var GATE_NAME45 = "no-source-edit-from-main";
+var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
+var BASH_REASON = "BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.";
+var SURFACE_REASON = "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees \u2014 spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
+var SOURCE_REASON = "BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning \u2192 task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time \u2014 setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.";
+var ALLOWED_BASENAMES = /* @__PURE__ */ new Set([
+  "LICENSE",
+  ".gitignore",
+  ".gitattributes",
+  ".editorconfig",
+  ".npmignore",
+  ".dockerignore",
+  "CHANGELOG",
+  "CHANGELOG.md",
+  "README",
+  "README.md"
+]);
+function capture3(text) {
+  return stripTrailingNewlines(text.replace(/\0/g, ""));
+}
+function field5(input, ...paths) {
+  return capture3(jqAlternatives(input, paths));
+}
+function deny8(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function dbDenied(env) {
+  return { stdout: `${denyDbUnavailable(GATE_NAME45, env)}
+`, code: 0 };
+}
+function hasDir(path, dir) {
+  return path.includes(`/${dir}/`) || path.startsWith(`${dir}/`);
+}
+function inWorktreeDir(path) {
+  return hasDir(path, ".claude/worktrees");
+}
+function scratchExcluded(path) {
+  return path.includes("/../") || path.startsWith("../") || path.endsWith("/..") || hasDir(path, "scripts/hooks");
+}
+function under3(path, dir) {
+  return dir !== "" && path.startsWith(`${dir.endsWith("/") ? dir.slice(0, -1) : dir}/`);
+}
+function inScratch(target, input, env) {
+  if (scratchExcluded(target)) return false;
+  if (hasDir(target, ".claude/tmb/scratch")) return true;
+  const canonical3 = capture3(pathCanonical2(target.startsWith("/") ? target : `${payloadCwd(input, env)}/${target}`));
+  if (scratchExcluded(canonical3)) return false;
+  return hasDir(canonical3, ".claude/tmb/scratch") || under3(canonical3, harnessTmp(process.getuid?.() ?? 0));
+}
+function isFile11(path) {
+  try {
+    return statSync23(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function manifestName2(manifest) {
+  try {
+    return field5(readFileSync15(manifest, "utf8"), ["name"]);
+  } catch {
+    return "";
+  }
+}
+function targetIsPluginSourceRepo(target, input, env) {
+  const pluginRoot2 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath5(import.meta.url))) || "";
+  const running = `${pluginRoot2}/.claude-plugin/plugin.json`;
+  let start2;
+  if (target.startsWith("/")) {
+    start2 = posixDirname(target);
+    while (!isDir(start2) && start2 !== "/") start2 = posixDirname(start2);
+  } else {
+    start2 = posixDirname(`${payloadCwd(input, env)}/${target}`);
+  }
+  const root = repoGitRoot(start2, env);
+  if (root === "") return false;
+  const repoManifest = `${root}/.claude-plugin/plugin.json`;
+  if (!isFile11(running) || !isFile11(repoManifest)) return false;
+  const runningName = manifestName2(running);
+  return runningName !== "" && runningName === manifestName2(repoManifest);
+}
+function allowlisted(target) {
+  if (/\.(md|markdown|txt|rst)$/.test(target)) return true;
+  if (hasDir(target, "docs") || hasDir(target, "templates")) return true;
+  const base2 = posixBasename(target);
+  if (ALLOWED_BASENAMES.has(base2) || base2.startsWith("LICENSE.")) return true;
+  if (target.endsWith(".claude-plugin/plugin.json") || target.endsWith(".claude-plugin/marketplace.json")) return true;
+  return target.includes(".github/");
+}
+function isEnforcementSurface(target) {
+  return hasDir(target, "scripts/hooks") || target.endsWith("/hooks/hooks.json") || target === "hooks/hooks.json";
+}
+function projectRelative(p, roots) {
+  for (const root of roots) {
+    if (root !== "" && p.startsWith(`${root}/`)) return p.slice(root.length + 1);
+  }
+  return p;
+}
+function judgedPath(word) {
+  if (!word.startsWith("UNRESOLVED:")) return word;
+  const rest = word.slice("UNRESOLVED:".length);
+  const colon = rest.indexOf(":");
+  if (colon < 0) return word;
+  return Object.hasOwn(NEVER_JUDGED, rest.slice(0, colon)) ? null : rest.slice(colon + 1);
+}
+async function bashRule(input, env) {
+  const command = field5(input, ["tool_input", "command"]);
+  const proj = capture3(projectRoot(env));
+  const roots = [proj, proj === "" ? "" : realdir(proj)];
+  const lines2 = capture3((await writePaths(command, { cwd: payloadCwd(input, env), env })).join("\n")).split("\n");
+  for (const line of lines2) {
+    const path = judgedPath(line);
+    if (path === null || path === "") continue;
+    if (isPromptSurfacePath2(path, "", env) && !inWorktreeDir(projectRelative(path, roots))) return deny8(BASH_REASON);
+  }
+  return ALLOW;
+}
+function editRule(input, env) {
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null) return ALLOW;
+  const target = field5(input, ["tool_input", "file_path"], ["tool_input", "notebook_path"]);
+  if (target === "" || inWorktreeDir(target) || inScratch(target, input, env)) return ALLOW;
+  if (dbState(env) === "error") return dbDenied(env);
+  if (target.startsWith("/")) {
+    const dir = posixDirname(target);
+    if (haveSqlite(env) && isDir(dir)) {
+      const root = repoGitRoot(dir, env);
+      if (root === "") return ALLOW;
+      if (gateRead(db, "SELECT COUNT(*) FROM repos;", env) === GATE_READ_ERROR) return dbDenied(env);
+      if (repoNameForRoot(db, root, env) === "") return ALLOW;
+    }
+  }
+  if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env)) return deny8(SURFACE_REASON);
+  if (allowlisted(target)) return ALLOW;
+  if (agentRole(input) === "swe") return ALLOW;
+  return deny8(SOURCE_REASON);
+}
+var noSourceEditFromMain = (payload, env) => {
+  const toolName2 = field5(payload, ["tool_name"]);
+  if (!JUDGED_TOOLS2.has(toolName2)) return ALLOW;
+  if (toolName2 === "Bash") return bashRule(payload, env);
+  if ((env.TMB_ALLOW_SOURCE_EDIT ?? "0") === "1") return ALLOW;
+  return editRule(payload, env);
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -18208,7 +18358,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME41, agentArgMatchesCaller],
   [GATE_NAME42, reviewerIdentityObserve],
   [GATE_NAME43, cheatcodeInstallApproval],
-  [GATE_NAME44, sweScopeFence]
+  [GATE_NAME44, sweScopeFence],
+  [GATE_NAME45, noSourceEditFromMain]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -18242,7 +18393,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync15(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync16(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

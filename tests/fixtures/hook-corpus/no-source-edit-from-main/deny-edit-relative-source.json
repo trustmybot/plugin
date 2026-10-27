@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Edit","tool_input":{"file_path":"src/x.ts","content":"x"},"agent_type":"bro","corpus_expect":"source edits from the main checkout are denied"}
