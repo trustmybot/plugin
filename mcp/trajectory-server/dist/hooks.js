@@ -17300,7 +17300,7 @@ function resumeJson(taskId, agentId, observedAt) {
   return `{"task_id":${jqNumberLiteral(taskId)},"agent_id":${jqCompact(agentId)},"observed_at":${jqCompact(observedAt)},"consumed":0}`;
 }
 function bindRun(db, taskId, input, env) {
-  const agentId = jqAlternatives(input, [["agent_id"]]);
+  const agentId = commandSubstitution(jqAlternatives(input, [["agent_id"]]));
   if (agentId === "") return;
   const safeAgentId = sqlQuote(agentId);
   const keyed = sqliteRo(
@@ -17341,14 +17341,16 @@ var sweBriefGate = (payload, env) => {
   const captured = commandSubstitution(payload);
   const input = `${captured}
 `;
-  const agentType = normalizeRole(jqAlternatives(input, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]));
+  const agentType = normalizeRole(
+    commandSubstitution(jqAlternatives(input, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]))
+  );
   if (agentType !== "swe") return ALLOW;
-  const toolName2 = jqAlternatives(input, [["tool_name"]]);
+  const toolName2 = commandSubstitution(jqAlternatives(input, [["tool_name"]]));
   const db = dbPath(env, (line) => process.stderr.write(`${line}
 `));
   if (db === null || !haveSqlite(env)) return ALLOW;
   let taskId = taskIdFromTranscript(agentTranscript(captured));
-  if (taskId === "") taskId = sqlInt(rawOrEmpty(input, ["tool_input", "task_id"]));
+  if (taskId === "") taskId = sqlInt(commandSubstitution(rawOrEmpty(input, ["tool_input", "task_id"])));
   if (taskId === "") return ALLOW;
   const surface = briefSurface(toolName2);
   if (surface === "other") return ALLOW;
@@ -17420,10 +17422,10 @@ UPDATE agent_runs SET spawn_id = '${safeAgentId}'
 var sweSpawnBind = (payload, env) => {
   try {
     const input = commandSubstitution(payload);
-    if (normalizeRole(jqAlternatives(input, [["tool_input", "subagent_type"]])) !== "swe") return ALLOW;
+    if (normalizeRole(commandSubstitution(jqAlternatives(input, [["tool_input", "subagent_type"]]))) !== "swe") return ALLOW;
     const fields = joinedFields(input, ["tool_use_id"], ["tool_response", "agentId"]);
     if (fields === null) return ALLOW;
-    const [toolUseId2, agentId] = readTwo(fields, FIELD_SEPARATOR);
+    const [toolUseId2, agentId] = readTwo(commandSubstitution(fields), FIELD_SEPARATOR);
     if (toolUseId2 === "" || agentId === "") return ALLOW;
     const db = dbPath(env);
     if (db === null || !haveSqlite(env)) return ALLOW;
@@ -17473,7 +17475,7 @@ UPDATE agent_runs
 var sweSpawnRollback = (payload, env) => {
   try {
     const input = commandSubstitution(payload);
-    if (normalizeRole(jqAlternatives(input, [["tool_input", "subagent_type"]])) !== "swe") return ALLOW;
+    if (normalizeRole(commandSubstitution(jqAlternatives(input, [["tool_input", "subagent_type"]]))) !== "swe") return ALLOW;
     const id = toolUseId(input);
     if (id === null || id === "") return ALLOW;
     const db = dbPath(env);

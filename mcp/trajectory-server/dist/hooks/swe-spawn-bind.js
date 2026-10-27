@@ -79,12 +79,12 @@ UPDATE agent_runs SET spawn_id = '${safeAgentId}'
 export const sweSpawnBind = (payload, env) => {
     try {
         const input = commandSubstitution(payload);
-        if (normalizeRole(jqAlternatives(input, [['tool_input', 'subagent_type']])) !== 'swe')
+        if (normalizeRole(commandSubstitution(jqAlternatives(input, [['tool_input', 'subagent_type']]))) !== 'swe')
             return ALLOW;
         const fields = joinedFields(input, ['tool_use_id'], ['tool_response', 'agentId']);
         if (fields === null)
             return ALLOW;
-        const [toolUseId, agentId] = readTwo(fields, FIELD_SEPARATOR);
+        const [toolUseId, agentId] = readTwo(commandSubstitution(fields), FIELD_SEPARATOR);
         if (toolUseId === '' || agentId === '')
             return ALLOW;
         const db = dbPath(env);

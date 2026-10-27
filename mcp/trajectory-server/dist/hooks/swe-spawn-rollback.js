@@ -66,7 +66,7 @@ UPDATE agent_runs
 export const sweSpawnRollback = (payload, env) => {
     try {
         const input = commandSubstitution(payload);
-        if (normalizeRole(jqAlternatives(input, [['tool_input', 'subagent_type']])) !== 'swe')
+        if (normalizeRole(commandSubstitution(jqAlternatives(input, [['tool_input', 'subagent_type']]))) !== 'swe')
             return ALLOW;
         const id = toolUseId(input);
         if (id === null || id === '')

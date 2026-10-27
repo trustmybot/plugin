@@ -151,6 +151,16 @@ describe('swe-run gates without jq or the sqlite3 CLI (decision 703)', () => {
         const payload = brief({ tool_name: 'Write', agent_id: 'agent-tx', transcript_path: join(s, 'transcripts/session.jsonl'), tool_input: {} });
         assert.equal(deny(sweBriefGate(payload, env()).stdout), denyReason('11', 'Write'));
     });
+    it('swe-brief-gate strips a trailing newline from agent_type, tool_name and task_id as $(jq -r ...) does (F244-1)', () => {
+        const tool = 'mcp__plugin_tmb_trajectory-server__task_get';
+        assert.equal(deny(sweBriefGate(brief({ tool_name: tool, tool_input: { task_id: '11\n' } }), env()).stdout), denyReason('11', tool));
+        assert.equal(deny(sweBriefGate(JSON.stringify({ agent_type: 'swe\n', tool_name: 'Edit', tool_input: { task_id: 11 } }), env()).stdout), denyReason('11', 'Edit'));
+        assert.equal(deny(sweBriefGate(brief({ tool_name: 'Write\n', tool_input: { task_id: 11 } }), env()).stdout), denyReason('11', 'Write'));
+    });
+    it('swe-brief-gate binds the run to an agent_id stripped of its trailing newline', () => {
+        sweBriefGate(brief({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_brief', agent_id: 'agent-new\n', tool_input: { task_id: 11 } }), env());
+        assert.deepEqual(rows('SELECT spawn_id FROM agent_runs WHERE task_id = 11').map((x) => x.spawn_id), ['agent-new']);
+    });
     it('swe-brief-gate allows a briefed task, exploration, MultiEdit, other roles, no task and no DB', () => {
         assert.deepEqual(sweBriefGate(brief({ tool_name: 'Edit', tool_input: { task_id: 10 } }), env()), ALLOWED);
         assert.deepEqual(sweBriefGate(brief({ tool_name: 'Read', tool_input: { task_id: 11 } }), env()), ALLOWED);
@@ -181,6 +191,10 @@ describe('swe-run gates without jq or the sqlite3 CLI (decision 703)', () => {
         assert.deepEqual(sweSpawnBind(agent({ tool_use_id: 'toolu_11', tool_response: { agentId: 'agent-bg' } }), env()), ALLOWED);
         assert.deepEqual(rows('SELECT spawn_id FROM agent_runs WHERE task_id = 11').map((x) => x.spawn_id), ['agent-bg']);
     });
+    it('swe-spawn-bind strips a trailing newline from subagent_type and agentId as $(jq -r ...) does (F244-2)', () => {
+        assert.deepEqual(sweSpawnBind(agent({ tool_use_id: 'toolu_11', tool_response: { agentId: 'agent-9\n' } }, 'swe\n'), env()), ALLOWED);
+        assert.deepEqual(rows('SELECT spawn_id FROM agent_runs WHERE task_id = 11').map((x) => x.spawn_id), ['agent-9']);
+    });
     it('swe-spawn-bind leaves the tool_use row when a row of the task already holds the agent id', () => {
         sweSpawnBind(agent({ tool_use_id: 'toolu_16', tool_response: { agentId: 'agent-bound' } }), env());
         assert.deepEqual(rows('SELECT spawn_id FROM agent_runs WHERE task_id = 16 ORDER BY id').map((x) => x.spawn_id), ['agent-bound', 'tool_use:toolu_16']);
@@ -198,6 +212,11 @@ describe('swe-run gates without jq or the sqlite3 CLI (decision 703)', () => {
               duration_ms = CAST(ROUND((julianday(completed_at) - julianday(started_at)) * 86400000) AS INTEGER) AS window_matches
          FROM agent_runs WHERE task_id = 11`);
         assert.deepEqual({ ...run }, { exit_reason: 'swept_orphan', usage_source: 'unmeasured', window_matches: 1 });
+    });
+    it('swe-spawn-rollback strips a trailing newline from subagent_type as $(jq -r ...) does (F244-2)', () => {
+        assert.deepEqual(sweSpawnRollback(agent({ tool_use_id: 'toolu_11' }, 'swe\n'), env()), ALLOWED);
+        assert.equal(rows('SELECT status FROM tasks WHERE id = 11')[0].status, 'pending');
+        assert.equal(rows('SELECT exit_reason FROM agent_runs WHERE task_id = 11')[0].exit_reason, 'swept_orphan');
     });
     it('swe-spawn-rollback keeps the task running while another swe run of it is open', () => {
         sweSpawnRollback(agent({ tool_use_id: 'toolu_14b' }), env());

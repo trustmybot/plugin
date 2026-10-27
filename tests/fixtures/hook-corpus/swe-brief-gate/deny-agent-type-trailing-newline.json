@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","agent_type":"swe\n","tool_name":"Edit","tool_input":{"task_id":11},"corpus_expect":"BLOCKED: SWE must call task_brief(agent='swe', task_id=11) before Edit."}

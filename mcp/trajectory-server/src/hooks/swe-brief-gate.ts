@@ -64,7 +64,7 @@ export function resumeJson(taskId: string, agentId: string, observedAt: string):
 }
 
 function bindRun(db: string, taskId: string, input: string, env: NodeJS.ProcessEnv): void {
-  const agentId = jqAlternatives(input, [['agent_id']]);
+  const agentId = commandSubstitution(jqAlternatives(input, [['agent_id']]));
   if (agentId === '') return;
   const safeAgentId = sqlQuote(agentId);
   const keyed = sqliteRo(
@@ -105,15 +105,17 @@ UPDATE agent_runs SET spawn_id = '${safeAgentId}'
 export const sweBriefGate: SyncGate = (payload, env): GateResult => {
   const captured = commandSubstitution(payload);
   const input = `${captured}\n`;
-  const agentType = normalizeRole(jqAlternatives(input, [['agent_type'], ['subagent_type'], ['tool_input', 'subagent_type']]));
+  const agentType = normalizeRole(
+    commandSubstitution(jqAlternatives(input, [['agent_type'], ['subagent_type'], ['tool_input', 'subagent_type']])),
+  );
   if (agentType !== 'swe') return ALLOW;
-  const toolName = jqAlternatives(input, [['tool_name']]);
+  const toolName = commandSubstitution(jqAlternatives(input, [['tool_name']]));
 
   const db = dbPath(env, (line) => process.stderr.write(`${line}\n`));
   if (db === null || !haveSqlite(env)) return ALLOW;
 
   let taskId = taskIdFromTranscript(agentTranscript(captured));
-  if (taskId === '') taskId = sqlInt(rawOrEmpty(input, ['tool_input', 'task_id']));
+  if (taskId === '') taskId = sqlInt(commandSubstitution(rawOrEmpty(input, ['tool_input', 'task_id'])));
   if (taskId === '') return ALLOW;
 
   const surface = briefSurface(toolName);
