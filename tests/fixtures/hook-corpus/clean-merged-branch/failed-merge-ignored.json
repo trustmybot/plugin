@@ -1,0 +1,1 @@
+{"session_id":"sess-merge","hook_event_name":"PostToolUse","cwd":"@SANDBOX@/project/repo","tool_name":"Bash","tool_input":{"command":"gh pr merge feat/ancestor --squash","description":"merge"},"tool_response":{"stdout":"","stderr":"X Pull request #12 is not mergeable: the merge commit cannot be cleanly created.","interrupted":false},"corpus_expect":"empty"}
