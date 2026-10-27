@@ -11,6 +11,7 @@ plugin-hooks-marker
 rework-limit
 session-log-capture
 session-start-persona
+swe-boundary
 swe-resume-gate
 swe-stop-cause
 task-overrun-alert
