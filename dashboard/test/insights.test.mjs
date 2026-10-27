@@ -120,7 +120,7 @@ before(async () => {
         import { toCsv, csvName } from './web/views/insights/csv.ts';
         import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable } from './web/views/insights/sections.tsx';
         import { AGENT_COLOR, compact, durationTicks } from './web/views/insights/format.ts';
-        import { Histogram, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
+        import { Histogram, barWidth, histBarWidth, arrowPath, placeMarkerCallouts, thinEdgeTicks } from './web/views/insights/charts.tsx';
         const withHash = (hash, fn) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
           try { return fn(); } finally { delete globalThis.window; }
@@ -136,7 +136,7 @@ before(async () => {
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const escaped = (text) => renderToStaticMarkup(createElement(Fragment, null, text));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, clearFilters, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, clearFilters, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, arrowPath, placeMarkerCallouts, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -800,25 +800,20 @@ describe('Insights view', () => {
     assert.match(html, /Early data · 3 of 20 runs/);
     assert.match(html, /p50 13K/);
     assert.match(html, /p95 24K/);
-    const innerH = 224 - 36 - 24;
+    const innerH = 224 - 40 - 24;
     const markers = [...html.matchAll(/<g data-marker="">(.*?)<\/g>/g)].map((m) => m[1]);
     assert.equal(markers.length, 4);
-    const ys = (line) => [/ y1="([\d.-]+)"/, / y2="([\d.-]+)"/].map((re) => Number(re.exec(line)[1]));
     for (const g of markers) {
-      const lines = [...g.matchAll(/<line[^>]*>/g)].map((m) => m[0]);
-      assert.equal(lines.length, 2, 'one leader and one tick per marker');
-      const leaders = lines.filter((l) => l.includes('data-marker-leader'));
-      const ticks = lines.filter((l) => l.includes('data-marker-tick'));
-      assert.equal(leaders.length, 1);
-      assert.equal(ticks.length, 1);
-      for (const line of lines) {
-        assert.match(line, /stroke="var\(--fgColor-muted\)" stroke-width="1"/);
-        const [y1, y2] = ys(line);
-        assert.ok(!(Math.min(y1, y2) <= 0 && Math.max(y1, y2) >= innerH), 'no marker line spans the plot');
-      }
-      assert.deepEqual(ys(ticks[0]), [innerH, innerH + 4]);
-      const [y1, y2] = ys(leaders[0]);
-      assert.ok(y1 < 0 && y2 >= y1 && y2 < innerH, `leader ${y1}→${y2} drops from the band and stops above the baseline`);
+      assert.doesNotMatch(g, /<line/, 'no line inside a marker');
+      const arrows = [...g.matchAll(/<path [^>]*data-marker-arrow=""[^>]*>/g)].map((m) => m[0]);
+      assert.equal(arrows.length, 1, 'one arrow per marker');
+      assert.equal((g.match(/data-marker-label=""/g) ?? []).length, 1, 'one label per marker');
+      assert.match(arrows[0], /fill="var\(--fgColor-muted\)"/);
+      assert.match(arrows[0], /stroke="none"/);
+      assert.match(arrows[0], /pointer-events="none"/);
+      const [x0, y0, x1, ax, tip] = /d="M([\d.-]+),([\d.-]+)H([\d.-]+)L([\d.-]+),([\d.-]+)Z"/.exec(arrows[0]).slice(1).map(Number);
+      assert.deepEqual([x1 - x0, tip - y0, (x0 + x1) / 2], [8, 5, ax], 'an 8×5 arrow centred on ax');
+      assert.ok(tip <= innerH - 3, `arrow tip ${tip} above the baseline`);
     }
     assert.doesNotMatch(html, /stroke-dasharray/);
     const broCard = html.slice(html.indexOf('data-agent="bro"'));
@@ -1118,17 +1113,65 @@ describe('Insights view', () => {
     });
   });
 
-  test('marker labels: start-anchored, end-anchored in the right third, clamped, stacked when they collide', () => {
-    const near = mod.placeMarkerLabels([{ x: 100, label: 'p50 13K' }, { x: 110, label: 'p95 24K' }], 400);
-    assert.deepEqual(near.map((p) => [p.anchor, p.row]), [['start', 0], ['start', 1]]);
-    const far = mod.placeMarkerLabels([{ x: 50, label: 'p50 13K' }, { x: 300, label: 'p95 24K' }], 400);
-    assert.deepEqual(far.map((p) => [p.anchor, p.row, p.x]), [['start', 0, 50], ['end', 0, 300]]);
-    const edge = mod.placeMarkerLabels([{ x: 400, label: 'p95 24K' }], 400)[0];
-    assert.deepEqual([edge.anchor, edge.x, edge.right], ['end', 400, 400]);
-    assert.ok(edge.left >= 0);
-    const start = mod.placeMarkerLabels([{ x: 0, label: 'p50 1K' }], 400)[0];
-    assert.deepEqual([start.anchor, start.left], ['start', 0]);
-    for (const p of [...near, ...far, edge, start]) assert.ok(mod.labelBox(p).bottom < 0, 'labels sit above the plot');
+  const calloutBox = (c, label) => {
+    const w = label.length * 6.6;
+    const left = c.anchor === 'start' ? c.labelX : c.anchor === 'end' ? c.labelX - w : c.labelX - w / 2;
+    return { left, right: left + w, top: c.baseline - 11, bottom: c.baseline + 3 };
+  };
+  const intersects = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const barRect = (b, innerH) => ({ left: b.left, right: b.right, top: b.top, bottom: innerH });
+  const checkCallouts = (markers, bars, innerW, innerH) => {
+    const out = mod.placeMarkerCallouts(markers, bars, innerW, innerH);
+    const boxes = out.map((c, i) => calloutBox(c, markers[i].label));
+    out.forEach((c, i) => {
+      const box = boxes[i];
+      assert.ok(box.bottom <= c.tip - 7, `${markers[i].label}: label bottom ${box.bottom} at or above tip − 7 (${c.tip - 7})`);
+      assert.ok(box.left >= 0 && box.right <= innerW, `${markers[i].label}: label inside [0, ${innerW}]`);
+      for (const b of bars) assert.ok(!intersects(box, barRect(b, innerH)), `${markers[i].label}: label clear of bar ${b.left}–${b.right}`);
+      for (const other of boxes.slice(0, i)) assert.ok(!intersects(box, other), `${markers[i].label}: label clear of earlier labels`);
+    });
+    return out;
+  };
+
+  test('marker callouts: the arrow tip rests 3px above the surface, the taller neighbour in a gap, the axis over an empty bucket', () => {
+    const innerH = 160;
+    const [over] = checkCallouts([{ x: 15, label: 'p50 13K' }], [{ left: 10, right: 20, top: 60 }], 400, innerH);
+    assert.deepEqual([over.ax, over.tip], [15, 57]);
+    const gap = [{ left: 0, right: 10, top: 80 }, { left: 12, right: 22, top: 40 }];
+    assert.equal(checkCallouts([{ x: 11, label: 'p50 1K' }], gap, 400, innerH)[0].tip, 37, 'a marker mid-gap rests on the taller neighbour');
+    for (const x of [10.6, 11.4]) assert.equal(checkCallouts([{ x, label: 'p50 1K' }], gap, 400, innerH)[0].tip, 37);
+    assert.equal(checkCallouts([{ x: 5, label: 'p50 1K' }], gap, 400, innerH)[0].tip, 77, 'inside the shorter bar, away from the gap');
+    assert.equal(checkCallouts([{ x: 50, label: 'p50 1K' }], [{ left: 0, right: 10, top: 50 }], 400, innerH)[0].tip, innerH - 3, 'an empty bucket points at the axis');
+    assert.equal(checkCallouts([{ x: 50, label: 'p50 1K' }], [], 400, innerH)[0].tip, innerH - 3);
+    for (const x of [15.2, 15.7, -3, 431.9]) assert.equal(mod.placeMarkerCallouts([{ x, label: 'p50 1K' }], [], 400, innerH)[0].ax, Math.round(Math.min(400, Math.max(0, x))));
+  });
+
+  test('marker callouts: arrow path is 8 wide and 5 tall, centred on ax', () => {
+    assert.equal(mod.arrowPath(100, 57), 'M96,52H104L100,57Z');
+  });
+
+  test('marker callouts: a tail p95 beside a taller left bucket anchors start over the shorter tail', () => {
+    const bars = [{ left: 0, right: 30, top: 20 }, { left: 32, right: 62, top: 140 }, { left: 64, right: 94, top: 150 }];
+    const [p95] = checkCallouts([{ x: 40, label: 'p95 24K' }], bars, 400, 160);
+    assert.equal(p95.anchor, 'start');
+    assert.equal(p95.tip, 137);
+  });
+
+  test('marker callouts: overlapping p50/p95 never intersect, and p50 does not depend on p95', () => {
+    const bars = [{ left: 0, right: 30, top: 20 }, { left: 32, right: 62, top: 140 }, { left: 64, right: 94, top: 150 }];
+    const p50 = { x: 40, label: 'p50 13K' };
+    const alone = mod.placeMarkerCallouts([p50], bars, 400, 160)[0];
+    for (const x of [40, 45, 50, 70, 100]) {
+      const [first] = checkCallouts([p50, { x, label: 'p95 24K' }], bars, 400, 160);
+      assert.deepEqual(first, alone, `p95 at ${x} leaves p50 alone`);
+    }
+    for (const [a, b] of [[100, 104], [200, 200], [0, 3], [400, 396]]) checkCallouts([{ x: a, label: 'p50 354.8K' }, { x: b, label: 'p95 746.2K' }], [], 400, 160);
+  });
+
+  test('marker callouts: every label stays inside [0, innerW] at both edges', () => {
+    const out = checkCallouts([{ x: 0, label: 'p50 1K' }, { x: 263, label: 'p95 24K' }], [{ left: 0, right: 24, top: 100 }, { left: 239, right: 263, top: 120 }], 263, 160);
+    assert.equal(out[0].ax, 0);
+    assert.equal(out[1].ax, 263);
   });
 
   test('marker labels near the right edge (bro card shape) sit in the band, clear of bars, y ticks and each other', () => {
@@ -1140,23 +1183,23 @@ describe('Insights view', () => {
     const svg = mod.histogramSvg({ label: 'bro', measure: 'output tokens', who: 'bro', noun: (n) => (n === 1 ? 'session' : 'sessions'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
     const innerW = 480 - 8 - 40;
     const [, gx, gy] = /<g class="visx-group" transform="translate\(([\d.]+), ([\d.]+)\)"/.exec(svg);
-    assert.deepEqual([Number(gx), Number(gy)], [8, 36]);
-    const labels = [...svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*data-marker-label="">([^<]+)<\/text>/g)].map(([, x, y, anchor, text]) => {
-      const w = text.length * 6.6;
-      const left = anchor === 'end' ? Number(x) - w : Number(x);
-      return { text, anchor, left, right: left + w, top: Number(y) - 11, bottom: Number(y) + 3 };
-    });
-    assert.deepEqual(labels.map((l) => [l.text, l.anchor]), [['p50 354.8K', 'end'], ['p95 746.2K', 'end']]);
-    const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    assert.ok(!overlap(labels[0], labels[1]), 'the two labels stack instead of overlapping');
-    assert.ok(labels[1].bottom <= labels[0].top, 'p95 sits on the band row above p50');
+    assert.deepEqual([Number(gx), Number(gy)], [8, 40]);
+    const labels = [...svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*data-marker-label="">([^<]+)<\/text>/g)].map(([, x, y, anchor, text]) => ({
+      text,
+      ...calloutBox({ labelX: Number(x), baseline: Number(y), anchor }, text),
+    }));
+    assert.deepEqual(labels.map((l) => l.text), ['p50 354.8K', 'p95 746.2K']);
+    assert.ok(!intersects(labels[0], labels[1]), 'the two labels do not overlap');
     for (const l of labels) {
       assert.ok(l.left >= 0 && l.right <= innerW, `${l.text} inside the plot x-range`);
-      assert.ok(l.bottom < 0 && l.top >= -Number(gy), `${l.text} inside the band above the plot`);
+      assert.ok(l.top >= -Number(gy) + 2, `${l.text} inside the svg`);
     }
-    const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) /g)].map((m) => Number(m[2]));
+    const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) h([\d.-]+)\s*a([\d.]+),/g)].map(([, mx, my, run, r]) => {
+      const left = Number(mx) - Number(r);
+      return { left, right: left + Number(run) + 2 * Number(r), top: Number(my), bottom: 224 - 40 - 24 };
+    });
     assert.equal(bars.length, 9);
-    assert.ok(bars.every((y) => y >= 0), 'every bar stays below the band');
+    for (const l of labels) for (const b of bars) assert.ok(!intersects(l, b), `${l.text} clear of the bar at ${b.left}`);
     const [, axisX] = /class="visx-group visx-axis visx-axis-right" transform="translate\(([\d.]+), 0\)"/.exec(svg);
     assert.equal(Number(axisX), innerW);
     const ticks = [...svg.slice(svg.indexOf('visx-axis-right')).matchAll(/<svg x="([\d.-]+)"[^>]*><text transform="" x="([\d.-]+)"[^>]*text-anchor="start"/g)];
@@ -1166,23 +1209,7 @@ describe('Insights view', () => {
     }
   });
 
-  test('marker leaders: drop from under the label to 4px above the bar they touch, on a crisp pixel', () => {
-    const innerH = 164;
-    const leader = (x, labelBottom, bars) => mod.markerLeader({ x, labelBottom, bars, innerH });
-    const over = leader(15, -3, [{ left: 10, right: 20, top: 60 }]);
-    assert.deepEqual([over.y1, over.y2], [-1, 56]);
-    assert.equal(leader(50, -3, [{ left: 10, right: 20, top: 60 }]).y2, innerH - 4);
-    assert.equal(leader(50, -3, []).y2, innerH - 4);
-    const gap = [{ left: 0, right: 10, top: 80 }, { left: 12, right: 22, top: 40 }];
-    assert.equal(leader(11, -3, gap).y2, 36, 'a marker mid-gap clears the taller neighbour');
-    for (const x of [10.5, 11.5]) assert.equal(leader(x, -3, gap).y2, 36);
-    assert.equal(leader(5, -3, gap).y2, 76, 'inside the shorter bar, away from the gap');
-    const tall = leader(15, -3, [{ left: 10, right: 20, top: -10 }]);
-    assert.equal(tall.y2, tall.y1, 'a bar above the label leaves a zero-length leader');
-    for (const x of [15, 15.2, 15.5, 15.7, 0, 431.9]) assert.equal(leader(x, -3, []).x, Math.round(x) + 0.5);
-  });
-
-  test('marker leaders in the rendered histogram start under their labels and stop above the bars', () => {
+  test('marker arrows in the rendered histogram rest 3px above the bars, with their labels on top and clear of every bar', () => {
     const edges = Array.from({ length: 11 }, (_, i) => Math.round(10 ** (3 + 0.3 * i)));
     const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
@@ -1195,15 +1222,22 @@ describe('Insights view', () => {
       assert.equal(bars.length, 9);
       const groups = [...svg.matchAll(/<g data-marker="">(.*?)<\/g>/g)].map((m) => m[1]);
       assert.equal(groups.length, 2);
+      const innerW = 480 - 8 - 40;
+      const innerH = 224 - 40 - 24;
+      const boxes = [];
       for (const g of groups) {
-        const [lx, y1, y2] = /<line[^>]*x1="([\d.-]+)" y1="([\d.-]+)" x2="[\d.-]+" y2="([\d.-]+)"[^>]*data-marker-leader=""/.exec(g).slice(1).map(Number);
+        assert.doesNotMatch(g, /<line/);
+        const [x0, , x1, ax, tip] = /<path d="M([\d.-]+),([\d.-]+)H([\d.-]+)L([\d.-]+),([\d.-]+)Z"[^>]*data-marker-arrow=""/.exec(g).slice(1).map(Number);
+        assert.deepEqual([x1 - x0, (x0 + x1) / 2], [8, ax]);
         const [, x, baseline, anchor, text] = /<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*>([^<]+)<\/text>/.exec(g);
-        const w = text.length * 6.6;
-        const left = anchor === 'end' ? Number(x) - w : Number(x);
-        const bottom = mod.labelBox({ x: Number(x), anchor, left, right: left + w, row: 0, baseline: Number(baseline) }).bottom;
-        assert.ok(y1 >= bottom, `${text}: leader y1 ${y1} at or below the label bottom ${bottom}`);
-        assert.equal(lx % 1, 0.5, `${text}: leader on a half pixel`);
-        for (const b of bars.filter((b) => b.left < lx + 0.5 && b.right > lx - 0.5)) assert.ok(y2 <= b.top - 4 || (y2 === y1 && b.top - 4 < y1), `${text}: leader ends ${y2}, 4px above the bar top ${b.top} or zero-length`);
+        const box = calloutBox({ labelX: Number(x), baseline: Number(baseline), anchor }, text);
+        const under = bars.filter((b) => b.left - 1.5 <= ax && ax <= b.right + 1.5);
+        assert.equal(tip, Math.min(innerH, ...under.map((b) => b.top)) - 3, `${text}: tip 3px above the surface`);
+        assert.ok(box.bottom <= tip - 7, `${text}: label sits on the arrow`);
+        assert.ok(box.left >= 0 && box.right <= innerW, `${text}: inside [0, innerW]`);
+        for (const b of bars) assert.ok(!intersects(box, barRect(b, innerH)), `${text}: clear of the bar at ${b.left}`);
+        for (const other of boxes) assert.ok(!intersects(box, other), `${text}: clear of the earlier label`);
+        boxes.push(box);
       }
     }
   });
