@@ -1,10 +1,14 @@
 askuserquestion-length-lint
+attribution-footer
+code-quality-lint
 code-reviewer-preflight
 code-reviewer-spawn-note
+commit-msg-lint
 containment-guard
 ensure-mcp-deps-installed
 git-guards
 git-push-guard
+naming-lint
 rework-limit
 swe-resume-gate
 swe-stop-cause

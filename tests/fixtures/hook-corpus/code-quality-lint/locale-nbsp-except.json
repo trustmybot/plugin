@@ -1,0 +1,14 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/w/b.py",
+    "content": "except :\n    pass\n"
+  },
+  "corpus_expect": {
+    "C": "allow",
+    "en_US.UTF-8": "bare 'except:'",
+    "UTF-8": "allow"
+  }
+}

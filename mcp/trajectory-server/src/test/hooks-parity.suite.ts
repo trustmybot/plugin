@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { gateNames } from '../hooks/registry.js';
 import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
+import { LINT_GATES, lintSandbox } from './lint-hooks-sandbox.js';
 import { shardOf } from './shard.js';
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -158,9 +159,16 @@ function containmentGuardSetup(scratch: string): GateSetup {
   };
 }
 
+/** The lint hooks run in lint-hooks-sandbox.ts, gh and glab stubbed so attribution-footer never reaches a forge. */
+function lintSetup(scratch: string): GateSetup {
+  const sandbox = lintSandbox(scratch);
+  return { env: sandbox.env, materialize: (raw) => sandbox.materialize(raw) };
+}
+
 const GATE_SETUP: Readonly<Record<string, (scratch: string) => GateSetup>> = {
   'ensure-mcp-deps-installed': (scratch) => ({ env: readyDepsEnv(scratch) }),
   'containment-guard': containmentGuardSetup,
+  ...Object.fromEntries(LINT_GATES.map((gate) => [gate, lintSetup])),
 };
 
 function auditMark(db: string): number {
