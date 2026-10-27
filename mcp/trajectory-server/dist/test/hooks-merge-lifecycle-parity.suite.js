@@ -15,12 +15,14 @@
  * feat/open not merged; and feat/clean-wt, feat/dirty-wt (an untracked file),
  * feat/current and feat/close at dev, each checked out in wt/<name>. bin/gh is
  * a stub: `pr view <ref>` prints gh/pr-<ref>.json (else fails), `issue view
- * <n>` prints gh/state-<n> (else OPEN), and every call lands in gh.log. Real gh
- * and glab are off every PATH, so no case reaches the network.
+ * <n>` prints gh/state-<n> (else OPEN), and every call lands in gh.log. With
+ * GH_STUB_SLEEP=<s>, `pr view` first sleeps <s> seconds in the stub's own
+ * process, so a timeout kills it before it logs. Real gh and glab are off every
+ * PATH, so no case reaches the network.
  *
- * A payload names the sandbox as @SANDBOX@ and the PATH without gh, without jq
- * or without the sqlite3 CLI as @NOGH_PATH@ / @NOJQ_PATH@ / @NOSQLITE_PATH@
- * (the stub's bin dir is not in them); corpus_env (null unsets), corpus_cwd,
+ * A payload names the sandbox as @SANDBOX@ and the PATH without gh, without jq,
+ * without the sqlite3 CLI or without `timeout` as @NOGH_PATH@ / @NOJQ_PATH@ /
+ * @NOSQLITE_PATH@ / @NOTIMEOUT_PATH@ (the stub's bin dir is not in them); corpus_env (null unsets), corpus_cwd,
  * corpus_stdin and corpus_expect (`empty` for no output, or a phrase of the
  * observed stdout, stderr, gh log and DB rows, or an object of them by locale)
  * are removed before the run. A payload with corpus_divergent names a
@@ -67,6 +69,7 @@ const UNSET = [
     'TMB_DISABLE_CLOSE_ISSUE_ON_MERGE',
     'TMB_DISABLE_REMOTE_SYNC',
     'GH_TOKEN',
+    'GH_STUB_SLEEP',
     'GITHUB_TOKEN',
     'LANG',
     'LC_CTYPE',
@@ -87,6 +90,9 @@ const BUILD_ENV = {
     GIT_COMMITTER_DATE: T1,
 };
 const GH_STUB = `#!/bin/bash
+if [ -n "\${GH_STUB_SLEEP:-}" ] && [ "$1 $2" = "pr view" ]; then
+  GH_STUB_SLEEP= exec perl -e 'sleep shift; exec @ARGV' "$GH_STUB_SLEEP" "\${BASH_SOURCE[0]}" "$@"
+fi
 dir="\${BASH_SOURCE[0]%/*}/.."
 printf '%s\\n' "$*" >> "$dir/gh.log"
 case "$1 $2" in
@@ -284,7 +290,8 @@ function materialize(file, s, paths) {
         .replaceAll('@SANDBOX@', s)
         .replaceAll('@NOGH_PATH@', paths.noGh)
         .replaceAll('@NOJQ_PATH@', paths.noJq)
-        .replaceAll('@NOSQLITE_PATH@', paths.noSqlite);
+        .replaceAll('@NOSQLITE_PATH@', paths.noSqlite)
+        .replaceAll('@NOTIMEOUT_PATH@', paths.noTimeout);
     const { corpus_env: env = {}, corpus_cwd: cwd = REPO, corpus_stdin: stdin, corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
     return {
         input: Buffer.from(stdin ?? JSON.stringify(payload)),
@@ -372,6 +379,7 @@ export function mergeLifecycleParityShard(k, n) {
                 noGh,
                 noJq: noCmdPath(join(base, 'nojq'), 'jq', noGh),
                 noSqlite: noCmdPath(join(base, 'nosqlite'), 'sqlite3', noGh),
+                noTimeout: noCmdPath(join(base, 'notimeout'), 'timeout', noGh),
             };
             buildSandbox(s);
             cpSync(s, pristine, { recursive: true, verbatimSymlinks: true });
@@ -391,10 +399,11 @@ export function mergeLifecycleParityShard(k, n) {
                         noGh: '',
                         noJq: '',
                         noSqlite: '',
+                        noTimeout: '',
                     }).divergent === undefined);
                     assert.ok(plain.length >= MERGE_LIFECYCLE_MIN_CORPUS[gate], `${gate}: ${plain.length} parity payloads`);
                     for (const f of files) {
-                        const { expect, divergent } = materialize(join(CORPUS_ROOT, gate, f), '/s', { noGh: '', noJq: '', noSqlite: '' });
+                        const { expect, divergent } = materialize(join(CORPUS_ROOT, gate, f), '/s', { noGh: '', noJq: '', noSqlite: '', noTimeout: '' });
                         if (divergent === undefined)
                             assert.ok(typeof expect === 'string' ? expect !== '' : !('bash' in expect) && LOCALES.every((l) => byLocale(expect, l) !== ''), `${gate}/${f}: an expectation, or one per locale`);
                         else

@@ -4,12 +4,14 @@
  * and closing-ref parsing the parity corpus leans on, and the divergences from
  * the .sh that decision 703 allows: on a PATH holding neither jq nor the
  * sqlite3 CLI, where each .sh exits 0 untouched (and clean-merged-branch.sh
- * falls back to the default branch), both gates still act.
+ * falls back to the default branch), both gates still act; and on a PATH with
+ * no `timeout`, where close-issue-on-merge.sh waits out a hanging gh, the TS
+ * gate kills it at 10 s.
  */
 import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -258,5 +260,24 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     );
     assert.equal(rows<{ status: string }>('SELECT status FROM issues WHERE id = 7')[0].status, 'open');
     assert.doesNotMatch(readFileSync(join(s, 'gh.log'), 'utf8'), /issue close/);
+  });
+
+  it('close-issue-on-merge kills a hanging gh at its 10 s bound with no timeout on PATH and exits 0 (decision 703)', () => {
+    const sleep = spawnSync('bash', ['-c', 'command -v sleep'], { encoding: 'utf8' }).stdout.trim();
+    const pidFile = join(s, 'gh.pid');
+    writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\necho $$ > '${pidFile}'\nexec '${sleep}' 600\n`);
+    chmodSync(join(s, 'bin/gh'), 0o755);
+    const e = env();
+    assert.ok((e.PATH ?? '').split(':').every((dir) => !existsSync(join(dir, 'timeout'))), 'no timeout on PATH');
+    let result;
+    const err = stderrOf(() => {
+      result = closeIssueOnMerge(payload('gh pr merge 46 --squash', repo()), e);
+    });
+    assert.deepEqual(result, ALLOWED);
+    assert.equal(err, '');
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    assert.ok(pid > 0);
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, 'the hung gh is gone once the gate returns');
+    assert.equal(rows<{ status: string }>('SELECT status FROM issues WHERE id = 6')[0].status, 'open');
   });
 });
