@@ -209,6 +209,8 @@ const OWN_SANDBOX_GATES = new Set([
     'swe-scope-fence',
     'clean-merged-branch',
     'close-issue-on-merge',
+    'swe-atomic-close',
+    'post-task-close-rescan',
     'swe-verification-gate',
     'post-atomic-close-readme',
     'agent-spawn-dispatch',

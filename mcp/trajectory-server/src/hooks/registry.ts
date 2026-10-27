@@ -58,6 +58,8 @@ import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-int
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
 import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
 import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
+import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
+import { GATE_NAME as TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan } from './post-task-close-rescan.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
 import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
@@ -121,6 +123,8 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [SWE_SCOPE_FENCE_GATE, sweScopeFence],
   [CLEAN_MERGED_GATE, cleanMergedBranch],
   [CLOSE_ISSUE_GATE, closeIssueOnMerge],
+  [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
+  [TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan],
   [README_STALENESS_GATE, postAtomicCloseReadme],
   [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
   [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
