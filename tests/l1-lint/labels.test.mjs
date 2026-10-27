@@ -117,3 +117,11 @@ test('GH 2034 V6: each Impact string maps to its priority', () => {
     assert.deepEqual(result, { add: [priority], remove: [] }, impact);
   }
 });
+
+test('GH 2034 V6: the labels.mjs README row names the tmb-report marker and Impact triage', () => {
+  const readme = readFileSync(join(ROOT, 'scripts', 'maintenance', 'README.md'), 'utf8');
+  const row = readme.split('\n').find((line) => line.startsWith('| `labels.mjs`'));
+  assert.ok(row, 'labels.mjs row missing from scripts/maintenance/README.md');
+  assert.match(row, /tmb-report/);
+  assert.match(row, /Impact/);
+});
