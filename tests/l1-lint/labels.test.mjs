@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { formArea, loadCatalog, renderDoc, renderSection, triage } from '../../scripts/maintenance/labels.mjs';
+import { formAnswer, formArea, loadCatalog, renderDoc, renderSection, triage } from '../../scripts/maintenance/labels.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const catalog = loadCatalog(ROOT);
@@ -77,4 +77,43 @@ test('a backslash cannot undo the pipe escape in a table cell', () => {
   const row = renderSection([entry]).split('\n').find((line) => line.startsWith('| **Area: X**'));
   assert.equal(row, '| **Area: X** | ends in \\\\\\| then more |');
   assert.deepEqual(cells(row), ['**Area: X**', 'ends in \\\\\\| then more']);
+});
+
+const MARKER = '<!-- tmb-report v1 sig=0123456789ab -->';
+const reportBody = (impact, area = 'Hooks', marker = MARKER) =>
+  `### What broke\n\nWrite denied\n\n### Area\n\n${area}\n\n### Impact\n\n${impact}\n\n${marker}\n`;
+
+test('GH 2034 V6: a marker body with no labels gets Bug, the Impact priority and the Area, and no needs-triage', () => {
+  const result = triage({ labels: [], body: reportBody('Blocks one task, has a workaround'), catalog });
+  assert.deepEqual(result, { add: ['Bug', 'Priority: Medium', 'Area: Hooks'], remove: [] });
+});
+
+test('GH 2034 V6: a body without the marker gets no Bug', () => {
+  const result = triage({ labels: [], body: reportBody('Blocks all TMB work', 'Hooks', ''), catalog });
+  assert.ok(!result.add.includes('Bug'));
+  assert.ok(!result.add.includes('Priority: High'));
+  assert.deepEqual(result, { add: ['Area: Hooks', 'needs-triage'], remove: [] });
+});
+
+test('GH 2034 V6: an existing Priority: Low survives an Impact of "Blocks all TMB work"', () => {
+  const result = triage({ labels: ['Bug', 'Priority: Low'], body: reportBody('Blocks all TMB work'), catalog });
+  assert.deepEqual(result, { add: ['Area: Hooks'], remove: [] });
+});
+
+test('GH 2034 V6: an existing type label is never replaced by Bug', () => {
+  const result = triage({ labels: ['Improvement'], body: reportBody('Annoying or cosmetic'), catalog });
+  assert.deepEqual(result, { add: ['Priority: Low', 'Area: Hooks'], remove: [] });
+});
+
+test('GH 2034 V6: each Impact string maps to its priority', () => {
+  const expected = {
+    'Blocks all TMB work': 'Priority: High',
+    'Blocks one task, has a workaround': 'Priority: Medium',
+    'Annoying or cosmetic': 'Priority: Low',
+  };
+  for (const [impact, priority] of Object.entries(expected)) {
+    assert.equal(formAnswer(reportBody(impact), 'Impact'), impact);
+    const result = triage({ labels: ['Bug', 'Area: Hooks'], body: reportBody(impact), catalog });
+    assert.deepEqual(result, { add: [priority], remove: [] }, impact);
+  }
 });

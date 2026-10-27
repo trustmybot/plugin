@@ -2,26 +2,60 @@ name: Bug report
 description: Something in TMB is broken
 labels: ["Bug"]
 body:
+  - type: input
+    id: summary
+    attributes:
+      label: What broke
+      description: One line naming the tool or command and what went wrong.
+    validations:
+      required: true
   - type: textarea
     id: what-happened
     attributes:
-      label: What happened
-      description: What you did, what you expected and what happened instead. Validate against dev first.
+      label: Expected vs actual
+      description: What you did, what you expected and what happened instead.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
       label: Steps to reproduce
+      description: "Numbered steps from a fresh session: the prompt you typed and the call that failed. If it only happens in your project, say what is unusual (worktree, monorepo, SSH remote)."
+      placeholder: |
+        1. Fresh project: `git init demo && cd demo`, run /onboard, pick Local-only.
+        2. Ask bro: "add a hello.ts that prints hi".
+        3. bro calls task_provision; swe starts.
+        4. swe's first Write is denied by containment-guard: "<verbatim deny text>".
+        Expected: swe writes hello.ts inside its worktree.
     validations:
       required: true
-  - type: input
-    id: version
+  - type: textarea
+    id: repro-script
     attributes:
-      label: TMB version
-      placeholder: 1.2.0-dev.67
+      label: Minimal repro script
+      description: Optional. A short shell script that reproduces the bug from an empty directory.
+      render: shell
     validations:
       required: false
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often
+      description: How often it happens when you repeat the steps.
+      options:
+        - Every time
+        - Sometimes
+        - Once
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: The tool or command that failed and its exact error or deny text.
+      render: text
+    validations:
+      required: true
   - type: dropdown
     id: area
     attributes:
@@ -37,5 +71,52 @@ body:
         - Cheatcode
         - Adapters
         - Release
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: How much this blocks you. It sets the priority label.
+      options:
+        - Blocks all TMB work
+        - Blocks one task, has a workaround
+        - Annoying or cosmetic
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Bro fills this in. On the web, paste `claude --version`, the TMB version and your OS.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: Optional. Run trajectory_doctor and paste the violation names and counts.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: What got you unblocked, if anything.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for this error.
+          required: true
+        - label: I read this report and it contains no secrets, private code or personal paths.
+          required: true
+        - label: It still happens on the latest version.
+          required: false
     validations:
       required: true
