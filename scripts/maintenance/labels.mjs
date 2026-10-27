@@ -4,7 +4,8 @@
 //   --doc             rewrite the canonical tables in docs/contributing/LABELS.md between the generated markers
 //   --check           offline; exits 1 when LABELS.md differs from what --doc would write
 //   --check-live      exits 1 when GH labels differ from labels.json; skips without gh or with TMB_L1_OFFLINE=1
-//   --triage <issue>  add the issue-form Area answer when the issue has no area, then toggle needs-triage
+//   --triage <issue>  add the issue-form Area answer when the issue has no area; on a CLI-filed report (tmb-report marker)
+//                     add Bug when it has no type and the Impact answer's priority when it has no priority; then toggle needs-triage
 //   --root <dir>      read labels.json and LABELS.md under <dir> instead of this checkout
 //   --repo <owner/name>  the GH repo for --sync, --check-live and --triage (default: gh's current repo)
 
@@ -12,6 +13,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { IMPACT_PRIORITY, REPORT_MARKER_RE } from '../../mcp/trajectory-server/dist/bug-report/form.js';
 
 export const GROUPS = ['type', 'priority', 'area', 'theme', 'status'];
 export const REQUIRED_GROUPS = ['type', 'priority', 'area'];
@@ -41,11 +44,19 @@ export function loadCatalog(root) {
   return catalog;
 }
 
-export function formArea(body) {
-  const match = /^###\s+Area\s*$\s*^(?!###)(.+?)\s*$/m.exec(body ?? '');
+function escapeRe(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function formAnswer(body, label) {
+  const match = new RegExp(`^###\\s+${escapeRe(label)}\\s*$\\s*^(?!###)(.+?)\\s*$`, 'm').exec(body ?? '');
   if (!match) return null;
   const answer = match[1].trim();
   return answer === '' || answer === '_No response_' ? null : answer;
+}
+
+export function formArea(body) {
+  return formAnswer(body, 'Area');
 }
 
 export function triage({ labels, body, catalog }) {
@@ -54,14 +65,19 @@ export function triage({ labels, body, catalog }) {
   const add = [];
   const remove = [];
   const count = (group) => [...current].filter((n) => groupOf.get(n) === group).length;
-
-  if (count('area') === 0) {
-    const answer = formArea(body);
-    const name = answer && `${AREA_PREFIX}${answer}`;
-    if (name && groupOf.get(name) === 'area') {
+  const addLabel = (name, group) => {
+    if (name && groupOf.get(name) === group) {
       add.push(name);
       current.add(name);
     }
+  };
+  const cliReport = REPORT_MARKER_RE.test(body ?? '');
+
+  if (cliReport && count('type') === 0) addLabel('Bug', 'type');
+  if (cliReport && count('priority') === 0) addLabel(IMPACT_PRIORITY[formAnswer(body, 'Impact')], 'priority');
+  if (count('area') === 0) {
+    const answer = formArea(body);
+    addLabel(answer && `${AREA_PREFIX}${answer}`, 'area');
   }
 
   const complete = REQUIRED_GROUPS.every((g) => count(g) === 1);

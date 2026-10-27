@@ -24,6 +24,7 @@ import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
 import { agentRunsBackfillTools } from './agent-runs-backfill.js';
 import { trajectoryDoctorTools } from './trajectory-doctor.js';
+import { bugReportTools } from './bug-report.js';
 import { requireAgent } from '../middleware/agent-scope.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
@@ -79,6 +80,7 @@ export function registerTools(
   const worldModel = worldModelTools(db, graphHolder);
   const backfill = agentRunsBackfillTools(db, dbPath);
   const doctor = trajectoryDoctorTools(db);
+  const bugReport = bugReportTools(db);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -103,6 +105,7 @@ export function registerTools(
     ...worldModel.definitions,
     ...backfill.definitions,
     ...doctor.definitions,
+    ...bugReport.definitions,
   ]);
 
   const handlers = {
@@ -128,6 +131,7 @@ export function registerTools(
     ...worldModel.handlers,
     ...backfill.handlers,
     ...doctor.handlers,
+    ...bugReport.handlers,
   };
   toolHandlers = Object.fromEntries(
     Object.entries(handlers).map(([name, handler]) => [name, requireAgent(name, handler)]),

@@ -362,6 +362,34 @@ test('trajectory_doctor — bro only; read-only unless record:true', async (t) =
   assert.equal(typeof recorded.data?.audit_id, 'number');
 });
 
+test('GH 2034 role: bug_report_draft — bro allowed, swe/code-reviewer forbidden', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const args = {
+    tool: 'task_update_status',
+    error: 'SqliteError: database is locked',
+    error_class: 'internal',
+    summary: 'task_update_status fails',
+    what_happened: 'Expected the close to land.',
+    reproduce: '1. Close a task.',
+    frequency: 'Once',
+    impact: 'Annoying or cosmetic',
+    user_asked: true,
+  };
+  for (const wrongRole of ['swe', 'code-reviewer']) {
+    const res = await call(client, 'bug_report_draft', { agent: wrongRole, ...args });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from bug_report_draft`);
+    assert.equal(res.error?.error, 'forbidden');
+    assert.equal(res.error?.caller_role, wrongRole);
+  }
+
+  const allowed = await call(client, 'bug_report_draft', { agent: 'bro', ...args });
+  assert.equal(allowed.ok, true, `bro should draft; got ${JSON.stringify(allowed)}`);
+  assert.match(allowed.data?.signature ?? '', /^[0-9a-f]{12}$/);
+  assert.equal(allowed.data?.consent, 'user_asked');
+});
+
 // agent_resolve is bro only; agent_register / agent_list take a root-marked
 // file_path and every returned agent row carries resolved_path, never scope.
 test('agent_resolve — bro only; agent_register/agent_list speak plugin:/project: file_path with resolved_path', async (t) => {

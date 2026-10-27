@@ -6,6 +6,7 @@ branch_gate_waived	bro
 branch_id_proposed	bro
 bro_verification_fail	bro
 bro_verification_pass	bro
+bug_report_filed	bro
 cheatcode_activate	bro
 cheatcode_approved	bro
 cheatcode_healthcheck	bro,server
