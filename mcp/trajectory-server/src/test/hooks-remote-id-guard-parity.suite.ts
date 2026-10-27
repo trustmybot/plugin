@@ -20,7 +20,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,10 +111,20 @@ interface Run {
   stderr: string;
 }
 
+/** Stdin comes from a file, so a side that exits before reading it (the bypass) cannot fail the spawn with EPIPE. */
 function run(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string): Run {
-  const r = spawnSync(cmd, args, { input, env, cwd, encoding: 'utf8', timeout: 30_000 });
-  if (r.error) throw r.error;
-  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-rig-stdin-'));
+  const file = join(dir, 'stdin');
+  writeFileSync(file, input);
+  const fd = openSync(file, 'r');
+  try {
+    const r = spawnSync(cmd, args, { stdio: [fd, 'pipe', 'pipe'], env, cwd, encoding: 'utf8', timeout: 30_000 });
+    if (r.error) throw r.error;
+    return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  } finally {
+    closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function assertExpect(side: string, r: Run, expect: string): void {
