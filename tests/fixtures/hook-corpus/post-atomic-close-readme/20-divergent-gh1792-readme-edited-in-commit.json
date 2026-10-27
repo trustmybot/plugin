@@ -1,0 +1,17 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "sess-readme",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__bro_atomic_close",
+  "tool_input": {
+    "agent": "bro",
+    "task_id": 4
+  },
+  "tool_response": {
+    "is_error": false
+  },
+  "corpus_divergent": "GH 1792: the commit edits dashboard/README.md; the .sh compares the checkout's mtime to the commit date, the gate sees the README among the commit's own changes",
+  "corpus_expect": {
+    "bash": "dashboard (README.md older than the commit)",
+    "ts": "empty"
+  }
+}

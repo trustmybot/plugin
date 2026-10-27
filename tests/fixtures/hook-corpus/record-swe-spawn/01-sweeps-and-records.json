@@ -1,0 +1,1 @@
+{"tool_name":"Agent","session_id":"sess-1","tool_use_id":"toolu_r01","tool_input":{"subagent_type":"swe","prompt":"task_id=10 Implement the spec.","effort":"high","model":"opus"},"corpus_expect":"\"spawn_id\":\"tool_use:toolu_stale\",\"plugin_version\":null,\"exit_reason\":\"swept_orphan\",\"usage_source\":\"unmeasured\",\"completed_at\":\"<now>\",\"duration_ms\":\"window\""}

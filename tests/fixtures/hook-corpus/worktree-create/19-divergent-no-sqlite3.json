@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/wc-project",
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "without the sqlite3 CLI the .sh exits 1; the gate reads the DB with node:sqlite and creates the worktree",
+  "corpus_expect": {
+    "bash": "tmb worktree-create: sqlite3 unavailable",
+    "ts": "@SANDBOX@/ws/project/.claude/worktrees/wc-project\n"
+  }
+}

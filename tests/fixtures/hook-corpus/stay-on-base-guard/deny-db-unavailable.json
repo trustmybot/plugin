@@ -1,0 +1,10 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git checkout feat/open"
+  },
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/bad.db"
+  },
+  "corpus_expect": "trajectory DB unavailable — stay-on-base-guard"
+}

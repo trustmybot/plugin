@@ -1,0 +1,14 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git checkout feat/open"
+  },
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "decision 703: no sqlite3 CLI on PATH, the .sh allows; the gate reads the DB through node:sqlite",
+  "corpus_expect": {
+    "bash": "empty",
+    "ts": "open task #30"
+  }
+}

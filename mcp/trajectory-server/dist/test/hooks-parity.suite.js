@@ -168,7 +168,9 @@ function auditRowsAfter(db, mark) {
  * host's processes and installs, so they run in hooks-session-parity.suite.ts
  * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side;
  * and the task-DB Agent-spawn gates, which read a sandbox of git repos and
- * trajectory DBs in hooks-spawn-gates-parity.suite.ts.
+ * trajectory DBs in hooks-spawn-gates-parity.suite.ts; and remote-id-guard,
+ * which reads a sandbox DB of local issues in
+ * hooks-remote-id-guard-parity.suite.ts.
  */
 const OWN_SANDBOX_GATES = new Set([
     'activation-routine',
@@ -199,9 +201,22 @@ const OWN_SANDBOX_GATES = new Set([
     'agent-arg-matches-caller',
     'reviewer-identity-observe',
     'cheatcode-install-approval',
+    'stay-on-base-guard',
+    'branch-up-to-date-with-remote',
+    'no-worktree-branch-create',
+    'no-remote-auth-guard',
+    'prompt-intent-hints',
     'swe-scope-fence',
     'clean-merged-branch',
     'close-issue-on-merge',
+    'swe-verification-gate',
+    'post-atomic-close-readme',
+    'agent-spawn-dispatch',
+    'ensure-swe-worktree',
+    'record-swe-spawn',
+    'cleanup-worktree-on-task-close',
+    'worktree-create',
+    'remote-id-guard',
 ]);
 function parityCases() {
     return PARITY_GATES.filter((gate) => !OWN_SANDBOX_GATES.has(gate)).flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));

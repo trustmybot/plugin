@@ -1,0 +1,5 @@
+{
+  "corpus_stdin": "gh auth login",
+  "corpus_cwd": "stale",
+  "corpus_expect": "empty"
+}

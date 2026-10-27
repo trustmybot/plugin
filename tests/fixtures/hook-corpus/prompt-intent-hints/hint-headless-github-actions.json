@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"we run this from GitHub Actions now.","corpus_expect":"PreToolUse gate entries into"}

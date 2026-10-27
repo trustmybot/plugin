@@ -1,13 +1,14 @@
 /**
  * The path-listing model of cmd-analysis.sh: _tmb_cmd_lister_bind with
- * _tmb_cmd_pat_matches, _tmb_cmd_excl_covers and tmb_is_prompt_surface_path.
- * A loop variable fed by a lister, and the placeholder of what find / fd run,
+ * _tmb_cmd_pat_matches and _tmb_cmd_excl_covers, judging prompt surfaces with
+ * surface.ts's isPromptSurfacePath. A loop variable fed by a lister, and the placeholder of what find / fd run,
  * is bound to the paths the lister may list when every one lies in the run
  * root.
  */
 import { statSync } from 'node:fs';
 import { decode } from './encode.js';
 import { pathCanonical } from './path.js';
+import { isPromptSurfacePath } from './surface.js';
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SURFACES = ['agents', 'skills', 'commands', 'templates', 'rules', '.claude/agents', 'CLAUDE.md'];
 const PROMPT_FILES = ['CLAUDE.md', 'CODEX.md', 'CURSOR.md', 'GEMINI.md'];
@@ -159,25 +160,6 @@ function exclCovers(pat, d, sub, v, root, rootc) {
         r === `./${sub}` ||
         r === `${trimSlash(root)}/${d}` ||
         r === `${trimSlash(rootc)}/${d}`);
-}
-/** tmb_is_prompt_surface_path with the run root given. */
-export function isPromptSurfacePath(p, root) {
-    if (PROMPT_FILES.includes(basename(p)))
-        return true;
-    let rel = '';
-    if (p.startsWith('/')) {
-        const abs = pathCanonical(p);
-        if (root !== '') {
-            const prefix = trimSlash(pathCanonical(root)) + '/';
-            if (abs.startsWith(prefix))
-                rel = abs.slice(prefix.length);
-        }
-    }
-    else
-        rel = p.replace(/^\.\//, '');
-    if (rel === '')
-        return p.endsWith('.md') && /\/(agents|skills|commands|templates|rules)\//.test('/' + p.replace(/^\//, ''));
-    return /^(agents|skills|commands|templates|rules)\/.*\.md$/s.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/.*\.md$/s.test(rel);
 }
 function findModel(mode, args, raw, acts, m) {
     const n = args.length;

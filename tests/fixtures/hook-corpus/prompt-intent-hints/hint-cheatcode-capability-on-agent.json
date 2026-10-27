@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"add the playwright skill to swe","corpus_expect":"installs a capability ONTO the `swe` agent"}

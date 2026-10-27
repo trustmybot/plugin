@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"npm install the plugin deps","corpus_expect":"empty"}

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
@@ -320,6 +321,11 @@ function outsideProjectResult(refusal) {
 export function taskWorktreePath(repoPath, branchId) {
     return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, '')}`;
 }
+// The worktree a task's swe works in: its recorded tasks.worktree_path (an
+// adopted session worktree, GH 2032), else the task_provision slug path.
+export function taskWorktreeDir(repoPath, task) {
+    return task.worktree_path ? task.worktree_path : taskWorktreePath(repoPath, task.branch_id);
+}
 function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {
     return execFileSync('git', ['-C', repoPath, ...args], {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -380,8 +386,7 @@ function worktreeOfBranch(repoPath, branchId) {
 // /private/var/… for a /var/… symlink), then links the main checkout's
 // node_modules into it, on reuse too (GH 1853). Throws only when
 // `git worktree add` fails.
-function ensureTaskWorktree(repoPath, branchId) {
-    const worktreePath = taskWorktreePath(repoPath, branchId);
+function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(repoPath, branchId)) {
     let reused = false;
     if (existsSync(worktreePath)) {
         const canonicalWt = realpathSync(worktreePath);
@@ -404,6 +409,154 @@ function ensureTaskWorktree(repoPath, branchId) {
         // Best-effort: a missing link never fails provisioning.
     }
     return { worktreePath, reused };
+}
+// Session-worktree adoption (GH 2032) is built but not reachable: the TS
+// ensure-swe-worktree port, which adds the tool argument and the cwd gate,
+// flips this.
+export const ADOPT_WORKTREE_ENABLED = false;
+const ADOPT_HOLDING_STATUSES = ['pending', 'running', 'needs_validation'];
+function absoluteGitPath(dir, flag) {
+    try {
+        return realpathSync(git(dir, ['rev-parse', '--path-format=absolute', flag]));
+    }
+    catch {
+        return null;
+    }
+}
+function isRegisteredWorktree(repoPath, worktreePath) {
+    try {
+        return git(repoPath, ['worktree', 'list', '--porcelain'])
+            .split('\n')
+            .some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === worktreePath);
+    }
+    catch {
+        return false;
+    }
+}
+function canonicalPath(path) {
+    try {
+        return realpathSync(path);
+    }
+    catch {
+        return resolve(path);
+    }
+}
+// The live task whose effective worktree (taskWorktreeDir: its recorded path,
+// else its slug path) is `realWorktree`, compared by realpath.
+function worktreeHolder(db, taskId, repoPath, realWorktree) {
+    const live = db.all('SELECT id, status, branch_id, worktree_path, repo FROM tasks WHERE id <> ? AND status IN (SELECT value FROM json_each(?)) ORDER BY id', [taskId, JSON.stringify(ADOPT_HOLDING_STATUSES)]);
+    for (const t of live) {
+        const ownRepo = resolveRepoPath(db, t.repo);
+        const dir = taskWorktreeDir(ownRepo?.startsWith('/') ? ownRepo : repoPath, t);
+        if (canonicalPath(dir) === realWorktree)
+            return { id: t.id, status: t.status };
+    }
+    return null;
+}
+// Records the linked worktree at `worktreePath` as the task's worktree, then
+// checks the task branch out in it. Each refused check writes nothing; a
+// failed `git switch` keeps the record and reports git_setup 'error' with the
+// diagnostic, as task_provision does for a failed worktree add.
+export function adoptTaskWorktree(db, input, options = {}) {
+    if (!ADOPT_WORKTREE_ENABLED && options.enabled !== true) {
+        return {
+            ok: false,
+            error: 'adopt_worktree_unavailable',
+            message: 'Adopting a session worktree is not enabled yet (GH 2032): it waits on the TS port of ensure-swe-worktree. ' +
+                'Provision the task with task_provision, which creates <repo>/.claude/worktrees/<slug>.',
+        };
+    }
+    const { taskId, repoPath, worktreePath } = input;
+    const task = db.get('SELECT id, branch_id FROM tasks WHERE id = ?', [taskId]);
+    if (!task) {
+        return {
+            ok: false,
+            error: 'adopt_worktree_task_not_found',
+            message: `No task with id=${taskId}; provision the task first.`,
+        };
+    }
+    let realWorktree;
+    try {
+        realWorktree = realpathSync(worktreePath);
+    }
+    catch {
+        realWorktree = null;
+    }
+    const repoCommonDir = absoluteGitPath(repoPath, '--git-common-dir');
+    const wtCommonDir = realWorktree ? absoluteGitPath(realWorktree, '--git-common-dir') : null;
+    if (!realWorktree || !repoCommonDir || wtCommonDir !== repoCommonDir) {
+        return {
+            ok: false,
+            error: 'adopt_worktree_repo_mismatch',
+            message: `'${worktreePath}' is not a worktree of the repo at '${repoPath}' (a different --git-common-dir, or not a git ` +
+                `worktree at all). Run the session from a linked worktree of that repo, or provision the task with task_provision.`,
+        };
+    }
+    if (absoluteGitPath(realWorktree, '--git-dir') === repoCommonDir) {
+        return {
+            ok: false,
+            error: 'adopt_worktree_main_checkout',
+            message: `'${realWorktree}' is the repo's main checkout, not a linked worktree. A main-checkout session provisions the ` +
+                `task with task_provision, which creates <repo>/.claude/worktrees/<slug>.`,
+        };
+    }
+    if (!isRegisteredWorktree(repoPath, realWorktree)) {
+        return {
+            ok: false,
+            error: 'adopt_worktree_repo_mismatch',
+            message: `'${realWorktree}' is not the top of a registered linked worktree of '${repoPath}' (git worktree list). ` +
+                `Pass the worktree's root directory.`,
+        };
+    }
+    let dirty;
+    try {
+        dirty = git(realWorktree, ['status', '--porcelain', '--untracked-files=no']);
+    }
+    catch (e) {
+        dirty = e.message;
+    }
+    if (dirty !== '') {
+        return {
+            ok: false,
+            error: 'adopt_worktree_dirty',
+            message: `'${realWorktree}' has uncommitted changes to tracked files; commit or stash them, then adopt it again.`,
+        };
+    }
+    const holder = db.transaction(() => {
+        const other = worktreeHolder(db, task.id, repoPath, realWorktree);
+        if (other)
+            return other;
+        db.run('UPDATE tasks SET worktree_path = ?, worktree_adopted = 1, updated_at = ? WHERE id = ?', [
+            realWorktree,
+            nowISO(),
+            task.id,
+        ]);
+        return null;
+    });
+    if (holder) {
+        return {
+            ok: false,
+            error: 'worktree_in_use',
+            task_id: holder.id,
+            message: `'${realWorktree}' is already task ${holder.id}'s worktree (status '${holder.status}'). Finish or close task ` +
+                `${holder.id} first, or run this task from another worktree.`,
+        };
+    }
+    let diagnostic;
+    try {
+        git(realWorktree, ['switch', task.branch_id], WORKTREE_TIMEOUT_MS);
+    }
+    catch (e) {
+        diagnostic = e.message;
+    }
+    return {
+        ok: true,
+        task_id: task.id,
+        branch_id: task.branch_id,
+        worktree_path: realWorktree,
+        git_setup: diagnostic === undefined ? 'switched' : 'error',
+        ...(diagnostic !== undefined ? { diagnostic } : {}),
+    };
 }
 // The task branch policy task_provision, task_retry and task_reopen share: a
 // missing ref is cut from resolveCutBase(base) (created); an existing local or
@@ -502,8 +655,8 @@ function branchIdUsedOnIssueResult(db, tool, issueId, branchId) {
     if (!existing)
         return null;
     const nextStep = tool === 'task_provision'
-        ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or pick a fresh branch_id from ` +
-            `branch_id_propose (with base='${branchId}' to stack on it) for a separately gated task.`
+        ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or, for a separately gated task, ` +
+            `pick a new name with branch_id_propose, or call task_provision with base='${branchId}' to stack on it.`
         : `Pick a fresh new_branch_id from branch_id_propose.`;
     return {
         isError: true,
@@ -1299,7 +1452,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const spawnNote = parseSpawnNote(args['spawn_note'], 'task_reopen');
             const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  i.status AS issue_status
+                  t.worktree_path, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`, [taskId]);
             if (!task)
                 return err(`task_reopen: task ${taskId} not found`);
@@ -1313,7 +1466,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const wontfix = parseWontfix(db, taskId, args['wontfix']);
             const repoPath = resolveRepoPath(db, task.repo);
             if (repoPath) {
-                for (const path of [repoPath, taskWorktreePath(repoPath, task.branch_id)]) {
+                for (const path of [repoPath, taskWorktreeDir(repoPath, task)]) {
                     const refusal = outsideProject('task_reopen', runContext.projectRoot, path);
                     if (refusal)
                         return outsideProjectResult(refusal);
@@ -1397,12 +1550,12 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                             branchCreated = branch.kind === 'ready' && branch.created;
                         }
                     }
-                    const wt = ensureTaskWorktree(repoPath, task.branch_id);
+                    const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
                     worktreePath = wt.worktreePath;
                     worktreeRecreated = !wt.reused;
                 }
                 catch (e) {
-                    worktreePath = taskWorktreePath(repoPath, task.branch_id);
+                    worktreePath = taskWorktreeDir(repoPath, task);
                     diagnostic = e.message;
                 }
             }
@@ -1521,14 +1674,14 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const want = (s) => section === 'all' || section === s;
             const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, i.objective
+                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, t.worktree_path, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`, [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
             if (isSwe) {
                 const repoPath = resolveRepoPath(db, task.repo);
-                openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null);
+                openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreeDir(repoPath, task) : null);
                 const sentinel = db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`, [task.id]);
                 if (!sentinel || sentinel.n === 0) {
                     insertAudit(db, {
@@ -2091,7 +2244,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const results = [];
             for (const tid of taskIds) {
-                const task = db.get('SELECT id, branch_id, commit_sha FROM tasks WHERE id = ? LIMIT 1', [tid]);
+                const task = db.get('SELECT id, branch_id, commit_sha, worktree_path FROM tasks WHERE id = ? LIMIT 1', [tid]);
                 if (!task) {
                     results.push({ task_id: tid, branch_id: '', slug: '', commit_sha: null, reaped: false, error: `No task with id=${tid}` });
                     continue;
@@ -2123,7 +2276,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 // so the commit is already present here. When commit_sha is known,
                 // point the branch ref at it directly (update-ref); otherwise read the
                 // worktree's detached HEAD and set the ref to that. (#156)
-                const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
+                const wtPath = taskWorktreeDir(repoPath, task);
                 try {
                     let targetSha = task.commit_sha ?? '';
                     if (!targetSha) {
