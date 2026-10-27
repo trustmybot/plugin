@@ -653,6 +653,13 @@ tmb_cmd_decode() {
 # `done` or `}` that does not close the innermost frame, or a frame still open
 # at the end appends a last `!<TAB>unbalanced` line. A quoted or escaped word
 # (one holding a \027 mark) is never one of those reserved words (POSIX 2.4).
+# Also with `assign`, a dir token may list, each after a \023, the other dirs
+# a loop's back-edge can bring its statement to (GH 1977): a frame's
+# statements run in every dir the frame can end a pass in, re-encoded until
+# those stop growing, and after its `}` the dir is the frame's entry dirs plus
+# those. A frame still growing after 8 runs, or a frame edge that would leave
+# more than 8 dirs, leaves `-` alone, so a cd that keeps drifting fails closed
+# in bounded time.
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -681,7 +688,7 @@ _tmb_cmd_statements_enc() {
       k = j + 1
       while (substr(buf, k, 1) ~ /[ \t]/) k++
       if (k <= length(buf) && substr(buf, k, 1) !~ /[;\n]/) return ""
-      return srcmark(substr(buf, pos + 1, j - pos - 1), cur)
+      return srcmark(substr(buf, pos + 1, j - pos - 1), here())
     }
     function donesrc(pos,   k, ch, w, depth, atcmd, pd, m, j) {
       depth = 0; atcmd = 1; pd = 0; k = pos; m = length(buf)
@@ -709,7 +716,7 @@ _tmb_cmd_statements_enc() {
           if (substr(buf, k, 2) != "<(") return "!"
           j = closepar(k + 1)
           if (!j) return "!"
-          w = srcmark(substr(buf, k + 2, j - k - 2), cur)
+          w = srcmark(substr(buf, k + 2, j - k - 2), here())
           return (w == "") ? "!" : w
         }
         atcmd = (atcmd && w ~ /^(then|else|elif|if|while|until|!|\{|\}|time)$/) ? 1 : 0
@@ -724,6 +731,7 @@ _tmb_cmd_statements_enc() {
       for (k = 1; k <= n; k++) {
         if (parts[k] == "" || parts[k] == ".") continue
         if (parts[k] == ".." && m > 0 && out[m] != "..") { m--; continue }
+        if (parts[k] == ".." && m == 0 && lead == "") continue
         out[++m] = parts[k]
       }
       p = ""
@@ -794,7 +802,7 @@ _tmb_cmd_statements_enc() {
       }
       return 1
     }
-    function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained, cdw, plain, csure, dw, na, aw, ok) {
+    function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained, cdw, plain, csure, dw, na, aw, ok, da) {
       chained = (fsep == "&&"); fsep = ""
       vtop = (sp == 0 && qsp == 0 && !bt)
       t = stmt; gsub(qm, "", t)
@@ -805,7 +813,7 @@ _tmb_cmd_statements_enc() {
       for (k = 1; k <= n; k++) { wq[k] = (index(w[k], qm) > 0); gsub(qm, "", w[k]) }
       stmt = ""
       first = 1; asg = ""; cdw = ""; na = 0; plain = 1
-      waspiped = piped; piped = 0; lastout = ""; lastdir = cur; sawwhile = 0
+      waspiped = piped; piped = 0; lastout = ""; lastdir = here(); sawwhile = 0
       while (first <= n) {
         if (w[first] == "") { first++; continue }
         if (w[first] == "while") sawwhile = 1
@@ -821,7 +829,7 @@ _tmb_cmd_statements_enc() {
       if (first > n) {
         ok = plain
         if (vtop && plain) for (k = 1; k <= na; k++) if (!assignword(aw[k], !csure)) ok = 0
-        if (assign && asg != "") { printf "=%s\t%s\n", cur (assign ? sep old : ""), asg; if (!chained) { old = "-"; owhy = "" } }
+        if (assign && asg != "") { put("=" cur alts sep ((oalts != "") ? "-" : old) "\t" asg); if (!chained) { old = "-"; owhy = ""; oalts = "" } }
         vend(ok)
         return
       }
@@ -842,7 +850,7 @@ _tmb_cmd_statements_enc() {
       for (k = first + 1; k <= n; k++) if (w[k] != "") out = out " " w[k]
       if (cdw != "") { out = cdw " " out; a0 = "" }
       lastout = out
-      d = cur; o = old; dw = cwhy
+      d = cur; da = alts; o = (oalts != "") ? "-" : old; dw = cwhy
       if (a0 == "cd" || a0 == "pushd") {
         p = ""
         for (k = first + 1; k <= n; k++) {
@@ -850,11 +858,11 @@ _tmb_cmd_statements_enc() {
           if (w[k] ~ /^-[LPe@]+$/) continue
           p = w[k]; break
         }
-        if (p == "-" && a0 == "cd") { t = cur; cur = old; old = t; t = cwhy; cwhy = owhy; owhy = t }
-        else if (p == "" || p == "-") { old = cur; owhy = cwhy; cur = "-"; cwhy = (p == "" && a0 == "cd") ? "-" wsep "$HOME" : "" }
-        else { old = cur; owhy = cwhy; t = resolve(cur, p); cwhy = (t == "-") ? whyof(cur, cwhy, p) : ""; cur = t }
+        if (p == "-" && a0 == "cd") { t = cur; cur = old; old = t; t = cwhy; cwhy = owhy; owhy = t; t = alts; alts = oalts; oalts = t }
+        else if (p == "" || p == "-") { old = cur; owhy = cwhy; oalts = alts; cur = "-"; alts = ""; cwhy = (p == "" && a0 == "cd") ? "-" wsep "$HOME" : "" }
+        else { old = cur; owhy = cwhy; oalts = alts; t = resolve(cur, p); cwhy = (t == "-") ? whyof(cur, cwhy, p) : ""; cur = t; alts = cdalts(oalts, p, cur, cwhy); cwhy = cw }
       } else if (a0 == "popd") {
-        old = cur; owhy = cwhy; cur = "-"; cwhy = ""
+        old = cur; owhy = cwhy; oalts = alts; cur = "-"; alts = ""; cwhy = ""
       } else if (assign && a0 == "read") {
         mk = sawwhile ? donesrc(i) : ""
         if (mk == "" && waspiped) mk = pipesrc
@@ -864,35 +872,83 @@ _tmb_cmd_statements_enc() {
       } else if (a0 == "git") {
         for (k = first + 1; k <= n; k++) {
           if (w[k] == "") continue
-          if (w[k] == "-C") { t = resolve(d, w[k + 1]); dw = (t == "-") ? whyof(d, dw, w[k + 1]) : ""; d = t; k++; continue }
+          if (w[k] == "-C") { t = resolve(d, w[k + 1]); dw = (t == "-") ? whyof(d, dw, w[k + 1]) : ""; d = t; da = cdalts(da, w[k + 1], d, dw); dw = cw; k++; continue }
           if (w[k] == "-c") { k++; continue }
           if (w[k] ~ /^-/) continue
           break
         }
       }
-      printf "%s\t%s\n", d (assign ? sep o ((d == "-" && dw != "") ? sep dw : "") : ""), out
-      if (!chained) { old = "-"; owhy = "" }
+      put(d da (assign ? sep o ((d == "-" && dw != "") ? sep dw : "") : "") "\t" out)
+      if (!chained) { old = "-"; owhy = ""; oalts = "" }
       vend(ok)
     }
+    function put(s) { obuf = obuf s "\n" }
     function loopkw(k,   t) {
       t = (lsp > 0) ? ls[lsp] : ""
-      if (k == "while" || k == "until") { ls[++lsp] = "w"; printf "{\tdo\n" }
+      if (k == "while" || k == "until") { ls[++lsp] = "w"; fopen() }
       else if (k == "do") {
         if (t == "w") ls[lsp] = "o"
-        else if (t == "f") { ls[lsp] = "o"; printf "{\tdo\n" }
-        else { unbal = 1; ls[++lsp] = "o"; printf "{\tdo\n" }
+        else if (t == "f") { ls[lsp] = "o"; fopen() }
+        else { unbal = 1; ls[++lsp] = "o"; fopen() }
       } else if (k == "{") {
-        if (t == "f") { ls[lsp] = "b"; printf "{\tdo\n" }
+        if (t == "f") { ls[lsp] = "b"; fopen() }
         else ls[++lsp] = "g"
       } else if (k == "done") {
-        if (t == "o") { lsp--; printf "}\tdone\n" }
+        if (t == "o") { lsp--; fclose() }
         else unbal = 1
       } else if (k == "}") {
-        if (t == "b") { lsp--; printf "}\tdone\n" }
+        if (t == "b") { lsp--; fclose() }
         else if (t == "g") lsp--
         else unbal = 1
       }
     }
+    function fopen(   fo, n, e, k) {
+      fo = ++nf; fid[++fsp] = fo
+      n = split(ext[fo], e, alt)
+      for (k = 2; k <= n; k++) alts = altadd(alts, e[k], cur, cwhy)
+      if (fo in lost) lose()
+      bound()
+      fcur[fo] = cur; fwhy[fo] = cwhy; falts[fo] = alts
+      put("{\tdo")
+    }
+    function fclose(   fo, ends, known, n, e, k) {
+      fo = fid[fsp--]
+      ends = (cur == fcur[fo] && cwhy == fwhy[fo]) ? alts : alt cur alts
+      known = (fcur[fo] == "-" && fwhy[fo] != "") ? falts[fo] : alt fcur[fo] falts[fo]
+      alts = falts[fo]
+      n = split(ends, e, alt)
+      for (k = 2; k <= n; k++) {
+        if (!has(known, e[k]) && runs[fo] < maxg && !has(ext[fo], e[k])) { ext[fo] = ext[fo] alt e[k]; grew[fo] = 1; ngrew = 1 }
+        alts = altadd(alts, e[k], fcur[fo], fwhy[fo])
+      }
+      cur = fcur[fo]; cwhy = fwhy[fo]
+      bound()
+      put("}\tdone")
+    }
+    function lose() { cur = "-"; cwhy = ""; alts = "" }
+    function bound(   t) { t = alts; if (gsub(alt, "", t) >= maxd) lose() }
+    function has(as, t) { return index(as alt, alt t alt) > 0 }
+    function altadd(as, t, d, dw) {
+      if (t == d && (t != "-" || dw == "")) return as
+      return has(as, t) ? as : as alt t
+    }
+    function cdalts(as, p, d, dw,   n, e, k, t, aw, r) {
+      r = ""; n = split(as, e, alt)
+      for (k = 2; k <= n; k++) {
+        t = resolve(e[k], p)
+        if (t == "-" && d == "-" && index(dw, wsep)) {
+          aw = whyof(e[k], "", p)
+          if (index(aw, wsep) && substr(aw, index(aw, wsep)) == substr(dw, index(dw, wsep))) {
+            if (substr(aw, 1, index(aw, wsep) - 1) != substr(dw, 1, index(dw, wsep) - 1)) dw = "-" substr(dw, index(dw, wsep))
+            continue
+          }
+        }
+        r = altadd(r, t, d, dw)
+      }
+      cw = dw
+      return r
+    }
+    function here() { return (alts != "") ? "-" : cur }
     function forhead(w, n, k,   c) {
       ls[++lsp] = "f"
       for (k++; k <= n && c < 2; k++) {
@@ -909,8 +965,8 @@ _tmb_cmd_statements_enc() {
         if (w[k] ~ /^(while|until|\{)$/) { loopkw(w[k]); return }
       }
     }
-    function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; stack[++sp] = cur }
-    function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; cur = stack[sp--] } }
+    function push() { ostack[sp + 1] = old; wstack[sp + 1] = cwhy; owstack[sp + 1] = owhy; astack[sp + 1] = alts; oastack[sp + 1] = oalts; stack[++sp] = cur }
+    function pop() { if (sp > 0) { old = ostack[sp]; cwhy = wstack[sp]; owhy = owstack[sp]; alts = astack[sp]; oalts = oastack[sp]; cur = stack[sp--] } }
     function rawword(t,   k, m, ch, out, x) {
       t = unmark(t); out = ""; m = length(t)
       for (k = 1; k <= m; k++) {
@@ -923,36 +979,25 @@ _tmb_cmd_statements_enc() {
       }
       return out
     }
-    BEGIN {
-      sep = sprintf("%c", 18); old = "-"
-      wsep = sprintf("%c", 20); vsep = sprintf("%c", 28); veq = sprintf("%c", 29); bad = sprintf("%c", 1)
-      vs = ""; cwhy = ""; owhy = ""; cond = 0; vok = 1; vkill = 0; vtop = 1
-      vplain = "^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$"
-      vbad = "*?[](){<>`"
-      hdata = sprintf("%c", 30); hdmark = "<<[" sprintf("%c%c", 26, 30) "]"
-      vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
-      if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
-      if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
-      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""; lsp = 0; unbal = 0
-      qo = sprintf("%c", 7); qc = sprintf("%c", 8); qm = sprintf("%c", 23)
-      for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
-    }
-    { buf =(NR == 1) ? $0 : buf "\n" $0 }
-    END {
+    function scan(   n, c, nx, p1) {
+      old = old0; cwhy = why0; owhy = ""; cond = 0; vok = 1; vkill = 0; vtop = 1; vs = ""; fsep = ""; asg = ""
+      lastout = ""; lastdir = ""; piped = 0; pipesrc = ""; cur = base; alts = alts0; oalts = ""
+      sp = 0; bt = 0; stmt = ""; qsp = 0; lsp = 0; unbal = 0; nf = 0; fsp = 0; obuf = ""; ngrew = 0
+      split("", grew)
       n = length(buf)
       for (i = 1; i <= n; i++) {
         c = substr(buf, i, 1)
         nx = substr(buf, i + 1, 1)
         if (c == qo) {
           qsp++; qstmt[qsp] = stmt; qcur[qsp] = cur; qold[qsp] = old; qstart[qsp] = i + 1; qsps[qsp] = sp
-          qwhy[qsp] = cwhy; qowhy[qsp] = owhy; vkill = 1
+          qwhy[qsp] = cwhy; qowhy[qsp] = owhy; qalts[qsp] = alts; qoalts[qsp] = oalts; vkill = 1
           stmt = ""; continue
         }
         if (c == qc) {
           if (qsp == 0) continue
           flush()
           stmt = qstmt[qsp] "$" enc[8] rawword(substr(buf, qstart[qsp], i - qstart[qsp])) enc[9]
-          cur = qcur[qsp]; old = qold[qsp]; sp = qsps[qsp]; cwhy = qwhy[qsp]; owhy = qowhy[qsp]; qsp--
+          cur = qcur[qsp]; old = qold[qsp]; sp = qsps[qsp]; cwhy = qwhy[qsp]; owhy = qowhy[qsp]; alts = qalts[qsp]; oalts = qoalts[qsp]; qsp--
           continue
         }
         if (c == "\n" || c == ";") { flush(); continue }
@@ -989,7 +1034,30 @@ _tmb_cmd_statements_enc() {
         stmt = stmt c
       }
       flush()
-      if (assign && (unbal || lsp > 0)) printf "!\tunbalanced\n"
+      if (assign && (unbal || lsp > 0)) put("!\tunbalanced")
+    }
+    BEGIN {
+      sep = sprintf("%c", 18); old = "-"; alt = sprintf("%c", 19); maxg = 8; maxd = 8
+      wsep = sprintf("%c", 20); vsep = sprintf("%c", 28); veq = sprintf("%c", 29); bad = sprintf("%c", 1)
+      vplain = "^(cd|git|echo|true|false|ls|cat|pwd|mkdir|touch)$"
+      vbad = "*?[](){<>`"
+      hdata = sprintf("%c", 30); hdmark = "<<[" sprintf("%c%c", 26, 30) "]"
+      vspecial = "^(IFS|PWD|OLDPWD|RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|BASHPID|PPID|UID|EUID|GROUPS|HISTCMD|PIPESTATUS|FUNCNAME|BASH_[A-Z_]*)$"
+      if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
+      if (index(old, sep)) { cwhy = substr(old, index(old, sep) + 1); old = substr(old, 1, index(old, sep) - 1) }
+      alts0 = ""; if (index(base, alt)) { alts0 = substr(base, index(base, alt)); base = substr(base, 1, index(base, alt) - 1) }
+      old0 = old; why0 = cwhy
+      qo = sprintf("%c", 7); qc = sprintf("%c", 8); qm = sprintf("%c", 23)
+      for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
+    }
+    { buf =(NR == 1) ? $0 : buf "\n" $0 }
+    END {
+      for (;;) {
+        scan()
+        if (!ngrew) break
+        for (fo in grew) if (++runs[fo] == maxg) lost[fo] = 1
+      }
+      printf "%s", obuf
     }
   ' | while IFS="$(printf '\t')" read -r dir stmt; do
     [ -n "$stmt" ] || continue
@@ -2519,8 +2587,8 @@ _tmb_cmd_heredoc_align() {
 # every variable use in it and in the levels it runs is unresolved.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
-  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old why mark chain
-  local -a words progs
+  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old why mark chain d j found
+  local -a words progs dirs
   local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-" _TMB_CMD_WHY="" _TMB_CMD_UNBAL="${_TMB_CMD_UNBAL:-}"
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
   case $'\n'"$listing" in *$'\n!\t'*) _TMB_CMD_UNBAL=1 ;; esac
@@ -2543,9 +2611,9 @@ _tmb_cmd_write_paths_in() {
     _TMB_CMD_WHY="$why"
     read -r -a words <<< "$stmt"
     [ "${#words[@]}" -gt 0 ] || continue
+    IFS=$'\023' read -r -a dirs <<< "${dir#=}"
     if [ "${dir#=}" != "$dir" ]; then
-      _TMB_CMD_PWD=$(_tmb_cmd_dir_path "${dir#=}" "$cwd")
-      for w in "${words[@]}"; do _tmb_cmd_var_set "${w%%=*}" "$(tmb_cmd_decode "${w#*=}")"; done
+      _tmb_cmd_dirs_vars "$cwd" = "${dirs[@]}" -- "${words[@]}"
       continue
     fi
     if [ "$depth" -lt 3 ]; then
@@ -2561,15 +2629,26 @@ _tmb_cmd_write_paths_in() {
       words=("${words[@]:0:${#words[@]}-1}")
       stmt="${words[*]}"
     fi
-    chain=""
-    [ "$dir" != "-" ] || [ -n "$why" ] || chain=1
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
-    done < <(_tmb_cmd_stmt_write_paths "$stmt" "$chain")
+    for ((j = 0; j < ${#dirs[@]}; j++)); do
+      d="${dirs[$j]}"
+      _TMB_CMD_WHY=""; [ "$j" -gt 0 ] || _TMB_CMD_WHY="$why"
+      chain=""
+      [ "$d" != "-" ] || [ -n "$_TMB_CMD_WHY" ] || chain=1
+      while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        _tmb_cmd_emit "$d" "$(tmb_cmd_decode "$p")" "$cwd"
+      done < <(_tmb_cmd_stmt_write_paths "$stmt" "$chain")
+    done
     case "${words[0]##*/}" in
-      find|fd|fdfind|xargs) _tmb_cmd_exec_writes "$dir" "$cwd" "$mark" "${words[@]}" ;;
+      find|fd|fdfind|xargs)
+        for ((j = 0; j < ${#dirs[@]}; j++)); do
+          d="${dirs[$j]}"
+          _TMB_CMD_WHY=""; [ "$j" -gt 0 ] || _TMB_CMD_WHY="$why"
+          _tmb_cmd_exec_writes "$d" "$cwd" "$mark" "${words[@]}"
+        done
+        ;;
     esac
+    _TMB_CMD_WHY="$why"
     kind=$(_tmb_cmd_stdin_interp "${words[@]}")
     if [ -n "$kind" ]; then
       progs=()
@@ -2586,16 +2665,43 @@ _tmb_cmd_write_paths_in() {
         if [ "$kind" = "sh" ]; then
           [ "$depth" -lt 3 ] && _tmb_cmd_write_paths_in "$prog" "$cwd" "$dir"$'\022'"$old"${why:+$'\022'$why} $((depth + 1))
         else
-          while IFS= read -r p; do
-            [ -n "$p" ] && _tmb_cmd_emit "$dir" "$p" "$cwd"
-          done < <(_tmb_cmd_prog_writes "$kind" "$prog")
+          found=$(_tmb_cmd_prog_writes "$kind" "$prog")
+          for ((j = 0; j < ${#dirs[@]}; j++)); do
+            _TMB_CMD_WHY=""; [ "$j" -gt 0 ] || _TMB_CMD_WHY="$why"
+            while IFS= read -r p; do
+              [ -n "$p" ] && _tmb_cmd_emit "${dirs[$j]}" "$p" "$cwd"
+            done <<< "$found"
+          done
+          _TMB_CMD_WHY="$why"
         fi
       done
     fi
-    _TMB_CMD_PWD=$(_tmb_cmd_dir_path "$dir" "$cwd")
-    _tmb_cmd_track_vars "${words[@]}"
+    _tmb_cmd_dirs_vars "$cwd" track "${dirs[@]}" -- "${words[@]}"
   done <<< "$listing"
   return 0
+}
+
+# _tmb_cmd_dirs_vars <cwd> <=|track> <dir-token…> -- <encoded-statement-words…>
+# The variables a statement sets (`=`: its NAME=value words; `track`:
+# _tmb_cmd_track_vars) once per dir a loop's back-edge may run it in (GH 1977),
+# each pass starting from the variables before it and all their additions kept.
+_tmb_cmd_dirs_vars() {
+  local cwd="${1:-}" mode="${2:-}" snap="${_TMB_CMD_VARS:-}" added="" w d
+  local -a dirs=()
+  shift 2
+  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do dirs+=("$1"); shift; done
+  shift
+  for d in "${dirs[@]}"; do
+    _TMB_CMD_VARS="$snap"
+    _TMB_CMD_PWD=$(_tmb_cmd_dir_path "$d" "$cwd")
+    if [ "$mode" = "=" ]; then
+      for w in "$@"; do _tmb_cmd_var_set "${w%%=*}" "$(tmb_cmd_decode "${w#*=}")"; done
+    else
+      _tmb_cmd_track_vars "$@"
+    fi
+    added="${added}${_TMB_CMD_VARS:${#snap}}"
+  done
+  _TMB_CMD_VARS="${snap}${added}"
 }
 
 # _tmb_cmd_loop_vars <loop-listing> <cwd> <depth>
@@ -2605,12 +2711,12 @@ _tmb_cmd_write_paths_in() {
 # assignment also sees what a later pass assigns (GH 1944). A name still
 # gaining values after 8 passes holds \001.
 _tmb_cmd_loop_vars() {
-  local loop="${1:-}" cwd="${2:-}" depth="${3:-0}" seed prev dir stmt w line pass
+  local loop="${1:-}" cwd="${2:-}" depth="${3:-0}" seed prev dir stmt line
   local _TMB_CMD_PWD="${_TMB_CMD_PWD:-}" _TMB_CMD_OLDTOK="${_TMB_CMD_OLDTOK:--}"
-  local -a words
+  local -a words dirs
   _tmb_cmd_vars_uniq
   seed="$_TMB_CMD_VARS"
-  for pass in 1 2 3 4 5 6 7 8; do
+  for _ in 1 2 3 4 5 6 7 8; do
     prev="$_TMB_CMD_VARS"
     while IFS="$(printf '\t')" read -r dir stmt; do
       case "$dir" in '{'|'}'|'!') continue ;; esac
@@ -2620,14 +2726,13 @@ _tmb_cmd_loop_vars() {
       dir="${dir%%$'\022'*}"
       read -r -a words <<< "$stmt"
       [ "${#words[@]}" -gt 0 ] || continue
+      IFS=$'\023' read -r -a dirs <<< "${dir#=}"
       if [ "${dir#=}" != "$dir" ]; then
-        _TMB_CMD_PWD=$(_tmb_cmd_dir_path "${dir#=}" "$cwd")
-        for w in "${words[@]}"; do _tmb_cmd_var_set "${w%%=*}" "$(tmb_cmd_decode "${w#*=}")"; done
+        _tmb_cmd_dirs_vars "$cwd" = "${dirs[@]}" -- "${words[@]}"
         continue
       fi
       [ "$depth" -ge 3 ] || [ -z "$(_tmb_cmd_inner "$stmt")" ] || continue
-      _TMB_CMD_PWD=$(_tmb_cmd_dir_path "$dir" "$cwd")
-      _tmb_cmd_track_vars "${words[@]}"
+      _tmb_cmd_dirs_vars "$cwd" track "${dirs[@]}" -- "${words[@]}"
     done <<< "$loop"
     _tmb_cmd_vars_uniq
     [ "$_TMB_CMD_VARS" != "$prev" ] || return 0
