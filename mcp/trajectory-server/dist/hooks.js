@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync11 } from "node:fs";
+import { readFileSync as readFileSync14 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -4778,8 +4778,15 @@ function jqRawText(value) {
 }
 function pluginName2(env = process.env) {
   const root = env.CLAUDE_PLUGIN_ROOT ?? "";
-  if (root === "") return DEFAULT_PLUGIN_NAME;
-  const manifest = `${root}/.claude-plugin/plugin.json`;
+  return root === "" ? DEFAULT_PLUGIN_NAME : manifestName(`${root}/.claude-plugin/plugin.json`);
+}
+function resolvePluginName(env = process.env) {
+  return manifestName(`${env.CLAUDE_PLUGIN_ROOT ?? ""}/.claude-plugin/plugin.json`);
+}
+function commandSubstitution(text) {
+  return text.replace(/\0/g, "").replace(/\n+$/, "");
+}
+function manifestName(manifest) {
   let text;
   try {
     if (!statSync2(manifest).isFile()) return DEFAULT_PLUGIN_NAME;
@@ -4829,6 +4836,16 @@ function installRoot(fromDir) {
 function ctypeUtf8(env = process.env) {
   const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || "C";
   return /(^|\.)utf-?8$/i.test(locale) && !locale.includes("/") && existsSync2(`/usr/share/locale/${locale}/LC_CTYPE`);
+}
+var LOCALE_CATEGORIES = ["LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"];
+function localeInstalled(name3, category) {
+  if (name3 === "C" || name3 === "POSIX") return true;
+  return !name3.includes("/") && existsSync2(`/usr/share/locale/${name3}/${category}`);
+}
+function setlocaleUtf8(env = process.env) {
+  const pick = (category) => env.LC_ALL || env[category] || env.LANG || "C";
+  if (!LOCALE_CATEGORIES.every((category) => localeInstalled(pick(category), category))) return false;
+  return /(^|\.)utf-?8$/i.test(pick("LC_CTYPE"));
 }
 
 // src/hooks/askuserquestion-length-lint.ts
@@ -4977,7 +4994,7 @@ function valueEnd(text, start2) {
   while (i2 < text.length && !/[\s{}[\]",]/.test(text[i2])) i2 += 1;
   return i2 === start2 ? -1 : i2;
 }
-function jsonValues(text) {
+function jsonValues(text, reviver) {
   const values = [];
   let i2 = 0;
   for (; ; ) {
@@ -4986,7 +5003,7 @@ function jsonValues(text) {
     const end = valueEnd(text, i2);
     if (end < 0) return values;
     try {
-      values.push(JSON.parse(text.slice(i2, end)));
+      values.push(JSON.parse(text.slice(i2, end), reviver));
     } catch {
       return values;
     }
@@ -5019,9 +5036,10 @@ function jqRawElements(text) {
 }
 var JqError2 = class extends Error {
 };
+var isRawJson = (value) => JSON.isRawJSON?.(value) ?? false;
 function index(value, key2) {
   if (value === null || value === void 0) return null;
-  if (typeof value !== "object" || Array.isArray(value)) throw new JqError2(`Cannot index ${typeof value}`);
+  if (typeof value !== "object" || Array.isArray(value) || isRawJson(value)) throw new JqError2(`Cannot index ${typeof value}`);
   const v = value[key2];
   return v === void 0 ? null : v;
 }
@@ -5050,6 +5068,26 @@ function jqAlternatives(text, paths) {
   }
   return out2.join("\n");
 }
+function jqMap(text, filter, reviver) {
+  const out2 = [];
+  for (const value of jsonValues(text, reviver)) {
+    try {
+      out2.push(filter(value));
+    } catch (e) {
+      if (!(e instanceof JqError2)) throw e;
+    }
+  }
+  return out2;
+}
+function jqIndex(value, key2) {
+  return index(value, key2);
+}
+function jqOr(value, fallback) {
+  return truthy(value) ? value : fallback;
+}
+function jqFieldOr(text, key2, fallback = "") {
+  return jqMap(text, (value) => jqRawText(jqOr(index(value, key2), fallback))).join("\n");
+}
 function jqContentStrings(text) {
   const out2 = [];
   for (const value of jsonValues(text)) {
@@ -5066,6 +5104,23 @@ function jqContentStrings(text) {
 function jqCompact(value) {
   return JSON.stringify(value).replace(/\x7f/g, "\\u007f");
 }
+function jqNumberLiteral(source) {
+  const m = /^(-?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(source);
+  if (!m) return source;
+  const [, sign, int, frac = "", exp = "0"] = m;
+  const coefficient = `${int}${frac}`.replace(/^0+(?=\d)/, "");
+  const e = Number(exp) - frac.length;
+  const adjusted = e + coefficient.length - 1;
+  if (e <= 0 && adjusted >= -6) {
+    if (e === 0) return `${sign}${coefficient}`;
+    const point = coefficient.length + e;
+    return point > 0 ? `${sign}${coefficient.slice(0, point)}.${coefficient.slice(point)}` : `${sign}0.${"0".repeat(-point)}${coefficient}`;
+  }
+  const mantissa = coefficient.length > 1 ? `${coefficient[0]}.${coefficient.slice(1)}` : coefficient;
+  return `${sign}${mantissa}E${adjusted >= 0 ? "+" : "-"}${Math.abs(adjusted)}`;
+}
+var rawJson = JSON.rawJSON;
+var jqLiteralNumbers = rawJson ? (_key, value, context3) => typeof value === "number" && typeof context3?.source === "string" ? rawJson(jqNumberLiteral(context3.source)) : value : void 0;
 
 // src/hooks/lib/role.ts
 var CODE_REVIEWER_ROLE = "code-reviewer";
@@ -5802,6 +5857,15 @@ function denyDbUnavailable(hook = "", env = process.env) {
     }
   });
 }
+function dbPathAdvisory(hook = "", env = process.env, onWarning) {
+  const db = dbPath(env, onWarning);
+  if (db === null) return null;
+  if (dbState(env) === "error") {
+    onWarning?.(`${hook || "hook"}: trajectory DB unavailable (${db}) \u2014 skipped`);
+    return null;
+  }
+  return db;
+}
 function sqliteRo(db, sql, env = process.env) {
   const out2 = gateRead(db, sql, { ...env, TMB_DB_WRITE_TIMEOUT_MS: String(SQLITE_RO_TIMEOUT_MS) });
   return out2 === GATE_READ_ERROR ? "" : out2;
@@ -6071,7 +6135,7 @@ function sleepSeconds(raw) {
   const ms = Math.round(Number(raw) * 1e3);
   if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
-function commandSubstitution(text) {
+function commandSubstitution2(text) {
   return text.replaceAll("\0", "").replace(/\n+$/, "");
 }
 function byteCompare(a, b) {
@@ -6324,7 +6388,7 @@ var broTurnUsage = (payload, env) => {
   if ((env.TMB_DISABLE_BRO_TURN_USAGE_HOOK ?? "0") === "1") return ALLOW;
   const db = dbPath(env) ?? "";
   if (db === "" || !isFile4(db)) return ALLOW;
-  const input = commandSubstitution(payload);
+  const input = commandSubstitution2(payload);
   const sessionId = jqKeyOr(input, "session_id", "");
   const transcript = jqKeyOr(input, "transcript_path", "");
   if (sessionId === "" || transcript === "" || !isFile4(transcript)) return ALLOW;
@@ -10509,7 +10573,7 @@ function statementsEnc(buf, base2, home, assign) {
   const wstack = [];
   const owstack = [];
   const q = [];
-  const emit = (dir, text) => records.push({ dir, stmt: text });
+  const emit2 = (dir, text) => records.push({ dir, stmt: text });
   const loops = [];
   let unbal = false;
   let wq = [];
@@ -10517,31 +10581,31 @@ function statementsEnc(buf, base2, home, assign) {
     const top = loops.length > 0 ? loops[loops.length - 1] : "";
     if (k === "while" || k === "until") {
       loops.push("w");
-      emit(LOOP_OPEN, "do");
+      emit2(LOOP_OPEN, "do");
     } else if (k === "do") {
       if (top === "w") loops[loops.length - 1] = "o";
       else if (top === "f") {
         loops[loops.length - 1] = "o";
-        emit(LOOP_OPEN, "do");
+        emit2(LOOP_OPEN, "do");
       } else {
         unbal = true;
         loops.push("o");
-        emit(LOOP_OPEN, "do");
+        emit2(LOOP_OPEN, "do");
       }
     } else if (k === "{") {
       if (top === "f") {
         loops[loops.length - 1] = "b";
-        emit(LOOP_OPEN, "do");
+        emit2(LOOP_OPEN, "do");
       } else loops.push("g");
     } else if (k === "done") {
       if (top === "o") {
         loops.pop();
-        emit(LOOP_CLOSE, "done");
+        emit2(LOOP_CLOSE, "done");
       } else unbal = true;
     } else if (k === "}") {
       if (top === "b") {
         loops.pop();
-        emit(LOOP_CLOSE, "done");
+        emit2(LOOP_CLOSE, "done");
       } else if (top === "g") loops.pop();
       else unbal = true;
     }
@@ -10797,7 +10861,7 @@ function statementsEnc(buf, base2, home, assign) {
         for (const a of aw) if (!assignword(a, !csure)) ok2 = false;
       }
       if (assign && asg !== "") {
-        emit("=" + cur + SEP + old, asg);
+        emit2("=" + cur + SEP + old, asg);
         if (!chained) {
           old = "-";
           owhy = "";
@@ -10881,7 +10945,7 @@ function statementsEnc(buf, base2, home, assign) {
         break;
       }
     }
-    emit(d + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
+    emit2(d + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
     if (!chained) {
       old = "-";
       owhy = "";
@@ -10994,7 +11058,7 @@ function statementsEnc(buf, base2, home, assign) {
     stmt += c;
   }
   flush();
-  if (assign && (unbal || loops.length > 0)) emit(UNBALANCED, "unbalanced");
+  if (assign && (unbal || loops.length > 0)) emit2(UNBALANCED, "unbalanced");
   return records.filter((r) => r.stmt !== "");
 }
 
@@ -14426,7 +14490,7 @@ function appendLog(event, sessionId, sample, env) {
   }
 }
 var mcpHealthCheck = (payload, env) => {
-  const input = commandSubstitution(payload);
+  const input = commandSubstitution2(payload);
   const event = eventName(input);
   const sessionId = stripTrailingNewlines(jqAlternatives(input, [["session_id"], ["sessionId"]]));
   const sample = samplePgrep(env);
@@ -15605,17 +15669,503 @@ function makeTaskOverrunAlert(clock = () => /* @__PURE__ */ new Date()) {
     const found = overruns(db, now, thresholdMin(env), env);
     if (found === null || found.length === 0) return ALLOW;
     const claimed = claim(db, found, now, env);
-    const emit = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
-    if (emit.length === 0) return ALLOW;
+    const emit2 = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
+    if (emit2.length === 0) return ALLOW;
     const event = jqAlternatives(payload, [["hook_event_name"]]) || "UserPromptSubmit";
     return {
-      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: emit.map(alertLine).join("\n") } })}
+      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: emit2.map(alertLine).join("\n") } })}
 `,
       code: 0
     };
   };
 }
 var taskOverrunAlert = makeTaskOverrunAlert();
+
+// src/hooks/activation-routine.ts
+import { spawnSync as spawnSync8 } from "node:child_process";
+import { readFileSync as readFileSync12, statSync as statSync19 } from "node:fs";
+
+// src/hooks/cmd-analysis/harness-turn.ts
+var HARNESS_MARKS = [
+  "<task-notification>",
+  "[SYSTEM NOTIFICATION",
+  "Another Claude session sent a message",
+  "[Subagent hand-back]",
+  "<agent-message",
+  "<cross-session-message"
+];
+function isHarnessTurn(prompt) {
+  return HARNESS_MARKS.some((mark) => prompt.includes(mark));
+}
+
+// src/hooks/lib/persona.ts
+import { accessSync as accessSync7, constants as constants7, lstatSync as lstatSync7, mkdirSync as mkdirSync4, readdirSync as readdirSync5, readFileSync as readFileSync11, realpathSync as realpathSync5, statSync as statSync18, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { isAbsolute as isAbsolute3, join as join5 } from "node:path";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+var STALE_MINUTES = 1440;
+var OLD_BLOCK = "<!-- tmb:persona start";
+var OLD_BLOCK_NOTE = "[The project's CLAUDE.md still holds a <!-- tmb:persona --> block from an older /onboard. It is no longer needed, since this hook delivers the persona; tell the Human they may delete it.]";
+var NO_ROOT = "unresolved (no CLAUDE_PROJECT_DIR and no trajectory DB)";
+function commandOnPath2(name3, env = process.env) {
+  for (const dir of (env.PATH ?? "").split(":")) {
+    const candidate = `${dir === "" ? "." : dir}/${name3}`;
+    try {
+      if (!statSync18(candidate).isFile()) continue;
+      accessSync7(candidate, constants7.X_OK);
+      return true;
+    } catch {
+    }
+  }
+  return false;
+}
+function physicalDir2(dir) {
+  if (dir === "") return "";
+  const abs = isAbsolute3(dir) ? dir : join5(process.cwd(), dir);
+  try {
+    if (!statSync18(abs).isDirectory()) return "";
+    accessSync7(abs, constants7.X_OK);
+    return realpathSync5.native(abs);
+  } catch {
+    return "";
+  }
+}
+function isFile10(path) {
+  try {
+    return statSync18(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function sedField(text, key2) {
+  const re = new RegExp(`^[\\s\\S]*"${key2}"[ \\t\\v\\f\\r]*:[ \\t\\v\\f\\r]*"([^"]*)"[\\s\\S]*$`);
+  for (const line of text.split("\n")) {
+    const m = re.exec(line);
+    if (m) return m[1];
+  }
+  return "";
+}
+function manifestField(root, key2, haveJq) {
+  const manifest = `${root}/.claude-plugin/plugin.json`;
+  if (!isFile10(manifest)) return "";
+  let text;
+  try {
+    text = readFileSync11(manifest, "utf8");
+  } catch {
+    return "";
+  }
+  return commandSubstitution(haveJq ? jqAlternatives(text, [[key2]]) : sedField(text, key2));
+}
+function defaultPluginRoot() {
+  try {
+    return installRoot(posixDirname(fileURLToPath4(import.meta.url))) ?? "";
+  } catch {
+    return "";
+  }
+}
+function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
+  const pluginRoot2 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot2 === "") return null;
+  let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
+  const projectReal = physicalDir2(project);
+  const pluginReal = physicalDir2(pluginRoot2);
+  if (pluginReal !== "" && projectReal === pluginReal) return null;
+  if (projectReal !== "") project = projectReal;
+  const version = manifestField(pluginRoot2, "version", haveJq);
+  const name3 = manifestField(pluginRoot2, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot2, source: `${pluginRoot2}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+}
+function personaSessionId(input, haveJq) {
+  const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
+  return sid === "" || sid.includes("/") || sid.startsWith(".") ? "" : sid;
+}
+function personaMarker(p, sessionId, suffix) {
+  return `${p.project}/${TMB_STATE_HOST_DIR}/${p.pluginName}/sessions/${sessionId}.${suffix}`;
+}
+function pruneStaleMarkers(dir, matches, now = Date.now()) {
+  let names;
+  try {
+    names = readdirSync5(dir);
+  } catch {
+    return;
+  }
+  for (const name3 of names) {
+    if (!matches(name3)) continue;
+    const path = `${dir}/${name3}`;
+    try {
+      const st = lstatSync7(path);
+      if (st.isFile() && now - st.mtimeMs > STALE_MINUTES * 6e4) unlinkSync(path);
+    } catch {
+    }
+  }
+}
+function touchEmpty(path) {
+  try {
+    writeFileSync4(path, "");
+  } catch {
+  }
+}
+function personaMark(p, sessionId, suffix) {
+  if (sessionId === "") return;
+  try {
+    if (!statSync18(p.project).isDirectory()) return;
+  } catch {
+    return;
+  }
+  const marker = personaMarker(p, sessionId, suffix);
+  const dir = posixDirname(marker);
+  try {
+    mkdirSync4(dir, { recursive: true });
+  } catch {
+    return;
+  }
+  pruneStaleMarkers(dir, (name3) => name3.includes(".persona"));
+  touchEmpty(marker);
+}
+function readable3(path) {
+  try {
+    accessSync7(path, constants7.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function holdsOldBlock(claudeMd) {
+  if (!isFile10(claudeMd)) return false;
+  try {
+    return readFileSync11(claudeMd).includes(OLD_BLOCK);
+  } catch {
+    return false;
+  }
+}
+function personaContext(p, env = process.env) {
+  if (!readable3(p.source)) return null;
+  let body2;
+  try {
+    body2 = commandSubstitution(readFileSync11(p.source, "utf8"));
+  } catch {
+    return null;
+  }
+  if (body2 === "") return null;
+  const lines2 = [`[Persona loaded by the TMB persona hook from the ${p.pluginName} plugin's CLAUDE.md, v${p.pluginVersion || "unknown"}]`];
+  if (holdsOldBlock(`${p.project}/CLAUDE.md`)) lines2.push(OLD_BLOCK_NOTE);
+  lines2.push(`Project root (<project> in TMB prompts): ${projectRoot(env) || NO_ROOT}`);
+  return `${lines2.join("\n")}
+
+${body2}`;
+}
+function personaEmit(p, event, context3) {
+  if (!p.haveJq) return `${context3}
+`;
+  return `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: context3 } })}
+`;
+}
+
+// src/hooks/activation-routine.ts
+var GATE_NAME16 = "activation-routine";
+var HALT_TEXT = "\u26D4 MCP trajectory-server is not running at this prompt \u2014 trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery \xA7B and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads.";
+var FIRST_RUN_LINE = "onboarded=<no \u2014 FIRST CONTACT, auto-fire /onboard before any reply>";
+var SESSION_ID_LINE = /^[A-Za-z0-9_-]{8,64}$/;
+var LocaleGrep = class {
+  constructor(utf8) {
+    this.utf8 = utf8;
+    this.word = utf8 ? "[\\p{L}\\p{Nd}_]" : "[A-Za-z0-9_]";
+    this.flags = utf8 ? "u" : "";
+  }
+  utf8;
+  word;
+  flags;
+  /** <source> with `\b` as grep's word boundary under this locale. */
+  regex(source, ignoreCase = false) {
+    const w = this.word;
+    const boundary = `(?:(?<!${w})(?=${w})|(?<=${w})(?!${w}))`;
+    const body2 = source.replace(/\\b/g, boundary).replace(/(^|[^\\])\./g, "$1[^\\n]");
+    return new RegExp(body2, `${this.flags}${ignoreCase ? "i" : ""}`);
+  }
+  /** The lines of <bytes> as grep sees them: undefined for a line it cannot match. */
+  lines(bytes) {
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    const out2 = [];
+    let start2 = 0;
+    while (start2 <= bytes.length) {
+      let end = bytes.indexOf(10, start2);
+      if (end < 0) end = bytes.length;
+      if (end === bytes.length && start2 === end && start2 > 0) break;
+      const line = bytes.subarray(start2, end);
+      if (!this.utf8) out2.push(line.toString("latin1"));
+      else {
+        try {
+          out2.push(decoder.decode(line));
+        } catch {
+          out2.push(void 0);
+        }
+      }
+      start2 = end + 1;
+    }
+    return out2;
+  }
+  test(bytes, re) {
+    return this.lines(bytes).some((line) => line !== void 0 && re.test(line));
+  }
+};
+function readTranscript2(path) {
+  if (path === "") return null;
+  try {
+    if (!statSync19(path).isFile()) return null;
+    return readFileSync12(path);
+  } catch {
+    return null;
+  }
+}
+function isStickyBro(transcript, grep) {
+  if (transcript === null) return false;
+  if (grep.test(transcript, grep.regex("exit bro mode|stop being bro", true))) return false;
+  return grep.test(transcript, grep.regex("Entering bro mode.")) || grep.test(transcript, grep.regex("@bro\\b", true));
+}
+function saysBro(prompt, grep) {
+  return !isHarnessTurn(prompt) && grep.test(Buffer.from(`${prompt}
+`, "utf8"), grep.regex("\\bbro\\b", true));
+}
+function serverDown(env) {
+  if (!commandOnPath2("pgrep", env)) return false;
+  try {
+    return spawnSync8("pgrep", ["-f", "trajectory-server/dist/index.js"], { env, stdio: "ignore" }).status === 1;
+  } catch {
+    return false;
+  }
+}
+var emit = (context3) => ({
+  stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context3 } })}
+`,
+  code: 0
+});
+function activationContext(onboardedCount, pending2) {
+  let pendingLine = "pending=<none>";
+  if (pending2 !== "") {
+    const bar = pending2.indexOf("|");
+    const id = bar < 0 ? pending2 : pending2.slice(0, bar);
+    const objective = bar < 0 ? pending2 : pending2.slice(bar + 1);
+    pendingLine = `pending=#${id}: ${objective}`;
+  }
+  if (onboardedCount === "0") {
+    return `[tmb activation routine \u2014 pre-fetched by hook] ${FIRST_RUN_LINE}. ACTION: this is the user's first contact in this project \u2014 call \`onboard_state_get(agent='bro')\` and run the \`/onboard\` slash command flow IMMEDIATELY before any reply (auto-fire doctrine, no permission gate). Do not greet, do not answer the user's prompt, do not call issue_resume separately \u2014 onboard_state_get returns everything you need. ${pendingLine}`;
+  }
+  return `[tmb activation routine \u2014 pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume \u2014 they would be redundant duplicate reads. ${pendingLine}`;
+}
+function activationRoutine(payload, env) {
+  try {
+    const echoed = `${commandSubstitution(payload)}
+`;
+    const field5 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
+    const prompt = field5("prompt");
+    const grep = new LocaleGrep(setlocaleUtf8(env));
+    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript2(field5("transcript_path")), grep)) return ALLOW;
+    const halt = serverDown(env) ? HALT_TEXT : "";
+    const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
+    const db = dbPathAdvisory(GATE_NAME16, env, (line) => process.stderr.write(`${line}
+`));
+    if (db === null || !haveSqlite(env)) return haltOnly();
+    const onboarded = sqliteRo(db, "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';", env);
+    const pending2 = sqliteRo(
+      db,
+      "SELECT id, COALESCE(objective, '') FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;",
+      env
+    );
+    let context3 = activationContext(onboarded, pending2);
+    if (halt !== "") context3 = `${halt} ${context3}`;
+    const sessionId = field5("session_id");
+    if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context3 = `${context3} session_id=${sessionId}`;
+    return emit(context3);
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/debug-trajectory.ts
+var GATE_NAME17 = "debug-trajectory";
+var ARGS_MAX_BYTES = 4e3;
+var pad = (n2) => String(n2).padStart(2, "0");
+function hourStamp(date) {
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}`;
+}
+function argsJson(input) {
+  const lines2 = jqMap(input, (value) => `${jqCompact(jqOr(jqIndex(value, "tool_input"), {}))}
+`, jqLiteralNumbers).join("");
+  return commandSubstitution(Buffer.from(lines2, "utf8").subarray(0, ARGS_MAX_BYTES).toString("utf8")) || "{}";
+}
+function debugTrajectorySql(sessionId, tool, args2, now) {
+  const sid = sqlQuote(sessionId);
+  return `INSERT INTO debug_trajectory (session_id, step_n, kind, tool_or_mcp_name, args_json, created_at)
+VALUES (
+  '${sid}',
+  COALESCE((SELECT MAX(step_n) FROM debug_trajectory WHERE session_id='${sid}'), 0) + 1,
+  'tool_use',
+  '${sqlQuote(tool)}',
+  json('${sqlQuote(args2)}'),
+  '${sqlQuote(now)}'
+);`;
+}
+function debugTrajectory(payload, env) {
+  try {
+    if ((env.TMB_EVAL_MODE || "0") !== "1" || (env.TMB_DEBUG_TRAJECTORY || "0") !== "1") return ALLOW;
+    const writeEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "500", TMB_DB_WRITE_RUN_BUDGET_MS: "1200" };
+    const db = dbPathAdvisory(GATE_NAME17, writeEnv, (line) => process.stderr.write(`${line}
+`));
+    if (db === null) return ALLOW;
+    const echoed = `${commandSubstitution(payload)}
+`;
+    const tool = commandSubstitution(jqAlternatives(echoed, [["tool_name"], ["tool"]]));
+    if (tool === "" || tool.startsWith("mcp__")) return ALLOW;
+    const sessionId = env.CLAUDE_SESSION_ID || hourStamp(/* @__PURE__ */ new Date());
+    const w = dbWrite(db, debugTrajectorySql(sessionId, tool, argsJson(echoed), nowIso()), { caller: GATE_NAME17, env: writeEnv });
+    if (!w.ok) process.stderr.write(`${w.error}
+`);
+    return { stdout: w.stdout, code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/plugin-hooks-marker.ts
+import { mkdirSync as mkdirSync5, statSync as statSync20 } from "node:fs";
+var GATE_NAME18 = "plugin-hooks-marker";
+var SUFFIX = ".plugin-hooks";
+function safeSessionId(input) {
+  const sid = commandSubstitution(jqAlternatives(commandSubstitution(input), [["session_id"]]));
+  return sid === "" || sid.includes("/") || sid.startsWith(".") ? "" : sid;
+}
+function isDir5(path) {
+  try {
+    return statSync20(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function pluginHooksMarker(payload, env) {
+  try {
+    const sessionId = safeSessionId(payload);
+    if (sessionId === "") return ALLOW;
+    let stateDir2;
+    if (env.CLAUDE_PROJECT_DIR) {
+      stateDir2 = `${env.CLAUDE_PROJECT_DIR}/${TMB_STATE_HOST_DIR}/${pluginName2(env)}`;
+    } else {
+      const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+      if (db === null) return ALLOW;
+      stateDir2 = posixDirname(db);
+    }
+    if (!isDir5(stateDir2)) return ALLOW;
+    const sessions = `${stateDir2}/sessions`;
+    try {
+      mkdirSync5(sessions, { recursive: true });
+    } catch {
+      return ALLOW;
+    }
+    pruneStaleMarkers(sessions, (name3) => name3.endsWith(SUFFIX));
+    touchEmpty(`${sessions}/${sessionId}${SUFFIX}`);
+  } catch {
+  }
+  return ALLOW;
+}
+
+// src/hooks/session-log-capture.ts
+import { appendFileSync as appendFileSync3, mkdirSync as mkdirSync6, readFileSync as readFileSync13, statSync as statSync21 } from "node:fs";
+var GATE_NAME19 = "session-log-capture";
+var CONTINUE = '{"continue": true}\n';
+function utcStamp2(date) {
+  const iso2 = date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const day = iso2.slice(0, 10);
+  return { day, compact: `${day.replace(/-/g, "")}-${iso2.slice(11, 19).replace(/:/g, "")}`, iso: iso2 };
+}
+function sentinelId(sentinel) {
+  try {
+    if (!statSync21(sentinel).isFile()) return "";
+    return commandSubstitution(readFileSync13(sentinel, "utf8"));
+  } catch {
+    return "";
+  }
+}
+function logLines(input, ts) {
+  return jqMap(
+    input,
+    (value) => `${jqCompact({
+      ts,
+      event: "user_prompt",
+      prompt: jqOr(jqIndex(value, "prompt"), ""),
+      additional_context: jqOr(jqIndex(value, "additionalContext"), "")
+    })}
+`,
+    jqLiteralNumbers
+  ).join("");
+}
+function sessionLogCapture(payload, env) {
+  try {
+    const plugin = resolvePluginName(env);
+    const echoed = `${commandSubstitution(payload)}
+`;
+    const db = dbPath(env);
+    if (db === null || db === "") return ALLOW;
+    const workspace = posixDirname(posixDirname(posixDirname(db)));
+    const logDir = `${workspace}/.claude/${plugin}/logs`;
+    try {
+      mkdirSync6(logDir, { recursive: true });
+    } catch {
+      return ALLOW;
+    }
+    const now = utcStamp2(/* @__PURE__ */ new Date());
+    const sessionId = commandSubstitution(jqFieldOr(echoed, "session_id")) || sentinelId(`${workspace}/.claude/${plugin}/.current-session-id`) || `${now.compact}-${process.pid}`;
+    try {
+      appendFileSync3(`${logDir}/${now.day}-${sessionId}.jsonl`, logLines(echoed, now.iso));
+    } catch {
+    }
+    return { stdout: CONTINUE, code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/session-start-persona.ts
+var GATE_NAME20 = "session-start-persona";
+function sessionStartPersona(payload, env) {
+  try {
+    const input = commandSubstitution(payload);
+    const persona = personaInit(env);
+    if (persona === null) return ALLOW;
+    const context3 = personaContext(persona, env);
+    if (context3 === null) return ALLOW;
+    const stdout = personaEmit(persona, "SessionStart", context3);
+    personaMark(persona, personaSessionId(input, persona.haveJq), "persona");
+    return { stdout, code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/user-prompt-persona.ts
+import { existsSync as existsSync9 } from "node:fs";
+var GATE_NAME21 = "user-prompt-persona";
+var PERSONA_UNREADABLE_NOTICE = `{"systemMessage":"TMB could not read the plugin CLAUDE.md that carries bro's persona, so this session runs without it. Start a new Claude Code session to load it."}
+`;
+function userPromptPersona(payload, env) {
+  try {
+    const haveJq = commandOnPath2("jq", env);
+    const sessionId = personaSessionId(commandSubstitution(payload), haveJq);
+    if (sessionId === "") return ALLOW;
+    const persona = personaInit(env, haveJq);
+    if (persona === null) return ALLOW;
+    if (existsSync9(personaMarker(persona, sessionId, "persona"))) return ALLOW;
+    const context3 = personaContext(persona, env);
+    if (context3 !== null) {
+      const stdout = personaEmit(persona, "UserPromptSubmit", context3);
+      personaMark(persona, sessionId, "persona");
+      return { stdout, code: 0 };
+    }
+    if (existsSync9(personaMarker(persona, sessionId, "persona-notice"))) return ALLOW;
+    personaMark(persona, sessionId, "persona-notice");
+    return { stdout: PERSONA_UNREADABLE_NOTICE, code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
 
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
@@ -15635,7 +16185,13 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME12, sweBoundary],
   [GATE_NAME13, sweResumeGate],
   [GATE_NAME14, sweStopCause],
-  [GATE_NAME15, taskOverrunAlert]
+  [GATE_NAME15, taskOverrunAlert],
+  [GATE_NAME16, activationRoutine],
+  [GATE_NAME17, debugTrajectory],
+  [GATE_NAME18, pluginHooksMarker],
+  [GATE_NAME19, sessionLogCapture],
+  [GATE_NAME20, sessionStartPersona],
+  [GATE_NAME21, userPromptPersona]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -15669,7 +16225,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync11(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync14(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });
