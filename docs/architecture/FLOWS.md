@@ -18,29 +18,84 @@ A PR that changes a flow updates its step, loop or roadmap row here in the same 
 
 **Hook citations.** Every hook is registered in `hooks/hooks.json` as `scripts/hooks/dispatch.sh <gate>`. A gate ported to TypeScript runs from `mcp/trajectory-server/src/hooks/<gate>.ts` (built into `dist/hooks.js` and listed in `dist/hooks-gates.txt`); the rest run `scripts/hooks/<gate>.sh`. `TMB_HOOKS_IMPL=bash` forces the `.sh` of a ported gate that still has one. Below, `src/hooks/` means `mcp/trajectory-server/src/hooks/`, and the port to TypeScript is tracked in GH 1692.
 
+**Layout.** Flows are grouped by when they run: [Install](#part-i--install), [Cold start](#part-ii--cold-start), [Fresh or existing project](#part-iii--fresh-or-existing-project), [Agent task handling](#part-iv--agent-task-handling), [Extending the team](#part-v--extending-the-team) and [Reporting TMB bugs](#part-vi--reporting-tmb-bugs). Grouping never renumbers a flow: flow numbers, letters and step ids stay stable wherever they sit.
+
 ## Quick index
 
 | # | Flow | Trigger | Agents | DB tables touched | Distinguishing hooks |
 |---|---|---|---|---|---|
+| | **Install** | | | | |
+| 0 | Install and session start | `claude plugin install`, then every session start | — (hooks) | session markers under `.claude/tmb/sessions/` | the nine SessionStart gates, `session-start-persona`, `user-prompt-persona` |
+| | **Cold start** | | | | |
 | 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `repos`, `repo_remotes`, `audit` | `activation-routine` (auto-fire trigger) |
+| 7 | Scan + world-model refresh | First code-touching ask of session when the world model is EMPTY (`source='bro_auto_initial'`), `/scan` (`user_manual`), OR `post-task-close-rescan.sh` after `bro_atomic_close` (`bro_auto_post_close`) | bro (or hook in background) | `repos` (SQLite) + `wm_directories` / `wm_files` (summary preferentially from `<dir>/README.md`) + `cheatcodes` (on-disk resources, `source_url='scan_discovered'`), `audit(event_type='deep_scan_completed'\|'scan_discovered')` | `post-task-close-rescan` |
+| **E** | Environment setup (ENV) — **In flight (GH 2066)** | After `scan_run`, on onboarding, a `stale` ENV, or an `env-ready` deny | bro (Human approves one bundle) | `repo_env`, `cheatcodes`, `audit` | `env-ready`, the `scan_run` PostToolUse nudge, `session-start-prescan` |
+| | **Fresh or existing project** | | | | |
+| 11 | Existing project: adopt its toolchain — **In flight (GH 2066)** | The repo already declares tools | bro | `repo_env` | — |
+| 12 | Fresh project: bootstrap a baseline — **In flight (GH 2066)** | A category has no tool, or `files[]` has an extension no ENV covers | bro → swe (bootstrap task) | `repo_env`, `tasks` | `env-ready` |
+| | **Agent task handling** | | | | |
 | 2 | **Code-touching task** (canonical) | Code change ask | bro → swe (`task_provision` cuts branch + worktree); code-reviewer per task after `bro_atomic_close`; `integrate.sh` when the base moved | `issues`, `tasks`, `discussions`, `audit`, `agent_runs`, `verification_runs`, `validation_attempts`, `review_findings` | `agent-spawn-dispatch`, `containment-guard`, `swe-verification-gate`, `swe-atomic-close`, `code-reviewer-preflight`, `git-push-guard`, `close-issue-on-merge` |
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | `task_provision`'s `decision_body` (universal `decision_gate` on `task_create_batch`) |
+| 6 | Push gate / PR review | Each task after `bro_atomic_close`; `git push` of a commit with no passing review | bro → code-reviewer (one per closed task, parallel) | `validation_attempts`, `review_findings` | `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `git-push-guard` |
+| 8 | SWE retry / escalation | A failed check of bro's four, a code-reviewer verdict='fail', or `integrate.sh` exit 2 | bro ↔ swe (↔ code-reviewer per task) | `validation_attempts` (multiple), `review_findings`, `discussions` | `task_reopen` / `task_retry` composites, `rework-limit`, `swe-resume-gate` |
+| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → code-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
+| 33 | Multi-repo path discipline | Inner repos registered in `repos`; bro indexes them | bro | `wm_directories` rows (repo-relative paths; `repo` column scopes to the right inner git repo) | — |
+| 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
+| | **Extending the team** | | | | |
+| 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", a proactive reuse-check before building, OR flow E's skill search | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `prompt-intent-hints` |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `cheatcodes` (skill row via `skill_register`) | — |
-| 6 | Push gate / PR review | Each task after `bro_atomic_close`; `git push` of a commit with no passing review | bro → code-reviewer (one per closed task, parallel) | `validation_attempts`, `review_findings` | `code-reviewer-after-atomic-close`, `code-reviewer-spawn-note`, `code-reviewer-preflight`, `git-push-guard` |
-| 7 | Scan + world-model refresh | First code-touching ask of session when the world model is EMPTY (`source='bro_auto_initial'`), `/scan` (`user_manual`), OR `post-task-close-rescan.sh` after `bro_atomic_close` (`bro_auto_post_close`) | bro (or hook in background) | `repos` (SQLite) + `wm_directories` / `wm_files` (summary preferentially from `<dir>/README.md`) + `cheatcodes` (on-disk resources, `source_url='scan_discovered'`), `audit(event_type='deep_scan_completed'\|'scan_discovered')` | `post-task-close-rescan` |
-| 8 | SWE retry / escalation | A failed check of bro's four, a code-reviewer verdict='fail', or `integrate.sh` exit 2 | bro ↔ swe (↔ code-reviewer per task) | `validation_attempts` (multiple), `review_findings`, `discussions` | `task_reopen` / `task_retry` composites, `rework-limit`, `swe-resume-gate` |
-| 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
-| 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", OR a proactive reuse-check before building | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `prompt-intent-hints` |
-| 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
-| 33 | Multi-repo path discipline | Inner repos registered in `repos`; bro indexes them | bro | `wm_directories` rows (repo-relative paths; `repo` column scopes to the right inner git repo) | — |
-| **B** | Bug report (opt-in) — **In flight (PR 2053)** | bro hits a real TMB bug and `bug_report_consent` is `yes` | bro (Human previews and approves each report) | `plugin_config`, `audit` | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | `consultant-persistence-gate` |
-| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → code-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
+| 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
+| | **Reporting TMB bugs** | | | | |
+| **B** | Bug report (opt-in) — **In flight (PR 2053)** | bro hits a real TMB bug and `bug_report_consent` is `yes` | bro (Human previews and approves each report) | `plugin_config`, `audit` | — |
 
 ---
 
-## 1. First contact (auto-fired `/onboard`)
+## Part I — Install
+
+### 0. Install and session start
+
+Installing and restarting are the Human's actions; bro never runs them.
+
+1. **Install** at project or local scope, never user scope ([INSTALL.md](../reference/INSTALL.md#recommended-scope-project-or-local) explains why):
+   ```
+   claude plugin marketplace add trustmybot/marketplace --scope project
+   claude plugin install tmb@trustmybot --scope project
+   ```
+   The rc channel is `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` with `--scope local`. Pick one channel per Claude Code install.
+2. **What is active at once:** the `swe` and `code-reviewer` agents (shipped in `agents/`), the trajectory-server MCP tools, and the hooks in `hooks/hooks.json`. bro's persona lives in the plugin's `CLAUDE.md`, which Claude Code never loads for a plugin, so hooks deliver it.
+3. **Every session start** runs the SessionStart gates in this order: `ensure-gitignore`, `mcp-health-check`, `deferred-tools-drift-warn`, `plugin-hooks-marker`, `session-start-persona`, `session-start-prescan`, `ensure-mcp-deps-installed`, `substrate-preflight`, `orphan-scan`.
+   - `plugin-hooks-marker` and `session-start-persona` write the session's `.plugin-hooks` and `.persona` markers;
+   - `session-start-persona` injects bro's persona on startup, resume, `/clear` and compaction;
+   - `session-start-prescan` prints a stack label. **In flight (GH 2066):** it compares the ENV evidence hashes instead, marks drifted `repo_env` rows `stale` and nudges bro to run flow E.
+4. **The first prompt** runs `user-prompt-persona`, which injects the persona once when the session started before the plugin's hooks loaded. If TMB was installed mid-session, the Human fully quits and relaunches Claude Code. It also runs `activation-routine`, which starts flow 1 on a project that isn't onboarded.
+
+Everything TMB writes stays under the project root; [INSTALL.md](../reference/INSTALL.md#what-tmb-writes-and-where) lists each path.
+
+---
+
+## Part II — Cold start
+
+On a new project the flows run in this order. Each step runs once, and later sessions skip what is already done.
+
+```mermaid
+flowchart LR
+    I[0. Install] --> S[Session start hooks]
+    S --> F[1. First contact /onboard]
+    F --> W[7. Scan: world model]
+    W --> E[E. ENV setup]
+    E -->|existing tools| X[11. Adopt toolchain]
+    E -->|gaps or greenfield| G[12. Bootstrap baseline]
+    X --> T[2. First code-touching task]
+    G --> T
+```
+
+Flow E and the branches to flows 11 and 12 are **In flight (GH 2066)**. Until they ship, the first task follows flow 7 straight into flow 2.
+
+---
+
+### 1. First contact (auto-fired `/onboard`)
 
 Bro's `activation-routine` UserPromptSubmit hook (`src/hooks/activation-routine.ts`) reads `plugin_config('onboarded')`. If the key is absent (or `value_json != 'true'`) it injects a `FIRST CONTACT` directive. Bro reads the directive, fires `/onboard` immediately, and runs the slash command's ceremony before any reply.
 
@@ -93,13 +148,139 @@ sequenceDiagram
 
 ---
 
-## 2. Code-touching task (canonical chain)
+### 7. Scan + world-model refresh
+
+`scan_run` is the single scan-side MCP tool. It forks the deterministic `scripts/scan.sh`, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
+
+Triggered five ways (the `source` value is verified against `scan.ts`):
+
+| Trigger | `source` value | Who fires |
+|---|---|---|
+| First code-touching ask when the world model is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
+| User typed `/scan` | `user_manual` | The slash command body passes it |
+| `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background; it imports the bundled `mcp/trajectory-server/dist/run-scan.js`, which inlines web-tree-sitter, so symbols index in a plugin cache without devDependencies (GH 1878) |
+| Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
+| trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument |
+
+`scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
+
+- `source` (one of the five values above)
+- `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
+- `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
+
+**Resource discovery (#124/#846).** The same scan ALSO reconciles on-disk capabilities into the `cheatcodes` table: project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`). Each resource not already tracked (matched on name+kind) is inserted as `origin='installed'`, `status='installed'`, `source_url='scan_discovered'` (distinguishing it from a pipeline install) and emits a `scan_discovered` audit row — so a cheatcode added out-of-band still becomes visible to the lifecycle flow below.
+
+**Planned (GH 1988):** the world model becomes the codebase DAG — impact reaches every downstream consumer (table readers, prompts, hooks), with measured caller recall. GH 1989 (S5) and GH 1990 (S8) build on it.
+
+---
+
+### E. Environment setup (ENV) — In flight (GH 2066)
+
+Getting the environment ready is bro's job. After a scan, TMB knows each repo's world model **and** its ENV:
+- **swe** gets a ready-to-develop environment: dependencies installed, and the test, lint, format and typecheck commands with the runner prefix the repo uses;
+- **code-reviewer** gets a ready-to-review environment: the same commands, with their tools confirmed available.
+
+A skill makes the decisions (`tmb_env-setup`, bro); hooks only make sure it runs. **No toolset is hardcoded**, in the skill or in code: bro decides from the repo's evidence and from research.
+
+| Id | Actor | Tool or hook | Reads → writes |
+|---|---|---|---|
+| E1 | <a id="E1"></a>hook | PostToolUse `scan_run`, and SessionStart `session-start-prescan`: a repo with no ENV row, or whose evidence hash changed, gets a nudge to load `tmb_env-setup`; drifted rows become `stale`. Onboarding loads it too | evidence files → `repo_env.status` |
+| E2 | <a id="E2"></a>bro | `env_detect(repo)`: a read-only, tool-agnostic evidence collector. It returns CI `run:` steps, task-runner targets, manifest dev-dependency lists, root config files, lockfile names and file extensions. It runs no repo-defined command | the repo tree → none |
+| E3 | <a id="E3"></a>bro | Resolves each category (install, test, lint, format_check, typecheck, pre-commit, CI): a category the repo already covers follows flow 11; a gap, or a fresh project, follows flow 12 | the E2 evidence → the proposal |
+| E4 | <a id="E4"></a>bro | `tmb_cheatcode` (`cheatcode_search` → `cheatcode_vet`), per ecosystem: best-practice coding skills for **swe** and code-review skills for **code-reviewer**. Skills already attached or installed are reused | `cheatcodes` → the proposal |
+| E5 | <a id="E5"></a>bro | Probes each chosen command: `<tool> --version`, then the command on one file | none → probe results |
+| E6 | <a id="E6"></a>bro → Human | **One AUQ round** shows the profile and the **permission bundle**: toolsets (repo-local dev dependencies), system tools (the install command for the Human to run), and cheatcodes with the agent each attaches to. Each item shows why it was picked, its provenance and its vet result. The Human approves the bundle, drops single items, or declines it all | the proposal → the Human's answer |
+| E7 | <a id="E7"></a>bro | `env_record(repo, profile)`. Approved skills go through `cheatcode_approve` / `cheatcode_install` and are attached to the agent's project-local `skills:` frontmatter, with the agent body unchanged. Declined and waived items are recorded with their reason. Accepted toolset categories become a bootstrap task (flow 12) | → `repo_env`, `cheatcodes`, `audit` |
+| E8 | <a id="E8"></a>hook | Agent-spawn gate `env-ready`: denies spawning swe or code-reviewer for a task whose repo ENV isn't `ready`. The deny names the repo and points at `tmb_env-setup`. A recorded, Human-approved waiver passes | `repo_env` → allow / deny |
+
+**Where the ENV lives.**
+- **The repo is the source of truth:** tool choices and settings live in the repo's own standard files (the manifest's dev-dependency group and tool tables, linter and typechecker configs, `.pre-commit-config.yaml`, a CI workflow). Teammates, CI and editors then enforce the same rules without TMB.
+- **`repo_env` is a derived cache, per machine:** resolved commands with their `file:line` source and confidence, probe results, provenance, the evidence hash, overrides, waivers and confirmations. A fresh clone with no DB gets the same profile back from `env_detect`. One row covers one (repo, package path, ecosystem).
+- **Tools:** `env_detect(repo)` (read-only), `env_record(repo, profile)` (bro only), `env_get(repo?)`. `world_model_get` includes the ENV summary, and the activation banner shows one line of ENV status per repo.
+
+---
+
+## Part III — Fresh or existing project
+
+Flow E sends each category to one of the two flows below. A repo can use both: flow 11 for the categories it already covers and flow 12 for its gaps.
+
+### 11. Existing project: adopt its toolchain — In flight (GH 2066)
+
+bro reads the E2 evidence, strongest signal first, and adopts what the team already enforces:
+1. **CI workflows:** the commands the team actually runs.
+2. **Task runners:** `package.json` `scripts`, Makefile, justfile or Taskfile targets, `[tool.*]` script tables, tox or nox sessions.
+3. **Tool configs:** any config file at the repo root, or a config table inside a manifest.
+4. **Manifests and lockfiles:** they reveal the package manager and runner prefix, e.g. `uv.lock` → `uv run`, `pnpm-lock.yaml` → `pnpm`.
+
+These are examples of the evidence bro reasons over, not a lookup table in code.
+- **Existing choices are kept.** A formatter the repo already uses stays unless the Human asks to switch.
+- **User overrides** live in their own column, and a re-detect never overwrites them.
+- **A missing system tool** (the package manager, a compiler) is the Human's install. bro gives the exact command, or a cheatcode where one exists, inside the E6 bundle.
+
+### 12. Fresh project: bootstrap a baseline — In flight (GH 2066)
+
+A new project has nothing to detect. So when a category has no tool, or a task's `files[]` has a source extension no ENV covers, bro proposes a baseline. Each category is resolved in this order, stopping at the first step that answers:
+1. **What already exists:** tools the repo declares or configures, then tools installed on the machine, then the conventions of the other repos in this workspace.
+2. **Current best practice from the web,** when there is internet access (WebSearch / WebFetch). bro prefers the ecosystem's official docs and the tools' own docs, and records each URL and the date it was fetched.
+3. **bro's own knowledge, when offline.** The pick is marked `model_knowledge` and re-checked on the next run that has internet access.
+
+Coding and review skills resolve in the same order: already attached or installed → `cheatcode_search` → bro's knowledge, which installs nothing and only adds notes to the task brief.
+
+- **Provenance** is recorded per tool: `existing_repo` | `existing_machine` | `workspace` | `web` (URLs + fetch date) | `model_knowledge`. The E6 bundle shows it.
+- **Versions** are never chosen by TMB. The package manager resolves them at bootstrap, and the lockfile pins them.
+- **The bootstrap task** runs through flow 2 like any other task. It:
+  - adds the accepted tools as repo-local dev dependencies through the repo's own package manager, never as global installs;
+  - writes their config into the repo files;
+  - adds a pre-commit config and a CI workflow that runs the same commands;
+  - fixes or baselines what the new lint flags on existing code.
+
+  Then `env_detect` finds the tools and the ENV is `ready`.
+- **Waivers:** a waived category is recorded with its reason. `env-ready` passes it, and code-reviewer states the reduced verification in its validation record.
+- **A brand-new project's first task** can't reach swe until its baseline is bootstrapped or waived, so quality tooling arrives with the first line of code.
+
+```mermaid
+sequenceDiagram
+    participant H as Human
+    participant B as Bro
+    participant W as Web
+    participant DB as SQLite
+    participant S as swe
+
+    B->>DB: env_detect (no tool for lint, typecheck, test …)
+    B->>B: existing repo → machine → workspace
+    alt internet access
+        B->>W: best practice per category (official docs)
+        W-->>B: picks + source URLs
+    else offline
+        B->>B: model_knowledge (flagged for re-check)
+    end
+    B->>DB: cheatcode_search + cheatcode_vet (swe and code-reviewer skills)
+    B->>H: AUQ: one bundle (toolsets, system tools, skills)
+    H-->>B: approve / drop items / decline
+    B->>DB: env_record + cheatcode_install for approved skills
+    B->>S: bootstrap task (flow 2)
+    S-->>B: dev deps + config + pre-commit + CI committed
+    B->>DB: env_detect → ENV ready
+```
+
+---
+
+## Part IV — Agent task handling
+
+**In flight (GH 2066): the ENV in flow 2.**
+- the worktree setup runs the ENV `install` command in swe's worktree;
+- `task_provision` (S6) adds the matching ENV commands for each `files[]` entry to `verification[]`, deduplicated;
+- `env-ready` (E8) joins the Agent-spawn gates (S7, S15);
+- `task_brief` (S8) gives swe and code-reviewer the ENV commands for their files;
+- `tmb_review` (S16) fails a task whose files an ENV command covers when the gate run for its commit didn't run that command.
+
+### 2. Code-touching task (canonical chain)
 
 This section is the standard for the code-touching workflow. Other docs and the brand workflow hero cite its step ids (`S1`..`S22`, `S4′`), loop ids (`L1`..`L8`) and guard ids (`G1`..`G9`), each anchored as `FLOWS.md#<id>`; a change to the flow updates these tables first. Ids are never renumbered: a new step takes a primed id (`S4′`) and a new loop or guard the next number.
 
 Bro is both planner AND task gate: a task closes as soon as SWE returns and bro verifies it. code-reviewer then reviews each closed task, and `git-push-guard` holds any push whose task commits lack a passing review. `composites.ts`, `issues.ts`, `tasks.ts`, `validation.ts` and `scan.ts` below live in `mcp/trajectory-server/src/tools/`.
 
-### Steps
+#### Steps
 
 | Id | Actor | Tool or hook | Reads → writes | Source |
 |---|---|---|---|---|
@@ -127,7 +308,7 @@ Bro is both planner AND task gate: a task closes as soon as SWE returns and bro 
 | S21 | <a id="S21"></a>Human | Merges the PR; once it reports `MERGED`, bro runs the post-merge cleanup. **Planned (GH 2026):** when the PR is green, bro asks with an AUQ, merge by bro (CI and the local tests pass) or merge by the Human (the PR meets a human-review condition). | GitHub → the merged PR | `skills/tmb_push-gate/SKILL.md:50-52` |
 | S22 | <a id="S22"></a>hook | PostToolUse Bash after a successful in-session `gh pr merge` / `glab mr merge`: `close-issue-on-merge.sh` closes the branch's live tasks and each issue the PR closes by an explicit closing-ref; `clean-merged-branch.sh` removes the merged branch and its worktree. A merge made on GitHub fires neither. | `tasks`, `validation_attempts` → tasks and issue closed; audit `issue_auto_closed_on_merge` (+ `review_gate_bypassed` for a task with no passing review) | `hooks/hooks.json` (PostToolUse Bash); `scripts/hooks/close-issue-on-merge.sh`; `scripts/hooks/clean-merged-branch.sh` |
 
-### Loops
+#### Loops
 
 | Id | Loop | Trigger | What happens | Source |
 |---|---|---|---|---|
@@ -140,7 +321,7 @@ Bro is both planner AND task gate: a task closes as soon as SWE returns and bro 
 | L7 | <a id="L7"></a>Resume the same swe | bro reworks a task by `SendMessage` to the swe that wrote the commit, instead of a fresh spawn | PreToolUse `swe-resume-gate` judges the message like a fresh spawn: it denies at the rework limit (L5) and when the swe ran at an effort other than the task's current one. The resumed swe's next `task_brief` opens its own `agent_runs` row linked by `resumed_from`. Returns to S8. | `src/hooks/swe-resume-gate.ts` |
 | L8 | <a id="L8"></a>Reviewer preflight deny → fix | A code-reviewer spawn (S15) fails a machine check | `code-reviewer-preflight` denies with `{check, expected, actual}` for the first failing check: `sha_mismatch` (the branch tip is not `tasks.commit_sha`), `no_passing_run`, `base_conflict` (`git merge-tree` against the PR target, ignoring `merge=tmb-regen` paths), `stale_doc_ref` (a deleted path or dropped tool name still cited in prompts or docs), `missing_changelog`. bro fixes the cause (re-close, `integrate.sh`, or `task_reopen` for a doc or changelog fix) before any reviewer runs. Returns to S15, or to S7 through L3. | `src/hooks/code-reviewer-preflight.ts` |
 
-### Guards and advisories
+#### Guards and advisories
 
 Hooks that fire across many steps rather than at one.
 
@@ -158,7 +339,7 @@ Hooks that fire across many steps rather than at one.
 
 **Planned (GH 1861):** `dispatch.sh` records each gate's run time, sets timeouts from the p99, and retries a timed-out gate once.
 
-### Metering
+#### Metering
 
 What each run leaves behind for `task_stats`: `agent_runs` (tokens, duration, `stop_cause`, `stop_detail`, `resumed_from`), `wall_clock_ms`, `review_fail_count`, `swe_spawn_count`, `rework_count` and `reworks.fresh` / `reworks.resumed`, plus `hook_blocks` (`denials`, `gate_failures`, `by_reason`) per task and per spawn. `task_stats(since=<ISO date>)` without a task returns the same counts over every swe run since then. **In flight (PR 2047):** `tool_output` per agent type (GH 1957), the baseline for GH 1958.
 
@@ -193,7 +374,7 @@ flowchart TD
 
 ---
 
-## 3. Architectural change (Δ vs flow 2)
+### 3. Architectural change (Δ vs flow 2)
 
 Same chain as flow 2, plus: in `task_provision`'s `decision_body` (S6), bro records a `kind=decision` discussion and applies the blast-radius checklist. The universal decision gate requires a `kind='decision'` row regardless of flow.
 
@@ -203,33 +384,7 @@ Same chain as flow 2, plus: in `task_provision`'s `decision_body` (S6), bro reco
 
 ---
 
-## 4. Agent-creator
-
-```mermaid
-flowchart TD
-    A[Human asks for role X] --> B{Role X exists in<br/>.claude/agents/?}
-    B -->|yes| C[Route to existing agent]
-    B -->|no| D[Bro runs /tmb:agent-create]
-    D --> E[Skill: ≤3 clarifying Qs]
-    E --> F[Skill: draft tailored prompt]
-    F --> G[Show prompt to Human]
-    G --> H{Human approves?}
-    H -->|no| F
-    H -->|yes| I[Write .claude/agents/x.md + agent_register]
-    I --> J[Subsequent sessions: bro routes to X]
-```
-
-Reserved names — `bro`, `architect`, `swe`, `code-reviewer` — are refused. New agent files commit to the project; every dev gets it on next pull.
-
----
-
-## 5. Skill creation
-
-Same shape as flow 4 — bro drafts via `tmb_skill-creator`, Human approves, file lands at `<project>/.claude/skills/<name>/SKILL.md`. Bro never edits agent body files; instead writes a project-local override agent file that extends `skills:`.
-
----
-
-## 6. Push gate / PR review
+### 6. Push gate / PR review
 
 ```mermaid
 sequenceDiagram
@@ -263,33 +418,7 @@ A push made before review (by bro or the Human) hits `git-push-guard`, which den
 
 ---
 
-## 7. Scan + world-model refresh
-
-`scan_run` is the single scan-side MCP tool. It forks the deterministic `scripts/scan.sh`, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
-
-Triggered five ways (the `source` value is verified against `scan.ts`):
-
-| Trigger | `source` value | Who fires |
-|---|---|---|
-| First code-touching ask when the world model is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
-| User typed `/scan` | `user_manual` | The slash command body passes it |
-| `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background; it imports the bundled `mcp/trajectory-server/dist/run-scan.js`, which inlines web-tree-sitter, so symbols index in a plugin cache without devDependencies (GH 1878) |
-| Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
-| trajectory-server connects (`startStartupCatchup`) | `startup_catchup` | The server runs `scripts/maintenance/run-scan.mjs` detached, with the source as its second argument |
-
-`scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
-
-- `source` (one of the five values above)
-- `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
-- `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
-
-**Resource discovery (#124/#846).** The same scan ALSO reconciles on-disk capabilities into the `cheatcodes` table: project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`). Each resource not already tracked (matched on name+kind) is inserted as `origin='installed'`, `status='installed'`, `source_url='scan_discovered'` (distinguishing it from a pipeline install) and emits a `scan_discovered` audit row — so a cheatcode added out-of-band still becomes visible to the lifecycle flow below.
-
-**Planned (GH 1988):** the world model becomes the codebase DAG — impact reaches every downstream consumer (table readers, prompts, hooks), with measured caller recall. GH 1989 (S5) and GH 1990 (S8) build on it.
-
----
-
-## 8. SWE retry / escalation
+### 8. SWE retry / escalation
 
 Triggered when one of bro's four checks fails (flow 2 S12), code-reviewer records verdict='fail' (L3), `code-reviewer-preflight` denies (L8), or `integrate.sh` exits 2 (L4). More work on the same task goes through `task_reopen`, which moves it back to `running` and recreates its worktree when missing; bro then spawns a fresh swe, or resumes the swe that wrote the commit by `SendMessage` (L7). A wrong approach or an integrate conflict goes through the `task_retry` MCP composite — one transaction appends the retry rationale, creates a new `tasks` row, cuts its branch and worktree like `task_provision`, copies the failed task's open review findings onto it, and writes an `audit(event_type='task_retry_attempted')` row. Then bro spawns SWE on it.
 
@@ -297,21 +426,31 @@ Two FAILs since the last pass trip the rework limit (L5). `task_retry` refuses a
 
 ---
 
-## 9. Roundtable
+### M. Monitor PR comments
 
-Multi-consultant deliberation. Bro orchestrates 2–4 consultants on a topic, then renders an AUQ for Human ratification.
-
-- `roundtable_create` opens the table.
-- Bro spawns each consultant via `Agent` with the shared topic; consultants write `discussion_append(kind='analysis'|'concern')`.
-- Each consultant `roundtable_vote(participant=<role>, vote, rationale)`.
-- `roundtable_close` flips state to `awaiting_human` + emits a `discussion_append(kind='decision', body=summary)`.
-- `roundtable-auq-shape` (`src/hooks/roundtable-auq-shape.ts`) validates the ratification AUQ structure.
-- After Human picks: `roundtable_finalize_decisions` + `roundtable_summarize`.
-- `roundtable-cleanup-postcheck` (`src/hooks/roundtable-cleanup-postcheck.ts`) verifies the capture surface (audit + discussion rows) actually landed.
+`/monitor <PR_number>` slash command. Bro fetches the PR's review comments via `pr_monitor_comments_get`, triages actionable ones, files them as new `issues` + `tasks`, and dispatches SWE per ratified comment batch. Run state lives in `pr_review_runs` so re-runs of the same PR start from the last fetched comment ID. The server persists every fetched comment as a `note` discussion on the issue of the task that owns the PR, deduped by `discussions.remote_comment_id`; the result's `persisted` and `duplicates` count new and already-stored comments.
 
 ---
 
-## 10. Cheatcode lifecycle
+### 33. Multi-repo path discipline
+
+When a workspace has multiple inner git repos (siblings or submodules), each is identified by its `repos` row (path-keyed resolution; an operation matches its path against `repos.path`, or a task names its repo via `tasks.repo`). Directory node `path` properties are stored repo-relative — `scan_run` does NOT prepend the inner repo directory when writing nodes. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
+
+The L5 row `tests/l5-l6/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
+
+Registration also scopes the `no-source-edit-from-main.sh` guard: Rule 1 only protects registered repo subtrees, so absolute edits to unregistered sibling repos are allowed. See `docs/architecture/RESPONSIBILITIES.md` (#592).
+
+---
+
+### 13. Bulk cleanup (pre-authorized destructive ops)
+
+When the Human's prompt names what to delete (branches, temp files, etc.), bro executes in one Bash call with no AUQ and no re-confirmation. Defensive checks (which files match? any active worktrees?) belong *before* the Human authorizes. Re-asking treats a standing directive as a question — wastes time and ignores intent.
+
+---
+
+## Part V — Extending the team
+
+### 10. Cheatcode lifecycle
 
 Bro acquires a capability (skill, MCP toolkit, or plugin) on demand instead of grinding it out by hand. The mechanical pipeline is deterministic tools + hooks; only the judgments stay prose — "do I lack a capability this task needs?", "is this candidate trustworthy?", and "which agent consumes it?". Architecture-of-record: [`CHEATCODES.md`](./CHEATCODES.md). This is the full lifecycle.
 
@@ -370,34 +509,33 @@ flowchart TD
 
 ---
 
-## 13. Bulk cleanup (pre-authorized destructive ops)
+### 4. Agent-creator
 
-When the Human's prompt names what to delete (branches, temp files, etc.), bro executes in one Bash call with no AUQ and no re-confirmation. Defensive checks (which files match? any active worktrees?) belong *before* the Human authorizes. Re-asking treats a standing directive as a question — wastes time and ignores intent.
+```mermaid
+flowchart TD
+    A[Human asks for role X] --> B{Role X exists in<br/>.claude/agents/?}
+    B -->|yes| C[Route to existing agent]
+    B -->|no| D[Bro runs /tmb:agent-create]
+    D --> E[Skill: ≤3 clarifying Qs]
+    E --> F[Skill: draft tailored prompt]
+    F --> G[Show prompt to Human]
+    G --> H{Human approves?}
+    H -->|no| F
+    H -->|yes| I[Write .claude/agents/x.md + agent_register]
+    I --> J[Subsequent sessions: bro routes to X]
+```
 
----
-
-## 33. Multi-repo path discipline
-
-When a workspace has multiple inner git repos (siblings or submodules), each is identified by its `repos` row (path-keyed resolution; an operation matches its path against `repos.path`, or a task names its repo via `tasks.repo`). Directory node `path` properties are stored repo-relative — `scan_run` does NOT prepend the inner repo directory when writing nodes. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
-
-The L5 row `tests/l5-l6/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
-
-Registration also scopes the `no-source-edit-from-main.sh` guard: Rule 1 only protects registered repo subtrees, so absolute edits to unregistered sibling repos are allowed. See `docs/architecture/RESPONSIBILITIES.md` (#592).
-
----
-
-## B. Bug report (opt-in) — In flight (PR 2053)
-
-GH 2034. Off by default; the Human opts in at `/onboard` Round 5 or with `onboard_apply(bug_report_consent=…)` alone.
-
-1. bro hits a real TMB bug (`tmb_recovery` §D says when to offer one).
-2. bro calls `bug_report_draft`, which is refused unless `bug_report_consent` is `yes` or the Human asked for this report (`user_asked`). It builds the environment block from the DB, redacts tokens, key blocks, emails, git remotes, the project root, the home directory, other absolute paths and task, branch, repo and title names, renders the 12-field form with a `<!-- tmb-report v1 sig=… -->` marker, and reports `already_filed` when an earlier report carries the same signature. It never files anything.
-3. bro shows the Human the full draft; the Human's read is the final redaction check.
-4. Only on the Human's yes, bro files it to `trustmybot/plugin` and records a `bug_report_filed` audit row. `labels.mjs --triage` adds `Bug` and a priority from the Impact field.
+Reserved names — `bro`, `architect`, `swe`, `code-reviewer` — are refused. New agent files commit to the project; every dev gets it on next pull.
 
 ---
 
-## C. Consultant invocation
+### 5. Skill creation
+
+Same shape as flow 4 — bro drafts via `tmb_skill-creator`, Human approves, file lands at `<project>/.claude/skills/<name>/SKILL.md`. Bro never edits agent body files; instead writes a project-local override agent file that extends `skills:`.
+
+---
+
+### C. Consultant invocation
 
 Human types `/tmb:agent-create <ask>` OR a naturalistic question matching `/tmb:agent-create`'s description. Either path loads the skill, which calls `agent_resolve` to classify the role (collision, template-copy or from-scratch) and registers a newly written consultant with `agent_register`, then spawns the consultant via `Agent`. Consultant writes its analysis as `discussion_append(kind='analysis')`; the SubagentStop `consultant-persistence-gate` (`src/hooks/consultant-persistence-gate.ts`) checks that it did. Bro reports to Human; **the Human decides** — never the consultant.
 
@@ -405,9 +543,30 @@ Human types `/tmb:agent-create <ask>` OR a naturalistic question matching `/tmb:
 
 ---
 
-## M. Monitor PR comments
+### 9. Roundtable
 
-`/monitor <PR_number>` slash command. Bro fetches the PR's review comments via `pr_monitor_comments_get`, triages actionable ones, files them as new `issues` + `tasks`, and dispatches SWE per ratified comment batch. Run state lives in `pr_review_runs` so re-runs of the same PR start from the last fetched comment ID. The server persists every fetched comment as a `note` discussion on the issue of the task that owns the PR, deduped by `discussions.remote_comment_id`; the result's `persisted` and `duplicates` count new and already-stored comments.
+Multi-consultant deliberation. Bro orchestrates 2–4 consultants on a topic, then renders an AUQ for Human ratification.
+
+- `roundtable_create` opens the table.
+- Bro spawns each consultant via `Agent` with the shared topic; consultants write `discussion_append(kind='analysis'|'concern')`.
+- Each consultant `roundtable_vote(participant=<role>, vote, rationale)`.
+- `roundtable_close` flips state to `awaiting_human` + emits a `discussion_append(kind='decision', body=summary)`.
+- `roundtable-auq-shape` (`src/hooks/roundtable-auq-shape.ts`) validates the ratification AUQ structure.
+- After Human picks: `roundtable_finalize_decisions` + `roundtable_summarize`.
+- `roundtable-cleanup-postcheck` (`src/hooks/roundtable-cleanup-postcheck.ts`) verifies the capture surface (audit + discussion rows) actually landed.
+
+---
+
+## Part VI — Reporting TMB bugs
+
+### B. Bug report (opt-in) — In flight (PR 2053)
+
+GH 2034. Off by default; the Human opts in at `/onboard` Round 5 or with `onboard_apply(bug_report_consent=…)` alone.
+
+1. bro hits a real TMB bug (`tmb_recovery` §D says when to offer one).
+2. bro calls `bug_report_draft`, which is refused unless `bug_report_consent` is `yes` or the Human asked for this report (`user_asked`). It builds the environment block from the DB, redacts tokens, key blocks, emails, git remotes, the project root, the home directory, other absolute paths and task, branch, repo and title names, renders the 12-field form with a `<!-- tmb-report v1 sig=… -->` marker, and reports `already_filed` when an earlier report carries the same signature. It never files anything.
+3. bro shows the Human the full draft; the Human's read is the final redaction check.
+4. Only on the Human's yes, bro files it to `trustmybot/plugin` and records a `bug_report_filed` audit row. `labels.mjs --triage` adds `Bug` and a priority from the Impact field.
 
 ---
 
@@ -433,3 +592,4 @@ Every unshipped item that changes a flow, with the ids it touches. Most come fro
 | R14 | <a id="R14"></a>Adopt the session's worktree when bro runs in a Claude Code worktree session | **In flight (GH 2032)** | S6, S9, L3 |
 | R15 | <a id="R15"></a>Opt-in TMB bug reports | **In flight (PR 2053)**, GH 2034 | flow 1 Round 5, flow B |
 | R16 | <a id="R16"></a>The remaining bash gates move to TypeScript behind parity tests; all nine Agent-spawn gates have shipped | **In flight (GH 1692)** | S15, every `.sh` gate |
+| R17 | <a id="R17"></a>Per-repo ENV profile: `tmb_env-setup`, `repo_env`, the `env-ready` gate, and a fresh-project baseline approved as one permission bundle | **In flight (GH 2066)** | flow 0, flow E, flows 11 and 12, flow 1, flow 7, S6, S7, S8, S15, S16 |
