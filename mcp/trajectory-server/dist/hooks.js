@@ -7358,7 +7358,7 @@ function scan(buf, base2, home, assign, frames) {
   const astack = [];
   const oastack = [];
   const q = [];
-  const emit2 = (dir, text) => records.push({ dir, stmt: text });
+  const emit3 = (dir, text) => records.push({ dir, stmt: text });
   const loops = [];
   const fids = [];
   const fent = [];
@@ -7408,7 +7408,7 @@ function scan(buf, base2, home, assign, frames) {
     if (frames.lost.has(fo)) lose();
     bound();
     fent[fo] = { cur, why: cwhy, alts: [...alts] };
-    emit2(LOOP_OPEN, "do");
+    emit3(LOOP_OPEN, "do");
   }
   function fclose() {
     const fo = fids.pop();
@@ -7426,7 +7426,7 @@ function scan(buf, base2, home, assign, frames) {
     cur = e.cur;
     cwhy = e.why;
     bound();
-    emit2(LOOP_CLOSE, "done");
+    emit3(LOOP_CLOSE, "done");
   }
   function lose() {
     cur = "-";
@@ -7712,7 +7712,7 @@ function scan(buf, base2, home, assign, frames) {
         for (const a of aw) if (!assignword(a, !csure)) ok2 = false;
       }
       if (assign && asg !== "") {
-        emit2("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg);
+        emit3("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg);
         if (!chained) {
           old = "-";
           owhy = "";
@@ -7806,7 +7806,7 @@ function scan(buf, base2, home, assign, frames) {
         break;
       }
     }
-    emit2(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
+    emit3(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
     if (!chained) {
       old = "-";
       owhy = "";
@@ -7926,7 +7926,7 @@ function scan(buf, base2, home, assign, frames) {
     stmt += c;
   }
   flush();
-  if (assign && (unbal || loops.length > 0)) emit2(UNBALANCED, "unbalanced");
+  if (assign && (unbal || loops.length > 0)) emit3(UNBALANCED, "unbalanced");
   return records.filter((r) => r.stmt !== "");
 }
 
@@ -8097,7 +8097,7 @@ async function gitCommitMessage(command, env = process.env) {
 import { accessSync as accessSync7, constants as constants7, realpathSync as realpathSync4, statSync as statSync12 } from "node:fs";
 
 // src/hooks/cmd-analysis/lister.ts
-import { statSync as statSync9 } from "node:fs";
+import { statSync as statSync11 } from "node:fs";
 
 // src/hooks/cmd-analysis/path.ts
 import { existsSync as existsSync6, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
@@ -8154,10 +8154,360 @@ function payloadCwd(json, env = process.env) {
   return env.PWD ?? "";
 }
 
+// src/hooks/lib/repo.ts
+import { statSync as statSync9 } from "node:fs";
+function isFile5(path) {
+  if (path === "") return false;
+  try {
+    return statSync9(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function firstLine2(text) {
+  const nl = text.indexOf("\n");
+  return nl < 0 ? text : text.slice(0, nl);
+}
+function readable2(db, env) {
+  return isFile5(db) && haveSqlite(env);
+}
+function repoDefaultBranch(root, env = process.env) {
+  if (root === "") return "";
+  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
+  if (remote !== "") return remote;
+  for (const cand of ["main", "master", "dev"]) {
+    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
+  }
+  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
+}
+function repoGitRoot(target, env = process.env) {
+  if (target === "") return "";
+  while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
+  if (!isDir(target)) return "";
+  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
+  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
+}
+function repoNameForRoot(db, root, env = process.env) {
+  if (!readable2(db, env) || root === "") return "";
+  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
+  if (name3 !== "") return name3;
+  const want = realdir(root);
+  for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
+    if (row === "") continue;
+    const bar = row.indexOf("|");
+    const rname = bar < 0 ? row : row.slice(0, bar);
+    const rpath = bar < 0 ? row : row.slice(bar + 1);
+    if (rpath === "") continue;
+    if (realdir(repoPathAbs(db, rpath)) === want) return rname;
+  }
+  return "";
+}
+function repoResolve(db, root, env = process.env) {
+  if (!readable2(db, env) || root === "") return "";
+  const name3 = repoNameForRoot(db, root, env);
+  if (name3 === "") return "";
+  return firstLine2(
+    sqliteRo(
+      db,
+      `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
+      env
+    )
+  );
+}
+function repoIsRegistered(db, root, env = process.env) {
+  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
+}
+function repoSinglePath(db, env = process.env) {
+  if (!readable2(db, env)) return "";
+  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
+  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
+}
+function repoPathByName(db, name3, env = process.env) {
+  if (!readable2(db, env) || name3 === "") return "";
+  return firstLine2(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+}
+function repoResolvePath(db, name3, env = process.env) {
+  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
+}
+var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
+function repoRemotes(db, gitRoot, env = process.env) {
+  if (!readable2(db, env)) return "";
+  const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
+  let out2 = "";
+  if (name3 !== "") {
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+  }
+  if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
+  }
+  return out2;
+}
+
+// src/hooks/lib/target-task.ts
+import { createHash } from "node:crypto";
+
+// src/hooks/lib/agent-context.ts
+import { existsSync as existsSync7, lstatSync as lstatSync3, readlinkSync as readlinkSync3, statSync as statSync10 } from "node:fs";
+var MAX_LINK_HOPS = 40;
+function isFile6(path) {
+  try {
+    return statSync10(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function isSymlink(path) {
+  try {
+    return lstatSync3(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function agentTranscript(input = "") {
+  const own = jqAlternatives(input, [["agent_transcript_path"]]);
+  if (own !== "" && isFile6(own)) return own;
+  const main = jqAlternatives(input, [["transcript_path"]]);
+  const id = jqAlternatives(input, [["agent_id"]]);
+  if (main === "" || id === "" || !/^[A-Za-z0-9_-]+$/.test(id)) return "";
+  const t = `${main.endsWith(".jsonl") ? main.slice(0, -".jsonl".length) : main}/subagents/agent-${id}.jsonl`;
+  return isFile6(t) ? t : "";
+}
+function readFields(row, count) {
+  let rest = row.split("\n")[0];
+  const fields = [];
+  for (let i2 = 0; i2 < count - 1; i2 += 1) {
+    const bar = rest.indexOf("|");
+    if (bar < 0) {
+      fields.push(rest);
+      rest = "";
+      continue;
+    }
+    fields.push(rest.slice(0, bar));
+    rest = rest.slice(bar + 1);
+  }
+  if (rest.endsWith("|") && !rest.slice(0, -1).includes("|")) rest = rest.slice(0, -1);
+  fields.push(rest);
+  return fields;
+}
+function taskLocation(db, taskId, env = process.env) {
+  const none = { repo: "", repoRoot: "", worktree: "" };
+  const task = sqlInt(taskId);
+  if (task === "") return { code: 1, ...none, missing: "no task_id" };
+  const fields = `COALESCE(t.branch_id, '') || '|' || COALESCE(t.repo, '') || '|'
+           || COALESCE(r.name, '') || '|' || COALESCE(r.path, '')`;
+  const from = `
+      FROM tasks t
+      LEFT JOIN repos r ON r.name = CASE
+          WHEN COALESCE(t.repo, '') <> '' THEN t.repo
+          WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT name FROM repos)
+        END
+     WHERE t.id = ${task} LIMIT 1;`;
+  let recordedHex = "";
+  let row = gateRead(db, `SELECT hex(COALESCE(t.worktree_path, '')) || '|' || ${fields}${from}`, env);
+  if (row === GATE_READ_ERROR) {
+    row = gateRead(db, `SELECT ${fields}${from}`, env);
+  } else if (row !== "") {
+    const bar = row.indexOf("|");
+    recordedHex = row.slice(0, bar);
+    row = row.slice(bar + 1);
+  }
+  if (row === GATE_READ_ERROR) {
+    return { code: 2, ...none, missing: `task ${task}: the trajectory DB read failed (tasks/repos)` };
+  }
+  if (row === "") return { code: 1, ...none, missing: `task ${task} has no tasks row` };
+  const [branch, repo, name3, rawPath] = readFields(row, 4);
+  if (branch === "") return { code: 1, ...none, missing: `task ${task} has no branch_id` };
+  if (name3 === "" || rawPath === "") {
+    const missing = repo !== "" ? `task ${task}'s repo '${repo}' has no repos row with a path` : `task ${task} has no repo: tasks.repo is empty and the repos table does not hold exactly one row`;
+    return { code: 1, ...none, missing };
+  }
+  const path = rawPath.startsWith("/") ? rawPath : realdir(repoPathAbs(db, rawPath));
+  const repoRoot = path.endsWith("/") ? path.slice(0, -1) : path;
+  const recorded = Buffer.from(recordedHex, "hex").toString("utf8");
+  return {
+    code: 0,
+    repo: name3,
+    repoRoot,
+    worktree: recorded !== "" ? recorded : `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`,
+    missing: ""
+  };
+}
+function agentContext(input = "", db = "", env = process.env) {
+  const role = agentRole(input);
+  const blank2 = { taskId: "", repo: "", repoRoot: "", worktree: "", missing: "" };
+  if (role !== "swe") return { code: 0, role, ...blank2, repoRoot: projectRoot(env) };
+  const resolved = db !== "" ? db : dbPath(env) ?? "";
+  if (resolved === "") {
+    return { code: 3, role, ...blank2, missing: "no trajectory DB resolves (TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)" };
+  }
+  const transcript = agentTranscript(input);
+  let task = taskIdFromTranscript(transcript);
+  if (task === "") {
+    const run4 = callerRun(input, resolved, env);
+    if (run4 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
+    const bar = run4.indexOf("|");
+    task = sqlInt(bar < 0 ? run4 : run4.slice(0, bar));
+  }
+  if (task === "") {
+    const missing = transcript !== "" ? `no task_id: the spawn transcript ${transcript} carries no task_id=<N>` : "no task_id: the payload names no spawn transcript (agent_transcript_path, or transcript_path plus agent_id) and no agent_runs row is bound to this agent_id";
+    return { code: 1, role, ...blank2, missing };
+  }
+  return { role, taskId: task, ...taskLocation(resolved, task, env) };
+}
+function pathCanonical2(path = "") {
+  if (!path.startsWith("/")) return path;
+  let cur = "";
+  let tail = "";
+  let rest = path;
+  let hops = 0;
+  while (rest !== "") {
+    rest = rest.startsWith("/") ? rest.slice(1) : rest;
+    const slash = rest.indexOf("/");
+    const part = slash < 0 ? rest : rest.slice(0, slash);
+    rest = slash < 0 ? "" : rest.slice(slash + 1);
+    if (part === "" || part === ".") continue;
+    if (tail !== "") {
+      tail = part === ".." ? tail.slice(0, Math.max(0, tail.lastIndexOf("/"))) : `${tail}/${part}`;
+      continue;
+    }
+    if (part === "..") {
+      cur = cur.slice(0, Math.max(0, cur.lastIndexOf("/")));
+      continue;
+    }
+    const here = `${cur}/${part}`;
+    if (isSymlink(here) && hops < MAX_LINK_HOPS) {
+      hops += 1;
+      const link = readlinkSync3(here).replace(/\n+$/, "");
+      if (link.startsWith("/")) cur = "";
+      rest = `${link}/${rest}`;
+      continue;
+    }
+    if (existsSync7(here)) cur = here;
+    else tail = `/${part}`;
+  }
+  if (cur + tail === "") cur = "/";
+  return `${cur}${tail}`;
+}
+function ctxInWorktree(path, worktree) {
+  if (worktree === "" || path === "") return false;
+  const c = pathCanonical2(path);
+  const w = pathCanonical2(worktree);
+  if (c === w) return true;
+  return c.startsWith(`${w.endsWith("/") ? w.slice(0, -1) : w}/`);
+}
+
+// src/hooks/lib/target-task.ts
+var WORKTREE_MARK = "/.claude/worktrees/";
+var WORKTREE_ROOT = /^(.*\/.claude\/worktrees\/[^/]+).*$/;
+function worktreeRootForTarget(target) {
+  if (!target.includes(WORKTREE_MARK)) return "";
+  return stripTrailingNewlines(
+    target.split("\n").map((line) => line.replace(WORKTREE_ROOT, "$1")).join("\n")
+  );
+}
+function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
+  const resolved = db !== "" ? db : dbPath(env) ?? "";
+  const wt = worktreeRootForTarget(target);
+  let task = "";
+  if (resolved !== "" && haveSqlite(env) && wt !== "") {
+    const branch = gitOut(wt, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+    if (branch !== "" && branch !== "HEAD") {
+      task = sqlInt(
+        sqliteRo(
+          resolved,
+          `
+        SELECT id FROM tasks
+         WHERE branch_id = '${sqlQuote(branch)}'
+         ORDER BY id DESC
+         LIMIT 1;
+      `,
+          env
+        )
+      );
+    }
+    if (task === "") {
+      const slug = stripTrailingNewlines(posixBasename(wt));
+      task = sqlInt(taskBySlug(resolved, slug, "id", "", env, (line) => process.stderr.write(`${line}
+`)));
+    }
+  }
+  if (task === "" && input !== "") {
+    task = taskIdFromTranscript(stripTrailingNewlines(jqAlternatives(input, [["agent_transcript_path"]])));
+  }
+  return task;
+}
+function pathDigest(path) {
+  return createHash("sha256").update(stripTrailingNewlines(pathCanonical2(path)), "utf8").digest("hex");
+}
+
+// src/hooks/cmd-analysis/surface.ts
+var WRITE_SHAPES = [
+  ">",
+  ">>",
+  ">|",
+  "&>",
+  "exec N>",
+  "heredoc into a redirect",
+  "tee",
+  "tee -a",
+  "sed -i",
+  "perl -i",
+  "dd of=",
+  "truncate",
+  "cp",
+  "mv",
+  "install",
+  "rsync",
+  "git mv",
+  "ln",
+  "mkdir",
+  "rm",
+  "touch",
+  "tar -C / make -C / env -C / npm --prefix",
+  "git commit / reset / checkout / stash / clean / bisect / submodule update / \u2026 in its -C dir or own dir",
+  "git init <dir> / format-patch -o / archive -o / checkout-index --prefix",
+  "python -c / node -e / perl -e / ruby -e with a write mode",
+  "a program fed to python / node / perl / ruby / sh through a heredoc",
+  "find -exec / -execdir / -ok / -delete / -fprint",
+  "fd -x / -X",
+  "xargs fed by find or fd"
+];
+var PROMPT_FILES = /* @__PURE__ */ new Set(["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"]);
+function writeShapes() {
+  return WRITE_SHAPES.join(", ");
+}
+function surfaceRoot(abs, env = process.env) {
+  if (abs.includes("/.claude/worktrees/")) return worktreeRootForTarget(abs);
+  const parent = (path) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
+  let dir = parent(abs);
+  while (dir !== "" && !isDir(dir)) dir = parent(dir);
+  if (dir === "") dir = "/";
+  return stripTrailingNewlines(repoGitRoot(dir, env));
+}
+function isPromptSurfacePath(p, root = "", env = process.env) {
+  if (PROMPT_FILES.has(p.slice(p.lastIndexOf("/") + 1))) return true;
+  let rel = "";
+  if (p.startsWith("/")) {
+    const abs = stripTrailingNewlines(pathCanonical(p));
+    let r = root === "" ? surfaceRoot(abs, env) : root;
+    if (r !== "") {
+      r = stripTrailingNewlines(pathCanonical(r));
+      const prefix = `${r.endsWith("/") ? r.slice(0, -1) : r}/`;
+      if (abs.startsWith(prefix)) rel = abs.slice(prefix.length);
+    }
+  } else rel = p.startsWith("./") ? p.slice(2) : p;
+  if (rel === "") {
+    if (!p.endsWith(".md")) return false;
+    return /\/(agents|skills|commands|templates|rules)\//.test(`/${p.startsWith("/") ? p.slice(1) : p}`);
+  }
+  return /^(agents|skills|commands|templates|rules)\/[^]*\.md$/.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/[^]*\.md$/.test(rel);
+}
+
 // src/hooks/cmd-analysis/lister.ts
 var NAME2 = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var SURFACES = ["agents", "skills", "commands", "templates", "rules", ".claude/agents", "CLAUDE.md"];
-var PROMPT_FILES = ["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"];
+var PROMPT_FILES2 = ["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"];
 var EXEC_REDIRECT = /^(>|>>|>\||<|<<<|&>|&>>|[0-9]>|[0-9]>>|[0-9]<)$/;
 var EXEC_REDIRECT_WORD = /^(>|<|&>|[0-9]>|[0-9]<)/;
 var RG_VALUE = /^(-t|--type|-T|--type-not|--type-add|-j|--threads|-d|--max-depth|--max-filesize|--ignore-file|--sort|--sortr|-E|--encoding)$/;
@@ -8165,8 +8515,8 @@ var FD_VALUE = /^(-e|--extension|-t|--type|-d|--max-depth|--min-depth|--exact-de
 var PLACEHOLDER = /\{\}|\{\/\}|\{\/\/\}|\{\.\}|\{\/\.\}/;
 var basename2 = (w) => w.replace(/.*\//, "");
 var trimSlash = (s) => s.replace(/\/$/, "");
-var isDir2 = (p) => statSync9(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
-var isFile5 = (p) => statSync9(p, { throwIfNoEntry: false })?.isFile() ?? false;
+var isDir2 = (p) => statSync11(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
+var isFile7 = (p) => statSync11(p, { throwIfNoEntry: false })?.isFile() ?? false;
 var CLASSES = {
   alnum: "A-Za-z0-9",
   alpha: "A-Za-z",
@@ -8286,19 +8636,6 @@ function exclCovers(pat, d, sub, v, root, rootc) {
       return false;
   }
   return r === `*/${b}` || r === `**/${b}` || r === `${l}/${sub}` || r === `./${sub}` || r === `${trimSlash(root)}/${d}` || r === `${trimSlash(rootc)}/${d}`;
-}
-function isPromptSurfacePath(p, root) {
-  if (PROMPT_FILES.includes(basename2(p))) return true;
-  let rel = "";
-  if (p.startsWith("/")) {
-    const abs = pathCanonical(p);
-    if (root !== "") {
-      const prefix = trimSlash(pathCanonical(root)) + "/";
-      if (abs.startsWith(prefix)) rel = abs.slice(prefix.length);
-    }
-  } else rel = p.replace(/^\.\//, "");
-  if (rel === "") return p.endsWith(".md") && /\/(agents|skills|commands|templates|rules)\//.test("/" + p.replace(/^\//, ""));
-  return /^(agents|skills|commands|templates|rules)\/.*\.md$/s.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/.*\.md$/s.test(rel);
 }
 function findModel(mode, args2, raw, acts, m) {
   const n2 = args2.length;
@@ -8584,7 +8921,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
         for (const d of SURFACES) {
           const sub = rel !== "" && d.startsWith(rel + "/") ? d.slice(rel.length + 1) : d;
           if (d === "CLAUDE.md") {
-            if (rel !== "" || !isFile5(`${rootTrim}/${d}`)) continue;
+            if (rel !== "" || !isFile7(`${rootTrim}/${d}`)) continue;
           } else if (!isDir2(`${rootTrim}/${d}`) || rel !== "" && sub === d) continue;
           if (m.excl.some((e) => exclCovers(e, d, sub, v, host.root, rootc))) continue;
           if (m.pats.length > 0) {
@@ -8599,7 +8936,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
       for (const pat of m.pats) {
         const body2 = pat.slice(2);
         if (body2 === "" || body2.includes("/") || body2.startsWith("!")) continue;
-        if (PROMPT_FILES.some((f) => patMatches(pat, f))) vals.push(`${trimSlash(v)}/${body2}`);
+        if (PROMPT_FILES2.some((f) => patMatches(pat, f))) vals.push(`${trimSlash(v)}/${body2}`);
       }
     }
   }
@@ -13029,350 +13366,6 @@ function ghMutation(stmt) {
   return "";
 }
 
-// src/hooks/lib/repo.ts
-import { statSync as statSync10 } from "node:fs";
-function isFile6(path) {
-  if (path === "") return false;
-  try {
-    return statSync10(path).isFile();
-  } catch {
-    return false;
-  }
-}
-function firstLine2(text) {
-  const nl = text.indexOf("\n");
-  return nl < 0 ? text : text.slice(0, nl);
-}
-function readable2(db, env) {
-  return isFile6(db) && haveSqlite(env);
-}
-function repoDefaultBranch(root, env = process.env) {
-  if (root === "") return "";
-  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
-  if (remote !== "") return remote;
-  for (const cand of ["main", "master", "dev"]) {
-    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
-  }
-  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
-}
-function repoGitRoot(target, env = process.env) {
-  if (target === "") return "";
-  while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
-  if (!isDir(target)) return "";
-  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
-  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
-  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
-}
-function repoNameForRoot(db, root, env = process.env) {
-  if (!readable2(db, env) || root === "") return "";
-  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
-  if (name3 !== "") return name3;
-  const want = realdir(root);
-  for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
-    if (row === "") continue;
-    const bar = row.indexOf("|");
-    const rname = bar < 0 ? row : row.slice(0, bar);
-    const rpath = bar < 0 ? row : row.slice(bar + 1);
-    if (rpath === "") continue;
-    if (realdir(repoPathAbs(db, rpath)) === want) return rname;
-  }
-  return "";
-}
-function repoResolve(db, root, env = process.env) {
-  if (!readable2(db, env) || root === "") return "";
-  const name3 = repoNameForRoot(db, root, env);
-  if (name3 === "") return "";
-  return firstLine2(
-    sqliteRo(
-      db,
-      `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
-      env
-    )
-  );
-}
-function repoIsRegistered(db, root, env = process.env) {
-  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
-}
-function repoSinglePath(db, env = process.env) {
-  if (!readable2(db, env)) return "";
-  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
-  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
-}
-function repoPathByName(db, name3, env = process.env) {
-  if (!readable2(db, env) || name3 === "") return "";
-  return firstLine2(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-}
-function repoResolvePath(db, name3, env = process.env) {
-  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
-}
-var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
-function repoRemotes(db, gitRoot, env = process.env) {
-  if (!readable2(db, env)) return "";
-  const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
-  let out2 = "";
-  if (name3 !== "") {
-    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-  }
-  if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
-    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
-  }
-  return out2;
-}
-
-// src/hooks/lib/target-task.ts
-import { createHash } from "node:crypto";
-
-// src/hooks/lib/agent-context.ts
-import { existsSync as existsSync7, lstatSync as lstatSync3, readlinkSync as readlinkSync3, statSync as statSync11 } from "node:fs";
-var MAX_LINK_HOPS = 40;
-function isFile7(path) {
-  try {
-    return statSync11(path).isFile();
-  } catch {
-    return false;
-  }
-}
-function isSymlink(path) {
-  try {
-    return lstatSync3(path).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function agentTranscript(input = "") {
-  const own = jqAlternatives(input, [["agent_transcript_path"]]);
-  if (own !== "" && isFile7(own)) return own;
-  const main = jqAlternatives(input, [["transcript_path"]]);
-  const id = jqAlternatives(input, [["agent_id"]]);
-  if (main === "" || id === "" || !/^[A-Za-z0-9_-]+$/.test(id)) return "";
-  const t = `${main.endsWith(".jsonl") ? main.slice(0, -".jsonl".length) : main}/subagents/agent-${id}.jsonl`;
-  return isFile7(t) ? t : "";
-}
-function readFields(row, count) {
-  let rest = row.split("\n")[0];
-  const fields = [];
-  for (let i2 = 0; i2 < count - 1; i2 += 1) {
-    const bar = rest.indexOf("|");
-    if (bar < 0) {
-      fields.push(rest);
-      rest = "";
-      continue;
-    }
-    fields.push(rest.slice(0, bar));
-    rest = rest.slice(bar + 1);
-  }
-  if (rest.endsWith("|") && !rest.slice(0, -1).includes("|")) rest = rest.slice(0, -1);
-  fields.push(rest);
-  return fields;
-}
-function taskLocation(db, taskId, env = process.env) {
-  const none = { repo: "", repoRoot: "", worktree: "" };
-  const task = sqlInt(taskId);
-  if (task === "") return { code: 1, ...none, missing: "no task_id" };
-  const row = gateRead(
-    db,
-    `
-    SELECT COALESCE(t.branch_id, '') || '|' || COALESCE(t.repo, '') || '|'
-           || COALESCE(r.name, '') || '|' || COALESCE(r.path, '')
-      FROM tasks t
-      LEFT JOIN repos r ON r.name = CASE
-          WHEN COALESCE(t.repo, '') <> '' THEN t.repo
-          WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT name FROM repos)
-        END
-     WHERE t.id = ${task} LIMIT 1;`,
-    env
-  );
-  if (row === GATE_READ_ERROR) {
-    return { code: 2, ...none, missing: `task ${task}: the trajectory DB read failed (tasks/repos)` };
-  }
-  if (row === "") return { code: 1, ...none, missing: `task ${task} has no tasks row` };
-  const [branch, repo, name3, rawPath] = readFields(row, 4);
-  if (branch === "") return { code: 1, ...none, missing: `task ${task} has no branch_id` };
-  if (name3 === "" || rawPath === "") {
-    const missing = repo !== "" ? `task ${task}'s repo '${repo}' has no repos row with a path` : `task ${task} has no repo: tasks.repo is empty and the repos table does not hold exactly one row`;
-    return { code: 1, ...none, missing };
-  }
-  const path = rawPath.startsWith("/") ? rawPath : realdir(repoPathAbs(db, rawPath));
-  const repoRoot = path.endsWith("/") ? path.slice(0, -1) : path;
-  return {
-    code: 0,
-    repo: name3,
-    repoRoot,
-    worktree: `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`,
-    missing: ""
-  };
-}
-function agentContext(input = "", db = "", env = process.env) {
-  const role = agentRole(input);
-  const blank2 = { taskId: "", repo: "", repoRoot: "", worktree: "", missing: "" };
-  if (role !== "swe") return { code: 0, role, ...blank2, repoRoot: projectRoot(env) };
-  const resolved = db !== "" ? db : dbPath(env) ?? "";
-  if (resolved === "") {
-    return { code: 3, role, ...blank2, missing: "no trajectory DB resolves (TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)" };
-  }
-  const transcript = agentTranscript(input);
-  let task = taskIdFromTranscript(transcript);
-  if (task === "") {
-    const run4 = callerRun(input, resolved, env);
-    if (run4 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
-    const bar = run4.indexOf("|");
-    task = sqlInt(bar < 0 ? run4 : run4.slice(0, bar));
-  }
-  if (task === "") {
-    const missing = transcript !== "" ? `no task_id: the spawn transcript ${transcript} carries no task_id=<N>` : "no task_id: the payload names no spawn transcript (agent_transcript_path, or transcript_path plus agent_id) and no agent_runs row is bound to this agent_id";
-    return { code: 1, role, ...blank2, missing };
-  }
-  return { role, taskId: task, ...taskLocation(resolved, task, env) };
-}
-function pathCanonical2(path = "") {
-  if (!path.startsWith("/")) return path;
-  let cur = "";
-  let tail = "";
-  let rest = path;
-  let hops = 0;
-  while (rest !== "") {
-    rest = rest.startsWith("/") ? rest.slice(1) : rest;
-    const slash = rest.indexOf("/");
-    const part = slash < 0 ? rest : rest.slice(0, slash);
-    rest = slash < 0 ? "" : rest.slice(slash + 1);
-    if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.slice(0, Math.max(0, tail.lastIndexOf("/"))) : `${tail}/${part}`;
-      continue;
-    }
-    if (part === "..") {
-      cur = cur.slice(0, Math.max(0, cur.lastIndexOf("/")));
-      continue;
-    }
-    const here = `${cur}/${part}`;
-    if (isSymlink(here) && hops < MAX_LINK_HOPS) {
-      hops += 1;
-      const link = readlinkSync3(here).replace(/\n+$/, "");
-      if (link.startsWith("/")) cur = "";
-      rest = `${link}/${rest}`;
-      continue;
-    }
-    if (existsSync7(here)) cur = here;
-    else tail = `/${part}`;
-  }
-  if (cur + tail === "") cur = "/";
-  return `${cur}${tail}`;
-}
-function ctxInWorktree(path, worktree) {
-  if (worktree === "" || path === "") return false;
-  const c = pathCanonical2(path);
-  const w = pathCanonical2(worktree);
-  if (c === w) return true;
-  return c.startsWith(`${w.endsWith("/") ? w.slice(0, -1) : w}/`);
-}
-
-// src/hooks/lib/target-task.ts
-var WORKTREE_MARK = "/.claude/worktrees/";
-var WORKTREE_ROOT = /^(.*\/.claude\/worktrees\/[^/]+).*$/;
-function worktreeRootForTarget(target) {
-  if (!target.includes(WORKTREE_MARK)) return "";
-  return stripTrailingNewlines(
-    target.split("\n").map((line) => line.replace(WORKTREE_ROOT, "$1")).join("\n")
-  );
-}
-function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
-  const resolved = db !== "" ? db : dbPath(env) ?? "";
-  const wt = worktreeRootForTarget(target);
-  let task = "";
-  if (resolved !== "" && haveSqlite(env) && wt !== "") {
-    const branch = gitOut(wt, ["rev-parse", "--abbrev-ref", "HEAD"], env);
-    if (branch !== "" && branch !== "HEAD") {
-      task = sqlInt(
-        sqliteRo(
-          resolved,
-          `
-        SELECT id FROM tasks
-         WHERE branch_id = '${sqlQuote(branch)}'
-         ORDER BY id DESC
-         LIMIT 1;
-      `,
-          env
-        )
-      );
-    }
-    if (task === "") {
-      const slug = stripTrailingNewlines(posixBasename(wt));
-      task = sqlInt(taskBySlug(resolved, slug, "id", "", env, (line) => process.stderr.write(`${line}
-`)));
-    }
-  }
-  if (task === "" && input !== "") {
-    task = taskIdFromTranscript(stripTrailingNewlines(jqAlternatives(input, [["agent_transcript_path"]])));
-  }
-  return task;
-}
-function pathDigest(path) {
-  return createHash("sha256").update(stripTrailingNewlines(pathCanonical2(path)), "utf8").digest("hex");
-}
-
-// src/hooks/cmd-analysis/surface.ts
-var WRITE_SHAPES = [
-  ">",
-  ">>",
-  ">|",
-  "&>",
-  "exec N>",
-  "heredoc into a redirect",
-  "tee",
-  "tee -a",
-  "sed -i",
-  "perl -i",
-  "dd of=",
-  "truncate",
-  "cp",
-  "mv",
-  "install",
-  "rsync",
-  "git mv",
-  "ln",
-  "mkdir",
-  "rm",
-  "touch",
-  "tar -C / make -C / env -C / npm --prefix",
-  "git commit / reset / checkout / stash / clean / bisect / submodule update / \u2026 in its -C dir or own dir",
-  "git init <dir> / format-patch -o / archive -o / checkout-index --prefix",
-  "python -c / node -e / perl -e / ruby -e with a write mode",
-  "a program fed to python / node / perl / ruby / sh through a heredoc",
-  "find -exec / -execdir / -ok / -delete / -fprint",
-  "fd -x / -X",
-  "xargs fed by find or fd"
-];
-var PROMPT_FILES2 = /* @__PURE__ */ new Set(["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"]);
-function writeShapes() {
-  return WRITE_SHAPES.join(", ");
-}
-function surfaceRoot(abs, env = process.env) {
-  if (abs.includes("/.claude/worktrees/")) return worktreeRootForTarget(abs);
-  const parent = (path) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
-  let dir = parent(abs);
-  while (dir !== "" && !isDir(dir)) dir = parent(dir);
-  if (dir === "") dir = "/";
-  return stripTrailingNewlines(repoGitRoot(dir, env));
-}
-function isPromptSurfacePath2(p, root = "", env = process.env) {
-  if (PROMPT_FILES2.has(p.slice(p.lastIndexOf("/") + 1))) return true;
-  let rel = "";
-  if (p.startsWith("/")) {
-    const abs = stripTrailingNewlines(pathCanonical(p));
-    let r = root === "" ? surfaceRoot(abs, env) : root;
-    if (r !== "") {
-      r = stripTrailingNewlines(pathCanonical(r));
-      const prefix = `${r.endsWith("/") ? r.slice(0, -1) : r}/`;
-      if (abs.startsWith(prefix)) rel = abs.slice(prefix.length);
-    }
-  } else rel = p.startsWith("./") ? p.slice(2) : p;
-  if (rel === "") {
-    if (!p.endsWith(".md")) return false;
-    return /\/(agents|skills|commands|templates|rules)\//.test(`/${p.startsWith("/") ? p.slice(1) : p}`);
-  }
-  return /^(agents|skills|commands|templates|rules)\/[^]*\.md$/.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/[^]*\.md$/.test(rel);
-}
-
 // src/hooks/cmd-analysis/strip-literals.ts
 var NEUTRAL2 = /* @__PURE__ */ new Set([" ", "	", "<", ">", "|", ";", "&", "(", ")", "`"]);
 var COMMENT_BEFORE = /* @__PURE__ */ new Set([" ", "	", ";", "&", "|", "("]);
@@ -16308,7 +16301,7 @@ var Boundary = class {
         rel = path;
       }
       if (wt !== "" && rel === "CLAUDE.md") rootClaudeMd = path;
-      if (surface2 === "" && isPromptSurfacePath2(rel, wt, this.env)) {
+      if (surface2 === "" && isPromptSurfacePath(rel, wt, this.env)) {
         surface2 = path;
         anchor = wt === "" ? "" : path;
       }
@@ -16480,7 +16473,7 @@ var Boundary = class {
       subject = this.wtD === "" ? target : stripDir(target, this.wtD);
     }
     if (this.wtD !== "" && subject === "CLAUDE.md") return deny6(claudeMdReason(target));
-    if (!isPromptSurfacePath2(subject, this.wtD, this.env)) return this.bypassCheck();
+    if (!isPromptSurfacePath(subject, this.wtD, this.env)) return this.bypassCheck();
     const db = this.dbPath();
     if (dbState(this.env) === "error") return this.dbDenied();
     if (db !== "" && haveSqlite(this.env)) {
@@ -16715,11 +16708,11 @@ function makeTaskOverrunAlert(clock = () => /* @__PURE__ */ new Date()) {
     const found = overruns(db, now, thresholdMin(env), env);
     if (found === null || found.length === 0) return ALLOW;
     const claimed = claim(db, found, now, env);
-    const emit2 = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
-    if (emit2.length === 0) return ALLOW;
+    const emit3 = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
+    if (emit3.length === 0) return ALLOW;
     const event = jqAlternatives(payload, [["hook_event_name"]]) || "UserPromptSubmit";
     return {
-      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: emit2.map(alertLine).join("\n") } })}
+      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: emit3.map(alertLine).join("\n") } })}
 `,
       code: 0
     };
@@ -18881,8 +18874,948 @@ var cheatcodeInstallApproval = (payload, env) => {
   return deny8(notApprovedReason(name3, url));
 };
 
+// src/hooks/stay-on-base-guard.ts
+import { statSync as statSync24 } from "node:fs";
+
+// src/hooks/lib/statement-rows.ts
+function readTabFields2(line, n2) {
+  let s = line.replace(/^\t+/, "");
+  const fields = [];
+  for (let i2 = 0; i2 < n2 - 1; i2++) {
+    const tab = s.indexOf("	");
+    if (tab < 0) {
+      fields.push(s);
+      s = "";
+      continue;
+    }
+    fields.push(s.slice(0, tab));
+    s = s.slice(tab).replace(/^\t+/, "");
+  }
+  fields.push(s.replace(/\t+$/, ""));
+  return fields;
+}
+function statementRows(statements2) {
+  const text = stripTrailingNewlines(statements2.map(({ dir, stmt }) => `${dir}	${stmt}`).join("\n"));
+  if (text === "") return [];
+  return text.split("\n").map((line) => {
+    const [dir, stmt] = readTabFields2(line, 2);
+    return { dir, stmt };
+  });
+}
+function payloadCwdOf(input, env = process.env) {
+  return jqCapture(input, ["cwd"], true) || shellPwd(env);
+}
+function denyResult(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+
+// src/hooks/stay-on-base-guard.ts
+var GATE_NAME45 = "stay-on-base-guard";
+var BRANCH_WORD = /^[a-zA-Z0-9_./:@^~-]+$/;
+var CREATES_OR_RESTORES = [" -b ", " -B ", " -c ", " -C ", " --create ", " -- "];
+function switchTarget(sub) {
+  const rest = sub.slice(sub.indexOf(" ") + 1);
+  let target = "";
+  for (const w of (rest.split("\n")[0] ?? "").split(/[ \t]+/)) if (w !== "" && !w.startsWith("-")) target = w;
+  return target;
+}
+function isFile11(path) {
+  try {
+    return statSync24(path).isFile();
+  } catch {
+    return false;
+  }
+}
+var stayOnBaseGuard = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (!command.includes("checkout") && !command.includes("switch")) return ALLOW;
+  const listed2 = await cmdStatements(command, payloadCwdOf(input, env), env);
+  if (!listed2.ok) return haveSqlite(env) && isFile11(dbPath(env) ?? "") ? denyResult(PARSE_REASON) : ALLOW;
+  let lines2 = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const sub = gitSubcommand(stmt);
+    if (!sub.startsWith("checkout ") && !sub.startsWith("switch ")) continue;
+    if (CREATES_OR_RESTORES.some((flag) => ` ${sub} `.includes(flag))) continue;
+    const target = switchTarget(sub);
+    if (target === "" || !BRANCH_WORD.test(target)) continue;
+    lines2 += `${dir}	${target}	${stmt}
+`;
+  }
+  if (lines2 === "") return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const db = dbPath(env) ?? "";
+  if (!isFile11(db)) return ALLOW;
+  const switches = lines2.split("\n").map((line) => {
+    const [dir, target, stmt] = readTabFields2(line, 3);
+    return { dir, target, stmt };
+  });
+  for (const { dir, target, stmt } of switches) {
+    if (target === "") continue;
+    if (dir === "-" || dir.includes("/.claude/worktrees/")) continue;
+    const openTask = gateRead(
+      db,
+      `
+    SELECT id FROM tasks
+     WHERE branch_id = '${sqlQuote(target)}'
+       AND status IN ('pending','running','needs_validation')
+     LIMIT 1;
+  `,
+      env
+    );
+    if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME45, env)}
+`, code: 0 };
+    if (openTask === "" || !openTask.split("\n").some((l) => /^[0-9]+$/.test(l))) continue;
+    if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
+    const loc = taskLocation(db, openTask, env);
+    const wt = loc.code === 0 ? loc.worktree : `${repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
+    return denyResult(
+      `the main checkout stays on the base; SWE work lives in worktrees \u2014 use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`
+    );
+  }
+  return ALLOW;
+};
+
+// src/hooks/branch-up-to-date-with-remote.ts
+var GATE_NAME46 = "branch-up-to-date-with-remote";
+var CREATES_BRANCH = [" -b ", " -B ", " --create-branch "];
+function behindCount(root, range, env) {
+  const r = gitRun(root, ["rev-list", "--count", range], env);
+  return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}?
+`);
+}
+var branchUpToDateWithRemote = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  if ((env.TMB_ALLOW_STALE_BRANCH ?? "") === "1") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (command === "" || !command.includes("worktree")) return ALLOW;
+  const cwd = payloadCwdOf(input, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  let wtDir = "";
+  let wtSub = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const sub = gitSubcommand(stmt);
+    if (sub.startsWith("worktree add ")) {
+      wtDir = dir;
+      wtSub = sub;
+      break;
+    }
+  }
+  if (wtSub === "") return ALLOW;
+  if (CREATES_BRANCH.some((flag) => ` ${wtSub} `.includes(flag))) return ALLOW;
+  const branch = wtSub.slice(wtSub.lastIndexOf(" ") + 1);
+  if (branch === "") return ALLOW;
+  const root = stmtRepoRoot(wtDir, cwd, env);
+  if (root === "") return ALLOW;
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const repo = sqlQuote(repoNameForRoot(db, root, env));
+  const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
+  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME46, env)}
+`, code: 0 };
+  if (row === "") return ALLOW;
+  const prTarget = (row.startsWith("repo|") ? row.slice(5) : row) || "main";
+  if (!gitOk(root, ["rev-parse", "--verify", branch], env)) return ALLOW;
+  if (gitOut(root, ["remote", "get-url", "origin"], env) === "") return ALLOW;
+  gitRun(root, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", prTarget, "--quiet"], env);
+  if (!gitOk(root, ["rev-parse", "--verify", `origin/${prTarget}`], env)) return ALLOW;
+  if (gitOk(root, ["merge-base", "--is-ancestor", `origin/${prTarget}`, branch], env)) return ALLOW;
+  const behind = behindCount(root, `${branch}..origin/${prTarget}`, env);
+  return denyResult(
+    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it: \`git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}\`) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`
+  );
+};
+
+// src/hooks/no-worktree-branch-create.ts
+var GATE_NAME47 = "no-worktree-branch-create";
+var CREATES_BRANCH2 = [" -b ", " -B ", " --create-branch "];
+var BRANCH_CREATE_REASON = "BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.";
+var DETACH_REASON = "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
+var REASONS = { "branch-create": BRANCH_CREATE_REASON, detach: DETACH_REASON, parse: PARSE_REASON };
+function violationOf(statements2, env) {
+  for (const { stmt } of statementRows(statements2)) {
+    const sub = gitSubcommand(stmt);
+    if (!sub.startsWith("worktree add ")) continue;
+    const padded = ` ${sub} `;
+    if (CREATES_BRANCH2.some((flag) => padded.includes(flag)) && (env.TMB_ALLOW_WORKTREE_BRANCH_CREATE ?? "0") !== "1") return "branch-create";
+    if (padded.includes(" --detach ") && (env.TMB_ALLOW_WORKTREE_DETACH ?? "0") !== "1") return "detach";
+  }
+  return null;
+}
+var noWorktreeBranchCreate = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (!command.includes("worktree")) return ALLOW;
+  const listed2 = await cmdStatements(command, "/", env);
+  const violation = listed2.ok ? violationOf(listed2.statements, env) : "parse";
+  if (violation === null) return ALLOW;
+  dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  const state = dbState(env);
+  if (state === "unresolved") return ALLOW;
+  if (state === "error") return { stdout: `${denyDbUnavailable(GATE_NAME47, env)}
+`, code: 0 };
+  return denyResult(REASONS[violation]);
+};
+
+// src/hooks/no-remote-auth-guard.ts
+var GATE_NAME48 = "no-remote-auth-guard";
+var AUTH_LOGIN = [
+  ["gh", "gh auth login"],
+  ["glab", "glab auth login"]
+];
+function hasRemoteUrl(remotesJson) {
+  const lines2 = [];
+  for (const value of jqInput(remotesJson).values) {
+    if (value === null || typeof value !== "object") break;
+    let n2 = 0;
+    try {
+      for (const item of Object.values(value)) {
+        const url = jqGet(item, "url");
+        if (url !== null && url !== "") n2++;
+      }
+    } catch (e) {
+      if (e instanceof JqUnindexable) break;
+      throw e;
+    }
+    lines2.push(jqRaw2(n2 > 0));
+  }
+  return shellCapture2(lines2.join("\n"));
+}
+var noRemoteAuthGuard = async (payload, env) => {
+  const input = jqInput(payload);
+  const command = jqCapture(input, ["tool_input", "command"], true);
+  if (command === "" || !command.includes("login")) return ALLOW;
+  const cwd = payloadCwdOf(input, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  let tool = "";
+  let matchedDir = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const hit = AUTH_LOGIN.find(([, login]) => stmt === login || stmt.startsWith(`${login} `));
+    if (hit) {
+      [tool] = hit;
+      matchedDir = dir;
+      break;
+    }
+  }
+  if (tool === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const remotes = repoRemotes(db, stmtRepoRoot(matchedDir, cwd, env), env);
+  if (remotes === "") return ALLOW;
+  if (hasRemoteUrl(remotes) !== "false") return ALLOW;
+  return denyResult(
+    `BLOCKED: No remote is configured (remotes have no URL) \u2014 TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`
+  );
+};
+
+// src/hooks/prompt-intent-hints.ts
+import { statSync as statSync25 } from "node:fs";
+import { fileURLToPath as fileURLToPath6, pathToFileURL as pathToFileURL2 } from "node:url";
+var GATE_NAME49 = "prompt-intent-hints";
+var SUMMARY_MAX_BYTES2 = 200;
+var C_SPACE = "\\t\\n\\v\\f\\r ";
+var UTF8_SPACE = `${C_SPACE}\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`;
+var INJECTED_TAGS = ["system-reminder", "pasted_content", "agent-message"];
+var SEARCH_PATTERNS = [
+  "why did we",
+  "why we chose",
+  "why we picked",
+  "why we decided",
+  "what was the rationale",
+  "what is the rationale",
+  "what did we decide",
+  "what was decided",
+  "what was our decision",
+  "how did we decide",
+  "when did we decide",
+  "rationale for",
+  "reasoning behind",
+  "past decision",
+  "prior decision",
+  "previous decision",
+  "find the discussion",
+  "search the discussion",
+  "search discussions",
+  "recall why",
+  "remind me why"
+];
+var CONCERNS_PATTERNS = [
+  "delete the test",
+  "remove the test",
+  "skip the test",
+  "skip the tests",
+  "skip validation",
+  "skip verification",
+  "skip the gate",
+  "force push",
+  "ignore the gate",
+  "just do it",
+  "just push it",
+  "bypass the check",
+  "weaken the assertion",
+  "loosen the check",
+  "just delete",
+  "just remove",
+  "switch to approxequal",
+  "use approxequal",
+  "replace exact equality",
+  "change to approx",
+  "approxequal with tolerance"
+];
+var PUSH_PATTERNS = [
+  "git push",
+  "push it",
+  "push the work",
+  "push the branch",
+  "push the change",
+  "push up",
+  "push them up",
+  "push my work",
+  "ship it",
+  "ship the work",
+  "send it up",
+  "time to push"
+];
+var REONBOARD_PATTERNS = [
+  "available on github",
+  "available on gitlab",
+  "available on a remote",
+  "host on github",
+  "host on gitlab",
+  "host it on github",
+  "host it on gitlab",
+  "push to github",
+  "push to gitlab",
+  "put this on github",
+  "put this on gitlab",
+  "put it on github",
+  "put it on gitlab",
+  "publish to github",
+  "publish to gitlab",
+  "switch to remote",
+  "go remote",
+  "add a remote",
+  "set up a remote",
+  "set up the remote",
+  "add github remote",
+  "add gitlab remote",
+  "live on a remote",
+  "live on github",
+  "live on gitlab",
+  "lives on a remote",
+  "lives on github",
+  "lives on gitlab",
+  "needs to live on",
+  "needs a remote",
+  "change my issue tracker",
+  "switch issue tracker",
+  "switch to gitflow",
+  "switch to git-flow",
+  "switch to github-flow",
+  "switch to github flow",
+  "change branching model",
+  "change the branching model",
+  "switch branching model",
+  "change pr target",
+  "change the pr target",
+  "update pr target",
+  "update the pr target"
+];
+var HEADLESS_PATTERNS = [
+  "claude -p",
+  "claude --print",
+  "headless",
+  "non-interactive",
+  "noninteractive",
+  "in ci",
+  "ci run",
+  "ci pipeline",
+  "github actions",
+  "gitlab ci"
+];
+var HEADLESS_INVOCATIONS = /* @__PURE__ */ new Set(["claude -p", "claude --print"]);
+var RESUME_PATTERNS = [
+  "keep going",
+  "pick it up",
+  "pick that up",
+  "pick this up",
+  "pick up",
+  "let's continue",
+  "continue the work",
+  "continue with",
+  "resume",
+  "finish that",
+  "finish the",
+  "finish it",
+  "wrap that up",
+  "wrap up",
+  "still pending",
+  "still open",
+  "still waiting"
+];
+var ADR_PATTERNS = [
+  "switch to clerk",
+  "switch to auth0",
+  "switch to okta",
+  "swap our auth",
+  "switch our auth",
+  "change our auth",
+  "migrate to postgres",
+  "migrate to mysql",
+  "migrate from postgres",
+  "migrate from mysql",
+  "switch to sqlite",
+  "switch to postgres",
+  "switch to mysql",
+  "migrate storage",
+  "swap our db",
+  "swap the db",
+  "switch our db",
+  "replace our db",
+  "introduce a new service",
+  "new service boundary",
+  "new module boundary",
+  "public api",
+  "new public api",
+  "change the public api",
+  "strategic stack",
+  "production db",
+  "retention policy",
+  "use react instead",
+  "use vue instead",
+  "use svelte instead",
+  "use fastapi instead",
+  "use django instead",
+  "use flask instead",
+  "replatform",
+  "extract the storage layer",
+  "extract the storage",
+  "storage interface",
+  "storage backend",
+  "backend interface",
+  "pluggable backend",
+  "pluggable storage",
+  "swap between",
+  "plugin loader",
+  "plugin architecture",
+  "dependency inversion"
+];
+var AUDIT_WORDS = ["audit", "verify", "double-check", "check", "architecture"];
+var ADVISORY_SHAPES = [
+  "?",
+  "should we use",
+  "should we keep",
+  "should we move",
+  "should we commit to",
+  "should we",
+  "should i",
+  "recommend",
+  "trade-off",
+  "tradeoff",
+  "your take",
+  "your view",
+  "your read",
+  "which one",
+  "which of",
+  "is it safe",
+  "is it ok",
+  "is it better",
+  "implication",
+  "better to use"
+];
+var DOMAINS = [
+  ["security", ["security", "vulnerability", "injection", "xss", "csrf", "auth bypass"]],
+  ["perf", ["latency", "throughput", "bottleneck", "scaling", " scale", "benchmark"]],
+  ["legal", ["legal", "licensing", "compliance", "gdpr", "pii", "copyright"]],
+  ["architect", ["architecture decision", "design choice", "adr", "architecture trade", "architectural trade"]],
+  ["architect", ["json or sqlite", "sqlite or postgres", "postgres or sqlite", "sqlite vs postgres", "sql or nosql"]]
+];
+var CHEATCODE_INSTALL_CTX = "[tmb cheatcode-install routing] This is a cheatcode install, NOT agent/consultant creation. Record the per-candidate approval (cheatcode_approve) then call cheatcode_install with the requested scope (default local). Do NOT call agent_resolve / /tmb:agent-create for these names.";
+var SEARCH_CTX_TAIL = `
+
+Prefer the *_search MCP tools over linear scans:
+- \`discussion_search(query='<key terms>', mode='hybrid')\` returns ranked snippets across ALL issues (keyword + semantic). Use this first.
+- \`audit_search(query='<key terms>')\` for event-history grounding.
+- \`world_model_search(query='<key terms>')\` for code-context / project-structure grounding.
+
+Only fall back to \`discussion_list(issue_id=N)\` / \`issue_get_with_discussions\` once \`discussion_search\` has narrowed the candidate set \u2014 those tools enumerate, they don't rank. Hybrid mode auto-falls-back to keyword if the embedding model is offline (\`warning: 'semantic_unavailable'\`).`;
+var PENDING_SQL = `
+        SELECT t.id || '|' || t.branch_id || '|' || substr(COALESCE(t.title, ''), 1, 60)
+          FROM tasks t
+         WHERE t.status IN ('needs_validation', 'completed', 'closed')
+           AND t.commit_sha IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM validation_attempts v
+              WHERE v.task_id = t.id
+                AND v.verdict = 'pass'
+           );
+      `;
+var RESUME_SQL = `
+        SELECT
+          t.id,
+          t.issue_id,
+          COALESCE(t.branch_id, ''),
+          replace(substr(COALESCE(t.title, ''), 1, 60), '|', '/'),
+          substr(COALESCE(i.objective, ''), 1, 80)
+        FROM tasks t
+        JOIN issues i ON i.id = t.issue_id
+        JOIN audit a ON a.issue_id = i.id AND a.event_type = 'planning_complete'
+        WHERE t.status = 'pending'
+          AND i.status = 'open'
+        ORDER BY a.id DESC
+        LIMIT 1;
+      `;
+var CONSULTANTS_SQL = "SELECT name FROM agents WHERE kind='consultant';";
+var ONBOARDED_SQL = "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;";
+var HEADLESS_WANTED_SQL = `SELECT 1 WHERE EXISTS (SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true') AND NOT EXISTS (SELECT 1 FROM plugin_config WHERE key='headless_enforcement' AND value_json='"yes"');`;
+function hasNonSpace(text, utf8) {
+  return new RegExp(`[^${utf8 ? UTF8_SPACE : C_SPACE}]`, "u").test(text);
+}
+function stripBashSpans(text) {
+  return text.replace(/<bash-(input|stdout|stderr)>[\s\S]*?<\/bash-\1>/g, "");
+}
+function openingTag(s, tag) {
+  let k = s.indexOf(`<${tag}`);
+  while (k >= 0) {
+    const c = s.charAt(k + tag.length + 1);
+    if (c === ">" || c === " " || c === "	" || c === "\n") return k;
+    k = s.indexOf(`<${tag}`, k + 1);
+  }
+  return -1;
+}
+function stripInjectedBlocks(text) {
+  let buf = text;
+  let out2 = "";
+  for (; ; ) {
+    let first = -1;
+    let tag = "";
+    for (const t of INJECTED_TAGS) {
+      const k = openingTag(buf, t);
+      if (k >= 0 && (first < 0 || k < first)) {
+        first = k;
+        tag = t;
+      }
+    }
+    if (first < 0) break;
+    const closeTag = `</${tag}>`;
+    const e = buf.indexOf(closeTag, first);
+    if (e < 0) {
+      out2 += buf.slice(0, first + 1);
+      buf = buf.slice(first + 1);
+      continue;
+    }
+    out2 += `${buf.slice(0, first)} `;
+    buf = buf.slice(e + closeTag.length);
+  }
+  return commandSubstitution(out2 + buf);
+}
+var AWK_ALNUM = /[A-Za-z0-9]/;
+var AWK_SPACE = /[\t\n\v\f\r ]/;
+function stripQuotedSpans(text) {
+  const n2 = text.length;
+  let out2 = "";
+  let i2 = 0;
+  while (i2 < n2) {
+    const c = text[i2];
+    let j = -1;
+    if (c === "`") {
+      j = text.indexOf("`", i2 + 1);
+    } else if ((c === "'" || c === '"') && (i2 === 0 || !AWK_ALNUM.test(text[i2 - 1])) && i2 + 1 < n2 && !AWK_SPACE.test(text[i2 + 1])) {
+      for (let k = i2 + 2; k < n2; k++) {
+        if (text[k] === c && (k === n2 - 1 || !AWK_ALNUM.test(text[k + 1]))) {
+          j = k;
+          break;
+        }
+      }
+    }
+    if (j >= 0) {
+      out2 += " ";
+      i2 = j + 1;
+      continue;
+    }
+    out2 += c;
+    i2 += 1;
+  }
+  return commandSubstitution(out2);
+}
+function stripFencedBlocks(text) {
+  return text.replace(/```[\s\S]*?```/g, " ");
+}
+function splitClauses(text) {
+  const out2 = [];
+  for (const line of text.split("\n")) {
+    for (const piece of line.split(/(?<=[.;?!])/)) {
+      out2.push({ text: piece.replace(/[.;?!]$/, ""), question: piece.endsWith("?") });
+    }
+  }
+  return out2;
+}
+function codePointBefore(text, k) {
+  if (k <= 0) return "";
+  const low = text.charCodeAt(k - 1);
+  if (k >= 2 && low >= 56320 && low <= 57343) {
+    const high = text.charCodeAt(k - 2);
+    if (high >= 55296 && high <= 56319) return text.slice(k - 2, k);
+  }
+  return text[k - 1];
+}
+function codePointAt(text, k) {
+  if (k >= text.length) return "";
+  return String.fromCodePoint(text.codePointAt(k) ?? 0);
+}
+function globAz(c, utf8) {
+  if (c === "") return false;
+  if (/^[a-z]$/.test(c)) return true;
+  if (!utf8) return false;
+  return new RegExp("^\\p{Script=Latin}$", "u").test(c) && !c.normalize("NFD").startsWith("Z");
+}
+function hasWord(word, text, utf8) {
+  let k = text.indexOf(word);
+  while (k >= 0) {
+    if (!globAz(codePointBefore(text, k), utf8) && !globAz(codePointAt(text, k + word.length), utf8)) return true;
+    k = text.indexOf(word, k + 1);
+  }
+  return false;
+}
+var awkWord = (c) => /^[a-z0-9_]$/.test(c);
+function hasTarget(tail, agent) {
+  for (const prep of ["for", "to", "onto"]) {
+    const needle = `${prep} ${agent}`;
+    let k = tail.indexOf(needle);
+    while (k >= 0) {
+      const before2 = k === 0 ? "" : tail[k - 1];
+      const after2 = tail.charAt(k + needle.length);
+      if (!awkWord(before2) && !awkWord(after2) && after2 !== "-") return true;
+      k = tail.indexOf(needle, k + 1);
+    }
+  }
+  return false;
+}
+function capabilityOnAgent(lower, agents) {
+  for (const clause of splitClauses(lower)) {
+    const s = clause.text.replace(/[ \t]+/g, " ");
+    const verb = /install|add/g;
+    let m;
+    while ((m = verb.exec(s)) !== null) {
+      const v = m.index;
+      const e = v + m[0].length;
+      if ((v === 0 || !awkWord(s[v - 1])) && !awkWord(s.charAt(e))) {
+        const tail = s.slice(e);
+        for (const agent of agents) if (hasTarget(tail, agent)) return agent;
+      }
+      verb.lastIndex = v + 1;
+    }
+  }
+  return "";
+}
+function wholePhrase(pattern) {
+  return new RegExp(`(^|[^a-z0-9_])${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9_]|$)`);
+}
+function headlessMatch(promptRaw, env) {
+  const open = trLower(stripQuotedSpans(stripFencedBlocks(promptRaw)), env);
+  const statements2 = splitClauses(open).filter((c) => !c.question).map((c) => c.text).join("\n");
+  return HEADLESS_PATTERNS.find((pat) => wholePhrase(pat).test(HEADLESS_INVOCATIONS.has(pat) ? statements2 : open)) ?? "";
+}
+function readPipeFields(text, n2) {
+  let rest = text.split("\n")[0];
+  const out2 = [];
+  for (let i2 = 0; i2 < n2 - 1; i2++) {
+    const k = rest.indexOf("|");
+    out2.push(k < 0 ? rest : rest.slice(0, k));
+    rest = k < 0 ? "" : rest.slice(k + 1);
+  }
+  out2.push(/^[^|]*\|$/.test(rest) ? rest.slice(0, -1) : rest);
+  return out2;
+}
+function pendingList(pending2) {
+  return pending2.split("\n").map((line) => {
+    const f = line.split("|");
+    return `  - task_id=${f[0] ?? ""}  branch=${f[1] ?? ""}  (${f[2] ?? ""})`;
+  }).join("\n");
+}
+function proximityMatch(lowerOpen) {
+  const w = lowerOpen.replace(/\n/g, " ").split(/[^a-z0-9]+/);
+  for (let i2 = 0; i2 < w.length; i2++) {
+    if (w[i2] !== "port" && w[i2] !== "rewrite") continue;
+    const want = w[i2] === "port" ? "to" : "in";
+    for (let j = i2 + 1; j < w.length && j <= i2 + 6; j++) if (w[j] === want) return `${w[i2]} ... ${want}`;
+  }
+  return "";
+}
+function firstIncluded(text, patterns) {
+  return patterns.find((pat) => text.includes(pat)) ?? "";
+}
+function disabled(env, key2) {
+  return (env[key2] ?? "0") === "1";
+}
+function emit2(context4, prefix = "") {
+  return {
+    stdout: `${prefix}${jqCompact({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context4 } })}
+`,
+    code: 0
+  };
+}
+function isFile12(path) {
+  try {
+    return statSync25(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function defaultPluginRoot2() {
+  try {
+    return installRoot(posixDirname(fileURLToPath6(import.meta.url))) ?? "";
+  } catch {
+    return "";
+  }
+}
+async function shimEntries(env) {
+  const root = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot2();
+  const mod = `${root}/mcp/trajectory-server/dist/tools/onboard-hooks-shim.js`;
+  if (!isFile12(mod)) return "";
+  try {
+    const shim = await import(pathToFileURL2(mod).href);
+    return String(shim.countShimEntries(root));
+  } catch {
+    return "";
+  }
+}
+var Context = class {
+  constructor(env) {
+    this.env = env;
+  }
+  env;
+  db;
+  /** `tmb_db_path` with sqlite available, else null. */
+  database() {
+    if (this.db === void 0) this.db = dbPath(this.env);
+    return this.db !== null && this.db !== "" && haveSqlite(this.env) ? this.db : null;
+  }
+  query(sql) {
+    const db = this.database();
+    return db === null ? "" : commandSubstitution(sqliteRo(db, sql, this.env));
+  }
+  consultants() {
+    return this.query(CONSULTANTS_SQL).split("\n").filter((role) => role !== "").map((role) => trLower(role, this.env));
+  }
+  /** audit_consultant_spawn_nudged: the audit row, with what sqlite3 printed to pass through on stdout. */
+  auditNudge(detail) {
+    const db = this.database();
+    if (db === null || !isFile12(db)) return "";
+    const cut3 = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
+    const written = auditAppend(
+      db,
+      {
+        issueId: "-1",
+        branchId: "",
+        fromNode: `hook:${GATE_NAME49}`,
+        eventType: "consultant_spawn_nudged",
+        summary: `Consultant-spawn nudge emitted: ${cut3}`,
+        contentJson: "{}"
+      },
+      { caller: GATE_NAME49, env: this.env }
+    );
+    if (!written.ok && written.error !== "") process.stderr.write(`${written.error}
+`);
+    return written.stdout;
+  }
+};
+function cheatcodeInstall(lower, ctx, grep) {
+  if (/(^|[^a-z0-9_])(install|add)([^a-z0-9_]|$)/m.test(lower)) {
+    const agents = ["swe", "code-reviewer", "bro", ...ctx.consultants()].join(" ").split(/[ \t\n]+/).filter((a) => a !== "");
+    const agent = capabilityOnAgent(lower, agents);
+    if (agent !== "") {
+      return emit2(
+        `[tmb cheatcode-routing] This installs a capability ONTO the \`${agent}\` agent \u2014 that is the cheatcode-reuse path. Load \`tmb_cheatcode\`: search/vet/approve the capability (cheatcode_search \u2192 cheatcode_approve) then materialize it onto the agent. This is capability reuse, so it routes through the cheatcode pipeline rather than the build flow.`
+      );
+    }
+  }
+  if (lower.includes("in local scope") || lower.includes("in global scope")) return emit2(CHEATCODE_INSTALL_CTX);
+  if (!lower.includes("install")) return null;
+  const bytes = Buffer.from(`${lower}
+`, "utf8");
+  const space2 = `[${grep.utf8 ? UTF8_SPACE : C_SPACE}]`;
+  if (grep.test(bytes, grep.regex("\\b(install|installing)\\b")) && grep.test(bytes, grep.regex("\\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\\b")) && !grep.test(bytes, grep.regex(`\\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)${space2}+install(ing)?\\b`))) {
+    return emit2(CHEATCODE_INSTALL_CTX);
+  }
+  return null;
+}
+function namedRole(lower, ctx) {
+  for (const role of ctx.consultants()) {
+    const shapes = [`${role}'s read`, `${role}'s view`, `${role}'s take`, `${role} agent`, `the ${role} `, `the ${role}.`, `the ${role},`];
+    if (shapes.some((shape) => lower.includes(shape))) return role;
+  }
+  return "";
+}
+function domainOf(lower, utf8) {
+  for (const [domain, keywords] of DOMAINS) if (keywords.some((k) => lower.includes(k))) return domain;
+  return hasWord("perf", lower, utf8) ? "perf" : "";
+}
+function consultantSpawn(lower, ctx, utf8) {
+  const role = namedRole(lower, ctx);
+  if (role !== "") {
+    const passthrough2 = ctx.auditNudge(`named-role ${role}`);
+    return emit2(
+      `[tmb consultant-spawn enforcement] The user's prompt names the \`${role}\` role. Invoke \`/tmb:agent-create ${role} <one-line restatement of the user question>\` \u2014 the command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant in the same call. Bare \`Agent(subagent_type='${role}')\` without the command bypasses the registry; do NOT take that shortcut.`,
+      passthrough2
+    );
+  }
+  const domain = domainOf(lower, utf8);
+  if (domain === "" || firstIncluded(lower, ADVISORY_SHAPES) === "") return null;
+  const passthrough = ctx.auditNudge(`domain ${domain}`);
+  return emit2(
+    `[tmb consultant-spawn enforcement] The user's prompt looks like a \`${domain}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant. Answering directly from general knowledge bypasses the consultant gate.`,
+    passthrough
+  );
+}
+function pushIntent(lowerOpen, ctx) {
+  const matched = firstIncluded(lowerOpen, PUSH_PATTERNS);
+  if (matched === "" || ctx.database() === null) return null;
+  const pending2 = ctx.query(PENDING_SQL);
+  if (pending2 === "") return null;
+  return emit2(`\u{1F6A6} push-intent hint: the user's prompt contains '${matched}'. ${pending2.split("\n").length} task(s) await code-reviewer signoff before push:
+
+${pendingList(pending2)}
+
+Before \`git push\`, spawn code-reviewer for each pending task via \`Agent(subagent_type='code-reviewer', isolation=)\` (no worktree \u2014 code-reviewer reviews from the main checkout). On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway.`);
+}
+function reonboardIntent(lower, ctx) {
+  const matched = firstIncluded(lower, REONBOARD_PATTERNS);
+  if (matched === "" || ctx.database() === null || ctx.query(ONBOARDED_SQL) !== "1") return null;
+  return emit2(`\u{1F501} reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (project already onboarded \u2014 switching shape, not initial setup).
+
+Policy/config mutations stay Human-gated. Route the Human to \`/onboard\` \u2014 do NOT call \`onboard_apply\` yourself.
+
+REQUIRED FIRST ACTION \u2014 before any reply or git command: call \`onboard_state_get(agent='bro')\`. Your recommendation must cite the current config it returns (branching_model, pr_target, remotes); a reonboard answer composed without reading state is a workflow violation.
+
+Then reply pointing the Human to \`/onboard\`. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE) and do NOT wire remotes with raw git.`);
+}
+async function headlessIntent(promptRaw, ctx) {
+  const matched = headlessMatch(promptRaw, ctx.env);
+  if (matched === "" || ctx.database() === null || ctx.query(HEADLESS_WANTED_SQL) !== "1") return null;
+  const settings = `${projectRoot(ctx.env) || "<project>"}/.claude/settings.local.json`;
+  const entries = await shimEntries(ctx.env);
+  const what = entries !== "" ? `${entries} PreToolUse gate entries` : "TMB's PreToolUse gate entries";
+  return emit2(`\u{1F916} headless-intent hint: the user's prompt contains '${matched}'. Plugin hooks do not fire in non-interactive \`claude -p\` runs, and headless enforcement is off for this project.
+
+Ask ONE \`AskUserQuestion\` consent before anything else: may TMB write ${what} into \`${settings}\` so its gates also run in \`claude -p\`? Name that file and the entry count in the question; if TMB creates the file in a git work tree, it is added to \`.gitignore\`.
+- Yes \u2192 call \`onboard_apply(agent='bro', headless_enforcement='yes')\` and report \`applied.headless_shim\`.
+- No \u2192 write nothing and carry on with the request.
+
+Never call \`onboard_apply\` for this without the Human's answer.`);
+}
+function resumeIntent(lowerOpen, ctx) {
+  const matched = firstIncluded(lowerOpen, RESUME_PATTERNS);
+  if (matched === "" || ctx.database() === null) return null;
+  const resume = ctx.query(RESUME_SQL);
+  if (resume === "") return null;
+  const [taskId, issueId, branchId, title, objective] = readPipeFields(resume, 5);
+  return emit2(`\u21A9\uFE0F  resume-intent hint: the user's prompt contains '${matched}'. There's a pending task that already has \`planning_complete\` audit \u2014 resume that, do NOT create new tasks or replan.
+
+  task_id=${taskId}
+  issue_id=${issueId}
+  branch_id=${branchId}
+  title='${title}'
+  issue.objective='${objective}'
+
+Required workflow:
+1. Call \`task_get(task_id=${taskId})\` to load the spec.
+2. If the task has no worktree yet, call \`task_reopen(task_id=${taskId}, reason="resume planned task")\`, which creates it; then spawn SWE via \`Agent(subagent_type='swe')\` with \`task_id=${taskId}\` in the prompt. Leave the main checkout on its current branch.
+3. Do NOT call \`issue_create\` or \`task_create_batch\` \u2014 replanning is forbidden when planning_complete already exists for this work.`);
+}
+async function hints(promptRaw, env) {
+  const utf8 = setlocaleUtf8(env);
+  const lower = trLower(promptRaw, env);
+  const lowerOpen = trLower(stripQuotedSpans(promptRaw), env);
+  const ctx = new Context(env);
+  if (!disabled(env, "TMB_DISABLE_CHEATCODE_INSTALL_HINT")) {
+    const r = cheatcodeInstall(lower, ctx, new LocaleGrep(utf8));
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_CONSULTANT_HINT")) {
+    const r = consultantSpawn(lower, ctx, utf8);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_SEARCH_HINT")) {
+    const matched = firstIncluded(lower, SEARCH_PATTERNS);
+    if (matched !== "") {
+      return emit2(`\u{1F50E} search-grounding hint: the user's prompt contains '${matched}' \u2014 a retrieval question over past decisions.${SEARCH_CTX_TAIL}`);
+    }
+  }
+  if (!disabled(env, "TMB_DISABLE_CONCERNS_HINT")) {
+    const matched = firstIncluded(lowerOpen, CONCERNS_PATTERNS);
+    if (matched !== "") {
+      return emit2(
+        `\u{1F6A8} concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request \u2014 load \`tmb_concerns-protocol\`. REQUIRED FIRST ACTION before any compliance, edit, or task creation: \`discussion_append(agent='bro', kind='note', body='Concern: \u2026')\` recording what the request risks (or why it is pointless) and your recommendation. Then follow the protocol \u2014 hold for the Human's alignment; a documented decision is not a substitute for the Concern: record.`
+      );
+    }
+  }
+  if (!disabled(env, "TMB_DISABLE_PUSH_INTENT_HINT")) {
+    const r = pushIntent(lowerOpen, ctx);
+    if (r) return r;
+  }
+  const onboardPrompt = lower.includes("/onboard");
+  if (!disabled(env, "TMB_DISABLE_REONBOARD_HINT") && !onboardPrompt) {
+    const r = reonboardIntent(lower, ctx);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_HEADLESS_HINT") && !onboardPrompt) {
+    const r = await headlessIntent(promptRaw, ctx);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_RESUME_HINT")) {
+    const r = resumeIntent(lowerOpen, ctx);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_ADR_HINT")) {
+    const matched = firstIncluded(lowerOpen, ADR_PATTERNS) || proximityMatch(lowerOpen);
+    if (matched !== "") {
+      return emit2(
+        `\u{1F3DB}\uFE0F  architectural-change hint: the user's prompt contains '${matched}'. This change crosses TMB's architectural threshold \u2014 load \`tmb_planning\` and follow \xA7"Architectural changes" before speccing the work.`
+      );
+    }
+  }
+  if (!disabled(env, "TMB_DISABLE_AUDIT_HINT")) {
+    const matched = AUDIT_WORDS.find((word) => hasWord(word, lowerOpen, utf8));
+    if (matched !== void 0) {
+      return emit2(
+        `\u{1F50D} audit-intent hint: the user's prompt contains '${matched}'. Load \`tmb_audit\` and work outputs-first: name the component and the invariants its outputs must satisfy, test each against live data or a dry run before reading code, and report violations architecture-first with their evidence.`
+      );
+    }
+  }
+  return ALLOW;
+}
+async function promptIntentHints(payload, env) {
+  try {
+    let prompt = commandSubstitution(jqFieldOr(`${commandSubstitution(payload)}
+`, "prompt"));
+    if (prompt === "") return ALLOW;
+    const utf8 = setlocaleUtf8(env);
+    prompt = commandSubstitution(stripBashSpans(prompt));
+    if (!hasNonSpace(prompt, utf8) || isHarnessTurn(prompt)) return ALLOW;
+    dbPathAdvisory(GATE_NAME49, env, (line) => process.stderr.write(`${line}
+`));
+    prompt = stripInjectedBlocks(prompt);
+    if (!hasNonSpace(prompt, utf8)) return ALLOW;
+    return await hints(prompt, env);
+  } catch {
+    return ALLOW;
+  }
+}
+
 // src/hooks/swe-scope-fence.ts
-var GATE_NAME45 = "swe-scope-fence";
+var GATE_NAME50 = "swe-scope-fence";
 var EDIT_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 function jqFirst(input, paths, orEmpty2 = false) {
   const lines2 = [];
@@ -18935,14 +19868,14 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/post-atomic-close-readme.ts
-import { statSync as statSync24 } from "node:fs";
-var GATE_NAME46 = "post-atomic-close-readme";
+import { statSync as statSync26 } from "node:fs";
+var GATE_NAME51 = "post-atomic-close-readme";
 var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
 var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 var ROOT_DIR = ".";
-function isFile11(path) {
+function isFile13(path) {
   try {
-    return statSync24(path).isFile();
+    return statSync26(path).isFile();
   } catch {
     return false;
   }
@@ -19003,7 +19936,7 @@ function surface(payload, env) {
   const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
-  if (db === null || !isFile11(db) || !haveSqlite(env)) return ALLOW;
+  if (db === null || !isFile13(db) || !haveSqlite(env)) return ALLOW;
   const row = sqliteRo(
     db,
     `SELECT COALESCE(commit_sha,'') || '|' || COALESCE(repo,'') || '|' || COALESCE(issue_id,'') || '|' || COALESCE(branch_id,'') FROM tasks WHERE id = ${taskId};`,
@@ -19026,12 +19959,12 @@ function surface(payload, env) {
     {
       issueId: sqlInt(task.issueId) || "-1",
       branchId: task.branchId,
-      fromNode: `hook:${GATE_NAME46}`,
+      fromNode: `hook:${GATE_NAME51}`,
       eventType: "readme_staleness_surfaced",
       summary: `task ${taskId}: README may be stale in ${staleLines.filter((line) => line !== "").length} dir(s) after ${task.commitSha.slice(0, 7)}`,
       contentJson: jqCompact({ task_id: jqNumber2(taskId), commit_sha: task.commitSha, stale: staleLines })
     },
-    { env, caller: GATE_NAME46 }
+    { env, caller: GATE_NAME51 }
   );
   if (!w.ok) process.stderr.write(`${w.error}
 `);
@@ -19048,9 +19981,9 @@ var postAtomicCloseReadme = (payload, env) => {
 };
 
 // src/hooks/remote-id-guard.ts
-import { statSync as statSync25 } from "node:fs";
+import { statSync as statSync27 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
-var GATE_NAME47 = "remote-id-guard";
+var GATE_NAME52 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
 var REMOTE_WRITES = [
@@ -19204,27 +20137,27 @@ ${printfB(offenses)}
 A bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)`
   );
 }
-function isFile12(path) {
+function isFile14(path) {
   try {
-    return statSync25(path).isFile();
+    return statSync27(path).isFile();
   } catch {
     return false;
   }
 }
 function auditOverrun(deadline, elapsed, env) {
   const db = dbPath(env) ?? "";
-  if (db === "" || !isFile12(db) || !haveSqlite(env)) return;
+  if (db === "" || !isFile14(db) || !haveSqlite(env)) return;
   auditAppend(
     db,
     {
       issueId: "-1",
       branchId: "",
-      fromNode: `hook:${GATE_NAME47}`,
+      fromNode: `hook:${GATE_NAME52}`,
       eventType: "remote_id_guard_overrun",
-      summary: `${GATE_NAME47} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
+      summary: `${GATE_NAME52} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
       contentJson: `{"deadline_s":${jqNumberLiteral(deadline)},"elapsed_s":${jqNumberLiteral(elapsed)}}`
     },
-    { caller: GATE_NAME47, env }
+    { caller: GATE_NAME52, env }
   );
 }
 function seconds(ms) {
@@ -19252,7 +20185,7 @@ var remoteIdGuard = async (payload, processEnv) => {
   }
   if (result !== OVERRUN && !overran()) return result;
   const elapsed = seconds(elapsedMs2());
-  process.stderr.write(`${GATE_NAME47}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
+  process.stderr.write(`${GATE_NAME52}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
 `);
   auditOverrun(deadline, elapsed, env);
   return ALLOW;
@@ -19306,9 +20239,14 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME42, agentArgMatchesCaller],
   [GATE_NAME43, reviewerIdentityObserve],
   [GATE_NAME44, cheatcodeInstallApproval],
-  [GATE_NAME45, sweScopeFence],
-  [GATE_NAME46, postAtomicCloseReadme],
-  [GATE_NAME47, remoteIdGuard]
+  [GATE_NAME45, stayOnBaseGuard],
+  [GATE_NAME46, branchUpToDateWithRemote],
+  [GATE_NAME47, noWorktreeBranchCreate],
+  [GATE_NAME48, noRemoteAuthGuard],
+  [GATE_NAME49, promptIntentHints],
+  [GATE_NAME50, sweScopeFence],
+  [GATE_NAME51, postAtomicCloseReadme],
+  [GATE_NAME52, remoteIdGuard]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
