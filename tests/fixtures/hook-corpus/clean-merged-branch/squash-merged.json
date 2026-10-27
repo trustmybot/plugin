@@ -1,0 +1,1 @@
+{"session_id":"sess-merge","hook_event_name":"PostToolUse","cwd":"@SANDBOX@/project/repo","tool_name":"Bash","tool_input":{"command":"gh pr merge feat/squash --squash","description":"merge"},"tool_response":{"stdout":"✓ Merged pull request #12\n","stderr":"","interrupted":false,"isImage":false},"corpus_expect":"tmb: cleaned up merged branch feat/squash\n"}

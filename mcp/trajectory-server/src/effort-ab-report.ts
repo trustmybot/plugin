@@ -4,12 +4,15 @@
  * Wall-clock and review FAILs are task_stats' own (reworkStats); tool calls
  * and cache-read tokens sum the task's swe spawns; time to merge runs from the
  * task's created_at to its issue's first issue_auto_closed_on_merge row at or
- * after it (null when none). Read-only: scripts/maintenance/effort-ab-report.ts
- * runs it on a DB opened read-only.
+ * after it (null when none). Each task also shows the suggested_tier of its
+ * newest effort_inputs_recorded row (GH 1904; null when none). Read-only:
+ * scripts/maintenance/effort-ab-report.ts runs it on a DB opened read-only.
  */
 import { reworkStats, sweRunTotals, type StatsReader } from './tools/stats.js';
 
 export const EFFORT_AB_EVENT = 'effort_ab_enrolled';
+export const EFFORT_INPUTS_EVENT = 'effort_inputs_recorded';
+export const SUGGESTED_TIERS = ['low', 'medium', 'high'] as const;
 export const EFFORT_AB_ARMS = ['high', 'medium'] as const;
 export const EFFORT_AB_METRICS = [
   'wall_clock_ms',
@@ -34,11 +37,26 @@ export interface MetricSummary {
   readonly mean: number | null;
 }
 
+type SuggestedTier = (typeof SUGGESTED_TIERS)[number];
+
 export interface ArmReport {
   readonly arm: Arm;
   readonly task_count: number;
   readonly task_ids: number[];
+  readonly suggested_tiers: Array<{ task_id: number; suggested_tier: SuggestedTier | null }>;
+  readonly suggested_tier_counts: Record<SuggestedTier | 'null', number>;
   readonly metrics: Record<Metric, MetricSummary>;
+}
+
+function suggestedTier(db: StatsReader, taskId: number): SuggestedTier | null {
+  const row = db.get<{ tier: unknown }>(
+    `SELECT json_extract(content_json, '$.suggested_tier') AS tier FROM audit
+      WHERE event_type = ? AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+      ORDER BY id DESC LIMIT 1`,
+    [EFFORT_INPUTS_EVENT, taskId],
+  );
+  return (SUGGESTED_TIERS as readonly unknown[]).includes(row?.tier) ? (row!.tier as SuggestedTier) : null;
 }
 
 export interface EffortAbReport {
@@ -94,7 +112,17 @@ export function effortAbReport(db: StatsReader, label: string, now: Date): Effor
     const metrics = Object.fromEntries(
       EFFORT_AB_METRICS.map((m) => [m, summarize(perTask.map((t) => t[m]))]),
     ) as Record<Metric, MetricSummary>;
-    return { arm, task_count: rows.length, task_ids: rows.map((r) => r.task_id), metrics };
+    const suggested = rows.map((r) => ({ task_id: r.task_id, suggested_tier: suggestedTier(db, r.task_id) }));
+    const counts = { low: 0, medium: 0, high: 0, null: 0 };
+    for (const s of suggested) counts[s.suggested_tier ?? 'null']++;
+    return {
+      arm,
+      task_count: rows.length,
+      task_ids: rows.map((r) => r.task_id),
+      suggested_tiers: suggested,
+      suggested_tier_counts: counts,
+      metrics,
+    };
   });
   return { label, arms };
 }
@@ -111,6 +139,11 @@ export function formatEffortAbReport(report: EffortAbReport): string {
     for (const m of EFFORT_AB_METRICS) {
       const s = arm.metrics[m];
       lines.push(`  ${m.padEnd(18)} median ${fmt(s.median).padStart(12)}  mean ${fmt(s.mean).padStart(12)}  n=${s.n}`);
+    }
+    const counts = arm.suggested_tier_counts;
+    lines.push(`  ${'suggested_tier'.padEnd(18)} low=${counts.low} medium=${counts.medium} high=${counts.high} null=${counts.null}`);
+    if (arm.suggested_tiers.length > 0) {
+      lines.push(`  ${''.padEnd(18)} ${arm.suggested_tiers.map((s) => `${s.task_id}:${s.suggested_tier ?? 'null'}`).join(' ')}`);
     }
   }
   return lines.join('\n') + '\n';

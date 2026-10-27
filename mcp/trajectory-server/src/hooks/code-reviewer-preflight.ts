@@ -7,7 +7,9 @@
  *
  *   sha_mismatch       refs/heads/<branch_id> in the task repo is tasks.commit_sha
  *   no_passing_run     a verification_runs row for (task, commit) with exit 0, not timed out
- *   base_conflict      `git merge-tree --write-tree <pr_target tip> <commit>` exits 0
+ *   base_conflict      `git merge-tree --write-tree <pr_target tip> <commit>` exits 0, or exits 1
+ *                      with every conflicted path `merge=tmb-regen` per `git check-attr
+ *                      --source=<commit>` (regenerated at integrate, GH 2005)
  *   stale_doc_ref      no path the diff (merge-base..commit) deletes or renames, and no MCP
  *                      tool name it drops from mcp/<server>/src/tools/, appears in the
  *                      agents/, skills/, docs/ *.md, CLAUDE.md or README.md at the commit
@@ -43,6 +45,7 @@ const DOC_PATH = /^(?:(?:agents|skills|docs)\/.*\.md|CLAUDE\.md|README\.md)$/;
 const TOOL_SOURCE = /^mcp\/[^/]+\/src\/tools\/(?:[^/]+\/)*[^/]+\.ts$/;
 const TOOL_NAME = /^\s*name:\s*['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)+)['"]\s*,?\s*$/gm;
 const CHANGELOG_DIR = 'changelog.d';
+const REGEN_DRIVER = 'tmb-regen';
 
 interface GitResult {
   code: number;
@@ -224,6 +227,19 @@ function hasChangelogDir(repo: string, rev: string, env: NodeJS.ProcessEnv): boo
   return r.code === 0 && r.stdout.trim() !== '';
 }
 
+/** The <paths> whose `merge` attribute at <rev> is not tmb-regen, or null when git check-attr fails. */
+function nonRegenPaths(repo: string, rev: string, paths: readonly string[], env: NodeJS.ProcessEnv): string[] | null {
+  const r = git(repo, ['check-attr', `--source=${rev}`, '-z', 'merge', '--', ...paths], env);
+  if (r.code !== 0) return null;
+  const fields = nulFields(r.stdout);
+  if (fields.length % 3 !== 0) return null;
+  const regen = new Set<string>();
+  for (let i = 0; i < fields.length; i += 3) {
+    if (fields[i + 1] === 'merge' && fields[i + 2] === REGEN_DRIVER) regen.add(fields[i]);
+  }
+  return paths.filter((p) => !regen.has(p));
+}
+
 interface TaskRow {
   commitSha: string;
   parentBranch: string;
@@ -311,17 +327,22 @@ function preflight(db: string, taskId: string, env: NodeJS.ProcessEnv): GateResu
       actual: `no PR target ref resolves in ${repo}`,
     });
   }
-  const merge = git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', targetTip, commit], env);
+  const merge = git(repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', targetTip, commit], env);
   if (merge.code !== 0) {
-    const conflicted = merge.stdout.split('\n').slice(1).filter((l) => l !== '');
-    return deny({
-      check: 'base_conflict',
-      expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
-      actual:
-        merge.code === 1 && conflicted.length > 0
-          ? `conflicts in ${listed(conflicted)}`
-          : `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}`,
-    });
+    const conflicted = [...new Set(nulFields(merge.stdout).slice(1).filter((p) => p !== ''))];
+    const blocking = merge.code === 1 && conflicted.length > 0 ? nonRegenPaths(repo, commit, conflicted, env) : null;
+    if (blocking === null || blocking.length > 0) {
+      return deny({
+        check: 'base_conflict',
+        expected: `${commit} merges cleanly into ${targetRef} (${targetTip})`,
+        actual:
+          merge.code !== 1 || conflicted.length === 0
+            ? `git merge-tree exited ${merge.code}: ${merge.stderr.trim()}`
+            : blocking === null
+              ? `conflicts in ${listed(conflicted)}; git check-attr of their merge attribute failed`
+              : `conflicts in ${listed(blocking)}`,
+      });
+    }
   }
 
   const mergeBase = git(repo, ['merge-base', targetTip, commit], env).stdout.trim();

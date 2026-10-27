@@ -1,0 +1,8 @@
+{
+  "session_id": "prompt-session-0007",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/plugin"
+  },
+  "corpus_cwd": "plugin",
+  "corpus_expect": "empty"
+}

@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "seen-session",
+  "source": "startup",
+  "corpus_env": {
+    "TMB_INSTALLED_JSON": "@SANDBOX@/installs/user-only.json"
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "sessions/old-session.install-notice"
+  ]
+}

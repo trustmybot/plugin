@@ -37,10 +37,12 @@ import {
   repoPathAbs,
   sqlInt,
   sqliteRo,
+  sqlLikeEscape,
   sqlQuote,
   stateDir,
   stripTrailingNewlines,
   sweContext,
+  taskBySlug,
   taskIdFromTranscript,
   testFlag,
   walCold,
@@ -77,6 +79,7 @@ const STDERR_FNS = new Set([
   'tmb_audit_sql',
   'tmb_audit_dedupe_guard',
   'tmb_audit_writer_check',
+  'tmb_task_by_slug',
 ]);
 
 const HARNESS = `
@@ -226,6 +229,12 @@ const ADAPTERS: Record<string, Adapter> = {
   tmb_swe_context: (args) => ok(sweContext(a(args, 0))),
   tmb_sql_int: (args) => ok(sqlInt(a(args, 0))),
   tmb_sql_quote: (args) => ok(sqlQuote(a(args, 0))),
+  tmb_sql_like_escape: (args) => ok(sqlLikeEscape(a(args, 0))),
+  tmb_task_by_slug: (args, env) => {
+    const warnings: string[] = [];
+    const out = taskBySlug(a(args, 0), a(args, 1), args[2] ?? 'id', a(args, 3), env, (line) => warnings.push(line));
+    return { out, rc: 0, err: warnings.join('\n') };
+  },
   tmb_branch_slug: (args) => ok(branchSlug(a(args, 0))),
   tmb_caller_run: (args, env) => ok(callerRun(a(args, 0), a(args, 1), env)),
   tmb_task_id_from_transcript: (args) => ok(taskIdFromTranscript(a(args, 0))),
@@ -318,6 +327,24 @@ function seedTasks(db: DatabaseSync): void {
   `);
 }
 
+function seedSlugs(db: DatabaseSync): void {
+  const now = '2026-01-01T00:00:00.000Z';
+  db.exec(`INSERT INTO issues (id, objective, created_at, updated_at) VALUES (1, 'i1', '${now}', '${now}');`);
+  const task = db.prepare(`INSERT INTO tasks (id, issue_id, branch_id, status, description, created_at, updated_at) VALUES (?, 1, ?, ?, 'd', '${now}', '${now}')`);
+  const rows: [number, string, string][] = [
+    [1, 'feat/one', 'running'],
+    [2, 'fix/one', 'closed'],
+    [3, 'feat/under_score', 'pending'],
+    [4, 'feat/underXscore', 'pending'],
+    [5, 'feat/pct%x', 'pending'],
+    [6, "feat/it's", 'pending'],
+    [7, 'feat/a/one', 'pending'],
+    [8, 'feat/bar|ed', 'pending'],
+    [9, 'feat/back\\slash', 'pending'],
+  ];
+  for (const r of rows) task.run(...r);
+}
+
 function seedAudit(db: DatabaseSync): void {
   const now = '2026-01-01T00:00:00.000Z';
   db.exec(`
@@ -358,6 +385,7 @@ function buildSandbox(): void {
   symlinkSync(join(p, 'warm'), join(p, 'link-warm'));
   makeDb(join(p, 'walock.db'), 'wal', seedAudit);
   makeDb(join(p, 'exlock.db'), 'delete', seedTasks);
+  makeDb(join(p, 'slugs.db'), 'delete', seedSlugs);
   makeDb(stateDb(R), 'delete');
   mkdirSync(join(R, 'nodb'), { recursive: true });
   mkdirSync(join(R, 'repo-plugin/.claude/worktrees/ts-hook-libs/src'), { recursive: true });
@@ -625,6 +653,37 @@ function buildCases(): Case[] {
     ['leading-slash', '/lead'],
   ]) {
     add('tmb_branch_slug', label, [v]);
+  }
+  for (const [label, v] of [
+    ['plain', 'one'],
+    ['underscore', 'a_b'],
+    ['percent', '50%'],
+    ['backslash', 'back\\slash'],
+    ['quote', "it's"],
+    ['empty', ''],
+    ['trailing-newline', 'x_\n'],
+  ]) {
+    add('tmb_sql_like_escape', label, [v]);
+  }
+  const slugs = join(p, 'slugs.db');
+  for (const [label, args] of [
+    ['newest-of-three-id', [slugs, 'one']],
+    ['newest-of-three-branch', [slugs, 'one', 'branch_id']],
+    ['status-filter', [slugs, 'one', 'id', "'closed'"]],
+    ['status-filter-none', [slugs, 'one', 'branch_id', "'failed', 'escalated'"]],
+    ['underscore-literal', [slugs, 'under_score', 'branch_id']],
+    ['percent-literal', [slugs, 'pct%x', 'branch_id']],
+    ['quote', [slugs, "it's", 'branch_id']],
+    ['bar-in-branch', [slugs, 'bar|ed', 'branch_id']],
+    ['bar-in-branch-id', [slugs, 'bar|ed', 'id']],
+    ['backslash', [slugs, 'back\\slash', 'branch_id']],
+    ['no-match', [slugs, 'zzz', 'branch_id']],
+    ['bad-column', [slugs, 'one', 'title']],
+    ['bad-status-list', [slugs, 'one', 'id', '1); DROP TABLE tasks; --']],
+    ['empty-slug', [slugs, '', 'branch_id']],
+    ['empty-db', ['', 'one', 'branch_id']],
+  ] as [string, string[]][]) {
+    add('tmb_task_by_slug', label, args);
   }
 
   for (const v of ['tmb:swe', 'swe', 'tmb:code-reviewer', 'code-reviewer', '', 'a:b:c', ':x']) {

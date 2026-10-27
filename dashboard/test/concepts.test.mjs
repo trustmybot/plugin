@@ -4,11 +4,11 @@
 // dashboard server against it and check /api/concepts, /api/concepts/:id,
 // /graph and /api/symbols/:id/neighbourhood; then check a v44 DB answers
 // available:false and that the server left both DB files unchanged. Then
-// render the concept badges, the copy button and the search field to static
-// HTML and check they use ui/Label variants, invisible Button tokens and an
-// accessible name.
+// render the concept badges, the copy button, the map search field in concept
+// scope and the ConceptSearch body to static HTML and check ui/Label variants,
+// invisible Button tokens, the field copy and a listbox with no repo select.
 // `node dashboard/test/concepts.test.mjs --seed <path>` only writes the seeded
-// DB, for viewing the tab against it.
+// DB, for viewing the Concepts scope of the Project map against it.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -214,13 +214,21 @@ if (!seedOnly) describe('concepts view markup', () => {
       stdin: {
         contents: `import { renderToStaticMarkup } from 'react-dom/server';
           import { createElement } from 'react';
+          import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
           import { TrustBadge, DerivedBadge } from './web/views/concepts/badges.tsx';
-          import { SearchField } from './web/views/concepts/ConceptsView.tsx';
+          import { ConceptSearch } from './web/views/concepts/ConceptSearch.tsx';
+          import { CONCEPT_COPY } from './web/views/concepts/copy.ts';
+          import { SearchField } from './web/views/map/MapSearch.tsx';
           import { CopyButton } from './web/ui/CopyButton.tsx';
           import { LABEL_COLORS } from './web/ui/Label.tsx';
           export const render = (el) => renderToStaticMarkup(el);
+          export function withData(seed, el) {
+            const client = new QueryClient();
+            for (const [key, data] of Object.entries(seed)) client.setQueryData([key], data);
+            return renderToStaticMarkup(createElement(QueryClientProvider, { client }, el));
+          }
           export const h = createElement;
-          export { TrustBadge, DerivedBadge, SearchField, CopyButton, LABEL_COLORS };`,
+          export { TrustBadge, DerivedBadge, ConceptSearch, CONCEPT_COPY, SearchField, CopyButton, LABEL_COLORS };`,
         resolveDir: DASH,
         loader: 'js',
       },
@@ -235,6 +243,7 @@ if (!seedOnly) describe('concepts view markup', () => {
     ui = await import(`data:text/javascript;base64,${Buffer.from(out.outputFiles[0].text).toString('base64')}`);
   });
   const html = (component, props) => ui.render(ui.h(ui[component], props));
+  const HIT = { id: 7, name: 'Cold start', body: 'Boot the server.', step_count: 3, trust: { verified: 2, suspect: 0, broken: 1 } };
 
   test('a concept badge renders a ui/Label variant class', () => {
     for (const [trust, variant] of [['verified', 'success'], ['suspect', 'attention'], ['broken', 'danger']]) {
@@ -254,9 +263,36 @@ if (!seedOnly) describe('concepts view markup', () => {
     assert.match(out, /octicon-copy/);
   });
 
-  test('the search field has an accessible name', () => {
-    const out = html('SearchField', { value: '', onChange: () => {} });
+  test('the map search field in concept scope has an accessible name, the concepts placeholder and the help text', () => {
+    const out = html('SearchField', { scope: 'concepts', value: '', onChange: () => {} });
     assert.match(out, /^<label[^>]*>.*<span class="sr-only">Search concepts<\/span>.*<input type="search"/s);
+    assert.ok(out.includes(`placeholder="${ui.CONCEPT_COPY.placeholder}"`), out);
+    assert.match(out, /aria-describedby="concepts-help"/);
     assert.doesNotMatch(out, /outline-blue/);
+  });
+
+  test('the unavailable copy has no dash', () => {
+    assert.equal(ui.CONCEPT_COPY.unavailable, 'Concepts need a fresh scan. Run /scan in a Claude Code session.');
+    assert.ok(!ui.CONCEPT_COPY.unavailable.includes('—'));
+  });
+
+  test('the concept search body queries the picked repo and renders the listbox with no field or repo select', () => {
+    const seed = { 'concepts?q=cold&repo=site': { available: true, repos: ['plugin', 'site'], repo: 'site', concepts: [HIT], derived: null } };
+    const out = ui.withData(seed, ui.h(ui.ConceptSearch, { term: 'cold', repo: 'site', id: undefined, onSelect: () => {} }));
+    assert.match(out, /<ul role="listbox" tabindex="0" aria-label="Concepts" aria-activedescendant="concept-option-7"/);
+    assert.match(out, /<li id="concept-option-7" role="option" aria-selected="false"/);
+    assert.match(out, />Cold start</);
+    assert.match(out, /<p id="concepts-help"/);
+    assert.match(out, /role="status" aria-live="polite"[^>]*>1 concept found\./);
+    assert.doesNotMatch(out, /<select|<input/);
+    const other = ui.withData(seed, ui.h(ui.ConceptSearch, { term: 'cold', repo: 'plugin', id: undefined, onSelect: () => {} }));
+    assert.doesNotMatch(other, /Cold start/);
+  });
+
+  test('a DB without concepts keeps the No Concepts Yet Blankslate', () => {
+    const seed = { 'concepts?q=&repo=plugin': { available: false, repos: [], repo: null, concepts: [], derived: null } };
+    const out = ui.withData(seed, ui.h(ui.ConceptSearch, { term: '', repo: 'plugin', id: undefined, onSelect: () => {} }));
+    assert.match(out, /<h2[^>]*>No Concepts Yet<\/h2>/);
+    assert.ok(out.includes(ui.CONCEPT_COPY.unavailable));
   });
 });

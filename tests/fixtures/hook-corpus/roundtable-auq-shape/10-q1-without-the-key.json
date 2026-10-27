@@ -1,0 +1,11 @@
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Pick?"
+      }
+    ]
+  },
+  "corpus_expect": "roundtable #5 awaiting human"
+}

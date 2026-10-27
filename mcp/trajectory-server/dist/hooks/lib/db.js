@@ -275,7 +275,22 @@ export function denyDbUnavailable(hook = '', env = process.env) {
         },
     });
 }
-/** tmb_sqlite_ro <db> <sql>: tmb_gate_read with a 500 ms busy wait; "" on error. */
+/**
+ * tmb_db_path_advisory <hook>: the DB path when it resolves and reads, for an
+ * advisory hook; null when unresolved (silent) or when the read errors, which
+ * `onWarning` hears as the .sh's stderr line.
+ */
+export function dbPathAdvisory(hook = '', env = process.env, onWarning) {
+    const db = dbPath(env, onWarning);
+    if (db === null)
+        return null;
+    if (dbState(env) === 'error') {
+        onWarning?.(`${hook || 'hook'}: trajectory DB unavailable (${db}) — skipped`);
+        return null;
+    }
+    return db;
+}
+/** tmb_sqlite_ro <db> <sql>:tmb_gate_read with a 500 ms busy wait; "" on error. */
 export function sqliteRo(db, sql, env = process.env) {
     const out = gateRead(db, sql, { ...env, TMB_DB_WRITE_TIMEOUT_MS: String(SQLITE_RO_TIMEOUT_MS) });
     return out === GATE_READ_ERROR ? '' : out;
@@ -294,6 +309,41 @@ export function sqlInt(value = '') {
  */
 export function sqlQuote(value = '') {
     return stripTrailingNewlines(value.replace(/'/g, "''"));
+}
+/** tmb_sql_like_escape <value>: `\`, `%` and `_` escaped with `\` for LIKE … ESCAPE '\', then quoted as tmb_sql_quote does. */
+export function sqlLikeEscape(value = '') {
+    return stripTrailingNewlines(value.replace(/[\\%_]/g, '\\$&').replace(/'/g, "''"));
+}
+const TASK_STATUS_LIST = /^[a-z_', ]*$/;
+/**
+ * tmb_task_by_slug <db> <slug> [id|branch_id] [<status_list>]: <col> of the
+ * newest task whose branch_id ends in /<slug>, "" when none. When several
+ * match, `onWarning` gets the .sh's stderr line naming them.
+ */
+export function taskBySlug(db, slug, col = 'id', statuses = '', env = process.env, onWarning) {
+    if (db === '' || slug === '')
+        return '';
+    if (col !== 'id' && col !== 'branch_id')
+        return '';
+    if (!TASK_STATUS_LIST.test(statuses))
+        return '';
+    let where = `branch_id LIKE '%/${sqlLikeEscape(slug)}' ESCAPE '\\'`;
+    if (statuses !== '')
+        where += ` AND status IN (${statuses})`;
+    const rows = sqliteRo(db, `SELECT id || '|' || branch_id FROM tasks WHERE ${where} ORDER BY id DESC;`, env);
+    if (rows === '')
+        return '';
+    const lines = rows.split('\n');
+    const count = lines.filter((l) => l !== '').length;
+    if (count > 1 && onWarning) {
+        const branches = lines.map((l) => l.split('|')[1] ?? l).join(',');
+        onWarning(`tmb: worktree slug "${slug}" matches ${count} tasks (${branches}); using the newest`);
+    }
+    const first = lines[0];
+    const bar = first.indexOf('|');
+    if (col === 'id')
+        return bar < 0 ? first : first.slice(0, bar);
+    return bar < 0 ? first : first.slice(bar + 1);
 }
 /** tmb_branch_slug <branch_id>: the branch minus its first `<type>/`. */
 export function branchSlug(branch = '') {

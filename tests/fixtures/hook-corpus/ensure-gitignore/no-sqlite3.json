@@ -1,0 +1,21 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "g10",
+  "source": "startup",
+  "corpus_env": {
+    "PATH": "@PATH_WITHOUT:sqlite3@"
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_stderr": "@SANDBOX@/project/repos/données/.gitignore",
+  "corpus_expect_tree": [
+    "repos/données/.gitignore: # TMB"
+  ],
+  "corpus_divergence": {
+    "why": "the .sh reads the repos table only through the sqlite3 CLI",
+    "bash_expect": "empty",
+    "bash_expect_tree": [
+      "project/.gitignore: # TMB",
+      "!repos/données/.gitignore"
+    ]
+  }
+}

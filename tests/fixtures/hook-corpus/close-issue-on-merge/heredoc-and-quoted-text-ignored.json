@@ -1,0 +1,1 @@
+{"session_id":"sess-merge","hook_event_name":"PostToolUse","cwd":"@SANDBOX@/project/repo","tool_name":"Bash","tool_input":{"command":"git commit -F - <<'EOF'\ngh pr merge 42 --squash\nEOF\necho \"gh pr merge 42\"","description":"merge"},"tool_response":{"stdout":"✓ Merged pull request #12\n","stderr":"","interrupted":false,"isImage":false},"corpus_expect":"empty"}

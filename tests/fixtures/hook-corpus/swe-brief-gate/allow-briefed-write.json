@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","agent_type":"swe","tool_name":"Write","tool_input":{"file_path":"/tmp/x","content":"x","task_id":10},"corpus_expect":"empty"}

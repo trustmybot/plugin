@@ -1,0 +1,4 @@
+{
+  "corpus_stdin": "{\"session_id\": \"hooks-session-0007\"",
+  "corpus_expect": "empty"
+}

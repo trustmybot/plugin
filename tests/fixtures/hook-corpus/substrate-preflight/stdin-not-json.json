@@ -1,0 +1,7 @@
+{
+  "corpus_stdin": "\u0000garbage",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/remote/.claude/tmb/trajectory.db"
+  },
+  "corpus_expect": "empty"
+}

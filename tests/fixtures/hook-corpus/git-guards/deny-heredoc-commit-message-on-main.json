@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/ghf",
+  "tool_input": {
+    "command": "git commit -F - <<'EOF'\nchore: gh pr create --base main\nEOF"
+  },
+  "corpus_expect": "main is a shared workflow base"
+}

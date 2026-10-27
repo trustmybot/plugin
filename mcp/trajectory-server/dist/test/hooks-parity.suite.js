@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { gateNames } from '../hooks/registry.js';
 import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
+import { LINT_GATES, lintSandbox } from './lint-hooks-sandbox.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -83,7 +84,7 @@ const NOW = '2026-10-11T10:00:00.000Z';
  * @SANDBOX@ and the project's Claude Code slug as @PROJECT_SLUG@; a payload's
  * top-level corpus_env (removed before the run) overrides the env.
  */
-function containmentGuardSetup(scratch) {
+export function containmentGuardSetup(scratch) {
     const project = join(scratch, 'project');
     const wt = join(project, '.claude/worktrees/cg-task');
     const db = join(project, '.claude/tmb/trajectory.db');
@@ -131,9 +132,15 @@ function containmentGuardSetup(scratch) {
         },
     };
 }
+/** The lint hooks run in lint-hooks-sandbox.ts, gh and glab stubbed so attribution-footer never reaches a forge. */
+function lintSetup(scratch) {
+    const sandbox = lintSandbox(scratch);
+    return { env: sandbox.env, materialize: (raw) => sandbox.materialize(raw) };
+}
 const GATE_SETUP = {
     'ensure-mcp-deps-installed': (scratch) => ({ env: readyDepsEnv(scratch) }),
     'containment-guard': containmentGuardSetup,
+    ...Object.fromEntries(LINT_GATES.map((gate) => [gate, lintSetup])),
 };
 function auditMark(db) {
     const d = new DatabaseSync(db, { readOnly: true });
@@ -156,8 +163,65 @@ function auditRowsAfter(db, mark) {
         d.close();
     }
 }
+/**
+ * Gates that write markers, logs or DB rows into the project, or read the
+ * host's processes and installs, so they run in hooks-session-parity.suite.ts
+ * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side;
+ * and the task-DB Agent-spawn gates, which read a sandbox of git repos and
+ * trajectory DBs in hooks-spawn-gates-parity.suite.ts; and remote-id-guard,
+ * which reads a sandbox DB of local issues in
+ * hooks-remote-id-guard-parity.suite.ts.
+ */
+const OWN_SANDBOX_GATES = new Set([
+    'activation-routine',
+    'bro-turn-usage',
+    'debug-trajectory',
+    'deferred-tools-drift-warn',
+    'ensure-gitignore',
+    'mcp-health-check',
+    'plugin-hooks-marker',
+    'require-feature-branch-active',
+    'require-spawn-effort',
+    'require-task-spec',
+    'session-log-capture',
+    'session-start-persona',
+    'substrate-preflight',
+    'user-prompt-persona',
+    'consultant-persistence-gate',
+    'roundtable-auq-shape',
+    'roundtable-cleanup-postcheck',
+    'roundtable-slash-detect',
+    'code-reviewer-no-worktree',
+    'code-reviewer-spawn-prompt-shape',
+    'code-reviewer-after-atomic-close',
+    'swe-brief-gate',
+    'swe-spawn-bind',
+    'swe-spawn-rollback',
+    'post-task-create-spawn-hint',
+    'agent-arg-matches-caller',
+    'reviewer-identity-observe',
+    'cheatcode-install-approval',
+    'stay-on-base-guard',
+    'branch-up-to-date-with-remote',
+    'no-worktree-branch-create',
+    'no-remote-auth-guard',
+    'prompt-intent-hints',
+    'swe-scope-fence',
+    'clean-merged-branch',
+    'close-issue-on-merge',
+    'swe-atomic-close',
+    'post-task-close-rescan',
+    'swe-verification-gate',
+    'post-atomic-close-readme',
+    'agent-spawn-dispatch',
+    'ensure-swe-worktree',
+    'record-swe-spawn',
+    'cleanup-worktree-on-task-close',
+    'worktree-create',
+    'remote-id-guard',
+]);
 function parityCases() {
-    return PARITY_GATES.flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
+    return PARITY_GATES.filter((gate) => !OWN_SANDBOX_GATES.has(gate)).flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
 }
 export function hooksParityShard(k, n) {
     const cases = shardOf(parityCases(), k, n);
@@ -186,7 +250,9 @@ export function hooksParityShard(k, n) {
                     'code-reviewer-spawn-note',
                     'rework-limit',
                     'swe-resume-gate',
+                    'swe-stop-cause',
                     'task-overrun-alert',
+                    'tool-output-size',
                 ]);
             });
             it('self-test: a registered gate without a corpus, or with too few inputs, fails the check', () => {

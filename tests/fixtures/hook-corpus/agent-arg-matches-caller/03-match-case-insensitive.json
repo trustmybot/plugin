@@ -1,0 +1,8 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__validation_record",
+  "agent_type": "code-reviewer",
+  "tool_input": {
+    "agent": "TMB:Code-Reviewer"
+  },
+  "corpus_expect": "empty"
+}

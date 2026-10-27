@@ -5,8 +5,8 @@ import { Flash } from '../../ui/Flash.tsx';
 import { ChartCard } from './ChartCard.tsx';
 import { BarList, niceAxis, type Column } from './charts.tsx';
 import type { TableData } from './csv.ts';
-import { AGENT_COLOR, THROUGHPUT_COLOR, compact, duration, durationTicks, pct, plain, usd } from './format.ts';
-import { AGGS, DIMS, MEASURES, METRICS, RANGES, pivotAgg, writeInsightParams, type AggKey, type DimKey, type InsightParams, type MeasureKey } from './params.ts';
+import { AGENT_COLOR, SERIES_COLOR, compact, duration, durationTicks, pct, plain, usd } from './format.ts';
+import { AGGS, DIMS, MEASURES, RANGES, pivotAgg, writeInsightParams, type AggKey, type DimKey, type InsightParams, type MeasureKey } from './params.ts';
 import type { AgentKey, Explore, ExploreGroup, Insights } from './types.ts';
 
 export const CACHE_HIT_HELP = "Cache-hit % is a ratio, so it can't be summed.";
@@ -24,7 +24,6 @@ export const mismatchNote = (k: number) =>
 
 const runs = (n: number) => `${n} ${n === 1 ? 'run' : 'runs'}`;
 const labelOf = <T extends string>(list: ReadonlyArray<readonly [T, string]>, key: string) => list.find(([k]) => k === key)?.[1] ?? key;
-const capital = (s: string) => s[0]!.toUpperCase() + s.slice(1);
 
 const MEASURE_FORMAT: Record<MeasureKey, (v: number) => string> = {
   tokens_out: compact,
@@ -40,7 +39,7 @@ const formatOf = (measure: MeasureKey, agg: AggKey) => (agg === 'count' ? plain 
 function colorOf(dim: DimKey, value: string): string {
   if (value === OTHER) return OTHER_COLOR;
   if (dim === 'agent' && Object.hasOwn(AGENT_COLOR, value)) return AGENT_COLOR[value as AgentKey];
-  return THROUGHPUT_COLOR;
+  return SERIES_COLOR;
 }
 
 function valueText(g: ExploreGroup, agg: AggKey, fmt: (v: number) => string): string {
@@ -52,7 +51,7 @@ export function exploreTable(ex: Explore, params: InsightParams): TableData {
   const agg = pivotAgg(params);
   const fmt = formatOf(params.measure, agg);
   return {
-    columns: [...params.dims.map((d) => capital(labelOf(DIMS, d))), 'Runs', `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure).toLowerCase()}`],
+    columns: [...params.dims.map((d) => labelOf(DIMS, d)), 'Runs', `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure)}`],
     rows: ex.groups.map((g) => [...g.key, g.n, valueText(g, agg, fmt)]),
   };
 }
@@ -82,10 +81,7 @@ function Pivot({ params, priced }: { params: InsightParams; priced: boolean }) {
   const set = (patch: Partial<InsightParams>) => writeInsightParams({ ...params, ...patch });
   const [first, second] = params.dims as [DimKey, DimKey | undefined];
   const cacheHit = params.measure === 'cache_hit';
-  const setMeasure = (v: string) => {
-    const measure = v as MeasureKey;
-    set({ measure, metric: METRICS.find(([k]) => k === measure)?.[0] ?? params.metric });
-  };
+  const setMeasure = (v: string) => set({ measure: v as MeasureKey });
   const setFirst = (v: string) => set({ dims: [v as DimKey, ...(second && second !== v ? [second] : [])] });
   const setSecond = (v: string) => set({ dims: v ? [first, v as DimKey] : [first] });
   return (
@@ -100,7 +96,7 @@ function Pivot({ params, priced }: { params: InsightParams; priced: boolean }) {
         />
         <PivotSelect name="Measure" lead="of" value={params.measure} options={MEASURES} disabled={priced ? undefined : new Set(['cost'])} onChange={setMeasure} />
         <PivotSelect name="Dimension" lead="by" value={first} options={DIMS} onChange={setFirst} />
-        <PivotSelect name="Then by" lead="then" value={second ?? ''} options={[['', 'none'], ...DIMS]} disabled={new Set([first])} onChange={setSecond} />
+        <PivotSelect name="Then by" lead="then" value={second ?? ''} options={[['', 'None'], ...DIMS]} disabled={new Set([first])} onChange={setSecond} />
       </div>
       {cacheHit && <p className="text-xs text-fg-muted">{CACHE_HIT_HELP}</p>}
       {!priced && <p className="text-xs text-fg-muted">{COST_HELP}</p>}
@@ -136,7 +132,7 @@ function ExploreChart({ ex, params }: { ex: Explore; params: InsightParams }) {
   const fmt = formatOf(params.measure, agg);
   const axis = params.measure === 'duration_ms' && agg !== 'count' ? (max: number) => durationTicks(max) : niceAxis(fmt);
   const what = `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure).toLowerCase()}`;
-  const title = `${what} by ${params.dims.map((d) => labelOf(DIMS, d)).join(' then ')}`;
+  const title = `${labelOf(AGGS, agg)} ${labelOf(MEASURES, params.measure)} by ${params.dims.map((d) => labelOf(DIMS, d)).join(' Then ')}`;
   const period = labelOf(RANGES, params.range);
   const footnotes: ReactNode[] = [];
   if (params.dims.includes('review_round') && ex.review_round_mismatch > 0) footnotes.push(mismatchNote(ex.review_round_mismatch));
@@ -164,7 +160,7 @@ function ExploreChart({ ex, params }: { ex: Explore; params: InsightParams }) {
   }
   return (
     <ChartCard
-      title={capital(title)}
+      title={title}
       subtitle={`${period} · ${runs(ex.groups.reduce((s, g) => s + g.n, 0))}`}
       section="explore"
       range={params.range}

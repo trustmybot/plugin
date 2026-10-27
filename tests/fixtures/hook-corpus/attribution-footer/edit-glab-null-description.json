@@ -1,0 +1,13 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "glab mr create --fill"
+  },
+  "tool_response": "https://gitlab.com/o/r/-/merge_requests/204",
+  "corpus_env": {
+    "STUB_VIEW_OUT": "{\"description\":null}"
+  },
+  "corpus_expect": "mr update 204"
+}

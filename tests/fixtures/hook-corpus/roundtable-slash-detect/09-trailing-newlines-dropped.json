@@ -1,0 +1,4 @@
+{
+  "prompt": "/roundtable go\n\n\n",
+  "corpus_expect": "audit: -1 hook:roundtable-slash-detect roundtable_slash_invoked: User typed /roundtable: /roundtable go\nhex:"
+}

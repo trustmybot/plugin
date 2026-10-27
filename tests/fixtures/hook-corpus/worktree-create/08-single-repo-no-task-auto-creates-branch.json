@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "feat/unplanned",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/single/.claude/tmb/trajectory.db"
+  },
+  "corpus_expect": "tmb worktree-create: auto-created branch feat/unplanned in @SANDBOX@/single/solo"
+}

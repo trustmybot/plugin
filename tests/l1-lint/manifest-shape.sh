@@ -191,6 +191,7 @@ else
       # Strip ${CLAUDE_PLUGIN_ROOT} prefix for local resolution
       local_path="${script//\$\{CLAUDE_PLUGIN_ROOT\}/.}"
       local_path="${local_path//\$CLAUDE_PLUGIN_ROOT/.}"
+      local_path="${local_path#node }"
       if [ "${local_path:0:1}" = '"' ]; then
         local_path="${local_path#\"}"
         local_path="${local_path%%\"*}"

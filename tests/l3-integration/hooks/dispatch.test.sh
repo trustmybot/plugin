@@ -1173,7 +1173,10 @@ while IFS= read -r reg; do
       mismatch="$mismatch $gate"
     fi
   done
-done < <(jq -r '.hooks.PreToolUse[].hooks[].command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)$").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
+done < <({
+  jq -r '.hooks.PreToolUse[].hooks[].command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)$").g' "$PLUGIN_ROOT/hooks/hooks.json"
+  tmb_router_gates "$PLUGIN_ROOT" PreToolUse
+} | sort -u)
 assert_eq "" "$missing" "every gate has a .sh or a dist/hooks-gates.txt line"
 assert_eq "" "$mismatch" "no gate differs through the dispatcher"
 assert_contains "$ts_checked" "swe-resume-gate" "the TS-only swe-resume-gate ran through dist/hooks.js"

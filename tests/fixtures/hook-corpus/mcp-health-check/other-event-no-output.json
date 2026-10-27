@@ -1,0 +1,14 @@
+{
+  "hookEventName": "UserPromptSubmit",
+  "sessionId": "alias-session",
+  "corpus_env": {
+    "TMB_INSTALLED_JSON": "@SANDBOX@/installs/user-only.json",
+    "PGREP_OUT": ""
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "\"event\":\"UserPromptSubmit\",\"mcp_alive\":false",
+    "\"session_id\":\"alias-session\"",
+    "!alias-session.install-notice"
+  ]
+}

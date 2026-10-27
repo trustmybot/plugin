@@ -115,12 +115,12 @@ before(async () => {
         import { parseChangelog, loadReleases, releaseAt } from './server/releases.ts';
         import { exploreTable, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote } from './web/views/insights/explore.tsx';
         import { InsightsLayout } from './web/views/insights/InsightsView.tsx';
-        import { parseInsightParams, insightHash } from './web/views/insights/params.ts';
+        import { parseInsightParams, insightHash, clearFilters } from './web/views/insights/params.ts';
         import { ChartCard, DataTableView } from './web/views/insights/ChartCard.tsx';
         import { toCsv, csvName } from './web/views/insights/csv.ts';
-        import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION } from './web/views/insights/sections.tsx';
+        import { NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable } from './web/views/insights/sections.tsx';
         import { AGENT_COLOR, compact, durationTicks } from './web/views/insights/format.ts';
-        import { Histogram, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks } from './web/views/insights/charts.tsx';
+        import { Histogram, barWidth, histBarWidth, arrowPath, placeMarkerCallouts, thinEdgeTicks } from './web/views/insights/charts.tsx';
         const withHash = (hash, fn) => {
           globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
           try { return fn(); } finally { delete globalThis.window; }
@@ -136,7 +136,7 @@ before(async () => {
         export const table = (caption, t) => renderToStaticMarkup(createElement(DataTableView, { caption, table: t }));
         export const escaped = (text) => renderToStaticMarkup(createElement(Fragment, null, text));
         export const card = (props) => renderToStaticMarkup(createElement(ChartCard, props, createElement('svg', { role: 'img', 'aria-label': 'x' })));
-        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, labelBox, markerLeader, placeMarkerLabels, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
+        export { insights, insightFilter, nearestRank, metric, logEdges, histogram, parseInsightParams, insightHash, clearFilters, toCsv, csvName, NO_PRICES, EFFORT_CAPTION, BRO_CAPTION, IDLE_CAPTION, TASK_LEVEL_CAPTION, NO_MATCH_HEADING, histogramTable, likelyIdle, normalizeCommand, AGENT_COLOR, compact, durationTicks, barWidth, histBarWidth, arrowPath, placeMarkerCallouts, thinEdgeTicks, explore, parseChangelog, loadReleases, releaseAt, CACHE_HIT_HELP, COST_HELP, NEEDS_RUNS, ESTIMATED_TIP, mismatchNote };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -240,14 +240,29 @@ describe('insights()', () => {
     assert.equal(bro.cache_hit.avg, sum(BRO, (r) => r.cr) / sum(BRO, (r) => r.in + r.cr + r.cc));
   });
 
-  test('histograms have at most 10 log-spaced buckets covering every measured run', () => {
+  test('SC1: one histogram per metric, at most 10 buckets covering every measured run; cache-hit on fixed 10% edges', () => {
     const d = data();
+    const METRIC_KEYS = ['tokens_out', 'context', 'cache_hit', 'tool_uses'];
+    const tenths = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
     for (const a of d.agents) {
-      assert.ok(a.histogram.length <= 10, a.agent);
-      assert.equal(sum(a.histogram, (b) => b.count), a.n, a.agent);
-      for (let i = 1; i < a.histogram.length; i++) assert.equal(a.histogram[i].from, a.histogram[i - 1].to);
+      assert.ok(!('histogram' in a), a.agent);
+      assert.deepEqual(Object.keys(a.histograms).sort(), [...METRIC_KEYS].sort(), a.agent);
+      for (const m of METRIC_KEYS) {
+        const h = a.histograms[m];
+        assert.ok(h.length > 0 && h.length <= 10, `${a.agent} ${m}`);
+        assert.equal(sum(h, (b) => b.count), a.n, `${a.agent} ${m}`);
+        for (let i = 1; i < h.length; i++) assert.equal(h[i].from, h[i - 1].to);
+      }
+      assert.deepEqual([...a.histograms.cache_hit.map((b) => b.from), a.histograms.cache_hit.at(-1).to], tenths, a.agent);
     }
-    assert.deepEqual(agent(d, 'swe').histogram.map((b) => b.from), agent(d, 'code-reviewer').histogram.map((b) => b.from));
+    for (const m of METRIC_KEYS) assert.deepEqual(agent(d, 'swe').histograms[m].map((b) => b.from), agent(d, 'code-reviewer').histograms[m].map((b) => b.from), m);
+    assert.notDeepEqual(agent(d, 'swe').histograms.context.map((b) => b.from), agent(d, 'bro').histograms.context.map((b) => b.from));
+    const swe = agent(d, 'swe').histograms;
+    assert.equal(swe.tool_uses[0].from, 1);
+    assert.equal(swe.tool_uses.at(-1).to, 25);
+    assert.equal(swe.context[0].from, Math.min(...[...SWE, ...REVIEWER].map((r) => r.in + r.cr + r.cc)));
+    const hits = SWE.map((r) => r.cr / (r.in + r.cr + r.cc));
+    assert.equal(swe.cache_hit[Math.floor(hits[0] * 10)].count, hits.filter((h) => Math.floor(h * 10) === Math.floor(hits[0] * 10)).length);
     const edges = mod.logEdges([1, 10_000]);
     assert.equal(edges.length, 11);
     assert.ok(Math.abs(edges[5] - 100) <= 1);
@@ -375,10 +390,10 @@ describe('GH 1948: idle runs and subshell command variants', () => {
 
   test('the Top runs table labels idle rows and lists them last', () => {
     const html = mod.page('#/insights/time?range=30d', data());
-    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
-    const labelled = [...top.matchAll(/<tr[^>]*>.*?<\/tr>/gs)].filter((r) => r[0].includes('Likely idle'));
+    const top = html.slice(html.indexOf('aria-label="Top Runs by Duration"'));
+    const labelled = [...top.matchAll(/<tr[^>]*>.*?<\/tr>/gs)].filter((r) => r[0].includes('Likely Idle'));
     assert.equal(labelled.length, 2);
-    assert.match(labelled[0][0], /border-\(--borderColor-muted\) text-fg-muted[^>]*>Likely idle</);
+    assert.match(labelled[0][0], /border-\(--borderColor-muted\) text-fg-muted[^>]*>Likely Idle</);
     assert.ok(top.includes(mod.IDLE_CAPTION));
   });
 });
@@ -587,7 +602,7 @@ describe('Explore view', () => {
     const params = mod.parseInsightParams(path, new URLSearchParams(query));
     assert.deepEqual([params.section, params.range, params.measure, params.agg, params.dims], ['explore', '30d', 'tokens_out', 'p95', ['agent', 'review_round']]);
     const again = mod.insightHash(params);
-    assert.match(again, /&m=tokens_out&a=p95&g=agent,review_round$/);
+    assert.match(again, /&m=tokens_out&x=tokens_out&a=p95&g=agent,review_round$/);
     const [path2, query2] = again.slice(2).split('?');
     assert.deepEqual(mod.parseInsightParams(path2, new URLSearchParams(query2)), params);
     assert.equal(mod.parseInsightParams('insights/explore', new URLSearchParams('g=agent,agent,model,bogus')).dims.join(), 'agent,model');
@@ -657,7 +672,7 @@ describe('Explore view', () => {
   test('the CSV equals the table rows', () => {
     const { hash, ex } = view('m=tokens_out&a=p95&g=agent,review_round');
     const t = mod.exploreRows(hash, ex);
-    assert.deepEqual(t.columns, ['Agent', 'Review round', 'Runs', 'p95 output tokens']);
+    assert.deepEqual(t.columns, ['Agent', 'Review Round', 'Runs', 'p95 Output Tokens']);
     assert.equal(t.rows.length, ex.groups.length);
     assert.ok(t.rows.some((r) => r[3] === mod.NEEDS_RUNS));
     const html = mod.table('cap', t);
@@ -701,7 +716,7 @@ describe('GH 1347 polish: histogram nouns and slowest-command order', () => {
 
   test('the heading reads "Slowest verification commands"; the n<20 p95 cell is —', () => {
     const html = mod.page('#/insights/quality?range=30d', data());
-    assert.match(html, /<h3[^>]*>Slowest verification commands<\/h3>/);
+    assert.match(html, /<h3[^>]*>Slowest Verification Commands<\/h3>/);
     assert.ok(!html.includes('(by p95)'));
     const slow = html.slice(html.indexOf('aria-label="Slowest verification commands"'));
     const row = slow.slice(slow.indexOf('title="rare outlier"'), slow.indexOf('</tr>', slow.indexOf('title="rare outlier"')));
@@ -735,9 +750,9 @@ describe('Insights view', () => {
   const at = (section, query = 'range=30d') => mod.page(`#/insights/${section}?${query}`, data);
 
   test('the hash round-trips every param; an unknown section falls back to Tokens', () => {
-    const params = { section: 'quality', range: '90d', metric: 'cache_hit', measure: 'cache_hit', agg: 'p50', dims: ['agent'], filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
+    const params = { section: 'quality', range: '90d', metric: 'cache_hit', measure: 'duration_ms', agg: 'p50', dims: ['agent'], filters: { repo: 'plugin', agent: 'code-reviewer', model: 'claude-opus', effort: 'high' } };
     const hash = mod.insightHash(params);
-    assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=code-reviewer&model=claude-opus&effort=high&m=cache_hit');
+    assert.equal(hash, '#/insights/quality?range=90d&repo=plugin&agent=code-reviewer&model=claude-opus&effort=high&m=cache_hit&x=duration_ms');
     const [path, query] = hash.slice(2).split('?');
     assert.deepEqual(mod.parseInsightParams(path, new URLSearchParams(query)), params);
     assert.equal(mod.parseInsightParams('insights/bogus', new URLSearchParams('range=nope&m=nope')).section, 'tokens');
@@ -751,13 +766,13 @@ describe('Insights view', () => {
     const links = [...nav.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
     assert.deepEqual(links.map((l) => l[2]), ['Tokens', 'Cost', 'Time', 'Quality', 'Throughput', 'Explore']);
     assert.match(links[2][0], /aria-current="page"/);
-    assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out$/);
+    assert.match(links[0][1], /^#\/insights\/tokens\?range=7d&amp;repo=&amp;agent=swe&amp;model=&amp;effort=low&amp;m=tokens_out&amp;x=tokens_out$/);
     assert.match(html, /class="max-md:hidden"/);
     assert.match(html, /<div class="md:hidden"><label[^>]*>Section<select/);
-    assert.match(html, /Period<select[^>]*>.*<option value="7d" selected="">Last 7 days<\/option>/);
+    assert.match(html, /Period<select[^>]*>.*<option value="7d" selected="">Last 7 Days<\/option>/);
     assert.match(html, /Filters \(2\)/);
     assert.doesNotMatch(html, />Metric<select/);
-    assert.match(at('tokens'), />Metric<select[^>]*><option value="tokens_out" selected="">Output tokens<\/option><option value="context">Context<\/option><option value="cache_hit">Cache-hit %<\/option><option value="tool_uses">Tool uses<\/option>/);
+    assert.match(at('tokens'), />Metric<select[^>]*><option value="tokens_out" selected="">Output Tokens<\/option><option value="context">Context<\/option><option value="cache_hit">Cache-Hit %<\/option><option value="tool_uses">Tool Uses<\/option>/);
     assert.ok(html.includes(mod.EFFORT_CAPTION));
     for (const label of ['Repo', 'Agent', 'Model', 'Effort']) assert.match(html, new RegExp(`>${label}<select`));
   });
@@ -779,45 +794,202 @@ describe('Insights view', () => {
     assert.match(html, /Tokens measured for 25 of 27 runs/);
     assert.match(html, /Tokens measured for 23 of 23 runs/);
     assert.match(html, /Tokens measured for 3 of 3 sessions/);
-    assert.match(html, /Last 30 days · Per run · runs by output tokens/);
-    assert.match(html, /Last 30 days · Per session · sessions by output tokens/);
+    assert.match(html, /Last 30 Days · Per Run · Runs by Output Tokens/);
+    assert.match(html, /Last 30 Days · Per Session · Sessions by Output Tokens/);
     assert.ok(html.includes(mod.BRO_CAPTION));
     assert.match(html, /Early data · 3 of 20 runs/);
     assert.match(html, /p50 13K/);
     assert.match(html, /p95 24K/);
-    const innerH = 224 - 36 - 24;
+    const innerH = 224 - 40 - 24;
     const markers = [...html.matchAll(/<g data-marker="">(.*?)<\/g>/g)].map((m) => m[1]);
     assert.equal(markers.length, 4);
-    const ys = (line) => [/ y1="([\d.-]+)"/, / y2="([\d.-]+)"/].map((re) => Number(re.exec(line)[1]));
     for (const g of markers) {
-      const lines = [...g.matchAll(/<line[^>]*>/g)].map((m) => m[0]);
-      assert.equal(lines.length, 2, 'one leader and one tick per marker');
-      const leaders = lines.filter((l) => l.includes('data-marker-leader'));
-      const ticks = lines.filter((l) => l.includes('data-marker-tick'));
-      assert.equal(leaders.length, 1);
-      assert.equal(ticks.length, 1);
-      for (const line of lines) {
-        assert.match(line, /stroke="var\(--fgColor-muted\)" stroke-width="1"/);
-        const [y1, y2] = ys(line);
-        assert.ok(!(Math.min(y1, y2) <= 0 && Math.max(y1, y2) >= innerH), 'no marker line spans the plot');
-      }
-      assert.deepEqual(ys(ticks[0]), [innerH, innerH + 4]);
-      const [y1, y2] = ys(leaders[0]);
-      assert.ok(y1 < 0 && y2 >= y1 && y2 < innerH, `leader ${y1}→${y2} drops from the band and stops above the baseline`);
+      assert.doesNotMatch(g, /<line/, 'no line inside a marker');
+      const arrows = [...g.matchAll(/<path [^>]*data-marker-arrow=""[^>]*>/g)].map((m) => m[0]);
+      assert.equal(arrows.length, 1, 'one arrow per marker');
+      assert.equal((g.match(/data-marker-label=""/g) ?? []).length, 1, 'one label per marker');
+      assert.match(arrows[0], /fill="var\(--fgColor-muted\)"/);
+      assert.match(arrows[0], /stroke="none"/);
+      assert.match(arrows[0], /pointer-events="none"/);
+      const [x0, y0, x1, ax, tip] = /d="M([\d.-]+),([\d.-]+)H([\d.-]+)L([\d.-]+),([\d.-]+)Z"/.exec(arrows[0]).slice(1).map(Number);
+      assert.deepEqual([x1 - x0, tip - y0, (x0 + x1) / 2], [8, 5, ax], 'an 8×5 arrow centred on ax');
+      assert.ok(tip <= innerH - 3, `arrow tip ${tip} above the baseline`);
     }
     assert.doesNotMatch(html, /stroke-dasharray/);
     const broCard = html.slice(html.indexOf('data-agent="bro"'));
     assert.doesNotMatch(broCard, /p50 \d|p95 \d|data-marker/);
     assert.match(html, /aria-label="swe, [^"]+ output tokens: \d+ runs?"/);
-    assert.match(html, /Top runs by output tokens/);
-    assert.match(html, /Top runs by context/);
+    assert.match(html, /Top Runs by Output Tokens/);
+    assert.match(html, /Top Runs by Context/);
     assert.match(html, /href="#\/tasks\/\d+"/);
   });
 
   test('Tokens: the Metric select switches the stats shown', () => {
     const html = at('tokens', 'range=30d&m=cache_hit');
-    assert.match(html, /p50 Cache-hit %/);
+    assert.match(html, /p50 Cache-Hit %/);
     assert.match(html, /Rank \d of 2 by average cache-hit %/);
+  });
+
+  const decode = (s) => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+  const cardOf = (html, who) => {
+    const start = html.indexOf(`data-agent="${who}"`);
+    const ends = [html.indexOf('data-agent="', start + 1), html.indexOf('aria-label="Top Runs', start)].filter((i) => i !== -1);
+    return html.slice(start, Math.min(...ends));
+  };
+  const agentsShown = (html) => [...html.matchAll(/data-agent="([^"]+)"/g)].map((m) => m[1]);
+  const sectionBody = (html, title) => html.slice(html.indexOf(`>${title}</h2>`));
+
+  test('SC2: the Metric drives each card subtitle, table columns, aria label and bars', () => {
+    const cases = [
+      ['context', 'Context Size', ['From (Tokens)', 'To (Tokens)'], 'context'],
+      ['cache_hit', 'Cache-Hit %', ['From (%)', 'To (%)'], 'cache-hit %'],
+      ['tool_uses', 'Tool Uses', ['From (Uses)', 'To (Uses)'], 'tool uses'],
+    ];
+    for (const [m, by, cols, noun] of cases) {
+      const html = at('tokens', `range=30d&m=${m}`);
+      assert.ok(html.includes(`Last 30 Days · Per Run · Runs by ${by}`), m);
+      assert.ok(html.includes(`Last 30 Days · Per Session · Sessions by ${by}`), m);
+      for (const a of data.agents) {
+        assert.deepEqual(mod.histogramTable(a, m).columns, [...cols, a.per === 'session' ? 'Sessions' : 'Runs'], `${m} ${a.agent}`);
+        const card = cardOf(html, a.agent);
+        assert.ok(!card.includes('output tokens'), `${m} ${a.agent}`);
+        const label = /<svg width="\d+" height="\d+"[^>]*aria-label="([^"]+)"/.exec(card)[1];
+        assert.ok(label.startsWith(`${a.agent} ${noun} per `), label);
+        const bars = [...card.matchAll(new RegExp(`aria-label="${a.agent}, [^"]+ ${noun}: (\\d+) (?:runs?|sessions?)"`, 'g'))].map((x) => Number(x[1]));
+        assert.deepEqual(bars, a.histograms[m].map((b) => b.count), `${m} ${a.agent}`);
+      }
+    }
+    assert.deepEqual(mod.histogramTable(data.agents[0], 'cache_hit').rows.map((r) => [r[0], r[1]]), Array.from({ length: 10 }, (_, i) => [10 * i, 10 * i + 10]));
+    const empty = structuredClone(data);
+    empty.agents[0].histograms.context = [];
+    const html = mod.page('#/insights/tokens?range=30d&m=context', empty);
+    const swe = cardOf(html, 'swe');
+    assert.ok(swe.includes('No context data in this period.'));
+    assert.doesNotMatch(swe, /<svg width="\d+"/);
+    assert.match(cardOf(html, 'code-reviewer'), /<svg width="\d+"/);
+    assert.ok(!html.includes('No output tokens data'));
+  });
+
+  test('F236-1: an agent with no measured runs shows the empty state for every metric, cache-hit included', () => {
+    const unmeasured = new DatabaseSync(join(tmp, 'view-unmeasured.db'));
+    unmeasured.exec(readFileSync(SCHEMA, 'utf8'));
+    const now = NOW.toISOString();
+    const issue = Number(unmeasured.prepare('INSERT INTO issues (objective, created_at, updated_at) VALUES (?, ?, ?)').run('i', now, now).lastInsertRowid);
+    const task = Number(unmeasured.prepare("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'b', 't', 'd', 'running', ?, ?)").run(issue, now, now).lastInsertRowid);
+    unmeasured
+      .prepare(
+        `INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+         VALUES (?, 'swe', 1, 1, 1, 1, 1, 1, ?, ?, 'unmeasured', 'm')`,
+      )
+      .run(task, now, now);
+    const only = mod.insights(unmeasured, filter('range=30d'), NOW);
+    const swe = only.agents.find((a) => a.agent === 'swe');
+    assert.equal(swe.total, 1);
+    assert.equal(swe.n, 0);
+    assert.equal(swe.histograms.cache_hit.length, 10);
+    for (const [m, noun] of [['cache_hit', 'cache-hit %'], ['context', 'context'], ['tokens_out', 'output tokens'], ['tool_uses', 'tool uses']]) {
+      const card = cardOf(mod.page(`#/insights/tokens?range=30d&m=${m}`, only), 'swe');
+      assert.ok(card.includes(`No ${noun} data in this period.`), m);
+      assert.doesNotMatch(card, /<svg width=/, m);
+    }
+  });
+
+  test('SC3: a filter hides the agents it leaves without runs on Tokens, Time and Cost; none left is one empty state', () => {
+    const onlySwe = mod.insights(db, filter('range=30d&agent=swe'), NOW);
+    const onlySwePriced = mod.insights(pricedDb, filter('range=30d&agent=swe'), NOW);
+    const tokens = mod.page('#/insights/tokens?range=30d&agent=swe', onlySwe);
+    assert.deepEqual(agentsShown(tokens), ['swe']);
+    assert.doesNotMatch(tokens, /Rank \d of/);
+    const bodies = [
+      sectionBody(tokens, 'Tokens'),
+      sectionBody(mod.page('#/insights/time?range=30d&agent=swe', onlySwe), 'Time'),
+      sectionBody(mod.page('#/insights/cost?range=30d&agent=swe', onlySwePriced), 'Cost'),
+    ];
+    for (const body of bodies) {
+      assert.doesNotMatch(body, /code-reviewer|\bbro\b/);
+      assert.match(body, /\bswe\b/);
+    }
+
+    const modelDbPath = join(tmp, 'view-model.db');
+    const { db: modelDb, ids } = seed(modelDbPath, JSON.stringify({ 'claude-swe-only': OPUS }));
+    modelDb
+      .prepare(
+        `INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+         VALUES (?, 'swe', 10, 500, 100, 10, 4, 60000, ?, ?, 'subagent_stop', 'claude-swe-only')`,
+      )
+      .run(ids[0], NOW.toISOString(), NOW.toISOString());
+    const byModel = mod.insights(modelDb, filter('range=30d&model=claude-swe-only'), NOW);
+    modelDb.close();
+    assert.deepEqual(byModel.agents.map((a) => a.total), [1, 0, 0]);
+    for (const [section, title] of [['tokens', 'Tokens'], ['time', 'Time'], ['cost', 'Cost']]) {
+      const body = sectionBody(mod.page(`#/insights/${section}?range=30d&model=claude-swe-only`, byModel), title);
+      assert.doesNotMatch(body, /code-reviewer|\bbro\b/, section);
+      assert.match(body, /\bswe\b/, section);
+    }
+
+    const none = mod.insights(db, filter('range=30d&model=nope'), NOW);
+    for (const [section, title] of [['tokens', 'Tokens'], ['time', 'Time'], ['cost', 'Cost']]) {
+      const html = mod.page(`#/insights/${section}?range=7d&repo=x&agent=swe&model=nope&effort=high&m=context`, mod.insights(pricedDb, filter('range=7d&repo=x&agent=swe&model=nope&effort=high'), NOW));
+      const body = decode(sectionBody(html, title));
+      assert.ok(body.includes(mod.NO_MATCH_HEADING), section);
+      assert.ok(body.includes('Nothing in last 7 days matches Repo: x · Agent: swe · Model: nope · Effort: high.'), section);
+      assert.equal(agentsShown(body).length, 0, section);
+      assert.equal((body.match(/No Runs Match These Filters/g) ?? []).length, 1, section);
+      const href = /<a href="([^"]+)"[^>]*>Clear Filters<\/a>/.exec(body)[1];
+      const [path, query] = href.slice(2).split('?');
+      const cleared = mod.parseInsightParams(path, new URLSearchParams(query));
+      assert.deepEqual(cleared.filters, { repo: '', agent: '', model: '', effort: '' }, section);
+      assert.deepEqual([cleared.section, cleared.range, cleared.metric], [section, '7d', 'context'], section);
+    }
+    assert.ok(decode(mod.page('#/insights/tokens?range=30d&model=nope', none)).includes('Nothing in last 30 days matches Model: nope.'));
+    assert.deepEqual(mod.clearFilters({ ...onlySwe, filters: { repo: 'a', agent: 'swe', model: 'b', effort: 'low' } }).filters, { repo: '', agent: '', model: '', effort: '' });
+
+    const all = at('tokens');
+    assert.deepEqual(agentsShown(all), ['swe', 'code-reviewer', 'bro']);
+    assert.match(all, /Rank 1 of 2/);
+    assert.doesNotMatch(all, /No Runs Match/);
+  });
+
+  test('SC4: Quality and Throughput hide Agent and Model, with a caption only while one is set', () => {
+    const caption = (html) => decode(html).includes(mod.TASK_LEVEL_CAPTION);
+    for (const section of ['quality', 'throughput']) {
+      const html = at(section, 'range=30d&repo=plugin&agent=swe&model=claude-opus&effort=high');
+      assert.doesNotMatch(html, />Agent<select/, section);
+      assert.doesNotMatch(html, />Model<select/, section);
+      assert.match(html, />Repo<select/, section);
+      assert.match(html, />Effort<select/, section);
+      assert.ok(caption(html), section);
+      assert.match(html, /href="#\/insights\/tokens\?range=30d&amp;repo=plugin&amp;agent=swe&amp;model=claude-opus&amp;effort=high/, section);
+      assert.ok(caption(at(section, 'range=30d&model=claude-opus')), section);
+      assert.ok(caption(at(section, 'range=30d&agent=swe')), section);
+      assert.ok(!caption(at(section, 'range=30d&repo=plugin&effort=high')), section);
+      assert.ok(!caption(at(section)), section);
+    }
+    const tokens = at('tokens', 'range=30d&agent=swe&model=claude-opus');
+    assert.match(tokens, />Agent<select[^>]*>(?:<option[^>]*>[^<]*<\/option>)*<option value="swe" selected="">/);
+    assert.match(tokens, />Model<select[^>]*>(?:<option[^>]*>[^<]*<\/option>)*<option value="claude-opus" selected="">/);
+    assert.ok(!caption(tokens));
+  });
+
+  test('SC5: Metric is m and Measure is x; neither overwrites the other; a legacy explore m is the Measure', () => {
+    const reparse = (hash) => {
+      const [path, query] = hash.slice(2).split('?');
+      return mod.parseInsightParams(path, new URLSearchParams(query));
+    };
+    const p = mod.parseInsightParams('insights/tokens', new URLSearchParams('m=context&x=duration_ms'));
+    assert.deepEqual([p.metric, p.measure], ['context', 'duration_ms']);
+    assert.match(mod.insightHash(p), /&m=context&x=duration_ms$/);
+    for (const section of ['tokens', 'explore', 'quality']) {
+      const back = reparse(mod.insightHash({ ...p, section }));
+      assert.deepEqual([back.metric, back.measure], ['context', 'duration_ms'], section);
+    }
+    assert.equal(reparse(mod.insightHash({ ...p, metric: 'tool_uses' })).measure, 'duration_ms');
+    assert.equal(reparse(mod.insightHash({ ...p, measure: 'cost' })).metric, 'context');
+    const legacy = mod.parseInsightParams('insights/explore', new URLSearchParams('m=cost'));
+    assert.equal(legacy.measure, 'cost');
+    assert.match(mod.insightHash(legacy), /&x=cost$/);
+    assert.equal(mod.parseInsightParams('insights/tokens', new URLSearchParams('m=context')).measure, 'tokens_out');
+    assert.equal(mod.parseInsightParams('insights/explore', new URLSearchParams('m=context&x=cost')).measure, 'cost');
   });
 
   test('swe and code-reviewer histograms share one y scale; bro has its own', () => {
@@ -924,7 +1096,7 @@ describe('Insights view', () => {
     const edges = Array.from({ length: 11 }, (_, i) => 10 ** (3 + 0.3 * i));
     const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
-    const svg = mod.histogramSvg({ label: 'swe', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50: null, p95: null, format: mod.compact });
+    const svg = mod.histogramSvg({ label: 'swe', measure: 'output tokens', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50: null, p95: null, format: mod.compact });
     const band = (480 - 8 - 40) / 10;
     const hits = [...svg.matchAll(/<rect x="([\d.]+)" y="0" width="([\d.]+)"[^>]*data-hit=""/g)].map((m) => Number(m[1]));
     assert.equal(hits.length, 10);
@@ -941,17 +1113,65 @@ describe('Insights view', () => {
     });
   });
 
-  test('marker labels: start-anchored, end-anchored in the right third, clamped, stacked when they collide', () => {
-    const near = mod.placeMarkerLabels([{ x: 100, label: 'p50 13K' }, { x: 110, label: 'p95 24K' }], 400);
-    assert.deepEqual(near.map((p) => [p.anchor, p.row]), [['start', 0], ['start', 1]]);
-    const far = mod.placeMarkerLabels([{ x: 50, label: 'p50 13K' }, { x: 300, label: 'p95 24K' }], 400);
-    assert.deepEqual(far.map((p) => [p.anchor, p.row, p.x]), [['start', 0, 50], ['end', 0, 300]]);
-    const edge = mod.placeMarkerLabels([{ x: 400, label: 'p95 24K' }], 400)[0];
-    assert.deepEqual([edge.anchor, edge.x, edge.right], ['end', 400, 400]);
-    assert.ok(edge.left >= 0);
-    const start = mod.placeMarkerLabels([{ x: 0, label: 'p50 1K' }], 400)[0];
-    assert.deepEqual([start.anchor, start.left], ['start', 0]);
-    for (const p of [...near, ...far, edge, start]) assert.ok(mod.labelBox(p).bottom < 0, 'labels sit above the plot');
+  const calloutBox = (c, label) => {
+    const w = label.length * 6.6;
+    const left = c.anchor === 'start' ? c.labelX : c.anchor === 'end' ? c.labelX - w : c.labelX - w / 2;
+    return { left, right: left + w, top: c.baseline - 11, bottom: c.baseline + 3 };
+  };
+  const intersects = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const barRect = (b, innerH) => ({ left: b.left, right: b.right, top: b.top, bottom: innerH });
+  const checkCallouts = (markers, bars, innerW, innerH) => {
+    const out = mod.placeMarkerCallouts(markers, bars, innerW, innerH);
+    const boxes = out.map((c, i) => calloutBox(c, markers[i].label));
+    out.forEach((c, i) => {
+      const box = boxes[i];
+      assert.ok(box.bottom <= c.tip - 7, `${markers[i].label}: label bottom ${box.bottom} at or above tip − 7 (${c.tip - 7})`);
+      assert.ok(box.left >= 0 && box.right <= innerW, `${markers[i].label}: label inside [0, ${innerW}]`);
+      for (const b of bars) assert.ok(!intersects(box, barRect(b, innerH)), `${markers[i].label}: label clear of bar ${b.left}–${b.right}`);
+      for (const other of boxes.slice(0, i)) assert.ok(!intersects(box, other), `${markers[i].label}: label clear of earlier labels`);
+    });
+    return out;
+  };
+
+  test('marker callouts: the arrow tip rests 3px above the surface, the taller neighbour in a gap, the axis over an empty bucket', () => {
+    const innerH = 160;
+    const [over] = checkCallouts([{ x: 15, label: 'p50 13K' }], [{ left: 10, right: 20, top: 60 }], 400, innerH);
+    assert.deepEqual([over.ax, over.tip], [15, 57]);
+    const gap = [{ left: 0, right: 10, top: 80 }, { left: 12, right: 22, top: 40 }];
+    assert.equal(checkCallouts([{ x: 11, label: 'p50 1K' }], gap, 400, innerH)[0].tip, 37, 'a marker mid-gap rests on the taller neighbour');
+    for (const x of [10.6, 11.4]) assert.equal(checkCallouts([{ x, label: 'p50 1K' }], gap, 400, innerH)[0].tip, 37);
+    assert.equal(checkCallouts([{ x: 5, label: 'p50 1K' }], gap, 400, innerH)[0].tip, 77, 'inside the shorter bar, away from the gap');
+    assert.equal(checkCallouts([{ x: 50, label: 'p50 1K' }], [{ left: 0, right: 10, top: 50 }], 400, innerH)[0].tip, innerH - 3, 'an empty bucket points at the axis');
+    assert.equal(checkCallouts([{ x: 50, label: 'p50 1K' }], [], 400, innerH)[0].tip, innerH - 3);
+    for (const x of [15.2, 15.7, -3, 431.9]) assert.equal(mod.placeMarkerCallouts([{ x, label: 'p50 1K' }], [], 400, innerH)[0].ax, Math.round(Math.min(400, Math.max(0, x))));
+  });
+
+  test('marker callouts: arrow path is 8 wide and 5 tall, centred on ax', () => {
+    assert.equal(mod.arrowPath(100, 57), 'M96,52H104L100,57Z');
+  });
+
+  test('marker callouts: a tail p95 beside a taller left bucket anchors start over the shorter tail', () => {
+    const bars = [{ left: 0, right: 30, top: 20 }, { left: 32, right: 62, top: 140 }, { left: 64, right: 94, top: 150 }];
+    const [p95] = checkCallouts([{ x: 40, label: 'p95 24K' }], bars, 400, 160);
+    assert.equal(p95.anchor, 'start');
+    assert.equal(p95.tip, 137);
+  });
+
+  test('marker callouts: overlapping p50/p95 never intersect, and p50 does not depend on p95', () => {
+    const bars = [{ left: 0, right: 30, top: 20 }, { left: 32, right: 62, top: 140 }, { left: 64, right: 94, top: 150 }];
+    const p50 = { x: 40, label: 'p50 13K' };
+    const alone = mod.placeMarkerCallouts([p50], bars, 400, 160)[0];
+    for (const x of [40, 45, 50, 70, 100]) {
+      const [first] = checkCallouts([p50, { x, label: 'p95 24K' }], bars, 400, 160);
+      assert.deepEqual(first, alone, `p95 at ${x} leaves p50 alone`);
+    }
+    for (const [a, b] of [[100, 104], [200, 200], [0, 3], [400, 396]]) checkCallouts([{ x: a, label: 'p50 354.8K' }, { x: b, label: 'p95 746.2K' }], [], 400, 160);
+  });
+
+  test('marker callouts: every label stays inside [0, innerW] at both edges', () => {
+    const out = checkCallouts([{ x: 0, label: 'p50 1K' }, { x: 263, label: 'p95 24K' }], [{ left: 0, right: 24, top: 100 }, { left: 239, right: 263, top: 120 }], 263, 160);
+    assert.equal(out[0].ax, 0);
+    assert.equal(out[1].ax, 263);
   });
 
   test('marker labels near the right edge (bro card shape) sit in the band, clear of bars, y ticks and each other', () => {
@@ -960,26 +1180,26 @@ describe('Insights view', () => {
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
     const p50 = Math.sqrt(edges[8] * edges[9]);
     const p95 = 746_200;
-    const svg = mod.histogramSvg({ label: 'bro', who: 'bro', noun: (n) => (n === 1 ? 'session' : 'sessions'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+    const svg = mod.histogramSvg({ label: 'bro', measure: 'output tokens', who: 'bro', noun: (n) => (n === 1 ? 'session' : 'sessions'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
     const innerW = 480 - 8 - 40;
     const [, gx, gy] = /<g class="visx-group" transform="translate\(([\d.]+), ([\d.]+)\)"/.exec(svg);
-    assert.deepEqual([Number(gx), Number(gy)], [8, 36]);
-    const labels = [...svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*data-marker-label="">([^<]+)<\/text>/g)].map(([, x, y, anchor, text]) => {
-      const w = text.length * 6.6;
-      const left = anchor === 'end' ? Number(x) - w : Number(x);
-      return { text, anchor, left, right: left + w, top: Number(y) - 11, bottom: Number(y) + 3 };
-    });
-    assert.deepEqual(labels.map((l) => [l.text, l.anchor]), [['p50 354.8K', 'end'], ['p95 746.2K', 'end']]);
-    const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    assert.ok(!overlap(labels[0], labels[1]), 'the two labels stack instead of overlapping');
-    assert.ok(labels[1].bottom <= labels[0].top, 'p95 sits on the band row above p50');
+    assert.deepEqual([Number(gx), Number(gy)], [8, 40]);
+    const labels = [...svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*data-marker-label="">([^<]+)<\/text>/g)].map(([, x, y, anchor, text]) => ({
+      text,
+      ...calloutBox({ labelX: Number(x), baseline: Number(y), anchor }, text),
+    }));
+    assert.deepEqual(labels.map((l) => l.text), ['p50 354.8K', 'p95 746.2K']);
+    assert.ok(!intersects(labels[0], labels[1]), 'the two labels do not overlap');
     for (const l of labels) {
       assert.ok(l.left >= 0 && l.right <= innerW, `${l.text} inside the plot x-range`);
-      assert.ok(l.bottom < 0 && l.top >= -Number(gy), `${l.text} inside the band above the plot`);
+      assert.ok(l.top >= -Number(gy) + 2, `${l.text} inside the svg`);
     }
-    const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) /g)].map((m) => Number(m[2]));
+    const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) h([\d.-]+)\s*a([\d.]+),/g)].map(([, mx, my, run, r]) => {
+      const left = Number(mx) - Number(r);
+      return { left, right: left + Number(run) + 2 * Number(r), top: Number(my), bottom: 224 - 40 - 24 };
+    });
     assert.equal(bars.length, 9);
-    assert.ok(bars.every((y) => y >= 0), 'every bar stays below the band');
+    for (const l of labels) for (const b of bars) assert.ok(!intersects(l, b), `${l.text} clear of the bar at ${b.left}`);
     const [, axisX] = /class="visx-group visx-axis visx-axis-right" transform="translate\(([\d.]+), 0\)"/.exec(svg);
     assert.equal(Number(axisX), innerW);
     const ticks = [...svg.slice(svg.indexOf('visx-axis-right')).matchAll(/<svg x="([\d.-]+)"[^>]*><text transform="" x="([\d.-]+)"[^>]*text-anchor="start"/g)];
@@ -989,28 +1209,12 @@ describe('Insights view', () => {
     }
   });
 
-  test('marker leaders: drop from under the label to 4px above the bar they touch, on a crisp pixel', () => {
-    const innerH = 164;
-    const leader = (x, labelBottom, bars) => mod.markerLeader({ x, labelBottom, bars, innerH });
-    const over = leader(15, -3, [{ left: 10, right: 20, top: 60 }]);
-    assert.deepEqual([over.y1, over.y2], [-1, 56]);
-    assert.equal(leader(50, -3, [{ left: 10, right: 20, top: 60 }]).y2, innerH - 4);
-    assert.equal(leader(50, -3, []).y2, innerH - 4);
-    const gap = [{ left: 0, right: 10, top: 80 }, { left: 12, right: 22, top: 40 }];
-    assert.equal(leader(11, -3, gap).y2, 36, 'a marker mid-gap clears the taller neighbour');
-    for (const x of [10.5, 11.5]) assert.equal(leader(x, -3, gap).y2, 36);
-    assert.equal(leader(5, -3, gap).y2, 76, 'inside the shorter bar, away from the gap');
-    const tall = leader(15, -3, [{ left: 10, right: 20, top: -10 }]);
-    assert.equal(tall.y2, tall.y1, 'a bar above the label leaves a zero-length leader');
-    for (const x of [15, 15.2, 15.5, 15.7, 0, 431.9]) assert.equal(leader(x, -3, []).x, Math.round(x) + 0.5);
-  });
-
-  test('marker leaders in the rendered histogram start under their labels and stop above the bars', () => {
+  test('marker arrows in the rendered histogram rest 3px above the bars, with their labels on top and clear of every bar', () => {
     const edges = Array.from({ length: 11 }, (_, i) => Math.round(10 ** (3 + 0.3 * i)));
     const counts = [1, 0, 2, 3, 5, 8, 12, 20, 30, 28];
     const buckets = counts.map((count, i) => ({ from: edges[i], to: edges[i + 1], count }));
     for (const [p50, p95] of [[Math.sqrt(edges[8] * edges[9]), 746_200], [edges[3], edges[7]], [edges[1] * 1.1, edges[9]]]) {
-      const svg = mod.histogramSvg({ label: 'swe', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
+      const svg = mod.histogramSvg({ label: 'swe', measure: 'output tokens', who: 'swe', noun: (n) => (n === 1 ? 'run' : 'runs'), buckets, color: 'var(--data-blue-color-emphasis)', p50, p95, format: mod.compact });
       const bars = [...svg.matchAll(/<path class="visx-bar-rounded" d="M([\d.-]+),([\d.-]+) h([\d.-]+)\s*a([\d.]+),/g)].map(([, mx, my, run, r]) => {
         const left = Number(mx) - Number(r);
         return { left, right: left + Number(run) + 2 * Number(r), top: Number(my) };
@@ -1018,15 +1222,22 @@ describe('Insights view', () => {
       assert.equal(bars.length, 9);
       const groups = [...svg.matchAll(/<g data-marker="">(.*?)<\/g>/g)].map((m) => m[1]);
       assert.equal(groups.length, 2);
+      const innerW = 480 - 8 - 40;
+      const innerH = 224 - 40 - 24;
+      const boxes = [];
       for (const g of groups) {
-        const [lx, y1, y2] = /<line[^>]*x1="([\d.-]+)" y1="([\d.-]+)" x2="[\d.-]+" y2="([\d.-]+)"[^>]*data-marker-leader=""/.exec(g).slice(1).map(Number);
+        assert.doesNotMatch(g, /<line/);
+        const [x0, , x1, ax, tip] = /<path d="M([\d.-]+),([\d.-]+)H([\d.-]+)L([\d.-]+),([\d.-]+)Z"[^>]*data-marker-arrow=""/.exec(g).slice(1).map(Number);
+        assert.deepEqual([x1 - x0, (x0 + x1) / 2], [8, ax]);
         const [, x, baseline, anchor, text] = /<text x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)"[^>]*>([^<]+)<\/text>/.exec(g);
-        const w = text.length * 6.6;
-        const left = anchor === 'end' ? Number(x) - w : Number(x);
-        const bottom = mod.labelBox({ x: Number(x), anchor, left, right: left + w, row: 0, baseline: Number(baseline) }).bottom;
-        assert.ok(y1 >= bottom, `${text}: leader y1 ${y1} at or below the label bottom ${bottom}`);
-        assert.equal(lx % 1, 0.5, `${text}: leader on a half pixel`);
-        for (const b of bars.filter((b) => b.left < lx + 0.5 && b.right > lx - 0.5)) assert.ok(y2 <= b.top - 4 || (y2 === y1 && b.top - 4 < y1), `${text}: leader ends ${y2}, 4px above the bar top ${b.top} or zero-length`);
+        const box = calloutBox({ labelX: Number(x), baseline: Number(baseline), anchor }, text);
+        const under = bars.filter((b) => b.left - 1.5 <= ax && ax <= b.right + 1.5);
+        assert.equal(tip, Math.min(innerH, ...under.map((b) => b.top)) - 3, `${text}: tip 3px above the surface`);
+        assert.ok(box.bottom <= tip - 7, `${text}: label sits on the arrow`);
+        assert.ok(box.left >= 0 && box.right <= innerW, `${text}: inside [0, innerW]`);
+        for (const b of bars) assert.ok(!intersects(box, barRect(b, innerH)), `${text}: clear of the bar at ${b.left}`);
+        for (const other of boxes) assert.ok(!intersects(box, other), `${text}: clear of the earlier label`);
+        boxes.push(box);
       }
     }
   });
@@ -1054,7 +1265,7 @@ describe('Insights view', () => {
 
   test('Time: duration and tool uses, bro separate, duration outliers', () => {
     const html = at('time');
-    for (const title of ['Duration per run', 'Tool uses per run', 'bro duration per session', 'bro tool uses per session', 'Top runs by duration']) assert.ok(html.includes(title), title);
+    for (const title of ['Duration per Run', 'Tool Uses per Run', 'bro Duration per Session', 'bro Tool Uses per Session', 'Top Runs by Duration']) assert.ok(html.includes(title), title);
     assert.match(html, /aria-label="swe: average [^"]+ over 25 runs"/);
     const cards = html.split('data-chart-card=""').slice(1);
     assert.equal(cards.length, 4);
@@ -1065,7 +1276,7 @@ describe('Insights view', () => {
       assert.match(card, /<text x="0" y="12" fill="var\(--fgColor-default\)" font-size="12">swe<\/text>/);
       assert.doesNotMatch(card, /height="224"/);
     }
-    assert.match(cards[0], /Per run · duration; bars show the average/);
+    assert.match(cards[0], /Per Run · Duration; Bars Show the Average/);
     assert.match(cards[0], />0<\/tspan>.*>\d+m<\/tspan>/s);
     for (const card of cards.slice(2)) {
       assert.equal((card.match(/data-tile=""/g) ?? []).length, 1);
@@ -1078,7 +1289,7 @@ describe('Insights view', () => {
     assert.equal(long.length, 120);
     const [first, ...rest] = data.outliers.duration_ms;
     const html = mod.page('#/insights/time?range=30d', { ...data, outliers: { ...data.outliers, duration_ms: [{ ...first, task_title: long }, ...rest] } });
-    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
+    const top = html.slice(html.indexOf('aria-label="Top Runs by Duration"'));
     const cell = new RegExp(`<td class="([^"]*)" title="${long}">`).exec(top);
     assert.ok(cell, 'the title cell carries the full title');
     assert.match(cell[1], /(^| )truncate( |$)/);
@@ -1089,7 +1300,7 @@ describe('Insights view', () => {
     const quality = at('quality');
     const slow = quality.slice(quality.indexOf('aria-label="Slowest verification commands"'));
     assert.match(slow, /<td class="[^"]*w-full min-w-32 max-w-0 truncate[^"]*" title="node --test">/);
-    for (const kind of ['Top runs by output tokens', 'Top runs by context']) {
+    for (const kind of ['Top Runs by Output Tokens', 'Top Runs by Context']) {
       const t = at('tokens').slice(at('tokens').indexOf(`aria-label="${kind}"`));
       assert.match(t, /<td class="[^"]*w-full min-w-32 max-w-0 truncate[^"]*" title="Task [abc]">/, kind);
     }
@@ -1097,20 +1308,48 @@ describe('Insights view', () => {
 
   test('Time: duration outliers show tool uses and output tokens, with the idle caption', () => {
     const html = at('time');
-    const top = html.slice(html.indexOf('aria-label="Top runs by duration"'));
-    assert.match(top, />Tool uses<.*>Output tokens</s);
+    const top = html.slice(html.indexOf('aria-label="Top Runs by Duration"'));
+    assert.match(top, />Tool Uses<.*>Output Tokens</s);
     assert.ok(top.includes(mod.IDLE_CAPTION));
     assert.equal(mod.IDLE_CAPTION, 'Likely idle: over 30 min with under 1 tool use and 500 output tokens a minute. Listed last.');
   });
 
   test('Quality: first-pass rate, attempts, stacked verdict mix, verification rate, slowest commands', () => {
     const html = at('quality');
-    assert.match(html, /First-pass rate.*?33\.3%/s);
+    assert.match(html, /First-Pass Rate.*?33\.3%/s);
     assert.match(html, /1 of 3 tasks passed review on the first attempt/);
     assert.match(html, /role="img" aria-label="Review verdicts: Pass 2, Fail 1, Escalate 1 of 4"/);
-    assert.match(html, /Verification pass rate.*?66\.7%/s);
+    assert.match(html, /Verification Pass Rate.*?66\.7%/s);
     assert.match(html, /aria-label="1 attempt: 2 tasks"/);
     assert.match(html, /Slowest verification commands.*node --test.*bun run build/s);
+  });
+
+  test('GH 2049: Insights marks use the agent color family', () => {
+    const quality = at('quality');
+    const tiles = quality.split('data-rate-tile=""').slice(1);
+    assert.equal(tiles.length, 3);
+    assert.match(tiles[0], /role="progressbar"[^>]*><span class="h-full bg-\(--data-orange-color-emphasis\)"/);
+    assert.match(tiles[1], /role="progressbar"[^>]*><span class="h-full bg-\(--data-pink-color-emphasis\)"/);
+    const attempts = quality.split('data-chart-card=""')[1];
+    assert.match(attempts, /stroke="var\(--data-orange-color-emphasis\)" stroke-width="2" data-cap=""/);
+    assert.match(at('throughput'), /stroke="var\(--data-blue-color-emphasis\)" stroke-width="2" data-cap=""/);
+    const cost = mod.page('#/insights/cost?range=30d', priced).split('data-chart-card=""').find((c) => c.includes('>Cost by Model</h3>'));
+    assert.match(cost, /stroke="var\(--data-blue-color-emphasis\)" stroke-width="2" data-cap=""/);
+    const marks = (html) => html.replace(/<span[^>]*class="inline-grid shrink-0 place-items-center rounded-full[^"]*"[^>]*>[^<]*<\/span>/g, '');
+    for (const section of SECTIONS) assert.doesNotMatch(marks(at(section)), /data-purple|bgColor-success|bgColor-danger|bgColor-severe/, section);
+  });
+
+  test('GH 2049: Verdict Mix has the RateTile anatomy with a headline percent and orange, pink, blue segments', () => {
+    const verdict = at('quality').split('data-rate-tile=""')[3];
+    assert.match(
+      verdict,
+      /<h3[^>]*>Verdict Mix<\/h3><p class="text-2xl[^"]*">50%<\/p><span role="img" aria-label="Review verdicts: Pass 2, Fail 1, Escalate 1 of 4"[^>]*><span class="h-full bg-\(--data-orange-color-emphasis\)"[^>]*><\/span><span class="h-full bg-\(--data-pink-color-emphasis\)"[^>]*><\/span><span class="h-full bg-\(--data-blue-color-emphasis\)"[^>]*><\/span><\/span><p class="text-xs[^"]*">2 of 4 review verdicts passed<\/p><ul/,
+    );
+    const empty = mod.page('#/insights/quality?range=30d', { ...data, quality: { ...data.quality, verdicts: { pass: 0, fail: 0, escalate: 0 } } });
+    const zero = empty.split('data-rate-tile=""')[3];
+    assert.match(zero, /<h3[^>]*>Verdict Mix<\/h3><p class="text-2xl[^"]*">—<\/p>/);
+    assert.match(zero, /aria-label="Review verdicts: Pass 0, Fail 0, Escalate 0 of 0"/);
+    assert.match(zero, /0 of 0 review verdicts passed/);
   });
 
   test('Cost, no prices: only the Flash, and no "$" anywhere in Insights', () => {
@@ -1123,33 +1362,33 @@ describe('Insights view', () => {
   test('Cost, priced: USD columns by agent and model, unpriced runs flagged', () => {
     const html = mod.page('#/insights/cost?range=30d', priced);
     assert.ok(!html.includes(mod.NO_PRICES));
-    assert.match(html, /Cost by agent/);
-    assert.match(html, /Cost by model/);
+    assert.match(html, /Cost by Agent/);
+    assert.match(html, /Cost by Model/);
     assert.match(html, /aria-label="swe: \$[\d,.]+ over 25 runs"/);
     assert.match(html, /23 measured runs have no price/);
     const cards = html.split('data-chart-card=""').slice(1);
     const byTitle = (t) => cards.find((c) => c.includes(`>${t}</h3>`));
-    for (const t of ['Cost by agent', 'Cost by model']) {
+    for (const t of ['Cost by Agent', 'Cost by Model']) {
       assert.doesNotMatch(byTitle(t), /height="224"/, t);
       assert.match(byTitle(t), /data-cap=""/, t);
     }
-    assert.match(byTitle('bro cost'), /data-tile=""/);
-    assert.doesNotMatch(byTitle('bro cost'), /<svg width/);
+    assert.match(byTitle('bro Cost'), /data-tile=""/);
+    assert.doesNotMatch(byTitle('bro Cost'), /<svg width/);
   });
 
   test('ChartCard: h3, subheader, kebab menu with both actions, legend only for 2+ series', () => {
     const t = { columns: ['Day', 'Closed'], rows: [['2026-10-24', 1]] };
-    const one = mod.card({ title: 'T', subtitle: 'Last 7 days · tasks', section: 'throughput', range: '7d', table: t, legend: [{ label: 'a', color: 'red' }] });
-    assert.match(one, /<h3[^>]*>T<\/h3><p[^>]*>Last 7 days · tasks<\/p>/);
+    const one = mod.card({ title: 'T', subtitle: 'Last 7 Days · tasks', section: 'throughput', range: '7d', table: t, legend: [{ label: 'a', color: 'red' }] });
+    assert.match(one, /<h3[^>]*>T<\/h3><p[^>]*>Last 7 Days · tasks<\/p>/);
     assert.match(one, /<button[^>]*aria-label="T options"[^>]*aria-haspopup="menu"/);
-    assert.match(one, /role="menuitem"[^>]*>.*?View as table<\/button>/);
+    assert.match(one, /role="menuitem"[^>]*>.*?View as Table<\/button>/);
     assert.match(one, /role="menuitem"[^>]*>.*?Download CSV<\/button>/);
     assert.doesNotMatch(one, /aria-label="Legend"/);
     const two = mod.card({ title: 'T', subtitle: 's', section: 'x', range: '7d', table: t, legend: [{ label: 'a', color: 'red' }, { label: 'b', color: 'blue' }] });
     assert.match(two, /aria-label="Legend"/);
     const tabled = mod.card({ title: 'T', subtitle: 's', section: 'x', range: '7d', table: t, defaultTable: true });
     assert.match(tabled, /<caption tabindex="-1"[^>]*>T, s<\/caption>/);
-    assert.match(tabled, /View as chart/);
+    assert.match(tabled, /View as Chart/);
     assert.doesNotMatch(tabled, /<svg role="img"/);
   });
 

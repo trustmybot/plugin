@@ -2,7 +2,9 @@
 // cache with a fixture world-model tree, render it to static HTML and check
 // the directory tree is an ARIA tree of treeitems carrying aria-expanded, the
 // listing shows a breadcrumb and one row per child with its summary, and a
-// missing or empty world model renders a Blankslate with the existing copy.
+// missing or empty world model renders a Blankslate with the existing copy;
+// then check the #/map URL helpers, the #/concepts redirect and the Files | Concepts
+// scope toggle with the field placeholder each scope shows.
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -35,13 +37,20 @@ before(async () => {
         import { ProjectMapView } from './web/views/ProjectMapView.tsx';
         import { DirectoryListing } from './web/views/map/DirectoryListing.tsx';
         import { DirectoryTree } from './web/views/map/DirectoryTree.tsx';
+        import { CONCEPT_COPY } from './web/views/concepts/copy.ts';
+        import { mapHash, parseMapQuery, legacyConceptsHash } from './web/shared/route.ts';
+        import { segmentKey } from './web/ui/SegmentedControl.tsx';
         export function render(seed, el) {
           const client = new QueryClient();
           for (const [key, data] of Object.entries(seed)) client.setQueryData([key], data);
           return renderToStaticMarkup(createElement(QueryClientProvider, { client }, el));
         }
+        export function renderAt(hash, seed, el) {
+          globalThis.window = { location: { hash }, history: { replaceState() {} }, addEventListener() {}, removeEventListener() {} };
+          try { return render(seed, el); } finally { delete globalThis.window; }
+        }
         export const h = createElement;
-        export { ProjectMapView, DirectoryListing, DirectoryTree };`,
+        export { ProjectMapView, DirectoryListing, DirectoryTree, CONCEPT_COPY, mapHash, parseMapQuery, legacyConceptsHash, segmentKey };`,
       resolveDir: DASH,
       loader: 'js',
     },
@@ -115,14 +124,14 @@ describe('directory listing', () => {
 describe('project map view', () => {
   test('a missing world model renders a Blankslate with the existing copy', () => {
     const html = map.render({ 'world-model?repo=&depth=0': { available: false, repos: [], nodes: [] } }, map.h(map.ProjectMapView));
-    assert.match(html, /<h2[^>]*>World model not built yet<\/h2>/);
+    assert.match(html, /<h2[^>]*>World Model Not Built Yet<\/h2>/);
     assert.match(html, /Open a Claude Code session to upgrade the DB and run \/scan\./);
     assert.doesNotMatch(html, /role="tree"/);
   });
 
   test('an empty world model renders a Blankslate with the existing copy', () => {
     const html = map.render({ 'world-model?repo=&depth=0': { available: true, repos: [], nodes: [] } }, map.h(map.ProjectMapView));
-    assert.match(html, /<h2[^>]*>The world model is empty<\/h2>/);
+    assert.match(html, /<h2[^>]*>The World Model Is Empty<\/h2>/);
     assert.match(html, /Run \/scan in a Claude Code session\./);
   });
 
@@ -133,5 +142,66 @@ describe('project map view', () => {
     assert.match(html, /role="tree"/);
     assert.match(html, /<nav aria-label="Breadcrumb"/);
     assert.match(html, /No dependency graph yet/);
+  });
+});
+
+describe('map routing', () => {
+  test('mapHash and parseMapQuery round-trip both scopes', () => {
+    for (const query of [{ scope: 'concepts', q: 'cold', concept: '7' }, { scope: 'files', q: 'src' }]) {
+      const hash = map.mapHash(query);
+      assert.match(hash, /^#\/map\?/);
+      assert.deepEqual(map.parseMapQuery(hash.split('?')[1]), query);
+    }
+    assert.equal(map.mapHash({ scope: 'files', q: 'src' }), '#/map?q=src');
+    assert.equal(map.mapHash({ scope: 'concepts', q: 'cold', concept: '7' }), '#/map?scope=concepts&q=cold&concept=7');
+    assert.equal(map.mapHash({ scope: 'files', q: '', concept: '7' }), '#/map');
+  });
+
+  test('legacyConceptsHash maps #/concepts links to the concept scope and leaves others alone', () => {
+    assert.equal(map.legacyConceptsHash('#/concepts/7?q=cold'), '#/map?scope=concepts&q=cold&concept=7');
+    assert.equal(map.legacyConceptsHash('#/concepts/derived?q=parseFlags'), '#/map?scope=concepts&q=parseFlags&concept=derived');
+    assert.equal(map.legacyConceptsHash('#/concepts?q=cold'), '#/map?scope=concepts&q=cold');
+    assert.equal(map.legacyConceptsHash('#/concepts'), '#/map?scope=concepts');
+    assert.equal(map.legacyConceptsHash('#/map'), null);
+    assert.equal(map.legacyConceptsHash('#/conceptsx'), null);
+  });
+});
+
+describe('search scope', () => {
+  const radios = (html) => [...html.matchAll(/<button type="button" role="radio" aria-checked="(true|false)" tabindex="(0|-1)"[^>]*>([^<]+)<\/button>/g)].map((m) => m.slice(1));
+
+  test('concept scope renders the scope radiogroup, the concepts placeholder and only the RepoPicker select', () => {
+    const html = map.renderAt('#/map?scope=concepts&q=cold', FIXTURE, map.h(map.ProjectMapView));
+    assert.match(html, /<div role="radiogroup" aria-label="Search scope"/);
+    assert.deepEqual(radios(html), [['false', '-1', 'Files'], ['true', '0', 'Concepts']]);
+    assert.ok(html.includes(`placeholder="${map.CONCEPT_COPY.placeholder}"`), html);
+    assert.match(html, /value="cold"/);
+    assert.equal(html.match(/<select/g).length, 1);
+    assert.match(html, /Repository<\/span>/);
+    assert.doesNotMatch(html, /role="tree"/);
+    assert.doesNotMatch(html, /No dependency graph yet/);
+    assert.doesNotMatch(html, /Dependency Graph/);
+    assert.ok(html.indexOf('role="radiogroup"') < html.indexOf('<input type="search"'), 'toggle sits left of the field');
+  });
+
+  test('files scope keeps the tree and uses the files placeholder', () => {
+    const html = map.renderAt('#/map?q=src', FIXTURE, map.h(map.ProjectMapView));
+    assert.deepEqual(radios(html), [['true', '0', 'Files'], ['false', '-1', 'Concepts']]);
+    assert.match(html, /placeholder="Search folders and files…"/);
+    assert.match(html, /value="src"/);
+    assert.match(html, /role="tree"/);
+    const graph = html.indexOf('No dependency graph yet');
+    assert.ok(graph > html.indexOf('role="tree"'), 'dependency graph sits below the tree');
+  });
+
+  test('arrow keys, Home and End move between segments and wrap', () => {
+    assert.equal(map.segmentKey(0, 'ArrowRight', 2), 1);
+    assert.equal(map.segmentKey(1, 'ArrowRight', 2), 0);
+    assert.equal(map.segmentKey(0, 'ArrowLeft', 2), 1);
+    assert.equal(map.segmentKey(1, 'ArrowUp', 2), 0);
+    assert.equal(map.segmentKey(0, 'ArrowDown', 2), 1);
+    assert.equal(map.segmentKey(1, 'Home', 2), 0);
+    assert.equal(map.segmentKey(0, 'End', 2), 1);
+    assert.equal(map.segmentKey(0, 'Enter', 2), null);
   });
 });

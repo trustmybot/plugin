@@ -72,7 +72,7 @@ describe('StateLabel', () => {
   for (const [status, text, icon] of [
     ['open', 'Open', 'octicon-issue-opened'],
     ['closed', 'Closed', 'octicon-issue-closed'],
-    ['notPlanned', 'Not planned', 'octicon-skip'],
+    ['notPlanned', 'Not Planned', 'octicon-skip'],
     ['draft', 'Draft', 'octicon-issue-draft'],
   ]) {
     test(`${status} shows its octicon and text`, () => {

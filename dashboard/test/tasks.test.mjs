@@ -35,7 +35,7 @@ const REPORT = {
 };
 const XSS = '<script>alert(1)</script>';
 const SHA = 'abcdef1234567890abcdef1234567890abcdef12';
-const SECTIONS = ['Spec', 'Success criteria', 'Reviews', 'Verification runs', 'Agent runs'];
+const SECTIONS = ['Spec', 'Success Criteria', 'Reviews', 'Verification Runs', 'Agent Runs'];
 
 function seed(path) {
   const db = new DatabaseSync(path);

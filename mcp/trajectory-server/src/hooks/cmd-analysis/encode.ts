@@ -22,6 +22,10 @@ export const SUB_PC = '\x16';
 export const HD_DATA = '\x1e';
 /** After a heredoc's `<<`: its body may run code or assign when the shell expands it. */
 export const HD_EXP = '\x1a';
+/** Before each opening quote or unquoted backslash: statements.ts reads a word holding one as never a reserved word (POSIX 2.4) and drops it. */
+export const QM = '\x17';
+/** A literal QM in the command: `$()` (encoded), so it reads as computed text rather than a mark. */
+const QM_LITERAL = '$' + ENC[8] + ENC[9];
 
 /** Every `$` in `text` is a plain `$NAME` not followed by `[`, or exactly `${NAME}`. */
 export function plainDollars(text: string): boolean {
@@ -50,6 +54,7 @@ export function decode(text: string): string {
 /** One char of quoted or escaped text; a missing char (a line's end) is \001, as awk's index(s, "") is 1. */
 function neutral(c: string | undefined): string {
   if (c === undefined || c === '' || c === '\n') return ENC[1];
+  if (c === QM) return QM_LITERAL;
   const k = NEUTRAL.indexOf(c);
   return k >= 0 ? ENC[k + 1] : c;
 }
@@ -95,11 +100,11 @@ export class Encoder {
     for (let i = from; i < to; i++) {
       const c = src[i];
       if (c !== '\\') {
-        out += c;
+        out += c === QM ? QM_LITERAL : c;
         continue;
       }
       const next = i + 1 < to ? src[i + 1] : undefined;
-      out += neutral(next);
+      out += QM + neutral(next);
       if (next !== undefined && next !== '\n') i++;
     }
     return out;
@@ -199,16 +204,16 @@ export class Encoder {
         case 'comment':
           break;
         case 'string':
-          out += this.dquoted(node, span.start + 1, span.end - 1);
+          out += QM + this.dquoted(node, span.start + 1, span.end - 1);
           break;
         case 'translated_string':
-          out += '$' + this.dquoted(node, span.start + 2, span.end - 1);
+          out += '$' + QM + this.dquoted(node, span.start + 2, span.end - 1);
           break;
         case 'raw_string':
-          out += this.quoted(span.start + 1, span.end - 1, false);
+          out += QM + this.quoted(span.start + 1, span.end - 1, false);
           break;
         case 'ansi_c_string':
-          out += this.quoted(span.start + 2, span.end - 1, true);
+          out += QM + this.quoted(span.start + 2, span.end - 1, true);
           break;
       }
     }
@@ -236,7 +241,7 @@ const expands = (node: Node): boolean => node.descendantsOfType(EXPANSIONS).leng
 
 /** The text an encoded word is matched on in `Encoded.held`: decoded, a substitution frame shown as `$(` … `)`. */
 export function heldKey(word: string): string {
-  return decode(word).replace(/\x07/g, '$(').replace(/\x08/g, ')');
+  return decode(word).replaceAll(QM, '').replace(/\x07/g, '$(').replace(/\x08/g, ')');
 }
 
 function heldWords(encoder: Encoder, root: Node): Set<string> {

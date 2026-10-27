@@ -18,12 +18,25 @@
 #   7. Plugin version — an inserted swe or code-reviewer row carries the
 #      manifest version, a later UPDATE leaves it, and with CLAUDE_PLUGIN_ROOT
 #      unset the insert writes NULL (GH 1884).
+#   8. Checkpoint (GH 1905) — a checkpoint written in the run keeps a committed
+#      running task running and the swe-stop-cause recorder writes stop_cause
+#      budget; an older checkpoint auto-completes and is cleared; without
+#      dist/hooks.js the hook still completes.
+#   9. Hook block (GH 1914) — a run whose last tool_result is a PreToolUse deny
+#      and that made no completion report records stop_cause hook_block and bro
+#      gets a sentence naming the block, commits or not; a successful completed
+#      task_update_status call after the deny records no stop_cause.
+#  10. Tool output (GH 1957) — a swe or code-reviewer stop writes one
+#      agent_run_tool_output row per tool on its run, idempotently; without
+#      dist/hooks.js it writes none.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-atomic-close.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-atomic-close-agent-runs.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -325,5 +338,146 @@ transcript 148 "$T148"
 assert_eq "1|40|1" \
   "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), MAX(plugin_version IS NULL) FROM agent_runs WHERE task_id=148;")" \
   "one metered row, plugin_version NULL"
+
+# ---- checkpoint handback and stop_cause (GH 1905) -----------------------------
+# committed_task <task_id>: a running task whose worktree carries one commit.
+committed_task() {
+  sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES ($1, 1, 'fix/task-$1', 'dev', 'd', 'running', '$NOW', '$NOW');"
+  git -C "$REPO" branch "fix/task-$1" dev
+  git -C "$REPO" worktree add -q "$REPO/.claude/worktrees/task-$1" "fix/task-$1"
+  (cd "$REPO/.claude/worktrees/task-$1" && echo "c$1" > "c$1.txt" && git add "c$1.txt" && git commit -qm "feat: c$1")
+}
+
+test_case "a checkpoint from this run plus commits keeps the task running and records stop_cause budget"
+committed_task 160
+sqlite3 "$DB" "UPDATE tasks SET checkpoint = json_object('done', 'half', 'left', 'rest', 'files', json_array('a.ts'), 'at', '2026-06-16T19:30:02.000Z') WHERE id=160;"
+T160="$TMPDIR/t160.jsonl"
+transcript 160 "$T160"
+OUT=$(run_hook "$(stop_input "$T160" agent-160)")
+assert_contains "$OUT" "handed back a checkpoint" "checkpoint context for bro"
+assert_contains "$OUT" "task_brief.checkpoint" "context points at task_brief.checkpoint"
+assert_eq "running|1" "$(sqlite3 "$DB" "SELECT status, checkpoint IS NOT NULL FROM tasks WHERE id=160;")" "still running, checkpoint kept"
+assert_eq "budget||failed" "$(sqlite3 "$DB" "SELECT stop_cause, COALESCE(stop_detail, ''), exit_reason FROM agent_runs WHERE task_id=160;")" "the spawn row records budget"
+
+test_case "an older checkpoint plus commits auto-completes and clears the checkpoint"
+committed_task 161
+sqlite3 "$DB" "UPDATE tasks SET checkpoint = json_object('done', 'half', 'left', 'rest', 'files', json_array(), 'at', '2026-06-16T19:00:00.000Z') WHERE id=161;"
+T161="$TMPDIR/t161.jsonl"
+transcript 161 "$T161"
+OUT=$(run_hook "$(stop_input "$T161" agent-161)")
+assert_eq "" "$OUT" "no additionalContext"
+assert_eq "completed|$(git -C "$REPO/.claude/worktrees/task-161" rev-parse HEAD)|1" \
+  "$(sqlite3 "$DB" "SELECT status, COALESCE(commit_sha, ''), checkpoint IS NULL FROM tasks WHERE id=161;")" \
+  "completed at the worktree HEAD, checkpoint NULL"
+assert_eq "|completed" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, ''), exit_reason FROM agent_runs WHERE task_id=161;")" "no stop_cause"
+
+# ---- a run that ends on a hook block with no completion report (GH 1914) -----
+BLOCK_DENY='PreToolUse:Bash hook error: BLOCKED: write target "python3" cannot be judged; use Edit or Write on the literal path.'
+BLOCK_SENTENCE="ended on a hook block with no completion report"
+
+# deny_transcript <task_id> <file> [report]: the spawn's last tool_result is a
+# PreToolUse:Bash deny; with "report", a successful task_update_status
+# completed call follows it.
+deny_transcript() {
+  {
+    printf '%s\n' \
+      '{"type":"user","timestamp":"2026-06-16T19:30:00.000Z","message":{"role":"user","content":"task_id='"$1"' You are swe."}}' \
+      '{"type":"assistant","timestamp":"2026-06-16T19:30:04.000Z","message":{"id":"m1","usage":{"input_tokens":40,"output_tokens":4},"content":[{"type":"tool_use","id":"tb1","name":"Bash","input":{"command":"python3 x.py"}}]}}'
+    jq -cn --arg d "$BLOCK_DENY" \
+      '{type:"user",timestamp:"2026-06-16T19:30:05.000Z",message:{role:"user",content:[{type:"tool_result",tool_use_id:"tb1",is_error:true,content:$d}]}}'
+    if [ "${3:-}" = "report" ]; then
+      printf '%s\n' \
+        '{"type":"assistant","timestamp":"2026-06-16T19:30:06.000Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":2},"content":[{"type":"tool_use","id":"tr1","name":"mcp__plugin_tmb_trajectory-server__task_update_status","input":{"agent":"swe","task_id":"'"$1"'","status":"completed"}}]}}' \
+        '{"type":"user","timestamp":"2026-06-16T19:30:07.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tr1","content":"{\"ok\":true}"}]}}'
+    fi
+  } > "$2"
+}
+
+test_case "a deny with no report and no commits records hook_block and names the block beside the no-commit warning"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (170, 1, 'fix/task-170', 'dev', 'd', 'running', '$NOW', '$NOW');"
+T170="$TMPDIR/t170.jsonl"
+deny_transcript 170 "$T170"
+OUT=$(run_hook "$(stop_input "$T170" agent-170)")
+assert_eq "hook_block|1" \
+  "$(sqlite3 "$DB" "SELECT stop_cause, substr(stop_detail, 1, length('$BLOCK_DENY')) = '$BLOCK_DENY' FROM agent_runs WHERE task_id=170;")" \
+  "stop_cause hook_block, stop_detail starts with the deny"
+CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || true)
+assert_contains "$CTX" "stopped without committing" "the no-commit warning stays"
+assert_contains "$CTX" "SWE for task #170 $BLOCK_SENTENCE" "the hook-block sentence follows it"
+assert_contains "$CTX" "PreToolUse:Bash hook error: BLOCKED" "the sentence quotes the deny"
+assert_contains "$CTX" "task_brief.last_stop" "the sentence points at task_brief.last_stop"
+assert_contains "$CTX" "rework spawn_note" "the sentence asks bro to name the block in the spawn_note"
+
+test_case "a deny with no report and commits auto-completes and still names the block"
+committed_task 171
+T171="$TMPDIR/t171.jsonl"
+deny_transcript 171 "$T171"
+OUT=$(run_hook "$(stop_input "$T171" agent-171)")
+assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=171;")" "the task auto-completes"
+assert_eq "hook_block" "$(sqlite3 "$DB" "SELECT stop_cause FROM agent_runs WHERE task_id=171;")" "stop_cause hook_block"
+CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || true)
+assert_contains "$CTX" "SWE for task #171 $BLOCK_SENTENCE" "the context names the block"
+
+test_case "a deny followed by a successful completed report records no stop_cause and no hook-block sentence"
+committed_task 172
+T172="$TMPDIR/t172.jsonl"
+deny_transcript 172 "$T172" report
+OUT=$(run_hook "$(stop_input "$T172" agent-172)")
+assert_eq "" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, '') FROM agent_runs WHERE task_id=172;")" "stop_cause NULL"
+assert_not_contains "$OUT" "$BLOCK_SENTENCE" "no hook-block sentence"
+
+if [ "$HOOK_IMPL" != ts ]; then
+test_case "with dist/hooks.js absent the hook still completes"
+BARE_ROOT="$TMPDIR/bare-plugin"
+mkdir -p "$BARE_ROOT"
+cp -R "$PLUGIN_ROOT/scripts" "$BARE_ROOT/scripts"
+assert_eq "absent" "$([ -e "$BARE_ROOT/mcp/trajectory-server/dist/hooks.js" ] && echo present || echo absent)" "no dist/hooks.js beside the copied hook"
+committed_task 162
+T162="$TMPDIR/t162.jsonl"
+transcript 162 "$T162"
+set +e
+(cd "$REPO" && stop_input "$T162" agent-162 | bash "$BARE_ROOT/scripts/hooks/swe-atomic-close.sh" >/dev/null 2>&1)
+BARE_RC=$?
+set -e
+assert_eq "0" "$BARE_RC" "the hook exits 0"
+assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=162;")" "the task auto-completes"
+assert_eq "1|40|" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), COALESCE(MAX(stop_cause), '') FROM agent_runs WHERE task_id=162;")" "the row is metered, no stop_cause written"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=162;")" "no tool-output rows without dist/hooks.js"
+fi
+
+# tool_transcript <task_id> <file> <prompt-suffix>: a spawn that calls Read and
+# Bash and gets a 10-char and a 5-char result back.
+tool_transcript() {
+  printf '%s\n' \
+    '{"type":"user","timestamp":"2026-06-16T19:40:00.000Z","message":{"role":"user","content":"task_id='"$1"' '"$3"'"}}' \
+    '{"type":"assistant","timestamp":"2026-06-16T19:40:01.000Z","message":{"id":"m1","model":"claude-opus-9","usage":{"input_tokens":40,"output_tokens":4},"content":[{"type":"tool_use","id":"tu_r","name":"Read","input":{}}]}}' \
+    '{"type":"user","timestamp":"2026-06-16T19:40:02.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_r","content":"0123456789"}]}}' \
+    '{"type":"assistant","timestamp":"2026-06-16T19:40:03.000Z","message":{"id":"m2","model":"claude-opus-9","usage":{"input_tokens":40,"output_tokens":4},"content":[{"type":"tool_use","id":"tu_b","name":"Bash","input":{}}]}}' \
+    '{"type":"user","timestamp":"2026-06-16T19:40:04.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_b","content":[{"type":"text","text":"abcde"}]}]}}' \
+    > "$2"
+}
+tool_rows() {
+  sqlite3 "$DB" "SELECT o.tool_name || ':' || o.calls || ':' || o.result_chars || ':' || o.est_tokens FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=$1 AND r.agent_type='$2' ORDER BY o.tool_name;"
+}
+
+test_case "a swe stop records its run's per-tool result sizes in agent_run_tool_output (GH 1957)"
+committed_task 180
+T180="$TMPDIR/t180.jsonl"
+tool_transcript 180 "$T180" "You are swe."
+run_hook "$(stop_input "$T180" agent-180)" >/dev/null
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 swe)" "one row per tool on the swe run"
+run_hook "$(stop_input "$T180" agent-180)" >/dev/null
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 swe)" "a re-fire rewrites the rows, no duplicates"
+
+test_case "a code-reviewer stop records its run's per-tool result sizes (GH 1957)"
+TR180="$TMPDIR/tr180.jsonl"
+tool_transcript 180 "$TR180" "commit_sha=abc1234 branch_id=fix/task-180 repo=plugin attempt_n=1"
+run_hook "$(pr_stop_input "$TR180" agent-rev-180)" >/dev/null
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 code-reviewer)" "one row per tool on the code-reviewer run"
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 swe)" "the swe run's rows are untouched"
 
 summarize

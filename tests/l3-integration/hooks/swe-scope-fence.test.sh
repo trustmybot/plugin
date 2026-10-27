@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/swe-scope-fence.sh
+# Tests for scripts/hooks/swe-scope-fence.sh, or with TMB_HOOK_TEST_IMPL=ts
+# for the TypeScript gate (mcp/trajectory-server/src/hooks/swe-scope-fence.ts).
 #
 # Hook contract: never deny. An Edit/Write in an SWE worktree to a path
 # outside the task's typed files[] dirs gets an additionalContext note
@@ -25,6 +26,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-scope-fence.sh"
+HOOK_SRC="$HOOK"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+if [ "$HOOK_IMPL" = ts ]; then
+  HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-scope-fence.sh"
+  HOOK_SRC="$PLUGIN_ROOT/mcp/trajectory-server/src/hooks/swe-scope-fence.ts"
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-scope-fence.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -256,7 +265,9 @@ out=$( (cd "$WT_A" && with_task 1 "$(make_edit_input "src/db-error.ts")" | TRAJE
 assert_not_contains "$out" "$DENY" "a DB error never denies"
 
 test_case "source: the hook carries no deny"
-assert_not_contains "$(grep -v '^[[:space:]]*#' "$HOOK")" "permissionDecision" "swe-scope-fence.sh never decides"
-assert_not_contains "$(grep -v '^[[:space:]]*#' "$HOOK")" "tmb_deny_db_unavailable" "swe-scope-fence.sh never fails closed"
+hook_code="$(grep -v '^[[:space:]]*\(#\|//\|\*\|/\*\)' "$HOOK_SRC")"
+assert_not_contains "$hook_code" "permissionDecision" "the swe-scope-fence source never decides"
+assert_not_contains "$hook_code" "tmb_deny_db_unavailable" "the swe-scope-fence source never fails closed"
+assert_not_contains "$hook_code" "denyDbUnavailable" "the swe-scope-fence source never fails closed"
 
 summarize

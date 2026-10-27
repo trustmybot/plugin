@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__cheatcode_install",
+  "tool_input": {
+    "candidate": "https://x.test/approved"
+  },
+  "corpus_expect": "BLOCKED: cheatcode_install requires a candidate.source_url"
+}

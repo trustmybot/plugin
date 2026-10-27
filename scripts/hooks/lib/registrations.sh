@@ -48,8 +48,14 @@ tmb_chain_gates() {
 # once `${VAR}` references and escaped quotes are dropped, whatever its key
 # order, so `"${CLAUDE_PLUGIN_ROOT}/…/dispatch.sh" <name>` and the unquoted
 # form match alike.
+# A gate with no `dispatch.sh <name>` registration that the router serves
+# (a `<gate> <budget ms> <kind> <event> <tools>` line of
+# mcp/trajectory-server/dist/hooks-router.txt next to <hooks.json>'s plugin
+# root) reads "<budget in whole s> <1 when its kind is enforcement>".
 tmb_registration() {
-  awk -v g="$2" '
+  local router
+  router="$(dirname "$1")/../mcp/trajectory-server/dist/hooks-router.txt"
+  awk -v g="$2" -v router="$router" '
     { s = s $0 "\n" }
     END {
       gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", s)
@@ -66,6 +72,42 @@ tmb_registration() {
         }
         if (o ~ /"onFailure"[[:space:]]*:[[:space:]]*"block"/) b = 1
       }
+      if (t == "" && b == 0) {
+        while ((getline line < router) > 0) {
+          split(line, f, " ")
+          if (f[1] != g) continue
+          t = int((f[2] + 999) / 1000)
+          b = (f[3] == "enforcement") ? 1 : 0
+          break
+        }
+      }
       print t " " b
     }' "$1" 2>/dev/null
+}
+
+# The router (GH 1692 R1): one exec-form registration per event,
+#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>
+# runs the gates dist/hooks-router.txt lists for <Event>, in order.
+#
+#   tmb_router_event <command>             — <Event> when <command> is the router, else nothing
+#   tmb_router_gates <plugin root> <Event> — the gates it runs, one per line
+tmb_router_event() {
+  case "$1" in
+    'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" '*)
+      local event="${1##* }"
+      case "$event" in
+        ''|*[!A-Za-z]*) ;;
+        *) printf '%s\n' "$event" ;;
+      esac
+      ;;
+  esac
+}
+
+tmb_router_gates() {
+  awk -v e="$2" '$4 == e { print $1 }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+}
+
+#   tmb_router_budget_max <plugin root> <Event> — the largest of its gates' budget ms
+tmb_router_budget_max() {
+  awk -v e="$2" '$4 == e && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }

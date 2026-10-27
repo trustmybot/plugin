@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "d1",
+  "source": "startup",
+  "corpus_env": {
+    "TMB_MCP_PID_OVERRIDE": "4242",
+    "TMB_MCP_START_OVERRIDE": "1700000000",
+    "TMB_TOOL_DIR_OVERRIDE": "@SANDBOX@/tools-new"
+  },
+  "corpus_expect": "[tmb deferred-tools drift] 2 MCP tool source file(s) on disk are newer than the running trajectory-server child (PID 4242)."
+}

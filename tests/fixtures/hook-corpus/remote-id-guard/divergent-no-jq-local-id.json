@@ -1,0 +1,19 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh pr create --title x --body 'Closes #5'",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus",
+  "corpus_env": {
+    "PATH": "@NOJQ_PATH@"
+  },
+  "corpus_divergent": "decision 703: without jq the .sh exits 1 (remote-id-guard: jq not found); the port reads the payload itself and denies",
+  "corpus_expect": {
+    "bash": "error",
+    "ts": "#5 → #42 (GitHub)"
+  }
+}

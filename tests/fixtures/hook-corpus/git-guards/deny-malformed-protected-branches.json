@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/bad",
+  "tool_input": {
+    "command": "git commit -m x"
+  },
+  "corpus_expect": "protected_branches is malformed JSON"
+}

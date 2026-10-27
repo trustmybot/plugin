@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/agent-arg-matches-caller.sh (PreToolUse on every
+# Tests for scripts/hooks/agent-arg-matches-caller.sh, or its TypeScript port under
+# TMB_HOOK_TEST_IMPL=ts (PreToolUse on every
 # trajectory-server tool):
 #   1. a subagent payload's agent_type (swe, code-reviewer, consultant) must equal
 #      tool_input.agent; the main session (no agent_type) must pass bro
@@ -15,6 +16,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/agent-arg-matches-caller.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/agent-arg-matches-caller.sh"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-arg-matches-caller.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

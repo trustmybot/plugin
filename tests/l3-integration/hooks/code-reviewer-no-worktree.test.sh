@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/code-reviewer-no-worktree.sh.
+# Tests for scripts/hooks/code-reviewer-no-worktree.sh, or its TypeScript port
+# under TMB_HOOK_TEST_IMPL=ts.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/code-reviewer-no-worktree.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/code-reviewer-no-worktree.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
 PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-code-reviewer-no-worktree.XXXXXX")"

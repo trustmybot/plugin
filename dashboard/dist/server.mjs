@@ -519,9 +519,11 @@ var AUDIT_EVENT_TYPES = [
   { type: "decision_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
   { type: "deep_scan_completed", writers: ["bro"], description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
   { type: "effort_ab_enrolled", writers: ["bro"], description: "`task_provision` or `task_create_batch` enrolled a new task in the opt-in swe effort A/B (`plugin_config.swe_effort_ab`, GH 1745): its computed effort was the default or an explicit `medium` and fewer than `target` tasks carried the label, so its effort became the arm of its id's parity (even `high`, odd `medium`) with `effort_reason` `ab_arm`; one row per task on its issue, in the insert's transaction; `content_json` carries `label`, `arm`, `task_id`" },
+  { type: "effort_inputs_recorded", writers: ["bro"], description: "`task_provision` or `task_create_batch` recorded, in shadow mode (GH 1904), what the world model knows about the code a new task's spec names in backticks and the effort tier those inputs suggest; the task's effort is unchanged; one row per task on its issue, in the insert's transaction, after any `effort_ab_enrolled` row; `content_json` carries `task_id`, `inputs` (`files_in_scope`, `symbols_named`, `symbols_resolved`, `direct_callers`, `caller_files_outside_scope`, `tables_written`, `outside_table_readers`, `tests_reached`, `enforcement`, `prompt_bearing`, `rework`, `wm_available` \u2014 false with zero world-model counts when the repo has no world model or a lookup failed), `suggested_tier` (`low`, `medium`, `high`), `reason`, `effort` (the effort the task runs at)" },
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
+  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
@@ -547,7 +549,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
   { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
-  { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate no longer probes it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
+  { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate stops probing it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
   { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
@@ -693,7 +695,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 51;
+var TARGET_SCHEMA_VERSION = 54;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1250,6 +1252,15 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 51 && toVersion >= 51) {
     migrateV50toV51(db);
+  }
+  if (fromVersion < 52 && toVersion >= 52) {
+    migrateV51toV52(db);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3062,6 +3073,77 @@ function migrateV50toV51(db) {
           WHERE (origin = 'builtin' OR (kind = 'plugin' AND name = 'tmb'))
             AND (instr(description, ?) > 0 OR instr(description, ?) > 0)`
       ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, "Code-reviewer", OLD_REVIEWER, OLD_REVIEWER_TITLE);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV51toV52(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      if (!hasColumn(db, "agent_runs", "stop_cause")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN stop_cause TEXT CHECK (stop_cause IN ('budget','hook_block'))");
+      }
+      if (!hasColumn(db, "agent_runs", "stop_detail")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN stop_detail TEXT");
+      }
+    }
+    if (tableExists(db, "tasks") && !hasColumn(db, "tasks", "checkpoint")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV52toV53(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV53toV54(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "worktree_path")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db, "tasks", "worktree_adopted")) {
+        db.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
     }
     commitTransaction(db);
   } catch (err3) {
@@ -5008,17 +5090,83 @@ var AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'code-reviewer' THEN 'code-reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
+var DAY_MS = 864e5;
 var sinceOf = (range, now2) => {
   const days = INSIGHT_RANGES[range];
-  return days === null ? null : new Date(now2.getTime() - days * 864e5).toISOString();
+  return days === null ? null : new Date(now2.getTime() - days * DAY_MS).toISOString();
 };
+var VERSION_PERIODS_ERROR = "version periods are not supported yet";
+var PREV_RANGES = { prev7d: 7, prev30d: 30, prev90d: 90 };
+var utcDay = (s) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = /* @__PURE__ */ new Date(`${s}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s ? null : d;
+};
+var taskBound = (s) => {
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+};
+function parseSlice(s, now2) {
+  const slice = (kind, since, until, from_task = null, to_task = null) => ({ key: s, kind, since, until, from_task, to_task });
+  if (isRange(s)) return slice("range", sinceOf(s, now2), now2.toISOString());
+  if (Object.hasOwn(PREV_RANGES, s)) {
+    const days = PREV_RANGES[s];
+    return slice("prev", new Date(now2.getTime() - 2 * days * DAY_MS).toISOString(), new Date(now2.getTime() - days * DAY_MS).toISOString());
+  }
+  if (s.startsWith("ver:")) return { error: VERSION_PERIODS_ERROR };
+  const dates = /^dates:([^.]*)\.\.([^.]*)$/.exec(s);
+  if (dates) {
+    const [, a = "", b = ""] = dates;
+    const from = a === "" ? null : utcDay(a);
+    const to = b === "" ? null : utcDay(b);
+    if (a !== "" && from === null || b !== "" && to === null) return { error: `${s}: dates must be real YYYY-MM-DD days` };
+    if (from && to && from.getTime() > to.getTime()) return { error: `${s}: the start date is after the end date` };
+    return slice("dates", from?.toISOString() ?? null, to ? new Date(to.getTime() + DAY_MS).toISOString() : null);
+  }
+  const tasks2 = /^tasks:([^-]*)-([^-]*)$/.exec(s);
+  if (tasks2) {
+    const [, a = "", b = ""] = tasks2;
+    const from = a === "" ? 1 : taskBound(a);
+    const to = b === "" ? null : taskBound(b);
+    if (from === null || b !== "" && to === null) return { error: `${s}: task ids must be integers of at least 1` };
+    if (to !== null && from > to) return { error: `${s}: the start task is after the end task` };
+    return slice("tasks", null, null, from, to);
+  }
+  return { error: `${s || "an empty string"} is not a period` };
+}
+var periodOf = (s) => ({
+  since: s.since,
+  before: s.kind === "range" ? null : s.until,
+  fromTask: s.from_task,
+  toTask: s.to_task
+});
+function periodWhere(p, time, task) {
+  return {
+    sql: `(? IS NULL OR ${time} >= ?) AND (? IS NULL OR ${time} < ?) AND (? IS NULL OR ${task} >= ?) AND (? IS NULL OR ${task} <= ?)`,
+    args: [p.since, p.since, p.before, p.before, p.fromTask, p.fromTask, p.toTask, p.toTask]
+  };
+}
 var context = (r) => r.tokens_in + r.cache_read + r.cache_creation;
+var cacheHit = (r) => context(r) > 0 ? r.cache_read / context(r) : 0;
+var HISTOGRAM_METRICS = ["tokens_out", "context", "cache_hit", "tool_uses"];
+var HISTOGRAM_VALUE = {
+  tokens_out: (r) => r.tokens_out,
+  context,
+  cache_hit: cacheHit,
+  tool_uses: (r) => r.tool_uses
+};
+var CACHE_HIT_EDGES = Array.from({ length: HISTOGRAM_BUCKETS + 1 }, (_, i) => i / HISTOGRAM_BUCKETS);
+function edgesOf(measured) {
+  const log = (m) => logEdges(measured.map(HISTOGRAM_VALUE[m]));
+  return { tokens_out: log("tokens_out"), context: log("context"), cache_hit: [...CACHE_HIT_EDGES], tool_uses: log("tool_uses") };
+}
 function agentStats(runs, agent, edges) {
   const all2 = runs.filter((r) => r.agent === agent);
   const measured = all2.filter((r) => r.measured === 1);
   const contextSum = measured.reduce((s, r) => s + context(r), 0);
   const cacheRead = measured.reduce((s, r) => s + r.cache_read, 0);
-  const hit = metric(measured.map((r) => context(r) > 0 ? r.cache_read / context(r) : 0));
+  const hit = metric(measured.map(cacheHit));
   return {
     agent,
     per: agent === "bro" ? "session" : "run",
@@ -5029,7 +5177,7 @@ function agentStats(runs, agent, edges) {
     cache_hit: { ...hit, avg: contextSum > 0 ? cacheRead / contextSum : null },
     duration_ms: metric(measured.map((r) => r.duration_ms)),
     tool_uses: metric(measured.map((r) => r.tool_uses)),
-    histogram: histogram(measured.map((r) => r.tokens_out), edges)
+    histograms: Object.fromEntries(HISTOGRAM_METRICS.map((m) => [m, histogram(measured.map(HISTOGRAM_VALUE[m]), edges[m])]))
   };
 }
 function priceOf(prices, r) {
@@ -5102,16 +5250,17 @@ function bySlowest(a, b) {
   const key = (c) => (ranked(c) ? c.p95 : c.max) ?? 0;
   return key(b) - key(a) || a.command.localeCompare(b.command);
 }
-function qualityOf(db, f, since) {
+function qualityOf(db, f, p) {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
+  const attemptIn = periodWhere(p, "v.created_at", "v.task_id");
+  const runIn = periodWhere(p, "r.started_at", "r.task_id");
   const attempts = all(
     db,
     `SELECT v.task_id, v.attempt_n, v.verdict FROM validation_attempts v JOIN tasks t ON t.id = v.task_id
-      WHERE (? IS NULL OR v.created_at >= ?) AND ${taskWhere}
+      WHERE ${attemptIn.sql} AND ${taskWhere}
       ORDER BY v.task_id, v.attempt_n, v.id`,
-    since,
-    since,
+    ...attemptIn.args,
     ...taskArgs
   );
   const verdicts = { pass: 0, fail: 0, escalate: 0 };
@@ -5130,9 +5279,8 @@ function qualityOf(db, f, since) {
     db,
     `SELECT COUNT(*) AS total, COALESCE(SUM(r.exit_code = 0), 0) AS passed
        FROM verification_runs r JOIN tasks t ON t.id = r.task_id
-      WHERE r.exit_code IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE r.exit_code IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs
   );
   const commands = /* @__PURE__ */ new Map();
@@ -5140,9 +5288,8 @@ function qualityOf(db, f, since) {
     db,
     `SELECT c.command, c.elapsed_s FROM verification_run_commands c
        JOIN verification_runs r ON r.id = c.run_id JOIN tasks t ON t.id = r.task_id
-      WHERE c.elapsed_s IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE c.elapsed_s IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs
   )) {
     const command = normalizeCommand(String(c["command"]));
@@ -5159,16 +5306,16 @@ function qualityOf(db, f, since) {
     slowest_commands: slowest
   };
 }
-function throughputOf(db, f, since) {
+function throughputOf(db, f, p) {
+  const closedIn = periodWhere(p, "COALESCE(t.completed_at, t.updated_at)", "t.id");
   return all(
     db,
     `SELECT substr(COALESCE(t.completed_at, t.updated_at), 1, 10) AS day, COUNT(*) AS closed
        FROM tasks t
-      WHERE t.status = 'closed' AND (? IS NULL OR COALESCE(t.completed_at, t.updated_at) >= ?)
+      WHERE t.status = 'closed' AND ${closedIn.sql}
         AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
       GROUP BY day ORDER BY day`,
-    since,
-    since,
+    ...closedIn.args,
     f.repo,
     f.repo,
     f.effort,
@@ -5192,9 +5339,9 @@ function outliersOf(runs) {
   const duration_ms = [...durations.filter((r) => !r.idle).slice(0, TOP_N), ...durations.filter((r) => r.idle).slice(0, TOP_N)];
   return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
-function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
-  const since = sinceOf(f.range, now2);
-  const rows = all(
+function insightRows(db, f, p) {
+  const runIn = periodWhere(p, "COALESCE(r.started_at, r.completed_at)", "r.task_id");
+  return all(
     db,
     `SELECT * FROM (
        SELECT r.id, ${AGENT_OF_RUN} AS agent, r.task_id, t.title AS task_title, r.model,
@@ -5203,12 +5350,11 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
               COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
               r.duration_ms, r.tool_uses
          FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+        WHERE ${runIn.sql}
           AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
      ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
      ORDER BY id`,
-    since,
-    since,
+    ...runIn.args,
     f.repo,
     f.repo,
     f.model,
@@ -5218,24 +5364,93 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
     f.agent,
     f.agent
   );
-  const perRunTokens = rows.filter((r) => r.measured === 1 && r.agent !== "bro").map((r) => r.tokens_out);
-  const broTokens = rows.filter((r) => r.measured === 1 && r.agent === "bro").map((r) => r.tokens_out);
-  const sharedEdges = logEdges(perRunTokens);
-  const broEdges = logEdges(broTokens);
+}
+var agentEdgesOf = (rows) => ({
+  shared: edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== "bro")),
+  bro: edgesOf(rows.filter((r) => r.measured === 1 && r.agent === "bro"))
+});
+function insightsBody(db, f, p, rows, edges, range) {
   const names = (sql) => all(db, sql).map((r) => String(r["v"]));
+  const maxTask = one(db, `SELECT MAX(task_id) AS v FROM agent_runs WHERE (? IS NULL OR repo = ?)`, f.repo, f.repo)?.["v"];
   return {
-    range: { key: f.range, since, until: now2.toISOString() },
+    range,
     filters: { repo: f.repo, agent: f.agent, model: f.model, effort: f.effort },
     options: {
       repos: names(`SELECT DISTINCT repo AS v FROM agent_runs WHERE repo IS NOT NULL ORDER BY repo`),
-      models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`)
+      models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`),
+      max_task_id: maxTask === null || maxTask === void 0 ? null : Number(maxTask)
     },
-    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === "bro" ? broEdges : sharedEdges)),
+    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === "bro" ? edges.bro : edges.shared)),
     cost: costOf(db, rows),
-    quality: qualityOf(db, f, since),
-    throughput: throughputOf(db, f, since),
+    quality: qualityOf(db, f, p),
+    throughput: throughputOf(db, f, p),
     outliers: outliersOf(rows)
   };
+}
+function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
+  const since = sinceOf(f.range, now2);
+  const period = { since, before: null, fromTask: null, toTask: null };
+  const rows = insightRows(db, f, period);
+  return insightsBody(db, f, period, rows, agentEdgesOf(rows), { key: f.range, since, until: now2.toISOString() });
+}
+var usd4 = (usd) => Math.round(usd * 1e4) / 1e4;
+function perTaskOf(prices, rows) {
+  const runs = rows.filter((r) => r.measured === 1 && r.agent !== "bro" && r.task_id !== null);
+  const tasks2 = new Set(runs.map((r) => r.task_id)).size;
+  const sum = (v) => runs.reduce((s, r) => s + v(r), 0);
+  const contextSum = sum(context);
+  let usd = 0;
+  let unpriced = 0;
+  for (const r of runs) {
+    const price = priceOf(prices, r);
+    if (price === null) unpriced += 1;
+    else usd += price;
+  }
+  const perTask = (total) => tasks2 === 0 ? null : total / tasks2;
+  return {
+    tasks: tasks2,
+    runs: runs.length,
+    tokens_out: perTask(sum((r) => r.tokens_out)),
+    context: perTask(contextSum),
+    cache_hit: tasks2 === 0 || contextSum === 0 ? null : sum((r) => r.cache_read) / contextSum,
+    cost_usd: tasks2 === 0 || prices.size === 0 ? null : usd4(usd / tasks2),
+    unpriced_runs: unpriced
+  };
+}
+var PERIOD_HINT = "must be a period like 30d, prev30d, dates:2026-10-01..2026-10-15 or tasks:100-200";
+function compareQuery(p, now2 = /* @__PURE__ */ new Date()) {
+  const slices = [];
+  for (const key of ["p1", "p2"]) {
+    const raw = p.get(key);
+    const s = raw === null ? { error: "" } : parseSlice(raw, now2);
+    if ("error" in s) return { error: s.error === VERSION_PERIODS_ERROR ? `${key}: ${VERSION_PERIODS_ERROR}` : `${key} ${PERIOD_HINT}` };
+    slices.push(s);
+  }
+  const rest = new URLSearchParams(p);
+  rest.delete("range");
+  const filter = insightFilter(rest);
+  return "error" in filter ? filter : { filter, p1: slices[0], p2: slices[1] };
+}
+function compare(db, f, s1, s2) {
+  const broExcluded = s1.kind === "tasks" || s2.kind === "tasks";
+  const rowsOf = (s) => {
+    const rows = insightRows(db, f, periodOf(s));
+    return broExcluded ? rows.filter((r) => r.agent !== "bro") : rows;
+  };
+  const r1 = rowsOf(s1);
+  const r2 = rowsOf(s2);
+  const union = /* @__PURE__ */ new Map();
+  for (const r of [...r1, ...r2]) union.set(r.id, r);
+  const edges = agentEdgesOf([...union.values()]);
+  const ids1 = new Set(r1.map((r) => r.id));
+  const prices = modelPrices(db);
+  const body = (s, rows) => ({
+    ...insightsBody(db, f, periodOf(s), rows, edges, { key: s.key, since: s.since, until: s.until }),
+    slice: s,
+    per_task: perTaskOf(prices, rows)
+  });
+  const p1 = body(s1, r1);
+  return { p1, p2: body(s2, r2), shared_runs: r2.filter((r) => ids1.has(r.id)).length, bro_excluded: broExcluded, options: p1["options"] };
 }
 var EXPLORE_MEASURES = ["tokens_out", "context", "cache_hit", "cost", "duration_ms", "tool_uses"];
 var EXPLORE_AGGS = ["avg", "p50", "p95", "max", "sum", "count"];
@@ -8583,6 +8798,10 @@ function handleApi(db, url, res) {
     const filter = insightFilter(url.searchParams);
     const body = "error" in filter ? filter : explore(db, filter, url.searchParams, RELEASES);
     return sendJson(res, "error" in body ? 400 : 200, body);
+  }
+  if (parts.length === 2 && resource === "insights" && id === "compare") {
+    const query = compareQuery(url.searchParams);
+    return "error" in query ? sendJson(res, 400, query) : sendJson(res, 200, compare(db, query.filter, query.p1, query.p2));
   }
   if (parts.length === 2 && resource === "world-model" && id === "search") {
     const p = url.searchParams;

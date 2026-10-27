@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/ghf",
+  "tool_input": {
+    "command": "glab mr create -b dev -s feat/x"
+  },
+  "corpus_expect": "MRs must target main branch"
+}

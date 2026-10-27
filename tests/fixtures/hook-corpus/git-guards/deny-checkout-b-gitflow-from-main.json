@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "cwd": "@SANDBOX@/gfl2",
+  "tool_input": {
+    "command": "git checkout -b feat/n"
+  },
+  "corpus_expect": "New branches must be created from dev. Currently on 'main'"
+}

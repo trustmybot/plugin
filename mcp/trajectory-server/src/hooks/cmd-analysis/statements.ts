@@ -6,14 +6,29 @@
  * assignment-only statements come out as `=<dir-token>` records, every dir
  * token carries \022<old-dir-token>[\022<why>], an unquoted $( ) or backtick
  * leaves `$()` (encoded) where it stood, and a loop's source is attached as a
- * \022<dir>\022<word>… mark. The TS keeps `time NAME=value` an assignment
+ * \022<dir>\022<word>… mark, and a loop's statements sit between a `{` and a
+ * `}` record (GH 1944), with a last `!` record when those frames do not
+ * balance. With `assign`, a dir token may also list, each after an ALT, the
+ * other dirs a loop's back-edge can bring its statement to (GH 1977): a
+ * frame's statements run in every dir the frame can end a pass in, re-encoded
+ * until those stop growing, and after its `}` the dir is the frame's entry
+ * dirs plus those. A frame still growing after MAX_GROWTH runs, or a frame
+ * edge that would leave more than MAX_DIRS dirs, leaves `-` alone, so a cd
+ * that keeps drifting fails closed in bounded time.
+ * The TS keeps `time NAME=value` an assignment
  * (GH 1739): `time` is a reserved word, so the shell still sets the name.
  */
-import { ENC, HD_DATA, QC, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
+import { ENC, HD_DATA, QC, QM, QO, SUB_PC, SUB_PO, plainDollars } from './encode.js';
 import { ASSIGNMENT, WRAPPER, splitWords, unwrap } from './unwrap.js';
 
 export const SEP = '\x12';
+export const LOOP_OPEN = '{';
+export const LOOP_CLOSE = '}';
+export const UNBALANCED = '!';
 export const WSEP = '\x14';
+export const ALT = '\x13';
+const MAX_GROWTH = 8;
+const MAX_DIRS = 8;
 const VSEP = '\x1c';
 const VEQ = '\x1d';
 const BAD = '\x01';
@@ -47,6 +62,7 @@ function norm(p: string): string {
       out.pop();
       continue;
     }
+    if (part === '..' && out.length === 0 && lead === '') continue;
     out.push(part);
   }
   const joined = out.map((x) => '/' + x).join('');
@@ -78,7 +94,7 @@ function unmark(t: string): string {
 }
 
 function srcmark(body: string, dir: string): string {
-  body = unmark(body);
+  body = unmark(body).replaceAll(QM, '');
   if (/[;&|()`\n]/.test(body) || body.includes(QO) || body.includes(QC)) return '';
   body = body.replace(/[ \t]+/g, SEP);
   if (body.startsWith(SEP)) body = body.slice(1);
@@ -87,7 +103,25 @@ function srcmark(body: string, dir: string): string {
   return SEP + dir + SEP + body;
 }
 
+/** Per loop frame, by its order of opening: the dirs its back-edge adds, the runs that added some, the frames that grew this run, and those that hit MAX_GROWTH. */
+interface Frames {
+  ext: string[][];
+  runs: number[];
+  grew: Set<number>;
+  lost: Set<number>;
+}
+
 export function statementsEnc(buf: string, base: string, home: string, assign: boolean): Record[] {
+  const frames: Frames = { ext: [], runs: [], grew: new Set(), lost: new Set() };
+  for (;;) {
+    frames.grew.clear();
+    const records = scan(buf, base, home, assign, frames);
+    if (frames.grew.size === 0) return records;
+    for (const fo of frames.grew) if (++frames.runs[fo] === MAX_GROWTH) frames.lost.add(fo);
+  }
+}
+
+function scan(buf: string, base: string, home: string, assign: boolean, frames: Frames): Record[] {
   const records: Record[] = [];
   let old = '-';
   let cwhy = '';
@@ -115,7 +149,9 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     cwhy = old.slice(s + 1);
     old = old.slice(0, s);
   }
-  let cur = base;
+  let alts = base.split(ALT);
+  let cur = alts.shift()!;
+  let oalts: string[] = [];
   let sp = 0;
   let bt = false;
   let stmt = '';
@@ -124,9 +160,169 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
   const ostack: string[] = [];
   const wstack: string[] = [];
   const owstack: string[] = [];
-  const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string }> = [];
+  const astack: string[][] = [];
+  const oastack: string[][] = [];
+  const q: Array<{ stmt: string; cur: string; old: string; start: number; sp: number; why: string; owhy: string; alts: string[]; oalts: string[] }> = [];
 
   const emit = (dir: string, text: string) => records.push({ dir, stmt: text });
+  const loops: Array<'f' | 'w' | 'o' | 'b' | 'g'> = [];
+  const fids: number[] = [];
+  const fent: Array<{ cur: string; why: string; alts: string[] }> = [];
+  let nf = 0;
+  let unbal = false;
+  /** Per word of the statement being flushed: it held a QM, so it is never a reserved word. */
+  let wq: boolean[] = [];
+
+  /**
+   * With `assign`, frames a loop's statements: `{` from its while / until or
+   * from the `do` or `{` that ends a for / select header, and `}` at the done
+   * or `}` that closes it. A `do` no header waits for, or a `done` / `}` that
+   * does not close the innermost frame, marks the command unbalanced. A
+   * quoted or escaped word is never one of these (POSIX 2.4).
+   */
+  function loopkw(k: string): void {
+    const top = loops.length > 0 ? loops[loops.length - 1] : '';
+    if (k === 'while' || k === 'until') {
+      loops.push('w');
+      fopen();
+    } else if (k === 'do') {
+      if (top === 'w') loops[loops.length - 1] = 'o';
+      else if (top === 'f') {
+        loops[loops.length - 1] = 'o';
+        fopen();
+      } else {
+        unbal = true;
+        loops.push('o');
+        fopen();
+      }
+    } else if (k === '{') {
+      if (top === 'f') {
+        loops[loops.length - 1] = 'b';
+        fopen();
+      } else loops.push('g');
+    } else if (k === 'done') {
+      if (top === 'o') {
+        loops.pop();
+        fclose();
+      } else unbal = true;
+    } else if (k === '}') {
+      if (top === 'b') {
+        loops.pop();
+        fclose();
+      } else if (top === 'g') loops.pop();
+      else unbal = true;
+    }
+  }
+
+  /** A frame's `{`: its statements also run in every dir an earlier run saw it end a pass in. */
+  function fopen(): void {
+    const fo = nf++;
+    fids.push(fo);
+    frames.ext[fo] ??= [];
+    frames.runs[fo] ??= 0;
+    alts = [...alts];
+    for (const t of frames.ext[fo]) altadd(alts, t, cur, cwhy);
+    if (frames.lost.has(fo)) lose();
+    bound();
+    fent[fo] = { cur, why: cwhy, alts: [...alts] };
+    emit(LOOP_OPEN, 'do');
+  }
+
+  /** A frame's `}`: an end-of-pass dir its entry lacks grows the frame for the next run; after it, the entry dirs and those. */
+  function fclose(): void {
+    const fo = fids.pop()!;
+    const e = fent[fo];
+    const ends = cur === e.cur && cwhy === e.why ? [...alts] : [cur, ...alts];
+    const known = e.cur === '-' && e.why !== '' ? e.alts : [e.cur, ...e.alts];
+    alts = [...e.alts];
+    for (const t of ends) {
+      if (!known.includes(t) && frames.runs[fo] < MAX_GROWTH && !frames.ext[fo].includes(t)) {
+        frames.ext[fo].push(t);
+        frames.grew.add(fo);
+      }
+      altadd(alts, t, e.cur, e.why);
+    }
+    cur = e.cur;
+    cwhy = e.why;
+    bound();
+    emit(LOOP_CLOSE, 'done');
+  }
+
+  /** The dir becomes `-`, which no why resolves. */
+  function lose(): void {
+    cur = '-';
+    cwhy = '';
+    alts = [];
+  }
+
+  /** More than MAX_DIRS dirs collapse to `-`. */
+  function bound(): void {
+    if (alts.length >= MAX_DIRS) lose();
+  }
+
+  /** Adds `t` to the alternate dirs `as` of a dir `d` (why `dw`): once, and not `d` itself unless `d` is a `-` its why resolves. */
+  function altadd(as: string[], t: string, d: string, dw: string): void {
+    if (t === d && (t !== '-' || dw === '')) return;
+    if (!as.includes(t)) as.push(t);
+  }
+
+  /**
+   * The alternate dirs `as` after a `cd p` that took the dir to `d` (why
+   * `dw`), and the why: an alternate that `p` alone may resolve (`cd "$d"`)
+   * shares `d`'s why, its base `-` when the two bases differ.
+   */
+  function cdalts(as: readonly string[], p: string, d: string, dw: string): [string[], string] {
+    const out: string[] = [];
+    for (const a of as) {
+      const t = resolve(a, p);
+      if (t === '-' && d === '-' && dw.includes(WSEP)) {
+        const aw = whyof(a, '', p);
+        if (aw.includes(WSEP) && aw.slice(aw.indexOf(WSEP)) === dw.slice(dw.indexOf(WSEP))) {
+          if (aw.slice(0, aw.indexOf(WSEP)) !== dw.slice(0, dw.indexOf(WSEP))) dw = '-' + dw.slice(dw.indexOf(WSEP));
+          continue;
+        }
+      }
+      altadd(out, t, d, dw);
+    }
+    return [out, dw];
+  }
+
+  /** The dir token of a statement's dirs: `-` when a loop leaves it more than one. */
+  function here(): string {
+    return alts.length > 0 ? '-' : cur;
+  }
+
+  function altTok(as: readonly string[]): string {
+    return as.map((a) => ALT + a).join('');
+  }
+
+  /** A for / select header at w[k]: waits for its `do` or `{`, which the statement holds itself when that word comes right after NAME. */
+  function forhead(w: string[], k: number): void {
+    loops.push('f');
+    let c = 0;
+    for (k++; k < w.length && c < 2; k++) {
+      if (w[k] === '') continue;
+      if (++c === 2 && !wq[k] && (w[k] === 'do' || w[k] === '{')) loopkw(w[k]);
+    }
+  }
+
+  /** The compound command after coproc [NAME] or function NAME: a for / select header, or a while / until / `{`. */
+  function loopprefix(w: string[], first: number): void {
+    let c = 0;
+    for (let k = first + 1; k < w.length && c < 2; k++) {
+      if (w[k] === '') continue;
+      c++;
+      if (wq[k]) continue;
+      if (w[k] === 'for' || w[k] === 'select') {
+        forhead(w, k);
+        return;
+      }
+      if (/^(while|until|\{)$/.test(w[k])) {
+        loopkw(w[k]);
+        return;
+      }
+    }
+  }
 
   function closepar(pos: number): number {
     let d = 0;
@@ -148,7 +344,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     let k = j + 1;
     while (k < buf.length && /[ \t]/.test(buf[k])) k++;
     if (k < buf.length && !/[;\n]/.test(buf[k])) return '';
-    return srcmark(buf.slice(pos + 1, j), cur);
+    return srcmark(buf.slice(pos + 1, j), here());
   }
 
   function donesrc(pos: number): string {
@@ -209,7 +405,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
         if (buf.slice(k, k + 2) !== '<(') return '!';
         const j = closepar(k + 1);
         if (j < 0) return '!';
-        const mark = srcmark(buf.slice(k + 2, j), cur);
+        const mark = srcmark(buf.slice(k + 2, j), here());
         return mark === '' ? '!' : mark;
       }
       atcmd = atcmd && /^(then|else|elif|if|while|until|!|\{|\}|time)$/.test(w);
@@ -305,11 +501,13 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     const chained = fsep === '&&';
     fsep = '';
     vtop = sp === 0 && qsp === 0 && !bt;
-    if (!vplainexp(stmt)) vok = false;
+    if (!vplainexp(stmt.replaceAll(QM, ''))) vok = false;
     stmt = unmark(stmt);
     const csure = !cond;
     cond = false;
     const w = splitWords(stmt);
+    wq = w.map((word) => word.includes(QM));
+    for (let k = 0; k < w.length; k++) w[k] = w[k].replaceAll(QM, '');
     const n = w.length;
     stmt = '';
     let first = 0;
@@ -320,7 +518,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     const waspiped = piped;
     piped = false;
     lastout = '';
-    lastdir = cur;
+    lastdir = here();
     let sawwhile = false;
     while (first < n) {
       if (w[first] === '') {
@@ -329,6 +527,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       }
       if (w[first] === 'while') sawwhile = true;
       if (KEYWORD.test(w[first])) {
+        if (assign && !wq[first]) loopkw(w[first]);
         plain = false;
         first++;
         continue;
@@ -361,16 +560,19 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       let ok = plain;
       if (vtop && plain) for (const a of aw) if (!assignword(a, !csure)) ok = false;
       if (assign && asg !== '') {
-        emit('=' + cur + SEP + old, asg);
+        emit('=' + cur + altTok(alts) + SEP + (oalts.length > 0 ? '-' : old), asg);
         if (!chained) {
           old = '-';
           owhy = '';
+          oalts = [];
         }
       }
       vend(ok);
       return;
     }
     let a0 = w[first];
+    if (assign && !wq[first] && (a0 === 'for' || a0 === 'select')) forhead(w, first);
+    else if (assign && !wq[first] && (a0 === 'coproc' || a0 === 'function')) loopprefix(w, first);
     let ok = plain && aw.length === 0;
     if (ok && a0 === 'export') {
       for (let k = first + 1; k < n; k++) {
@@ -389,7 +591,8 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     }
     lastout = out;
     let d = cur;
-    const o = old;
+    let da = alts;
+    const o = oalts.length > 0 ? '-' : old;
     let dw = cwhy;
     if (a0 === 'cd' || a0 === 'pushd') {
       let p = '';
@@ -402,22 +605,29 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       if (p === '-' && a0 === 'cd') {
         [cur, old] = [old, cur];
         [cwhy, owhy] = [owhy, cwhy];
+        [alts, oalts] = [oalts, alts];
       } else if (p === '' || p === '-') {
         old = cur;
         owhy = cwhy;
+        oalts = alts;
         cur = '-';
+        alts = [];
         cwhy = p === '' && a0 === 'cd' ? '-' + WSEP + '$HOME' : '';
       } else {
         old = cur;
         owhy = cwhy;
+        oalts = alts;
         const t = resolve(cur, p);
         cwhy = t === '-' ? whyof(cur, cwhy, p) : '';
         cur = t;
+        [alts, cwhy] = cdalts(oalts, p, cur, cwhy);
       }
     } else if (a0 === 'popd') {
       old = cur;
       owhy = cwhy;
+      oalts = alts;
       cur = '-';
+      alts = [];
       cwhy = '';
     } else if (assign && a0 === 'read') {
       let mk = sawwhile ? donesrc(i) : '';
@@ -432,6 +642,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
           const t = resolve(d, w[k + 1] ?? '');
           dw = t === '-' ? whyof(d, dw, w[k + 1] ?? '') : '';
           d = t;
+          [da, dw] = cdalts(da, w[k + 1] ?? '', d, dw);
           k++;
           continue;
         }
@@ -443,10 +654,11 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
         break;
       }
     }
-    emit(d + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out);
+    emit(d + altTok(da) + (assign ? SEP + o + (d === '-' && dw !== '' ? SEP + dw : '') : ''), out);
     if (!chained) {
       old = '-';
       owhy = '';
+      oalts = [];
     }
     vend(ok);
   }
@@ -455,6 +667,8 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     ostack[sp + 1] = old;
     wstack[sp + 1] = cwhy;
     owstack[sp + 1] = owhy;
+    astack[sp + 1] = alts;
+    oastack[sp + 1] = oalts;
     stack[++sp] = cur;
   }
 
@@ -463,6 +677,8 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       old = ostack[sp];
       cwhy = wstack[sp];
       owhy = owstack[sp];
+      alts = astack[sp];
+      oalts = oastack[sp];
       cur = stack[sp--];
     }
   }
@@ -473,7 +689,7 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     const prev = i > 0 ? buf[i - 1] : '';
     if (c === QO) {
       qsp++;
-      q[qsp] = { stmt, cur, old, start: i + 1, sp, why: cwhy, owhy };
+      q[qsp] = { stmt, cur, old, start: i + 1, sp, why: cwhy, owhy, alts, oalts };
       vkill = true;
       stmt = '';
       continue;
@@ -488,6 +704,8 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
       sp = f.sp;
       cwhy = f.why;
       owhy = f.owhy;
+      alts = f.alts;
+      oalts = f.oalts;
       qsp--;
       continue;
     }
@@ -559,5 +777,6 @@ export function statementsEnc(buf: string, base: string, home: string, assign: b
     stmt += c;
   }
   flush();
+  if (assign && (unbal || loops.length > 0)) emit(UNBALANCED, 'unbalanced');
   return records.filter((r) => r.stmt !== '');
 }
