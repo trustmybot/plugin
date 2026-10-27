@@ -50,7 +50,12 @@ import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } f
 import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
+import { GATE_NAME as TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan } from './post-task-close-rescan.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
+import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
+import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
+import { GATE_NAME as RECORD_SWE_SPAWN_GATE, recordSweSpawn } from './record-swe-spawn.js';
 import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from './cleanup-worktree-on-task-close.js';
 import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
 import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
@@ -107,7 +112,12 @@ const GATES = new Map([
     [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
     [PROMPT_INTENT_GATE, promptIntentHints],
     [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+    [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
+    [TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan],
     [README_STALENESS_GATE, postAtomicCloseReadme],
+    [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+    [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
+    [RECORD_SWE_SPAWN_GATE, recordSweSpawn],
     [CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose],
     [WORKTREE_CREATE_GATE, worktreeCreate],
     [REMOTE_ID_GATE, remoteIdGuard],

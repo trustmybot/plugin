@@ -6,7 +6,7 @@
     - the active-install handoff;
     - fail-closed: a gate that throws, exits non-zero, prints unparseable output, is unknown or runs past its budget denies, naming the gate.
   - The gates run one at a time, each on its own clock, so a slow gate never makes another one time out.
-  - Each gate stops at its deadline: its start plus the smaller of its budget and the time left in the call's group budget. Every `git` or `sqlite3` it runs is killed there. A gate cut off this way denies, naming itself, or is skipped if it is advisory. Once the group budget is spent, the gates left deny, naming themselves and the group budget.
+  - Each gate stops at its deadline: its start plus the smaller of its budget and the time left in the call's group budget. Every `git` or `sqlite3` it runs is killed there. A gate cut off this way denies, naming itself, or is skipped if it is advisory. Once the group budget is spent, the enforcement gates left deny, naming themselves and the group budget, and the advisory gates left are skipped.
   - The group budget is 1.5 x the summed per-gate p99s, and never less than the largest gate budget: 32,238 ms. The entry's timeout is 36 s, which covers it plus a 2 s allowance for the shared parse.
   - Each router call writes one `hook_call` audit row with every gate's time and outcome.
   - The headless shim expands the router entry into one `dispatch.sh` entry per gate. It refuses to write, giving a reason, when `dist/hooks-router.txt` is unreadable or lists no gate.

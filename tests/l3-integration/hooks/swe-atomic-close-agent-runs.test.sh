@@ -35,6 +35,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/swe-atomic-close.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-atomic-close-agent-runs.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -424,6 +426,7 @@ OUT=$(run_hook "$(stop_input "$T172" agent-172)")
 assert_eq "" "$(sqlite3 "$DB" "SELECT COALESCE(stop_cause, '') FROM agent_runs WHERE task_id=172;")" "stop_cause NULL"
 assert_not_contains "$OUT" "$BLOCK_SENTENCE" "no hook-block sentence"
 
+if [ "$HOOK_IMPL" != ts ]; then
 test_case "with dist/hooks.js absent the hook still completes"
 BARE_ROOT="$TMPDIR/bare-plugin"
 mkdir -p "$BARE_ROOT"
@@ -440,6 +443,7 @@ assert_eq "0" "$BARE_RC" "the hook exits 0"
 assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=162;")" "the task auto-completes"
 assert_eq "1|40|" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), COALESCE(MAX(stop_cause), '') FROM agent_runs WHERE task_id=162;")" "the row is metered, no stop_cause written"
 assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=162;")" "no tool-output rows without dist/hooks.js"
+fi
 
 # tool_transcript <task_id> <file> <prompt-suffix>: a spawn that calls Read and
 # Bash and gets a 10-char and a 5-char result back.

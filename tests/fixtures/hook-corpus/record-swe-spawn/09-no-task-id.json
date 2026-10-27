@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_use_id":"toolu_r09","tool_input":{"subagent_type":"swe","prompt":"Implement task 10."},"corpus_expect":"empty"}
