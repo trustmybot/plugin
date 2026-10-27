@@ -36,6 +36,10 @@ import { GATE_NAME as TOOL_OUTPUT_SIZE_GATE, toolOutputSize } from './tool-outpu
 import { GATE_NAME as CR_NO_WORKTREE_GATE, codeReviewerNoWorktree } from './code-reviewer-no-worktree.js';
 import { GATE_NAME as CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape } from './code-reviewer-spawn-prompt-shape.js';
 import { GATE_NAME as CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose } from './code-reviewer-after-atomic-close.js';
+import { GATE_NAME as SWE_BRIEF_GATE, sweBriefGate } from './swe-brief-gate.js';
+import { GATE_NAME as SWE_SPAWN_BIND_GATE, sweSpawnBind } from './swe-spawn-bind.js';
+import { GATE_NAME as SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback } from './swe-spawn-rollback.js';
+import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-task-create-spawn-hint.js';
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
@@ -78,6 +82,10 @@ const GATES = new Map([
     [CR_NO_WORKTREE_GATE, codeReviewerNoWorktree],
     [CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape],
     [CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose],
+    [SWE_BRIEF_GATE, sweBriefGate],
+    [SWE_SPAWN_BIND_GATE, sweSpawnBind],
+    [SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback],
+    [SPAWN_HINT_GATE, postTaskCreateSpawnHint],
     [AGENT_ARG_GATE, agentArgMatchesCaller],
     [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
     [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_use_id":"toolu_16","tool_input":{"subagent_type":"swe"},"tool_response":{"agentId":"agent-bound"},"corpus_expect":"\"task_id\":16,\"spawn_id\":\"tool_use:toolu_16\""}

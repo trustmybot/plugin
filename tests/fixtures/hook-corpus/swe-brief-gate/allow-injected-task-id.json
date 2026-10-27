@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","agent_type":"swe","tool_name":"NotebookEdit","tool_input":{"notebook_path":"/tmp/x.ipynb","task_id":"11; DROP TABLE tasks"},"corpus_expect":"empty"}
