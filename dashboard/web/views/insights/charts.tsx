@@ -31,8 +31,7 @@ interface EdgeTick extends Tick {
 
 const HEIGHT = 224;
 const MARGIN = { top: 20, right: 40, bottom: 24, left: 8 };
-const BAND_TOP = 36;
-const BAND_ROW = 15;
+const MARKER_TOP = 40;
 const LABEL_ASCENT = 11;
 const LABEL_DESCENT = 3;
 const MIN_TICK_GAP = 56;
@@ -40,8 +39,14 @@ const BAR_MAX = 24;
 const BAR_GAP = 2;
 const RADIUS = 4;
 const CAP = 2;
-const LEADER_GAP = 4;
-const TICK_LEN = 4;
+const ARROW_W = 8;
+const ARROW_H = 5;
+const ARROW_GAP = 3;
+const LABEL_GAP = 2;
+const LABEL_H = LABEL_ASCENT + LABEL_DESCENT;
+const BAR_CLEAR = 2;
+const PAD_X = 4;
+const PAD_Y = 2;
 const CHAR_PX = 6.6;
 const LABEL_PAD = 4;
 const BASELINE = 'var(--borderColor-default)';
@@ -80,47 +85,74 @@ function Mark({ x, y, width, height, color, horizontal }: { x: number; y: number
   );
 }
 
-export interface PlacedLabel {
-  x: number;
-  anchor: 'start' | 'end';
-  left: number;
-  right: number;
-  row: 0 | 1;
-  baseline: number;
-}
-
-// Marker labels sit in a band above the plot, start-anchored on their rule or end-anchored
-// in the right third, clamped to [0, innerW]; a label that would overlap an earlier one
-// moves up to the band's second row.
-export function placeMarkerLabels(markers: Array<{ x: number; label: string }>, innerW: number): PlacedLabel[] {
-  const placed: PlacedLabel[] = [];
-  for (const m of markers) {
-    const w = textWidth(m.label);
-    const anchor = m.x > (innerW * 2) / 3 ? 'end' : 'start';
-    const left = Math.max(0, anchor === 'end' ? Math.min(m.x, innerW) - w : Math.min(m.x, innerW - w));
-    const right = left + w;
-    const row = placed.some((p) => p.row === 0 && left < p.right + LABEL_PAD && p.left < right + LABEL_PAD) ? 1 : 0;
-    placed.push({ x: anchor === 'end' ? right : left, anchor, left, right, row, baseline: -6 - row * BAND_ROW });
-  }
-  return placed;
-}
-
-export const labelBox = (p: PlacedLabel) => ({ left: p.left, right: p.right, top: p.baseline - LABEL_ASCENT, bottom: p.baseline + LABEL_DESCENT });
-
 export interface BarTop {
   left: number;
   right: number;
   top: number;
 }
 
-// A marker's leader drops from just under its label to 4px above the tallest bar it touches;
-// the window is padded by half the bar gap so a marker in a gap clears both neighbours.
-export function markerLeader({ x, labelBottom, bars, innerH }: { x: number; labelBottom: number; bars: readonly BarTop[]; innerH: number }) {
-  const reach = 0.5 + BAR_GAP / 2;
-  const y1 = labelBottom + 2;
-  const barTop = Math.min(innerH, ...bars.filter((b) => b.left <= x + reach && b.right >= x - reach).map((b) => b.top));
-  return { x: Math.round(x) + 0.5, y1, y2: Math.max(y1, barTop - LEADER_GAP) };
+export interface Callout {
+  ax: number;
+  tip: number;
+  labelX: number;
+  anchor: 'start' | 'middle' | 'end';
+  baseline: number;
 }
+
+interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+
+// The highest bar top under x, padded by half the bar gap so a marker in a gap rests on the taller neighbour.
+function surfaceTop(x: number, bars: readonly BarTop[], innerH: number): number {
+  const reach = 0.5 + BAR_GAP / 2;
+  return Math.min(innerH, ...bars.filter((b) => b.left - reach <= x && x <= b.right + reach).map((b) => b.top));
+}
+
+const collides = (a: Box, b: Box) => a.left < b.right + PAD_X && b.left < a.right + PAD_X && a.top < b.bottom + PAD_Y && b.top < a.bottom + PAD_Y;
+
+// Each marker is an arrow resting on the bar top with its label on the arrow. The label tries
+// middle, start, then end anchoring, keeps the one bars lift least, prefers one clear of earlier
+// labels, and otherwise lifts above them. Earlier labels never move.
+export function placeMarkerCallouts(markers: ReadonlyArray<{ x: number; label: string }>, bars: readonly BarTop[], innerW: number, innerH: number): Callout[] {
+  const placed: Box[] = [];
+  return markers.map((m) => {
+    const ax = Math.round(clamp(m.x, 0, innerW));
+    const tip = surfaceTop(ax, bars, innerH) - ARROW_GAP;
+    const rest = tip - ARROW_H - LABEL_GAP;
+    const w = textWidth(m.label);
+    const starts = [
+      ['middle', ax - w / 2],
+      ['start', ax - ARROW_W / 2],
+      ['end', ax + ARROW_W / 2 - w],
+    ] as const;
+    const ranked = starts
+      .map(([anchor, at], i) => {
+        const left = clamp(at, 0, innerW - w);
+        const right = left + w;
+        const bottom = Math.min(rest, ...bars.filter((b) => b.left < right && left < b.right).map((b) => b.top - BAR_CLEAR));
+        return { anchor, i, left, right, bottom };
+      })
+      .sort((a, b) => b.bottom - a.bottom || a.i - b.i);
+    const boxAt = (c: (typeof ranked)[number], bottom = c.bottom): Box => ({ left: c.left, right: c.right, top: bottom - LABEL_H, bottom });
+    const pick = ranked.find((c) => !placed.some((p) => collides(boxAt(c), p))) ?? ranked[0]!;
+    let bottom = pick.bottom;
+    for (let hit = placed.find((p) => collides(boxAt(pick, bottom), p)); hit; hit = placed.find((p) => collides(boxAt(pick, bottom), p))) {
+      bottom = hit.top - PAD_Y;
+    }
+    bottom = Math.max(bottom, -MARKER_TOP + PAD_Y + LABEL_H);
+    placed.push(boxAt(pick, bottom));
+    const labelX = pick.anchor === 'start' ? pick.left : pick.anchor === 'end' ? pick.right : pick.left + w / 2;
+    return { ax, tip, labelX, anchor: pick.anchor, baseline: bottom - LABEL_DESCENT };
+  });
+}
+
+export const arrowPath = (ax: number, tip: number) => `M${ax - ARROW_W / 2},${tip - ARROW_H}H${ax + ARROW_W / 2}L${ax},${tip}Z`;
 
 export function thinEdgeTicks(ticks: Tick[], innerW: number): EdgeTick[] {
   if (ticks.length === 0) return [];
@@ -156,7 +188,7 @@ export interface ColumnChartProps {
 
 function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contiguous }: ColumnChartProps & { width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<Tip>();
-  const marginTop = markers ? BAND_TOP : MARGIN.top;
+  const marginTop = markers?.length ? MARKER_TOP : MARGIN.top;
   const innerW = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerH = HEIGHT - marginTop - MARGIN.bottom;
   const n = Math.max(1, columns.length);
@@ -171,13 +203,13 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contigu
     : columns.map((c, i) => ({ at: i + 0.5, label: c.label })).filter((_, i) => i % every === 0);
   const labels = new Map(shown.map((t) => [t.at, t]));
   const markerX = (markers ?? []).map((m) => ({ x: x(m.at), label: m.label }));
-  const placed = placeMarkerLabels(markerX, innerW);
   const bars = columns.flatMap((c, i) => {
     if (c.value <= 0) return [];
     const h = Math.max(CAP, innerH - y(c.value));
     const left = x(i) + (band - bar) / 2;
     return [{ c, left, right: left + bar, top: innerH - h, h }];
   });
+  const callouts = placeMarkerCallouts(markerX, bars, innerW, innerH);
   const show = (c: Column, i: number) => () =>
     showTooltip({ tooltipData: { title: c.tip }, tooltipLeft: MARGIN.left + x(i + 0.5), tooltipTop: marginTop + y(c.value) - 8 });
   return (
@@ -189,13 +221,11 @@ function Plot({ width, label, columns, yMax, format, edgeTicks, markers, contigu
             <Mark key={b.c.key} x={b.left} y={b.top} width={bar} height={b.h} color={b.c.color} horizontal={false} />
           ))}
           {markerX.map((m, i) => {
-            const p = placed[i]!;
-            const l = markerLeader({ x: m.x, labelBottom: labelBox(p).bottom, bars, innerH });
+            const c = callouts[i]!;
             return (
               <g key={m.label} data-marker="">
-                <Line from={{ x: l.x, y: l.y1 }} to={{ x: l.x, y: l.y2 }} stroke={MUTED} strokeWidth={1} strokeLinecap="butt" data-marker-leader="" />
-                <line x1={l.x} y1={innerH} x2={l.x} y2={innerH + TICK_LEN} stroke={MUTED} strokeWidth={1} strokeLinecap="butt" data-marker-tick="" />
-                <text x={p.x} y={p.baseline} textAnchor={p.anchor} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }} data-marker-label="">
+                <path d={arrowPath(c.ax, c.tip)} fill={MUTED} stroke="none" pointerEvents="none" data-marker-arrow="" />
+                <text x={c.labelX} y={c.baseline} textAnchor={c.anchor} fill={MUTED} fontSize={11} style={{ fontVariantNumeric: 'tabular-nums' }} data-marker-label="">
                   {m.label}
                 </text>
               </g>
