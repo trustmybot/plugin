@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_get",
+  "corpus_expect": "empty"
+}

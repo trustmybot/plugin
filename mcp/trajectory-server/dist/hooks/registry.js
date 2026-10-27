@@ -44,6 +44,8 @@ import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
+import { GATE_NAME as TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan } from './post-task-close-rescan.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -91,6 +93,8 @@ const GATES = new Map([
     [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
     [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
     [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+    [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
+    [TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan],
 ]);
 export function findGate(name) {
     return GATES.get(name);
