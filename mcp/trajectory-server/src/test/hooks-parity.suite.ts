@@ -199,15 +199,21 @@ interface ParityCase {
 }
 
 /**
- * Gates that write markers, logs or DB rows into the project, so they run in
- * hooks-session-parity.suite.ts, which rebuilds its sandbox before each side.
+ * Gates that write markers, logs or DB rows into the project, or read the
+ * host's processes and installs, so they run in hooks-session-parity.suite.ts
+ * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side.
  */
 const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'activation-routine',
+  'bro-turn-usage',
   'debug-trajectory',
+  'deferred-tools-drift-warn',
+  'ensure-gitignore',
+  'mcp-health-check',
   'plugin-hooks-marker',
   'session-log-capture',
   'session-start-persona',
+  'substrate-preflight',
   'user-prompt-persona',
 ]);
 

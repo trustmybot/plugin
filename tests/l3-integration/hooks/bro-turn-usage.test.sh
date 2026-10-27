@@ -10,6 +10,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 HOOK="$PLUGIN_ROOT/scripts/hooks/bro-turn-usage.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/bro-turn-usage.sh"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 PLUGIN_VERSION=$(jq -r .version "$CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json")
 

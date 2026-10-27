@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "rotate-session",
+  "source": "startup",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/biglog"
+  },
+  "corpus_cwd": "biglog",
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "logs/mcp-health.log.1: 1048577 bytes",
+    "\"session_id\":\"rotate-session\""
+  ]
+}

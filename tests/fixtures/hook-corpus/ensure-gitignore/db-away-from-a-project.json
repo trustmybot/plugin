@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "g9",
+  "source": "startup",
+  "corpus_env": {
+    "TRAJECTORY_DB_PATH": "@SANDBOX@/elsewhere/a/b/runs.db",
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/proj-ignored"
+  },
+  "corpus_expect": "empty",
+  "corpus_expect_stderr": "empty"
+}
