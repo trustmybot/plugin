@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "d3",
+  "source": "startup",
+  "corpus_env": {
+    "TMB_MCP_PID_OVERRIDE": "4242",
+    "TMB_MCP_START_OVERRIDE": "1700000000",
+    "TMB_TOOL_DIR_OVERRIDE": "@SANDBOX@/no-such-tools"
+  },
+  "corpus_expect": "empty"
+}

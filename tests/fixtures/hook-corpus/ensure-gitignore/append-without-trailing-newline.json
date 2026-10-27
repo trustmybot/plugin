@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "g3",
+  "source": "startup",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/proj-append"
+  },
+  "corpus_cwd": "proj-append",
+  "corpus_expect": "empty",
+  "corpus_expect_stderr": "tmb: ensured .claude/ is in @SANDBOX@/proj-append/.gitignore\n",
+  "corpus_expect_tree": [
+    "proj-append/.gitignore: node_modules\n# TMB plugin runtime state"
+  ]
+}
