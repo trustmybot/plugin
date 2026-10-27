@@ -28,6 +28,7 @@ git-push-guard
 mcp-health-check
 naming-lint
 no-remote-auth-guard
+no-source-edit-from-main
 no-worktree-branch-create
 orphan-scan
 plugin-hooks-marker

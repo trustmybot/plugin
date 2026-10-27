@@ -1736,14 +1736,14 @@ var init_tree_sitter = __esm({
           captures.length = captureCount;
           address = unmarshalCaptures(this, node.tree, address, patternIndex, captures);
           if (this.textPredicates[patternIndex].every((p) => p(captures))) {
-            const capture5 = captures[captureIndex];
+            const capture6 = captures[captureIndex];
             const setProperties = this.setProperties[patternIndex];
-            capture5.setProperties = setProperties;
+            capture6.setProperties = setProperties;
             const assertedProperties = this.assertedProperties[patternIndex];
-            capture5.assertedProperties = assertedProperties;
+            capture6.assertedProperties = assertedProperties;
             const refutedProperties = this.refutedProperties[patternIndex];
-            capture5.refutedProperties = refutedProperties;
-            result.push(capture5);
+            capture6.refutedProperties = refutedProperties;
+            result.push(capture6);
           }
         }
         C._free(startAddress);
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync21 } from "node:fs";
+import { readFileSync as readFileSync22 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -17236,10 +17236,10 @@ function activationRoutine(payload, env) {
   try {
     const echoed = `${commandSubstitution(payload)}
 `;
-    const field5 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
-    const prompt = field5("prompt");
+    const field6 = (key2) => commandSubstitution(jqFieldOr(echoed, key2));
+    const prompt = field6("prompt");
     const grep = new LocaleGrep(setlocaleUtf8(env));
-    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field5("transcript_path")), grep)) return ALLOW;
+    if (!saysBro(prompt, grep) && !isStickyBro(readTranscript3(field6("transcript_path")), grep)) return ALLOW;
     const halt = serverDown(env) ? HALT_TEXT : "";
     const haltOnly = () => halt !== "" ? emit(halt) : ALLOW;
     const db = dbPathAdvisory(GATE_NAME24, env, (line) => process.stderr.write(`${line}
@@ -17253,7 +17253,7 @@ function activationRoutine(payload, env) {
     );
     let context4 = activationContext(onboarded, pending2);
     if (halt !== "") context4 = `${halt} ${context4}`;
-    const sessionId = field5("session_id");
+    const sessionId = field6("session_id");
     if (sessionId.split("\n").some((line) => SESSION_ID_LINE.test(line))) context4 = `${context4} session_id=${sessionId}`;
     return emit(context4);
   } catch {
@@ -18522,7 +18522,7 @@ function makeScratch(db) {
     return mkdtempSync(`${tmpdir()}/verify-run.`);
   }
 }
-function waive(db, taskId, reason, field5, env) {
+function waive(db, taskId, reason, field6, env) {
   const row = gateRead(
     db,
     `SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') || '|' || COALESCE(commit_sha, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`,
@@ -18532,7 +18532,7 @@ function waive(db, taskId, reason, field5, env) {
 `, code: 0 };
   if (row === "") return ALLOW;
   const rest = afterBar(row);
-  const sha = field5("commit_sha") || afterBar(rest);
+  const sha = field6("commit_sha") || afterBar(rest);
   const r = auditAppend(
     db,
     {
@@ -18554,17 +18554,17 @@ function waive(db, taskId, reason, field5, env) {
 var sweVerificationGate = async (payload, env) => {
   const input = `${commandSubstitution(payload)}
 `;
-  const field5 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
-  if (normalizeRole(field5("agent")) !== "swe") return ALLOW;
-  if (field5("status") !== "completed") return ALLOW;
-  const taskId = field5("task_id");
+  const field6 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
+  if (normalizeRole(field6("agent")) !== "swe") return ALLOW;
+  if (field6("status") !== "completed") return ALLOW;
+  const taskId = field6("task_id");
   if (!/^[0-9]+$/.test(taskId)) return ALLOW;
   const db = dbPath(env, (line) => stderr(`${line}
 `));
   if (db === null || !haveSqlite(env)) return ALLOW;
   const genv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
-  const waiver = field5("waive_verification_gate_reason");
-  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field5, genv);
+  const waiver = field6("waive_verification_gate_reason");
+  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field6, genv);
   const verificationJson = sqliteRo(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   const branchId = gateRead(db, `SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
   if (branchId === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
@@ -18595,7 +18595,7 @@ var sweVerificationGate = async (payload, env) => {
   if (budget.warning !== "") stderr(budget.warning);
   const head = gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
   const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : "";
-  const expectedSha = field5("commit_sha");
+  const expectedSha = field6("commit_sha");
   const commands = block2.split("\n").filter((line) => line !== "");
   const gateCmdsJson = jqCompact([...commands, ...findings.map(probeCommand)]);
   const scratch = makeScratch(db);
@@ -21072,7 +21072,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
-  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`, plus `impact` and `source` for `world_model_symbol`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
 var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
@@ -21607,8 +21607,8 @@ function entryAgent(input) {
   }
   return stripTrailingNewlines(lines2.join("\n"));
 }
-function cutField3(text, field5) {
-  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field5 - 1] ?? "" : line);
+function cutField3(text, field6) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field6 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
 }
 function secondsIso() {
@@ -22751,6 +22751,156 @@ var remoteIdGuard = async (payload, processEnv) => {
   return ALLOW;
 };
 
+// src/hooks/no-source-edit-from-main.ts
+import { readFileSync as readFileSync20, statSync as statSync36 } from "node:fs";
+import { fileURLToPath as fileURLToPath10 } from "node:url";
+var GATE_NAME64 = "no-source-edit-from-main";
+var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
+var BASH_REASON = "BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.";
+var SURFACE_REASON = "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees \u2014 spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
+var SOURCE_REASON = "BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning \u2192 task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time \u2014 setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.";
+var ALLOWED_BASENAMES = /* @__PURE__ */ new Set([
+  "LICENSE",
+  ".gitignore",
+  ".gitattributes",
+  ".editorconfig",
+  ".npmignore",
+  ".dockerignore",
+  "CHANGELOG",
+  "CHANGELOG.md",
+  "README",
+  "README.md"
+]);
+function capture5(text) {
+  return stripTrailingNewlines(text.replace(/\0/g, ""));
+}
+function field5(input, ...paths) {
+  return capture5(jqAlternatives(input, paths));
+}
+function deny10(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function dbDenied(env) {
+  return { stdout: `${denyDbUnavailable(GATE_NAME64, env)}
+`, code: 0 };
+}
+function hasDir(path, dir) {
+  return path.includes(`/${dir}/`) || path.startsWith(`${dir}/`);
+}
+function inWorktreeDir(path) {
+  return hasDir(path, ".claude/worktrees");
+}
+function scratchExcluded(path) {
+  return path.includes("/../") || path.startsWith("../") || path.endsWith("/..") || hasDir(path, "scripts/hooks");
+}
+function under3(path, dir) {
+  return dir !== "" && path.startsWith(`${dir.endsWith("/") ? dir.slice(0, -1) : dir}/`);
+}
+function inScratch(target, input, env) {
+  if (scratchExcluded(target)) return false;
+  if (hasDir(target, ".claude/tmb/scratch")) return true;
+  const canonical3 = capture5(pathCanonical2(target.startsWith("/") ? target : `${payloadCwd(input, env)}/${target}`));
+  if (scratchExcluded(canonical3)) return false;
+  return hasDir(canonical3, ".claude/tmb/scratch") || under3(canonical3, harnessTmp(process.getuid?.() ?? 0));
+}
+function isFile23(path) {
+  try {
+    return statSync36(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function manifestName2(manifest) {
+  try {
+    return field5(readFileSync20(manifest, "utf8"), ["name"]);
+  } catch {
+    return "";
+  }
+}
+function targetIsPluginSourceRepo(target, input, env) {
+  const pluginRoot5 = env.CLAUDE_PLUGIN_ROOT || installRoot(posixDirname(fileURLToPath10(import.meta.url))) || "";
+  const running = `${pluginRoot5}/.claude-plugin/plugin.json`;
+  let start2;
+  if (target.startsWith("/")) {
+    start2 = posixDirname(target);
+    while (!isDir(start2) && start2 !== "/") start2 = posixDirname(start2);
+  } else {
+    start2 = posixDirname(`${payloadCwd(input, env)}/${target}`);
+  }
+  const root = repoGitRoot(start2, env);
+  if (root === "") return false;
+  const repoManifest = `${root}/.claude-plugin/plugin.json`;
+  if (!isFile23(running) || !isFile23(repoManifest)) return false;
+  const runningName = manifestName2(running);
+  return runningName !== "" && runningName === manifestName2(repoManifest);
+}
+function allowlisted(target) {
+  if (/\.(md|markdown|txt|rst)$/.test(target)) return true;
+  if (hasDir(target, "docs") || hasDir(target, "templates")) return true;
+  const base2 = posixBasename(target);
+  if (ALLOWED_BASENAMES.has(base2) || base2.startsWith("LICENSE.")) return true;
+  if (target.endsWith(".claude-plugin/plugin.json") || target.endsWith(".claude-plugin/marketplace.json")) return true;
+  return target.includes(".github/");
+}
+function isEnforcementSurface(target) {
+  return hasDir(target, "scripts/hooks") || target.endsWith("/hooks/hooks.json") || target === "hooks/hooks.json";
+}
+function projectRelative(p, roots) {
+  for (const root of roots) {
+    if (root !== "" && p.startsWith(`${root}/`)) return p.slice(root.length + 1);
+  }
+  return p;
+}
+function judgedPath(word) {
+  if (!word.startsWith("UNRESOLVED:")) return word;
+  const rest = word.slice("UNRESOLVED:".length);
+  const colon = rest.indexOf(":");
+  if (colon < 0) return word;
+  return Object.hasOwn(NEVER_JUDGED, rest.slice(0, colon)) ? null : rest.slice(colon + 1);
+}
+async function bashRule(input, env) {
+  const command = field5(input, ["tool_input", "command"]);
+  const proj = capture5(projectRoot(env));
+  const roots = [proj, proj === "" ? "" : realdir(proj)];
+  const lines2 = capture5((await writePaths(command, { cwd: payloadCwd(input, env), env })).join("\n")).split("\n");
+  for (const line of lines2) {
+    const path = judgedPath(line);
+    if (path === null || path === "") continue;
+    if (isPromptSurfacePath(path, "", env) && !inWorktreeDir(projectRelative(path, roots))) return deny10(BASH_REASON);
+  }
+  return ALLOW;
+}
+function editRule(input, env) {
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null) return ALLOW;
+  const target = field5(input, ["tool_input", "file_path"], ["tool_input", "notebook_path"]);
+  if (target === "" || inWorktreeDir(target) || inScratch(target, input, env)) return ALLOW;
+  if (dbState(env) === "error") return dbDenied(env);
+  if (target.startsWith("/")) {
+    const dir = posixDirname(target);
+    if (haveSqlite(env) && isDir(dir)) {
+      const root = repoGitRoot(dir, env);
+      if (root === "") return ALLOW;
+      if (gateRead(db, "SELECT COUNT(*) FROM repos;", env) === GATE_READ_ERROR) return dbDenied(env);
+      if (repoNameForRoot(db, root, env) === "") return ALLOW;
+    }
+  }
+  if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env)) return deny10(SURFACE_REASON);
+  if (allowlisted(target)) return ALLOW;
+  if (agentRole(input) === "swe") return ALLOW;
+  return deny10(SOURCE_REASON);
+}
+var noSourceEditFromMain = (payload, env) => {
+  const toolName2 = field5(payload, ["tool_name"]);
+  if (!JUDGED_TOOLS2.has(toolName2)) return ALLOW;
+  if (toolName2 === "Bash") return bashRule(payload, env);
+  if ((env.TMB_ALLOW_SOURCE_EDIT ?? "0") === "1") return ALLOW;
+  return editRule(payload, env);
+};
+
 // src/hooks/router/budgets.json
 var budgets_default = {
   rounds: 20,
@@ -22994,7 +23144,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME60, recordSweSpawn],
   [GATE_NAME61, cleanupWorktreeOnTaskClose],
   [GATE_NAME62, worktreeCreate],
-  [GATE_NAME63, remoteIdGuard]
+  [GATE_NAME63, remoteIdGuard],
+  [GATE_NAME64, noSourceEditFromMain]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -23037,7 +23188,7 @@ function routerTimeoutS(groupBudgetMs = ROUTER_GROUP_BUDGET_MS) {
 import { spawnSync as spawnSync14 } from "node:child_process";
 import { existsSync as existsSync16, mkdirSync as mkdirSync12 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
-import { fileURLToPath as fileURLToPath10 } from "node:url";
+import { fileURLToPath as fileURLToPath11 } from "node:url";
 
 // src/hooks/router/decide.ts
 var ROUTER_NAME = "router";
@@ -23209,9 +23360,9 @@ async function decide(event, payload, env, deps = {}) {
   }
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
-  const deny10 = done.find(({ j }) => j.outcome === "deny");
-  if (deny10) {
-    return { stdout: deny10.j.stdout, stderr: stderr2, code: deny10.j.code, tool, gates: outcomes, denied: { gate: deny10.gate.name, reason: deny10.j.reason } };
+  const deny11 = done.find(({ j }) => j.outcome === "deny");
+  if (deny11) {
+    return { stdout: deny11.j.stdout, stderr: stderr2, code: deny11.j.code, tool, gates: outcomes, denied: { gate: deny11.gate.name, reason: deny11.j.reason } };
   }
   const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
   return { stdout: mergeContext(context4), stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
@@ -23228,7 +23379,7 @@ function judgeUnknown(gate) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync10, readdirSync as readdirSync7, readFileSync as readFileSync20, renameSync as renameSync4, rmSync as rmSync6, statSync as statSync36, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync10, readdirSync as readdirSync7, readFileSync as readFileSync21, renameSync as renameSync4, rmSync as rmSync6, statSync as statSync37, writeFileSync as writeFileSync6 } from "node:fs";
 import { setTimeout as sleep2 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -23259,7 +23410,7 @@ function nowS2() {
 }
 function stamp(file) {
   try {
-    const line = readFileSync20(file, "utf8").split("\n")[0];
+    const line = readFileSync21(file, "utf8").split("\n")[0];
     return /^[0-9]+$/.test(line) ? Number(line) : null;
   } catch {
     return null;
@@ -23267,7 +23418,7 @@ function stamp(file) {
 }
 function ageS(path) {
   try {
-    return nowS2() - Math.floor(statSync36(path).mtimeMs / 1e3);
+    return nowS2() - Math.floor(statSync37(path).mtimeMs / 1e3);
   } catch {
     return null;
   }
@@ -23315,7 +23466,7 @@ var Dedupe = class {
       const d = `${this.base}/${name3}`;
       let st;
       try {
-        st = statSync36(d);
+        st = statSync37(d);
       } catch {
         continue;
       }
@@ -23343,7 +23494,7 @@ var Dedupe = class {
   replay(lock) {
     let rc;
     try {
-      const text = readFileSync20(`${lock}/rc`, "utf8").trim();
+      const text = readFileSync21(`${lock}/rc`, "utf8").trim();
       if (!/^[0-9]+$/.test(text)) return null;
       rc = Number(text);
     } catch {
@@ -23351,7 +23502,7 @@ var Dedupe = class {
     }
     const read = (f) => {
       try {
-        return readFileSync20(`${lock}/${f}`, "utf8");
+        return readFileSync21(`${lock}/${f}`, "utf8");
       } catch {
         return "";
       }
@@ -23415,7 +23566,7 @@ var Dedupe = class {
 };
 
 // src/hooks/router/records.ts
-import { mkdirSync as mkdirSync11, readdirSync as readdirSync8, rmdirSync as rmdirSync2, statSync as statSync37, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
+import { mkdirSync as mkdirSync11, readdirSync as readdirSync8, rmdirSync as rmdirSync2, statSync as statSync38, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
 var CALLER = "router";
 function parse(payload) {
   try {
@@ -23506,7 +23657,7 @@ function prune(dir, cutoffMs) {
   for (const name3 of names) {
     const path = `${dir}/${name3}`;
     try {
-      const st = statSync37(path);
+      const st = statSync38(path);
       if (st.isDirectory()) {
         if (prune(path, cutoffMs)) rmdirSync2(path);
         else empty = false;
@@ -23547,7 +23698,7 @@ var ROUTER_MANIFEST = "mcp/trajectory-server/dist/hooks-router.txt";
 var BUNDLE = "mcp/trajectory-server/dist/hooks.js";
 var HOP_ENV = "TMB_ROUTER_HOP";
 function ownRoot(env) {
-  return installRoot(dirname3(fileURLToPath10(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
+  return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, payload, env) {
   const r = spawnSync14(process.execPath, [`${root}/${BUNDLE}`, event], {
@@ -23646,7 +23797,7 @@ async function runHook(name3, findGate2, env, io) {
 var name2 = process.argv[2] ?? "";
 if (routerEvents().has(name2)) {
   const code = await routerMain(name2, process.env, {
-    readStdin: () => readFileSync21(0, "utf8"),
+    readStdin: () => readFileSync22(0, "utf8"),
     writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
     writeStderr: (text) => {
       if (text !== "") process.stderr.write(text);
@@ -23658,7 +23809,7 @@ if (routerEvents().has(name2)) {
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync21(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync22(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });
