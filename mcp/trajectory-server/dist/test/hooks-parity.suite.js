@@ -200,6 +200,7 @@ const OWN_SANDBOX_GATES = new Set([
     'reviewer-identity-observe',
     'cheatcode-install-approval',
     'swe-scope-fence',
+    'swe-verification-gate',
 ]);
 function parityCases() {
     return PARITY_GATES.filter((gate) => !OWN_SANDBOX_GATES.has(gate)).flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
