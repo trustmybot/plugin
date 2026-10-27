@@ -28,6 +28,7 @@ plugin-hooks-marker
 post-atomic-close-readme
 post-task-create-spawn-hint
 prompt-intent-hints
+remote-id-guard
 require-feature-branch-active
 require-spawn-effort
 require-task-spec

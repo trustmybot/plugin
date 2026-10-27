@@ -1,0 +1,19 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "corpus",
+  "cwd": "@SANDBOX@/project",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "gh pr create --title x --body 'Closes #5'",
+    "description": "corpus"
+  },
+  "tool_use_id": "tu-corpus",
+  "corpus_env": {
+    "PATH": "@NOSQLITE_PATH@"
+  },
+  "corpus_divergent": "decision 703: without the sqlite3 CLI the .sh allows; the port reads the issues table through node:sqlite and denies",
+  "corpus_expect": {
+    "bash": "allow",
+    "ts": "#5 → #42 (GitHub)"
+  }
+}

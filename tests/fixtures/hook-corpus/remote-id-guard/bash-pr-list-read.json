@@ -7,5 +7,6 @@
     "command": "gh pr list",
     "description": "corpus"
   },
-  "tool_use_id": "tu-corpus"
+  "tool_use_id": "tu-corpus",
+  "corpus_expect": "allow"
 }

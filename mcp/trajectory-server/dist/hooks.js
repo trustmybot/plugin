@@ -12572,7 +12572,7 @@ var WritePaths = class _WritePaths {
       acc = acc.map((a) => a + lit);
       let name3;
       let def = null;
-      let cut2 = "";
+      let cut3 = "";
       if (rest.startsWith("$(proc)")) return fail("$(proc)");
       if (rest.startsWith("$(alias-write)")) return fail("$(alias-write)");
       if (rest.startsWith("`") || rest.startsWith("$(")) return fail("$()");
@@ -12588,8 +12588,8 @@ var WritePaths = class _WritePaths {
         } else if (op.startsWith(":-") || op.startsWith(":=")) def = op.slice(2);
         else if (op.startsWith("-") || op.startsWith("=")) def = op.slice(1);
         else if (op.startsWith("%")) {
-          cut2 = op.slice(1).replace(/^%/, "");
-          if (cut2 === "" || /[^A-Za-z0-9._-]/.test(cut2)) return fail(name3);
+          cut3 = op.slice(1).replace(/^%/, "");
+          if (cut3 === "" || /[^A-Za-z0-9._-]/.test(cut3)) return fail(name3);
         } else return fail(name3);
       } else if (/^\$[A-Za-z_]/.test(rest)) {
         const a = rest.slice(1);
@@ -12614,7 +12614,7 @@ var WritePaths = class _WritePaths {
       }
       const next = [];
       for (const a of acc) {
-        for (const v of vals.split("\n")) next.push(a + (cut2 !== "" && v.endsWith(cut2) ? v.slice(0, -cut2.length) : v));
+        for (const v of vals.split("\n")) next.push(a + (cut3 !== "" && v.endsWith(cut3) ? v.slice(0, -cut3.length) : v));
       }
       if (next.length > 16) return fail(name3);
       acc = next;
@@ -14139,8 +14139,8 @@ var Guard = class {
     return stripTrailingNewlines(p);
   }
   unresolved(raw, variable) {
-    const cut2 = raw.search(/[$`]/);
-    const lit = cut2 < 0 ? raw : raw.slice(0, cut2);
+    const cut3 = raw.search(/[$`]/);
+    const lit = cut3 < 0 ? raw : raw.slice(0, cut3);
     const slash = lit.lastIndexOf("/");
     const dir = slash < 0 ? "" : lit.slice(0, slash) || "/";
     if (dir !== "") {
@@ -14207,9 +14207,9 @@ function splitUnresolved(word) {
   if (colon < 0) return { variable: rest, target: word };
   return { variable: rest.slice(0, colon), target: rest.slice(colon + 1) };
 }
-async function judgeBash(g, input, analyze) {
+async function judgeBash(g, input, analyze2) {
   const command = jqField2(input, ["tool_input", "command"]);
-  const writes = command === "" ? [] : await analyze(command, { cwd: g.cwd, raw: true, root: g.root, env: g.runEnv });
+  const writes = command === "" ? [] : await analyze2(command, { cwd: g.cwd, raw: true, root: g.root, env: g.runEnv });
   const lines2 = capture(writes.join("\n")).split("\n").filter((w) => w !== "");
   if (lines2.length === 0) return;
   if (!g.unbound && !g.bound && !g.allowed(g.cwd)) g.deny(g.cwd);
@@ -14243,7 +14243,7 @@ function runTmpdir(input, g) {
   if (jqField2(input, ["tool_input", "dangerouslyDisableSandbox"]) === "true") return hookTmp;
   return `/tmp/claude-${g.uid}`;
 }
-async function guard(input, env, analyze) {
+async function guard(input, env, analyze2) {
   const g = new Guard(env);
   g.toolName = jqField2(input, ["tool_name"]);
   if (!JUDGED_TOOLS.has(g.toolName)) return;
@@ -14291,12 +14291,12 @@ async function guard(input, env, analyze) {
     if (!g.allowed(target)) g.deny(target);
     return;
   }
-  await judgeBash(g, input, analyze);
+  await judgeBash(g, input, analyze2);
 }
-function containmentGuardWith(analyze) {
+function containmentGuardWith(analyze2) {
   return async (payload, env) => {
     try {
-      await guard(payload, { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: RUN_BUDGET_MS }, analyze);
+      await guard(payload, { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: RUN_BUDGET_MS }, analyze2);
       return ALLOW;
     } catch (e) {
       if (e instanceof Denied2) return e.result;
@@ -18074,7 +18074,7 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
     this.carrySha = plan.source_sha;
     this.carryOrdinals = new Set(plan.carry);
   }
-  execute(command, seconds, outPath) {
+  execute(command, seconds2, outPath) {
     return new Promise((done) => {
       const fd = openSync3(outPath, "w");
       let fired = false;
@@ -18098,7 +18098,7 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
           if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
         } catch {
         }
-      }, seconds * 1e3);
+      }, seconds2 * 1e3);
       child.on("error", () => finish(127));
       child.on("exit", (code, signal) => {
         if (fired) finish(124);
@@ -19613,7 +19613,7 @@ var Context = class {
   auditNudge(detail) {
     const db = this.database();
     if (db === null || !isFile12(db)) return "";
-    const cut2 = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
+    const cut3 = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
     const written = auditAppend(
       db,
       {
@@ -19621,7 +19621,7 @@ var Context = class {
         branchId: "",
         fromNode: `hook:${GATE_NAME49}`,
         eventType: "consultant_spawn_nudged",
-        summary: `Consultant-spawn nudge emitted: ${cut2}`,
+        summary: `Consultant-spawn nudge emitted: ${cut3}`,
         contentJson: "{}"
       },
       { caller: GATE_NAME49, env: this.env }
@@ -19980,6 +19980,217 @@ var postAtomicCloseReadme = (payload, env) => {
   }
 };
 
+// src/hooks/remote-id-guard.ts
+import { statSync as statSync27 } from "node:fs";
+import { performance as performance4 } from "node:perf_hooks";
+var GATE_NAME52 = "remote-id-guard";
+var DEFAULT_DEADLINE_S = "3";
+var WRITE_RUN_BUDGET_MS2 = "1000";
+var REMOTE_WRITES = [
+  ...["pr create", "pr edit", "issue create", "issue edit", "issue comment", "issue close"].map((s) => [`gh ${s}`, "gh"]),
+  ...["mr create", "mr update", "issue create", "issue update", "issue note", "issue close"].map((s) => [`glab ${s}`, "glab"])
+];
+var TEXT_OPTION = /(--body|--title|--comment|--message|--description|--note)([ \t\n\v\f\r=]|$)/m;
+var SHORT_TEXT_OPTION = /(^|[ \t\n\v\f\r])-[btm]([ \t\n\v\f\r]|$)/m;
+var HEREDOC = /<<-?[ \t\v\f\r]*[A-Za-z_'"]/;
+var REMOTE_MARKERS = [/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[0-9]+/g, /[Gg][Hh]-[0-9]+/g, /[Gg][Ll]-[0-9]+/g, /[Rr][Ee][Mm][Oo][Tt][Ee]:[0-9]+/g];
+var OVERRUN = /* @__PURE__ */ Symbol("overrun");
+function deadlineSeconds(env) {
+  const d = env.TMB_REMOTE_ID_GUARD_DEADLINE_S || DEFAULT_DEADLINE_S;
+  return /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(d) && /[1-9]/.test(d) ? d : DEFAULT_DEADLINE_S;
+}
+function providerOf(stmt) {
+  for (const [prefix, provider] of REMOTE_WRITES) {
+    if (stmt === prefix || stmt.startsWith(`${prefix} `)) return provider;
+  }
+  return null;
+}
+function carriesText(command) {
+  return TEXT_OPTION.test(command) || SHORT_TEXT_OPTION.test(command) || HEREDOC.test(command);
+}
+function candidateTokens(command) {
+  const scan2 = REMOTE_MARKERS.reduce((text, marker) => text.replace(marker, " "), command);
+  const tokens = new Set([...scan2.matchAll(/#([0-9]+)/g)].map((m) => m[1]));
+  return [...tokens].sort();
+}
+function cut2(row, from, rest) {
+  const lines2 = row.split("\n").map((line) => {
+    if (!line.includes("|")) return line;
+    const fields = line.split("|");
+    return rest ? fields.slice(from - 1).join("|") : fields[from - 1] ?? "";
+  });
+  return stripTrailingNewlines(lines2.join("\n"));
+}
+function unhex(hex) {
+  const text = Buffer.from(hex, "hex").toString("utf8");
+  const nul = text.indexOf("\0");
+  return nul < 0 ? text : text.slice(0, nul);
+}
+function localRows(db, tokens, env) {
+  const values = tokens.map((n2) => `('${n2}', ${n2})`).join(", ");
+  const out2 = sqliteRo(
+    db,
+    `WITH t(n, k) AS (VALUES ${values}) SELECT t.n || '|' || hex(COALESCE(i.gh_iid, '')) || '|' || hex(COALESCE(i.gl_iid, '')) || '|' || hex(COALESCE(i.objective, '')) FROM t JOIN issues i ON i.id = t.k;`,
+    env
+  );
+  const rows = /* @__PURE__ */ new Map();
+  for (const line of out2.split("\n")) {
+    const [n2, gh, gl, objective] = line.split("|");
+    if (objective === void 0) continue;
+    rows.set(n2, stripTrailingNewlines(`${unhex(gh)}|${unhex(gl)}|${unhex(objective)}`));
+  }
+  return rows;
+}
+var SIMPLE_ESCAPES = /* @__PURE__ */ new Map([
+  ["a", 7],
+  ["b", 8],
+  ["e", 27],
+  ["E", 27],
+  ["f", 12],
+  ["n", 10],
+  ["r", 13],
+  ["t", 9],
+  ["v", 11],
+  ["\\", 92]
+]);
+var isOctal = (b) => b !== void 0 && b >= 48 && b <= 55;
+var hexValue = (b) => {
+  if (b === void 0) return -1;
+  const c = String.fromCharCode(b);
+  return /[0-9A-Fa-f]/.test(c) ? parseInt(c, 16) : -1;
+};
+function printfB(text) {
+  const src = Buffer.from(text, "utf8");
+  const out2 = [];
+  let i2 = 0;
+  while (i2 < src.length) {
+    const b = src[i2];
+    if (b !== 92 || i2 + 1 >= src.length) {
+      out2.push(b);
+      i2 += 1;
+      continue;
+    }
+    const c = String.fromCharCode(src[i2 + 1]);
+    i2 += 2;
+    const simple = SIMPLE_ESCAPES.get(c);
+    if (simple !== void 0) {
+      out2.push(simple);
+    } else if (c === "c") {
+      break;
+    } else if (c >= "0" && c <= "7") {
+      let value = c.charCodeAt(0) - 48;
+      for (let left = c === "0" ? 3 : 2; left > 0 && isOctal(src[i2]); left -= 1, i2 += 1) value = value * 8 + (src[i2] - 48);
+      out2.push(value & 255);
+    } else if (c === "x" && hexValue(src[i2]) >= 0) {
+      let value = hexValue(src[i2]);
+      i2 += 1;
+      if (hexValue(src[i2]) >= 0) {
+        value = value * 16 + hexValue(src[i2]);
+        i2 += 1;
+      }
+      out2.push(value);
+    } else {
+      out2.push(92, src[i2 - 1]);
+    }
+  }
+  return stripTrailingNewlines(Buffer.from(out2.filter((b) => b !== 0)).toString("utf8"));
+}
+function deny9(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+function offense(n2, row, provider) {
+  const gh = cut2(row, 1, false);
+  const gl = cut2(row, 2, false);
+  const objective = cut2(row, 3, true);
+  const [own, ownName, other, otherName] = provider === "glab" ? [gl, "GitLab", gh, "GitHub"] : [gh, "GitHub", gl, "GitLab"];
+  const line = (iid, forge) => `#${n2} \u2192 #${iid} (${forge})  local #${n2}: "${objective}"\\n`;
+  if (own !== "" && own !== n2) return line(own, ownName);
+  if (own === "" && other !== "" && other !== n2) return line(other, otherName);
+  return "";
+}
+async function analyze(payload, env, overran) {
+  if (overran()) return OVERRUN;
+  const command = stripTrailingNewlines(jqAlternatives(payload, [["tool_input", "command"]]).replace(/\0/g, ""));
+  if (command === "" || !carriesText(command)) return ALLOW;
+  const tokens = candidateTokens(command);
+  if (tokens.length === 0) return ALLOW;
+  const listed2 = await cmdStatements(command, "/", env);
+  if (overran()) return OVERRUN;
+  if (!listed2.ok) return ALLOW;
+  let provider = null;
+  for (const { stmt } of listed2.statements) {
+    provider = providerOf(stmt);
+    if (provider) break;
+  }
+  if (!provider) return ALLOW;
+  const db = dbPath(env) ?? "";
+  if (db === "" || !haveSqlite(env)) return ALLOW;
+  const rows = localRows(db, tokens, env);
+  if (overran()) return OVERRUN;
+  const offenses = tokens.map((n2) => rows.has(n2) ? offense(n2, rows.get(n2) ?? "", provider) : "").join("");
+  if (offenses === "") return ALLOW;
+  return deny9(
+    `BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:
+${printfB(offenses)}
+A bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)`
+  );
+}
+function isFile14(path) {
+  try {
+    return statSync27(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function auditOverrun(deadline, elapsed, env) {
+  const db = dbPath(env) ?? "";
+  if (db === "" || !isFile14(db) || !haveSqlite(env)) return;
+  auditAppend(
+    db,
+    {
+      issueId: "-1",
+      branchId: "",
+      fromNode: `hook:${GATE_NAME52}`,
+      eventType: "remote_id_guard_overrun",
+      summary: `${GATE_NAME52} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
+      contentJson: `{"deadline_s":${jqNumberLiteral(deadline)},"elapsed_s":${jqNumberLiteral(elapsed)}}`
+    },
+    { caller: GATE_NAME52, env }
+  );
+}
+function seconds(ms) {
+  const whole = Math.max(0, Math.round(ms));
+  return `${Math.floor(whole / 1e3)}.${String(whole % 1e3).padStart(3, "0")}`;
+}
+var remoteIdGuard = async (payload, processEnv) => {
+  if (processEnv.TMB_DISABLE_REMOTE_ID_GUARD === "1") return ALLOW;
+  const env = { ...processEnv, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS2 };
+  const deadline = deadlineSeconds(env);
+  const budgetMs = Number(deadline) * 1e3;
+  const start2 = performance4.now();
+  const skew = env.TMB_REMOTE_ID_GUARD_TEST_OVERRUN === "1" ? budgetMs : 0;
+  const elapsedMs2 = () => performance4.now() - start2 + skew;
+  const overran = () => elapsedMs2() >= budgetMs;
+  let timer;
+  const expired = new Promise((resolve4) => {
+    timer = setTimeout(() => resolve4(OVERRUN), budgetMs);
+  });
+  let result;
+  try {
+    result = await Promise.race([analyze(payload, env, overran).catch(() => ALLOW), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (result !== OVERRUN && !overran()) return result;
+  const elapsed = seconds(elapsedMs2());
+  process.stderr.write(`${GATE_NAME52}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
+`);
+  auditOverrun(deadline, elapsed, env);
+  return ALLOW;
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -20034,7 +20245,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME48, noRemoteAuthGuard],
   [GATE_NAME49, promptIntentHints],
   [GATE_NAME50, sweScopeFence],
-  [GATE_NAME51, postAtomicCloseReadme]
+  [GATE_NAME51, postAtomicCloseReadme],
+  [GATE_NAME52, remoteIdGuard]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
