@@ -1,11 +1,11 @@
 containment-guard 5000 enforcement PreToolUse Bash
 git-guards 11000 enforcement PreToolUse Bash
 git-push-guard 6000 enforcement PreToolUse Bash
-swe-boundary 6000 enforcement PreToolUse Bash
+swe-boundary 8090 enforcement PreToolUse Bash
 no-worktree-branch-create 6000 enforcement PreToolUse Bash
 stay-on-base-guard 6000 enforcement PreToolUse Bash
 branch-up-to-date-with-remote 16000 enforcement PreToolUse Bash
-commit-msg-lint 4000 advisory PreToolUse Bash
+commit-msg-lint 7280 advisory PreToolUse Bash
 no-remote-auth-guard 6000 enforcement PreToolUse Bash
-remote-id-guard 6000 enforcement PreToolUse Bash
-debug-trajectory 4000 advisory PreToolUse Bash
+remote-id-guard 6152 enforcement PreToolUse Bash
+debug-trajectory 7486 advisory PreToolUse Bash

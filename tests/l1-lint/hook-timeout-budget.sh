@@ -145,10 +145,29 @@ for chain in $REGISTERED; do
 "
 done
 
+# --- the router: its registration covers its largest gate budget + 2 s -------
+# The router (GH 1692 R1) runs a gate under its own budget (dist/hooks-router.txt)
+# and its registration timeout is the backstop over them all.
+ROUTER_SUMMARY=""
+while IFS=$'\t' read -r event wrap; do
+  max=$(tmb_router_gates_budgets "$ROOT" "$event")
+  if ! require "$max" "$event router gate budgets (dist/hooks-router.txt)"; then
+    continue
+  fi
+  need=$(( (max + 999) / 1000 + 2 ))
+  if [ "${wrap:-0}" -lt "$need" ]; then
+    printf "hook-timeout-budget: FAIL router %s wrapper %ss < %ss (largest gate budget %sms + 2s)\n" "$event" "${wrap:-?}" "$need" "$max" >&2
+    FAIL=$((FAIL + 1))
+  fi
+  ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event}: wrapper ${wrap}s >= largest gate budget ${max}ms + 2s
+"
+done < <(jq -r '.hooks[][]?.hooks[]? | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+$")) | [(.command | split(" ") | last), (.timeout // "")] | @tsv' "$HOOKS_JSON")
+
 if [ "$FAIL" -gt 0 ]; then
   printf "hook-timeout-budget: FAIL\n"
   exit 1
 fi
+printf "%s" "$ROUTER_SUMMARY"
 printf "%s" "$DBW_SUMMARY"
 printf "%s" "$CHAIN_SUMMARY"
 printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss = cap %ss + record writes %ss + %ss dispatcher + %ss overhead) — wrappers cover budgets.\n" \

@@ -1,0 +1,86 @@
+/**
+ * SC2 decision parity (GH 1692 R1): every corpus payload of the 11 Bash router
+ * gates, materialized in its gate's parity sandbox, gets from the router the
+ * decision the gates give one by one: the first deny in ROUTER_GROUPS order
+ * with that gate's output, else the allowing gates' contexts merged.
+ */
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { findGate, routerGates } from '../hooks/registry.js';
+import { decide, failClosedReason, payloadTool } from '../hooks/router/decide.js';
+import { ROUTER_CORPUS_GATES, routerSandbox, underUid } from './router-sandboxes.js';
+const DENY = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
+const EVENT = 'PreToolUse';
+function parsed(stdout) {
+    const t = stdout.trim();
+    return t === '' ? null : JSON.parse(t);
+}
+async function oneByOne(c) {
+    const tool = payloadTool(c.input);
+    if (tool === null)
+        return { decision: 'deny', gate: 'router', stdout: parsed(`${JSON.stringify({ hookSpecificOutput: { hookEventName: EVENT, permissionDecision: 'deny', permissionDecisionReason: failClosedReason('router', 'got an unparseable payload') } })}`), code: 0 };
+    const contexts = [];
+    for (const gate of routerGates(EVENT, tool)) {
+        const fn = findGate(gate.name);
+        assert.ok(fn, `${gate.name} is registered`);
+        const r = await fn(c.input, c.env);
+        if (r.code === 2 || DENY.test(r.stdout))
+            return { decision: 'deny', gate: gate.name, stdout: parsed(r.stdout), code: r.code === 2 ? 2 : 0 };
+        assert.equal(r.code, 0, `${gate.name} exits 0 or 2 on ${basename(c.file)}`);
+        if (r.stdout.trim() !== '')
+            contexts.push(JSON.parse(r.stdout));
+    }
+    if (contexts.length === 0)
+        return { decision: 'allow', gate: null, stdout: null, code: 0 };
+    if (contexts.length === 1)
+        return { decision: 'allow', gate: null, stdout: contexts[0], code: 0 };
+    return {
+        decision: 'allow',
+        gate: null,
+        stdout: { hookSpecificOutput: { hookEventName: contexts.find((x) => x.hookSpecificOutput?.hookEventName)?.hookSpecificOutput?.hookEventName ?? EVENT, additionalContext: contexts.map((x) => x.hookSpecificOutput?.additionalContext).filter((x) => x !== undefined && x !== null).join('\n\n') } },
+        code: 0,
+    };
+}
+async function inCase(c, fn) {
+    const cwd = process.cwd();
+    c.reset?.();
+    process.chdir(c.cwd);
+    try {
+        return await underUid(c.fakeUid, fn);
+    }
+    finally {
+        process.chdir(cwd);
+    }
+}
+describe('router decision parity over the 11 Bash gates corpora', () => {
+    let sandbox;
+    before(() => {
+        sandbox = routerSandbox(mkdtempSync(join(tmpdir(), 'tmb-router-parity-')));
+    });
+    after(() => sandbox.cleanup());
+    for (const gate of ROUTER_CORPUS_GATES) {
+        it(`${gate}: the router decides as the gates do one by one`, async () => {
+            const cases = sandbox.cases.filter((c) => c.gate === gate);
+            assert.ok(cases.length > 0, `${gate} has a corpus`);
+            let bash = 0;
+            for (const c of cases) {
+                const want = await inCase(c, () => oneByOne(c));
+                const got = await inCase(c, () => decide(EVENT, c.input, c.env, { budgetMs: () => 120_000 }));
+                const name = basename(c.file);
+                assert.equal(got.denied === null ? 'allow' : 'deny', want.decision, `${name}: decision (${got.stderr})`);
+                assert.equal(got.denied?.gate ?? null, want.gate, `${name}: denying gate`);
+                assert.deepEqual(parsed(got.stdout), want.stdout, `${name}: output`);
+                assert.equal(got.code, want.code, `${name}: exit code`);
+                if (got.tool === 'Bash') {
+                    bash++;
+                    assert.equal(got.gates.length, 11, `${name}: all 11 gates ran`);
+                }
+            }
+            assert.ok(bash > 0, `${gate} has Bash payloads`);
+        });
+    }
+});
+//# sourceMappingURL=router-parity.test.js.map

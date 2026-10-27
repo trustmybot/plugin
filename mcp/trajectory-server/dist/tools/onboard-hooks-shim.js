@@ -102,7 +102,29 @@ function readPreToolUseFromHooksJson(pluginRoot) {
     const pre = parsed.hooks?.PreToolUse;
     if (!Array.isArray(pre))
         return null;
-    return pre;
+    return pre.map((group) => ({ ...group, hooks: (group.hooks ?? []).flatMap((h) => routerGateHooks(pluginRoot, h) ?? [h]) }));
+}
+const ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
+// The router entry (GH 1692 R1) as one `dispatch.sh <gate>` entry per gate
+// dist/hooks-router.txt lists for its event, timed out at the gate's budget,
+// so the shim runs each gate as it ran before the router; null for any other
+// entry.
+function routerGateHooks(pluginRoot, h) {
+    const event = ROUTER_COMMAND.exec(h.command ?? '')?.[1];
+    if (event === undefined)
+        return null;
+    let manifest = '';
+    try {
+        manifest = readFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'utf8');
+    }
+    catch {
+        return [];
+    }
+    return manifest
+        .split('\n')
+        .map((line) => line.split(' '))
+        .filter((f) => f.length >= 4 && f[3] === event && /^[a-z0-9-]+$/.test(f[0]))
+        .map(([gate, budgetMs]) => ({ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${gate}`, timeout: Math.ceil(Number(budgetMs) / 1000) }));
 }
 function keptHooks(group) {
     return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));

@@ -157,6 +157,22 @@ describe('project enforcement shim', () => {
         assert.equal(s.hooks?.PostToolUse, undefined);
         assert.equal(s.hooks?.SessionStart, undefined);
     });
+    it('the router entry becomes one shim entry per enforcement gate dist/hooks-router.txt lists, at its budget', () => {
+        const router = {
+            hooks: {
+                PreToolUse: [
+                    { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse', timeout: 18, onFailure: 'block' }] },
+                ],
+            },
+        };
+        writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify(router));
+        mkdirSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
+        writeFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'containment-guard 5000 enforcement PreToolUse Bash\ngit-guards 10200 enforcement PreToolUse Bash\ncommit-msg-lint 4000 advisory PreToolUse Bash\nother 3000 enforcement PostToolUse Bash\n');
+        write();
+        const bash = groupFor(readSettings(), 'Bash');
+        assert.ok(bash);
+        assert.deepEqual(bash.hooks.map((h) => [hookOf(h.command), h.timeout]), [['containment-guard.sh', 5], ['git-guards.sh', 11]]);
+    });
     it('quoted and unquoted placeholder commands yield the same shim', () => {
         write();
         const quoted = readFileSync(settingsPath(), 'utf8');

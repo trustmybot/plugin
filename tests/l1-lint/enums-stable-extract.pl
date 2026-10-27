@@ -50,7 +50,7 @@ for my $f (@files) {
   $c =~ s/^[ \t]*#(?!!).*$//mg if $f =~ /\.sh$/;
 
   if ($enum eq 'audit.event_type') {
-    while ($c =~ /\bevent_type\s*(?:=|==|===|!=|!==|:)\s*$q([a-z][a-z0-9_]*)$q/g) { emit($f, $1); }
+    while ($c =~ /\b(?:event_type|eventType)\s*(?:=|==|===|!=|!==|:)\s*$q([a-z][a-z0-9_]*)$q/g) { emit($f, $1); }
     while ($c =~ /\bevent_type\s+(?:NOT\s+)?IN\s*\(([^)]*)\)/gi) { emit($f, lits($1)); }
     while ($c =~ /\b(?:auditCheatcode|auditMilestone)\(\s*(?:db\s*,\s*)?'([a-z][a-z0-9_]*)'/g) { emit($f, $1); }
     while ($c =~ /\btmb_audit_append$sep$tok$sep$tok$sep$tok$sep$tok$sep(["']?)([a-z][a-z0-9_]*)\1$end/g) { emit($f, $2); }
