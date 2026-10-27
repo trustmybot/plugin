@@ -12231,7 +12231,7 @@ var WritePaths = class _WritePaths {
       acc = acc.map((a) => a + lit);
       let name3;
       let def = null;
-      let cut = "";
+      let cut2 = "";
       if (rest.startsWith("$(proc)")) return fail("$(proc)");
       if (rest.startsWith("$(alias-write)")) return fail("$(alias-write)");
       if (rest.startsWith("`") || rest.startsWith("$(")) return fail("$()");
@@ -12247,8 +12247,8 @@ var WritePaths = class _WritePaths {
         } else if (op.startsWith(":-") || op.startsWith(":=")) def = op.slice(2);
         else if (op.startsWith("-") || op.startsWith("=")) def = op.slice(1);
         else if (op.startsWith("%")) {
-          cut = op.slice(1).replace(/^%/, "");
-          if (cut === "" || /[^A-Za-z0-9._-]/.test(cut)) return fail(name3);
+          cut2 = op.slice(1).replace(/^%/, "");
+          if (cut2 === "" || /[^A-Za-z0-9._-]/.test(cut2)) return fail(name3);
         } else return fail(name3);
       } else if (/^\$[A-Za-z_]/.test(rest)) {
         const a = rest.slice(1);
@@ -12273,7 +12273,7 @@ var WritePaths = class _WritePaths {
       }
       const next = [];
       for (const a of acc) {
-        for (const v of vals.split("\n")) next.push(a + (cut !== "" && v.endsWith(cut) ? v.slice(0, -cut.length) : v));
+        for (const v of vals.split("\n")) next.push(a + (cut2 !== "" && v.endsWith(cut2) ? v.slice(0, -cut2.length) : v));
       }
       if (next.length > 16) return fail(name3);
       acc = next;
@@ -13093,6 +13093,13 @@ function repoSinglePath(db, env = process.env) {
   if (!readable2(db, env)) return "";
   if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
   return firstLine(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
+}
+function repoPathByName(db, name3, env = process.env) {
+  if (!readable2(db, env) || name3 === "") return "";
+  return firstLine(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+}
+function repoResolvePath(db, name3, env = process.env) {
+  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
 }
 var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
 function repoRemotes(db, gitRoot, env = process.env) {
@@ -14135,8 +14142,8 @@ var Guard = class {
     return stripTrailingNewlines(p);
   }
   unresolved(raw, variable) {
-    const cut = raw.search(/[$`]/);
-    const lit = cut < 0 ? raw : raw.slice(0, cut);
+    const cut2 = raw.search(/[$`]/);
+    const lit = cut2 < 0 ? raw : raw.slice(0, cut2);
     const slash = lit.lastIndexOf("/");
     const dir = slash < 0 ? "" : lit.slice(0, slash) || "/";
     if (dir !== "") {
@@ -16274,7 +16281,7 @@ var Boundary = class {
     if (push) return deny6(PUSH_REASON);
     if (mutating) return deny6(GH_REASON);
     const root = this.worktree || capture2(projectRoot(this.env));
-    let surface = "";
+    let surface2 = "";
     let anchor = "";
     let rootClaudeMd = "";
     let unresolved = "";
@@ -16297,17 +16304,17 @@ var Boundary = class {
         rel = path;
       }
       if (wt !== "" && rel === "CLAUDE.md") rootClaudeMd = path;
-      if (surface === "" && isPromptSurfacePath2(rel, wt, this.env)) {
-        surface = path;
+      if (surface2 === "" && isPromptSurfacePath2(rel, wt, this.env)) {
+        surface2 = path;
         anchor = wt === "" ? "" : path;
       }
       if (wt !== "") fence.push(path);
     }
     if (rootClaudeMd !== "") return deny6(claudeMdReason(rootClaudeMd));
-    const db = surface !== "" || unresolved !== "" || fence.length > 0 ? this.dbPath() : "";
-    if ((surface !== "" || unresolved !== "") && dbState(this.env) === "error") return this.dbDenied();
+    const db = surface2 !== "" || unresolved !== "" || fence.length > 0 ? this.dbPath() : "";
+    if ((surface2 !== "" || unresolved !== "") && dbState(this.env) === "error") return this.dbDenied();
     let lifted = false;
-    if (surface !== "" || unresolved !== "") {
+    if (surface2 !== "" || unresolved !== "") {
       const task = this.taskFor(anchor, db);
       if (task !== "" && db !== "" && haveSqlite(this.env)) {
         const pb = this.promptBearing(db, task);
@@ -16315,16 +16322,16 @@ var Boundary = class {
         lifted = pb === "1";
       }
     }
-    if (surface !== "" && !lifted) {
-      const glob = surface.search(GLOB_CHAR2);
+    if (surface2 !== "" && !lifted) {
+      const glob = surface2.search(GLOB_CHAR2);
       if (glob >= 0) {
-        const over = capture2(posixDirname(`${surface.slice(0, glob)}x`));
+        const over = capture2(posixDirname(`${surface2.slice(0, glob)}x`));
         return deny6(
-          `BLOCKED: a loop or glob over ${over} reaches prompt-surface paths (${surface}); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.`
+          `BLOCKED: a loop or glob over ${over} reaches prompt-surface paths (${surface2}); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task.`
         );
       }
       return deny6(
-        `BLOCKED: SWE may not write prompt-surface files via Bash (${writeShapes()}). Target: ${surface}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.`
+        `BLOCKED: SWE may not write prompt-surface files via Bash (${writeShapes()}). Target: ${surface2}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed.`
       );
     }
     if (unresolved !== "" && !lifted) {
@@ -17618,9 +17625,9 @@ var sweBriefGate = (payload, env) => {
   let taskId = taskIdFromTranscript(agentTranscript(captured));
   if (taskId === "") taskId = sqlInt(commandSubstitution(rawOrEmpty(input, ["tool_input", "task_id"])));
   if (taskId === "") return ALLOW;
-  const surface = briefSurface(toolName2);
-  if (surface === "other") return ALLOW;
-  if (surface === "task_brief") {
+  const surface2 = briefSurface(toolName2);
+  if (surface2 === "other") return ALLOW;
+  if (surface2 === "task_brief") {
     bindRun(db, taskId, input, env);
     return ALLOW;
   }
@@ -18108,6 +18115,119 @@ var cheatcodeInstallApproval = (payload, env) => {
   return deny7(notApprovedReason(name3, url));
 };
 
+// src/hooks/post-atomic-close-readme.ts
+import { statSync as statSync23 } from "node:fs";
+var GATE_NAME44 = "post-atomic-close-readme";
+var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
+var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
+var ROOT_DIR = ".";
+function isFile11(path) {
+  try {
+    return statSync23(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function cut(text) {
+  const bar = text.indexOf("|");
+  return bar < 0 ? [text, text] : [text.slice(0, bar), text.slice(bar + 1)];
+}
+function parseTaskRow(row) {
+  const [commitSha, rest1] = cut(row);
+  const [repo, rest2] = cut(rest1);
+  const [issueId, branchId] = cut(rest2);
+  return { commitSha, repo, issueId, branchId };
+}
+function touchedDirs(paths, env) {
+  return sortUnique(
+    paths.map((f) => {
+      const slash = f.lastIndexOf("/");
+      return slash < 0 ? ROOT_DIR : f.slice(0, slash);
+    }),
+    env
+  );
+}
+function isDistDir(dir) {
+  return dir.split("/").includes("dist");
+}
+function staleDirs(repoPath, sha, repo, paths, env) {
+  const changed = new Set(paths);
+  const out2 = [];
+  for (const dir of touchedDirs(paths, env)) {
+    if (isDistDir(dir)) continue;
+    const readme = dir === ROOT_DIR ? "README.md" : `${dir}/README.md`;
+    const label = dir === ROOT_DIR ? repo === "" ? "<repo root>" : `${repo}/` : dir;
+    if (!gitOk(repoPath, ["cat-file", "-e", `${sha}:${readme}`], env)) out2.push(`${label} (no README.md)`);
+    else if (!changed.has(readme)) out2.push(`${label} (README.md older than the commit)`);
+  }
+  return out2;
+}
+function nudgeReason(taskId, sha, stale) {
+  return `\u{1F4DD} README-staleness check (task ${taskId}, commit ${sha.slice(0, 7)}): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.
+
+The commit touched directories whose README.md is missing or older than the commit:
+${stale}
+
+For each, consider updating the directory's README.md so the next /scan picks up an accurate summary. This is a judgment call \u2014 skip it when the change doesn't alter what the README describes.`;
+}
+function resolveRepoPath(db, repo, env) {
+  let path = repoResolvePath(db, repo, env);
+  if (path === "" && repo === "") path = posixDirname(posixDirname(posixDirname(db)));
+  if (path !== "" && !gitOk(path, ["rev-parse", "--git-dir"], env)) path = "";
+  return path;
+}
+function surface(payload, env) {
+  if (env[BYPASS_ENV7] === "1") return ALLOW;
+  const input = jqInput(payload);
+  if (!ATOMIC_CLOSE_TOOL.test(jqCapture(input, ["tool_name"]))) return ALLOW;
+  if (jqCapture(input, ["tool_response", "is_error"]) === "true") return ALLOW;
+  const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || !isFile11(db) || !haveSqlite(env)) return ALLOW;
+  const row = sqliteRo(
+    db,
+    `SELECT COALESCE(commit_sha,'') || '|' || COALESCE(repo,'') || '|' || COALESCE(issue_id,'') || '|' || COALESCE(branch_id,'') FROM tasks WHERE id = ${taskId};`,
+    env
+  );
+  if (row === "") return ALLOW;
+  const task = parseTaskRow(row);
+  if (!/^[0-9a-fA-F]+$/.test(task.commitSha)) return ALLOW;
+  const repoPath = resolveRepoPath(db, task.repo, env);
+  if (repoPath === "") return ALLOW;
+  if (!gitOk(repoPath, ["cat-file", "-e", `${task.commitSha}^{commit}`], env)) return ALLOW;
+  const paths = gitOut(repoPath, ["show", "--name-only", "--pretty=format:", task.commitSha], env).split("\n").filter((line) => line !== "");
+  if (paths.length === 0) return ALLOW;
+  const stale = staleDirs(repoPath, task.commitSha, task.repo, paths, env);
+  if (stale.length === 0) return ALLOW;
+  const staleText = stale.join("\n");
+  const staleLines = staleText.split("\n");
+  const w = auditAppend(
+    db,
+    {
+      issueId: sqlInt(task.issueId) || "-1",
+      branchId: task.branchId,
+      fromNode: `hook:${GATE_NAME44}`,
+      eventType: "readme_staleness_surfaced",
+      summary: `task ${taskId}: README may be stale in ${staleLines.filter((line) => line !== "").length} dir(s) after ${task.commitSha.slice(0, 7)}`,
+      contentJson: jqCompact({ task_id: jqNumber2(taskId), commit_sha: task.commitSha, stale: staleLines })
+    },
+    { env, caller: GATE_NAME44 }
+  );
+  if (!w.ok) process.stderr.write(`${w.error}
+`);
+  const out2 = jqCompact({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: nudgeReason(taskId, task.commitSha, staleText) } });
+  return { stdout: `${w.stdout}${out2}
+`, code: 0 };
+}
+var postAtomicCloseReadme = (payload, env) => {
+  try {
+    return surface(payload, env);
+  } catch {
+    return ALLOW;
+  }
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -18154,7 +18274,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME40, postTaskCreateSpawnHint],
   [GATE_NAME41, agentArgMatchesCaller],
   [GATE_NAME42, reviewerIdentityObserve],
-  [GATE_NAME43, cheatcodeInstallApproval]
+  [GATE_NAME43, cheatcodeInstallApproval],
+  [GATE_NAME44, postAtomicCloseReadme]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

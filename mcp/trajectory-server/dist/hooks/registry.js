@@ -43,6 +43,7 @@ import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-ta
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
+import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -89,6 +90,7 @@ const GATES = new Map([
     [AGENT_ARG_GATE, agentArgMatchesCaller],
     [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
     [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
+    [README_STALENESS_GATE, postAtomicCloseReadme],
 ]);
 export function findGate(name) {
     return GATES.get(name);

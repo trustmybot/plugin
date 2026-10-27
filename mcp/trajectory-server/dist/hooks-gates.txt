@@ -22,6 +22,7 @@ git-push-guard
 mcp-health-check
 naming-lint
 plugin-hooks-marker
+post-atomic-close-readme
 post-task-create-spawn-hint
 require-feature-branch-active
 require-spawn-effort
