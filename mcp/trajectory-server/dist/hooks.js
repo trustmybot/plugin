@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync8 } from "node:fs";
+import { readFileSync as readFileSync9 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -14679,6 +14679,133 @@ function makeTaskOverrunAlert(clock = () => /* @__PURE__ */ new Date()) {
 }
 var taskOverrunAlert = makeTaskOverrunAlert();
 
+// src/hooks/tool-output-size.ts
+import { readFileSync as readFileSync8 } from "node:fs";
+var GATE_NAME11 = "tool-output-size";
+var CHARS_PER_TOKEN = 4;
+var UNKNOWN_TOOL = "unknown";
+var CANDIDATE_MARK = '"tool_';
+function resultChars(content) {
+  if (typeof content === "string") return content.length;
+  if (!Array.isArray(content)) return 0;
+  let chars = 0;
+  for (const c of content) {
+    const block = c;
+    if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") chars += block.text.length;
+  }
+  return chars;
+}
+function parseEntry(line) {
+  try {
+    const entry = JSON.parse(line);
+    return entry !== null && typeof entry === "object" && !Array.isArray(entry) ? entry : null;
+  } catch {
+    return null;
+  }
+}
+function toolOutputSizes(transcriptText, sinceMs) {
+  const names = /* @__PURE__ */ new Map();
+  const results = [];
+  let parsed = false;
+  const others = [];
+  for (const line of transcriptText.split("\n")) {
+    if (line.trim() === "") continue;
+    if (!line.includes(CANDIDATE_MARK)) {
+      if (!parsed) others.push(line);
+      continue;
+    }
+    const entry = parseEntry(line);
+    if (entry === null) continue;
+    parsed = true;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    const ts = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+    const inWindow = sinceMs === null || !Number.isNaN(ts) && ts >= sinceMs;
+    for (const raw of content) {
+      if (!raw || typeof raw !== "object") continue;
+      const block = raw;
+      if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+        names.set(block.id, block.name);
+      } else if (block.type === "tool_result" && inWindow) {
+        results.push({ toolUseId: typeof block.tool_use_id === "string" ? block.tool_use_id : "", chars: resultChars(block.content) });
+      }
+    }
+  }
+  if (!parsed && !others.some((line) => parseEntry(line) !== null)) return null;
+  const totals = /* @__PURE__ */ new Map();
+  for (const r of results) {
+    const name3 = names.get(r.toolUseId) ?? UNKNOWN_TOOL;
+    const t = totals.get(name3) ?? { calls: 0, chars: 0 };
+    t.calls += 1;
+    t.chars += r.chars;
+    totals.set(name3, t);
+  }
+  return [...totals].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0).map(([tool_name, t]) => ({
+    tool_name,
+    calls: t.calls,
+    result_chars: t.chars,
+    est_tokens: Math.ceil(t.chars / CHARS_PER_TOKEN)
+  }));
+}
+function readTranscript2(path) {
+  if (path === "") return null;
+  try {
+    return readFileSync8(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+function runTarget(env) {
+  const agentType = env.TMB_STOP_AGENT_TYPE ?? "";
+  if (agentType === "bro") {
+    const session = env.TMB_STOP_SESSION_ID ?? "";
+    if (session === "") return null;
+    return {
+      where: `agent_type = 'bro' AND task_id IS NULL AND session_id = '${sqlQuote(session)}'`,
+      transcriptKey: "transcript_path",
+      sinceMs: null
+    };
+  }
+  if (agentType !== "swe" && agentType !== "code-reviewer") return null;
+  const taskId = sqlInt(env.TMB_STOP_TASK_ID ?? "");
+  const spawnId = env.TMB_STOP_SPAWN_ID ?? "";
+  if (taskId === "" || spawnId === "") return null;
+  const since = env.TMB_STOP_SINCE ?? "";
+  const sinceMs = since === "" ? null : Date.parse(since);
+  if (sinceMs !== null && Number.isNaN(sinceMs)) return null;
+  return {
+    where: `task_id = ${taskId} AND agent_type = '${agentType}' AND spawn_id = '${sqlQuote(spawnId)}'`,
+    transcriptKey: "agent_transcript_path",
+    sinceMs
+  };
+}
+function rewriteSql(runId, rows) {
+  const del = `DELETE FROM agent_run_tool_output WHERE run_id = ${runId};`;
+  if (rows.length === 0) return del;
+  const values = rows.map((r) => `(${runId}, '${sqlQuote(r.tool_name)}', ${r.calls}, ${r.result_chars}, ${r.est_tokens})`).join(",\n       ");
+  return `${del}
+INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens)
+VALUES ${values};`;
+}
+function toolOutputSize(payload, env) {
+  try {
+    const target = runTarget(env);
+    if (target === null) return ALLOW;
+    const db = dbPath(env);
+    if (db === null || !haveSqlite(env)) return ALLOW;
+    const text = readTranscript2(jqAlternatives(payload, [[target.transcriptKey]]));
+    if (text === null) return ALLOW;
+    const rows = toolOutputSizes(text, target.sinceMs);
+    if (rows === null) return ALLOW;
+    const found = gateRead(db, `SELECT id FROM agent_runs WHERE ${target.where} ORDER BY id DESC LIMIT 1;`, env);
+    const runId = found === GATE_READ_ERROR ? "" : sqlInt(found);
+    if (runId === "") return ALLOW;
+    dbWrite(db, rewriteSql(runId, rows), { caller: GATE_NAME11, env });
+  } catch {
+  }
+  return ALLOW;
+}
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -14692,7 +14819,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME7, sweBoundary],
   [GATE_NAME8, sweResumeGate],
   [GATE_NAME9, sweStopCause],
-  [GATE_NAME10, taskOverrunAlert]
+  [GATE_NAME10, taskOverrunAlert],
+  [GATE_NAME11, toolOutputSize]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -14726,7 +14854,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync8(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync9(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

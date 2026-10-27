@@ -2,7 +2,7 @@
  * Stop-time recorder (GH 1957), run fail-open by swe-atomic-close.sh (swe and
  * code-reviewer, SubagentStop) and bro-turn-usage.sh (bro, Stop) after each
  * writes its agent_runs row: how much text each tool returned into that run,
- * one agent_run_tool_output row per tool (schema v54).
+ * one agent_run_tool_output row per tool (schema v53).
  *
  * The transcript is parsed once per run at stop, not per tool call: each
  * tool_use block maps its id to its name, and each tool_result block adds one

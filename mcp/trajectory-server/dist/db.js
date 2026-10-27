@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 54;
+export const TARGET_SCHEMA_VERSION = 53;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -669,8 +669,8 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 52 && toVersion >= 52) {
         migrateV51toV52(db);
     }
-    if (fromVersion < 54 && toVersion >= 54) {
-        migrateV53toV54(db);
+    if (fromVersion < 53 && toVersion >= 53) {
+        migrateV52toV53(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2698,10 +2698,10 @@ function migrateV51toV52(db) {
         throw err;
     }
 }
-// v53→v54: tool-result size per tool and agent run (GH 1957). A new table,
+// v52→v53: tool-result size per tool and agent run (GH 1957). A new table,
 // written by the tool-output-size recorder at each run's stop; existing runs
 // get no rows (no backfill).
-function migrateV53toV54(db) {
+function migrateV52toV53(db) {
     beginImmediate(db);
     try {
         if (tableExists(db, 'agent_runs')) {

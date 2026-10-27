@@ -25446,7 +25446,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 54;
+var TARGET_SCHEMA_VERSION = 53;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26010,8 +26010,8 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db2);
   }
-  if (fromVersion < 54 && toVersion >= 54) {
-    migrateV53toV54(db2);
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27857,7 +27857,7 @@ function migrateV51toV52(db2) {
     throw err21;
   }
 }
-function migrateV53toV54(db2) {
+function migrateV52toV53(db2) {
   beginImmediate(db2);
   try {
     if (tableExists(db2, "agent_runs")) {

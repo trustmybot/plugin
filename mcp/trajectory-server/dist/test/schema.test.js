@@ -199,7 +199,7 @@ describe('schema — current table set, default values, constraints', () => {
         assert.throws(() => db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'timeout')`), /CHECK/);
         db.close();
     });
-    it('fresh DB: agent_run_tool_output keys one row per (run, tool) and cascades from agent_runs (v54)', () => {
+    it('fresh DB: agent_run_tool_output keys one row per (run, tool) and cascades from agent_runs (v53)', () => {
         const db = tempDB();
         assert.deepEqual(db.all('PRAGMA table_info(agent_run_tool_output)').map((c) => [c.name, c.notnull]), [['id', 0], ['run_id', 1], ['tool_name', 1], ['calls', 1], ['result_chars', 1], ['est_tokens', 1]]);
         const run = Number(db.run(`INSERT INTO agent_runs (agent_type) VALUES ('swe')`).lastInsertRowid);
@@ -209,11 +209,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.equal(db.get('SELECT count(*) AS n FROM agent_run_tool_output')?.n, 0);
         db.close();
     });
-    it('fresh DB has schema_version = 54 in plugin_meta', () => {
+    it('fresh DB has schema_version = 53 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 54);
+        assert.equal(meta.schema_version, 53);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });

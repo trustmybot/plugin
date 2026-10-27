@@ -325,7 +325,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 54, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 53, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -440,7 +440,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, sp
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
 
--- agent_run_tool_output (GH 1957; schema v54): how much text each tool returned
+-- agent_run_tool_output (GH 1957; schema v53): how much text each tool returned
 -- into one agent run, one row per (run, tool). calls counts the run's
 -- tool_result blocks of that tool; result_chars sums their text length (image
 -- and other non-text blocks count 0); est_tokens = ceil(result_chars / 4). The

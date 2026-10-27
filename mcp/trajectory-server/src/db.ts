@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 54;
+export const TARGET_SCHEMA_VERSION = 53;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -813,8 +813,8 @@ function runMigrations(
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db);
   }
-  if (fromVersion < 54 && toVersion >= 54) {
-    migrateV53toV54(db);
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db);
   }
 }
 
@@ -3033,10 +3033,10 @@ function migrateV51toV52(db: DatabaseSync): void {
   }
 }
 
-// v53→v54: tool-result size per tool and agent run (GH 1957). A new table,
+// v52→v53: tool-result size per tool and agent run (GH 1957). A new table,
 // written by the tool-output-size recorder at each run's stop; existing runs
 // get no rows (no backfill).
-function migrateV53toV54(db: DatabaseSync): void {
+function migrateV52toV53(db: DatabaseSync): void {
   beginImmediate(db);
   try {
     if (tableExists(db, 'agent_runs')) {
