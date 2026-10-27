@@ -2834,7 +2834,7 @@ describe('task_provision (#157)', () => {
                     assert.equal(out['status'], 'closed');
                     assert.equal(out['commit_sha'], 'abc1234');
                     assert.match(String(out['message']), new RegExp(`task_reopen\\(task_id=${existingId}\\)`));
-                    assert.match(String(out['message']), /branch_id_propose \(with base='feat\/dup'/);
+                    assert.match(String(out['message']), /pick a new name with branch_id_propose, or call task_provision with base='feat\/dup' to stack on it\./);
                     assert.match(String(out['message']), /No task row or branch was changed\.$/);
                     assert.deepEqual(snapshot(), before);
                 }
