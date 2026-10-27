@@ -156,7 +156,7 @@ export function DataTable({
                 <td colSpan={columns.length}>
                   <Blankslate
                     icon={TableIcon}
-                    heading={rows.length === 0 ? 'No rows yet' : 'No matching rows'}
+                    heading={rows.length === 0 ? 'No Rows Yet' : 'No Matching Rows'}
                     description={rows.length === 0 ? undefined : 'Try a different filter.'}
                   />
                 </td>

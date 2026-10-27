@@ -63,7 +63,7 @@ describe('DataTable', () => {
   test('zero rows shows a Blankslate', () => {
     const out = table({ rows: [], columns: COLUMNS, filter: false });
     assert.match(out, /octicon-table/);
-    assert.match(out, /<h2[^>]*>No rows yet<\/h2>/);
+    assert.match(out, /<h2[^>]*>No Rows Yet<\/h2>/);
     assert.doesNotMatch(out, /<input/);
   });
 

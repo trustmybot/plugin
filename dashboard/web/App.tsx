@@ -31,9 +31,9 @@ export const TABS: readonly NavTab[] = [
   ['insights', 'Insights', GraphIcon],
   ['issues', 'Issues', IssueOpenedIcon],
   ['tasks', 'Tasks', TasklistIcon],
-  ['runs', 'Runs & gates', PlayIcon],
+  ['runs', 'Runs & Gates', PlayIcon],
   ['audit', 'Audit', LogIcon],
-  ['map', 'Project map', FileDirectoryIcon],
+  ['map', 'Project Map', FileDirectoryIcon],
 ];
 
 const pageName = (key: HelpKey) => (key === 'issue' || key === 'task' ? DETAIL_PAGE[key] : TABS.find(([k]) => k === key)![1]);

@@ -67,7 +67,7 @@ export function Composer({ id, open, updatedAt }: { id: string; open: boolean; u
                 if (window.confirm(`Close issue #${id}?`)) close.mutate({ updated_at: updatedAt });
               }}
             >
-              Close issue
+              Close Issue
             </Button>
           )}
           <Button type="submit" variant="primary" disabled={comment.isPending || !text.trim()}>Comment</Button>
