@@ -25505,7 +25505,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 52;
+var TARGET_SCHEMA_VERSION = 53;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26065,6 +26065,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name2) {
@@ -27900,6 +27903,32 @@ function migrateV51toV52(db) {
     }
     if (tableExists(db, "tasks") && !hasColumn(db, "tasks", "checkpoint")) {
       db.exec("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
+    }
+    commitTransaction(db);
+  } catch (err6) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err6;
+  }
+}
+function migrateV52toV53(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "agent_runs")) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
     }
     commitTransaction(db);
   } catch (err6) {

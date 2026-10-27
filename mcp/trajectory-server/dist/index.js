@@ -25446,7 +25446,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 52;
+var TARGET_SCHEMA_VERSION = 53;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26009,6 +26009,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 52 && toVersion >= 52) {
     migrateV51toV52(db2);
+  }
+  if (fromVersion < 53 && toVersion >= 53) {
+    migrateV52toV53(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27844,6 +27847,32 @@ function migrateV51toV52(db2) {
     }
     if (tableExists(db2, "tasks") && !hasColumn(db2, "tasks", "checkpoint")) {
       db2.exec("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
+function migrateV52toV53(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "agent_runs")) {
+      db2.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
     }
     commitTransaction(db2);
   } catch (err21) {
@@ -33629,17 +33658,42 @@ function hookBlockWindow(db2, since, now2) {
     by_reason: stats.by_reason
   };
 }
+var TOOL_OUTPUT_TOP = 10;
+function toolOutputStats(db2, runsWhere, params) {
+  const rows = db2.all(
+    `SELECT r.agent_type AS agent_type, o.tool_name AS tool_name,
+            SUM(o.calls) AS calls, SUM(o.est_tokens) AS est_tokens
+       FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id
+      WHERE ${runsWhere}
+      GROUP BY r.agent_type, o.tool_name
+      ORDER BY r.agent_type, est_tokens DESC, o.tool_name`,
+    params
+  );
+  const out2 = {};
+  for (const row of rows) {
+    const group = out2[row.agent_type] ??= { total_est_tokens: 0, tools: [] };
+    group.total_est_tokens += row.est_tokens;
+    group.tools.push({ tool_name: row.tool_name, calls: row.calls, est_tokens: row.est_tokens, share: 0 });
+  }
+  for (const group of Object.values(out2)) {
+    group.tools = group.tools.slice(0, TOOL_OUTPUT_TOP).map((t) => ({
+      ...t,
+      share: group.total_est_tokens === 0 ? 0 : Math.round(t.est_tokens / group.total_est_tokens * 1e3) / 1e3
+    }));
+  }
+  return out2;
+}
 function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and code-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs (by task_id, agent_type and run window): { denials, gate_failures (gates that timed out or crashed), by_reason (count per reason, highest first) }, and each spawn carries its own hook_blocks count. Two modes: pass task_id for one task, or pass since (ISO date) without task_id for a window over every swe run started since then: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } }.",
+      description: "Token/duration aggregate + per-spawn breakdown of one task's swe and code-reviewer runs. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are unpriced_tokens; cost_groups splits both by (host, model). Also wall_clock_ms (created_at to close, or now), review_fail_count, swe_spawn_count, rework_count (spawns - 1), and reworks split into fresh (fresh swe spawns after the first) and resumed (swe runs resumed through SendMessage), each with count, wall_clock_ms (summed run durations), tool_uses and cache_read_tokens. hook_blocks counts the audit hook_denied rows attributed to the task's runs: { denials, gate_failures (timed-out or crashed gates), by_reason (per reason, highest first) }, and each spawn its own hook_blocks count. tool_output: per agent_type, { total_est_tokens, tools: top 10 by est_tokens (result chars / 4) with calls and share }. Two modes: pass task_id for one task, or pass since (ISO date) without task_id: { since, window: { runs, runs_with_blocks, denials, gate_failures, blocks_per_run, by_reason } (swe runs started since then), tool_output (all runs) }.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string", description: "Calling agent identity" },
           task_id: { type: "integer", description: "Task ID to query stats for (task mode)" },
-          since: { type: "string", description: "ISO date; without task_id, returns hook-block stats over swe runs started at or after it (window mode)" }
+          since: { type: "string", description: "ISO date; without task_id, returns hook-block stats over swe runs and tool_output over all runs started at or after it (window mode)" }
         },
         required: ["agent"]
       }
@@ -33657,7 +33711,14 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
             throw new Error("task_stats needs task_id (one task) or since (window across runs)");
           }
           const since = args2["since"];
-          return ok6({ since, window: hookBlockWindow(db2, parseSince(since), clock()) });
+          const sinceDate = parseSince(since);
+          return ok6({
+            since,
+            window: hookBlockWindow(db2, sinceDate, clock()),
+            tool_output: toolOutputStats(db2, "r.started_at IS NOT NULL AND julianday(r.started_at) >= julianday(?)", [
+              sinceDate.toISOString()
+            ])
+          });
         }
         const taskId = Number(rawTaskId);
         if (!Number.isInteger(taskId) || taskId <= 0) {
@@ -33701,6 +33762,7 @@ function statsTools(db2, clock = () => /* @__PURE__ */ new Date()) {
           cost_groups: cost.groups,
           ...reworkStats(db2, taskId, clock()),
           hook_blocks: hookBlocks,
+          tool_output: toolOutputStats(db2, `r.task_id = ? AND r.${TASK_COST_AGENTS_SQL}`, [taskId]),
           spawns: spawns.map((s) => ({ ...s, hook_blocks: blocks.per_run.get(s.id) ?? 0 }))
         });
       })
