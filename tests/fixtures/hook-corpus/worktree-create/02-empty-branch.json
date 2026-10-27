@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "WorktreeCreate",
+  "session_id": "sess-wt",
+  "cwd": "@SANDBOX@/ws",
+  "branch": "",
+  "corpus_expect": "has no .branch field"
+}
