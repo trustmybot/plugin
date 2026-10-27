@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add ../a feat/a; git worktree add -b feat/b ../b"
+  },
+  "corpus_cwd": "project",
+  "corpus_expect": "cannot create a branch"
+}

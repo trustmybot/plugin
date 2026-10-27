@@ -15,6 +15,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/prompt-intent-hints.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/prompt-intent-hints.sh"
 
 # Run the hook with a prompt string; disable all bypass env vars.
 run_hook() {
@@ -535,6 +537,28 @@ assert_not_contains "$out" "headless-intent hint" "/onboard prompt must be skipp
 test_case "headless-intent: 'the main circuit' does NOT fire (whole words)"
 out=$(run_hook_db "the main circuit board")
 assert_not_contains "$out" "headless-intent hint" "in ci needs word boundaries"
+
+test_case "GH 1751: a question about quoted claude -p is not headless intent"
+out=$(run_hook_db 'What is the L0 success criteria? I thought it should be claude -p "@bro health check" and everything is green?')
+if [ "$HOOK_IMPL" = ts ]; then
+  assert_not_contains "$out" "headless-intent hint" "a question naming claude -p stays silent"
+else
+  assert_contains "$out" "headless-intent hint" "the frozen .sh still matches inside the question"
+fi
+
+test_case "GH 1751: claude -p only inside backticks is not headless intent"
+out=$(run_hook_db 'I ran `claude -p` yesterday.')
+if [ "$HOOK_IMPL" = ts ]; then
+  assert_not_contains "$out" "headless-intent hint" "a quoted claude -p stays silent"
+else
+  assert_contains "$out" "headless-intent hint" "the frozen .sh still matches inside backticks"
+fi
+
+test_case "GH 1751: stated headless intent still fires"
+out=$(run_hook_db "set up claude -p for CI")
+assert_contains "$out" "headless-intent hint" "an unquoted statement fires"
+out=$(run_hook_db "make the gates work headless")
+assert_contains "$out" "headless-intent hint" "headless in a statement fires"
 
 test_case "headless-intent: headless_enforcement already yes → silent"
 sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('headless_enforcement', '\"yes\"');" >/dev/null

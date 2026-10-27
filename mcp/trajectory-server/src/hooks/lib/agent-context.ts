@@ -85,19 +85,27 @@ export function taskLocation(db: string, taskId: string, env: NodeJS.ProcessEnv 
   const none = { repo: '', repoRoot: '', worktree: '' };
   const task = sqlInt(taskId);
   if (task === '') return { code: 1, ...none, missing: 'no task_id' };
-  const row = gateRead(
-    db,
-    `
-    SELECT COALESCE(t.branch_id, '') || '|' || COALESCE(t.repo, '') || '|'
-           || COALESCE(r.name, '') || '|' || COALESCE(r.path, '')
+  const fields = `COALESCE(t.branch_id, '') || '|' || COALESCE(t.repo, '') || '|'
+           || COALESCE(r.name, '') || '|' || COALESCE(r.path, '')`;
+  const from = `
       FROM tasks t
       LEFT JOIN repos r ON r.name = CASE
           WHEN COALESCE(t.repo, '') <> '' THEN t.repo
           WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT name FROM repos)
         END
-     WHERE t.id = ${task} LIMIT 1;`,
-    env,
-  );
+     WHERE t.id = ${task} LIMIT 1;`;
+  // The recorded worktree (schema v54, GH 2032) leads the row hex-encoded, so a
+  // '|' in it cannot shift the fields. A DB without the column (one the server
+  // has not migrated yet) fails that read; the v53 query then keeps the slug path.
+  let recordedHex = '';
+  let row = gateRead(db, `SELECT hex(COALESCE(t.worktree_path, '')) || '|' || ${fields}${from}`, env);
+  if (row === GATE_READ_ERROR) {
+    row = gateRead(db, `SELECT ${fields}${from}`, env);
+  } else if (row !== '') {
+    const bar = row.indexOf('|');
+    recordedHex = row.slice(0, bar);
+    row = row.slice(bar + 1);
+  }
   if (row === GATE_READ_ERROR) {
     return { code: 2, ...none, missing: `task ${task}: the trajectory DB read failed (tasks/repos)` };
   }
@@ -113,11 +121,12 @@ export function taskLocation(db: string, taskId: string, env: NodeJS.ProcessEnv 
   }
   const path = rawPath.startsWith('/') ? rawPath : realdir(repoPathAbs(db, rawPath));
   const repoRoot = path.endsWith('/') ? path.slice(0, -1) : path;
+  const recorded = Buffer.from(recordedHex, 'hex').toString('utf8');
   return {
     code: 0,
     repo: name,
     repoRoot,
-    worktree: `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`,
+    worktree: recorded !== '' ? recorded : `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`,
     missing: '',
   };
 }

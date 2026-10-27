@@ -129,7 +129,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- task_brief returns it so the next spawn resumes from it. A move to
     -- completed clears it and every other move keeps it. Keep this comment
     -- comma-free: DROP COLUMN on the last column cuts back to the nearest comma.
-    checkpoint        TEXT
+    checkpoint        TEXT,
+    -- worktree_path (v54 GH 2032): the realpath of the linked worktree the
+    -- task's swe works in when it is not <repo>/.claude/worktrees/<slug>. NULL
+    -- keeps the slug path. adoptTaskWorktree is its only writer. Keep these two
+    -- comments comma-free for the same DROP COLUMN reason.
+    worktree_path     TEXT,
+    -- worktree_adopted (v54 GH 2032): 1 once adoptTaskWorktree recorded the
+    -- session worktree as worktree_path and 0 for a task_provision worktree.
+    worktree_adopted  INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -325,7 +333,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 53, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 54, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

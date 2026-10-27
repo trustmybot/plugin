@@ -1,0 +1,4 @@
+{
+  "corpus_stdin": "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git checkout feat/open\"}} garbage",
+  "corpus_expect": "open task #30"
+}
