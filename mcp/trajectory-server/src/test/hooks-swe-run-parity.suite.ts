@@ -130,7 +130,7 @@ export function buildSandbox(s: string): void {
 }
 
 /** PATH with <cmd> gone: each dir holding it replaced by a dir of links to everything else. */
-function noCmdPath(dir: string, cmd: string, path: string): string {
+export function noCmdPath(dir: string, cmd: string, path: string): string {
   let n = 0;
   return path
     .split(':')

@@ -37,6 +37,7 @@ substrate-preflight
 swe-boundary
 swe-brief-gate
 swe-resume-gate
+swe-scope-fence
 swe-spawn-bind
 swe-spawn-rollback
 swe-stop-cause
