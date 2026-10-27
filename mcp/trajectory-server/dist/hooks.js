@@ -4952,7 +4952,7 @@ import { readFileSync as readFileSync7, statSync as statSync6 } from "node:fs";
 
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync4, constants as constants4, readFileSync as readFileSync5, statSync as statSync4 } from "node:fs";
-import { performance as performance3 } from "node:perf_hooks";
+import { performance as performance4 } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 // src/hooks/lib/db.ts
@@ -5136,7 +5136,36 @@ function agentRole(input = "") {
 // src/hooks/lib/sqlite-shell.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { accessSync as accessSync2, constants as constants2 } from "node:fs";
+import { performance as performance3 } from "node:perf_hooks";
+
+// src/hooks/lib/deadline.ts
 import { performance as performance2 } from "node:perf_hooks";
+var armed = null;
+function armDeadline(at2, now2 = () => performance2.now()) {
+  armed = { at: at2, now: now2, expired: false };
+}
+function disarmDeadline() {
+  const expired = armed?.expired ?? false;
+  armed = null;
+  return expired;
+}
+function spawnLimit(ownMs, killSignal = "SIGTERM") {
+  const left = armed ? Math.max(1, Math.ceil(armed.at - armed.now())) : void 0;
+  if (left === void 0 || ownMs !== void 0 && ownMs < left) {
+    return ownMs === void 0 ? null : { timeout: ownMs, killSignal, byDeadline: false };
+  }
+  return { timeout: left, killSignal, byDeadline: true };
+}
+function spawnOptions(limit) {
+  return limit ? { timeout: limit.timeout, killSignal: limit.killSignal } : {};
+}
+function noteSpawn(limit, r) {
+  const cut3 = r.error?.code === "ETIMEDOUT" || r.signal !== null;
+  if (cut3 && limit?.byDeadline && armed) armed.expired = true;
+  return cut3;
+}
+
+// src/hooks/lib/sqlite-shell.ts
 var KILLED_CODE = 124;
 var NOT_FOUND_CODE = 127;
 var MAX_BUFFER = 64 * 1024 * 1024;
@@ -5194,14 +5223,16 @@ function cliArgs(call) {
   return args2;
 }
 function runCli(call, env) {
+  const limit = spawnLimit(call.killAfterMs, "SIGKILL");
   const r = spawnSync2("sqlite3", cliArgs(call), {
     env,
     input: call.sql === void 0 ? call.script ?? "" : void 0,
     stdio: [call.sql === void 0 ? "pipe" : "ignore", "pipe", "pipe"],
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
-    ...call.killAfterMs !== void 0 ? { timeout: call.killAfterMs, killSignal: "SIGKILL" } : {}
+    ...spawnOptions(limit)
   });
+  noteSpawn(limit, r);
   const stdout = r.stdout ?? "";
   const stderr2 = r.stderr ?? "";
   const errno = r.error?.code;
@@ -5382,14 +5413,14 @@ var ShellSession = class {
   constructor(db, timeoutMs, killAfterMs) {
     this.db = db;
     this.busyMs = timeoutMs;
-    this.deadline = killAfterMs === void 0 ? Infinity : performance2.now() + killAfterMs;
+    this.deadline = killAfterMs === void 0 ? Infinity : performance3.now() + killAfterMs;
     this.applyTimeout(timeoutMs);
   }
   applyTimeout(ms) {
     this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(ms))}`);
   }
   checkDeadline() {
-    if (performance2.now() >= this.deadline) throw new Killed();
+    if (performance3.now() >= this.deadline) throw new Killed();
   }
   setTimeout(ms) {
     this.busyMs = ms;
@@ -5398,7 +5429,7 @@ var ShellSession = class {
   beforeStatement() {
     this.checkDeadline();
     if (this.deadline !== Infinity) {
-      this.applyTimeout(Math.min(this.busyMs, Math.ceil(this.deadline - performance2.now())));
+      this.applyTimeout(Math.min(this.busyMs, Math.ceil(this.deadline - performance3.now())));
     }
   }
   /** Runs one statement; null on success, else where and why it failed. */
@@ -5983,8 +6014,8 @@ COMMIT;
 `;
   const busy = busyMs(env);
   const budget = runBudgetMs(env);
-  const start2 = performance3.now();
-  const left = () => budget - (spentMs.get(env) ?? 0) - (performance3.now() - start2);
+  const start2 = performance4.now();
+  const left = () => budget - (spentMs.get(env) ?? 0) - (performance4.now() - start2);
   let code = BUDGET_SPENT_CODE;
   let err2 = "";
   let stdout = "";
@@ -6004,7 +6035,7 @@ COMMIT;
     if (!BUSY_PATTERN.test(err2)) break;
     if (attempt < WRITE_ATTEMPTS && left() > BACKOFF_MS) sleepMs(BACKOFF_MS);
   }
-  spentMs.set(env, (spentMs.get(env) ?? 0) + (performance3.now() - start2));
+  spentMs.set(env, (spentMs.get(env) ?? 0) + (performance4.now() - start2));
   if (code === 0) return { ok: true, code: 0, stdout, error: "" };
   const detail = (err2 || `sqlite3 exited ${code}`).split("\n")[0];
   return { ok: false, code, stdout, error: `tmb_db_write: ${caller}: ${detail}` };
@@ -7069,13 +7100,16 @@ import { spawnSync as spawnSync4 } from "node:child_process";
 import { statSync as statSync8 } from "node:fs";
 var GIT_MAX_BUFFER = 256 * 1024 * 1024;
 function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
+  const limit = spawnLimit();
   const r = spawnSync4("git", ["-C", dir, ...args2], {
     encoding: "utf8",
     env,
     input,
     maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", stderr2]
+    stdio: ["pipe", "pipe", stderr2],
+    ...spawnOptions(limit)
   });
+  noteSpawn(limit, r);
   return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
 }
 function gitOut(dir, args2, env = process.env, input = "") {
@@ -8344,10 +8378,10 @@ function agentContext(input = "", db = "", env = process.env) {
   const transcript = agentTranscript(input);
   let task = taskIdFromTranscript(transcript);
   if (task === "") {
-    const run4 = callerRun(input, resolved, env);
-    if (run4 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
-    const bar = run4.indexOf("|");
-    task = sqlInt(bar < 0 ? run4 : run4.slice(0, bar));
+    const run5 = callerRun(input, resolved, env);
+    if (run5 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
+    const bar = run5.indexOf("|");
+    task = sqlInt(bar < 0 ? run5 : run5.slice(0, bar));
   }
   if (task === "") {
     const missing = transcript !== "" ? `no task_id: the spawn transcript ${transcript} carries no task_id=<N>` : "no task_id: the payload names no spawn transcript (agent_transcript_path, or transcript_path plus agent_id) and no agent_runs row is bound to this agent_id";
@@ -8664,15 +8698,15 @@ function findModel(mode, args2, raw, acts, m) {
       case "-ok":
       case "-okdir": {
         if (mode !== "exec") return false;
-        const run4 = [];
+        const run5 = [];
         let prev = "";
         while (k < n2) {
           const x = raw[k++];
           if (x === "" || x === "+" && prev === "{}") break;
-          run4.push(x);
+          run5.push(x);
           prev = x;
         }
-        if (run4.length > 0) acts.push("x" + run4.join(" "));
+        if (run5.length > 0) acts.push("x" + run5.join(" "));
         break;
       }
       case "-delete":
@@ -8819,16 +8853,16 @@ function fdModel(mode, args2, raw, acts, m) {
     const w = args2[k++];
     if (w === "-x" || w === "--exec" || w === "-X" || w === "--exec-batch") {
       if (mode !== "exec") return false;
-      const run4 = [];
+      const run5 = [];
       let hit = false;
       while (k < n2) {
         const x = raw[k++];
         if (x === "") break;
         if (PLACEHOLDER.test(x)) hit = true;
-        run4.push(x);
+        run5.push(x);
       }
-      if (!hit) run4.push("{}");
-      acts.push("x" + run4.join(" "));
+      if (!hit) run5.push("{}");
+      acts.push("x" + run5.join(" "));
     } else if (/^(--format.*|--path-separator.*|-L|--follow|-l|--list-details|--base-directory.*)$/s.test(w)) bad = true;
     else if (w === "--search-path") m.paths.push(args2[k++] ?? "");
     else if (w === "-E" || w === "--exclude") m.excl.push("F:" + (args2[k++] ?? ""));
@@ -11856,9 +11890,9 @@ ${scan2}
 ${line}
 `);
   const cd = has("C");
-  const run4 = has("R");
+  const run5 = has("R");
   const names = scan2.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
-  const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run4 ? lex(lang === "py", program) : void 0;
+  const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run5 ? lex(lang === "py", program) : void 0;
   const held = new Map(names.map((name3) => [name3, lexed && heldLiterals(lexed, name3)]));
   const unread = has("A") || has("F") || [...held.values()].includes(void 0);
   let fail2 = unread || held.size > 0;
@@ -11886,7 +11920,7 @@ ${line}
     const writes = grepO(program, WRITES).map((m) => /^[^'"]*['"][^'"]+['"]/.exec(m)?.[0]).filter((m) => m !== void 0).map((m) => /['"][^'"]+['"]$/.exec(m)?.[0]).filter((m) => m !== void 0);
     const reads = grepO(grepO(program, READS).join("\n"), QUOTED);
     out2 += progLiterals(src, reads, writes, raw).join("\n");
-    if (run4) out2 += "\n$(proc)";
+    if (run5) out2 += "\n$(proc)";
     for (const lits of held.values()) for (const lit of lits ?? []) out2 += `
 ${lit}`;
   }
@@ -18079,12 +18113,12 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
       { ...this.c.env, PATH: this.c.toolchainPath }
     );
     if (typeof plan.source_run !== "number" || typeof plan.source_sha !== "string" || !Array.isArray(plan.carry)) return;
-    const run4 = String(plan.source_run);
+    const run5 = String(plan.source_run);
     const ords = plan.carry.map(String).join(" ");
-    if (!/^[0-9]+$/.test(run4)) return;
+    if (!/^[0-9]+$/.test(run5)) return;
     if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(plan.source_sha)) return;
     if (!/^[0-9]+( [0-9]+)*$/.test(ords)) return;
-    this.carryRun = run4;
+    this.carryRun = run5;
     this.carrySha = plan.source_sha;
     this.carryOrdinals = new Set(plan.carry);
   }
@@ -20361,7 +20395,7 @@ var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) =>
 
 // src/hooks/remote-id-guard.ts
 import { statSync as statSync29 } from "node:fs";
-import { performance as performance4 } from "node:perf_hooks";
+import { performance as performance5 } from "node:perf_hooks";
 var GATE_NAME54 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
@@ -20548,9 +20582,9 @@ var remoteIdGuard = async (payload, processEnv) => {
   const env = { ...processEnv, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS2 };
   const deadline = deadlineSeconds(env);
   const budgetMs = Number(deadline) * 1e3;
-  const start2 = performance4.now();
+  const start2 = performance5.now();
   const skew = env.TMB_REMOTE_ID_GUARD_TEST_OVERRUN === "1" ? budgetMs : 0;
-  const elapsedMs2 = () => performance4.now() - start2 + skew;
+  const elapsedMs2 = () => performance5.now() - start2 + skew;
   const overran = () => elapsedMs2() >= budgetMs;
   let timer;
   const expired = new Promise((resolve4) => {
@@ -20575,7 +20609,9 @@ var budgets_default = {
   rounds: 20,
   workers: 4,
   parse_allowance_ms: 2e3,
-  budget_sum_ms: 85008,
+  max_budget_ms: 16e3,
+  p99_sum_ms: 21492,
+  group_budget_ms: 32238,
   gates: {
     "containment-guard": {
       kind: "enforcement",
@@ -20836,9 +20872,9 @@ function routerEvents() {
 function routerGates(event, tool, groups = ROUTER_GROUPS) {
   return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
 }
-function routerTimeoutS(groups = ROUTER_GROUPS) {
-  const sums = groups.flatMap((g) => g.tools.map((tool) => routerGates(g.event, tool, groups).reduce((n2, x) => n2 + x.budgetMs, 0)));
-  return Math.ceil((budgets_default.parse_allowance_ms + Math.max(0, ...sums)) / 1e3);
+var ROUTER_GROUP_BUDGET_MS = budgets_default.group_budget_ms;
+function routerTimeoutS(groupBudgetMs = ROUTER_GROUP_BUDGET_MS) {
+  return Math.ceil((budgets_default.parse_allowance_ms + groupBudgetMs) / 1e3) + 1;
 }
 
 // src/hooks/router/main.ts
@@ -20861,6 +20897,10 @@ function failClosedReason(gate, cause) {
 }
 function timeoutReason(gate, budgetMs) {
   return `BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+}
+function groupBudgetReason(gate, groupBudgetMs, ran) {
+  const what = ran ? `ran out of the router's ${groupBudgetMs} ms group budget` : `was not run: the gates before it spent the router's ${groupBudgetMs} ms group budget`;
+  return `BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
 }
 function denyOutput(reason) {
   return `${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
@@ -20900,8 +20940,13 @@ function mergeContext(outputs) {
 `;
 }
 var LATE = /* @__PURE__ */ Symbol("late");
-async function settle(gate, fn, payload, env, budget, now2) {
+async function settle(fn, payload, env, limit, now2) {
   const start2 = now2();
+  armDeadline(start2 + limit, now2);
+  const s = await run4(fn, payload, env, limit, now2, start2);
+  return { s, cut: disarmDeadline() };
+}
+async function run4(fn, payload, env, limit, now2, start2) {
   let out2;
   try {
     out2 = fn(payload, env);
@@ -20911,7 +20956,7 @@ async function settle(gate, fn, payload, env, budget, now2) {
   if (!(out2 instanceof Promise)) return { kind: "result", result: out2, ms: now2() - start2 };
   let timer;
   const late = new Promise((resolve4) => {
-    timer = setTimeout(() => resolve4(LATE), Math.max(0, budget - (now2() - start2)));
+    timer = setTimeout(() => resolve4(LATE), Math.max(0, limit - (now2() - start2)));
     timer.unref();
   });
   try {
@@ -20924,21 +20969,24 @@ async function settle(gate, fn, payload, env, budget, now2) {
     clearTimeout(timer);
   }
 }
-function judge(gate, s, budget) {
+function overBudget(gate, b, ran) {
+  const what = !ran ? `got no time: the ${b.groupBudgetMs} ms group budget was spent` : b.byGroup ? `ran out of the ${b.groupBudgetMs} ms group budget` : `ran past its ${b.budget} ms budget`;
+  if (gate.kind !== "enforcement") return { outcome: "skipped_budget", stdout: "", code: 0, reason: "", stderr: `TMB router: advisory gate ${gate.name} ${what} \u2014 skipped, output dropped
+` };
+  const reason = b.byGroup || !ran ? groupBudgetReason(gate.name, b.groupBudgetMs, ran) : timeoutReason(gate.name, b.budget);
+  return { outcome: "deny", stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ${what} \u2014 failing closed
+` };
+}
+function judge(gate, s, cut3, b) {
   const enforce = gate.kind === "enforcement";
   const closed = (cause, stderr2 = "") => enforce ? { outcome: "deny", stdout: denyOutput(failClosedReason(gate.name, cause)), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr2}TMB dispatch: gate ${gate.name} ${cause} \u2014 failing closed
 ` } : { outcome: "error", stdout: "", code: 0, reason: "", stderr: `${stderr2}TMB router: advisory gate ${gate.name} ${cause} \u2014 output dropped
 ` };
+  if (s.kind === "unrun") return overBudget(gate, b, false);
+  if (cut3 || s.kind === "late") return overBudget(gate, b, true);
   if (s.kind === "threw") return closed("exited 1", `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}
 `);
-  const overBudget = s.ms > budget;
-  if (s.kind === "late" || overBudget && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) {
-    if (!enforce) return { outcome: "skipped_budget", stdout: "", code: 0, reason: "", stderr: `TMB router: advisory gate ${gate.name} ran past its ${budget} ms budget \u2014 skipped, output dropped
-` };
-    const reason = timeoutReason(gate.name, budget);
-    return { outcome: "deny", stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ran past its ${budget} ms budget \u2014 failing closed
-` };
-  }
+  if (s.ms > b.limit && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) return overBudget(gate, b, true);
   const { code } = s.result;
   const out2 = trimNewlines(s.result.stdout);
   const denies = DENY_PATTERN.test(out2);
@@ -20981,16 +21029,27 @@ async function decide(event, payload, env, deps = {}) {
   const find = deps.findGate ?? findGate;
   const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
   if (tool === "Bash" && gates.length > 0) await bashParser().catch(() => void 0);
+  const groupBudgetMs = deps.groupBudgetMs ?? ROUTER_GROUP_BUDGET_MS;
+  const groupStart = now2();
   const done = [];
+  let spent = false;
   for (const gate of gates) {
     const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
+    const left = groupBudgetMs - (now2() - groupStart);
+    const b = { limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
     const fn = find(gate.name);
     if (!fn) {
       done.push({ gate, s: { kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 }, j: judgeUnknown(gate) });
       continue;
     }
-    const s = await settle(gate, fn, payload, env, budget, now2);
-    done.push({ gate, s, j: judge(gate, s, budget) });
+    if (spent || left <= 0) {
+      const s2 = { kind: "unrun", ms: 0 };
+      done.push({ gate, s: s2, j: judge(gate, s2, false, b) });
+      continue;
+    }
+    const { s, cut: cut3 } = await settle(fn, payload, env, b.limit, now2);
+    spent = b.byGroup && (cut3 || s.kind === "late" || s.ms >= b.limit);
+    done.push({ gate, s, j: judge(gate, s, cut3, b) });
   }
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
@@ -21214,8 +21273,8 @@ function str(v) {
   return typeof v === "string" ? v : null;
 }
 function taskAndIssue(payload, p, db, env) {
-  const run4 = callerRun(payload, db, env);
-  let taskId = sqlInt(run4.split("|")[0]);
+  const run5 = callerRun(payload, db, env);
+  let taskId = sqlInt(run5.split("|")[0]);
   if (taskId === "") {
     const t = p.tool_input?.task_id;
     taskId = sqlInt(typeof t === "number" || typeof t === "string" ? String(t) : "");
@@ -21375,7 +21434,7 @@ async function routerMain(event, env, io, opts = {}) {
   let dedupe = null;
   let lock = null;
   if (locks !== null && key2 !== null) {
-    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groups), gateEnv);
+    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groupBudgetMs), gateEnv);
     try {
       mkdirSync11(dedupe.base, { recursive: true });
       const claim2 = await dedupe.claim(key2);

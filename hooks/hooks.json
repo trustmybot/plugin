@@ -107,7 +107,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
-            "timeout": 88,
+            "timeout": 36,
             "onFailure": "block"
           }
         ]

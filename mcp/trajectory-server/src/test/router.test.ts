@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -8,7 +8,9 @@ import { after, before, describe, it } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
-import { type RouterGroup, ROUTER_GROUPS, routerGates, routerTimeoutS } from '../hooks/registry.js';
+import { armDeadline, disarmDeadline, noteSpawn, spawnLimit } from '../hooks/lib/deadline.js';
+import { gitRun } from '../hooks/lib/git.js';
+import { type RouterGroup, ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, routerGates, routerTimeoutS } from '../hooks/registry.js';
 import { decide } from '../hooks/router/decide.js';
 import { routerMain } from '../hooks/router/main.js';
 
@@ -207,12 +209,92 @@ describe('router budgets', () => {
     assert.deepEqual(log, ['a:start', 'a:end', 'b:start', 'b:end', 'c:start', 'c:end']);
   });
 
-  it('the router timeout covers its gates run in turn: the budget sum of one call plus the parse allowance', () => {
-    const sum = ROUTER_GROUPS.flatMap((g) => g.gates).reduce((n, x) => n + x.budgetMs, 0);
-    assert.ok(routerTimeoutS() * 1000 >= sum, `${routerTimeoutS()} s < ${sum} ms`);
-    const two = group(['a', 'enforcement', 1500], ['b', 'advisory', 1500]);
-    assert.ok(routerTimeoutS(two) * 1000 >= 3000);
-    assert.ok(routerTimeoutS(two) < routerTimeoutS(group(['a', 'enforcement', 1500], ['b', 'advisory', 1500], ['c', 'enforcement', 1500])));
+  it('the router timeout covers the group budget plus the parse allowance, and the group budget the largest gate budget', () => {
+    const largest = Math.max(...ROUTER_GROUPS.flatMap((g) => g.gates).map((x) => x.budgetMs));
+    assert.ok(ROUTER_GROUP_BUDGET_MS >= largest, `${ROUTER_GROUP_BUDGET_MS} < ${largest}`);
+    assert.ok(routerTimeoutS() * 1000 > ROUTER_GROUP_BUDGET_MS, `${routerTimeoutS()} s <= ${ROUTER_GROUP_BUDGET_MS} ms`);
+    assert.ok(routerTimeoutS(3000) * 1000 >= 3000);
+    assert.ok(routerTimeoutS(3000) < routerTimeoutS(4500));
+  });
+});
+
+describe('router deadlines: every spawn stops at the gate deadline (decision 922)', () => {
+  const HANG_S = 30;
+  let bin: string;
+  let env: NodeJS.ProcessEnv;
+  const viaGit: Gate = (_payload, gateEnv) => {
+    gitRun('/', ['status'], gateEnv);
+    return ALLOW;
+  };
+
+  before(() => {
+    bin = mkdtempSync(join(tmpdir(), 'tmb-fake-git-'));
+    writeFileSync(join(bin, 'git'), `#!/bin/sh\nsleep ${HANG_S}\n`);
+    chmodSync(join(bin, 'git'), 0o755);
+    env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
+  });
+
+  after(() => rmSync(bin, { recursive: true, force: true }));
+
+  it('a hung git ends at the gate budget: the enforcement gate denies by name, the advisory one is skipped', async () => {
+    const d = await decide('PreToolUse', bash('git status'), env, {
+      groups: group(['hung-advisory', 'advisory', 300], ['hung-enforcement', 'enforcement', 300]),
+      findGate: fakes({ 'hung-advisory': viaGit, 'hung-enforcement': viaGit }),
+    });
+    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['hung-advisory', 'skipped_budget'], ['hung-enforcement', 'deny']]);
+    assert.equal(d.denied?.gate, 'hung-enforcement');
+    assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate hung-enforcement timed out after 300 ms \(infrastructure load, not a policy decision\)/);
+    assert.match(d.stderr, /advisory gate hung-advisory ran past its 300 ms budget — skipped/);
+    for (const g of d.gates) assert.ok(g.ms < HANG_S * 1000 && g.ms < routerTimeoutS() * 1000, `${g.gate} ${g.ms} ms: git was not cut off`);
+  });
+
+  it('once the group budget is spent, the next enforcement gate denies naming itself and the group budget', async () => {
+    let ran = false;
+    const d = await decide('PreToolUse', bash('git status'), env, {
+      groups: group(['eats-group', 'advisory', 5000], ['after-spent', 'enforcement', 5000], ['advisory-after', 'advisory', 5000]),
+      groupBudgetMs: 300,
+      findGate: fakes({ 'eats-group': viaGit, 'after-spent': () => ((ran = true), ALLOW), 'advisory-after': () => ((ran = true), ALLOW) }),
+    });
+    assert.equal(ran, false, 'no gate runs once the group budget is spent');
+    assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['eats-group', 'skipped_budget'], ['after-spent', 'deny'], ['advisory-after', 'skipped_budget']]);
+    assert.equal(d.denied?.gate, 'after-spent');
+    assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate after-spent was not run: the gates before it spent the router's 300 ms group budget/);
+    assert.match(d.stderr, /advisory gate eats-group ran out of the 300 ms group budget — skipped/);
+    assert.ok(d.gates[0].ms < HANG_S * 1000 && d.gates[0].ms < routerTimeoutS() * 1000, `${d.gates[0].ms} ms: git was not cut off`);
+  });
+
+  it('a gate the group budget cuts off mid-run denies naming the group budget', async () => {
+    const d = await decide('PreToolUse', bash('git status'), env, {
+      groups: group(['cut-by-group', 'enforcement', 5000]),
+      groupBudgetMs: 300,
+      findGate: fakes({ 'cut-by-group': viaGit }),
+    });
+    assert.equal(d.denied?.gate, 'cut-by-group');
+    assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate cut-by-group ran out of the router's 300 ms group budget/);
+  });
+
+  it('outside a gate, git runs with no timeout of its own', () => {
+    assert.equal(spawnLimit(), null);
+    assert.equal(gitRun('/', ['--version']).code, 0);
+  });
+
+  it('a spawn takes the sooner of its own limit and the deadline left, at least 1 ms', () => {
+    let t = 1000;
+    armDeadline(1050, () => t);
+    try {
+      assert.deepEqual(spawnLimit(), { timeout: 50, killSignal: 'SIGTERM', byDeadline: true });
+      assert.deepEqual(spawnLimit(10, 'SIGKILL'), { timeout: 10, killSignal: 'SIGKILL', byDeadline: false });
+      assert.deepEqual(spawnLimit(500, 'SIGKILL'), { timeout: 50, killSignal: 'SIGKILL', byDeadline: true });
+      assert.equal(noteSpawn(spawnLimit(10), { signal: 'SIGKILL' }), true);
+      assert.equal(disarmDeadline(), false, 'a cut by the caller limit is not the deadline');
+      armDeadline(1050, () => t);
+      t = 2000;
+      assert.equal(spawnLimit()?.timeout, 1);
+      assert.equal(noteSpawn(spawnLimit(), { error: Object.assign(new Error('x'), { code: 'ETIMEDOUT' }), signal: null }), true);
+      assert.equal(disarmDeadline(), true);
+    } finally {
+      disarmDeadline();
+    }
   });
 });
 

@@ -34,4 +34,12 @@ export const PARSE_ALLOWANCE_MS = 2000;
 export function budgetMs(floor, benchP99, transcriptP99) {
     return Math.max(floor, Math.ceil(2 * Math.max(benchP99, transcriptP99 ?? 0)) + BUDGET_MARGIN_MS);
 }
+/** A gate's p99 term of the group budget: max(bench_p99, transcript_p99). */
+export function p99Term(benchP99, transcriptP99) {
+    return Math.max(benchP99, transcriptP99 ?? 0);
+}
+/** group_budget_ms = max(max_budget_ms, ceil(1.5 x p99_sum_ms)). */
+export function groupBudgetMs(maxBudgetMs, p99SumMs) {
+    return Math.max(maxBudgetMs, Math.ceil(1.5 * p99SumMs));
+}
 //# sourceMappingURL=router-floors.js.map

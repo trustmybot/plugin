@@ -2,7 +2,9 @@
     "rounds": 20,
     "workers": 4,
     "parse_allowance_ms": 2000,
-    "budget_sum_ms": 85008,
+    "max_budget_ms": 16000,
+    "p99_sum_ms": 21492,
+    "group_budget_ms": 32238,
     "gates": {
         "containment-guard": {
             "kind": "enforcement",

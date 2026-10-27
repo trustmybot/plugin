@@ -4,16 +4,20 @@
  * time, each on its own clock, so a gate's budget and recorded ms count only
  * its own work (decision 919): the gate bodies are synchronous on one event
  * loop, so running them together would only charge one gate's work to its
- * siblings. Sync gates are judged on return, async gates raced against their
- * budget. The first deny in group order is the answer, with that gate's
- * output; with none, the allowing gates' outputs merge as dispatch.sh's
- * run_chain merges a chain's context. Fail-closed as dispatch.sh is: an
- * enforcement gate that throws, exits other than 0 or 2 without a deny,
- * prints unparseable output, is unknown, or runs past its budget denies,
- * naming the gate; an advisory gate's failure is dropped and logged.
+ * siblings. Each gate's deadline is its start plus the smaller of its budget
+ * and the group budget left (decision 922); every sync spawn it makes times
+ * out there, so a hung child ends the gate at its deadline. Sync gates are
+ * judged on return, async gates raced against their deadline. The first deny
+ * in group order is the answer, with that gate's output; with none, the
+ * allowing gates' outputs merge as dispatch.sh's run_chain merges a chain's
+ * context. Fail-closed as dispatch.sh is: an enforcement gate that throws,
+ * exits other than 0 or 2 without a deny, prints unparseable output, is
+ * unknown, runs past its deadline, or is left no group budget denies, naming
+ * the gate; an advisory gate's failure is dropped and logged.
  */
 import { bashParser } from '../cmd-analysis/parser.js';
-import { ROUTER_GROUPS, findGate, routerGates } from '../registry.js';
+import { armDeadline, disarmDeadline } from '../lib/deadline.js';
+import { ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, findGate, routerGates } from '../registry.js';
 export const ROUTER_NAME = 'router';
 const DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
 function oneLine(text) {
@@ -27,6 +31,10 @@ export function failClosedReason(gate, cause) {
 }
 export function timeoutReason(gate, budgetMs) {
     return `BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+}
+export function groupBudgetReason(gate, groupBudgetMs, ran) {
+    const what = ran ? `ran out of the router's ${groupBudgetMs} ms group budget` : `was not run: the gates before it spent the router's ${groupBudgetMs} ms group budget`;
+    return `BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
 }
 export function denyOutput(reason) {
     return `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } })}\n`;
@@ -78,8 +86,14 @@ export function mergeContext(outputs) {
     return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context } })}\n`;
 }
 const LATE = Symbol('late');
-async function settle(gate, fn, payload, env, budget, now) {
+/** Runs the gate under a deadline <limit> ms from its start; `cut` when the deadline ended one of its spawns. */
+async function settle(fn, payload, env, limit, now) {
     const start = now();
+    armDeadline(start + limit, now);
+    const s = await run(fn, payload, env, limit, now, start);
+    return { s, cut: disarmDeadline() };
+}
+async function run(fn, payload, env, limit, now, start) {
     let out;
     try {
         out = fn(payload, env);
@@ -91,7 +105,7 @@ async function settle(gate, fn, payload, env, budget, now) {
         return { kind: 'result', result: out, ms: now() - start };
     let timer;
     const late = new Promise((resolve) => {
-        timer = setTimeout(() => resolve(LATE), Math.max(0, budget - (now() - start)));
+        timer = setTimeout(() => resolve(LATE), Math.max(0, limit - (now() - start)));
         timer.unref();
     });
     try {
@@ -107,20 +121,26 @@ async function settle(gate, fn, payload, env, budget, now) {
         clearTimeout(timer);
     }
 }
-function judge(gate, s, budget) {
+function overBudget(gate, b, ran) {
+    const what = !ran ? `got no time: the ${b.groupBudgetMs} ms group budget was spent` : b.byGroup ? `ran out of the ${b.groupBudgetMs} ms group budget` : `ran past its ${b.budget} ms budget`;
+    if (gate.kind !== 'enforcement')
+        return { outcome: 'skipped_budget', stdout: '', code: 0, reason: '', stderr: `TMB router: advisory gate ${gate.name} ${what} — skipped, output dropped\n` };
+    const reason = b.byGroup || !ran ? groupBudgetReason(gate.name, b.groupBudgetMs, ran) : timeoutReason(gate.name, b.budget);
+    return { outcome: 'deny', stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ${what} — failing closed\n` };
+}
+function judge(gate, s, cut, b) {
     const enforce = gate.kind === 'enforcement';
     const closed = (cause, stderr = '') => enforce
         ? { outcome: 'deny', stdout: denyOutput(failClosedReason(gate.name, cause)), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr}TMB dispatch: gate ${gate.name} ${cause} — failing closed\n` }
         : { outcome: 'error', stdout: '', code: 0, reason: '', stderr: `${stderr}TMB router: advisory gate ${gate.name} ${cause} — output dropped\n` };
+    if (s.kind === 'unrun')
+        return overBudget(gate, b, false);
+    if (cut || s.kind === 'late')
+        return overBudget(gate, b, true);
     if (s.kind === 'threw')
         return closed('exited 1', `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}\n`);
-    const overBudget = s.ms > budget;
-    if (s.kind === 'late' || (overBudget && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout)))) {
-        if (!enforce)
-            return { outcome: 'skipped_budget', stdout: '', code: 0, reason: '', stderr: `TMB router: advisory gate ${gate.name} ran past its ${budget} ms budget — skipped, output dropped\n` };
-        const reason = timeoutReason(gate.name, budget);
-        return { outcome: 'deny', stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ran past its ${budget} ms budget — failing closed\n` };
-    }
+    if (s.ms > b.limit && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout)))
+        return overBudget(gate, b, true);
     const { code } = s.result;
     const out = trimNewlines(s.result.stdout);
     const denies = DENY_PATTERN.test(out);
@@ -167,16 +187,27 @@ export async function decide(event, payload, env, deps = {}) {
     const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
     if (tool === 'Bash' && gates.length > 0)
         await bashParser().catch(() => undefined);
+    const groupBudgetMs = deps.groupBudgetMs ?? ROUTER_GROUP_BUDGET_MS;
+    const groupStart = now();
     const done = [];
+    let spent = false;
     for (const gate of gates) {
         const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
+        const left = groupBudgetMs - (now() - groupStart);
+        const b = { limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
         const fn = find(gate.name);
         if (!fn) {
             done.push({ gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate) });
             continue;
         }
-        const s = await settle(gate, fn, payload, env, budget, now);
-        done.push({ gate, s, j: judge(gate, s, budget) });
+        if (spent || left <= 0) {
+            const s = { kind: 'unrun', ms: 0 };
+            done.push({ gate, s, j: judge(gate, s, false, b) });
+            continue;
+        }
+        const { s, cut } = await settle(fn, payload, env, b.limit, now);
+        spent = b.byGroup && (cut || s.kind === 'late' || s.ms >= b.limit);
+        done.push({ gate, s, j: judge(gate, s, cut, b) });
     }
     const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
     const stderr = done.map(({ j }) => j.stderr).join('');

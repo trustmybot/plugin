@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { ROUTER_GROUPS, routerTimeoutS } from '../hooks/registry.js';
+import { ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, routerTimeoutS } from '../hooks/registry.js';
 import { gateOf, percentile, transcriptStats } from './hook-transcripts.js';
-import { budgetMs, floorMs, PARSE_ALLOWANCE_MS, PRE_R1_TIMEOUT_S } from './router-floors.js';
+import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_R1_TIMEOUT_S } from './router-floors.js';
 import { PLUGIN_ROOT } from './router-sandboxes.js';
 
 interface Budget {
@@ -27,7 +27,9 @@ const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server
   rounds: number;
   workers: number;
   parse_allowance_ms: number;
-  budget_sum_ms: number;
+  max_budget_ms: number;
+  p99_sum_ms: number;
+  group_budget_ms: number;
   gates: Record<string, Budget>;
 };
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as {
@@ -75,18 +77,25 @@ describe('router budgets.json (GH 1861)', () => {
     }
   });
 
-  it('budget_sum_ms is the sum of the per-gate budgets, parse_allowance_ms the recorded allowance', () => {
-    assert.equal(BUDGETS.budget_sum_ms, Object.values(BUDGETS.gates).reduce((n, b) => n + b.budget_ms, 0));
-    assert.equal(BUDGETS.budget_sum_ms, gates.reduce((n, g) => n + g.budgetMs, 0));
+  it('group_budget_ms follows max(max_budget_ms, ceil(1.5 x p99_sum_ms)) from its recorded inputs', () => {
+    assert.equal(BUDGETS.max_budget_ms, Math.max(...Object.values(BUDGETS.gates).map((b) => b.budget_ms)));
+    assert.equal(BUDGETS.max_budget_ms, Math.max(...gates.map((g) => g.budgetMs)));
+    const sum = Object.values(BUDGETS.gates).reduce((n, b) => n + p99Term(b.bench_p99 as number, b.transcript_p99 as number | null), 0);
+    assert.equal(BUDGETS.p99_sum_ms, Math.round(sum * 10) / 10);
+    assert.equal(BUDGETS.group_budget_ms, groupBudgetMs(BUDGETS.max_budget_ms, BUDGETS.p99_sum_ms));
+    assert.equal(ROUTER_GROUP_BUDGET_MS, BUDGETS.group_budget_ms);
     assert.equal(BUDGETS.parse_allowance_ms, PARSE_ALLOWANCE_MS);
+    assert.equal(groupBudgetMs(16000, 100), 16000);
+    assert.equal(groupBudgetMs(16000, 21492), 32238);
+    assert.equal(groupBudgetMs(1000, 1000.1), 1501);
   });
 
-  it('the router registration timeout covers the parse allowance plus every gate budget run in turn', () => {
+  it('the router registration timeout covers the parse allowance plus the group budget', () => {
     const entry = HOOKS.hooks.PreToolUse.flatMap((g) => g.hooks).find((h) => h.command.endsWith('dist/hooks.js" PreToolUse'));
     assert.ok(entry);
-    assert.ok(entry.timeout * 1000 >= BUDGETS.parse_allowance_ms + BUDGETS.budget_sum_ms, `${entry.timeout} s < ${BUDGETS.parse_allowance_ms} + ${BUDGETS.budget_sum_ms} ms`);
+    assert.ok(entry.timeout * 1000 >= BUDGETS.parse_allowance_ms + BUDGETS.group_budget_ms, `${entry.timeout} s < ${BUDGETS.parse_allowance_ms} + ${BUDGETS.group_budget_ms} ms`);
     assert.equal(entry.timeout, routerTimeoutS());
-    assert.equal(routerTimeoutS(), Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.budget_sum_ms) / 1000));
+    assert.equal(routerTimeoutS(), Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.group_budget_ms) / 1000) + 1);
   });
 
   it('the formula: max(floor, ceil(2 x max(bench_p99, transcript_p99)) + 200)', () => {

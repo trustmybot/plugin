@@ -75,7 +75,7 @@ describe('router decision parity over the 11 Bash gates corpora', () => {
       let bash = 0;
       for (const c of cases) {
         const want = await inCase(c, () => oneByOne(c));
-        const got = await inCase(c, () => decide(EVENT, c.input, c.env, { budgetMs: () => 120_000 }));
+        const got = await inCase(c, () => decide(EVENT, c.input, c.env, { budgetMs: () => 120_000, groupBudgetMs: Number.POSITIVE_INFINITY }));
         const name = basename(c.file);
         assert.equal(got.denied === null ? 'allow' : 'deny', want.decision, `${name}: decision (${got.stderr})`);
         assert.equal(got.denied?.gate ?? null, want.gate, `${name}: denying gate`);

@@ -184,11 +184,13 @@ export function routerGates(event: string, tool: string, groups: readonly Router
 }
 
 /**
- * The router's hooks.json timeout (s): its gates run one after another, so
- * the parse allowance plus the largest sum of the budgets one call runs,
- * rounded up.
+ * The time one call's gates share (decision 922): each gate's deadline is the
+ * smaller of its budget and what is left of this, and a gate that starts with
+ * none left is not run.
  */
-export function routerTimeoutS(groups: readonly RouterGroup[] = ROUTER_GROUPS): number {
-  const sums = groups.flatMap((g) => g.tools.map((tool) => routerGates(g.event, tool, groups).reduce((n, x) => n + x.budgetMs, 0)));
-  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + Math.max(0, ...sums)) / 1000);
+export const ROUTER_GROUP_BUDGET_MS: number = ROUTER_BUDGETS.group_budget_ms;
+
+/** The router's hooks.json timeout (s): the parse allowance plus the group budget, rounded up, plus 1 s. */
+export function routerTimeoutS(groupBudgetMs: number = ROUTER_GROUP_BUDGET_MS): number {
+  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + groupBudgetMs) / 1000) + 1;
 }

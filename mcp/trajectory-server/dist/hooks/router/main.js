@@ -61,7 +61,7 @@ export async function routerMain(event, env, io, opts = {}) {
     let dedupe = null;
     let lock = null;
     if (locks !== null && key !== null) {
-        dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groups), gateEnv);
+        dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groupBudgetMs), gateEnv);
         try {
             mkdirSync(dedupe.base, { recursive: true });
             const claim = await dedupe.claim(key);

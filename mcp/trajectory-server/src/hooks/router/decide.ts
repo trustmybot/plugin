@@ -4,17 +4,21 @@
  * time, each on its own clock, so a gate's budget and recorded ms count only
  * its own work (decision 919): the gate bodies are synchronous on one event
  * loop, so running them together would only charge one gate's work to its
- * siblings. Sync gates are judged on return, async gates raced against their
- * budget. The first deny in group order is the answer, with that gate's
- * output; with none, the allowing gates' outputs merge as dispatch.sh's
- * run_chain merges a chain's context. Fail-closed as dispatch.sh is: an
- * enforcement gate that throws, exits other than 0 or 2 without a deny,
- * prints unparseable output, is unknown, or runs past its budget denies,
- * naming the gate; an advisory gate's failure is dropped and logged.
+ * siblings. Each gate's deadline is its start plus the smaller of its budget
+ * and the group budget left (decision 922); every sync spawn it makes times
+ * out there, so a hung child ends the gate at its deadline. Sync gates are
+ * judged on return, async gates raced against their deadline. The first deny
+ * in group order is the answer, with that gate's output; with none, the
+ * allowing gates' outputs merge as dispatch.sh's run_chain merges a chain's
+ * context. Fail-closed as dispatch.sh is: an enforcement gate that throws,
+ * exits other than 0 or 2 without a deny, prints unparseable output, is
+ * unknown, runs past its deadline, or is left no group budget denies, naming
+ * the gate; an advisory gate's failure is dropped and logged.
  */
 import { bashParser } from '../cmd-analysis/parser.js';
 import type { Gate, GateResult } from '../gate.js';
-import { type RouterGate, type RouterGroup, ROUTER_GROUPS, findGate, routerGates } from '../registry.js';
+import { armDeadline, disarmDeadline } from '../lib/deadline.js';
+import { type RouterGate, type RouterGroup, ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, findGate, routerGates } from '../registry.js';
 
 export type GateOutcomeKind = 'allow' | 'deny' | 'skipped_budget' | 'error';
 
@@ -40,6 +44,8 @@ export interface DecideDeps {
   findGate?: (name: string) => Gate | undefined;
   /** A budget in place of the gate's own (benches and parity tests). */
   budgetMs?: (gate: RouterGate) => number;
+  /** The time the call's gates share, in place of budgets.json's group_budget_ms. */
+  groupBudgetMs?: number;
   now?: () => number;
 }
 
@@ -61,6 +67,11 @@ export function failClosedReason(gate: string, cause: string): string {
 
 export function timeoutReason(gate: string, budgetMs: number): string {
   return `BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+}
+
+export function groupBudgetReason(gate: string, groupBudgetMs: number, ran: boolean): string {
+  const what = ran ? `ran out of the router's ${groupBudgetMs} ms group budget` : `was not run: the gates before it spent the router's ${groupBudgetMs} ms group budget`;
+  return `BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
 }
 
 export function denyOutput(reason: string): string {
@@ -108,12 +119,23 @@ export function mergeContext(outputs: readonly string[]): string {
   return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context } })}\n`;
 }
 
-type Settled = { kind: 'result'; result: GateResult; ms: number } | { kind: 'threw'; error: string; ms: number } | { kind: 'late'; ms: number };
+type Settled =
+  | { kind: 'result'; result: GateResult; ms: number }
+  | { kind: 'threw'; error: string; ms: number }
+  | { kind: 'late'; ms: number }
+  | { kind: 'unrun'; ms: number };
 
 const LATE = Symbol('late');
 
-async function settle(gate: RouterGate, fn: Gate, payload: string, env: NodeJS.ProcessEnv, budget: number, now: () => number): Promise<Settled> {
+/** Runs the gate under a deadline <limit> ms from its start; `cut` when the deadline ended one of its spawns. */
+async function settle(fn: Gate, payload: string, env: NodeJS.ProcessEnv, limit: number, now: () => number): Promise<{ s: Settled; cut: boolean }> {
   const start = now();
+  armDeadline(start + limit, now);
+  const s = await run(fn, payload, env, limit, now, start);
+  return { s, cut: disarmDeadline() };
+}
+
+async function run(fn: Gate, payload: string, env: NodeJS.ProcessEnv, limit: number, now: () => number, start: number): Promise<Settled> {
   let out: GateResult | Promise<GateResult>;
   try {
     out = fn(payload, env);
@@ -123,7 +145,7 @@ async function settle(gate: RouterGate, fn: Gate, payload: string, env: NodeJS.P
   if (!(out instanceof Promise)) return { kind: 'result', result: out, ms: now() - start };
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<typeof LATE>((resolve) => {
-    timer = setTimeout(() => resolve(LATE), Math.max(0, budget - (now() - start)));
+    timer = setTimeout(() => resolve(LATE), Math.max(0, limit - (now() - start)));
     timer.unref();
   });
   try {
@@ -137,6 +159,14 @@ async function settle(gate: RouterGate, fn: Gate, payload: string, env: NodeJS.P
   }
 }
 
+/** What bounded the gate: its own budget, or the group budget left when that was smaller. */
+interface Bound {
+  limit: number;
+  budget: number;
+  groupBudgetMs: number;
+  byGroup: boolean;
+}
+
 interface Judged {
   outcome: GateOutcomeKind;
   /** The output this gate contributes: its deny, or its context on allow. */
@@ -146,19 +176,23 @@ interface Judged {
   stderr: string;
 }
 
-function judge(gate: RouterGate, s: Settled, budget: number): Judged {
+function overBudget(gate: RouterGate, b: Bound, ran: boolean): Judged {
+  const what = !ran ? `got no time: the ${b.groupBudgetMs} ms group budget was spent` : b.byGroup ? `ran out of the ${b.groupBudgetMs} ms group budget` : `ran past its ${b.budget} ms budget`;
+  if (gate.kind !== 'enforcement') return { outcome: 'skipped_budget', stdout: '', code: 0, reason: '', stderr: `TMB router: advisory gate ${gate.name} ${what} — skipped, output dropped\n` };
+  const reason = b.byGroup || !ran ? groupBudgetReason(gate.name, b.groupBudgetMs, ran) : timeoutReason(gate.name, b.budget);
+  return { outcome: 'deny', stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ${what} — failing closed\n` };
+}
+
+function judge(gate: RouterGate, s: Settled, cut: boolean, b: Bound): Judged {
   const enforce = gate.kind === 'enforcement';
   const closed = (cause: string, stderr = ''): Judged =>
     enforce
       ? { outcome: 'deny', stdout: denyOutput(failClosedReason(gate.name, cause)), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr}TMB dispatch: gate ${gate.name} ${cause} — failing closed\n` }
       : { outcome: 'error', stdout: '', code: 0, reason: '', stderr: `${stderr}TMB router: advisory gate ${gate.name} ${cause} — output dropped\n` };
+  if (s.kind === 'unrun') return overBudget(gate, b, false);
+  if (cut || s.kind === 'late') return overBudget(gate, b, true);
   if (s.kind === 'threw') return closed('exited 1', `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}\n`);
-  const overBudget = s.ms > budget;
-  if (s.kind === 'late' || (overBudget && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout)))) {
-    if (!enforce) return { outcome: 'skipped_budget', stdout: '', code: 0, reason: '', stderr: `TMB router: advisory gate ${gate.name} ran past its ${budget} ms budget — skipped, output dropped\n` };
-    const reason = timeoutReason(gate.name, budget);
-    return { outcome: 'deny', stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ran past its ${budget} ms budget — failing closed\n` };
-  }
+  if (s.ms > b.limit && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) return overBudget(gate, b, true);
   const { code } = s.result;
   const out = trimNewlines(s.result.stdout);
   const denies = DENY_PATTERN.test(out);
@@ -202,16 +236,27 @@ export async function decide(event: string, payload: string, env: NodeJS.Process
   const find = deps.findGate ?? findGate;
   const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
   if (tool === 'Bash' && gates.length > 0) await bashParser().catch(() => undefined);
+  const groupBudgetMs = deps.groupBudgetMs ?? ROUTER_GROUP_BUDGET_MS;
+  const groupStart = now();
   const done: { gate: RouterGate; s: Settled; j: Judged }[] = [];
+  let spent = false;
   for (const gate of gates) {
     const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
+    const left = groupBudgetMs - (now() - groupStart);
+    const b: Bound = { limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
     const fn = find(gate.name);
     if (!fn) {
       done.push({ gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate) });
       continue;
     }
-    const s = await settle(gate, fn, payload, env, budget, now);
-    done.push({ gate, s, j: judge(gate, s, budget) });
+    if (spent || left <= 0) {
+      const s: Settled = { kind: 'unrun', ms: 0 };
+      done.push({ gate, s, j: judge(gate, s, false, b) });
+      continue;
+    }
+    const { s, cut } = await settle(fn, payload, env, b.limit, now);
+    spent = b.byGroup && (cut || s.kind === 'late' || s.ms >= b.limit);
+    done.push({ gate, s, j: judge(gate, s, cut, b) });
   }
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
   const stderr = done.map(({ j }) => j.stderr).join('');

@@ -145,24 +145,31 @@ for chain in $REGISTERED; do
 "
 done
 
-# --- the router: its registration covers its gates run in turn ---------------
-# The router (GH 1692 R1) runs its gates one after another, each under its own
-# budget (dist/hooks-router.txt), after the shared parse; its registration
-# timeout is the backstop over the parse allowance (budgets.json) plus them all.
+# --- the router: its registration covers the parse and the group budget -----
+# The router (GH 1692 R1) runs its gates one after another after the shared
+# parse, each until the smaller of its own budget (dist/hooks-router.txt) and
+# the group budget left (budgets.json), so its registration timeout is the
+# backstop over the parse allowance plus the group budget, and the group
+# budget leaves every gate its whole budget when it runs first.
 ROUTER_BUDGETS="mcp/trajectory-server/src/hooks/router/budgets.json"
 ROUTER_SUMMARY=""
 while IFS=$'\t' read -r event wrap; do
-  sum=$(tmb_router_budget_sum "$ROOT" "$event")
+  max=$(tmb_router_budget_max "$ROOT" "$event")
   parse=$(jq -r '.parse_allowance_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
-  if ! require "$sum" "$event router gate budgets (dist/hooks-router.txt)" || ! require "$parse" "router parse_allowance_ms ($ROUTER_BUDGETS)"; then
+  group=$(jq -r '.group_budget_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
+  if ! require "$max" "$event router gate budgets (dist/hooks-router.txt)" || ! require "$parse" "router parse_allowance_ms ($ROUTER_BUDGETS)" || ! require "$group" "router group_budget_ms ($ROUTER_BUDGETS)"; then
     continue
   fi
-  need=$(( (parse + sum + 999) / 1000 ))
-  if [ "${wrap:-0}" -lt "$need" ]; then
-    printf "hook-timeout-budget: FAIL router %s wrapper %ss < %ss (parse allowance %sms + gate budget sum %sms)\n" "$event" "${wrap:-?}" "$need" "$parse" "$sum" >&2
+  if [ "$group" -lt "$max" ]; then
+    printf "hook-timeout-budget: FAIL router %s group budget %sms < its largest gate budget %sms\n" "$event" "$group" "$max" >&2
     FAIL=$((FAIL + 1))
   fi
-  ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event}: wrapper ${wrap}s >= parse allowance ${parse}ms + gate budget sum ${sum}ms
+  need=$(( (parse + group + 999) / 1000 ))
+  if [ "${wrap:-0}" -lt "$need" ]; then
+    printf "hook-timeout-budget: FAIL router %s wrapper %ss < %ss (parse allowance %sms + group budget %sms)\n" "$event" "${wrap:-?}" "$need" "$parse" "$group" >&2
+    FAIL=$((FAIL + 1))
+  fi
+  ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event}: wrapper ${wrap}s >= parse allowance ${parse}ms + group budget ${group}ms (>= largest gate budget ${max}ms)
 "
 done < <(jq -r '.hooks[][]?.hooks[]? | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+$")) | [(.command | split(" ") | last), (.timeout // "")] | @tsv' "$HOOKS_JSON")
 

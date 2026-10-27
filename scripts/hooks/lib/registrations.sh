@@ -107,7 +107,7 @@ tmb_router_gates() {
   awk -v e="$2" '$4 == e { print $1 }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }
 
-#   tmb_router_budget_sum <plugin root> <Event> — the sum of its gates' budget ms (they run one after another)
-tmb_router_budget_sum() {
-  awk -v e="$2" '$4 == e { m += $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
+#   tmb_router_budget_max <plugin root> <Event> — the largest of its gates' budget ms
+tmb_router_budget_max() {
+  awk -v e="$2" '$4 == e && $2 + 0 > m { m = $2 + 0 } END { if (m > 0) print m }' "$1/mcp/trajectory-server/dist/hooks-router.txt" 2>/dev/null
 }
