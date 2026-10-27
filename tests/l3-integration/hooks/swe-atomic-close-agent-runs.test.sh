@@ -26,6 +26,9 @@
 #      and that made no completion report records stop_cause hook_block and bro
 #      gets a sentence naming the block, commits or not; a successful completed
 #      task_update_status call after the deny records no stop_cause.
+#  10. Tool output (GH 1957) — a swe or code-reviewer stop writes one
+#      agent_run_tool_output row per tool on its run, idempotently; without
+#      dist/hooks.js it writes none.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -436,5 +439,41 @@ set -e
 assert_eq "0" "$BARE_RC" "the hook exits 0"
 assert_eq "completed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=162;")" "the task auto-completes"
 assert_eq "1|40|" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), COALESCE(MAX(stop_cause), '') FROM agent_runs WHERE task_id=162;")" "the row is metered, no stop_cause written"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=162;")" "no tool-output rows without dist/hooks.js"
+
+# tool_transcript <task_id> <file> <prompt-suffix>: a spawn that calls Read and
+# Bash and gets a 10-char and a 5-char result back.
+tool_transcript() {
+  printf '%s\n' \
+    '{"type":"user","timestamp":"2026-06-16T19:40:00.000Z","message":{"role":"user","content":"task_id='"$1"' '"$3"'"}}' \
+    '{"type":"assistant","timestamp":"2026-06-16T19:40:01.000Z","message":{"id":"m1","model":"claude-opus-9","usage":{"input_tokens":40,"output_tokens":4},"content":[{"type":"tool_use","id":"tu_r","name":"Read","input":{}}]}}' \
+    '{"type":"user","timestamp":"2026-06-16T19:40:02.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_r","content":"0123456789"}]}}' \
+    '{"type":"assistant","timestamp":"2026-06-16T19:40:03.000Z","message":{"id":"m2","model":"claude-opus-9","usage":{"input_tokens":40,"output_tokens":4},"content":[{"type":"tool_use","id":"tu_b","name":"Bash","input":{}}]}}' \
+    '{"type":"user","timestamp":"2026-06-16T19:40:04.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_b","content":[{"type":"text","text":"abcde"}]}]}}' \
+    > "$2"
+}
+tool_rows() {
+  sqlite3 "$DB" "SELECT o.tool_name || ':' || o.calls || ':' || o.result_chars || ':' || o.est_tokens FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.task_id=$1 AND r.agent_type='$2' ORDER BY o.tool_name;"
+}
+
+test_case "a swe stop records its run's per-tool result sizes in agent_run_tool_output (GH 1957)"
+committed_task 180
+T180="$TMPDIR/t180.jsonl"
+tool_transcript 180 "$T180" "You are swe."
+run_hook "$(stop_input "$T180" agent-180)" >/dev/null
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 swe)" "one row per tool on the swe run"
+run_hook "$(stop_input "$T180" agent-180)" >/dev/null
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 swe)" "a re-fire rewrites the rows, no duplicates"
+
+test_case "a code-reviewer stop records its run's per-tool result sizes (GH 1957)"
+TR180="$TMPDIR/tr180.jsonl"
+tool_transcript 180 "$TR180" "commit_sha=abc1234 branch_id=fix/task-180 repo=plugin attempt_n=1"
+run_hook "$(pr_stop_input "$TR180" agent-rev-180)" >/dev/null
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 code-reviewer)" "one row per tool on the code-reviewer run"
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(tool_rows 180 swe)" "the swe run's rows are untouched"
 
 summarize

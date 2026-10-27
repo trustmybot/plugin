@@ -458,3 +458,93 @@ describe('statsTools — task_stats cost_estimate', () => {
     });
   });
 });
+
+describe('statsTools — task_stats tool_output (GH 1957)', () => {
+  const T = (hhmm: string): string => `2026-10-26T${hhmm}:00.000Z`;
+
+  function seed() {
+    const db = tempDB();
+    db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('i', '', 'open', ?, ?)", [T('09:00'), T('09:00')]);
+    const issueId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    const task = (branch: string): number => {
+      db.run(
+        "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, ?, 't', 'd', 'running', ?, ?)",
+        [issueId, branch, T('09:00'), T('09:00')],
+      );
+      return db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    };
+    const run = (taskId: number | null, agentType: string, start: string, sessionId: string | null = null): number => {
+      db.run(
+        'INSERT INTO agent_runs (task_id, issue_id, agent_type, session_id, started_at, completed_at, tool_uses, duration_ms) VALUES (?, ?, ?, ?, ?, ?, 0, 0)',
+        [taskId, taskId === null ? null : issueId, agentType, sessionId, T(start), T(start)],
+      );
+      return db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    };
+    const output = (runId: number, tool: string, calls: number, est: number): void => {
+      db.run(
+        'INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens) VALUES (?, ?, ?, ?, ?)',
+        [runId, tool, calls, est * 4, est],
+      );
+    };
+    const taskId = task('feat/tool-output');
+    const emptyTaskId = task('feat/no-output');
+    const swe1 = run(taskId, 'swe', '10:00');
+    const swe2 = run(taskId, 'swe', '11:00');
+    const reviewer = run(taskId, 'code-reviewer', '12:00');
+    const bro = run(null, 'bro', '12:30', 'sess-1');
+    const early = run(emptyTaskId, 'swe', '08:00');
+    output(swe1, 'Read', 2, 600);
+    output(swe2, 'Read', 1, 300);
+    output(swe1, 'Bash', 3, 200);
+    for (let i = 0; i < 11; i++) output(swe2, `Tool${String(i).padStart(2, '0')}`, 1, 10 + i);
+    output(reviewer, 'Grep', 4, 30);
+    output(bro, 'Read', 5, 70);
+    output(early, 'Bash', 1, 1000);
+    return { db, taskId, emptyTaskId };
+  }
+
+  it('task mode returns the task\'s swe and code-reviewer tool_output, top 10 by est_tokens with share', async () => {
+    const { db, taskId } = seed();
+    const payload = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+    assert.deepEqual(Object.keys(payload.tool_output).sort(), ['code-reviewer', 'swe']);
+    const swe = payload.tool_output.swe;
+    const sweTotal = 900 + 200 + Array.from({ length: 11 }, (_, i) => 10 + i).reduce((a, b) => a + b, 0);
+    assert.equal(swe.total_est_tokens, sweTotal);
+    assert.equal(swe.tools.length, 10);
+    assert.deepEqual(swe.tools[0], { tool_name: 'Read', calls: 3, est_tokens: 900, share: Math.round((900 / sweTotal) * 1000) / 1000 });
+    assert.deepEqual(swe.tools[1], { tool_name: 'Bash', calls: 3, est_tokens: 200, share: Math.round((200 / sweTotal) * 1000) / 1000 });
+    assert.deepEqual(swe.tools.slice(2).map((t: { tool_name: string }) => t.tool_name), ['Tool10', 'Tool09', 'Tool08', 'Tool07', 'Tool06', 'Tool05', 'Tool04', 'Tool03']);
+    for (const t of swe.tools) assert.equal(t.share, Number(t.share.toFixed(3)));
+    assert.deepEqual(payload.tool_output['code-reviewer'], { total_est_tokens: 30, tools: [{ tool_name: 'Grep', calls: 4, est_tokens: 30, share: 1 }] });
+    db.close();
+  });
+
+  it('task mode returns {} for a task whose runs recorded no tool output', async () => {
+    const { db } = seed();
+    db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (1, 'feat/bare', 't', 'd', 'pending', ?, ?)", [T('09:00'), T('09:00')]);
+    const bareId = db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id;
+    const payload = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: bareId }));
+    assert.deepEqual(payload.tool_output, {});
+    db.close();
+  });
+
+  it('window mode covers every agent type\'s runs started at or after since', async () => {
+    const { db } = seed();
+    const payload = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', since: '2026-10-26T09:00:00Z' }));
+    assert.deepEqual(Object.keys(payload.tool_output).sort(), ['bro', 'code-reviewer', 'swe']);
+    assert.deepEqual(payload.tool_output.bro, { total_est_tokens: 70, tools: [{ tool_name: 'Read', calls: 5, est_tokens: 70, share: 1 }] });
+    assert.equal(payload.tool_output.swe.tools.find((t: { tool_name: string }) => t.tool_name === 'Bash').est_tokens, 200);
+    const all = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', since: '2026-10-26' }));
+    assert.equal(all.tool_output.swe.tools[0].tool_name, 'Bash');
+    assert.equal(all.tool_output.swe.tools[0].est_tokens, 1200);
+    const none = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', since: '2027-01-01' }));
+    assert.deepEqual(none.tool_output, {});
+    db.close();
+  });
+
+  it('the task_stats description names tool_output and stays within the pre-GH 1957 byte length', () => {
+    const def = statsTools(tempDB()).definitions.find((d) => d.name === 'task_stats');
+    assert.ok(def?.description?.includes('tool_output'));
+    assert.ok(Buffer.byteLength(def!.description!, 'utf8') <= 1333, `description is ${Buffer.byteLength(def!.description!, 'utf8')} bytes`);
+  });
+});

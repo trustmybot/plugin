@@ -268,6 +268,7 @@ export function hooksParityShard(k: number, n: number): void {
           'swe-resume-gate',
           'swe-stop-cause',
           'task-overrun-alert',
+          'tool-output-size',
         ]);
       });
 
