@@ -21,6 +21,9 @@ mcp-health-check
 naming-lint
 plugin-hooks-marker
 post-task-create-spawn-hint
+require-feature-branch-active
+require-spawn-effort
+require-task-spec
 rework-limit
 roundtable-auq-shape
 roundtable-cleanup-postcheck
