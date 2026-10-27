@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Edit","tool_input":{"file_path":"@SANDBOX@/project/checkout/hooks/hooks.json","content":"x"},"agent_type":"swe","corpus_expect":"enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo"}

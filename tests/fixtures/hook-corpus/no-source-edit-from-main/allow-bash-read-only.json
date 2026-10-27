@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Bash","tool_input":{"command":"sed -n '1,5p' agents/swe.md && grep x skills/a/SKILL.md"},"corpus_expect":"empty"}

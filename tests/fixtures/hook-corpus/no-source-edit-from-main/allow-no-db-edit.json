@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/plain","tool_name":"Edit","tool_input":{"file_path":"src/x.ts","content":"x"},"corpus_cwd":"plain","corpus_env":{"CLAUDE_PROJECT_DIR":"@SANDBOX@/plain","TRAJECTORY_DB_PATH":null},"corpus_expect":"empty"}

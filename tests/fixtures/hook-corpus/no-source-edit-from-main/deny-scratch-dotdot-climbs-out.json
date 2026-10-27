@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"corpus","cwd":"@SANDBOX@/project/checkout","tool_name":"Write","tool_input":{"file_path":"@SANDBOX@/project/checkout/.claude/tmb/scratch/../../../src/x.py","content":"x"},"corpus_expect":"source edits from the main checkout are denied"}
