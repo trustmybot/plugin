@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git commit -am 'update stuff'",
+    "description": "corpus"
+  },
+  "corpus_expect": "does not match"
+}

@@ -1,12 +1,16 @@
 activation-routine
 askuserquestion-length-lint
+attribution-footer
+code-quality-lint
 code-reviewer-preflight
 code-reviewer-spawn-note
+commit-msg-lint
 containment-guard
 debug-trajectory
 ensure-mcp-deps-installed
 git-guards
 git-push-guard
+naming-lint
 plugin-hooks-marker
 rework-limit
 session-log-capture
