@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
 import { scanTools } from '../tools/scan.js';
 import { worldModelTools } from '../tools/world_model.js';
@@ -173,6 +174,25 @@ describe('world-model tool call log (GH 1836)', () => {
         parse(await wm['world_model_concept_upsert']({ agent: 'bro', name: 'quokka handshake', steps: [{ path: 'lib/zeta.ts', description: 'Negotiates it.' }] }));
         assert.equal(lastCall(db).content['result_count'], 1);
         assert.deepEqual(lastCall(db).content.args, { name: 'quokka handshake' });
+    });
+    it('GH 1986: world_model_symbol logs impact and source as passed, and neither when absent', async () => {
+        parse(await wm['world_model_symbol']({ agent: 'swe', id: symbolId, impact: 2 }));
+        assert.deepEqual(lastCall(db).content.args, { id: symbolId, impact: 2 });
+        assert.equal(lastCall(db).content.args['impact'], 2);
+        parse(await wm['world_model_symbol']({ agent: 'swe', id: symbolId, impact: true, source: true }));
+        assert.deepEqual(lastCall(db).content.args, { id: symbolId, impact: true, source: true });
+        assert.equal(lastCall(db).content.args['source'], true);
+        parse(await wm['world_model_symbol']({ agent: 'swe', id: symbolId }));
+        assert.deepEqual(lastCall(db).content.args, { id: symbolId });
+        assert.ok(!('impact' in lastCall(db).content.args));
+        assert.ok(!('source' in lastCall(db).content.args));
+    });
+    it('GH 1986: the wm_tool_called description and its ENUMS.md row name `impact` and `source`', () => {
+        const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+        for (const rel of ['mcp/trajectory-server/src/audit-events.ts', 'docs/contributing/ENUMS.md']) {
+            const lines = readFileSync(join(pluginRoot, rel), 'utf8').split('\n').filter((l) => l.includes('wm_tool_called'));
+            assert.ok(lines.some((l) => l.includes('`impact`') && l.includes('`source`')), `${rel} describes wm_tool_called with \`impact\` and \`source\``);
+        }
     });
     it('GH 1836: task_id comes from the single open agent_runs row for the caller role', async () => {
         const openRun = () => {
