@@ -1,0 +1,13 @@
+{
+  "session_id": "corpus",
+  "transcript_path": "@SANDBOX@/tr/main.jsonl",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/sb-task",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "@SANDBOX@/project/.claude/worktrees/sb-task/agents/swe.md",
+    "old_string": "a",
+    "new_string": "b"
+  },
+  "corpus_expect": "allow"
+}

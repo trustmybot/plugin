@@ -12,6 +12,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/user-prompt-persona.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/user-prompt-persona.sh"
 SESSION_START_HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-persona.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-user-prompt-persona.XXXXXX")

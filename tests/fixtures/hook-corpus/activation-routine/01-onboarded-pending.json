@@ -1,0 +1,5 @@
+{
+  "session_id": "act-session-0001",
+  "prompt": "hey bro, status?",
+  "corpus_expect": "onboarded=yes. Use this to compose the welcome banner"
+}

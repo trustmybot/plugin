@@ -1,0 +1,14 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git commit -m \"✨ feat(hooks): yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"",
+    "description": "corpus"
+  },
+  "corpus_expect": {
+    "C": "chars (>72)",
+    "en_US.UTF-8": "allow",
+    "UTF-8": "allow"
+  }
+}

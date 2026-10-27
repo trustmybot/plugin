@@ -1,0 +1,8 @@
+{
+  "session_id": "start-session-0006",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/old-block"
+  },
+  "corpus_cwd": "old-block",
+  "corpus_expect": "still holds a <!-- tmb:persona --> block"
+}

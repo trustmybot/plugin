@@ -1,0 +1,13 @@
+{
+  "session_id": "corpus",
+  "transcript_path": "@SANDBOX@/tr/main.jsonl",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/sb-prompt",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo x > \"$OUT\""
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/tr/task-11.jsonl",
+  "corpus_expect": "allow"
+}

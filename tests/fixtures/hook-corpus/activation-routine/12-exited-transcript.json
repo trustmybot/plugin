@@ -1,0 +1,5 @@
+{
+  "prompt": "continue",
+  "transcript_path": "@SANDBOX@/transcripts/exited.jsonl",
+  "corpus_expect": "empty"
+}

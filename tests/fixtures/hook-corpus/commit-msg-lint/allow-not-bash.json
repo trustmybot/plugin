@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/tmp/x",
+    "content": "git commit -m bad"
+  },
+  "corpus_expect": "allow"
+}

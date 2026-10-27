@@ -1,0 +1,9 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/w/a.py"
+  },
+  "corpus_expect": "allow"
+}
