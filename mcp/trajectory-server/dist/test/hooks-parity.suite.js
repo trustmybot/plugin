@@ -84,7 +84,7 @@ const NOW = '2026-10-11T10:00:00.000Z';
  * @SANDBOX@ and the project's Claude Code slug as @PROJECT_SLUG@; a payload's
  * top-level corpus_env (removed before the run) overrides the env.
  */
-function containmentGuardSetup(scratch) {
+export function containmentGuardSetup(scratch) {
     const project = join(scratch, 'project');
     const wt = join(project, '.claude/worktrees/cg-task');
     const db = join(project, '.claude/tmb/trajectory.db');

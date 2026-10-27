@@ -81,7 +81,7 @@ function gitflow(sandbox: string, name: string, on: string): string {
   return dir;
 }
 
-function buildSandbox(sandbox: string): void {
+export function buildSandbox(sandbox: string): void {
   mkdirSync(join(sandbox, 'project'));
   mkdirSync(join(sandbox, 'db'));
 
@@ -156,7 +156,7 @@ interface Materialized {
   expect: string;
 }
 
-function materialize(file: string, sandbox: string): Materialized {
+export function materialize(file: string, sandbox: string): Materialized {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
   const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text) as {
     corpus_env?: NodeJS.ProcessEnv;

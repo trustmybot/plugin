@@ -1,0 +1,15 @@
+{
+    "gates": {
+        "containment-guard": { "floor_ms": 5000, "budget_ms": 5000 },
+        "git-guards": { "floor_ms": 11000, "budget_ms": 11000 },
+        "git-push-guard": { "floor_ms": 6000, "budget_ms": 6000 },
+        "swe-boundary": { "floor_ms": 6000, "budget_ms": 6000 },
+        "no-worktree-branch-create": { "floor_ms": 6000, "budget_ms": 6000 },
+        "stay-on-base-guard": { "floor_ms": 6000, "budget_ms": 6000 },
+        "branch-up-to-date-with-remote": { "floor_ms": 16000, "budget_ms": 16000 },
+        "commit-msg-lint": { "floor_ms": 4000, "budget_ms": 4000 },
+        "no-remote-auth-guard": { "floor_ms": 6000, "budget_ms": 6000 },
+        "remote-id-guard": { "floor_ms": 6000, "budget_ms": 6000 },
+        "debug-trajectory": { "floor_ms": 4000, "budget_ms": 4000 }
+    }
+}

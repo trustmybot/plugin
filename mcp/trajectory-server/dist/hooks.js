@@ -2477,16 +2477,16 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
             return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
           }
-          var str = "";
+          var str2 = "";
           while (idx < endPtr) {
             var u0 = heapOrArray[idx++];
             if (!(u0 & 128)) {
-              str += String.fromCharCode(u0);
+              str2 += String.fromCharCode(u0);
               continue;
             }
             var u1 = heapOrArray[idx++] & 63;
             if ((u0 & 224) == 192) {
-              str += String.fromCharCode((u0 & 31) << 6 | u1);
+              str2 += String.fromCharCode((u0 & 31) << 6 | u1);
               continue;
             }
             var u2 = heapOrArray[idx++] & 63;
@@ -2496,13 +2496,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
               u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
             }
             if (u0 < 65536) {
-              str += String.fromCharCode(u0);
+              str2 += String.fromCharCode(u0);
             } else {
               var ch = u0 - 65536;
-              str += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
+              str2 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
             }
           }
-          return str;
+          return str2;
         }, "UTF8ArrayToString");
         var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
           var offset = 0;
@@ -3410,10 +3410,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
           quit_(1, e);
         }, "handleException");
-        var lengthBytesUTF8 = /* @__PURE__ */ __name((str) => {
+        var lengthBytesUTF8 = /* @__PURE__ */ __name((str2) => {
           var len = 0;
-          for (var i2 = 0; i2 < str.length; ++i2) {
-            var c = str.charCodeAt(i2);
+          for (var i2 = 0; i2 < str2.length; ++i2) {
+            var c = str2.charCodeAt(i2);
             if (c <= 127) {
               len++;
             } else if (c <= 2047) {
@@ -3427,14 +3427,14 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
           return len;
         }, "lengthBytesUTF8");
-        var stringToUTF8Array = /* @__PURE__ */ __name((str, heap, outIdx, maxBytesToWrite) => {
+        var stringToUTF8Array = /* @__PURE__ */ __name((str2, heap, outIdx, maxBytesToWrite) => {
           if (!(maxBytesToWrite > 0)) return 0;
           var startIdx = outIdx;
           var endIdx = outIdx + maxBytesToWrite - 1;
-          for (var i2 = 0; i2 < str.length; ++i2) {
-            var u = str.charCodeAt(i2);
+          for (var i2 = 0; i2 < str2.length; ++i2) {
+            var u = str2.charCodeAt(i2);
             if (u >= 55296 && u <= 57343) {
-              var u1 = str.charCodeAt(++i2);
+              var u1 = str2.charCodeAt(++i2);
               u = 65536 + ((u & 1023) << 10) | u1 & 1023;
             }
             if (u <= 127) {
@@ -3460,30 +3460,30 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           heap[outIdx] = 0;
           return outIdx - startIdx;
         }, "stringToUTF8Array");
-        var stringToUTF8 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
+        var stringToUTF8 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => stringToUTF8Array(str2, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
         var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
-        var stringToUTF8OnStack = /* @__PURE__ */ __name((str) => {
-          var size = lengthBytesUTF8(str) + 1;
+        var stringToUTF8OnStack = /* @__PURE__ */ __name((str2) => {
+          var size = lengthBytesUTF8(str2) + 1;
           var ret = stackAlloc(size);
-          stringToUTF8(str, ret, size);
+          stringToUTF8(str2, ret, size);
           return ret;
         }, "stringToUTF8OnStack");
         var AsciiToString = /* @__PURE__ */ __name((ptr) => {
-          var str = "";
+          var str2 = "";
           while (1) {
             var ch = HEAPU8[ptr++];
-            if (!ch) return str;
-            str += String.fromCharCode(ch);
+            if (!ch) return str2;
+            str2 += String.fromCharCode(ch);
           }
         }, "AsciiToString");
-        var stringToUTF16 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => {
+        var stringToUTF16 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => {
           maxBytesToWrite ??= 2147483647;
           if (maxBytesToWrite < 2) return 0;
           maxBytesToWrite -= 2;
           var startPtr = outPtr;
-          var numCharsToWrite = maxBytesToWrite < str.length * 2 ? maxBytesToWrite / 2 : str.length;
+          var numCharsToWrite = maxBytesToWrite < str2.length * 2 ? maxBytesToWrite / 2 : str2.length;
           for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
-            var codeUnit = str.charCodeAt(i2);
+            var codeUnit = str2.charCodeAt(i2);
             LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
             outPtr += 2;
           }
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync16 } from "node:fs";
+import { readFileSync as readFileSync17 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -8642,7 +8642,7 @@ function findModel(mode, args2, raw, acts, m) {
   let k = 0;
   let bad = false;
   let ok = false;
-  const prune = [];
+  const prune2 = [];
   while (k < n2) {
     const a = args2[k];
     if (a === "-L") {
@@ -8721,7 +8721,7 @@ function findModel(mode, args2, raw, acts, m) {
       case "-path":
       case "-wholename":
       case "-ipath":
-        if (args2[k + 1] === "-prune") prune.push("R:" + (args2[k] ?? ""));
+        if (args2[k + 1] === "-prune") prune2.push("R:" + (args2[k] ?? ""));
         k++;
         break;
       case "-o":
@@ -8734,7 +8734,7 @@ function findModel(mode, args2, raw, acts, m) {
     m.excl = [];
     if (mode !== "loop") m.pats = [];
   }
-  m.excl.push(...prune);
+  m.excl.push(...prune2);
   if (m.paths.length === 0) m.paths = ["."];
   return !bad;
 }
@@ -11495,9 +11495,9 @@ function proveScript(lang, src) {
       if (toks[j + 1]?.text === "=") return fail;
     }
     if (SCRIPT_WORDS.has(name3)) continue;
-    const sleep2 = perl ? perlSleepSelect(toks, k) : 0;
-    if (sleep2) {
-      k += sleep2 - 1;
+    const sleep3 = perl ? perlSleepSelect(toks, k) : 0;
+    if (sleep3) {
+      k += sleep3 - 1;
       continue;
     }
     let dotted = name3;
@@ -15017,6 +15017,20 @@ function duplicateDisableCmds(rows, env = process.env) {
   const name3 = installPluginName(env);
   return rows.map((r) => `claude plugin disable ${name3}@${r.marketplace} --scope ${r.scope}`).join("; ");
 }
+function activeInstall(env = process.env, onStderr = () => {
+}) {
+  const self2 = env.CLAUDE_PLUGIN_ROOT ?? "";
+  if (self2 !== "" && !/\/plugins\/cache\//.test(self2) && !installCandidates(env).some((r) => r.install === self2)) return self2;
+  const projects = projectInstalls(env);
+  if (projects.length > 0) {
+    if (projects.length > 1) {
+      onStderr(`TMB: two project installs for ${env.CLAUDE_PROJECT_DIR ?? ""} \u2014 using ${projects[0].install} (newest), ignoring ${projects[1].install}
+`);
+    }
+    return projects[0].install;
+  }
+  return userInstalls(env)[0]?.install ?? self2;
+}
 
 // src/hooks/mcp-health-check.ts
 var GATE_NAME11 = "mcp-health-check";
@@ -17644,14 +17658,14 @@ function planCarry(req, env = process.env) {
   const passed = passedInSource(req.db, source.id, env);
   if (passed === "error") return refuse("db_unreadable", source);
   const decisions = commands.map((command, i2) => {
-    const decide = (reason) => ({ ordinal: i2 + 1, command, carried: reason === null, reason });
-    if (command.startsWith(PROBE_PREFIX)) return decide("probe");
-    if (!passed.has(command)) return decide("not_passed_in_source");
+    const decide2 = (reason) => ({ ordinal: i2 + 1, command, carried: reason === null, reason });
+    if (command.startsWith(PROBE_PREFIX)) return decide2("probe");
+    if (!passed.has(command)) return decide2("not_passed_in_source");
     const declared = entries.filter((e) => e.match === command);
-    if (declared.length === 0) return decide("undeclared");
-    if (declared.length > 1) return decide("ambiguous_declaration");
+    if (declared.length === 0) return decide2("undeclared");
+    if (declared.length > 1) return decide2("ambiguous_declaration");
     const touched = declared[0].inputs.some((glob) => changed.some((path) => matchesGlob(path, glob)));
-    return decide(touched ? "inputs_changed" : null);
+    return decide2(touched ? "inputs_changed" : null);
   });
   return {
     source_run: source.id,
@@ -20191,6 +20205,23 @@ var remoteIdGuard = async (payload, processEnv) => {
   return ALLOW;
 };
 
+// src/hooks/router/budgets.json
+var budgets_default = {
+  gates: {
+    "containment-guard": { floor_ms: 5e3, budget_ms: 5e3 },
+    "git-guards": { floor_ms: 11e3, budget_ms: 11e3 },
+    "git-push-guard": { floor_ms: 6e3, budget_ms: 6e3 },
+    "swe-boundary": { floor_ms: 6e3, budget_ms: 6e3 },
+    "no-worktree-branch-create": { floor_ms: 6e3, budget_ms: 6e3 },
+    "stay-on-base-guard": { floor_ms: 6e3, budget_ms: 6e3 },
+    "branch-up-to-date-with-remote": { floor_ms: 16e3, budget_ms: 16e3 },
+    "commit-msg-lint": { floor_ms: 4e3, budget_ms: 4e3 },
+    "no-remote-auth-guard": { floor_ms: 6e3, budget_ms: 6e3 },
+    "remote-id-guard": { floor_ms: 6e3, budget_ms: 6e3 },
+    "debug-trajectory": { floor_ms: 4e3, budget_ms: 4e3 }
+  }
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -20251,16 +20282,606 @@ var GATES = /* @__PURE__ */ new Map([
 function findGate(name3) {
   return GATES.get(name3);
 }
+function routerGate(name3, kind) {
+  const budgets = budgets_default.gates;
+  return { name: name3, kind, budgetMs: budgets[name3].budget_ms };
+}
+var ROUTER_GROUPS = [
+  {
+    event: "PreToolUse",
+    tools: ["Bash"],
+    gates: [
+      routerGate("containment-guard", "enforcement"),
+      routerGate(GATE_NAME6, "enforcement"),
+      routerGate(GATE_NAME10, "enforcement"),
+      routerGate(GATE_NAME20, "enforcement"),
+      routerGate(GATE_NAME47, "enforcement"),
+      routerGate(GATE_NAME45, "enforcement"),
+      routerGate(GATE_NAME46, "enforcement"),
+      routerGate(GATE_NAME7, "advisory"),
+      routerGate(GATE_NAME48, "enforcement"),
+      routerGate(GATE_NAME52, "enforcement"),
+      routerGate(GATE_NAME25, "advisory")
+    ]
+  }
+];
+function routerEvents() {
+  return new Set(ROUTER_GROUPS.map((g) => g.event));
+}
+function routerGates(event, tool, groups = ROUTER_GROUPS) {
+  return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
+}
+function routerTimeoutS(groups = ROUTER_GROUPS) {
+  return Math.ceil(Math.max(...groups.flatMap((g) => g.gates.map((x) => x.budgetMs))) / 1e3) + 2;
+}
+
+// src/hooks/router/main.ts
+import { spawnSync as spawnSync11 } from "node:child_process";
+import { existsSync as existsSync13, mkdirSync as mkdirSync10 } from "node:fs";
+import { dirname as dirname3 } from "node:path";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
+
+// src/hooks/router/decide.ts
+var ROUTER_NAME = "router";
+var DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
+function oneLine(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function trimNewlines(text) {
+  return text.replace(/\n+$/, "");
+}
+function failClosedReason(gate, cause) {
+  return `BLOCKED: TMB gate ${gate} ${cause} without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry.`;
+}
+function timeoutReason(gate, budgetMs) {
+  return `BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+}
+function denyOutput(reason) {
+  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
+`;
+}
+function denyReason4(stdout, fallback) {
+  for (const line of stdout.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const o = JSON.parse(line);
+      if (o === null || typeof o !== "object" || Array.isArray(o)) continue;
+      const rec = o;
+      const r = rec.hookSpecificOutput?.permissionDecisionReason ?? rec.reason;
+      if (typeof r === "string" && r !== "") return r;
+      if (r !== void 0 && r !== null && r !== false) return JSON.stringify(r);
+    } catch {
+    }
+  }
+  return fallback;
+}
+function parses(stdout) {
+  try {
+    JSON.parse(stdout);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function mergeContext(outputs) {
+  if (outputs.length === 0) return "";
+  if (outputs.length === 1) return `${outputs[0]}
+`;
+  const parsed = outputs.map((o) => JSON.parse(o));
+  const event = parsed.map((p) => p.hookSpecificOutput?.hookEventName).find((e) => typeof e === "string" && e !== "") ?? "PreToolUse";
+  const context4 = parsed.map((p) => p.hookSpecificOutput?.additionalContext).filter((c) => c !== void 0 && c !== null && c !== false).map((c) => typeof c === "string" ? c : JSON.stringify(c)).join("\n\n");
+  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context4 } })}
+`;
+}
+var LATE = /* @__PURE__ */ Symbol("late");
+async function settle(gate, fn, payload, env, budget, now) {
+  const start2 = now();
+  let out2;
+  try {
+    out2 = fn(payload, env);
+  } catch (err2) {
+    return { kind: "threw", error: err2 instanceof Error ? err2.message : String(err2), ms: now() - start2 };
+  }
+  if (!(out2 instanceof Promise)) return { kind: "result", result: out2, ms: now() - start2 };
+  let timer;
+  const late = new Promise((resolve4) => {
+    timer = setTimeout(() => resolve4(LATE), Math.max(0, budget - (now() - start2)));
+    timer.unref();
+  });
+  try {
+    const r = await Promise.race([out2, late]);
+    if (r === LATE) return { kind: "late", ms: now() - start2 };
+    return { kind: "result", result: r, ms: now() - start2 };
+  } catch (err2) {
+    return { kind: "threw", error: err2 instanceof Error ? err2.message : String(err2), ms: now() - start2 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function judge(gate, s, budget) {
+  const enforce = gate.kind === "enforcement";
+  const closed = (cause, stderr2 = "") => enforce ? { outcome: "deny", stdout: denyOutput(failClosedReason(gate.name, cause)), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr2}TMB dispatch: gate ${gate.name} ${cause} \u2014 failing closed
+` } : { outcome: "error", stdout: "", code: 0, reason: "", stderr: `${stderr2}TMB router: advisory gate ${gate.name} ${cause} \u2014 output dropped
+` };
+  if (s.kind === "threw") return closed("exited 1", `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}
+`);
+  const overBudget = s.ms > budget;
+  if (s.kind === "late" || overBudget && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) {
+    if (!enforce) return { outcome: "skipped_budget", stdout: "", code: 0, reason: "", stderr: `TMB router: advisory gate ${gate.name} ran past its ${budget} ms budget \u2014 skipped, output dropped
+` };
+    const reason = timeoutReason(gate.name, budget);
+    return { outcome: "deny", stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ran past its ${budget} ms budget \u2014 failing closed
+` };
+  }
+  const { code } = s.result;
+  const out2 = trimNewlines(s.result.stdout);
+  const denies = DENY_PATTERN.test(out2);
+  if (code === 2 || denies) {
+    if (code === 0 || code === 2 || enforce) {
+      return { outcome: "deny", stdout: out2 === "" ? "" : `${out2}
+`, code: code === 2 ? 2 : 0, reason: denyReason4(out2, `exit ${code}`), stderr: "" };
+    }
+  }
+  if (code !== 0) return closed(`exited ${code}`);
+  if (out2 !== "" && !parses(out2)) return closed("printed unparseable output");
+  return { outcome: "allow", stdout: out2, code: 0, reason: "", stderr: "" };
+}
+function payloadTool(payload) {
+  let parsed;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const tool = parsed.tool_name;
+  return typeof tool === "string" ? tool : "";
+}
+async function decide(event, payload, env, deps = {}) {
+  const now = deps.now ?? (() => performance.now());
+  const tool = payloadTool(payload);
+  if (tool === null) {
+    const reason = failClosedReason(ROUTER_NAME, "got an unparseable payload");
+    return {
+      stdout: denyOutput(reason),
+      stderr: `TMB dispatch: gate ${ROUTER_NAME} got an unparseable payload \u2014 failing closed
+`,
+      code: 0,
+      tool: "",
+      gates: [],
+      denied: { gate: ROUTER_NAME, reason }
+    };
+  }
+  const find = deps.findGate ?? findGate;
+  const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
+  const runs = gates.map((gate) => {
+    const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
+    const fn = find(gate.name);
+    const settled = fn ? settle(gate, fn, payload, env, budget, now) : Promise.resolve({ kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 });
+    return settled.then((s) => ({ gate, s, j: fn ? judge(gate, s, budget) : judgeUnknown(gate) }));
+  });
+  const done = await Promise.all(runs);
+  const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
+  const stderr2 = done.map(({ j }) => j.stderr).join("");
+  const deny10 = done.find(({ j }) => j.outcome === "deny");
+  if (deny10) {
+    return { stdout: deny10.j.stdout, stderr: stderr2, code: deny10.j.code, tool, gates: outcomes, denied: { gate: deny10.gate.name, reason: deny10.j.reason } };
+  }
+  const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
+  return { stdout: mergeContext(context4), stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
+}
+function judgeUnknown(gate) {
+  const note = `TMB hooks: unknown gate '${oneLine(gate.name)}' \u2014 not run
+`;
+  if (gate.kind !== "enforcement") return { outcome: "error", stdout: "", code: 0, reason: "", stderr: `${note}TMB router: advisory gate ${gate.name} exited 1 \u2014 output dropped
+` };
+  const reason = failClosedReason(gate.name, "exited 1");
+  return { outcome: "deny", stdout: denyOutput(reason), code: 0, reason, stderr: `${note}TMB dispatch: gate ${gate.name} exited 1 \u2014 failing closed
+` };
+}
+
+// src/hooks/router/dedupe.ts
+import { createHash as createHash2 } from "node:crypto";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, readdirSync as readdirSync6, readFileSync as readFileSync16, renameSync as renameSync3, rmSync as rmSync5, statSync as statSync28, writeFileSync as writeFileSync6 } from "node:fs";
+import { setTimeout as sleep2 } from "node:timers/promises";
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const rec = value;
+    return `{${Object.keys(rec).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(rec[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+function dedupeKey(payload) {
+  let o;
+  try {
+    o = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (o === null || typeof o !== "object" || Array.isArray(o) || !("tool_name" in o)) return null;
+  const p = o;
+  const material = canonicalJson([p.hook_event_name ?? "", p.session_id ?? "", p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ""]);
+  return createHash2("sha256").update(material).digest("hex");
+}
+function intEnv(env, name3, fallback) {
+  const v = env[name3] ?? "";
+  return /^[0-9]+$/.test(v) ? Number(v) : fallback;
+}
+function nowS2() {
+  return Math.floor(Date.now() / 1e3);
+}
+function stamp(file) {
+  try {
+    const line = readFileSync16(file, "utf8").split("\n")[0];
+    return /^[0-9]+$/.test(line) ? Number(line) : null;
+  } catch {
+    return null;
+  }
+}
+function ageS(path) {
+  try {
+    return nowS2() - Math.floor(statSync28(path).mtimeMs / 1e3);
+  } catch {
+    return null;
+  }
+}
+var Dedupe = class {
+  constructor(base2, timeoutS, env) {
+    this.timeoutS = timeoutS;
+    this.base = base2;
+    this.ttlMin = intEnv(env, "TMB_DISPATCH_TTL_MIN", 10);
+    this.windowS = intEnv(env, "TMB_DISPATCH_WINDOW_S", 5);
+    this.sweepS = intEnv(env, "TMB_DISPATCH_SWEEP_S", 60);
+  }
+  timeoutS;
+  base;
+  ttlMin;
+  windowS;
+  sweepS;
+  expired(lock) {
+    const done = existsSync12(`${lock}/rc`);
+    if (!done) {
+      const deadline = stamp(`${lock}/deadline`);
+      if (deadline !== null) return nowS2() > deadline;
+    }
+    const age = ageS(lock);
+    if (age === null) return false;
+    return done ? age > this.windowS : age > this.timeoutS;
+  }
+  sweep() {
+    const stampFile = `${this.base}.sweep`;
+    const now = nowS2();
+    const last = stamp(stampFile);
+    if (last !== null && last <= now && now - last < this.sweepS) return;
+    try {
+      writeFileSync6(stampFile, `${now}
+`);
+    } catch {
+    }
+    let names;
+    try {
+      names = readdirSync6(this.base);
+    } catch {
+      return;
+    }
+    for (const name3 of names) {
+      const d = `${this.base}/${name3}`;
+      let st;
+      try {
+        st = statSync28(d);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const ageMin = (Date.now() - st.mtimeMs) / 6e4;
+      const done = existsSync12(`${d}/rc`);
+      const deadline = done ? null : stamp(`${d}/deadline`);
+      const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now > deadline;
+      if (gone) rmSync5(d, { recursive: true, force: true });
+    }
+  }
+  take(lock) {
+    try {
+      mkdirSync8(lock);
+    } catch {
+      return false;
+    }
+    try {
+      writeFileSync6(`${lock}/deadline`, `${nowS2() + this.timeoutS + 5}
+`);
+    } catch {
+    }
+    return true;
+  }
+  replay(lock) {
+    let rc;
+    try {
+      const text = readFileSync16(`${lock}/rc`, "utf8").trim();
+      if (!/^[0-9]+$/.test(text)) return null;
+      rc = Number(text);
+    } catch {
+      return null;
+    }
+    const read = (f) => {
+      try {
+        return readFileSync16(`${lock}/${f}`, "utf8");
+      } catch {
+        return "";
+      }
+    };
+    const result = read("result");
+    if (rc === 2) return { stdout: result, stderr: read("stderr"), code: 2 };
+    const denies = result.split("\n").some((line) => {
+      try {
+        return JSON.parse(line).hookSpecificOutput?.permissionDecision === "deny";
+      } catch {
+        return false;
+      }
+    });
+    return denies ? { stdout: result, stderr: "", code: rc } : { stdout: "", stderr: "", code: 0 };
+  }
+  reclaim(lock) {
+    const mutex = `${lock}.reclaim`;
+    try {
+      mkdirSync8(mutex);
+    } catch {
+      const age = ageS(mutex);
+      if (age !== null && age > 30) rmSync5(mutex, { recursive: true, force: true });
+      return false;
+    }
+    try {
+      if (!existsSync12(lock) || this.expired(lock)) {
+        rmSync5(lock, { recursive: true, force: true });
+        return this.take(lock);
+      }
+      return false;
+    } finally {
+      rmSync5(mutex, { recursive: true, force: true });
+    }
+  }
+  /** hold: this call decides and stores; replay: a duplicate's answer; none: a duplicate that gave up. */
+  async claim(key2) {
+    this.sweep();
+    const lock = `${this.base}/${key2}`;
+    const giveUp = nowS2() + Math.max(1, this.timeoutS - 1);
+    for (; ; ) {
+      if (this.take(lock)) return { kind: "hold", lock };
+      if (existsSync12(`${lock}/rc`) && !this.expired(lock)) {
+        const out2 = this.replay(lock);
+        return out2 === null ? { kind: "none" } : { kind: "replay", out: out2 };
+      }
+      if (this.expired(lock) && this.reclaim(lock)) return { kind: "hold", lock };
+      if (nowS2() >= giveUp) return { kind: "none" };
+      await sleep2(100);
+    }
+  }
+  static store(lock, out2) {
+    try {
+      writeFileSync6(`${lock}/result`, out2.stdout);
+      writeFileSync6(`${lock}/stderr`, out2.stderr);
+      writeFileSync6(`${lock}/rc.tmp`, `${out2.code}
+`);
+      renameSync3(`${lock}/rc.tmp`, `${lock}/rc`);
+    } catch {
+    }
+  }
+};
+
+// src/hooks/router/records.ts
+import { mkdirSync as mkdirSync9, readdirSync as readdirSync7, rmdirSync as rmdirSync2, statSync as statSync29, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
+var CALLER = "router";
+function parse(payload) {
+  try {
+    const o = JSON.parse(payload);
+    return o !== null && typeof o === "object" && !Array.isArray(o) ? o : {};
+  } catch {
+    return {};
+  }
+}
+function str(v) {
+  return typeof v === "string" ? v : null;
+}
+function taskAndIssue(payload, p, db, env) {
+  const run4 = callerRun(payload, db, env);
+  let taskId = sqlInt(run4.split("|")[0]);
+  if (taskId === "") {
+    const t = p.tool_input?.task_id;
+    taskId = sqlInt(typeof t === "number" || typeof t === "string" ? String(t) : "");
+  }
+  if (taskId === "") return { taskId, issue: "-1" };
+  const issue = sqlInt(sqliteRo(db, `SELECT issue_id FROM tasks WHERE id = ${taskId};`, env).trim());
+  return { taskId, issue: issue === "" ? "-1" : issue };
+}
+function auditCall(event, payload, d, env) {
+  const writeEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "300", TMB_DB_WRITE_RUN_BUDGET_MS: "600" };
+  const db = dbPath(writeEnv);
+  if (db === null) return;
+  const p = parse(payload);
+  const { taskId, issue } = taskAndIssue(payload, p, db, writeEnv);
+  const tool = str(p.tool_name);
+  const decision = d.denied ? "deny" : "allow";
+  auditAppend(
+    db,
+    {
+      issueId: issue,
+      branchId: "",
+      fromNode: "hook:router",
+      eventType: "hook_call",
+      summary: `${event}${tool ? ` ${tool}` : ""}: ${decision}${d.denied ? ` by ${d.denied.gate}` : ""}`,
+      contentJson: JSON.stringify({
+        event,
+        tool,
+        decision,
+        denied_gate: d.denied?.gate ?? null,
+        task_id: taskId === "" ? null : Number(taskId),
+        gates: d.gates
+      })
+    },
+    { caller: CALLER, env: writeEnv }
+  );
+  if (!d.denied) return;
+  auditAppend(
+    db,
+    {
+      issueId: issue,
+      branchId: "",
+      fromNode: "hook:dispatch",
+      eventType: "hook_denied",
+      summary: `${d.denied.gate} denied${tool ? ` ${tool}` : ""}`,
+      contentJson: JSON.stringify({
+        hook: d.denied.gate,
+        rule: d.denied.reason.slice(0, 200),
+        tool,
+        agent_type: p.agent_type ?? null,
+        task_id: taskId === "" ? null : Number(taskId),
+        cwd: p.cwd ?? null
+      })
+    },
+    { caller: CALLER, env: writeEnv }
+  );
+}
+function unjudgedDeny(reason) {
+  const head = 'BLOCKED: write target "';
+  const sep2 = `" ${UNJUDGED_PHRASE} `;
+  if (!reason.startsWith(head)) return false;
+  const at2 = reason.lastIndexOf(sep2);
+  if (at2 < head.length) return false;
+  return !reason.slice(at2 + sep2.length).includes('"');
+}
+function prune(dir, cutoffMs) {
+  let names;
+  try {
+    names = readdirSync7(dir);
+  } catch {
+    return false;
+  }
+  let empty = true;
+  for (const name3 of names) {
+    const path = `${dir}/${name3}`;
+    try {
+      const st = statSync29(path);
+      if (st.isDirectory()) {
+        if (prune(path, cutoffMs)) rmdirSync2(path);
+        else empty = false;
+      } else if (st.mtimeMs < cutoffMs) unlinkSync2(path);
+      else empty = false;
+    } catch {
+      empty = false;
+    }
+  }
+  return empty;
+}
+async function recordBashDeny(base2, payload, d, env) {
+  if (!d.denied || d.tool !== "Bash" || unjudgedDeny(d.denied.reason)) return;
+  const p = parse(payload);
+  const session = str(p.session_id) ?? "";
+  if (session === "" || session.includes("/") || session.startsWith(".")) return;
+  const cmd = str(p.tool_input?.command) ?? "";
+  if (cmd === "") return;
+  const w = env.TMB_BYPASS_WINDOW_MIN ?? "";
+  const window2 = /^[0-9]+$/.test(w) && Number(w) > 0 ? Number(w) : 10;
+  try {
+    prune(base2, Date.now() - window2 * 6e4);
+    const dir = `${base2}/${session}`;
+    mkdirSync9(dir, { recursive: true });
+    const paths = await writePaths(cmd, { cwd: payloadCwd(payload, env), raw: false, root: projectRoot(env), env });
+    const epoch = Math.floor(Date.now() / 1e3);
+    for (const path of paths) {
+      if (path.startsWith("/")) writeFileSync7(`${dir}/${pathDigest(path)}`, `${d.denied.gate}
+${epoch}
+`);
+    }
+  } catch {
+  }
+}
+
+// src/hooks/router/main.ts
+var ROUTER_MANIFEST = "mcp/trajectory-server/dist/hooks-router.txt";
+var BUNDLE = "mcp/trajectory-server/dist/hooks.js";
+var HOP_ENV = "TMB_ROUTER_HOP";
+function ownRoot(env) {
+  return installRoot(dirname3(fileURLToPath7(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
+}
+function hopTo(root, event, payload, env) {
+  const r = spawnSync11(process.execPath, [`${root}/${BUNDLE}`, event], {
+    input: payload,
+    env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024
+  });
+  if (r.error || r.status === null) {
+    const cause = `could not run in ${root}`;
+    return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause)), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} \u2014 failing closed
+`, code: 0 };
+  }
+  return { stdout: r.stdout, stderr: r.stderr, code: r.status };
+}
+function lockBase(env) {
+  if (!haveSqlite(env)) return null;
+  const state = stateDir(env);
+  return state === null ? null : `${canonicalDir(state)}/locks`;
+}
+async function routerMain(event, env, io, opts = {}) {
+  const payload = io.readStdin();
+  const self2 = opts.selfRoot ?? ownRoot(env);
+  if (opts.hop !== false && env[HOP_ENV] !== "1") {
+    const root = activeInstall(env, io.writeStderr);
+    if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
+      if (existsSync13(`${root}/${ROUTER_MANIFEST}`) && existsSync13(`${root}/${BUNDLE}`)) {
+        const out2 = hopTo(root, event, payload, env);
+        io.writeStderr(out2.stderr);
+        await io.writeStdout(out2.stdout);
+        return out2.code;
+      }
+      io.writeStderr(`TMB router: no router in ${root} \u2014 using ${self2}
+`);
+    }
+  }
+  const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
+  const locks = opts.dedupe === false ? null : lockBase(gateEnv);
+  const key2 = locks === null ? null : dedupeKey(payload);
+  let dedupe = null;
+  let lock = null;
+  if (locks !== null && key2 !== null) {
+    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groups), gateEnv);
+    try {
+      mkdirSync10(dedupe.base, { recursive: true });
+      const claim2 = await dedupe.claim(key2);
+      if (claim2.kind === "replay") {
+        io.writeStderr(claim2.out.stderr);
+        await io.writeStdout(claim2.out.stdout);
+        return claim2.out.code;
+      }
+      if (claim2.kind === "none") return 0;
+      lock = claim2.lock;
+    } catch {
+      lock = null;
+    }
+  }
+  const d = await decide(event, payload, gateEnv, opts);
+  if (lock !== null) Dedupe.store(lock, d);
+  io.writeStderr(d.stderr);
+  await io.writeStdout(d.stdout);
+  if (opts.record !== false) {
+    try {
+      auditCall(event, payload, d, gateEnv);
+    } catch {
+    }
+    if (locks !== null && lock !== null) await recordBashDeny(`${locks}/boundary-denies`, payload, d, gateEnv);
+  }
+  return d.code;
+}
 
 // src/hooks/run.ts
-function oneLine(text) {
+function oneLine2(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 async function runHook(name3, findGate2, env, io) {
   try {
     const gate = findGate2(name3);
     if (!gate) {
-      io.writeStderr(`TMB hooks: unknown gate '${oneLine(name3)}' \u2014 not run
+      io.writeStderr(`TMB hooks: unknown gate '${oneLine2(name3)}' \u2014 not run
 `);
       return 1;
     }
@@ -20269,7 +20890,7 @@ async function runHook(name3, findGate2, env, io) {
     return result.code;
   } catch (err2) {
     const detail = err2 instanceof Error ? err2.message : String(err2);
-    io.writeStderr(`TMB hooks: gate '${oneLine(name3)}' failed: ${oneLine(detail)}
+    io.writeStderr(`TMB hooks: gate '${oneLine2(name3)}' failed: ${oneLine2(detail)}
 `);
     return 1;
   }
@@ -20277,10 +20898,21 @@ async function runHook(name3, findGate2, env, io) {
 
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
+if (routerEvents().has(name2)) {
+  const code = await routerMain(name2, process.env, {
+    readStdin: () => readFileSync17(0, "utf8"),
+    writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
+    writeStderr: (text) => {
+      if (text !== "") process.stderr.write(text);
+    }
+  });
+  await new Promise((resolve4) => process.stderr.write("", () => resolve4()));
+  process.exit(code);
+}
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync16(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync17(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

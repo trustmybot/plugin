@@ -91,7 +91,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -106,55 +106,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" git-guards",
-            "timeout": 11,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" git-push-guard",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-boundary",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-worktree-branch-create",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" stay-on-base-guard",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" branch-up-to-date-with-remote",
-            "timeout": 16,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" commit-msg-lint",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-remote-auth-guard",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" remote-id-guard",
-            "timeout": 6,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 18,
             "onFailure": "block"
           }
         ]
@@ -246,7 +199,7 @@
         ]
       },
       {
-        "matcher": "Bash|Read|Write|Edit|MultiEdit|Agent|Skill",
+        "matcher": "Read|Write|Edit|MultiEdit|Agent|Skill",
         "hooks": [
           {
             "type": "command",
