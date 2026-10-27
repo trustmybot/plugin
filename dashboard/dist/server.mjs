@@ -694,7 +694,7 @@ function syncRemotes(db, repo) {
 }
 
 // ../mcp/trajectory-server/src/db.ts
-var TARGET_SCHEMA_VERSION = 53;
+var TARGET_SCHEMA_VERSION = 54;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -1257,6 +1257,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 53 && toVersion >= 53) {
     migrateV52toV53(db);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db, name) {
@@ -3118,6 +3121,28 @@ function migrateV52toV53(db) {
         );
         CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
       `);
+    }
+    commitTransaction(db);
+  } catch (err3) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+    }
+    throw err3;
+  }
+}
+function migrateV53toV54(db) {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "worktree_path")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db, "tasks", "worktree_adopted")) {
+        db.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
     }
     commitTransaction(db);
   } catch (err3) {
