@@ -3255,15 +3255,15 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           if (!checkWasiClock(clk_id)) {
             return 28;
           }
-          var now;
+          var now2;
           if (clk_id === 0) {
-            now = _emscripten_date_now();
+            now2 = _emscripten_date_now();
           } else if (nowIsMonotonic) {
-            now = _emscripten_get_now();
+            now2 = _emscripten_get_now();
           } else {
             return 52;
           }
-          var nsec = Math.round(now * 1e3 * 1e3);
+          var nsec = Math.round(now2 * 1e3 * 1e3);
           HEAP64[ptime >> 3] = BigInt(nsec);
           return 0;
         }
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync16 } from "node:fs";
+import { readFileSync as readFileSync17 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -11101,9 +11101,9 @@ function perlSleepSelect(toks, k) {
 }
 function proveScript(lang, src) {
   const perl = lang === "perl";
-  const fail = { ok: false, judged: false };
+  const fail2 = { ok: false, judged: false };
   const toks = lexScript(perl, src);
-  if (!toks) return fail;
+  if (!toks) return fail2;
   let judged = false;
   const locals = /* @__PURE__ */ new Set();
   if (!perl) {
@@ -11122,8 +11122,8 @@ function proveScript(lang, src) {
     const prev = toks[k - 1];
     const next = toks[k + 1];
     if (tk.t === "p") {
-      if (tk.text === "&" && !(!perl && next?.t === "sym")) return fail;
-      if (tk.text === ".(" || tk.text === "&." || tk.text === "->" && (!perl || next?.text === "(" || next?.t === "v")) return fail;
+      if (tk.text === "&" && !(!perl && next?.t === "sym")) return fail2;
+      if (tk.text === ".(" || tk.text === "&." || tk.text === "->" && (!perl || next?.text === "(" || next?.t === "v")) return fail2;
       continue;
     }
     if (tk.t === "v") {
@@ -11137,7 +11137,7 @@ function proveScript(lang, src) {
           }
           j++;
         }
-        if (toks[j]?.text === "=" || toks[j]?.t === "p" && /^[.+\-*/x|&^]$/.test(toks[j].text) && toks[j + 1]?.text === "=") return fail;
+        if (toks[j]?.text === "=" || toks[j]?.t === "p" && /^[.+\-*/x|&^]$/.test(toks[j].text) && toks[j + 1]?.text === "=") return fail2;
       }
       continue;
     }
@@ -11155,7 +11155,7 @@ function proveScript(lang, src) {
         if (toks[j].text === "[") depth++;
         else if (toks[j].text === "]" && --depth === 0) break;
       }
-      if (toks[j + 1]?.text === "=") return fail;
+      if (toks[j + 1]?.text === "=") return fail2;
     }
     if (SCRIPT_WORDS.has(name3)) continue;
     const sleep2 = perl ? perlSleepSelect(toks, k) : 0;
@@ -11165,7 +11165,7 @@ function proveScript(lang, src) {
     }
     let dotted = name3;
     for (let j = k; !perl && member(toks[j - 1]) && toks[j - 2]?.t === "w"; j -= 2) dotted = `${toks[j - 2].text}.${dotted}`;
-    if (!judgedCall(lang, dotted.replace(/::/g, "."))) return fail;
+    if (!judgedCall(lang, dotted.replace(/::/g, "."))) return fail2;
     judged = true;
   }
   return { ok: true, judged };
@@ -11524,10 +11524,10 @@ ${line}
   const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run4 ? lex(lang === "py", program) : void 0;
   const held = new Map(names.map((name3) => [name3, lexed && heldLiterals(lexed, name3)]));
   const unread = has("A") || has("F") || [...held.values()].includes(void 0);
-  let fail = unread || held.size > 0;
+  let fail2 = unread || held.size > 0;
   if (!has("W")) {
     if (!program.split("\n").some((line) => SHAPE.test(line))) return { lines: [], computed: false };
-    fail = true;
+    fail2 = true;
   }
   let out2 = "";
   let src = "";
@@ -11545,7 +11545,7 @@ ${line}
     src = program;
     raw = true;
   }
-  if (fail) {
+  if (fail2) {
     const writes = grepO(program, WRITES).map((m) => /^[^'"]*['"][^'"]+['"]/.exec(m)?.[0]).filter((m) => m !== void 0).map((m) => /['"][^'"]+['"]$/.exec(m)?.[0]).filter((m) => m !== void 0);
     const reads = grepO(grepO(program, READS).join("\n"), QUOTED);
     out2 += progLiterals(src, reads, writes, raw).join("\n");
@@ -11558,7 +11558,7 @@ ${lit}`;
   const seen = /* @__PURE__ */ new Set();
   lines2 = lines2.filter((l) => !blank(l) && !seen.has(l) && seen.add(l) !== void 0);
   if (lines2.length > 0) return { lines: lines2, computed: unread };
-  return { lines: operands ? ["-"] : [], computed: fail };
+  return { lines: operands ? ["-"] : [], computed: fail2 };
 }
 var PROGRAM_FLAG = {
   py: /^-[bBdEhiIOPqRsSuvx]*c(.*)$/s,
@@ -12223,7 +12223,7 @@ var WritePaths = class _WritePaths {
   expand(word, level) {
     let rest = word;
     let acc = [""];
-    const fail = (unres) => ({ ok: false, unres });
+    const fail2 = (unres) => ({ ok: false, unres });
     for (; ; ) {
       const at2 = rest.search(/[$`]/);
       if (at2 < 0) {
@@ -12236,50 +12236,50 @@ var WritePaths = class _WritePaths {
       let name3;
       let def = null;
       let cut2 = "";
-      if (rest.startsWith("$(proc)")) return fail("$(proc)");
-      if (rest.startsWith("$(alias-write)")) return fail("$(alias-write)");
-      if (rest.startsWith("`") || rest.startsWith("$(")) return fail("$()");
+      if (rest.startsWith("$(proc)")) return fail2("$(proc)");
+      if (rest.startsWith("$(alias-write)")) return fail2("$(alias-write)");
+      if (rest.startsWith("`") || rest.startsWith("$(")) return fail2("$()");
       if (rest.startsWith("${")) {
         let a = rest.slice(2);
-        if (!a.includes("}")) return fail(rest);
+        if (!a.includes("}")) return fail2(rest);
         rest = after(a, "}");
         a = before(a, "}");
         name3 = /^[A-Za-z0-9_]*/.exec(a)[0];
         const op = a.slice(name3.length);
-        if (name3 === "" || /^[0-9]/.test(name3)) return fail("${" + a + "}");
+        if (name3 === "" || /^[0-9]/.test(name3)) return fail2("${" + a + "}");
         if (op === "") {
         } else if (op.startsWith(":-") || op.startsWith(":=")) def = op.slice(2);
         else if (op.startsWith("-") || op.startsWith("=")) def = op.slice(1);
         else if (op.startsWith("%")) {
           cut2 = op.slice(1).replace(/^%/, "");
-          if (cut2 === "" || /[^A-Za-z0-9._-]/.test(cut2)) return fail(name3);
-        } else return fail(name3);
+          if (cut2 === "" || /[^A-Za-z0-9._-]/.test(cut2)) return fail2(name3);
+        } else return fail2(name3);
       } else if (/^\$[A-Za-z_]/.test(rest)) {
         const a = rest.slice(1);
         name3 = /^[A-Za-z0-9_]*/.exec(a)[0];
         rest = a.slice(name3.length);
-      } else if (/^\$[0-9@*#?$!-]/.test(rest)) return fail(rest.slice(0, 2));
+      } else if (/^\$[0-9@*#?$!-]/.test(rest)) return fail2(rest.slice(0, 2));
       else {
         acc = acc.map((a) => a + "$");
         rest = rest.slice(1);
         continue;
       }
-      if (this.unbalanced) return fail(name3);
+      if (this.unbalanced) return fail2(name3);
       let vals = this.varGet(level.vars, name3);
       if (vals !== null) {
-        if (vals.includes(BAD2)) return fail(name3);
+        if (vals.includes(BAD2)) return fail2(name3);
       } else if (def !== null) {
-        if (/[$`]/.test(def)) return fail(name3);
+        if (/[$`]/.test(def)) return fail2(name3);
         vals = def;
       } else {
         vals = this.envVar(name3, level);
-        if (vals === null) return fail(name3);
+        if (vals === null) return fail2(name3);
       }
       const next = [];
       for (const a of acc) {
         for (const v of vals.split("\n")) next.push(a + (cut2 !== "" && v.endsWith(cut2) ? v.slice(0, -cut2.length) : v));
       }
-      if (next.length > 16) return fail(name3);
+      if (next.length > 16) return fail2(name3);
       acc = next;
     }
     return { ok: true, values: acc };
@@ -14410,17 +14410,17 @@ function etimeSeconds(raw) {
   return base10(days) * 86400n + base10(head(rest)) * 60n + base10(tail(rest));
 }
 function serverStart(pid, env) {
-  const now = BigInt(Math.floor(Date.now() / 1e3));
+  const now2 = BigInt(Math.floor(Date.now() / 1e3));
   const etimes = run3("ps", ["-o", "etimes=", "-p", pid], env).replaceAll(" ", "").replace(/\n+$/, "");
   let start2;
   if (etimes !== "" && /^[0-9]+$/.test(etimes)) {
-    start2 = now - arithDigits(etimes);
+    start2 = now2 - arithDigits(etimes);
   } else {
     const raw = run3("ps", ["-o", "etime=", "-p", pid], env).replaceAll(" ", "").replace(/\n+$/, "");
     if (raw === "") return null;
     const elapsed = etimeSeconds(raw);
     if (elapsed < 0n) return null;
-    start2 = now - elapsed;
+    start2 = now2 - elapsed;
   }
   return start2 > 0n ? start2 : null;
 }
@@ -15080,7 +15080,7 @@ function noticeMarker(sessionId, env) {
   const dir = stateDir(env);
   return dir === null ? "" : `${dir}/sessions/${sessionId}.install-notice`;
 }
-function pruneNotices(dir, now) {
+function pruneNotices(dir, now2) {
   let names;
   try {
     names = readdirSync3(dir);
@@ -15093,7 +15093,7 @@ function pruneNotices(dir, now) {
     try {
       const st = statSync17(path);
       if (!st.isFile()) continue;
-      if (Math.ceil((now - st.mtimeMs) / 6e4) > NOTICE_MAX_AGE_MIN) rmSync2(path, { force: true });
+      if (Math.ceil((now2 - st.mtimeMs) / 6e4) > NOTICE_MAX_AGE_MIN) rmSync2(path, { force: true });
     } catch {
     }
   }
@@ -16654,7 +16654,7 @@ function thresholdMin(env) {
   const raw = env[OVERRUN_ENV] ?? "";
   return /^[0-9]+$/.test(raw) ? Number(raw) : DEFAULT_OVERRUN_MIN;
 }
-function overruns(db, now, limitMin, env) {
+function overruns(db, now2, limitMin, env) {
   const out2 = gateRead(
     db,
     `SELECT COALESCE(json_group_array(json_object(
@@ -16671,7 +16671,7 @@ function overruns(db, now, limitMin, env) {
   const rows = JSON.parse(out2);
   const found = [];
   for (const r of rows) {
-    const ms = elapsedMs(r.created_at, now);
+    const ms = elapsedMs(r.created_at, now2);
     if (ms === null || ms <= limitMin * MS_PER_MIN) continue;
     const firstLine3 = (r.fail ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
     found.push({
@@ -16685,7 +16685,7 @@ function overruns(db, now, limitMin, env) {
   }
   return found.sort((a, b) => a.taskId - b.taskId);
 }
-function claim(db, found, now, env) {
+function claim(db, found, now2, env) {
   const statements2 = [];
   for (const o of found) {
     const content = jqCompact({ task_id: o.taskId, minutes: o.minutes, attempts: o.attempts, blocker: o.blocker });
@@ -16700,7 +16700,7 @@ function claim(db, found, now, env) {
         contentJson: content
       },
       guard2.sql,
-      { caller: GATE_NAME23, env, now: nowIso(now) }
+      { caller: GATE_NAME23, env, now: nowIso(now2) }
     );
     if (guard2.code !== 0 || row.code !== 0) return null;
     statements2.push(row.sql, `SELECT ${o.taskId} WHERE changes() = 1;`);
@@ -16717,10 +16717,10 @@ function makeTaskOverrunAlert(clock = () => /* @__PURE__ */ new Date()) {
     if (agentRole(payload) !== "bro") return ALLOW;
     const db = dbPath(env);
     if (db === null || !haveSqlite(env)) return ALLOW;
-    const now = clock();
-    const found = overruns(db, now, thresholdMin(env), env);
+    const now2 = clock();
+    const found = overruns(db, now2, thresholdMin(env), env);
     if (found === null || found.length === 0) return ALLOW;
-    const claimed = claim(db, found, now, env);
+    const claimed = claim(db, found, now2, env);
     const emit3 = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
     if (emit3.length === 0) return ALLOW;
     const event = jqAlternatives(payload, [["hook_event_name"]]) || "UserPromptSubmit";
@@ -16815,16 +16815,16 @@ function defaultPluginRoot() {
   }
 }
 function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
-  const pluginRoot2 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
-  if (pluginRoot2 === "") return null;
+  const pluginRoot3 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot3 === "") return null;
   let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
   const projectReal = physicalDir2(project);
-  const pluginReal = physicalDir2(pluginRoot2);
+  const pluginReal = physicalDir2(pluginRoot3);
   if (pluginReal !== "" && projectReal === pluginReal) return null;
   if (projectReal !== "") project = projectReal;
-  const version = manifestField(pluginRoot2, "version", haveJq);
-  const name3 = manifestField(pluginRoot2, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
-  return { haveJq, pluginRoot: pluginRoot2, source: `${pluginRoot2}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+  const version = manifestField(pluginRoot3, "version", haveJq);
+  const name3 = manifestField(pluginRoot3, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot3, source: `${pluginRoot3}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
 }
 function personaSessionId(input, haveJq) {
   const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
@@ -16833,7 +16833,7 @@ function personaSessionId(input, haveJq) {
 function personaMarker(p, sessionId, suffix) {
   return `${p.project}/${TMB_STATE_HOST_DIR}/${p.pluginName}/sessions/${sessionId}.${suffix}`;
 }
-function pruneStaleMarkers(dir, matches, now = Date.now()) {
+function pruneStaleMarkers(dir, matches, now2 = Date.now()) {
   let names;
   try {
     names = readdirSync5(dir);
@@ -16845,7 +16845,7 @@ function pruneStaleMarkers(dir, matches, now = Date.now()) {
     const path = `${dir}/${name3}`;
     try {
       const st = lstatSync7(path);
-      if (st.isFile() && now - st.mtimeMs > STALE_MINUTES * 6e4) unlinkSync(path);
+      if (st.isFile() && now2 - st.mtimeMs > STALE_MINUTES * 6e4) unlinkSync(path);
     } catch {
     }
   }
@@ -17044,7 +17044,7 @@ function argsJson(input) {
 `, jqLiteralNumbers).join("");
   return commandSubstitution(Buffer.from(lines2, "utf8").subarray(0, ARGS_MAX_BYTES).toString("utf8")) || "{}";
 }
-function debugTrajectorySql(sessionId, tool, args2, now) {
+function debugTrajectorySql(sessionId, tool, args2, now2) {
   const sid = sqlQuote(sessionId);
   return `INSERT INTO debug_trajectory (session_id, step_n, kind, tool_or_mcp_name, args_json, created_at)
 VALUES (
@@ -17053,7 +17053,7 @@ VALUES (
   'tool_use',
   '${sqlQuote(tool)}',
   json('${sqlQuote(args2)}'),
-  '${sqlQuote(now)}'
+  '${sqlQuote(now2)}'
 );`;
 }
 function debugTrajectory(payload, env) {
@@ -17163,10 +17163,10 @@ function sessionLogCapture(payload, env) {
     } catch {
       return ALLOW;
     }
-    const now = utcStamp2(/* @__PURE__ */ new Date());
-    const sessionId = commandSubstitution(jqFieldOr(echoed, "session_id")) || sentinelId(`${workspace}/.claude/${plugin}/.current-session-id`) || `${now.compact}-${process.pid}`;
+    const now2 = utcStamp2(/* @__PURE__ */ new Date());
+    const sessionId = commandSubstitution(jqFieldOr(echoed, "session_id")) || sentinelId(`${workspace}/.claude/${plugin}/.current-session-id`) || `${now2.compact}-${process.pid}`;
     try {
-      appendFileSync3(`${logDir}/${now.day}-${sessionId}.jsonl`, logLines(echoed, now.iso));
+      appendFileSync3(`${logDir}/${now2.day}-${sessionId}.jsonl`, logLines(echoed, now2.iso));
     } catch {
     }
     return { stdout: CONTINUE, code: 0 };
@@ -17994,13 +17994,13 @@ var VerificationRun = class {
     return { ok: false, code: 2, stdout: "", error: "" };
   }
   start(ms) {
-    const now = nowIso();
+    const now2 = nowIso();
     const r = this.write(
       ms,
-      `UPDATE verification_runs SET finished_at = '${now}', exit_code = 137, timed_out = 0
+      `UPDATE verification_runs SET finished_at = '${now2}', exit_code = 137, timed_out = 0
  WHERE finished_at IS NULL
-   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now}', ${this.c.timeoutS});
+   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now2}', '-' || (budget_s + 60) || ' seconds');
+INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now2}', ${this.c.timeoutS});
 SELECT last_insert_rowid();`
     );
     return r.ok ? commandSubstitution(r.stdout) : "";
@@ -18498,10 +18498,10 @@ function toolUseId(input) {
   }
   return commandSubstitution(lines2.join("\n"));
 }
-function rollbackSql(id, now) {
+function rollbackSql(id, now2) {
   const safeSpawnId = sqlQuote(`tool_use:${id}`);
   return `
-UPDATE tasks SET status = 'pending', updated_at = '${now}'
+UPDATE tasks SET status = 'pending', updated_at = '${now2}'
  WHERE status = 'running'
    AND id = (SELECT task_id FROM agent_runs
               WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL)
@@ -18509,11 +18509,11 @@ UPDATE tasks SET status = 'pending', updated_at = '${now}'
                     WHERE o.task_id = tasks.id AND o.agent_type = 'swe' AND o.completed_at IS NULL
                       AND o.spawn_id IS NOT '${safeSpawnId}');
 UPDATE agent_runs
-   SET completed_at = '${now}',
+   SET completed_at = '${now2}',
        exit_reason = 'swept_orphan',
        ${RUN_UNMEASURED_SQL},
        duration_ms = CASE WHEN duration_ms = 0
-                          THEN COALESCE(CAST(ROUND((julianday('${now}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
+                          THEN COALESCE(CAST(ROUND((julianday('${now2}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
                           ELSE duration_ms END
  WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL;`;
 }
@@ -19748,6 +19748,370 @@ var postAtomicCloseReadme = (payload, env) => {
   }
 };
 
+// src/db.ts
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
+
+// src/platform.ts
+import { DatabaseSync } from "node:sqlite";
+
+// src/audit-events.ts
+var AUDIT_EVENT_TYPES = [
+  { type: "agent_arg_mismatch", writers: ["hook"], description: "`agent-arg-matches-caller` denied a trajectory-server call whose `agent` argument named another role than the caller (the payload's `agent_type`, or bro for the main session); one row per denial on the task's issue when `tool_input` carries a `task_id`, else the system issue `-1`, from_node `hook:agent-arg-matches-caller`; `content_json` carries `tool`, `given`, `actual`, `task_id`. `audit_append` refuses this event" },
+  { type: "agent_runs_capture_skipped", writers: ["hook"], description: "`swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id`" },
+  { type: "agent_runs_backfilled", writers: ["bro"], description: "`agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` \u2014 up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added`" },
+  { type: "agent_runs_claimed", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `bro-turn-usage` claimed per-task bro `agent_runs` rows opened without a `session_id` for its session; bro is now metered per session, so nothing writes it and `audit_append` refuses it; `content_json` carries `run_ids`, `session_id`", reserved: true },
+  { type: "branch_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason" },
+  { type: "branch_id_proposed", writers: ["bro"], description: "`intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it" },
+  { type: "bro_verification_fail", writers: ["bro"], description: "Bro task-gate found a V1/V2/V3 check that failed" },
+  { type: "bro_verification_pass", writers: ["bro"], description: "Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads" },
+  { type: "cheatcode_activate", writers: ["bro"], description: "`cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status" },
+  { type: "cheatcode_approved", writers: ["bro"], description: "`cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it" },
+  { type: "cheatcode_healthcheck", writers: ["bro", "server"], description: "`cheatcode_reconcile` (bro) or the server startup reconcile (server) moved a cheatcode's status (e.g. `active` \u2192 `broken`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `from`, `to`" },
+  { type: "cheatcode_install", writers: ["bro"], description: "`cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome" },
+  { type: "cheatcode_installed", writers: ["bro"], description: "`cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id`" },
+  { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
+  { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
+  { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
+  { type: "concept_proposal_applied", writers: ["bro"], description: "`scan_run` upserted an L2 concept a closed task proposed in its completion report (`report.concepts`), the task having a passing code-reviewer verdict for its current commit; `verified_by` is `swe`; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `concept_id`, `name`" },
+  { type: "concept_proposal_rejected", writers: ["bro"], description: "`scan_run` gave up on a reviewed task's concept proposal that still failed to upsert (an anchor not in the index, a failing claim) 14 days after the task closed; before that a failing proposal stays pending with no row; one row per (task, concept name), on the task's issue, from_node `bro`; `content_json` carries `task_id`, `name`, `error`" },
+  { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
+  { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
+  { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
+  { type: "decision_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
+  { type: "deep_scan_completed", writers: ["bro"], description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
+  { type: "effort_ab_enrolled", writers: ["bro"], description: "`task_provision` or `task_create_batch` enrolled a new task in the opt-in swe effort A/B (`plugin_config.swe_effort_ab`, GH 1745): its computed effort was the default or an explicit `medium` and fewer than `target` tasks carried the label, so its effort became the arm of its id's parity (even `high`, odd `medium`) with `effort_reason` `ab_arm`; one row per task on its issue, in the insert's transaction; `content_json` carries `label`, `arm`, `task_id`" },
+  { type: "effort_inputs_recorded", writers: ["bro"], description: "`task_provision` or `task_create_batch` recorded, in shadow mode (GH 1904), what the world model knows about the code a new task's spec names in backticks and the effort tier those inputs suggest; the task's effort is unchanged; one row per task on its issue, in the insert's transaction, after any `effort_ab_enrolled` row; `content_json` carries `task_id`, `inputs` (`files_in_scope`, `symbols_named`, `symbols_resolved`, `direct_callers`, `caller_files_outside_scope`, `tables_written`, `outside_table_readers`, `tests_reached`, `enforcement`, `prompt_bearing`, `rework`, `wm_available` \u2014 false with zero world-model counts when the repo has no world model or a lookup failed), `suggested_tier` (`low`, `medium`, `high`), `reason`, `effort` (the effort the task runs at)" },
+  { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
+  { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
+  { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
+  { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
+  { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
+  { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
+  { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
+  { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
+  { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
+  { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation; the dashboard also writes one per Human write (an edit, a comment or a close), from_node `dashboard`, `content_json` carrying `actor: human`, `source: dashboard`, `tool` (the trajectory-server handler it called) and `fields`" },
+  { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
+  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "code-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
+  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results`" },
+  { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
+  { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
+  { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
+  { type: "milestones_reconciled", writers: ["bro"], description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
+  { type: "persona_block_written", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version`", reserved: true },
+  { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
+  { type: "project_made_standalone", writers: ["bro"], description: "`onboard_apply(standalone=true)` made the session directory, nested below the workspace, its own TMB project: it wrote the `standalone` marker and a fresh trajectory DB in `<session_dir>/.claude/<plugin>/`, which the DB walk-up then picks over the workspace DB; filed under the system issue `-1` in the workspace DB; `content_json` carries `session_dir`, `db_path`, `marker`" },
+  { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
+  { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
+  { type: "remote_id_guard_overrun", writers: ["hook"], description: "`remote-id-guard` killed its analysis at `TMB_REMOTE_ID_GUARD_DEADLINE_S` (default 3 s, inside the 6 s hooks.json timeout) and allowed the Bash command (GH 1821); one row per overrun on the system issue `-1`, from_node `hook:remote-id-guard`; `content_json` carries `deadline_s`, `elapsed_s`" },
+  { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
+  { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
+  { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when the world model was unavailable or the re-key failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
+  { type: "review_finding_wontfix", writers: ["bro"], description: "`task_reopen(wontfix)` set an open review finding of the task to `wontfix` (the Human accepted it), so the close gate stops probing it; one row per finding on the task's issue; `content_json` carries `task_id`, `finding_id`, `reason`" },
+  { type: "review_findings_carried", writers: ["bro"], description: "`task_retry` copied the failed task's open review findings onto the retry task as `F<new_task_id>-<n>`; one row per retry that carried at least one; `content_json` carries `from_task_id`, `to_task_id`, `findings` (`from`, `id`)" },
+  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing code-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing code-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a code-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `code-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
+  { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
+  { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
+  { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
+  { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
+  { type: "scan_skipped", writers: ["hook"], description: "`scan.sh` left a git repo below the session dir out of the scan; one row per path and reason (a re-scan that skips it again writes none), filed under the system issue `-1` as `hook:scan`; `content_json` carries `path`, `reason` (`dot_dir`: a dot-prefixed path segment below the session dir; `git_ignored`: an enclosing repo ignores it; `no_commits`: it has no commit)" },
+  { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
+  { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
+  { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
+  { type: "stray_db_removed", writers: ["bro"], description: "`onboard_apply(remove_stray_dbs)` deleted an empty trajectory DB (0 issues, 0 tasks) below the project root, with its `-wal`/`-shm` files and its state dir, on the Human's yes; one row per DB on the system issue `-1`; `content_json` carries `path`, `state_dir`, `project_root`" },
+  { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
+  { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
+  { type: "swe_resume_observed", writers: ["hook"], description: "`swe-brief-gate` saw a swe call `task_brief` with an `agent_id` whose `agent_runs` rows for the task are all closed: a swe resumed through SendMessage (GH 1742); one row per such call on the task's issue, from_node `hook:swe-brief-gate`; `content_json` carries `task_id`, `agent_id`, `observed_at`, `consumed` (0 until `task_brief`'s `openSweRun` opens the resumed run's row from it, with `resumed_from` its previous row, and sets 1; a row observed more than 600 s before the call is never consumed). `audit_append` refuses this event" },
+  { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
+  { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
+  { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
+  { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "task_overrun_alerted", writers: ["hook"], description: "`task-overrun-alert` told bro that a `running` task passed `TMB_TASK_OVERRUN_MIN` minutes (default 60) since its `created_at`; one row per task, ever (the once-marker), on the task's issue, from_node `hook:task-overrun-alert`; `content_json` carries `task_id`, `minutes`, `attempts` (swe spawns), `blocker` (the first line of the latest FAIL feedback, else the status)" },
+  { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
+  { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
+  { type: "task_retry_attempted", writers: ["bro"], description: "`task_retry` created a retry task for a failed one; `content_json` carries `failed_task_id`, `new_task_id`, `new_branch_id`" },
+  { type: "task_spec_amended", writers: ["bro"], description: "`task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; `content_json` carries `task_id`, `status`, `reason`, `changes`" },
+  { type: "task_stale_swept", writers: ["bro"], description: "`task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours`" },
+  { type: "tmb_agent_created", writers: ["server", "bro"], description: "`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`" },
+  { type: "tmb_branch_autocreated", writers: ["bro"], description: "`task_create_batch` created the task's feature branch ref" },
+  { type: "tmb_skill_created", writers: ["bro"], description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
+  { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
+  { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
+  { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" },
+  { type: "wm_tool_called", writers: ["server"], description: "A world-model tool (`world_model_get`, `world_model_search`, `world_model_symbol`, `world_model_concepts`, `world_model_concept_get`, `world_model_concept_upsert`) answered a call, error results included; one row per call, from_node the `agent` argument, on the task's issue when exactly one open `agent_runs` row has the caller's role as `agent_type`, else the system issue `-1`; `content_json` carries `tool`, `agent`, `task_id`, `args` (only the present `query`, `path`, `id`, `qualified_name`, `name`, `mode`, `depth`, `repo`, `k`), `result_count`, `empty`, `error`, `warning`, `match`, `derived`, `latency_ms`. `audit_append` refuses this event" }
+];
+var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
+var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
+
+// src/db.ts
+var backoffCell = new Int32Array(new SharedArrayBuffer(4));
+var OLD_REVIEWER = "pr-reviewer";
+var REVIEWER = "code-reviewer";
+var REVIEWER_JSON_RENAMES = {
+  [OLD_REVIEWER]: REVIEWER,
+  [`tmb:${OLD_REVIEWER}`]: `tmb:${REVIEWER}`
+};
+
+// src/embeddings/model.ts
+import { homedir } from "node:os";
+import { join as join6 } from "node:path";
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join6(homedir(), ".cache", "huggingface");
+var MODEL_REPO = "Xenova/bge-small-en-v1.5";
+var MODEL_DTYPE = "q8";
+var MODEL_ID = `${MODEL_REPO}@${MODEL_DTYPE}`;
+var now = Date.now;
+
+// src/embeddings/backfill.ts
+var MISSING_WHERE = {
+  discussions: "id NOT IN (SELECT discussion_id FROM discussions_embeddings WHERE model_id = ?)",
+  audit: "id NOT IN (SELECT audit_id FROM audit_embeddings WHERE model_id = ?)",
+  wm_directories: "id NOT IN (SELECT dir_id FROM wm_directories_embeddings WHERE model_id = ?)",
+  wm_files: "purpose <> '' AND id NOT IN (SELECT file_id FROM wm_files_embeddings WHERE model_id = ?)"
+};
+var MISSING_SQL = {
+  discussions: `SELECT id, body AS text FROM discussions WHERE ${MISSING_WHERE.discussions} ORDER BY id DESC LIMIT ?`,
+  audit: `SELECT id, summary AS text, content_json FROM audit WHERE ${MISSING_WHERE.audit} ORDER BY id DESC LIMIT ?`,
+  wm_directories: `SELECT id, CASE WHEN path = '' THEN repo ELSE path END AS text, summary AS body FROM wm_directories WHERE ${MISSING_WHERE.wm_directories} ORDER BY id DESC LIMIT ?`,
+  wm_files: `SELECT id, path AS text, purpose AS body FROM wm_files WHERE ${MISSING_WHERE.wm_files} ORDER BY id DESC LIMIT ?`
+};
+
+// src/tools/agent-runs.ts
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var UNMEASURED_IF_NO_USAGE_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${NO_USAGE_SQL} THEN 'unmeasured' END)`;
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+
+// src/hooks/cleanup-worktree-on-task-close.ts
+import { statSync as statSync26 } from "node:fs";
+var GATE_NAME48 = "cleanup-worktree-on-task-close";
+var BYPASS_ENV8 = "TMB_KEEP_CLOSED_WORKTREES";
+var KEEP_HEAD_ENV = "TMB_KEEP_HEAD_ON_CLOSE";
+var TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record)$/;
+var DEFAULT_PR_TARGET = "dev";
+var WORKTREE_LINE = "worktree ";
+function isFile13(path) {
+  try {
+    return statSync26(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function slugMatcher(slug) {
+  try {
+    const re = new RegExp(`/\\.claude/worktrees/${slug}$`);
+    return (path) => re.test(path);
+  } catch {
+    return () => false;
+  }
+}
+function listedWorktree(repoRoot, matches, env) {
+  for (const line of gitOut(repoRoot, ["worktree", "list", "--porcelain"], env).split("\n")) {
+    if (!line.startsWith(WORKTREE_LINE)) continue;
+    const wt = line.slice(WORKTREE_LINE.length);
+    if (matches(wt)) return wt;
+  }
+  return "";
+}
+function taskRepoRoot(db, taskId, env) {
+  const taskRepo = sqliteRo(db, `SELECT repo FROM tasks WHERE id=${taskId} LIMIT 1;`, env);
+  const workspace = posixDirname(posixDirname(posixDirname(db)));
+  if (taskRepo !== "") return repoPathByName(db, taskRepo, env) || `${workspace}/${taskRepo}`;
+  return repoSinglePath(db, env) || workspace;
+}
+function resetHead(db, repoRoot, taskId, env, stderr2) {
+  const target = repoResolve(db, repoRoot, env).split("|")[0] || DEFAULT_PR_TARGET;
+  const current = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  if (!gitOk(repoRoot, ["rev-parse", "--verify", target], env) || current === target) return;
+  if (gitOk(repoRoot, ["checkout", target], env)) {
+    stderr2(`tmb: checked out ${target} after task #${taskId} closed (was on ${current})
+`);
+  } else {
+    stderr2(`tmb: post-close checkout of ${target} failed \u2014 leaving on ${current}
+`);
+  }
+}
+function cleanupWorktree(payload, env, stderr2) {
+  const input = jqInput(payload);
+  const tool = jqCapture(input, ["tool_name"]);
+  if (!TOOL.test(tool)) return ALLOW;
+  if ((env[BYPASS_ENV8] ?? "0") === "1") return ALLOW;
+  const taskId = jqCapture(input, ["tool_input", "task_id"]);
+  const isValidation = tool.endsWith("validation_record");
+  if (isValidation) {
+    if (jqCapture(input, ["tool_input", "verdict"]) !== "pass") return ALLOW;
+  } else {
+    if (jqCapture(input, ["tool_input", "agent"]) !== "bro") return ALLOW;
+    if (jqCapture(input, ["tool_input", "status"]) !== "closed") return ALLOW;
+  }
+  const safeId = sqlInt(taskId);
+  if (safeId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || db === "" || !isFile13(db) || !haveSqlite(env)) return ALLOW;
+  if (isValidation) {
+    const passed = sqliteRo(db, `SELECT 1 FROM tasks t WHERE t.id=${safeId} AND t.status='closed' AND ${HAS_PASS_SQL};`, env);
+    if (passed !== "1") return ALLOW;
+  }
+  const branch = sqliteRo(db, `SELECT branch_id FROM tasks WHERE id=${safeId} LIMIT 1;`, env);
+  if (branch === "") return ALLOW;
+  if (sqliteRo(db, `SELECT worktree_adopted FROM tasks WHERE id=${safeId} LIMIT 1;`, env) === "1") {
+    const kept = taskLocation(db, safeId, env);
+    if (kept.code === 0) stderr2(`tmb: kept adopted worktree ${kept.worktree} after task #${taskId} closed (GH 2032)
+`);
+    return ALLOW;
+  }
+  const repoRoot = taskRepoRoot(db, safeId, env);
+  if (!isDir(`${repoRoot}/.git`)) return ALLOW;
+  const worktree = listedWorktree(repoRoot, slugMatcher(branchSlug(branch)), env);
+  if (worktree === "" || worktree === repoRoot) return ALLOW;
+  if (!gitOk(repoRoot, ["worktree", "remove", worktree, "--force"], env)) {
+    stderr2(`tmb: worktree remove failed for ${worktree} \u2014 leaving in place
+`);
+    return ALLOW;
+  }
+  gitOk(repoRoot, ["worktree", "prune"], env);
+  if (env[KEEP_HEAD_ENV] !== "1") resetHead(db, repoRoot, taskId, env, stderr2);
+  stderr2(`tmb: cleaned up worktree ${worktree} after task #${taskId} closed
+`);
+  return ALLOW;
+}
+var cleanupWorktreeOnTaskClose = (payload, env) => cleanupWorktree(payload, env, (line) => process.stderr.write(line));
+
+// src/hooks/worktree-create.ts
+import { spawnSync as spawnSync11 } from "node:child_process";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync16, statSync as statSync27 } from "node:fs";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
+var GATE_NAME49 = "worktree-create";
+var MERGE_DRIVER_MARK = "merge=tmb-regen";
+var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
+var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
+var fail = (stderr2, line) => {
+  stderr2(line);
+  return { stdout: "", code: 1 };
+};
+function isFile14(path) {
+  try {
+    return statSync27(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function pluginRoot2() {
+  return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
+}
+function installMergeDriver(dir, env, stderr2) {
+  const top = gitRun(dir, ["rev-parse", "--show-toplevel"], env);
+  if (top.code !== 0) return;
+  const root = top.stdout.replace(/\n+$/, "");
+  let attributes;
+  try {
+    attributes = readFileSync16(`${root}/.gitattributes`, "latin1");
+  } catch {
+    return;
+  }
+  if (!attributes.includes(MERGE_DRIVER_MARK)) return;
+  const r = spawnSync11("bash", [`${pluginRoot2()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
+  if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
+`);
+}
+function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
+  try {
+    mkdirSync8(posixDirname(worktree), { recursive: true });
+  } catch {
+  }
+  if (existsSync12(`${worktree}/.git`)) {
+    stderr2(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}
+`);
+    installMergeDriver(repo, env, stderr2);
+    return { stdout: `${worktree}
+`, code: 0 };
+  }
+  if (!gitOk(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], env)) {
+    if (!gitOk(repo, ["branch", branch, "HEAD"], env)) {
+      return fail(stderr2, `tmb worktree-create: could not create branch ${branch} in ${repo}
+`);
+    }
+    stderr2(`tmb worktree-create: auto-created branch ${branch} in ${repo}
+`);
+  }
+  if (!gitOk(repo, ["worktree", "add", worktree, branch], env)) return fail(stderr2, addFailed);
+  stderr2(created2);
+  installMergeDriver(repo, env, stderr2);
+  return { stdout: `${worktree}
+`, code: 0 };
+}
+function branchRepo(db, branch, env) {
+  const workspace = posixDirname(posixDirname(posixDirname(db)));
+  const safe = sqlQuote(branch);
+  const count = sqliteRo(db, `SELECT COUNT(*) FROM tasks WHERE branch_id='${safe}';`, env);
+  if ((count || "0") === "0") return repoSinglePath(db, env) || workspace;
+  const repo = sqliteRo(db, `SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='${safe}' LIMIT 1;`, env);
+  return repoResolvePath(db, repo, env) || workspace;
+}
+function worktreeCreateRun(payload, env, stderr2) {
+  const branch = jqCapture(jqInput(payload), ["branch"]);
+  if (branch === "") return fail(stderr2, NO_BRANCH);
+  const slug = branchSlug(branch);
+  const db = dbPath(env);
+  if (db === null || db === "" || !isFile14(db)) {
+    const cwd = shellPwd(env);
+    const worktree2 = `${cwd}/.claude/worktrees/${slug}`;
+    if (!gitOk(cwd, ["rev-parse", "--is-inside-work-tree"], env)) {
+      return fail(stderr2, `tmb worktree-create: no trajectory DB and cwd ${cwd} is not a git repo
+`);
+    }
+    return ensureWorktree(
+      cwd,
+      worktree2,
+      branch,
+      `tmb worktree-create: git worktree add failed for branch ${branch} in ${cwd}
+`,
+      `tmb worktree-create: created worktree ${worktree2} for branch ${branch} (no-DB path)
+`,
+      env,
+      stderr2
+    );
+  }
+  if (!haveSqlite(env)) return fail(stderr2, "tmb worktree-create: sqlite3 unavailable\n");
+  const repo = branchRepo(db, branch, env);
+  const worktree = `${repo}/.claude/worktrees/${slug}`;
+  if (!gitOk(repo, ["rev-parse", "--is-inside-work-tree"], env)) {
+    return fail(stderr2, `tmb worktree-create: resolved repo ${repo} is not a git work tree
+`);
+  }
+  return ensureWorktree(
+    repo,
+    worktree,
+    branch,
+    `tmb worktree-create: git worktree add failed for branch ${branch} in repo ${repo}
+`,
+    `tmb worktree-create: created worktree ${worktree} for branch ${branch} in repo ${repo}
+`,
+    env,
+    stderr2
+  );
+}
+var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -19798,7 +20162,9 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME44, cheatcodeInstallApproval],
   [GATE_NAME45, promptIntentHints],
   [GATE_NAME46, sweScopeFence],
-  [GATE_NAME47, postAtomicCloseReadme]
+  [GATE_NAME47, postAtomicCloseReadme],
+  [GATE_NAME48, cleanupWorktreeOnTaskClose],
+  [GATE_NAME49, worktreeCreate]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -19832,7 +20198,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync16(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync17(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

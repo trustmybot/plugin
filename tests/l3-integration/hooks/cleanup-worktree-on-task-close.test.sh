@@ -16,6 +16,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/cleanup-worktree-on-task-close.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/cleanup-worktree-on-task-close.sh"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cleanup-worktree-on-task-close.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -284,5 +290,34 @@ assert_contains "$out" 'cleaned up worktree' "worktree removed"
 AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 [ "$AFTER_HEAD" = "scratch-52" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'scratch-52'"; exit 1; }
 echo "  HEAD unchanged when TMB_KEEP_HEAD_ON_CLOSE=1"
+
+test_case "GH 2032: a worktree the task adopted (worktree_adopted=1) is kept by the TypeScript gate, removed by the .sh"
+sqlite3 "$DB" "
+  ALTER TABLE tasks ADD COLUMN repo TEXT;
+  ALTER TABLE tasks ADD COLUMN worktree_path TEXT;
+  ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0;
+"
+git -C "$REPO" branch fix/adopted-2032 HEAD
+git -C "$REPO" worktree add -q .claude/worktrees/adopted-2032 fix/adopted-2032
+ADOPTED_WT="$_REPO_REALPATH/.claude/worktrees/adopted-2032"
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status, repo, worktree_path, worktree_adopted) VALUES (60, 'fix/adopted-2032', 'closed', 'fixture', '$ADOPTED_WT', 1);"
+out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 60)" \
+  | env TMB_KEEP_HEAD_ON_CLOSE=1 bash "$HOOK" 2>&1 || true)
+if [ "$HOOK_IMPL" = ts ]; then
+  assert_contains "$out" "kept adopted worktree $ADOPTED_WT after task #60 closed (GH 2032)" "the gate names the kept worktree"
+  [ -d "$ADOPTED_WT" ] && _pass "adopted worktree kept" || _fail "adopted worktree removed"
+else
+  assert_contains "$out" 'cleaned up worktree' "the .sh removes it"
+  [ ! -d "$ADOPTED_WT" ] && _pass "the .sh removed the adopted worktree" || _fail "the .sh kept it"
+fi
+
+test_case "GH 2032: worktree_adopted=0 is removed by both"
+git -C "$REPO" branch fix/provisioned-2032 HEAD
+git -C "$REPO" worktree add -q .claude/worktrees/provisioned-2032 fix/provisioned-2032
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status, repo) VALUES (61, 'fix/provisioned-2032', 'closed', 'fixture');"
+out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 61)" \
+  | env TMB_KEEP_HEAD_ON_CLOSE=1 bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "worktree removed ($HOOK_IMPL)"
+[ ! -d "$REPO/.claude/worktrees/provisioned-2032" ] && _pass || _fail "provisioned worktree still present"
 
 summarize

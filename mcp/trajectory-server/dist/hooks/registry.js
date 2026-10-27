@@ -47,6 +47,8 @@ import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from '
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
+import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from './cleanup-worktree-on-task-close.js';
+import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -97,6 +99,8 @@ const GATES = new Map([
     [PROMPT_INTENT_GATE, promptIntentHints],
     [SWE_SCOPE_FENCE_GATE, sweScopeFence],
     [README_STALENESS_GATE, postAtomicCloseReadme],
+    [CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose],
+    [WORKTREE_CREATE_GATE, worktreeCreate],
 ]);
 export function findGate(name) {
     return GATES.get(name);
