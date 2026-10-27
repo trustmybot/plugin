@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "glab auth login"
+  },
+  "corpus_cwd": "norem",
+  "corpus_expect": "Interactive 'glab auth login' will hang"
+}

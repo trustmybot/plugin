@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add ../wt feat/behind"
+  },
+  "corpus_cwd": "stale",
+  "corpus_expect": "branch 'feat/behind' is behind origin/main by 1 commit(s)"
+}
