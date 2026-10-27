@@ -60,6 +60,7 @@ import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './pos
 import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
 import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
 import { GATE_NAME as RECORD_SWE_SPAWN_GATE, recordSweSpawn } from './record-swe-spawn.js';
+import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -118,6 +119,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
   [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
   [RECORD_SWE_SPAWN_GATE, recordSweSpawn],
+  [REMOTE_ID_GATE, remoteIdGuard],
 ]);
 
 export function findGate(name: string): Gate | undefined {
