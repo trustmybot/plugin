@@ -23,7 +23,9 @@ mcp-health-check
 naming-lint
 no-source-edit-from-main
 plugin-hooks-marker
+post-atomic-close-readme
 post-task-create-spawn-hint
+prompt-intent-hints
 require-feature-branch-active
 require-spawn-effort
 require-task-spec
@@ -42,6 +44,7 @@ swe-scope-fence
 swe-spawn-bind
 swe-spawn-rollback
 swe-stop-cause
+swe-verification-gate
 task-overrun-alert
 tool-output-size
 user-prompt-persona

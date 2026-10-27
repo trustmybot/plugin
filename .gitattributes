@@ -4,6 +4,7 @@
 mcp/trajectory-server/dist/index.js -whitespace
 mcp/trajectory-server/dist/codex.js -whitespace
 mcp/trajectory-server/dist/hooks.js -whitespace
+mcp/trajectory-server/dist/run-scan.js -whitespace
 
 # Generated artefacts: a merge keeps ours and names the file; rebuild them all
 # with `bash scripts/maintenance/regen-generated.sh` after the merge. The driver
