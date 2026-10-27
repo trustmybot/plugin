@@ -36,6 +36,7 @@ import { GATE_NAME as TOOL_OUTPUT_SIZE_GATE, toolOutputSize } from './tool-outpu
 import { GATE_NAME as CR_NO_WORKTREE_GATE, codeReviewerNoWorktree } from './code-reviewer-no-worktree.js';
 import { GATE_NAME as CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape } from './code-reviewer-spawn-prompt-shape.js';
 import { GATE_NAME as CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose } from './code-reviewer-after-atomic-close.js';
+import { GATE_NAME as SWE_VERIFICATION_GATE, sweVerificationGate } from './swe-verification-gate.js';
 import { GATE_NAME as SWE_BRIEF_GATE, sweBriefGate } from './swe-brief-gate.js';
 import { GATE_NAME as SWE_SPAWN_BIND_GATE, sweSpawnBind } from './swe-spawn-bind.js';
 import { GATE_NAME as SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback } from './swe-spawn-rollback.js';
@@ -82,6 +83,7 @@ const GATES = new Map([
     [CR_NO_WORKTREE_GATE, codeReviewerNoWorktree],
     [CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape],
     [CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose],
+    [SWE_VERIFICATION_GATE, sweVerificationGate],
     [SWE_BRIEF_GATE, sweBriefGate],
     [SWE_SPAWN_BIND_GATE, sweSpawnBind],
     [SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback],

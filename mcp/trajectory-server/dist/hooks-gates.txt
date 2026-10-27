@@ -40,6 +40,7 @@ swe-resume-gate
 swe-spawn-bind
 swe-spawn-rollback
 swe-stop-cause
+swe-verification-gate
 task-overrun-alert
 tool-output-size
 user-prompt-persona
