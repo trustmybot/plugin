@@ -1,7 +1,9 @@
 activation-routine
+agent-arg-matches-caller
 askuserquestion-length-lint
 attribution-footer
 bro-turn-usage
+cheatcode-install-approval
 code-quality-lint
 code-reviewer-after-atomic-close
 code-reviewer-no-worktree
@@ -24,6 +26,7 @@ post-task-create-spawn-hint
 require-feature-branch-active
 require-spawn-effort
 require-task-spec
+reviewer-identity-observe
 rework-limit
 roundtable-auq-shape
 roundtable-cleanup-postcheck

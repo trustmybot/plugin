@@ -40,6 +40,9 @@ import { GATE_NAME as SWE_BRIEF_GATE, sweBriefGate } from './swe-brief-gate.js';
 import { GATE_NAME as SWE_SPAWN_BIND_GATE, sweSpawnBind } from './swe-spawn-bind.js';
 import { GATE_NAME as SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback } from './swe-spawn-rollback.js';
 import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-task-create-spawn-hint.js';
+import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
+import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
+import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -83,6 +86,9 @@ const GATES = new Map([
     [SWE_SPAWN_BIND_GATE, sweSpawnBind],
     [SWE_SPAWN_ROLLBACK_GATE, sweSpawnRollback],
     [SPAWN_HINT_GATE, postTaskCreateSpawnHint],
+    [AGENT_ARG_GATE, agentArgMatchesCaller],
+    [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
+    [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
 ]);
 export function findGate(name) {
     return GATES.get(name);
