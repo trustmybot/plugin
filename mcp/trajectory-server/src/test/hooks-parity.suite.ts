@@ -247,6 +247,8 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'agent-spawn-dispatch',
   'ensure-swe-worktree',
   'record-swe-spawn',
+  'cleanup-worktree-on-task-close',
+  'worktree-create',
   'remote-id-guard',
 ]);
 
