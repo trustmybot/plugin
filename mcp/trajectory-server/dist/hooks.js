@@ -17162,6 +17162,117 @@ function roundtableSlashDetect(payload, env) {
   }
 }
 
+// src/hooks/code-reviewer-no-worktree.ts
+var GATE_NAME33 = "code-reviewer-no-worktree";
+var BYPASS_ENV3 = "TMB_ALLOW_CODE_REVIEWER_WORKTREE";
+var DENY_REASON = `code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin \u2014 from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.
+
+Spawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set ${BYPASS_ENV3}=1.`;
+function spawnField(payload, ...keys) {
+  return jqRawOr(`${commandSubstitution(payload)}
+`, [jqPath(...keys)]);
+}
+function isCodeReviewerSpawn(payload) {
+  return spawnField(payload, "tool_name") === "Agent" && normalizeRole(spawnField(payload, "tool_input", "subagent_type")) === CODE_REVIEWER_ROLE;
+}
+function spawnDeny(reason) {
+  return {
+    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
+`,
+    code: 0
+  };
+}
+var codeReviewerNoWorktree = (payload, env) => {
+  if (env[BYPASS_ENV3] === "1") return ALLOW;
+  if (!isCodeReviewerSpawn(payload)) return ALLOW;
+  return spawnField(payload, "tool_input", "isolation") === "worktree" ? spawnDeny(DENY_REASON) : ALLOW;
+};
+
+// src/hooks/code-reviewer-spawn-prompt-shape.ts
+var GATE_NAME34 = "code-reviewer-spawn-prompt-shape";
+var BYPASS_ENV4 = "TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE";
+var RUBBER_STAMP_PHRASES = ["trust the prior verdict", "fast-track if", "rubber.stamp", "prior verdict"];
+var ANCHOR_LIST = `${ANCHORS.slice(0, -1).join(", ")}, and ${ANCHORS[ANCHORS.length - 1]}`;
+function missingAnchorsReason(missing) {
+  return `BLOCKED: code-reviewer spawn prompt missing required anchors:${missing.map((a) => ` ${a}`).join("")}.
+
+Per tmb_push-gate, the prompt MUST contain ${ANCHOR_LIST}, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings \u2014 pass only the bare anchors plus a one-line context summary.`;
+}
+function rubberStampReason(phrase) {
+  return `BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: "${phrase}").
+
+Per tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.`;
+}
+function grepLines(prompt, multibyte) {
+  const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
+  return text.split("\n");
+}
+function missingAnchors(prompt, multibyte) {
+  const lines2 = grepLines(prompt, multibyte);
+  const flags2 = multibyte ? "u" : "";
+  return ANCHORS.filter((anchor) => {
+    const re = new RegExp(`(?:^|[^${grepAlnum(multibyte)}_])${anchor}=`, flags2);
+    return !lines2.some((line) => re.test(line));
+  });
+}
+function phraseRegExp(phrase, multibyte) {
+  const source = [...phrase].map((ch) => ch === "." ? "[^\\n]" : ch.replace(/[\\^$*+?()[\]{}|/]/g, "\\$&")).join("");
+  return new RegExp(source, multibyte ? "u" : "");
+}
+function rubberStampPhrase(prompt, multibyte) {
+  const lines2 = grepLines(prompt, multibyte).map((line) => line.replace(/[A-Z]/g, (c) => c.toLowerCase()));
+  return RUBBER_STAMP_PHRASES.find((phrase) => lines2.some((line) => phraseRegExp(phrase, multibyte).test(line))) ?? null;
+}
+var codeReviewerSpawnPromptShape = (payload, env) => {
+  if (env[BYPASS_ENV4] === "1") return ALLOW;
+  if (!isCodeReviewerSpawn(payload)) return ALLOW;
+  const prompt = spawnField(payload, "tool_input", "prompt");
+  const multibyte = grepMultibyte(env);
+  const missing = missingAnchors(prompt, multibyte);
+  if (missing.length > 0) return spawnDeny(missingAnchorsReason(missing));
+  const phrase = rubberStampPhrase(prompt, multibyte);
+  return phrase === null ? ALLOW : spawnDeny(rubberStampReason(phrase));
+};
+
+// src/hooks/code-reviewer-after-atomic-close.ts
+var GATE_NAME35 = "code-reviewer-after-atomic-close";
+var BYPASS_ENV5 = "TMB_SKIP_CODE_REVIEWER_CLOSE_GATE";
+function notClosedReason(taskId, status) {
+  return `BLOCKED: code-reviewer spawn requires task ${taskId} status=closed but actual status=${status}.
+
+Per tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:
+  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
+  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
+  3. ONLY THEN: spawn code-reviewer for the push gate.
+
+SWE returning completed does not close the trajectory task \u2014 that is bro_atomic_close.
+
+Fix: call bro_atomic_close(agent='bro', task_id=${taskId}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.`;
+}
+function promptTaskId2(prompt, multibyte) {
+  const space2 = grepSpace(multibyte);
+  const re = new RegExp(`task_id[${space2}]*=[${space2}]*([0-9]+)`, multibyte ? "u" : "");
+  const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
+  for (const line of text.split("\n")) {
+    const m = re.exec(line);
+    if (m) return m[1];
+  }
+  return "";
+}
+var codeReviewerAfterAtomicClose = (payload, env) => {
+  if (env[BYPASS_ENV5] === "1") return ALLOW;
+  if (!isCodeReviewerSpawn(payload)) return ALLOW;
+  const taskId = sqlInt(promptTaskId2(spawnField(payload, "tool_input", "prompt"), grepMultibyte(env)));
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const status = gateRead(db, `SELECT status FROM tasks WHERE id = ${taskId};`, env);
+  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME35, env)}
+`, code: 0 };
+  if (status === "" || status === "closed") return ALLOW;
+  return spawnDeny(notClosedReason(taskId, status));
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -17197,7 +17308,10 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME29, consultantPersistenceGate],
   [GATE_NAME30, roundtableAuqShape],
   [GATE_NAME31, roundtableCleanupPostcheck],
-  [GATE_NAME32, roundtableSlashDetect]
+  [GATE_NAME32, roundtableSlashDetect],
+  [GATE_NAME33, codeReviewerNoWorktree],
+  [GATE_NAME34, codeReviewerSpawnPromptShape],
+  [GATE_NAME35, codeReviewerAfterAtomicClose]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

@@ -3,8 +3,11 @@ askuserquestion-length-lint
 attribution-footer
 bro-turn-usage
 code-quality-lint
+code-reviewer-after-atomic-close
+code-reviewer-no-worktree
 code-reviewer-preflight
 code-reviewer-spawn-note
+code-reviewer-spawn-prompt-shape
 commit-msg-lint
 consultant-persistence-gate
 containment-guard

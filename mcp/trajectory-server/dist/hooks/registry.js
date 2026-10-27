@@ -32,6 +32,9 @@ import { GATE_NAME as CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate } f
 import { GATE_NAME as RT_AUQ_SHAPE_GATE, roundtableAuqShape } from './roundtable-auq-shape.js';
 import { GATE_NAME as RT_CLEANUP_GATE, roundtableCleanupPostcheck } from './roundtable-cleanup-postcheck.js';
 import { GATE_NAME as RT_SLASH_GATE, roundtableSlashDetect } from './roundtable-slash-detect.js';
+import { GATE_NAME as CR_NO_WORKTREE_GATE, codeReviewerNoWorktree } from './code-reviewer-no-worktree.js';
+import { GATE_NAME as CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape } from './code-reviewer-spawn-prompt-shape.js';
+import { GATE_NAME as CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose } from './code-reviewer-after-atomic-close.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -67,6 +70,9 @@ const GATES = new Map([
     [RT_AUQ_SHAPE_GATE, roundtableAuqShape],
     [RT_CLEANUP_GATE, roundtableCleanupPostcheck],
     [RT_SLASH_GATE, roundtableSlashDetect],
+    [CR_NO_WORKTREE_GATE, codeReviewerNoWorktree],
+    [CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape],
+    [CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose],
 ]);
 export function findGate(name) {
     return GATES.get(name);
