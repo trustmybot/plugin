@@ -90,7 +90,7 @@ function rebased(sandbox: string, name: string, files: Record<string, string>, r
   return { task, rebase: git(dir, 'rev-parse', 'HEAD') };
 }
 
-function buildSandbox(sandbox: string): void {
+export function buildSandbox(sandbox: string): void {
   mkdirSync(join(sandbox, 'project'));
   mkdirSync(join(sandbox, 'db'));
   writeFileSync(join(sandbox, 'bad.db'), 'this is not a sqlite database\n'.repeat(64));
@@ -167,7 +167,7 @@ interface Materialized {
   expect: string;
 }
 
-function materialize(file: string, sandbox: string): Materialized {
+export function materialize(file: string, sandbox: string): Materialized {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
   const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text) as {
     corpus_env?: NodeJS.ProcessEnv;

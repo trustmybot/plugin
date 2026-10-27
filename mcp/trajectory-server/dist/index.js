@@ -25222,6 +25222,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
+  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
@@ -25446,7 +25447,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 53;
+var TARGET_SCHEMA_VERSION = 54;
 var BUSY_TIMEOUT_MS = 5e3;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
@@ -26012,6 +26013,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 53 && toVersion >= 53) {
     migrateV52toV53(db2);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db2);
   }
 }
 function deleteBuiltinCheatcodeAttachments(db2, name2) {
@@ -27873,6 +27877,28 @@ function migrateV52toV53(db2) {
         );
         CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
       `);
+    }
+    commitTransaction(db2);
+  } catch (err21) {
+    try {
+      rollbackTransaction(db2);
+    } catch {
+    }
+    throw err21;
+  }
+}
+function migrateV53toV54(db2) {
+  beginImmediate(db2);
+  try {
+    if (tableExists(db2, "tasks")) {
+      if (!hasColumn(db2, "tasks", "worktree_path")) {
+        db2.exec("ALTER TABLE tasks ADD COLUMN worktree_path TEXT");
+      }
+      if (!hasColumn(db2, "tasks", "worktree_adopted")) {
+        db2.exec(
+          "ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))"
+        );
+      }
     }
     commitTransaction(db2);
   } catch (err21) {
@@ -40723,6 +40749,9 @@ function outsideProjectResult(refusal2) {
 function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
 }
+function taskWorktreeDir(repoPath, task) {
+  return task.worktree_path ? task.worktree_path : taskWorktreePath(repoPath, task.branch_id);
+}
 function git2(repoPath, args2, timeout = SUBPROCESS_TIMEOUT_MS) {
   return execFileSync3("git", ["-C", repoPath, ...args2], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -40767,8 +40796,7 @@ function worktreeOfBranch(repoPath, branchId) {
   }
   return null;
 }
-function ensureTaskWorktree(repoPath, branchId) {
-  const worktreePath = taskWorktreePath(repoPath, branchId);
+function ensureTaskWorktree(repoPath, branchId, worktreePath = taskWorktreePath(repoPath, branchId)) {
   let reused = false;
   if (existsSync6(worktreePath)) {
     const canonicalWt = realpathSync5(worktreePath);
@@ -40860,7 +40888,7 @@ function branchIdUsedOnIssueResult(db2, tool, issueId, branchId) {
     [issueId, branchId]
   );
   if (!existing) return null;
-  const nextStep = tool === "task_provision" ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or pick a fresh branch_id from branch_id_propose (with base='${branchId}' to stack on it) for a separately gated task.` : `Pick a fresh new_branch_id from branch_id_propose.`;
+  const nextStep = tool === "task_provision" ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or, for a separately gated task, pick a new name with branch_id_propose, or call task_provision with base='${branchId}' to stack on it.` : `Pick a fresh new_branch_id from branch_id_propose.`;
   return {
     isError: true,
     content: [
@@ -41587,7 +41615,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const spawnNote = parseSpawnNote(args2["spawn_note"], "task_reopen");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.parent_branch_id, t.status, t.files, t.verification, t.repo, t.effort,
-                  i.status AS issue_status
+                  t.worktree_path, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId]
         );
@@ -41603,7 +41631,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const wontfix = parseWontfix(db2, taskId, args2["wontfix"]);
         const repoPath = resolveRepoPath(db2, task.repo);
         if (repoPath) {
-          for (const path2 of [repoPath, taskWorktreePath(repoPath, task.branch_id)]) {
+          for (const path2 of [repoPath, taskWorktreeDir(repoPath, task)]) {
             const refusal2 = outsideProject("task_reopen", runContext.projectRoot, path2);
             if (refusal2) return outsideProjectResult(refusal2);
           }
@@ -41690,11 +41718,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
                 branchCreated = branch.kind === "ready" && branch.created;
               }
             }
-            const wt = ensureTaskWorktree(repoPath, task.branch_id);
+            const wt = ensureTaskWorktree(repoPath, task.branch_id, taskWorktreeDir(repoPath, task));
             worktreePath = wt.worktreePath;
             worktreeRecreated = !wt.reused;
           } catch (e) {
-            worktreePath = taskWorktreePath(repoPath, task.branch_id);
+            worktreePath = taskWorktreeDir(repoPath, task);
             diagnostic = e.message;
           }
         } else {
@@ -41815,7 +41843,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const want = (s) => section === "all" || section === s;
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, i.objective
+                  t.effort, t.completion_report, t.spawn_note, t.checkpoint, t.worktree_path, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId]
@@ -41823,7 +41851,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (!task) return err17(`No task with id=${taskId}`);
         if (isSwe) {
           const repoPath = resolveRepoPath(db2, task.repo);
-          openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null);
+          openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreeDir(repoPath, task) : null);
           const sentinel = db2.get(
             `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`,
             [task.id]
@@ -42426,7 +42454,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const results = [];
         for (const tid of taskIds) {
           const task = db2.get(
-            "SELECT id, branch_id, commit_sha FROM tasks WHERE id = ? LIMIT 1",
+            "SELECT id, branch_id, commit_sha, worktree_path FROM tasks WHERE id = ? LIMIT 1",
             [tid]
           );
           if (!task) {
@@ -42448,7 +42476,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             } catch {
             }
           }
-          const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
+          const wtPath = taskWorktreeDir(repoPath, task);
           try {
             let targetSha = task.commit_sha ?? "";
             if (!targetSha) {
@@ -42964,18 +42992,43 @@ function pluginNameOf(pluginRoot) {
   }
   return "tmb";
 }
+var NO_PRE_TOOL_USE = "hooks/hooks.json missing or has no PreToolUse";
 function readPreToolUseFromHooksJson(pluginRoot) {
   const hooksJsonPath = join15(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync8(hooksJsonPath)) return null;
+  if (!existsSync8(hooksJsonPath)) return { reason: NO_PRE_TOOL_USE };
   let parsed;
   try {
     parsed = JSON.parse(readFileSync8(hooksJsonPath, "utf8"));
   } catch {
-    return null;
+    return { reason: NO_PRE_TOOL_USE };
   }
   const pre = parsed.hooks?.PreToolUse;
-  if (!Array.isArray(pre)) return null;
-  return pre;
+  if (!Array.isArray(pre)) return { reason: NO_PRE_TOOL_USE };
+  const groups = [];
+  for (const group of pre) {
+    const hooks = [];
+    for (const h of group.hooks ?? []) {
+      const gates = routerGateHooks(pluginRoot, h);
+      if (gates !== null && "reason" in gates) return gates;
+      hooks.push(...gates ?? [h]);
+    }
+    groups.push({ ...group, hooks });
+  }
+  return groups;
+}
+var ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
+function routerGateHooks(pluginRoot, h) {
+  const event = ROUTER_COMMAND.exec(h.command ?? "")?.[1];
+  if (event === void 0) return null;
+  let manifest;
+  try {
+    manifest = readFileSync8(join15(pluginRoot, "mcp", "trajectory-server", "dist", "hooks-router.txt"), "utf8");
+  } catch {
+    return { reason: "dist/hooks-router.txt missing or unreadable" };
+  }
+  const gates = manifest.split("\n").map((line) => line.split(" ")).filter((f) => f.length >= 4 && f[3] === event && /^[a-z0-9-]+$/.test(f[0])).map(([gate, budgetMs]) => ({ type: "command", command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${gate}`, timeout: Math.ceil(Number(budgetMs) / 1e3) }));
+  if (gates.length === 0) return { reason: `dist/hooks-router.txt lists no gate for ${event}` };
+  return gates;
 }
 function keptHooks(group) {
   return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
@@ -43030,7 +43083,7 @@ function installedPluginGuard(pluginRoot) {
   const marketplace = installedMarketplace(pluginRoot);
   if (!marketplace) return { reason: "plugin-root-not-installed" };
   const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
+  if ("reason" in pre) return { reason: pre.reason };
   return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 function settingsFile(projectRoot) {
@@ -45904,7 +45957,7 @@ function pathHasSegment(path2, segment) {
 }
 function blockingTasks(db2, old, oldPath) {
   const tasks = db2.all(
-    `SELECT t.id, t.status, t.branch_id, r.path AS repo_path
+    `SELECT t.id, t.status, t.branch_id, t.worktree_path, r.path AS repo_path
        FROM tasks t LEFT JOIN repos r ON r.name = t.repo
       WHERE t.status IN (SELECT value FROM json_each(?))`,
     [JSON.stringify(LIVE_TASK_STATUSES)]
@@ -45916,7 +45969,7 @@ function blockingTasks(db2, old, oldPath) {
       [t.id]
     ).map((r) => r.root_dir);
     const repoPath = t.repo_path ?? oldPath;
-    const candidates = [taskWorktreePath(repoPath, t.branch_id), ...roots];
+    const candidates = [taskWorktreeDir(repoPath, t), ...roots];
     const hit = candidates.find((p) => pathHasSegment(p, old));
     if (hit) blocking.push({ id: t.id, status: t.status, worktree: hit });
   }
@@ -47619,7 +47672,7 @@ function agentRunsBackfill(db2, opts) {
       continue;
     }
     const task = db2.get(
-      "SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ?",
+      "SELECT id, issue_id, branch_id, status, repo, worktree_path FROM tasks WHERE id = ?",
       [taskId]
     );
     if (!task) {
@@ -47650,7 +47703,7 @@ function agentRunsBackfill(db2, opts) {
     const tokens = usageTotal(stats);
     report.tokens_total_added += tokens;
     const repoPath = resolveRepoPath(db2, task.repo);
-    const rootDir = repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null;
+    const rootDir = repoPath?.startsWith("/") ? taskWorktreeDir(repoPath, task) : null;
     if (target) {
       claimedRunIds.add(target.id);
       report.rows_updated++;

@@ -8,6 +8,10 @@
 # its src/hooks/<gate>.ts exists and dist/hooks-gates.txt lists it.
 # The dispatcher is what makes one gate execution per event hold however many
 # registrations fire; a registration that calls a gate directly bypasses it.
+# The one other form is the router (GH 1692 R1),
+#   node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" <Event>,
+# which holds the same per-call dedupe: each gate dist/hooks-router.txt lists
+# for <Event> must have a .sh or a src/hooks TypeScript source.
 
 set -euo pipefail
 
@@ -33,6 +37,22 @@ PREFIX='"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" '
 
 while IFS= read -r cmd; do
   CHECKED=$((CHECKED + 1))
+  event=$(tmb_router_event "$cmd")
+  if [ -n "$event" ]; then
+    members=$(tmb_router_gates "$ROOT" "$event")
+    if [ -z "$members" ]; then
+      printf "hooks-via-dispatcher: router entry for %s, but dist/hooks-router.txt lists no %s gate: %s\n" "$event" "$event" "$cmd" >&2
+      FAIL=$((FAIL + 1))
+    fi
+    for g in $members; do
+      GATES=$((GATES + 1))
+      [ -f "scripts/hooks/$g.sh" ] || ts_only "$g" || [ -f "mcp/trajectory-server/src/hooks/$g.ts" ] || {
+        printf "hooks-via-dispatcher: router gate has no source: %s\n" "$g" >&2
+        FAIL=$((FAIL + 1))
+      }
+    done
+    continue
+  fi
   gate="${cmd#"$PREFIX"}"
   if [ "$gate" = "$cmd" ]; then
     printf "hooks-via-dispatcher: not routed through dispatch.sh: %s\n" "$cmd" >&2

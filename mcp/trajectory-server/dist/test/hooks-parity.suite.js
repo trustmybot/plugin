@@ -84,7 +84,7 @@ const NOW = '2026-10-11T10:00:00.000Z';
  * @SANDBOX@ and the project's Claude Code slug as @PROJECT_SLUG@; a payload's
  * top-level corpus_env (removed before the run) overrides the env.
  */
-function containmentGuardSetup(scratch) {
+export function containmentGuardSetup(scratch) {
     const project = join(scratch, 'project');
     const wt = join(project, '.claude/worktrees/cg-task');
     const db = join(project, '.claude/tmb/trajectory.db');
@@ -168,9 +168,11 @@ function auditRowsAfter(db, mark) {
  * host's processes and installs, so they run in hooks-session-parity.suite.ts
  * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side;
  * and the task-DB Agent-spawn gates, which read a sandbox of git repos and
- * trajectory DBs in hooks-spawn-gates-parity.suite.ts; and
- * no-source-edit-from-main, which reads registered repos and plugin manifests
- * in hooks-no-source-edit-parity.suite.ts.
+ * trajectory DBs in hooks-spawn-gates-parity.suite.ts; remote-id-guard,
+ * which reads a sandbox DB of local issues in
+ * hooks-remote-id-guard-parity.suite.ts; and no-source-edit-from-main, which
+ * reads registered repos and plugin manifests in
+ * hooks-no-source-edit-parity.suite.ts.
  */
 const OWN_SANDBOX_GATES = new Set([
     'activation-routine',
@@ -201,10 +203,24 @@ const OWN_SANDBOX_GATES = new Set([
     'agent-arg-matches-caller',
     'reviewer-identity-observe',
     'cheatcode-install-approval',
+    'stay-on-base-guard',
+    'branch-up-to-date-with-remote',
+    'no-worktree-branch-create',
+    'no-remote-auth-guard',
     'prompt-intent-hints',
     'swe-scope-fence',
+    'clean-merged-branch',
+    'close-issue-on-merge',
+    'swe-atomic-close',
+    'post-task-close-rescan',
     'swe-verification-gate',
     'post-atomic-close-readme',
+    'agent-spawn-dispatch',
+    'ensure-swe-worktree',
+    'record-swe-spawn',
+    'cleanup-worktree-on-task-close',
+    'worktree-create',
+    'remote-id-guard',
     'no-source-edit-from-main',
 ]);
 function parityCases() {

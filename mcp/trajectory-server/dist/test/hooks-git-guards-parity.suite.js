@@ -73,7 +73,7 @@ function gitflow(sandbox, name, on) {
     git(dir, 'checkout', '-q', on);
     return dir;
 }
-function buildSandbox(sandbox) {
+export function buildSandbox(sandbox) {
     mkdirSync(join(sandbox, 'project'));
     mkdirSync(join(sandbox, 'db'));
     const ghf = repo(sandbox, 'ghf');
@@ -130,7 +130,7 @@ function buildSandbox(sandbox) {
         db.close();
     }
 }
-function materialize(file, sandbox) {
+export function materialize(file, sandbox) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
     const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, expect };

@@ -1,10 +1,12 @@
 /**
  * `git -C <dir> <args>` for the hook gates (GH 1692): argv only, never a shell
- * string, stderr dropped as the .sh's `2>/dev/null` does, and no timeout of
- * its own, as the .sh runs git with none (the hook's timeout bounds it).
+ * string, stderr dropped as the .sh's `2>/dev/null` does. Under the router it
+ * times out at the running gate's deadline (decision 922); outside it, as the
+ * .sh runs git, with no timeout of its own.
  */
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
+import { noteSpawn, spawnLimit, spawnOptions } from './deadline.js';
 
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 
@@ -20,13 +22,16 @@ export function gitRun(
   input = '',
   stderr: 'ignore' | 'inherit' = 'ignore',
 ): GitRun {
+  const limit = spawnLimit();
   const r = spawnSync('git', ['-C', dir, ...args], {
     encoding: 'utf8',
     env,
     input,
     maxBuffer: GIT_MAX_BUFFER,
     stdio: ['pipe', 'pipe', stderr],
+    ...spawnOptions(limit),
   });
+  noteSpawn(limit, r);
   return { code: r.error ? -1 : (r.status ?? -1), stdout: r.stdout ?? '' };
 }
 

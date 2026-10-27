@@ -14,13 +14,19 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 
-# registered <root> — every gate script hooks.json runs, chains expanded.
+# registered <root> — every gate script hooks.json runs, chains and the
+# router entry (its dist/hooks-router.txt gates) expanded.
 registered() {
   local name members
-  for name in $(grep -oE 'dispatch\.sh(\\")? [a-z0-9-]+"' "$1/hooks/hooks.json" | sed -E 's/dispatch\.sh(\\")? (.*)"/\2/' | sort -u); do
-    members=$(tmb_chain_table "$name" | cut -d' ' -f1)
-    printf '%s\n' ${members:-$name}
-  done | sort -u
+  {
+    for name in $(grep -oE 'dispatch\.sh(\\")? [a-z0-9-]+"' "$1/hooks/hooks.json" | sed -E 's/dispatch\.sh(\\")? (.*)"/\2/' | sort -u); do
+      members=$(tmb_chain_table "$name" | cut -d' ' -f1)
+      printf '%s\n' ${members:-$name}
+    done
+    for name in $(grep -oE 'dist/hooks\.js\\" [A-Za-z]+"' "$1/hooks/hooks.json" | sed -E 's/.* (.*)"/\1/' | sort -u); do
+      tmb_router_gates "$1" "$name"
+    done
+  } | sort -u
 }
 
 check_tree() {
@@ -65,6 +71,8 @@ self_test() {
   mkdir -p "$tmp/t/docs/reference" "$tmp/t/hooks" "$tmp/t/mcp/trajectory-server/src"
   cp -R "$REPO_ROOT/scripts" "$tmp/t/scripts"
   cp -R "$REPO_ROOT/mcp/trajectory-server/src/hooks" "$tmp/t/mcp/trajectory-server/src/hooks"
+  mkdir -p "$tmp/t/mcp/trajectory-server/dist"
+  cp "$REPO_ROOT/mcp/trajectory-server/dist/hooks-router.txt" "$tmp/t/mcp/trajectory-server/dist/"
   cp "$REPO_ROOT/hooks/hooks.json" "$tmp/t/hooks/hooks.json"
   awk '{print} /^\| Hook \| Trigger \| Purpose \|/{getline; print; print "| `deleted-hook.sh` | Stop | gone |"}' \
     "$REPO_ROOT/docs/reference/REFERENCE.md" > "$tmp/t/docs/reference/REFERENCE.md"

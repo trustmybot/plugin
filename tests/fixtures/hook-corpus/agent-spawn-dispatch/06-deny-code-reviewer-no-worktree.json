@@ -1,0 +1,1 @@
+{"tool_name":"Agent","tool_input":{"subagent_type":"code-reviewer","prompt":"Review it.","effort":"high","isolation":"worktree"},"corpus_expect":"code-reviewer must NOT run with isolation=\\\"worktree\\\""}

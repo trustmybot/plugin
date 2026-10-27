@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "SubagentStop",
+  "agent_type": "code-reviewer",
+  "agent_id": "agent-43",
+  "agent_transcript_path": "@SANDBOX@/transcripts/43.jsonl",
+  "session_id": "sess-1",
+  "corpus_expect": "\"effort\":\"low\""
+}

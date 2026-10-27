@@ -21,7 +21,10 @@
 #   GH 1821: the heredoc + compound gh api repro is allowed well under the 6 s
 #            budget; an analysis past TMB_REMOTE_ID_GUARD_DEADLINE_S allows,
 #            notes it on stderr and writes one remote_id_guard_overrun row
-#   corpus: tests/fixtures/hook-corpus/remote-id-guard/ (*-local-id.json deny, the rest allow)
+#   corpus: tests/fixtures/hook-corpus/remote-id-guard/, each payload's
+#           corpus_expect (the side's own under corpus_divergent) with its corpus_env
+#   TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate (GH 1692); its overrun cases
+#   set TMB_REMOTE_ID_GUARD_TEST_OVERRUN=1, since the TS analysis is too fast to overrun
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,6 +33,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/fixtures/migrated-db.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/remote-id-guard.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/remote-id-guard.sh"
+OVERRUN_KNOB=""
+[ "$HOOK_IMPL" != ts ] || OVERRUN_KNOB=1
 CORPUS="$PLUGIN_ROOT/tests/fixtures/hook-corpus/remote-id-guard"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-remote-id-guard.XXXXXX")
@@ -41,6 +48,8 @@ trap 'rm -rf "$TMPDIR"' EXIT
 #   id=7  → gl_iid=88, gh_iid NULL (GitLab project)
 #   id=9  → gh_iid NULL, gl_iid NULL (unmapped local)
 #   id=10 → gh_iid=50, gl_iid=60 (BOTH set, differ — provider decides which iid)
+#   id=11 → gh_iid=77, an objective of printf %b escapes
+#   id=12 → gh_iid=78, a two-line objective with a bar
 DB="$TMPDIR/trajectory.db"
 migrated_db "$DB"
 sqlite3 "$DB" "
@@ -49,7 +58,9 @@ sqlite3 "$DB" "
     (42, 'Local forty-two', 42, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
     (7, 'Local seven', NULL, 88, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
     (9, 'Local nine', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
-    (10, 'Local ten', 50, 60, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    (10, 'Local ten', 50, 60, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+    (11, 'back\slash \t tab \x41 \101 \c cut', 77, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+    (12, 'multi' || char(10) || 'line|x', 78, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 "
 
 input_bash() {
@@ -223,7 +234,7 @@ before=$(overrun_rows)
 t0=$(now_ms)
 rc_o=0
 out_o=$(input_bash "$PATHOLOGICAL" | TRAJECTORY_DB_PATH="$DB" TMB_REMOTE_ID_GUARD_DEADLINE_S=1 \
-  bash "$HOOK" 2>"$TMPDIR/overrun.err") || rc_o=$?
+  TMB_REMOTE_ID_GUARD_TEST_OVERRUN="$OVERRUN_KNOB" bash "$HOOK" 2>"$TMPDIR/overrun.err") || rc_o=$?
 elapsed_o=$(( $(now_ms) - t0 ))
 assert_exit_code 0 "$rc_o" "overrun exit code"
 assert_eq "" "$out_o" "overrun stdout (no deny JSON)"
@@ -257,7 +268,7 @@ esac
 test_case "GH 1821: overrun with no trajectory DB still allows"
 rc_o2=0
 out_o2=$(input_bash "$PATHOLOGICAL" | TRAJECTORY_DB_PATH="$TMPDIR/no-such.db" TMB_REMOTE_ID_GUARD_DEADLINE_S=1 \
-  bash "$HOOK" 2>/dev/null) || rc_o2=$?
+  TMB_REMOTE_ID_GUARD_TEST_OVERRUN="$OVERRUN_KNOB" bash "$HOOK" 2>/dev/null) || rc_o2=$?
 assert_exit_code 0 "$rc_o2" "overrun without DB exit code"
 assert_eq "" "$out_o2" "overrun without DB stdout"
 
@@ -269,16 +280,28 @@ assert_contains "$out_inv" '"permissionDecision":"deny"' "deny under the default
 # ============================================================================
 # Hook corpus — the payloads a TS port (GH 1692) inherits
 # ============================================================================
+printf 'this is not a sqlite database\n' > "$TMPDIR/bad.db"
 for f in "$CORPUS"/*.json; do
   name=$(basename "$f")
   test_case "corpus $name"
+  if grep -q '@NO[A-Z]*_PATH@' "$f"; then
+    printf 'SKIP %s — its PATH without jq or sqlite3 runs in hooks-remote-id-guard-parity\n' "$CURRENT_TEST"
+    continue
+  fi
+  expect_c=$(jq -r --arg impl "$HOOK_IMPL" '.corpus_expect | if type == "object" then .[$impl] else . end' "$f")
+  env_c=()
+  while IFS= read -r kv; do env_c+=("$kv"); done < <(corpus_payload "$name" | jq -r '(.corpus_env // {}) | to_entries[] | "\(.key)=\(.value)"')
   rc_c=0
-  out_c=$(corpus_payload "$name" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || rc_c=$?
+  out_c=$(corpus_payload "$name" | jq -c 'del(.corpus_env, .corpus_expect, .corpus_divergent)' \
+    | env TRAJECTORY_DB_PATH="$DB" ${env_c[@]+"${env_c[@]}"} bash "$HOOK" 2>/dev/null) || rc_c=$?
   assert_exit_code 0 "$rc_c" "$name exit code"
-  case "$name" in
-    *-local-id.json) assert_contains "$out_c" '"permissionDecision":"deny"' "$name denies" ;;
-    *) assert_eq "" "$out_c" "$name allows" ;;
-  esac
+  if [ "$expect_c" = allow ]; then
+    assert_eq "" "$out_c" "$name allows"
+  else
+    assert_contains "$out_c" '"permissionDecision":"deny"' "$name denies"
+    reason_c=$(printf '%s' "$out_c" | jq -r '.hookSpecificOutput.permissionDecisionReason')
+    assert_contains "$reason_c" "$expect_c" "$name deny reason"
+  fi
 done
 
 summarize

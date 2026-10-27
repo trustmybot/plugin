@@ -5,6 +5,7 @@
  * sqlite3 CLI on PATH these need a working SQLite (haveSqlite), node:sqlite
  * included.
  */
+import { payloadCwd } from '../cmd-analysis/path.js';
 import { haveSqlite, realdir, repoPathAbs, sqliteRo, sqlQuote } from './db.js';
 import { cdPwd, gitOk, gitOut, isDir } from './git.js';
 import { posixDirname, shellPwd } from './project-env.js';
@@ -26,6 +27,51 @@ function firstLine(text: string): string {
 
 function readable(db: string, env: NodeJS.ProcessEnv): boolean {
   return isFile(db) && haveSqlite(env);
+}
+
+const CD_PREFIX = /^[ \t\v\f\r]*cd[ \t\v\f\r]+/;
+const CD_TARGETS: readonly RegExp[] = [/^"([^"]+)"/, /^'([^']+)'/, /^([^ \t\v\f\r&;]+)/];
+const GIT_C = /git -C ([^ \t\v\f\r]+)/;
+
+/** The target of a line's leading `cd` as the .sh's ERE reads it: the longest alternative, the earlier on a tie. */
+function cdTarget(line: string): string | null {
+  const prefix = CD_PREFIX.exec(line);
+  if (!prefix) return null;
+  const rest = line.slice(prefix[0].length);
+  let best: RegExpExecArray | null = null;
+  for (const re of CD_TARGETS) {
+    const m = re.exec(rest);
+    if (m && (best === null || m[0].length > best[0].length)) best = m;
+  }
+  return best === null ? null : best[1];
+}
+
+/**
+ * tmb_cmd_cwd <command> <input>: the dir a Bash command runs in: the first
+ * line's leading `cd <path>`, else the first `git -C <path>` (quotes
+ * dropped), else the payload's cwd; a relative path joins the payload's cwd.
+ */
+export function cmdCwd(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+  const base = payloadCwd(input, env);
+  const lines = cmd.split('\n');
+  let cdPath: string | null = null;
+  for (const line of lines) {
+    cdPath = cdTarget(line);
+    if (cdPath !== null) break;
+  }
+  if (cdPath === null) {
+    cdPath = '';
+    for (const line of lines) {
+      const m = GIT_C.exec(line);
+      if (m) {
+        cdPath = m[1].replace(/['"]/g, '');
+        break;
+      }
+    }
+  }
+  if (cdPath === '') return base;
+  if (cdPath.startsWith('/')) return cdPath;
+  return `${base.replace(/\/$/, '')}/${cdPath}`;
 }
 
 /** tmb_repo_default_branch <root>: origin/HEAD's branch, else main / master / dev, else HEAD's, else main. */

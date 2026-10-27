@@ -84,7 +84,7 @@ function rebased(sandbox, name, files, regenerate = {}) {
     }
     return { task, rebase: git(dir, 'rev-parse', 'HEAD') };
 }
-function buildSandbox(sandbox) {
+export function buildSandbox(sandbox) {
     mkdirSync(join(sandbox, 'project'));
     mkdirSync(join(sandbox, 'db'));
     writeFileSync(join(sandbox, 'bad.db'), 'this is not a sqlite database\n'.repeat(64));
@@ -144,7 +144,7 @@ function buildSandbox(sandbox) {
         db.close();
     }
 }
-function materialize(file, sandbox) {
+export function materialize(file, sandbox) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sandbox);
     const { corpus_env: env = {}, corpus_expect: expect = '', ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, expect };

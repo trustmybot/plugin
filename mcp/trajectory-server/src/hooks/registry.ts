@@ -50,9 +50,23 @@ import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-ta
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
+import { GATE_NAME as STAY_ON_BASE_GATE, stayOnBaseGuard } from './stay-on-base-guard.js';
+import { GATE_NAME as BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote } from './branch-up-to-date-with-remote.js';
+import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } from './no-worktree-branch-create.js';
+import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
+import { GATE_NAME as CLEAN_MERGED_GATE, cleanMergedBranch } from './clean-merged-branch.js';
+import { GATE_NAME as CLOSE_ISSUE_GATE, closeIssueOnMerge } from './close-issue-on-merge.js';
+import { GATE_NAME as SWE_ATOMIC_CLOSE_GATE, sweAtomicClose } from './swe-atomic-close.js';
+import { GATE_NAME as TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan } from './post-task-close-rescan.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
+import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
+import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
+import { GATE_NAME as RECORD_SWE_SPAWN_GATE, recordSweSpawn } from './record-swe-spawn.js';
+import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from './cleanup-worktree-on-task-close.js';
+import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
+import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 import { GATE_NAME as NO_SOURCE_EDIT_GATE, noSourceEditFromMain } from './no-source-edit-from-main.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
@@ -102,9 +116,23 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [AGENT_ARG_GATE, agentArgMatchesCaller],
   [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
   [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
+  [STAY_ON_BASE_GATE, stayOnBaseGuard],
+  [BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote],
+  [NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate],
+  [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
   [PROMPT_INTENT_GATE, promptIntentHints],
   [SWE_SCOPE_FENCE_GATE, sweScopeFence],
+  [CLEAN_MERGED_GATE, cleanMergedBranch],
+  [CLOSE_ISSUE_GATE, closeIssueOnMerge],
+  [SWE_ATOMIC_CLOSE_GATE, sweAtomicClose],
+  [TASK_CLOSE_RESCAN_GATE, postTaskCloseRescan],
   [README_STALENESS_GATE, postAtomicCloseReadme],
+  [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
+  [RECORD_SWE_SPAWN_GATE, recordSweSpawn],
+  [CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose],
+  [WORKTREE_CREATE_GATE, worktreeCreate],
+  [REMOTE_ID_GATE, remoteIdGuard],
   [NO_SOURCE_EDIT_GATE, noSourceEditFromMain],
 ]);
 
@@ -114,4 +142,71 @@ export function findGate(name: string): Gate | undefined {
 
 export function gateNames(): string[] {
   return [...GATES.keys()].sort();
+}
+
+/*
+ * The router (GH 1692 R1): `node dist/hooks.js <event>` runs every gate of the
+ * groups whose event and tool match the payload, one after another in this
+ * order, each within its budget from router/budgets.json.
+ */
+import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
+
+export type RouterGateKind = 'enforcement' | 'advisory';
+
+export interface RouterGate {
+  readonly name: string;
+  readonly kind: RouterGateKind;
+  readonly budgetMs: number;
+}
+
+export interface RouterGroup {
+  readonly event: string;
+  readonly tools: readonly string[];
+  readonly gates: readonly RouterGate[];
+}
+
+function routerGate(name: string, kind: RouterGateKind): RouterGate {
+  const budgets: Record<string, { budget_ms: number }> = ROUTER_BUDGETS.gates;
+  return { name, kind, budgetMs: budgets[name].budget_ms };
+}
+
+export const ROUTER_GROUPS: readonly RouterGroup[] = [
+  {
+    event: 'PreToolUse',
+    tools: ['Bash'],
+    gates: [
+      routerGate('containment-guard', 'enforcement'),
+      routerGate(GIT_GUARDS_GATE, 'enforcement'),
+      routerGate(PUSH_GUARD_GATE, 'enforcement'),
+      routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
+      routerGate(NO_WORKTREE_BRANCH_CREATE_GATE, 'enforcement'),
+      routerGate(STAY_ON_BASE_GATE, 'enforcement'),
+      routerGate(BRANCH_UP_TO_DATE_GATE, 'enforcement'),
+      routerGate(COMMIT_MSG_GATE, 'advisory'),
+      routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
+      routerGate(REMOTE_ID_GATE, 'enforcement'),
+      routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
+    ],
+  },
+];
+
+export function routerEvents(): ReadonlySet<string> {
+  return new Set(ROUTER_GROUPS.map((g) => g.event));
+}
+
+/** The gates a call runs: those of every group matching its event and tool_name, in group order. */
+export function routerGates(event: string, tool: string, groups: readonly RouterGroup[] = ROUTER_GROUPS): RouterGate[] {
+  return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
+}
+
+/**
+ * The time one call's gates share (decision 922): each gate's deadline is the
+ * smaller of its budget and what is left of this, and a gate that starts with
+ * none left is not run.
+ */
+export const ROUTER_GROUP_BUDGET_MS: number = ROUTER_BUDGETS.group_budget_ms;
+
+/** The router's hooks.json timeout (s): the parse allowance plus the group budget, rounded up, plus 1 s. */
+export function routerTimeoutS(groupBudgetMs: number = ROUTER_GROUP_BUDGET_MS): number {
+  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + groupBudgetMs) / 1000) + 1;
 }
