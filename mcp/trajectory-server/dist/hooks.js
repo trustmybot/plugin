@@ -8097,7 +8097,7 @@ async function gitCommitMessage(command, env = process.env) {
 import { accessSync as accessSync7, constants as constants7, realpathSync as realpathSync4, statSync as statSync12 } from "node:fs";
 
 // src/hooks/cmd-analysis/lister.ts
-import { statSync as statSync9 } from "node:fs";
+import { statSync as statSync11 } from "node:fs";
 
 // src/hooks/cmd-analysis/path.ts
 import { existsSync as existsSync6, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
@@ -8154,10 +8154,360 @@ function payloadCwd(json, env = process.env) {
   return env.PWD ?? "";
 }
 
+// src/hooks/lib/repo.ts
+import { statSync as statSync9 } from "node:fs";
+function isFile5(path) {
+  if (path === "") return false;
+  try {
+    return statSync9(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function firstLine2(text) {
+  const nl = text.indexOf("\n");
+  return nl < 0 ? text : text.slice(0, nl);
+}
+function readable2(db, env) {
+  return isFile5(db) && haveSqlite(env);
+}
+function repoDefaultBranch(root, env = process.env) {
+  if (root === "") return "";
+  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
+  if (remote !== "") return remote;
+  for (const cand of ["main", "master", "dev"]) {
+    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
+  }
+  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
+}
+function repoGitRoot(target, env = process.env) {
+  if (target === "") return "";
+  while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
+  if (!isDir(target)) return "";
+  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
+  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
+}
+function repoNameForRoot(db, root, env = process.env) {
+  if (!readable2(db, env) || root === "") return "";
+  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
+  if (name3 !== "") return name3;
+  const want = realdir(root);
+  for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
+    if (row === "") continue;
+    const bar = row.indexOf("|");
+    const rname = bar < 0 ? row : row.slice(0, bar);
+    const rpath = bar < 0 ? row : row.slice(bar + 1);
+    if (rpath === "") continue;
+    if (realdir(repoPathAbs(db, rpath)) === want) return rname;
+  }
+  return "";
+}
+function repoResolve(db, root, env = process.env) {
+  if (!readable2(db, env) || root === "") return "";
+  const name3 = repoNameForRoot(db, root, env);
+  if (name3 === "") return "";
+  return firstLine2(
+    sqliteRo(
+      db,
+      `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
+      env
+    )
+  );
+}
+function repoIsRegistered(db, root, env = process.env) {
+  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
+}
+function repoSinglePath(db, env = process.env) {
+  if (!readable2(db, env)) return "";
+  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
+  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
+}
+function repoPathByName(db, name3, env = process.env) {
+  if (!readable2(db, env) || name3 === "") return "";
+  return firstLine2(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+}
+function repoResolvePath(db, name3, env = process.env) {
+  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
+}
+var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
+function repoRemotes(db, gitRoot, env = process.env) {
+  if (!readable2(db, env)) return "";
+  const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
+  let out2 = "";
+  if (name3 !== "") {
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+  }
+  if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
+  }
+  return out2;
+}
+
+// src/hooks/lib/target-task.ts
+import { createHash } from "node:crypto";
+
+// src/hooks/lib/agent-context.ts
+import { existsSync as existsSync7, lstatSync as lstatSync3, readlinkSync as readlinkSync3, statSync as statSync10 } from "node:fs";
+var MAX_LINK_HOPS = 40;
+function isFile6(path) {
+  try {
+    return statSync10(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function isSymlink(path) {
+  try {
+    return lstatSync3(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function agentTranscript(input = "") {
+  const own = jqAlternatives(input, [["agent_transcript_path"]]);
+  if (own !== "" && isFile6(own)) return own;
+  const main = jqAlternatives(input, [["transcript_path"]]);
+  const id = jqAlternatives(input, [["agent_id"]]);
+  if (main === "" || id === "" || !/^[A-Za-z0-9_-]+$/.test(id)) return "";
+  const t = `${main.endsWith(".jsonl") ? main.slice(0, -".jsonl".length) : main}/subagents/agent-${id}.jsonl`;
+  return isFile6(t) ? t : "";
+}
+function readFields(row, count) {
+  let rest = row.split("\n")[0];
+  const fields = [];
+  for (let i2 = 0; i2 < count - 1; i2 += 1) {
+    const bar = rest.indexOf("|");
+    if (bar < 0) {
+      fields.push(rest);
+      rest = "";
+      continue;
+    }
+    fields.push(rest.slice(0, bar));
+    rest = rest.slice(bar + 1);
+  }
+  if (rest.endsWith("|") && !rest.slice(0, -1).includes("|")) rest = rest.slice(0, -1);
+  fields.push(rest);
+  return fields;
+}
+function taskLocation(db, taskId, env = process.env) {
+  const none = { repo: "", repoRoot: "", worktree: "" };
+  const task = sqlInt(taskId);
+  if (task === "") return { code: 1, ...none, missing: "no task_id" };
+  const fields = `COALESCE(t.branch_id, '') || '|' || COALESCE(t.repo, '') || '|'
+           || COALESCE(r.name, '') || '|' || COALESCE(r.path, '')`;
+  const from = `
+      FROM tasks t
+      LEFT JOIN repos r ON r.name = CASE
+          WHEN COALESCE(t.repo, '') <> '' THEN t.repo
+          WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT name FROM repos)
+        END
+     WHERE t.id = ${task} LIMIT 1;`;
+  let recordedHex = "";
+  let row = gateRead(db, `SELECT hex(COALESCE(t.worktree_path, '')) || '|' || ${fields}${from}`, env);
+  if (row === GATE_READ_ERROR) {
+    row = gateRead(db, `SELECT ${fields}${from}`, env);
+  } else if (row !== "") {
+    const bar = row.indexOf("|");
+    recordedHex = row.slice(0, bar);
+    row = row.slice(bar + 1);
+  }
+  if (row === GATE_READ_ERROR) {
+    return { code: 2, ...none, missing: `task ${task}: the trajectory DB read failed (tasks/repos)` };
+  }
+  if (row === "") return { code: 1, ...none, missing: `task ${task} has no tasks row` };
+  const [branch, repo, name3, rawPath] = readFields(row, 4);
+  if (branch === "") return { code: 1, ...none, missing: `task ${task} has no branch_id` };
+  if (name3 === "" || rawPath === "") {
+    const missing = repo !== "" ? `task ${task}'s repo '${repo}' has no repos row with a path` : `task ${task} has no repo: tasks.repo is empty and the repos table does not hold exactly one row`;
+    return { code: 1, ...none, missing };
+  }
+  const path = rawPath.startsWith("/") ? rawPath : realdir(repoPathAbs(db, rawPath));
+  const repoRoot = path.endsWith("/") ? path.slice(0, -1) : path;
+  const recorded = Buffer.from(recordedHex, "hex").toString("utf8");
+  return {
+    code: 0,
+    repo: name3,
+    repoRoot,
+    worktree: recorded !== "" ? recorded : `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`,
+    missing: ""
+  };
+}
+function agentContext(input = "", db = "", env = process.env) {
+  const role = agentRole(input);
+  const blank2 = { taskId: "", repo: "", repoRoot: "", worktree: "", missing: "" };
+  if (role !== "swe") return { code: 0, role, ...blank2, repoRoot: projectRoot(env) };
+  const resolved = db !== "" ? db : dbPath(env) ?? "";
+  if (resolved === "") {
+    return { code: 3, role, ...blank2, missing: "no trajectory DB resolves (TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)" };
+  }
+  const transcript = agentTranscript(input);
+  let task = taskIdFromTranscript(transcript);
+  if (task === "") {
+    const run4 = callerRun(input, resolved, env);
+    if (run4 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
+    const bar = run4.indexOf("|");
+    task = sqlInt(bar < 0 ? run4 : run4.slice(0, bar));
+  }
+  if (task === "") {
+    const missing = transcript !== "" ? `no task_id: the spawn transcript ${transcript} carries no task_id=<N>` : "no task_id: the payload names no spawn transcript (agent_transcript_path, or transcript_path plus agent_id) and no agent_runs row is bound to this agent_id";
+    return { code: 1, role, ...blank2, missing };
+  }
+  return { role, taskId: task, ...taskLocation(resolved, task, env) };
+}
+function pathCanonical2(path = "") {
+  if (!path.startsWith("/")) return path;
+  let cur = "";
+  let tail = "";
+  let rest = path;
+  let hops = 0;
+  while (rest !== "") {
+    rest = rest.startsWith("/") ? rest.slice(1) : rest;
+    const slash = rest.indexOf("/");
+    const part = slash < 0 ? rest : rest.slice(0, slash);
+    rest = slash < 0 ? "" : rest.slice(slash + 1);
+    if (part === "" || part === ".") continue;
+    if (tail !== "") {
+      tail = part === ".." ? tail.slice(0, Math.max(0, tail.lastIndexOf("/"))) : `${tail}/${part}`;
+      continue;
+    }
+    if (part === "..") {
+      cur = cur.slice(0, Math.max(0, cur.lastIndexOf("/")));
+      continue;
+    }
+    const here = `${cur}/${part}`;
+    if (isSymlink(here) && hops < MAX_LINK_HOPS) {
+      hops += 1;
+      const link = readlinkSync3(here).replace(/\n+$/, "");
+      if (link.startsWith("/")) cur = "";
+      rest = `${link}/${rest}`;
+      continue;
+    }
+    if (existsSync7(here)) cur = here;
+    else tail = `/${part}`;
+  }
+  if (cur + tail === "") cur = "/";
+  return `${cur}${tail}`;
+}
+function ctxInWorktree(path, worktree) {
+  if (worktree === "" || path === "") return false;
+  const c = pathCanonical2(path);
+  const w = pathCanonical2(worktree);
+  if (c === w) return true;
+  return c.startsWith(`${w.endsWith("/") ? w.slice(0, -1) : w}/`);
+}
+
+// src/hooks/lib/target-task.ts
+var WORKTREE_MARK = "/.claude/worktrees/";
+var WORKTREE_ROOT = /^(.*\/.claude\/worktrees\/[^/]+).*$/;
+function worktreeRootForTarget(target) {
+  if (!target.includes(WORKTREE_MARK)) return "";
+  return stripTrailingNewlines(
+    target.split("\n").map((line) => line.replace(WORKTREE_ROOT, "$1")).join("\n")
+  );
+}
+function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
+  const resolved = db !== "" ? db : dbPath(env) ?? "";
+  const wt = worktreeRootForTarget(target);
+  let task = "";
+  if (resolved !== "" && haveSqlite(env) && wt !== "") {
+    const branch = gitOut(wt, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+    if (branch !== "" && branch !== "HEAD") {
+      task = sqlInt(
+        sqliteRo(
+          resolved,
+          `
+        SELECT id FROM tasks
+         WHERE branch_id = '${sqlQuote(branch)}'
+         ORDER BY id DESC
+         LIMIT 1;
+      `,
+          env
+        )
+      );
+    }
+    if (task === "") {
+      const slug = stripTrailingNewlines(posixBasename(wt));
+      task = sqlInt(taskBySlug(resolved, slug, "id", "", env, (line) => process.stderr.write(`${line}
+`)));
+    }
+  }
+  if (task === "" && input !== "") {
+    task = taskIdFromTranscript(stripTrailingNewlines(jqAlternatives(input, [["agent_transcript_path"]])));
+  }
+  return task;
+}
+function pathDigest(path) {
+  return createHash("sha256").update(stripTrailingNewlines(pathCanonical2(path)), "utf8").digest("hex");
+}
+
+// src/hooks/cmd-analysis/surface.ts
+var WRITE_SHAPES = [
+  ">",
+  ">>",
+  ">|",
+  "&>",
+  "exec N>",
+  "heredoc into a redirect",
+  "tee",
+  "tee -a",
+  "sed -i",
+  "perl -i",
+  "dd of=",
+  "truncate",
+  "cp",
+  "mv",
+  "install",
+  "rsync",
+  "git mv",
+  "ln",
+  "mkdir",
+  "rm",
+  "touch",
+  "tar -C / make -C / env -C / npm --prefix",
+  "git commit / reset / checkout / stash / clean / bisect / submodule update / \u2026 in its -C dir or own dir",
+  "git init <dir> / format-patch -o / archive -o / checkout-index --prefix",
+  "python -c / node -e / perl -e / ruby -e with a write mode",
+  "a program fed to python / node / perl / ruby / sh through a heredoc",
+  "find -exec / -execdir / -ok / -delete / -fprint",
+  "fd -x / -X",
+  "xargs fed by find or fd"
+];
+var PROMPT_FILES = /* @__PURE__ */ new Set(["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"]);
+function writeShapes() {
+  return WRITE_SHAPES.join(", ");
+}
+function surfaceRoot(abs, env = process.env) {
+  if (abs.includes("/.claude/worktrees/")) return worktreeRootForTarget(abs);
+  const parent = (path) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
+  let dir = parent(abs);
+  while (dir !== "" && !isDir(dir)) dir = parent(dir);
+  if (dir === "") dir = "/";
+  return stripTrailingNewlines(repoGitRoot(dir, env));
+}
+function isPromptSurfacePath(p, root = "", env = process.env) {
+  if (PROMPT_FILES.has(p.slice(p.lastIndexOf("/") + 1))) return true;
+  let rel = "";
+  if (p.startsWith("/")) {
+    const abs = stripTrailingNewlines(pathCanonical(p));
+    let r = root === "" ? surfaceRoot(abs, env) : root;
+    if (r !== "") {
+      r = stripTrailingNewlines(pathCanonical(r));
+      const prefix = `${r.endsWith("/") ? r.slice(0, -1) : r}/`;
+      if (abs.startsWith(prefix)) rel = abs.slice(prefix.length);
+    }
+  } else rel = p.startsWith("./") ? p.slice(2) : p;
+  if (rel === "") {
+    if (!p.endsWith(".md")) return false;
+    return /\/(agents|skills|commands|templates|rules)\//.test(`/${p.startsWith("/") ? p.slice(1) : p}`);
+  }
+  return /^(agents|skills|commands|templates|rules)\/[^]*\.md$/.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/[^]*\.md$/.test(rel);
+}
+
 // src/hooks/cmd-analysis/lister.ts
 var NAME2 = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var SURFACES = ["agents", "skills", "commands", "templates", "rules", ".claude/agents", "CLAUDE.md"];
-var PROMPT_FILES = ["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"];
+var PROMPT_FILES2 = ["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"];
 var EXEC_REDIRECT = /^(>|>>|>\||<|<<<|&>|&>>|[0-9]>|[0-9]>>|[0-9]<)$/;
 var EXEC_REDIRECT_WORD = /^(>|<|&>|[0-9]>|[0-9]<)/;
 var RG_VALUE = /^(-t|--type|-T|--type-not|--type-add|-j|--threads|-d|--max-depth|--max-filesize|--ignore-file|--sort|--sortr|-E|--encoding)$/;
@@ -8165,8 +8515,8 @@ var FD_VALUE = /^(-e|--extension|-t|--type|-d|--max-depth|--min-depth|--exact-de
 var PLACEHOLDER = /\{\}|\{\/\}|\{\/\/\}|\{\.\}|\{\/\.\}/;
 var basename2 = (w) => w.replace(/.*\//, "");
 var trimSlash = (s) => s.replace(/\/$/, "");
-var isDir2 = (p) => statSync9(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
-var isFile5 = (p) => statSync9(p, { throwIfNoEntry: false })?.isFile() ?? false;
+var isDir2 = (p) => statSync11(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
+var isFile7 = (p) => statSync11(p, { throwIfNoEntry: false })?.isFile() ?? false;
 var CLASSES = {
   alnum: "A-Za-z0-9",
   alpha: "A-Za-z",
@@ -8286,19 +8636,6 @@ function exclCovers(pat, d, sub, v, root, rootc) {
       return false;
   }
   return r === `*/${b}` || r === `**/${b}` || r === `${l}/${sub}` || r === `./${sub}` || r === `${trimSlash(root)}/${d}` || r === `${trimSlash(rootc)}/${d}`;
-}
-function isPromptSurfacePath(p, root) {
-  if (PROMPT_FILES.includes(basename2(p))) return true;
-  let rel = "";
-  if (p.startsWith("/")) {
-    const abs = pathCanonical(p);
-    if (root !== "") {
-      const prefix = trimSlash(pathCanonical(root)) + "/";
-      if (abs.startsWith(prefix)) rel = abs.slice(prefix.length);
-    }
-  } else rel = p.replace(/^\.\//, "");
-  if (rel === "") return p.endsWith(".md") && /\/(agents|skills|commands|templates|rules)\//.test("/" + p.replace(/^\//, ""));
-  return /^(agents|skills|commands|templates|rules)\/.*\.md$/s.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/.*\.md$/s.test(rel);
 }
 function findModel(mode, args2, raw, acts, m) {
   const n2 = args2.length;
@@ -8584,7 +8921,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
         for (const d of SURFACES) {
           const sub = rel !== "" && d.startsWith(rel + "/") ? d.slice(rel.length + 1) : d;
           if (d === "CLAUDE.md") {
-            if (rel !== "" || !isFile5(`${rootTrim}/${d}`)) continue;
+            if (rel !== "" || !isFile7(`${rootTrim}/${d}`)) continue;
           } else if (!isDir2(`${rootTrim}/${d}`) || rel !== "" && sub === d) continue;
           if (m.excl.some((e) => exclCovers(e, d, sub, v, host.root, rootc))) continue;
           if (m.pats.length > 0) {
@@ -8599,7 +8936,7 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
       for (const pat of m.pats) {
         const body2 = pat.slice(2);
         if (body2 === "" || body2.includes("/") || body2.startsWith("!")) continue;
-        if (PROMPT_FILES.some((f) => patMatches(pat, f))) vals.push(`${trimSlash(v)}/${body2}`);
+        if (PROMPT_FILES2.some((f) => patMatches(pat, f))) vals.push(`${trimSlash(v)}/${body2}`);
       }
     }
   }
@@ -13029,356 +13366,6 @@ function ghMutation(stmt) {
   return "";
 }
 
-// src/hooks/lib/repo.ts
-import { statSync as statSync10 } from "node:fs";
-function isFile6(path) {
-  if (path === "") return false;
-  try {
-    return statSync10(path).isFile();
-  } catch {
-    return false;
-  }
-}
-function firstLine2(text) {
-  const nl = text.indexOf("\n");
-  return nl < 0 ? text : text.slice(0, nl);
-}
-function readable2(db, env) {
-  return isFile6(db) && haveSqlite(env);
-}
-function repoDefaultBranch(root, env = process.env) {
-  if (root === "") return "";
-  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
-  if (remote !== "") return remote;
-  for (const cand of ["main", "master", "dev"]) {
-    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
-  }
-  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
-}
-function repoGitRoot(target, env = process.env) {
-  if (target === "") return "";
-  while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
-  if (!isDir(target)) return "";
-  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
-  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
-  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
-}
-function repoNameForRoot(db, root, env = process.env) {
-  if (!readable2(db, env) || root === "") return "";
-  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
-  if (name3 !== "") return name3;
-  const want = realdir(root);
-  for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
-    if (row === "") continue;
-    const bar = row.indexOf("|");
-    const rname = bar < 0 ? row : row.slice(0, bar);
-    const rpath = bar < 0 ? row : row.slice(bar + 1);
-    if (rpath === "") continue;
-    if (realdir(repoPathAbs(db, rpath)) === want) return rname;
-  }
-  return "";
-}
-function repoResolve(db, root, env = process.env) {
-  if (!readable2(db, env) || root === "") return "";
-  const name3 = repoNameForRoot(db, root, env);
-  if (name3 === "") return "";
-  return firstLine2(
-    sqliteRo(
-      db,
-      `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
-      env
-    )
-  );
-}
-function repoIsRegistered(db, root, env = process.env) {
-  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
-}
-function repoSinglePath(db, env = process.env) {
-  if (!readable2(db, env)) return "";
-  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
-  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
-}
-function repoPathByName(db, name3, env = process.env) {
-  if (!readable2(db, env) || name3 === "") return "";
-  return firstLine2(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-}
-function repoResolvePath(db, name3, env = process.env) {
-  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
-}
-var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
-function repoRemotes(db, gitRoot, env = process.env) {
-  if (!readable2(db, env)) return "";
-  const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
-  let out2 = "";
-  if (name3 !== "") {
-    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-  }
-  if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
-    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
-  }
-  return out2;
-}
-
-// src/hooks/lib/target-task.ts
-import { createHash } from "node:crypto";
-
-// src/hooks/lib/agent-context.ts
-import { existsSync as existsSync7, lstatSync as lstatSync3, readlinkSync as readlinkSync3, statSync as statSync11 } from "node:fs";
-var MAX_LINK_HOPS = 40;
-function isFile7(path) {
-  try {
-    return statSync11(path).isFile();
-  } catch {
-    return false;
-  }
-}
-function isSymlink(path) {
-  try {
-    return lstatSync3(path).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function agentTranscript(input = "") {
-  const own = jqAlternatives(input, [["agent_transcript_path"]]);
-  if (own !== "" && isFile7(own)) return own;
-  const main = jqAlternatives(input, [["transcript_path"]]);
-  const id = jqAlternatives(input, [["agent_id"]]);
-  if (main === "" || id === "" || !/^[A-Za-z0-9_-]+$/.test(id)) return "";
-  const t = `${main.endsWith(".jsonl") ? main.slice(0, -".jsonl".length) : main}/subagents/agent-${id}.jsonl`;
-  return isFile7(t) ? t : "";
-}
-function readFields(row, count) {
-  let rest = row.split("\n")[0];
-  const fields = [];
-  for (let i2 = 0; i2 < count - 1; i2 += 1) {
-    const bar = rest.indexOf("|");
-    if (bar < 0) {
-      fields.push(rest);
-      rest = "";
-      continue;
-    }
-    fields.push(rest.slice(0, bar));
-    rest = rest.slice(bar + 1);
-  }
-  if (rest.endsWith("|") && !rest.slice(0, -1).includes("|")) rest = rest.slice(0, -1);
-  fields.push(rest);
-  return fields;
-}
-function taskLocation(db, taskId, env = process.env) {
-  const none = { repo: "", repoRoot: "", worktree: "" };
-  const task = sqlInt(taskId);
-  if (task === "") return { code: 1, ...none, missing: "no task_id" };
-  const fields = `COALESCE(t.branch_id, '') || '|' || COALESCE(t.repo, '') || '|'
-           || COALESCE(r.name, '') || '|' || COALESCE(r.path, '')`;
-  const from = `
-      FROM tasks t
-      LEFT JOIN repos r ON r.name = CASE
-          WHEN COALESCE(t.repo, '') <> '' THEN t.repo
-          WHEN (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT name FROM repos)
-        END
-     WHERE t.id = ${task} LIMIT 1;`;
-  let recordedHex = "";
-  let row = gateRead(db, `SELECT hex(COALESCE(t.worktree_path, '')) || '|' || ${fields}${from}`, env);
-  if (row === GATE_READ_ERROR) {
-    row = gateRead(db, `SELECT ${fields}${from}`, env);
-  } else if (row !== "") {
-    const bar = row.indexOf("|");
-    recordedHex = row.slice(0, bar);
-    row = row.slice(bar + 1);
-  }
-  if (row === GATE_READ_ERROR) {
-    return { code: 2, ...none, missing: `task ${task}: the trajectory DB read failed (tasks/repos)` };
-  }
-  if (row === "") return { code: 1, ...none, missing: `task ${task} has no tasks row` };
-  const [branch, repo, name3, rawPath] = readFields(row, 4);
-  if (branch === "") return { code: 1, ...none, missing: `task ${task} has no branch_id` };
-  if (name3 === "" || rawPath === "") {
-    const missing = repo !== "" ? `task ${task}'s repo '${repo}' has no repos row with a path` : `task ${task} has no repo: tasks.repo is empty and the repos table does not hold exactly one row`;
-    return { code: 1, ...none, missing };
-  }
-  const path = rawPath.startsWith("/") ? rawPath : realdir(repoPathAbs(db, rawPath));
-  const repoRoot = path.endsWith("/") ? path.slice(0, -1) : path;
-  const recorded = Buffer.from(recordedHex, "hex").toString("utf8");
-  return {
-    code: 0,
-    repo: name3,
-    repoRoot,
-    worktree: recorded !== "" ? recorded : `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`,
-    missing: ""
-  };
-}
-function agentContext(input = "", db = "", env = process.env) {
-  const role = agentRole(input);
-  const blank2 = { taskId: "", repo: "", repoRoot: "", worktree: "", missing: "" };
-  if (role !== "swe") return { code: 0, role, ...blank2, repoRoot: projectRoot(env) };
-  const resolved = db !== "" ? db : dbPath(env) ?? "";
-  if (resolved === "") {
-    return { code: 3, role, ...blank2, missing: "no trajectory DB resolves (TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR)" };
-  }
-  const transcript = agentTranscript(input);
-  let task = taskIdFromTranscript(transcript);
-  if (task === "") {
-    const run4 = callerRun(input, resolved, env);
-    if (run4 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
-    const bar = run4.indexOf("|");
-    task = sqlInt(bar < 0 ? run4 : run4.slice(0, bar));
-  }
-  if (task === "") {
-    const missing = transcript !== "" ? `no task_id: the spawn transcript ${transcript} carries no task_id=<N>` : "no task_id: the payload names no spawn transcript (agent_transcript_path, or transcript_path plus agent_id) and no agent_runs row is bound to this agent_id";
-    return { code: 1, role, ...blank2, missing };
-  }
-  return { role, taskId: task, ...taskLocation(resolved, task, env) };
-}
-function pathCanonical2(path = "") {
-  if (!path.startsWith("/")) return path;
-  let cur = "";
-  let tail = "";
-  let rest = path;
-  let hops = 0;
-  while (rest !== "") {
-    rest = rest.startsWith("/") ? rest.slice(1) : rest;
-    const slash = rest.indexOf("/");
-    const part = slash < 0 ? rest : rest.slice(0, slash);
-    rest = slash < 0 ? "" : rest.slice(slash + 1);
-    if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.slice(0, Math.max(0, tail.lastIndexOf("/"))) : `${tail}/${part}`;
-      continue;
-    }
-    if (part === "..") {
-      cur = cur.slice(0, Math.max(0, cur.lastIndexOf("/")));
-      continue;
-    }
-    const here = `${cur}/${part}`;
-    if (isSymlink(here) && hops < MAX_LINK_HOPS) {
-      hops += 1;
-      const link = readlinkSync3(here).replace(/\n+$/, "");
-      if (link.startsWith("/")) cur = "";
-      rest = `${link}/${rest}`;
-      continue;
-    }
-    if (existsSync7(here)) cur = here;
-    else tail = `/${part}`;
-  }
-  if (cur + tail === "") cur = "/";
-  return `${cur}${tail}`;
-}
-function ctxInWorktree(path, worktree) {
-  if (worktree === "" || path === "") return false;
-  const c = pathCanonical2(path);
-  const w = pathCanonical2(worktree);
-  if (c === w) return true;
-  return c.startsWith(`${w.endsWith("/") ? w.slice(0, -1) : w}/`);
-}
-
-// src/hooks/lib/target-task.ts
-var WORKTREE_MARK = "/.claude/worktrees/";
-var WORKTREE_ROOT = /^(.*\/.claude\/worktrees\/[^/]+).*$/;
-function worktreeRootForTarget(target) {
-  if (!target.includes(WORKTREE_MARK)) return "";
-  return stripTrailingNewlines(
-    target.split("\n").map((line) => line.replace(WORKTREE_ROOT, "$1")).join("\n")
-  );
-}
-function resolveTaskIdForTarget(target, input, db = "", env = process.env) {
-  const resolved = db !== "" ? db : dbPath(env) ?? "";
-  const wt = worktreeRootForTarget(target);
-  let task = "";
-  if (resolved !== "" && haveSqlite(env) && wt !== "") {
-    const branch = gitOut(wt, ["rev-parse", "--abbrev-ref", "HEAD"], env);
-    if (branch !== "" && branch !== "HEAD") {
-      task = sqlInt(
-        sqliteRo(
-          resolved,
-          `
-        SELECT id FROM tasks
-         WHERE branch_id = '${sqlQuote(branch)}'
-         ORDER BY id DESC
-         LIMIT 1;
-      `,
-          env
-        )
-      );
-    }
-    if (task === "") {
-      const slug = stripTrailingNewlines(posixBasename(wt));
-      task = sqlInt(taskBySlug(resolved, slug, "id", "", env, (line) => process.stderr.write(`${line}
-`)));
-    }
-  }
-  if (task === "" && input !== "") {
-    task = taskIdFromTranscript(stripTrailingNewlines(jqAlternatives(input, [["agent_transcript_path"]])));
-  }
-  return task;
-}
-function pathDigest(path) {
-  return createHash("sha256").update(stripTrailingNewlines(pathCanonical2(path)), "utf8").digest("hex");
-}
-
-// src/hooks/cmd-analysis/surface.ts
-var WRITE_SHAPES = [
-  ">",
-  ">>",
-  ">|",
-  "&>",
-  "exec N>",
-  "heredoc into a redirect",
-  "tee",
-  "tee -a",
-  "sed -i",
-  "perl -i",
-  "dd of=",
-  "truncate",
-  "cp",
-  "mv",
-  "install",
-  "rsync",
-  "git mv",
-  "ln",
-  "mkdir",
-  "rm",
-  "touch",
-  "tar -C / make -C / env -C / npm --prefix",
-  "git commit / reset / checkout / stash / clean / bisect / submodule update / \u2026 in its -C dir or own dir",
-  "git init <dir> / format-patch -o / archive -o / checkout-index --prefix",
-  "python -c / node -e / perl -e / ruby -e with a write mode",
-  "a program fed to python / node / perl / ruby / sh through a heredoc",
-  "find -exec / -execdir / -ok / -delete / -fprint",
-  "fd -x / -X",
-  "xargs fed by find or fd"
-];
-var PROMPT_FILES2 = /* @__PURE__ */ new Set(["CLAUDE.md", "CODEX.md", "CURSOR.md", "GEMINI.md"]);
-function writeShapes() {
-  return WRITE_SHAPES.join(", ");
-}
-function surfaceRoot(abs, env = process.env) {
-  if (abs.includes("/.claude/worktrees/")) return worktreeRootForTarget(abs);
-  const parent = (path) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
-  let dir = parent(abs);
-  while (dir !== "" && !isDir(dir)) dir = parent(dir);
-  if (dir === "") dir = "/";
-  return stripTrailingNewlines(repoGitRoot(dir, env));
-}
-function isPromptSurfacePath2(p, root = "", env = process.env) {
-  if (PROMPT_FILES2.has(p.slice(p.lastIndexOf("/") + 1))) return true;
-  let rel = "";
-  if (p.startsWith("/")) {
-    const abs = stripTrailingNewlines(pathCanonical(p));
-    let r = root === "" ? surfaceRoot(abs, env) : root;
-    if (r !== "") {
-      r = stripTrailingNewlines(pathCanonical(r));
-      const prefix = `${r.endsWith("/") ? r.slice(0, -1) : r}/`;
-      if (abs.startsWith(prefix)) rel = abs.slice(prefix.length);
-    }
-  } else rel = p.startsWith("./") ? p.slice(2) : p;
-  if (rel === "") {
-    if (!p.endsWith(".md")) return false;
-    return /\/(agents|skills|commands|templates|rules)\//.test(`/${p.startsWith("/") ? p.slice(1) : p}`);
-  }
-  return /^(agents|skills|commands|templates|rules)\/[^]*\.md$/.test(rel) || /^\.claude\/(agents|skills|commands|rules)\/[^]*\.md$/.test(rel);
-}
-
 // src/hooks/cmd-analysis/strip-literals.ts
 var NEUTRAL2 = /* @__PURE__ */ new Set([" ", "	", "<", ">", "|", ";", "&", "(", ")", "`"]);
 var COMMENT_BEFORE = /* @__PURE__ */ new Set([" ", "	", ";", "&", "|", "("]);
@@ -16314,7 +16301,7 @@ var Boundary = class {
         rel = path;
       }
       if (wt !== "" && rel === "CLAUDE.md") rootClaudeMd = path;
-      if (surface2 === "" && isPromptSurfacePath2(rel, wt, this.env)) {
+      if (surface2 === "" && isPromptSurfacePath(rel, wt, this.env)) {
         surface2 = path;
         anchor = wt === "" ? "" : path;
       }
@@ -16486,7 +16473,7 @@ var Boundary = class {
       subject = this.wtD === "" ? target : stripDir(target, this.wtD);
     }
     if (this.wtD !== "" && subject === "CLAUDE.md") return deny6(claudeMdReason(target));
-    if (!isPromptSurfacePath2(subject, this.wtD, this.env)) return this.bypassCheck();
+    if (!isPromptSurfacePath(subject, this.wtD, this.env)) return this.bypassCheck();
     const db = this.dbPath();
     if (dbState(this.env) === "error") return this.dbDenied();
     if (db !== "" && haveSqlite(this.env)) {
@@ -18887,10 +18874,255 @@ var cheatcodeInstallApproval = (payload, env) => {
   return deny8(notApprovedReason(name3, url));
 };
 
-// src/hooks/prompt-intent-hints.ts
+// src/hooks/stay-on-base-guard.ts
 import { statSync as statSync24 } from "node:fs";
+
+// src/hooks/lib/statement-rows.ts
+function readTabFields2(line, n2) {
+  let s = line.replace(/^\t+/, "");
+  const fields = [];
+  for (let i2 = 0; i2 < n2 - 1; i2++) {
+    const tab = s.indexOf("	");
+    if (tab < 0) {
+      fields.push(s);
+      s = "";
+      continue;
+    }
+    fields.push(s.slice(0, tab));
+    s = s.slice(tab).replace(/^\t+/, "");
+  }
+  fields.push(s.replace(/\t+$/, ""));
+  return fields;
+}
+function statementRows(statements2) {
+  const text = stripTrailingNewlines(statements2.map(({ dir, stmt }) => `${dir}	${stmt}`).join("\n"));
+  if (text === "") return [];
+  return text.split("\n").map((line) => {
+    const [dir, stmt] = readTabFields2(line, 2);
+    return { dir, stmt };
+  });
+}
+function payloadCwdOf(input, env = process.env) {
+  return jqCapture(input, ["cwd"], true) || shellPwd(env);
+}
+function denyResult(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+
+// src/hooks/stay-on-base-guard.ts
+var GATE_NAME45 = "stay-on-base-guard";
+var BRANCH_WORD = /^[a-zA-Z0-9_./:@^~-]+$/;
+var CREATES_OR_RESTORES = [" -b ", " -B ", " -c ", " -C ", " --create ", " -- "];
+function switchTarget(sub) {
+  const rest = sub.slice(sub.indexOf(" ") + 1);
+  let target = "";
+  for (const w of (rest.split("\n")[0] ?? "").split(/[ \t]+/)) if (w !== "" && !w.startsWith("-")) target = w;
+  return target;
+}
+function isFile11(path) {
+  try {
+    return statSync24(path).isFile();
+  } catch {
+    return false;
+  }
+}
+var stayOnBaseGuard = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (!command.includes("checkout") && !command.includes("switch")) return ALLOW;
+  const listed2 = await cmdStatements(command, payloadCwdOf(input, env), env);
+  if (!listed2.ok) return haveSqlite(env) && isFile11(dbPath(env) ?? "") ? denyResult(PARSE_REASON) : ALLOW;
+  let lines2 = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const sub = gitSubcommand(stmt);
+    if (!sub.startsWith("checkout ") && !sub.startsWith("switch ")) continue;
+    if (CREATES_OR_RESTORES.some((flag) => ` ${sub} `.includes(flag))) continue;
+    const target = switchTarget(sub);
+    if (target === "" || !BRANCH_WORD.test(target)) continue;
+    lines2 += `${dir}	${target}	${stmt}
+`;
+  }
+  if (lines2 === "") return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const db = dbPath(env) ?? "";
+  if (!isFile11(db)) return ALLOW;
+  const switches = lines2.split("\n").map((line) => {
+    const [dir, target, stmt] = readTabFields2(line, 3);
+    return { dir, target, stmt };
+  });
+  for (const { dir, target, stmt } of switches) {
+    if (target === "") continue;
+    if (dir === "-" || dir.includes("/.claude/worktrees/")) continue;
+    const openTask = gateRead(
+      db,
+      `
+    SELECT id FROM tasks
+     WHERE branch_id = '${sqlQuote(target)}'
+       AND status IN ('pending','running','needs_validation')
+     LIMIT 1;
+  `,
+      env
+    );
+    if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME45, env)}
+`, code: 0 };
+    if (openTask === "" || !openTask.split("\n").some((l) => /^[0-9]+$/.test(l))) continue;
+    if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
+    const loc = taskLocation(db, openTask, env);
+    const wt = loc.code === 0 ? loc.worktree : `${repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
+    return denyResult(
+      `the main checkout stays on the base; SWE work lives in worktrees \u2014 use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`
+    );
+  }
+  return ALLOW;
+};
+
+// src/hooks/branch-up-to-date-with-remote.ts
+var GATE_NAME46 = "branch-up-to-date-with-remote";
+var CREATES_BRANCH = [" -b ", " -B ", " --create-branch "];
+function behindCount(root, range, env) {
+  const r = gitRun(root, ["rev-list", "--count", range], env);
+  return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}?
+`);
+}
+var branchUpToDateWithRemote = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  if ((env.TMB_ALLOW_STALE_BRANCH ?? "") === "1") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (command === "" || !command.includes("worktree")) return ALLOW;
+  const cwd = payloadCwdOf(input, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  let wtDir = "";
+  let wtSub = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const sub = gitSubcommand(stmt);
+    if (sub.startsWith("worktree add ")) {
+      wtDir = dir;
+      wtSub = sub;
+      break;
+    }
+  }
+  if (wtSub === "") return ALLOW;
+  if (CREATES_BRANCH.some((flag) => ` ${wtSub} `.includes(flag))) return ALLOW;
+  const branch = wtSub.slice(wtSub.lastIndexOf(" ") + 1);
+  if (branch === "") return ALLOW;
+  const root = stmtRepoRoot(wtDir, cwd, env);
+  if (root === "") return ALLOW;
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const repo = sqlQuote(repoNameForRoot(db, root, env));
+  const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
+  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME46, env)}
+`, code: 0 };
+  if (row === "") return ALLOW;
+  const prTarget = (row.startsWith("repo|") ? row.slice(5) : row) || "main";
+  if (!gitOk(root, ["rev-parse", "--verify", branch], env)) return ALLOW;
+  if (gitOut(root, ["remote", "get-url", "origin"], env) === "") return ALLOW;
+  gitRun(root, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", prTarget, "--quiet"], env);
+  if (!gitOk(root, ["rev-parse", "--verify", `origin/${prTarget}`], env)) return ALLOW;
+  if (gitOk(root, ["merge-base", "--is-ancestor", `origin/${prTarget}`, branch], env)) return ALLOW;
+  const behind = behindCount(root, `${branch}..origin/${prTarget}`, env);
+  return denyResult(
+    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it: \`git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}\`) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`
+  );
+};
+
+// src/hooks/no-worktree-branch-create.ts
+var GATE_NAME47 = "no-worktree-branch-create";
+var CREATES_BRANCH2 = [" -b ", " -B ", " --create-branch "];
+var BRANCH_CREATE_REASON = "BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.";
+var DETACH_REASON = "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
+var REASONS = { "branch-create": BRANCH_CREATE_REASON, detach: DETACH_REASON, parse: PARSE_REASON };
+function violationOf(statements2, env) {
+  for (const { stmt } of statementRows(statements2)) {
+    const sub = gitSubcommand(stmt);
+    if (!sub.startsWith("worktree add ")) continue;
+    const padded = ` ${sub} `;
+    if (CREATES_BRANCH2.some((flag) => padded.includes(flag)) && (env.TMB_ALLOW_WORKTREE_BRANCH_CREATE ?? "0") !== "1") return "branch-create";
+    if (padded.includes(" --detach ") && (env.TMB_ALLOW_WORKTREE_DETACH ?? "0") !== "1") return "detach";
+  }
+  return null;
+}
+var noWorktreeBranchCreate = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (!command.includes("worktree")) return ALLOW;
+  const listed2 = await cmdStatements(command, "/", env);
+  const violation = listed2.ok ? violationOf(listed2.statements, env) : "parse";
+  if (violation === null) return ALLOW;
+  dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  const state = dbState(env);
+  if (state === "unresolved") return ALLOW;
+  if (state === "error") return { stdout: `${denyDbUnavailable(GATE_NAME47, env)}
+`, code: 0 };
+  return denyResult(REASONS[violation]);
+};
+
+// src/hooks/no-remote-auth-guard.ts
+var GATE_NAME48 = "no-remote-auth-guard";
+var AUTH_LOGIN = [
+  ["gh", "gh auth login"],
+  ["glab", "glab auth login"]
+];
+function hasRemoteUrl(remotesJson) {
+  const lines2 = [];
+  for (const value of jqInput(remotesJson).values) {
+    if (value === null || typeof value !== "object") break;
+    let n2 = 0;
+    try {
+      for (const item of Object.values(value)) {
+        const url = jqGet(item, "url");
+        if (url !== null && url !== "") n2++;
+      }
+    } catch (e) {
+      if (e instanceof JqUnindexable) break;
+      throw e;
+    }
+    lines2.push(jqRaw2(n2 > 0));
+  }
+  return shellCapture2(lines2.join("\n"));
+}
+var noRemoteAuthGuard = async (payload, env) => {
+  const input = jqInput(payload);
+  const command = jqCapture(input, ["tool_input", "command"], true);
+  if (command === "" || !command.includes("login")) return ALLOW;
+  const cwd = payloadCwdOf(input, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  let tool = "";
+  let matchedDir = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const hit = AUTH_LOGIN.find(([, login]) => stmt === login || stmt.startsWith(`${login} `));
+    if (hit) {
+      [tool] = hit;
+      matchedDir = dir;
+      break;
+    }
+  }
+  if (tool === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const remotes = repoRemotes(db, stmtRepoRoot(matchedDir, cwd, env), env);
+  if (remotes === "") return ALLOW;
+  if (hasRemoteUrl(remotes) !== "false") return ALLOW;
+  return denyResult(
+    `BLOCKED: No remote is configured (remotes have no URL) \u2014 TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`
+  );
+};
+
+// src/hooks/prompt-intent-hints.ts
+import { statSync as statSync25 } from "node:fs";
 import { fileURLToPath as fileURLToPath6, pathToFileURL as pathToFileURL2 } from "node:url";
-var GATE_NAME45 = "prompt-intent-hints";
+var GATE_NAME49 = "prompt-intent-hints";
 var SUMMARY_MAX_BYTES2 = 200;
 var C_SPACE = "\\t\\n\\v\\f\\r ";
 var UTF8_SPACE = `${C_SPACE}\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`;
@@ -19334,9 +19566,9 @@ function emit2(context4, prefix = "") {
     code: 0
   };
 }
-function isFile11(path) {
+function isFile12(path) {
   try {
-    return statSync24(path).isFile();
+    return statSync25(path).isFile();
   } catch {
     return false;
   }
@@ -19351,7 +19583,7 @@ function defaultPluginRoot2() {
 async function shimEntries(env) {
   const root = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot2();
   const mod = `${root}/mcp/trajectory-server/dist/tools/onboard-hooks-shim.js`;
-  if (!isFile11(mod)) return "";
+  if (!isFile12(mod)) return "";
   try {
     const shim = await import(pathToFileURL2(mod).href);
     return String(shim.countShimEntries(root));
@@ -19380,19 +19612,19 @@ var Context = class {
   /** audit_consultant_spawn_nudged: the audit row, with what sqlite3 printed to pass through on stdout. */
   auditNudge(detail) {
     const db = this.database();
-    if (db === null || !isFile11(db)) return "";
+    if (db === null || !isFile12(db)) return "";
     const cut2 = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
     const written = auditAppend(
       db,
       {
         issueId: "-1",
         branchId: "",
-        fromNode: `hook:${GATE_NAME45}`,
+        fromNode: `hook:${GATE_NAME49}`,
         eventType: "consultant_spawn_nudged",
         summary: `Consultant-spawn nudge emitted: ${cut2}`,
         contentJson: "{}"
       },
-      { caller: GATE_NAME45, env: this.env }
+      { caller: GATE_NAME49, env: this.env }
     );
     if (!written.ok && written.error !== "") process.stderr.write(`${written.error}
 `);
@@ -19572,7 +19804,7 @@ async function promptIntentHints(payload, env) {
     const utf8 = setlocaleUtf8(env);
     prompt = commandSubstitution(stripBashSpans(prompt));
     if (!hasNonSpace(prompt, utf8) || isHarnessTurn(prompt)) return ALLOW;
-    dbPathAdvisory(GATE_NAME45, env, (line) => process.stderr.write(`${line}
+    dbPathAdvisory(GATE_NAME49, env, (line) => process.stderr.write(`${line}
 `));
     prompt = stripInjectedBlocks(prompt);
     if (!hasNonSpace(prompt, utf8)) return ALLOW;
@@ -19583,7 +19815,7 @@ async function promptIntentHints(payload, env) {
 }
 
 // src/hooks/swe-scope-fence.ts
-var GATE_NAME46 = "swe-scope-fence";
+var GATE_NAME50 = "swe-scope-fence";
 var EDIT_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 function jqFirst(input, paths, orEmpty2 = false) {
   const lines2 = [];
@@ -19636,14 +19868,14 @@ var sweScopeFence = (payload, env) => {
 };
 
 // src/hooks/post-atomic-close-readme.ts
-import { statSync as statSync25 } from "node:fs";
-var GATE_NAME47 = "post-atomic-close-readme";
+import { statSync as statSync26 } from "node:fs";
+var GATE_NAME51 = "post-atomic-close-readme";
 var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
 var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 var ROOT_DIR = ".";
-function isFile12(path) {
+function isFile13(path) {
   try {
-    return statSync25(path).isFile();
+    return statSync26(path).isFile();
   } catch {
     return false;
   }
@@ -19704,7 +19936,7 @@ function surface(payload, env) {
   const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
-  if (db === null || !isFile12(db) || !haveSqlite(env)) return ALLOW;
+  if (db === null || !isFile13(db) || !haveSqlite(env)) return ALLOW;
   const row = sqliteRo(
     db,
     `SELECT COALESCE(commit_sha,'') || '|' || COALESCE(repo,'') || '|' || COALESCE(issue_id,'') || '|' || COALESCE(branch_id,'') FROM tasks WHERE id = ${taskId};`,
@@ -19727,12 +19959,12 @@ function surface(payload, env) {
     {
       issueId: sqlInt(task.issueId) || "-1",
       branchId: task.branchId,
-      fromNode: `hook:${GATE_NAME47}`,
+      fromNode: `hook:${GATE_NAME51}`,
       eventType: "readme_staleness_surfaced",
       summary: `task ${taskId}: README may be stale in ${staleLines.filter((line) => line !== "").length} dir(s) after ${task.commitSha.slice(0, 7)}`,
       contentJson: jqCompact({ task_id: jqNumber2(taskId), commit_sha: task.commitSha, stale: staleLines })
     },
-    { env, caller: GATE_NAME47 }
+    { env, caller: GATE_NAME51 }
   );
   if (!w.ok) process.stderr.write(`${w.error}
 `);
@@ -19749,7 +19981,7 @@ var postAtomicCloseReadme = (payload, env) => {
 };
 
 // src/hooks/agent-spawn-dispatch.ts
-var GATE_NAME48 = "agent-spawn-dispatch";
+var GATE_NAME52 = "agent-spawn-dispatch";
 var CHAIN = [
   "require-task-spec",
   "require-spawn-effort",
@@ -19796,7 +20028,7 @@ async function agentSpawnDispatch(payload, env, find) {
 
 // src/hooks/ensure-swe-worktree.ts
 import { existsSync as existsSync12 } from "node:fs";
-var GATE_NAME49 = "ensure-swe-worktree";
+var GATE_NAME53 = "ensure-swe-worktree";
 function cutField3(text, n2) {
   const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n2 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
@@ -19855,7 +20087,7 @@ var ensureSweWorktree = (payload, env) => {
 };
 
 // src/hooks/record-swe-spawn.ts
-var GATE_NAME50 = "record-swe-spawn";
+var GATE_NAME54 = "record-swe-spawn";
 var UNIT_SEPARATOR = "";
 var SPAWN_FIELDS = [["session_id"], ["tool_use_id"], ["tool_input", "effort"], ["tool_input", "model"]];
 function spawnFields(input) {
@@ -19934,7 +20166,7 @@ var recordSweSpawn = (payload, env) => {
       rootDir = recordedWorktree(db, taskId, branch, env) || `${prepareRepoRoot(db, cutField3(row, 2), env).replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
     }
     const sql = spawnSql({ taskId, rootDir, fields, spawnId, pluginVersion: pluginVersion(env), now: nowIso() });
-    dbWrite(db, sql, { caller: GATE_NAME50, env });
+    dbWrite(db, sql, { caller: GATE_NAME54, env });
   } catch {
   }
   return ALLOW;
@@ -19988,12 +20220,16 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME42, agentArgMatchesCaller],
   [GATE_NAME43, reviewerIdentityObserve],
   [GATE_NAME44, cheatcodeInstallApproval],
-  [GATE_NAME45, promptIntentHints],
-  [GATE_NAME46, sweScopeFence],
-  [GATE_NAME47, postAtomicCloseReadme],
-  [GATE_NAME48, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
-  [GATE_NAME49, ensureSweWorktree],
-  [GATE_NAME50, recordSweSpawn]
+  [GATE_NAME45, stayOnBaseGuard],
+  [GATE_NAME46, branchUpToDateWithRemote],
+  [GATE_NAME47, noWorktreeBranchCreate],
+  [GATE_NAME48, noRemoteAuthGuard],
+  [GATE_NAME49, promptIntentHints],
+  [GATE_NAME50, sweScopeFence],
+  [GATE_NAME51, postAtomicCloseReadme],
+  [GATE_NAME52, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [GATE_NAME53, ensureSweWorktree],
+  [GATE_NAME54, recordSweSpawn]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
