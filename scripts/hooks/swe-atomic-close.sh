@@ -45,7 +45,9 @@
 # After the row is written, the TypeScript recorder swe-stop-cause (node
 # dist/hooks.js, fail-open, skipped without node or dist) sets its stop_cause /
 # stop_detail: budget for a checkpoint from this run, hook_block for a run that
-# ended on a PreToolUse hook deny.
+# ended on a PreToolUse hook deny. The recorder tool-output-size (same terms)
+# then rewrites the row's agent_run_tool_output rows, swe and code-reviewer
+# alike: calls, result characters and estimated tokens per tool (GH 1957).
 #
 # Log: <project>/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended);
 # no log when the project has no TMB state dir.
@@ -187,6 +189,7 @@ PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
 ISSUE_ID=$(echo "$ROW" | cut -d'|' -f6)
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+HOOKS_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks.js"
 
 # Per-spawn metrics into agent_runs. A failed write is logged, never fatal.
 RESUMED_SINCE=""
@@ -275,6 +278,10 @@ SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'code-reviewer', ${SAFE_TOKENS_IN}, ${
     jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
       '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid,agent_type:"code-reviewer"}' \
       >> "$_LOG_FILE" 2>/dev/null || true
+  fi
+  if [ -f "$HOOKS_JS" ] && command -v node >/dev/null 2>&1; then
+    printf '%s' "$INPUT" | TMB_STOP_AGENT_TYPE=code-reviewer TMB_STOP_TASK_ID="$SAFE_TASK_ID" TMB_STOP_SPAWN_ID="$SPAWN_ID" \
+      node "$HOOKS_JS" tool-output-size >/dev/null 2>&1 || true
   fi
   exit 0
 fi
@@ -509,13 +516,15 @@ UPDATE agent_runs
     >> "$_LOG_FILE" 2>/dev/null || true
 fi
 
-# Why the run stopped short (budget handback or hook block) onto the same row:
-# the TypeScript recorder swe-stop-cause, fail-open, skipped without node or
+# Why the run stopped short (budget handback or hook block) onto the same row,
+# then the run's tool-result size per tool: the TypeScript recorders
+# swe-stop-cause and tool-output-size, fail-open, skipped without node or
 # dist/hooks.js.
-HOOKS_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks.js"
 if [ -f "$HOOKS_JS" ] && command -v node >/dev/null 2>&1; then
   printf '%s' "$INPUT" | TMB_STOP_TASK_ID="$SAFE_TASK_ID" TMB_STOP_SPAWN_ID="$SPAWN_ID" TMB_STOP_SINCE="$SAFE_FIRST_TS" \
     node "$HOOKS_JS" swe-stop-cause >/dev/null 2>&1 || true
+  printf '%s' "$INPUT" | TMB_STOP_AGENT_TYPE=swe TMB_STOP_TASK_ID="$SAFE_TASK_ID" TMB_STOP_SPAWN_ID="$SPAWN_ID" TMB_STOP_SINCE="$SAFE_FIRST_TS" \
+    node "$HOOKS_JS" tool-output-size >/dev/null 2>&1 || true
 fi
 
 # A run the recorder flagged hook_block (it ended on a deny with no completion

@@ -16,7 +16,10 @@
 # tasks.
 #
 # One tmb_db_write transaction. Analytics, never load-bearing: a failed write
-# is reported on stderr and the hook exits 0.
+# is reported on stderr and the hook exits 0. After the row is written, the
+# TypeScript recorder tool-output-size (node dist/hooks.js, fail-open, skipped
+# without node or dist) rewrites the row's per-tool result sizes in
+# agent_run_tool_output from the whole session transcript (GH 1957).
 # Bypass: TMB_DISABLE_BRO_TURN_USAGE_HOOK=1.
 
 set -uo pipefail
@@ -143,5 +146,11 @@ SELECT 'bro', NULL, NULL, '${SAFE_SESSION}', ${T_IN}, ${T_OUT}, ${T_CR}, ${T_CC}
        ${PLUGIN_VERSION_SQL}
  WHERE NOT EXISTS (SELECT 1 FROM agent_runs WHERE ${SESSION_ROW});
 " || exit 0
+
+HOOKS_JS="$SCRIPT_DIR/../../mcp/trajectory-server/dist/hooks.js"
+if [ -f "$HOOKS_JS" ] && command -v node >/dev/null 2>&1; then
+  printf '%s' "$INPUT" | TMB_STOP_AGENT_TYPE=bro TMB_STOP_SESSION_ID="$SESSION_ID" \
+    node "$HOOKS_JS" tool-output-size >/dev/null 2>&1 || true
+fi
 
 exit 0

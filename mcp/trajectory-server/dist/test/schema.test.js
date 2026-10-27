@@ -26,6 +26,7 @@ describe('schema — current table set, default values, constraints', () => {
             'plugin_meta',
             'plugin_config',
             'agent_runs',
+            'agent_run_tool_output',
             'pr_review_runs',
             'repos',
             'repo_remotes',
@@ -198,11 +199,21 @@ describe('schema — current table set, default values, constraints', () => {
         assert.throws(() => db.run(`INSERT INTO agent_runs (agent_type, stop_cause) VALUES ('swe', 'timeout')`), /CHECK/);
         db.close();
     });
-    it('fresh DB has schema_version = 52 in plugin_meta', () => {
+    it('fresh DB: agent_run_tool_output keys one row per (run, tool) and cascades from agent_runs (v54)', () => {
+        const db = tempDB();
+        assert.deepEqual(db.all('PRAGMA table_info(agent_run_tool_output)').map((c) => [c.name, c.notnull]), [['id', 0], ['run_id', 1], ['tool_name', 1], ['calls', 1], ['result_chars', 1], ['est_tokens', 1]]);
+        const run = Number(db.run(`INSERT INTO agent_runs (agent_type) VALUES ('swe')`).lastInsertRowid);
+        db.run('INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens) VALUES (?, ?, 1, 8, 2)', [run, 'Read']);
+        assert.throws(() => db.run('INSERT INTO agent_run_tool_output (run_id, tool_name, calls, result_chars, est_tokens) VALUES (?, ?, 1, 8, 2)', [run, 'Read']), /UNIQUE/);
+        db.run('DELETE FROM agent_runs WHERE id = ?', [run]);
+        assert.equal(db.get('SELECT count(*) AS n FROM agent_run_tool_output')?.n, 0);
+        db.close();
+    });
+    it('fresh DB has schema_version = 54 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 52);
+        assert.equal(meta.schema_version, 54);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });

@@ -196,4 +196,32 @@ assert_eq "1|30|$PLUGIN_VERSION" \
   "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), MAX(plugin_version) FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" \
   "the next turn rewrites the totals and keeps plugin_version"
 
+test_case "the Stop records the session's per-tool result sizes in agent_run_tool_output (GH 1957)"
+TOOL_T="$TMPDIR_BTU/tools.jsonl"
+{
+  printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"go"}}\n' "$(at 0)"
+  msg 21 10 '[{"type":"tool_use","id":"tu_r1","name":"Read","input":{}}]'
+  printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_r1","content":"0123456789"}]}}\n' "$(at 11)"
+  msg 22 12 '[{"type":"tool_use","id":"tu_b1","name":"Bash","input":{}}]'
+  printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_b1","content":[{"type":"text","text":"abcde"}]}]}}\n' "$(at 13)"
+} > "$TOOL_T"
+assert_eq "" "$(run_hook "$TOOL_T" sess-tools)" "no stderr"
+TOOL_ROWS="SELECT o.tool_name || ':' || o.calls || ':' || o.result_chars || ':' || o.est_tokens FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.agent_type='bro' AND r.session_id='sess-tools' ORDER BY o.tool_name;"
+assert_eq "Bash:1:5:2
+Read:1:10:3" "$(sqlite3 "$DB" "$TOOL_ROWS")" "one row per tool on the session's bro row"
+run_hook "$TOOL_T" sess-tools >/dev/null
+assert_eq "2" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.session_id='sess-tools';")" \
+  "a re-fired Stop rewrites the rows, no duplicates"
+
+test_case "without dist/hooks.js the Stop still writes the bro row and exits 0 (GH 1957)"
+NODIST="$TMPDIR_BTU/nodist"
+mkdir -p "$NODIST/scripts"
+cp -R "$PLUGIN_ROOT/scripts/hooks" "$NODIST/scripts/hooks"
+NODIST_OUT=$(printf '{"session_id":"sess-nodist","transcript_path":"%s"}' "$TOOL_T" \
+  | TRAJECTORY_DB_PATH="$DB" bash "$NODIST/scripts/hooks/bro-turn-usage.sh" 2>&1)
+assert_eq "0" "$?" "exit 0"
+assert_eq "" "$NODIST_OUT" "no output"
+assert_eq "1|0" "$(sqlite3 -separator '|' "$DB" "SELECT COUNT(*), (SELECT COUNT(*) FROM agent_run_tool_output o JOIN agent_runs r ON r.id = o.run_id WHERE r.session_id='sess-nodist') FROM agent_runs WHERE session_id='sess-nodist';")" \
+  "bro row written, no tool-output rows"
+
 summarize

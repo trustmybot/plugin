@@ -16,6 +16,7 @@ import { GATE_NAME as SWE_BOUNDARY_GATE, sweBoundary } from './swe-boundary.js';
 import { GATE_NAME as SWE_RESUME_GATE, sweResumeGate } from './swe-resume-gate.js';
 import { GATE_NAME as SWE_STOP_CAUSE_GATE, sweStopCause } from './swe-stop-cause.js';
 import { GATE_NAME as OVERRUN_GATE, taskOverrunAlert } from './task-overrun-alert.js';
+import { GATE_NAME as TOOL_OUTPUT_SIZE_GATE, toolOutputSize } from './tool-output-size.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -30,6 +31,7 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [SWE_RESUME_GATE, sweResumeGate],
   [SWE_STOP_CAUSE_GATE, sweStopCause],
   [OVERRUN_GATE, taskOverrunAlert],
+  [TOOL_OUTPUT_SIZE_GATE, toolOutputSize],
 ]);
 
 export function findGate(name: string): Gate | undefined {

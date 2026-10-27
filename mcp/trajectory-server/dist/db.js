@@ -7,7 +7,7 @@ import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logge
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 52;
+export const TARGET_SCHEMA_VERSION = 54;
 const BUSY_TIMEOUT_MS = 5000;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -668,6 +668,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 52 && toVersion >= 52) {
         migrateV51toV52(db);
+    }
+    if (fromVersion < 54 && toVersion >= 54) {
+        migrateV53toV54(db);
     }
 }
 // Migrations run with foreign_keys OFF (see applySchema), so the
@@ -2682,6 +2685,38 @@ function migrateV51toV52(db) {
         }
         if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'checkpoint')) {
             db.exec('ALTER TABLE tasks ADD COLUMN checkpoint TEXT');
+        }
+        commitTransaction(db);
+    }
+    catch (err) {
+        try {
+            rollbackTransaction(db);
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v53→v54: tool-result size per tool and agent run (GH 1957). A new table,
+// written by the tool-output-size recorder at each run's stop; existing runs
+// get no rows (no backfill).
+function migrateV53toV54(db) {
+    beginImmediate(db);
+    try {
+        if (tableExists(db, 'agent_runs')) {
+            db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+            tool_name    TEXT    NOT NULL,
+            calls        INTEGER NOT NULL DEFAULT 0,
+            result_chars INTEGER NOT NULL DEFAULT 0,
+            est_tokens   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (run_id, tool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
+      `);
         }
         commitTransaction(db);
     }
