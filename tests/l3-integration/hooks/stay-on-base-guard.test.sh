@@ -16,6 +16,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/stay-on-base-guard.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/stay-on-base-guard.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-stay-on-base-guard.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT

@@ -1,0 +1,11 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git worktree add --detach ../x"
+  },
+  "corpus_cwd": "project",
+  "corpus_env": {
+    "TMB_ALLOW_WORKTREE_DETACH": "1"
+  },
+  "corpus_expect": "empty"
+}
