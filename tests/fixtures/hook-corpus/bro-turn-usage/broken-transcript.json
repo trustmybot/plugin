@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "sess-broken",
+  "transcript_path": "@SANDBOX@/transcripts/broken.jsonl",
+  "stop_hook_active": false,
+  "corpus_expect": "empty",
+  "corpus_expect_tree": [
+    "!\"session_id\":\"sess-broken\""
+  ]
+}

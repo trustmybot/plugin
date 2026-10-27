@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "d10",
+  "source": "startup",
+  "corpus_env": {
+    "PATH": "@PATH_WITHOUT:pgrep@",
+    "TMB_DRIFT_SELF_PID": "500",
+    "TMB_TOOL_DIR_OVERRIDE": "@SANDBOX@/tools-new"
+  },
+  "corpus_expect": "empty"
+}
