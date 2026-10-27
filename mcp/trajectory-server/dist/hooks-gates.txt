@@ -10,6 +10,7 @@ git-guards
 git-push-guard
 naming-lint
 rework-limit
+swe-boundary
 swe-resume-gate
 swe-stop-cause
 task-overrun-alert

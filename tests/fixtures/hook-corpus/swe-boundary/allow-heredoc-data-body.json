@@ -1,0 +1,13 @@
+{
+  "session_id": "corpus",
+  "transcript_path": "@SANDBOX@/tr/main.jsonl",
+  "cwd": "@SANDBOX@/project/.claude/worktrees/sb-task",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat > src/note.txt <<'EOF'\ngit push origin main\ngh pr merge 1\necho x > agents/swe.md\nEOF"
+  },
+  "agent_type": "swe",
+  "agent_transcript_path": "@SANDBOX@/tr/task-10.jsonl",
+  "corpus_expect": "allow"
+}
