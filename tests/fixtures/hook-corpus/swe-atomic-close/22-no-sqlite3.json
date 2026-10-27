@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "SubagentStop",
+  "agent_type": "swe",
+  "agent_id": "agent-32",
+  "agent_transcript_path": "@SANDBOX@/transcripts/32.jsonl",
+  "session_id": "sess-1",
+  "corpus_env": { "PATH": "@NOSQLITE_PATH@" },
+  "corpus_divergent": "decision 703: the .sh exits 0 without the sqlite3 CLI; the TypeScript gate reads and writes the DB through node:sqlite",
+  "corpus_expect": { "bash": "\"kind\":\"swe-atomic-close-entry\"", "ts": "stopped without committing in worktree" }
+}

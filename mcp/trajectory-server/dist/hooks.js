@@ -57,7 +57,7 @@ function getText(tree, startIndex, endIndex, startPosition) {
   return result ?? "";
 }
 function unmarshalCaptures(query, tree, address, patternIndex, result) {
-  for (let i2 = 0, n2 = result.length; i2 < n2; i2++) {
+  for (let i2 = 0, n3 = result.length; i2 < n3; i2++) {
     const captureIndex = C.getValue(address, "i32");
     address += SIZE_OF_INT;
     const node = unmarshalNode(tree, address);
@@ -66,8 +66,8 @@ function unmarshalCaptures(query, tree, address, patternIndex, result) {
   }
   return address;
 }
-function marshalNode(node, index5 = 0) {
-  let address = TRANSFER_BUFFER + index5 * SIZE_OF_NODE;
+function marshalNode(node, index6 = 0) {
+  let address = TRANSFER_BUFFER + index6 * SIZE_OF_NODE;
   C.setValue(address, node.id, "i32");
   address += SIZE_OF_INT;
   C.setValue(address, node.startIndex, "i32");
@@ -82,7 +82,7 @@ function unmarshalNode(tree, address = TRANSFER_BUFFER) {
   const id = C.getValue(address, "i32");
   address += SIZE_OF_INT;
   if (id === 0) return null;
-  const index5 = C.getValue(address, "i32");
+  const index6 = C.getValue(address, "i32");
   address += SIZE_OF_INT;
   const row = C.getValue(address, "i32");
   address += SIZE_OF_INT;
@@ -92,7 +92,7 @@ function unmarshalNode(tree, address = TRANSFER_BUFFER) {
   const result = new Node(INTERNAL, {
     id,
     tree,
-    startIndex: index5,
+    startIndex: index6,
     startPosition: { row, column },
     other
   });
@@ -162,7 +162,7 @@ function unmarshalLanguageMetadata(address) {
   const patch_version = C.getValue(address += SIZE_OF_INT, "i32");
   return { major_version, minor_version, patch_version };
 }
-function parseAnyPredicate(steps, index5, operator, textPredicates) {
+function parseAnyPredicate(steps, index6, operator, textPredicates) {
   if (steps.length !== 3) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}`
@@ -178,24 +178,24 @@ function parseAnyPredicate(steps, index5, operator, textPredicates) {
   if (isCaptureStep(steps[2])) {
     const captureName1 = steps[1].name;
     const captureName2 = steps[2].name;
-    textPredicates[index5].push((captures) => {
+    textPredicates[index6].push((captures) => {
       const nodes1 = [];
       const nodes2 = [];
       for (const c of captures) {
         if (c.name === captureName1) nodes1.push(c.node);
         if (c.name === captureName2) nodes2.push(c.node);
       }
-      const compare = /* @__PURE__ */ __name((n1, n2, positive) => {
-        return positive ? n1.text === n2.text : n1.text !== n2.text;
+      const compare = /* @__PURE__ */ __name((n1, n22, positive) => {
+        return positive ? n1.text === n22.text : n1.text !== n22.text;
       }, "compare");
-      return matchAll ? nodes1.every((n1) => nodes2.some((n2) => compare(n1, n2, isPositive))) : nodes1.some((n1) => nodes2.some((n2) => compare(n1, n2, isPositive)));
+      return matchAll ? nodes1.every((n1) => nodes2.some((n22) => compare(n1, n22, isPositive))) : nodes1.some((n1) => nodes2.some((n22) => compare(n1, n22, isPositive)));
     });
   } else {
     const captureName = steps[1].name;
     const stringValue = steps[2].value;
-    const matches = /* @__PURE__ */ __name((n2) => n2.text === stringValue, "matches");
-    const doesNotMatch = /* @__PURE__ */ __name((n2) => n2.text !== stringValue, "doesNotMatch");
-    textPredicates[index5].push((captures) => {
+    const matches = /* @__PURE__ */ __name((n3) => n3.text === stringValue, "matches");
+    const doesNotMatch = /* @__PURE__ */ __name((n3) => n3.text !== stringValue, "doesNotMatch");
+    textPredicates[index6].push((captures) => {
       const nodes = [];
       for (const c of captures) {
         if (c.name === captureName) nodes.push(c.node);
@@ -205,7 +205,7 @@ function parseAnyPredicate(steps, index5, operator, textPredicates) {
     });
   }
 }
-function parseMatchPredicate(steps, index5, operator, textPredicates) {
+function parseMatchPredicate(steps, index6, operator, textPredicates) {
   if (steps.length !== 3) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected 2, got ${steps.length - 1}.`
@@ -225,7 +225,7 @@ function parseMatchPredicate(steps, index5, operator, textPredicates) {
   const matchAll = !operator.startsWith("any-");
   const captureName = steps[1].name;
   const regex2 = new RegExp(steps[2].value);
-  textPredicates[index5].push((captures) => {
+  textPredicates[index6].push((captures) => {
     const nodes = [];
     for (const c of captures) {
       if (c.name === captureName) nodes.push(c.node.text);
@@ -237,7 +237,7 @@ function parseMatchPredicate(steps, index5, operator, textPredicates) {
     return matchAll ? nodes.every((text) => test(text, isPositive)) : nodes.some((text) => test(text, isPositive));
   });
 }
-function parseAnyOfPredicate(steps, index5, operator, textPredicates) {
+function parseAnyOfPredicate(steps, index6, operator, textPredicates) {
   if (steps.length < 2) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected at least 1. Got ${steps.length - 1}.`
@@ -257,7 +257,7 @@ function parseAnyOfPredicate(steps, index5, operator, textPredicates) {
     );
   }
   const values = stringSteps.map((s) => s.value);
-  textPredicates[index5].push((captures) => {
+  textPredicates[index6].push((captures) => {
     const nodes = [];
     for (const c of captures) {
       if (c.name === captureName) nodes.push(c.node.text);
@@ -266,7 +266,7 @@ function parseAnyOfPredicate(steps, index5, operator, textPredicates) {
     return nodes.every((text) => values.includes(text)) === isPositive;
   });
 }
-function parseIsPredicate(steps, index5, operator, assertedProperties, refutedProperties) {
+function parseIsPredicate(steps, index6, operator, assertedProperties, refutedProperties) {
   if (steps.length < 2 || steps.length > 3) {
     throw new Error(
       `Wrong number of arguments to \`#${operator}\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`
@@ -278,20 +278,20 @@ function parseIsPredicate(steps, index5, operator, assertedProperties, refutedPr
     );
   }
   const properties = operator === "is?" ? assertedProperties : refutedProperties;
-  if (!properties[index5]) properties[index5] = {};
-  properties[index5][steps[1].value] = steps[2]?.value ?? null;
+  if (!properties[index6]) properties[index6] = {};
+  properties[index6][steps[1].value] = steps[2]?.value ?? null;
 }
-function parseSetDirective(steps, index5, setProperties) {
+function parseSetDirective(steps, index6, setProperties) {
   if (steps.length < 2 || steps.length > 3) {
     throw new Error(`Wrong number of arguments to \`#set!\` predicate. Expected 1 or 2. Got ${steps.length - 1}.`);
   }
   if (!steps.every(isStringStep)) {
     throw new Error(`Arguments to \`#set!\` predicate must be strings.".`);
   }
-  if (!setProperties[index5]) setProperties[index5] = {};
-  setProperties[index5][steps[1].value] = steps[2]?.value ?? null;
+  if (!setProperties[index6]) setProperties[index6] = {};
+  setProperties[index6][steps[1].value] = steps[2]?.value ?? null;
 }
-function parsePattern(index5, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
+function parsePattern(index6, stepType, stepValueId, captureNames, stringValues, steps, textPredicates, predicates, setProperties, assertedProperties, refutedProperties) {
   if (stepType === PREDICATE_STEP_TYPE_CAPTURE) {
     const name22 = captureNames[stepValueId];
     steps.push({ type: "capture", name: name22 });
@@ -307,27 +307,27 @@ function parsePattern(index5, stepType, stepValueId, captureNames, stringValues,
       case "not-eq?":
       case "any-eq?":
       case "eq?":
-        parseAnyPredicate(steps, index5, operator, textPredicates);
+        parseAnyPredicate(steps, index6, operator, textPredicates);
         break;
       case "any-not-match?":
       case "not-match?":
       case "any-match?":
       case "match?":
-        parseMatchPredicate(steps, index5, operator, textPredicates);
+        parseMatchPredicate(steps, index6, operator, textPredicates);
         break;
       case "not-any-of?":
       case "any-of?":
-        parseAnyOfPredicate(steps, index5, operator, textPredicates);
+        parseAnyOfPredicate(steps, index6, operator, textPredicates);
         break;
       case "is?":
       case "is-not?":
-        parseIsPredicate(steps, index5, operator, assertedProperties, refutedProperties);
+        parseIsPredicate(steps, index6, operator, assertedProperties, refutedProperties);
         break;
       case "set!":
-        parseSetDirective(steps, index5, setProperties);
+        parseSetDirective(steps, index6, setProperties);
         break;
       default:
-        predicates[index5].push({ operator, operands: steps.slice(1) });
+        predicates[index6].push({ operator, operands: steps.slice(1) });
     }
     steps.length = 0;
   }
@@ -974,9 +974,9 @@ var init_tree_sitter = __esm({
        * you might be iterating over a long list of children, you should use
        * {@link Node#children} instead.
        */
-      child(index5) {
+      child(index6) {
         marshalNode(this);
-        C._ts_node_child_wasm(this.tree[0], index5);
+        C._ts_node_child_wasm(this.tree[0], index6);
         return unmarshalNode(this.tree);
       }
       /**
@@ -987,9 +987,9 @@ var init_tree_sitter = __esm({
        * you might be iterating over a long list of children, you should use
        * {@link Node#namedChildren} instead.
        */
-      namedChild(index5) {
+      namedChild(index6) {
         marshalNode(this);
-        C._ts_node_named_child_wasm(this.tree[0], index5);
+        C._ts_node_named_child_wasm(this.tree[0], index6);
         return unmarshalNode(this.tree);
       }
       /**
@@ -1015,16 +1015,16 @@ var init_tree_sitter = __esm({
         return null;
       }
       /** Get the field name of this node's child at the given index. */
-      fieldNameForChild(index5) {
+      fieldNameForChild(index6) {
         marshalNode(this);
-        const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index5);
+        const address = C._ts_node_field_name_for_child_wasm(this.tree[0], index6);
         if (!address) return null;
         return C.AsciiToString(address);
       }
       /** Get the field name of this node's named child at the given index. */
-      fieldNameForNamedChild(index5) {
+      fieldNameForNamedChild(index6) {
         marshalNode(this);
-        const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index5);
+        const address = C._ts_node_field_name_for_named_child_wasm(this.tree[0], index6);
         if (!address) return null;
         return C.AsciiToString(address);
       }
@@ -1060,18 +1060,18 @@ var init_tree_sitter = __esm({
         return result;
       }
       /** Get the node's first child that contains or starts after the given byte offset. */
-      firstChildForIndex(index5) {
+      firstChildForIndex(index6) {
         marshalNode(this);
         const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-        C.setValue(address, index5, "i32");
+        C.setValue(address, index6, "i32");
         C._ts_node_first_child_for_byte_wasm(this.tree[0]);
         return unmarshalNode(this.tree);
       }
       /** Get the node's first named child that contains or starts after the given byte offset. */
-      firstNamedChildForIndex(index5) {
+      firstNamedChildForIndex(index6) {
         marshalNode(this);
         const address = TRANSFER_BUFFER + SIZE_OF_NODE;
-        C.setValue(address, index5, "i32");
+        C.setValue(address, index6, "i32");
         C._ts_node_first_named_child_for_byte_wasm(this.tree[0]);
         return unmarshalNode(this.tree);
       }
@@ -1176,13 +1176,13 @@ var init_tree_sitter = __esm({
             symbols.push(65535);
           }
         }
-        for (let i2 = 0, n2 = typesBySymbol.length; i2 < n2; i2++) {
+        for (let i2 = 0, n3 = typesBySymbol.length; i2 < n3; i2++) {
           if (types.includes(typesBySymbol[i2])) {
             symbols.push(i2);
           }
         }
         const symbolsAddress = C._malloc(SIZE_OF_INT * symbols.length);
-        for (let i2 = 0, n2 = symbols.length; i2 < n2; i2++) {
+        for (let i2 = 0, n3 = symbols.length; i2 < n3; i2++) {
           C.setValue(symbolsAddress + i2 * SIZE_OF_INT, symbols[i2], "i32");
         }
         marshalNode(this);
@@ -1401,11 +1401,11 @@ var init_tree_sitter = __esm({
       PatternStructure: 5
     };
     QueryError = class _QueryError extends Error {
-      constructor(kind, info2, index5, length) {
+      constructor(kind, info2, index6, length) {
         super(_QueryError.formatMessage(kind, info2));
         this.kind = kind;
         this.info = info2;
-        this.index = index5;
+        this.index = index6;
         this.length = length;
         this.name = "QueryError";
       }
@@ -1856,13 +1856,13 @@ var init_tree_sitter = __esm({
         assertInternal(internal);
         this[0] = address;
         this.types = new Array(C._ts_language_symbol_count(this[0]));
-        for (let i2 = 0, n2 = this.types.length; i2 < n2; i2++) {
+        for (let i2 = 0, n3 = this.types.length; i2 < n3; i2++) {
           if (C._ts_language_symbol_type(this[0], i2) < 2) {
             this.types[i2] = C.UTF8ToString(C._ts_language_symbol_name(this[0], i2));
           }
         }
         this.fields = new Array(C._ts_language_field_count(this[0]) + 1);
-        for (let i2 = 0, n2 = this.fields.length; i2 < n2; i2++) {
+        for (let i2 = 0, n3 = this.fields.length; i2 < n3; i2++) {
           const fieldName = C._ts_language_field_name_for_id(this[0], i2);
           if (fieldName !== 0) {
             this.fields[i2] = C.UTF8ToString(fieldName);
@@ -2674,11 +2674,11 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           return ret;
         }, "getMemory");
         var isInternalSym = /* @__PURE__ */ __name((symName) => ["__cpp_exception", "__c_longjmp", "__wasm_apply_data_relocs", "__dso_handle", "__tls_size", "__tls_align", "__set_stack_limits", "_emscripten_tls_init", "__wasm_init_tls", "__wasm_call_ctors", "__start_em_asm", "__stop_em_asm", "__start_em_js", "__stop_em_js"].includes(symName) || symName.startsWith("__em_js__"), "isInternalSym");
-        var uleb128Encode = /* @__PURE__ */ __name((n2, target) => {
-          if (n2 < 128) {
-            target.push(n2);
+        var uleb128Encode = /* @__PURE__ */ __name((n3, target) => {
+          if (n3 < 128) {
+            target.push(n3);
           } else {
-            target.push(n2 % 128 | 128, n2 >> 7);
+            target.push(n3 % 128 | 128, n3 >> 7);
           }
         }, "uleb128Encode");
         var sigToWasmTypes = /* @__PURE__ */ __name((sig) => {
@@ -3356,9 +3356,9 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
         }
         __name(_tree_sitter_log_callback, "_tree_sitter_log_callback");
-        function _tree_sitter_parse_callback(inputBufferAddress, index5, row, column, lengthAddress) {
+        function _tree_sitter_parse_callback(inputBufferAddress, index6, row, column, lengthAddress) {
           const INPUT_BUFFER_SIZE = 10 * 1024;
-          const string = Module.currentParseCallback(index5, {
+          const string = Module.currentParseCallback(index6, {
             row,
             column
           });
@@ -3854,7 +3854,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
        */
       parse(callback, oldTree, options) {
         if (typeof callback === "string") {
-          C.currentParseCallback = (index5) => callback.slice(index5);
+          C.currentParseCallback = (index6) => callback.slice(index6);
         } else if (typeof callback === "function") {
           C.currentParseCallback = callback;
         } else {
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync17 } from "node:fs";
+import { readFileSync as readFileSync18 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -4490,7 +4490,7 @@ function treeBytes(path) {
     return 0;
   }
   if (!st.isDirectory()) return st.size;
-  return readdirSync(path).reduce((sum, name3) => sum + treeBytes(join2(path, name3)), 0);
+  return readdirSync(path).reduce((sum2, name3) => sum2 + treeBytes(join2(path, name3)), 0);
 }
 function megabytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -5719,8 +5719,8 @@ function walCold(db) {
   try {
     fd = openSync2(db, "r");
     const buf = Buffer.alloc(2);
-    const n2 = readSync(fd, buf, 0, 2, 18);
-    return [...buf.subarray(0, n2)].join("") === "22";
+    const n3 = readSync(fd, buf, 0, 2, 18);
+    return [...buf.subarray(0, n3)].join("") === "22";
   } catch {
     return false;
   } finally {
@@ -6488,7 +6488,7 @@ function usageSql(db, sessionId, u, env) {
   const session = sqlQuote(sessionId);
   const sessionRow = `agent_type = 'bro' AND task_id IS NULL AND session_id = '${session}'`;
   const duration = `MAX(0, CAST(ROUND((julianday('${u.last}') - julianday('${u.first}')) * 86400000) AS INTEGER))`;
-  const model2 = `'${u.model}'`;
+  const model3 = `'${u.model}'`;
   return `
 UPDATE agent_runs
    SET tokens_in             = ${u.tokensIn},
@@ -6500,7 +6500,7 @@ UPDATE agent_runs
        completed_at          = '${u.last}',
        duration_ms           = ${duration},
        usage_source          = 'transcript',
-       model                 = ${model2},
+       model                 = ${model3},
        host                  = 'claude',
        root_dir              = COALESCE(${rootSql}, root_dir),
        exit_reason           = 'completed'
@@ -6510,7 +6510,7 @@ INSERT INTO agent_runs (agent_type, task_id, issue_id, session_id, tokens_in, to
                         cache_creation_tokens, tool_uses, started_at, completed_at, duration_ms,
                         usage_source, model, host, root_dir, exit_reason, plugin_version)
 SELECT 'bro', NULL, NULL, '${session}', ${u.tokensIn}, ${u.tokensOut}, ${u.cacheRead}, ${u.cacheCreation}, ${u.toolUses},
-       '${u.first}', '${u.last}', ${duration}, 'transcript', ${model2}, 'claude', ${rootSql}, 'completed',
+       '${u.first}', '${u.last}', ${duration}, 'transcript', ${model3}, 'claude', ${rootSql}, 'completed',
        ${versionSql}
  WHERE NOT EXISTS (SELECT 1 FROM agent_runs WHERE ${sessionRow});
 `;
@@ -6735,8 +6735,8 @@ var attributionFooter = (payload, env) => {
   }
   const updated = shellCapture2(normalizeFooter(orig, env));
   if (updated === orig) return ALLOW;
-  const write = kind.cli === "gh" ? [kind.group, "edit", number, "--body", updated] : [kind.group, "update", number, "--description", updated];
-  run2(cli, write, env);
+  const write2 = kind.cli === "gh" ? [kind.group, "edit", number, "--body", updated] : [kind.group, "update", number, "--description", updated];
+  run2(cli, write2, env);
   return ALLOW;
 };
 
@@ -7186,8 +7186,8 @@ function lookup(w, k) {
 }
 function unwrap(w, k) {
   const dirs = [];
-  const n2 = w.length;
-  while (k < n2) {
+  const n3 = w.length;
+  while (k < n3) {
     const a = w[k];
     if (a === "" || ASSIGNMENT.test(a)) {
       k++;
@@ -7202,7 +7202,7 @@ function unwrap(w, k) {
     if (a === "command" && lookup(w, k)) return { k: k + 1, dirs };
     const spec = SPECS[a] ?? NO_SPEC;
     k++;
-    while (k < n2 && w[k].startsWith("-")) {
+    while (k < n3 && w[k].startsWith("-")) {
       const opt = w[k];
       k++;
       if (opt === "--") break;
@@ -7235,7 +7235,7 @@ function unwrap(w, k) {
         break;
       }
     }
-    if ((a === "timeout" || a === "gtimeout") && k < n2) k++;
+    if ((a === "timeout" || a === "gtimeout") && k < n3) k++;
   }
   return { k, dirs };
 }
@@ -7658,7 +7658,7 @@ function scan(buf, base2, home, assign, frames) {
     const w = splitWords(stmt);
     wq = w.map((word) => word.includes(QM));
     for (let k = 0; k < w.length; k++) w[k] = w[k].replaceAll(QM, "");
-    const n2 = w.length;
+    const n3 = w.length;
     stmt = "";
     let first = 0;
     asg = "";
@@ -7670,7 +7670,7 @@ function scan(buf, base2, home, assign, frames) {
     lastout = "";
     lastdir = here();
     let sawwhile = false;
-    while (first < n2) {
+    while (first < n3) {
       if (w[first] === "") {
         first++;
         continue;
@@ -7690,8 +7690,8 @@ function scan(buf, base2, home, assign, frames) {
       }
       if (w[first] === "time") {
         let k = first + 1;
-        while (k < n2 && w[k].startsWith("-")) k++;
-        if (k < n2 && ASSIGNMENT.test(w[k])) {
+        while (k < n3 && w[k].startsWith("-")) k++;
+        if (k < n3 && ASSIGNMENT.test(w[k])) {
           first = k;
           plain = false;
           continue;
@@ -7706,7 +7706,7 @@ function scan(buf, base2, home, assign, frames) {
       }
       break;
     }
-    if (first >= n2) {
+    if (first >= n3) {
       let ok2 = plain;
       if (vtop && plain) {
         for (const a of aw) if (!assignword(a, !csure)) ok2 = false;
@@ -7727,7 +7727,7 @@ function scan(buf, base2, home, assign, frames) {
     else if (assign && !wq[first] && (a0 === "coproc" || a0 === "function")) loopprefix(w, first);
     let ok = plain && aw.length === 0;
     if (ok && a0 === "export") {
-      for (let k = first + 1; k < n2; k++) {
+      for (let k = first + 1; k < n3; k++) {
         if (w[k] === "") continue;
         if (!ASSIGNMENT.test(w[k])) ok = false;
         else if (vtop && !assignword(w[k], !csure)) ok = false;
@@ -7736,7 +7736,7 @@ function scan(buf, base2, home, assign, frames) {
       ok = VPLAIN.test(a0);
     }
     let out2 = a0;
-    for (let k = first + 1; k < n2; k++) if (w[k] !== "") out2 += " " + w[k];
+    for (let k = first + 1; k < n3; k++) if (w[k] !== "") out2 += " " + w[k];
     if (cdw !== "") {
       out2 = cdw + " " + out2;
       a0 = "";
@@ -7748,7 +7748,7 @@ function scan(buf, base2, home, assign, frames) {
     let dw = cwhy;
     if (a0 === "cd" || a0 === "pushd") {
       let p = "";
-      for (let k = first + 1; k < n2; k++) {
+      for (let k = first + 1; k < n3; k++) {
         if (w[k] === "") continue;
         if (/^-[LPe@]+$/.test(w[k])) continue;
         p = w[k];
@@ -7788,7 +7788,7 @@ function scan(buf, base2, home, assign, frames) {
     } else if (assign && a0 === "xargs") {
       if (waspiped && pipesrc !== "") out2 += " " + pipesrc;
     } else if (a0 === "git") {
-      for (let k = first + 1; k < n2; k++) {
+      for (let k = first + 1; k < n3; k++) {
         if (w[k] === "") continue;
         if (w[k] === "-C") {
           const t = resolve4(d, w[k + 1] ?? "");
@@ -7977,8 +7977,8 @@ function listing(parser2, cmd, base2, depth, home) {
 function cwdState(cwd, env = process.env) {
   if (!isDir(cwd)) return "-";
   if (gitOk(cwd, ["rev-parse", "--git-dir"], env)) {
-    const n2 = gitOut(cwd, ["worktree", "list", "--porcelain"], env).split("\n").filter((l) => l.startsWith("worktree ")).length;
-    if (n2 > 1) return "?";
+    const n3 = gitOut(cwd, ["worktree", "list", "--porcelain"], env).split("\n").filter((l) => l.startsWith("worktree ")).length;
+    if (n3 > 1) return "?";
   }
   return cwd;
 }
@@ -8638,12 +8638,12 @@ function exclCovers(pat, d, sub, v, root, rootc) {
   return r === `*/${b}` || r === `**/${b}` || r === `${l}/${sub}` || r === `./${sub}` || r === `${trimSlash(root)}/${d}` || r === `${trimSlash(rootc)}/${d}`;
 }
 function findModel(mode, args2, raw, acts, m) {
-  const n2 = args2.length;
+  const n3 = args2.length;
   let k = 0;
   let bad = false;
   let ok = false;
   const prune = [];
-  while (k < n2) {
+  while (k < n3) {
     const a = args2[k];
     if (a === "-L") {
       bad = true;
@@ -8655,8 +8655,8 @@ function findModel(mode, args2, raw, acts, m) {
       break;
     } else break;
   }
-  while (k < n2 && !/^(-.*|\(|!|,)$/s.test(args2[k])) m.paths.push(args2[k++]);
-  while (k < n2) {
+  while (k < n3 && !/^(-.*|\(|!|,)$/s.test(args2[k])) m.paths.push(args2[k++]);
+  while (k < n3) {
     const w = args2[k++];
     switch (w) {
       case "-exec":
@@ -8666,7 +8666,7 @@ function findModel(mode, args2, raw, acts, m) {
         if (mode !== "exec") return false;
         const run4 = [];
         let prev = "";
-        while (k < n2) {
+        while (k < n3) {
           const x = raw[k++];
           if (x === "" || x === "+" && prev === "{}") break;
           run4.push(x);
@@ -8751,10 +8751,10 @@ function lsModel(args2, m) {
   return true;
 }
 function gitModel(dir, args2, m) {
-  const n2 = args2.length;
+  const n3 = args2.length;
   let k = 0;
   let gdir = dir;
-  while (k < n2) {
+  while (k < n3) {
     const a = args2[k];
     if (a === "-C") {
       const p = args2[k + 1] ?? "";
@@ -8785,11 +8785,11 @@ function gitModel(dir, args2, m) {
   return true;
 }
 function rgModel(args2, m) {
-  const n2 = args2.length;
+  const n3 = args2.length;
   let k = 0;
   let ok = false;
   let nocase = false;
-  while (k < n2) {
+  while (k < n3) {
     const w = args2[k++];
     if (w === "--files") ok = true;
     else if (/^(-L|--follow|--path-separator.*|--pre|--pre=.*)$/s.test(w)) return false;
@@ -8811,17 +8811,17 @@ function rgModel(args2, m) {
   return true;
 }
 function fdModel(mode, args2, raw, acts, m) {
-  const n2 = args2.length;
+  const n3 = args2.length;
   let k = 0;
   let ok = false;
   let bad = false;
-  while (k < n2) {
+  while (k < n3) {
     const w = args2[k++];
     if (w === "-x" || w === "--exec" || w === "-X" || w === "--exec-batch") {
       if (mode !== "exec") return false;
       const run4 = [];
       let hit = false;
-      while (k < n2) {
+      while (k < n3) {
         const x = raw[k++];
         if (x === "") break;
         if (PLACEHOLDER.test(x)) hit = true;
@@ -8979,9 +8979,9 @@ var NODE_REQUIRE_CHAIN = new RegExp(`require[ \\t]*[(][ \\t]*${QQ}(node:)?child_
 var NODE_CP = new RegExp(`${QQ}(node:)?child_process${QQ}`);
 var CALLBACK = /^[ \t\n]*(async[ \t\n]+)?(function[^A-Za-z0-9_$]|[(][^()]*[)][ \t\n]*=>|[A-Za-z_$][A-Za-z0-9_$]*[ \t\n]*=>)/;
 var RUN_KEYS = ["statement", "cmd", "expression", "expr", "stmt", "setup", "source"];
-function substr(s, m, n2) {
+function substr(s, m, n3) {
   const start2 = Math.max(m, 1);
-  const end = n2 === void 0 ? s.length + 1 : Math.min(m + n2, s.length + 1);
+  const end = n3 === void 0 ? s.length + 1 : Math.min(m + n3, s.length + 1);
   return end <= start2 ? "" : s.slice(start2 - 1, end - 1);
 }
 function index3(s, t) {
@@ -9079,8 +9079,8 @@ var Scanner = class _Scanner {
   print(line) {
     this.out.push(line);
   }
-  at(k, n2 = 1) {
-    return substr(this.s, k, n2);
+  at(k, n3 = 1) {
+    return substr(this.s, k, n3);
   }
   fidAt(d) {
     return this.fid[d] ?? 0;
@@ -9816,7 +9816,7 @@ var Scanner = class _Scanner {
   }
   str(qc, pfx) {
     const { s } = this;
-    const n2 = s.length;
+    const n3 = s.length;
     let tq = false;
     let closed = false;
     let v = "";
@@ -9826,7 +9826,7 @@ var Scanner = class _Scanner {
       tq = true;
       j = this.ip + 3;
     } else j = this.ip + 1;
-    while (j <= n2) {
+    while (j <= n3) {
       const ch = this.at(j);
       if (ch === "\\") {
         v += this.at(j, 2);
@@ -9848,7 +9848,7 @@ var Scanner = class _Scanner {
     }
     if (!closed) {
       this.anom = true;
-      this.ip = n2 + 1;
+      this.ip = n3 + 1;
       return;
     }
     let interp = false;
@@ -9871,10 +9871,10 @@ var Scanner = class _Scanner {
   }
   name(rk, rv, pfx) {
     const { s, lang } = this;
-    const n2 = s.length;
+    const n3 = s.length;
     let j = this.ip + 1;
     const st = this.ip;
-    while (j <= n2) {
+    while (j <= n3) {
       const c = this.at(j);
       if (/[A-Za-z0-9_]/.test(c)) {
         j++;
@@ -9968,9 +9968,9 @@ var Scanner = class _Scanner {
   scan(program) {
     this.s = program;
     const { s, lang } = this;
-    const n2 = s.length;
+    const n3 = s.length;
     this.prescan();
-    while (this.ip <= n2 && !this.anom) {
+    while (this.ip <= n3 && !this.anom) {
       const { ip } = this;
       const c = this.at(ip);
       if (c === " " || c === "	" || c === "\r") {
@@ -10041,7 +10041,7 @@ var Scanner = class _Scanner {
       }
       if (/[0-9]/.test(c)) {
         const j = ip;
-        while (this.ip <= n2 && /[0-9A-Za-z_.]/.test(this.at(this.ip))) this.ip++;
+        while (this.ip <= n3 && /[0-9A-Za-z_.]/.test(this.at(this.ip))) this.ip++;
         this.satom("N", this.at(j, this.ip - j));
         this.tok("E", "");
         this.pc = 0;
@@ -11567,17 +11567,17 @@ function closeAt(s, from, quotes, open, shut) {
 }
 function expansionEnd(s, i2, quotes) {
   const c = s[i2];
-  const n2 = s[i2 + 1] ?? "";
+  const n3 = s[i2 + 1] ?? "";
   if (c === "`") {
     const e = s.indexOf("`", i2 + 1);
     return e < 0 ? -1 : e + 1;
   }
   if (c === "\x07") return closeAt(s, i2 + 1, quotes, "\x07", "\b");
   if (c !== "$") return -1;
-  if (n2 === "(") return closeAt(s, i2 + 2, quotes, "(", ")");
-  if (n2 === "{") return closeAt(s, i2 + 2, quotes, "{", "}");
-  if (/[A-Za-z_]/.test(n2)) return i2 + 1 + /^[A-Za-z0-9_]*/.exec(s.slice(i2 + 1))[0].length;
-  return /[0-9@*#?$!-]/.test(n2) ? i2 + 2 : -1;
+  if (n3 === "(") return closeAt(s, i2 + 2, quotes, "(", ")");
+  if (n3 === "{") return closeAt(s, i2 + 2, quotes, "{", "}");
+  if (/[A-Za-z_]/.test(n3)) return i2 + 1 + /^[A-Za-z0-9_]*/.exec(s.slice(i2 + 1))[0].length;
+  return /[0-9@*#?$!-]/.test(n3) ? i2 + 2 : -1;
 }
 function onlyExpansions(s, quotes) {
   let i2 = 0;
@@ -11694,9 +11694,9 @@ function lex(py, src) {
       while (!src.startsWith(q, j)) {
         if (j >= src.length || q.length === 1 && c !== "`" && src[j] === "\n") return void 0;
         if (c === "`" && src.startsWith("${", j)) return void 0;
-        const n2 = src[j] === "\\" ? 2 : 1;
-        body2 += src.slice(j, j + n2);
-        j += n2;
+        const n3 = src[j] === "\\" ? 2 : 1;
+        body2 += src.slice(j, j + n3);
+        j += n3;
       }
       strAt.set(code.length, strs.length);
       strs.push({ pfx, q, body: body2 });
@@ -11914,7 +11914,7 @@ function interpWrites(words2, procWrites, held = () => false) {
   else if (argv0 === "perl") lang = "perl";
   else if (argv0 === "ruby") lang = "ruby";
   else return [];
-  const n2 = words2.length;
+  const n3 = words2.length;
   let k = 1;
   let optarg = false;
   const encoded = [];
@@ -11923,7 +11923,7 @@ function interpWrites(words2, procWrites, held = () => false) {
     encoded.push(attached ? attached : next ?? "");
     carriers.push(attached ? flagWord : next ?? "");
   };
-  while (k < n2) {
+  while (k < n3) {
     const w = words2[k++];
     if (pyopt) {
       const m2 = /^-[bBdEhiIOPqRsSuvx]*m(.*)$/s.exec(w);
@@ -11941,7 +11941,7 @@ function interpWrites(words2, procWrites, held = () => false) {
     }
   }
   if (lang === "perl" || lang === "ruby") {
-    for (let j = k; j < n2; j++) {
+    for (let j = k; j < n3; j++) {
       const m = PROGRAM_FLAG[lang].exec(words2[j]);
       if (m) take(words2[j], m[1], m[1] ? void 0 : words2[++j]);
     }
@@ -11954,7 +11954,7 @@ function interpWrites(words2, procWrites, held = () => false) {
   if (found.lines.length === 0) return unproven;
   const literal = !(found.lines[0] === "-" && found.lines.length === 1);
   const out2 = literal ? [...found.lines] : [];
-  for (; k < n2; k++) if (!words2[k].startsWith("-")) out2.push(...decode(words2[k]).split("\n"));
+  for (; k < n3; k++) if (!words2[k].startsWith("-")) out2.push(...decode(words2[k]).split("\n"));
   if (found.computed) out2.push(COMPUTED + argv0);
   return [...out2, ...unproven];
 }
@@ -12141,9 +12141,9 @@ function writeTargets(line) {
     writeTargetWords(w, out2);
     w = [];
   };
-  const n2 = line.length;
+  const n3 = line.length;
   let i2 = 0;
-  while (i2 < n2) {
+  while (i2 < n3) {
     let c = line[i2];
     if (c === " " || c === "	") {
       i2++;
@@ -12178,14 +12178,14 @@ function writeTargets(line) {
       if (line[i2] === ">" || line[i2] === "|") i2++;
       if (line[i2] === "&") {
         i2++;
-        while (i2 < n2 && /[0-9-]/.test(line[i2])) i2++;
+        while (i2 < n3 && /[0-9-]/.test(line[i2])) i2++;
         continue;
       }
       want = 1;
       continue;
     }
     let word = "";
-    while (i2 < n2) {
+    while (i2 < n3) {
       c = line[i2];
       if (/[ \t;|&()<]/.test(c)) break;
       if (c === ">") {
@@ -12253,7 +12253,7 @@ function inplaceFiles(tool, args2) {
   return ops;
 }
 function gitTree(chain2, words2) {
-  const n2 = words2.length;
+  const n3 = words2.length;
   let cdir = "";
   let tree = "";
   let k = 1;
@@ -12261,7 +12261,7 @@ function gitTree(chain2, words2) {
   let dir = "";
   let outs = [];
   const at2 = (j) => words2[j] ?? "";
-  while (k < n2) {
+  while (k < n3) {
     const w = words2[k];
     if (w === "-C") {
       cdir = under(cdir, at2(k + 1));
@@ -12290,19 +12290,19 @@ function gitTree(chain2, words2) {
     if (/^(|list|check-rules)$/.test(next)) return [];
   } else if (sub === "submodule") {
     let j = k + 1;
-    while (j < n2 && words2[j].startsWith("-")) j++;
+    while (j < n3 && words2[j].startsWith("-")) j++;
     if (!/^(update|add|deinit|absorbgitdirs)$/.test(at2(j))) return [];
   } else if (sub === "read-tree") {
     let j = k + 1;
-    for (; j < n2; j++) {
+    for (; j < n3; j++) {
       const w = words2[j];
       if (w === "--") break;
       if (w.startsWith("--")) continue;
       if (/^-.*u/s.test(w)) break;
     }
-    if (!(j < n2 && words2[j] !== "--")) return [];
+    if (!(j < n3 && words2[j] !== "--")) return [];
   } else if (sub === "checkout-index") {
-    for (let j = k + 1; j < n2; j++) {
+    for (let j = k + 1; j < n3; j++) {
       if (/^--prefix=./s.test(words2[j])) {
         outs.push(words2[j].slice("--prefix=".length));
         usetree = false;
@@ -12310,7 +12310,7 @@ function gitTree(chain2, words2) {
     }
   } else if (sub === "init") {
     usetree = false;
-    for (let j = k + 1; j < n2; j++) {
+    for (let j = k + 1; j < n3; j++) {
       const w = words2[j];
       if (w === "--separate-git-dir") {
         outs.push(at2(j + 1));
@@ -12324,7 +12324,7 @@ function gitTree(chain2, words2) {
   } else if (sub === "format-patch" || sub === "archive") {
     usetree = false;
     const fp = sub === "format-patch";
-    for (let j = k + 1; j < n2; j++) {
+    for (let j = k + 1; j < n3; j++) {
       const w = words2[j];
       if (fp && w === "--stdout") return [];
       if (w === "-o" || w === "--output" || fp && w === "--output-directory") {
@@ -12738,11 +12738,11 @@ var WritePaths = class _WritePaths {
     else if (tool === "fd" || tool === "fdfind") name3 = "fd_path";
     else if (tool === "xargs") {
       name3 = "xargs_arg";
-      const n2 = words2.length;
+      const n3 = words2.length;
       let k = 1;
       let rep = "";
       let noin = false;
-      while (k < n2) {
+      while (k < n3) {
         const p = words2[k];
         if (p === "--") {
           k++;
@@ -12768,7 +12768,7 @@ var WritePaths = class _WritePaths {
           break;
         }
       }
-      if (k >= n2) return;
+      if (k >= n3) return;
       const rv2 = "${" + name3 + "}";
       let cmd = words2.slice(k).join(" ");
       cmd = rep !== "" ? cmd.split(rep).join(rv2) : `${cmd} ${rv2}`;
@@ -13045,9 +13045,9 @@ var WritePaths = class _WritePaths {
   eachDir(level, dirs, why, fn) {
     const vars = level.vars;
     let added = "";
-    dirs.forEach((d, n2) => {
+    dirs.forEach((d, n3) => {
       level.vars = vars;
-      level.why = n2 === 0 ? why : "";
+      level.why = n3 === 0 ? why : "";
       fn(d);
       added += level.vars.slice(vars.length);
     });
@@ -13255,13 +13255,13 @@ function isForge(word) {
   return b === "gh" || b === "glab";
 }
 function ghMutationFrom(w) {
-  const n2 = w.length;
+  const n3 = w.length;
   const tool = base(w[0] ?? "");
   let k = 1;
   let skipval = false;
   let group = "";
   let action = "";
-  while (k < n2) {
+  while (k < n3) {
     const a = w[k];
     k += 1;
     if (skipval) {
@@ -13284,7 +13284,7 @@ function ghMutationFrom(w) {
   if (group === "api") {
     let verb = "";
     let fields = false;
-    while (k < n2) {
+    while (k < n3) {
       const a = w[k];
       k += 1;
       if (a === "-X" || a === "--method") {
@@ -13411,8 +13411,8 @@ function stripLiterals(cmd) {
     }
     let out2 = "";
     let i2 = 0;
-    const n2 = line.length;
-    while (i2 < n2) {
+    const n3 = line.length;
+    while (i2 < n3) {
       const c = line[i2];
       const next = line[i2 + 1] ?? "";
       if (state === "s") {
@@ -13504,9 +13504,9 @@ function stripLiterals(cmd) {
           strip = true;
           j += 1;
         }
-        while (j < n2 && (line[j] === " " || line[j] === "	")) j += 1;
+        while (j < n3 && (line[j] === " " || line[j] === "	")) j += 1;
         let w = "";
-        while (j < n2) {
+        while (j < n3) {
           const d = line[j];
           if (WORD_END.has(d)) break;
           if (d !== SQ && d !== '"' && d !== "\\") w += d;
@@ -13589,8 +13589,8 @@ function optionValue(s, find, strip) {
   const m = new RegExp(find).exec(s);
   return m ? m[0].replace(new RegExp(strip), "") : "";
 }
-function cutField(text, n2) {
-  const fields = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n2 - 1] ?? "" : line);
+function cutField(text, n3) {
+  const fields = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n3 - 1] ?? "" : line);
   return stripTrailingNewlines(fields.join("\n"));
 }
 function physicalDir(dir) {
@@ -14570,8 +14570,8 @@ function deny2(reason) {
 function lines(text) {
   return text.split("\n");
 }
-function field2(line, n2) {
-  return line.split("|")[n2 - 1] ?? "";
+function field2(line, n3) {
+  return line.split("|")[n3 - 1] ?? "";
 }
 function hexLines(text) {
   return lines(text).filter((l) => HEX.test(l));
@@ -14703,8 +14703,8 @@ var Guard2 = class {
       ).stdout.replace(/\n$/, "")
     );
     const fullRows = [];
-    const n2 = Math.max(checked.length, taskLines.length);
-    for (let i2 = 0; i2 < n2; i2++) {
+    const n3 = Math.max(checked.length, taskLines.length);
+    for (let i2 = 0; i2 < n3; i2++) {
       const rest2 = taskLines[i2] === void 0 ? "" : taskLines[i2].slice(taskLines[i2].indexOf("|") + 1);
       const row = `${checked[i2] ?? ""}|${rest2}`;
       const o = row.split(/[ |]/);
@@ -15616,8 +15616,8 @@ var reworkLimit = (payload, env) => {
 // src/hooks/require-feature-branch-active.ts
 import { posix } from "node:path";
 var GATE_NAME15 = "require-feature-branch-active";
-function cutField2(text, n2) {
-  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n2 - 1] ?? "" : line);
+function cutField2(text, n3) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n3 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
 }
 function resolveRepo(db, taskId, repo, env) {
@@ -16069,7 +16069,7 @@ function cksum(text) {
     crc = (crc << 8 ^ CRC_TABLE[(crc >>> 24 ^ b) & 255]) >>> 0;
   };
   for (const b of bytes) step(b);
-  for (let n2 = bytes.length; n2 > 0; n2 = Math.floor(n2 / 256)) step(n2 & 255);
+  for (let n3 = bytes.length; n3 > 0; n3 = Math.floor(n3 / 256)) step(n3 & 255);
   return String(~crc >>> 0);
 }
 function rawElements(json) {
@@ -16371,11 +16371,11 @@ var Boundary = class {
     if (session === "") return fallback;
     let names;
     try {
-      names = readdirSync4(base2).filter((n2) => !n2.startsWith("."));
+      names = readdirSync4(base2).filter((n3) => !n3.startsWith("."));
     } catch {
       return fallback;
     }
-    const found = names.map((n2) => `${base2}/${n2}/${session}/scratchpad`).filter(ownDir);
+    const found = names.map((n3) => `${base2}/${n3}/${session}/scratchpad`).filter(ownDir);
     return found.length === 1 ? found[0] : fallback;
   }
   bypassCheck() {
@@ -16802,16 +16802,16 @@ function defaultPluginRoot() {
   }
 }
 function personaInit(env = process.env, haveJq = commandOnPath2("jq", env)) {
-  const pluginRoot3 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
-  if (pluginRoot3 === "") return null;
+  const pluginRoot4 = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot();
+  if (pluginRoot4 === "") return null;
   let project = env.CLAUDE_PROJECT_DIR || shellPwd(env);
   const projectReal = physicalDir2(project);
-  const pluginReal = physicalDir2(pluginRoot3);
+  const pluginReal = physicalDir2(pluginRoot4);
   if (pluginReal !== "" && projectReal === pluginReal) return null;
   if (projectReal !== "") project = projectReal;
-  const version = manifestField(pluginRoot3, "version", haveJq);
-  const name3 = manifestField(pluginRoot3, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
-  return { haveJq, pluginRoot: pluginRoot3, source: `${pluginRoot3}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
+  const version = manifestField(pluginRoot4, "version", haveJq);
+  const name3 = manifestField(pluginRoot4, "name", haveJq) || (haveJq ? pluginName2(env) : "tmb");
+  return { haveJq, pluginRoot: pluginRoot4, source: `${pluginRoot4}/CLAUDE.md`, project, pluginName: name3, pluginVersion: version };
 }
 function personaSessionId(input, haveJq) {
   const sid = commandSubstitution(haveJq ? jqAlternatives(input, [["session_id"]]) : sedField(input, "session_id"));
@@ -17022,7 +17022,7 @@ function activationRoutine(payload, env) {
 // src/hooks/debug-trajectory.ts
 var GATE_NAME25 = "debug-trajectory";
 var ARGS_MAX_BYTES = 4e3;
-var pad = (n2) => String(n2).padStart(2, "0");
+var pad = (n3) => String(n3).padStart(2, "0");
 function hourStamp(date) {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}`;
 }
@@ -17280,17 +17280,17 @@ function multiSelectAt(questions, i2) {
 }
 function shapeViolations(echoed) {
   const questions = jqMap(echoed, (value) => jqOr(jqIndex(jqIndex(value, "tool_input"), "questions"), []));
-  const lengths = questions.map(jqLength).filter((n2) => n2 !== LENGTH_ERROR);
+  const lengths = questions.map(jqLength).filter((n3) => n3 !== LENGTH_ERROR);
   const count = lengths.join("\n");
-  if (count === "" || bashIntTest(count, (n2) => n2 === 0)) return null;
+  if (count === "" || bashIntTest(count, (n3) => n3 === 0)) return null;
   const violations = [];
-  if (bashIntTest(count, (n2) => n2 > MAX_QUESTIONS)) {
+  if (bashIntTest(count, (n3) => n3 > MAX_QUESTIONS)) {
     violations.push(`AUQ has ${count} questions; max ${MAX_QUESTIONS} allowed during ratification`);
   }
   if (!multiSelectAt(questions, 0)) {
     violations.push("Q1 must have multiSelect:true (agreements checkbox) during ratification");
   }
-  if (bashIntTest(count, (n2) => n2 > 1)) {
+  if (bashIntTest(count, (n3) => n3 > 1)) {
     const longest = Math.max(0, ...questions.map((q) => Array.isArray(q) ? q.length : 0));
     const last = Math.min(Number(count), longest);
     for (let i2 = 1; i2 < last; i2 += 1) {
@@ -17828,10 +17828,10 @@ function context3(text) {
 function shellLength(s, env) {
   return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
 }
-function shellTail(s, n2, env) {
-  if (ctypeUtf8(env)) return [...s].slice(-n2).join("");
+function shellTail(s, n3, env) {
+  if (ctypeUtf8(env)) return [...s].slice(-n3).join("");
   const bytes = Buffer.from(s);
-  return bytes.subarray(Math.max(0, bytes.length - n2)).toString("utf8");
+  return bytes.subarray(Math.max(0, bytes.length - n3)).toString("utf8");
 }
 function msToS(ms) {
   const abs = Math.abs(ms);
@@ -17927,8 +17927,8 @@ function parseFindings(json) {
 function probeCommand(f) {
   return `[probe ${typeof f.id === "string" ? f.id : ""}] ${typeof f.probe_cmd === "string" ? f.probe_cmd : ""}`;
 }
-function lastLines(text, n2) {
-  return text.split("\n").slice(-n2).join("\n");
+function lastLines(text, n3) {
+  return text.split("\n").slice(-n3).join("\n");
 }
 function failureLines(text) {
   return text.split("\n").filter((line) => /FAIL|failed|Error|❌/.test(line)).slice(0, FAILURE_LINES).join("\n");
@@ -18878,10 +18878,10 @@ var cheatcodeInstallApproval = (payload, env) => {
 import { statSync as statSync24 } from "node:fs";
 
 // src/hooks/lib/statement-rows.ts
-function readTabFields2(line, n2) {
+function readTabFields2(line, n3) {
   let s = line.replace(/^\t+/, "");
   const fields = [];
-  for (let i2 = 0; i2 < n2 - 1; i2++) {
+  for (let i2 = 0; i2 < n3 - 1; i2++) {
     const tab = s.indexOf("	");
     if (tab < 0) {
       fields.push(s);
@@ -19076,17 +19076,17 @@ function hasRemoteUrl(remotesJson) {
   const lines2 = [];
   for (const value of jqInput(remotesJson).values) {
     if (value === null || typeof value !== "object") break;
-    let n2 = 0;
+    let n3 = 0;
     try {
       for (const item of Object.values(value)) {
         const url = jqGet(item, "url");
-        if (url !== null && url !== "") n2++;
+        if (url !== null && url !== "") n3++;
       }
     } catch (e) {
       if (e instanceof JqUnindexable) break;
       throw e;
     }
-    lines2.push(jqRaw2(n2 > 0));
+    lines2.push(jqRaw2(n3 > 0));
   }
   return shellCapture2(lines2.join("\n"));
 }
@@ -19423,17 +19423,17 @@ function stripInjectedBlocks(text) {
 var AWK_ALNUM = /[A-Za-z0-9]/;
 var AWK_SPACE = /[\t\n\v\f\r ]/;
 function stripQuotedSpans(text) {
-  const n2 = text.length;
+  const n3 = text.length;
   let out2 = "";
   let i2 = 0;
-  while (i2 < n2) {
+  while (i2 < n3) {
     const c = text[i2];
     let j = -1;
     if (c === "`") {
       j = text.indexOf("`", i2 + 1);
-    } else if ((c === "'" || c === '"') && (i2 === 0 || !AWK_ALNUM.test(text[i2 - 1])) && i2 + 1 < n2 && !AWK_SPACE.test(text[i2 + 1])) {
-      for (let k = i2 + 2; k < n2; k++) {
-        if (text[k] === c && (k === n2 - 1 || !AWK_ALNUM.test(text[k + 1]))) {
+    } else if ((c === "'" || c === '"') && (i2 === 0 || !AWK_ALNUM.test(text[i2 - 1])) && i2 + 1 < n3 && !AWK_SPACE.test(text[i2 + 1])) {
+      for (let k = i2 + 2; k < n3; k++) {
+        if (text[k] === c && (k === n3 - 1 || !AWK_ALNUM.test(text[k + 1]))) {
           j = k;
           break;
         }
@@ -19527,10 +19527,10 @@ function headlessMatch(promptRaw, env) {
   const statements2 = splitClauses(open).filter((c) => !c.question).map((c) => c.text).join("\n");
   return HEADLESS_PATTERNS.find((pat) => wholePhrase(pat).test(HEADLESS_INVOCATIONS.has(pat) ? statements2 : open)) ?? "";
 }
-function readPipeFields(text, n2) {
+function readPipeFields(text, n3) {
   let rest = text.split("\n")[0];
   const out2 = [];
-  for (let i2 = 0; i2 < n2 - 1; i2++) {
+  for (let i2 = 0; i2 < n3 - 1; i2++) {
     const k = rest.indexOf("|");
     out2.push(k < 0 ? rest : rest.slice(0, k));
     rest = k < 0 ? "" : rest.slice(k + 1);
@@ -19867,15 +19867,597 @@ var sweScopeFence = (payload, env) => {
   return note === "" ? ALLOW : { stdout: scopeNote(note), code: 0 };
 };
 
-// src/hooks/post-atomic-close-readme.ts
-import { statSync as statSync26 } from "node:fs";
-var GATE_NAME51 = "post-atomic-close-readme";
-var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
-var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
-var ROOT_DIR = ".";
+// src/hooks/swe-atomic-close.ts
+import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync8, readFileSync as readFileSync16, realpathSync as realpathSync7, renameSync as renameSync3, statSync as statSync26 } from "node:fs";
+var GATE_NAME51 = "swe-atomic-close";
+var FROM_NODE2 = "hook:swe-atomic-close";
+var LOG_ROTATE_BYTES2 = 1048576;
+var NO_STATS = "0|0|0|0|0|0||";
+var ISO2 = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z\n?$/;
+var STAMP_PARTS = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{3})Z$/;
+var MODEL_STRIP2 = /[^A-Za-z0-9._:@/[\]-]/gu;
+var DBL_MAX2 = Number.MAX_VALUE;
+var RUN_NO_USAGE_SQL2 = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var RUN_UNMEASURED_SQL2 = `usage_source = COALESCE(usage_source, CASE WHEN ${RUN_NO_USAGE_SQL2} THEN 'unmeasured' END)`;
+var JqError6 = class extends Error {
+};
+var isRawJson4 = (value) => JSON.isRawJSON?.(value) ?? false;
 function isFile13(path) {
   try {
     return statSync26(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function truthy4(v) {
+  return v !== null && v !== void 0 && v !== false;
+}
+function index5(value, key2) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new JqError6(`Cannot index with ${key2}`);
+  const v = value[key2];
+  return v === void 0 ? null : v;
+}
+function isoStamp(v) {
+  if (typeof v !== "string") return null;
+  const m = ISO2.exec(v);
+  return m === null ? null : `${m[1]}.${`${m[3] ?? ""}000`.slice(0, 3)}Z`;
+}
+function stampMs(stamp) {
+  const m = STAMP_PARTS.exec(stamp);
+  if (m === null) throw new JqError6("ms");
+  const [year, month, day, hour, minute, second, frac] = m.slice(1).map(Number);
+  if (month < 1 || month > 12 || day > 31 || hour > 23 || minute > 59 || second > 60) throw new JqError6("strptime");
+  if (year < 1900) throw new JqError6("invalid gmtime representation");
+  const t = Date.UTC(year, month - 1, day, hour, minute, second) / 1e3;
+  if (t === -1 || t === -2) throw new JqError6("mktime");
+  return t * 1e3 + frac;
+}
+function clamp(v) {
+  return v === Infinity ? DBL_MAX2 : v === -Infinity ? -DBL_MAX2 : v;
+}
+function n2(v) {
+  return typeof v === "number" && clamp(v) >= 0 ? Math.floor(clamp(v)) : 0;
+}
+function model2(v) {
+  return typeof v === "string" && !v.startsWith("<") ? v.replace(MODEL_STRIP2, "") : "";
+}
+function sum(values) {
+  return values.length === 0 ? null : values.reduce((s, v) => s + v);
+}
+function stableSort(items, key2) {
+  return items.map((item, i2) => ({ item, i: i2, k: key2(item) })).sort((a, b) => jqCompare(a.k, b.k) || a.i - b.i).map((e) => e.item);
+}
+function groupBy(items, key2) {
+  const groups = [];
+  for (const item of stableSort(items, key2)) {
+    const g = groups.at(-1);
+    if (g !== void 0 && jqCompare(key2(g[0]), key2(item)) === 0) g.push(item);
+    else groups.push([item]);
+  }
+  return groups;
+}
+function reduceStats(all, since) {
+  const values = since === "" ? all : all.filter((v) => {
+    const t = isoStamp(index5(v, "timestamp"));
+    return t !== null && byteCompare(t, since) >= 0;
+  });
+  const stamps = values.map((v) => isoStamp(index5(v, "timestamp"))).filter((s) => s !== null);
+  const entries = [];
+  values.forEach((v, i2) => {
+    const usage = index5(index5(v, "message"), "usage");
+    if (usage === null) return;
+    const mid = index5(index5(v, "message"), "id");
+    const uuid = index5(v, "uuid");
+    const id = truthy4(mid) ? mid : truthy4(uuid) ? uuid : `line-${i2}`;
+    entries.push({ id, u: usage, m: model2(index5(index5(v, "message"), "model")) });
+  });
+  const msgs = groupBy(entries, (e) => e.id).map((g) => ({ u: g[g.length - 1].u, m: g[g.length - 1].m }));
+  let allToolUses = 0;
+  for (const v of values) {
+    const raw = index5(index5(v, "message"), "content");
+    const content = truthy4(raw) ? raw : [];
+    if (!Array.isArray(content)) continue;
+    for (const block2 of content) if (index5(block2, "type") === "tool_use") allToolUses += 1;
+  }
+  const col = (key2) => sum(msgs.map((m) => n2(index5(m.u, key2)))) ?? 0;
+  const ti = col("input_tokens");
+  const to = col("output_tokens");
+  const cr = col("cache_read_input_tokens");
+  const cc = col("cache_creation_input_tokens");
+  const ms = stamps.map(stampMs);
+  const dm = ms.length < 2 ? 0 : ms.reduce((a, b) => Math.max(a, b)) - ms.reduce((a, b) => Math.min(a, b));
+  const weighted = msgs.filter((m) => m.m !== "").map((m) => ({
+    m: m.m,
+    t: sum(["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].map((k) => n2(index5(m.u, k))))
+  }));
+  const byModel = groupBy(weighted, (w) => w.m).map((g) => ({ m: g[0].m, t: sum(g.map((w) => w.t)) }));
+  const ranked = stableSort(byModel, (w) => [-w.t, w.m]);
+  const dominant = ranked.length === 0 ? "" : ranked[0].m;
+  const first = stamps.length === 0 ? "" : [...stamps].sort(byteCompare)[0];
+  return [jqIntText(ti), jqIntText(to), String(allToolUses), jqIntText(dm), jqIntText(cr), jqIntText(cc), first, dominant].join("|");
+}
+function transcriptStats(path, since = "") {
+  if (path === "" || !isFile13(path)) return NO_STATS;
+  let text;
+  try {
+    text = readFileSync16(path, "utf8");
+  } catch {
+    return NO_STATS;
+  }
+  return transcriptStatsOf(text, since);
+}
+function transcriptStatsOf(text, since = "") {
+  const { values, complete } = jsonStream(text);
+  if (!complete) return NO_STATS;
+  try {
+    return reduceStats(values, since);
+  } catch (e) {
+    if (e instanceof JqError6) return NO_STATS;
+    throw e;
+  }
+}
+function scalarPaths(value, path, out2) {
+  if (value !== null && typeof value === "object" && !isRawJson4(value)) {
+    const entries = Array.isArray(value) ? value.map((v, i2) => [String(i2), v]) : Object.entries(value);
+    for (const [k, v] of entries) scalarPaths(v, [...path, k], out2);
+    return;
+  }
+  if (path.length > 0 && truthy4(value)) out2.push(path.join("."));
+}
+function entryKeys(value) {
+  const out2 = [];
+  scalarPaths(value, [], out2);
+  return jqCompact([...new Set(out2)].sort(byteCompare));
+}
+function entryKeysArg(input) {
+  if (input.values.length === 0) return input.complete ? null : [];
+  if (input.values.length > 1 || !input.complete) return null;
+  return JSON.parse(entryKeys(input.values[0]));
+}
+function entryAgent(input) {
+  const lines2 = [];
+  for (const value of input.values) {
+    try {
+      for (const keys of [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]) {
+        const v = jqGet(value, ...keys);
+        if (truthy4(v)) {
+          lines2.push(jqRaw2(v));
+          break;
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof JqUnindexable)) throw e;
+    }
+  }
+  return stripTrailingNewlines(lines2.join("\n"));
+}
+function cutField3(text, field5) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[field5 - 1] ?? "" : line);
+  return stripTrailingNewlines(lines2.join("\n"));
+}
+function secondsIso() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function physicalDir3(path, env) {
+  const logical = cdPwd(path, shellPwd(env));
+  try {
+    return realpathSync7.native(logical !== "" && isDir(logical) ? logical : path);
+  } catch {
+    return "";
+  }
+}
+var Log = class _Log {
+  constructor(file) {
+    this.file = file;
+  }
+  file;
+  write(record) {
+    if (this.file === null) return;
+    try {
+      appendFileSync4(this.file, `${jqCompact(record)}
+`);
+    } catch {
+    }
+  }
+  static open(env) {
+    const dir = stateDir(env);
+    if (dir === null) return new _Log(null);
+    try {
+      mkdirSync8(`${dir}/logs`, { recursive: true });
+    } catch {
+      return new _Log(null);
+    }
+    const file = `${dir}/logs/mcp-health.log`;
+    try {
+      if (statSync26(file).isFile() && statSync26(file).size > LOG_ROTATE_BYTES2) renameSync3(file, `${file}.1`);
+    } catch {
+    }
+    return new _Log(file);
+  }
+};
+function write(db, sql, env, out2) {
+  const r = dbWrite(db, sql, { caller: GATE_NAME51, env });
+  out2.stdout += r.stdout;
+  if (!r.ok) process.stderr.write(`${r.error}
+`);
+  return r.ok;
+}
+function runRecorder(recorder, payload, env) {
+  try {
+    recorder(payload, env);
+  } catch {
+  }
+}
+function skipUnbound(db, transcript, spawnId, taskId, env, out2) {
+  const reason = taskId === "" ? "no task_id=<N> in the spawn transcript" : `spawn transcript names task_id=${taskId}, which has no task row`;
+  const content = jqCompact({ reason, transcript, spawn_id: spawnId, task_id: taskId === "" ? null : jqNumber2(taskId) });
+  const r = auditAppend(
+    db,
+    {
+      issueId: "-1",
+      branchId: "",
+      fromNode: FROM_NODE2,
+      eventType: "agent_runs_capture_skipped",
+      summary: `SWE spawn not metered: ${reason}`,
+      contentJson: content
+    },
+    { caller: GATE_NAME51, env }
+  );
+  out2.stdout += r.stdout;
+  if (!r.ok) process.stderr.write(`${r.error}
+`);
+}
+var sweAtomicClose = (payload, env) => {
+  const inputText = commandSubstitution2(payload);
+  const input = jqInput(payload);
+  const log = Log.open(env);
+  const keys = entryKeysArg(input);
+  const entryAgentRaw = entryAgent(input);
+  if (keys !== null) {
+    log.write({ ts: secondsIso(), kind: "swe-atomic-close-entry", keys, agent_type_resolved: entryAgentRaw });
+  }
+  const agentType = normalizeRole(entryAgentRaw);
+  if (agentType !== "swe" && agentType !== "code-reviewer") return { stdout: "", code: 0 };
+  const db = dbPath(env) ?? "";
+  if (db === "" || !haveSqlite(env)) return { stdout: "", code: 0 };
+  const out2 = { stdout: "" };
+  const transcriptPath = jqCapture(input, ["agent_transcript_path"]);
+  const agentId = jqCapture(input, ["agent_id"]);
+  const sessionId = jqCapture(input, ["session_id"]);
+  const spawnId = agentId || transcriptPath;
+  const transcriptTaskId = sqlInt(taskIdFromTranscript(transcriptPath));
+  const row = transcriptTaskId === "" ? "" : sqliteRo(
+    db,
+    `SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, ''), issue_id FROM tasks
+      WHERE id = ${transcriptTaskId} LIMIT 1;`,
+    env
+  );
+  if (row === "") {
+    if (agentType === "swe") skipUnbound(db, transcriptPath, spawnId, transcriptTaskId, env, out2);
+    return { stdout: out2.stdout, code: 0 };
+  }
+  const taskId = sqlInt(cutField3(row, 1));
+  if (taskId === "") return { stdout: out2.stdout, code: 0 };
+  const taskStatus = cutField3(row, 2);
+  const branch = cutField3(row, 3);
+  const parentBranch = cutField3(row, 4);
+  const issueId = cutField3(row, 6);
+  const ts = secondsIso();
+  const resumedSince = agentType === "swe" ? sqliteRo(
+    db,
+    `
+SELECT CASE WHEN resumed_from IS NOT NULL THEN started_at END FROM agent_runs
+ WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${sqlQuote(spawnId)}'
+ ORDER BY id DESC LIMIT 1;`,
+    env
+  ) : "";
+  const stats = transcriptStats(transcriptPath, resumedSince);
+  const [tokensIn, tokensOut, toolUses2, durationMs, cacheRead, cacheCreation, firstTs, model3] = stats.split("|");
+  log.write({ ts, kind: "agent-runs-stats-parsed", task_id: jqNumber2(taskId), stats, transcript: transcriptPath });
+  const safeTaskId = taskId;
+  const safeIssueId = sqlInt(issueId) || "NULL";
+  const safeTokensIn = sqlInt(tokensIn) || "0";
+  const safeTokensOut = sqlInt(tokensOut) || "0";
+  const safeCacheRead = sqlInt(cacheRead) || "0";
+  const safeCacheCreation = sqlInt(cacheCreation) || "0";
+  const safeToolUses = sqlInt(toolUses2) || "0";
+  const safeDurationMs = sqlInt(durationMs) || "0";
+  const safeSpawnId = sqlQuote(spawnId);
+  let safeNow = sqlQuote(nowIso());
+  const safeFirstTs = sqlQuote(firstTs || nowIso());
+  const sessionSql = sessionId !== "" ? `'${sqlQuote(sessionId)}'` : "NULL";
+  const modelSql = model3 !== "" ? `'${sqlQuote(model3)}'` : "NULL";
+  const version = pluginVersion(env);
+  const versionSql = version !== "" ? `'${sqlQuote(version)}'` : "NULL";
+  const measured = /[^0]/.test(`${safeTokensIn}${safeTokensOut}${safeCacheRead}${safeCacheCreation}`);
+  const tokensSetSql = measured ? `tokens_in = ${safeTokensIn},
+       tokens_out = ${safeTokensOut},
+       cache_read_tokens = ${safeCacheRead},
+       cache_creation_tokens = ${safeCacheCreation}` : `tokens_in = COALESCE(tokens_in, 0),
+       tokens_out = COALESCE(tokens_out, 0),
+       cache_read_tokens = COALESCE(cache_read_tokens, 0),
+       cache_creation_tokens = COALESCE(cache_creation_tokens, 0)`;
+  const usageSetSql = measured ? "usage_source = 'subagent_stop'" : RUN_UNMEASURED_SQL2;
+  const usageInsertSql = measured ? "'subagent_stop'" : "'unmeasured'";
+  if (agentType === "code-reviewer") {
+    const defaults = effortDefaults(db, env);
+    const reviewerEffort = defaults.includes("|") ? defaults.slice(defaults.indexOf("|") + 1) : defaults;
+    const effortSql = ["low", "medium", "high"].includes(reviewerEffort) ? `'${reviewerEffort}'` : "NULL";
+    const safeProjectRoot = sqlQuote(physicalDir3(`${posixDirname(db)}/../..`, env));
+    const ok = write(
+      db,
+      `
+UPDATE agent_runs
+   SET ${tokensSetSql},
+       tool_uses = ${safeToolUses},
+       duration_ms = ${safeDurationMs},
+       completed_at = '${safeNow}',
+       session_id = COALESCE(${sessionSql}, session_id),
+       ${usageSetSql},
+       model = COALESCE(${modelSql}, model),
+       effort = COALESCE(effort, ${effortSql})
+ WHERE task_id = ${safeTaskId} AND agent_type = 'code-reviewer' AND spawn_id = '${safeSpawnId}';
+INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
+                        cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort,
+                        plugin_version)
+SELECT ${safeTaskId}, ${safeIssueId}, 'code-reviewer', ${safeTokensIn}, ${safeTokensOut}, ${safeCacheRead},
+       ${safeCacheCreation}, ${safeToolUses}, ${safeDurationMs}, '${safeFirstTs}', '${safeNow}',
+       (SELECT repo FROM tasks WHERE id = ${safeTaskId}), '${safeSpawnId}', ${sessionSql}, ${usageInsertSql},
+       ${modelSql}, 'claude', '${safeProjectRoot}', 'completed', ${effortSql},
+       ${versionSql}
+ WHERE (SELECT changes()) = 0;`,
+      env,
+      out2
+    );
+    if (!ok) log.write({ ts, kind: "agent-runs-write-failed", task_id: jqNumber2(taskId), agent_type: "code-reviewer" });
+    runRecorder(toolOutputSize, inputText, {
+      ...env,
+      TMB_STOP_AGENT_TYPE: "code-reviewer",
+      TMB_STOP_TASK_ID: safeTaskId,
+      TMB_STOP_SPAWN_ID: spawnId
+    });
+    return { stdout: out2.stdout, code: 0 };
+  }
+  const location = taskLocation(db, taskId, env);
+  let repoRoot = location.code === 0 ? location.repoRoot : "";
+  if (repoRoot === "") repoRoot = projectRoot(env);
+  repoRoot = realdir(repoRoot);
+  const wtPath = `${repoRoot}/.claude/worktrees/${branchSlug(branch)}`;
+  const safeRootDir = sqlQuote(wtPath);
+  let wtHead = gitOut(wtPath, ["rev-parse", "HEAD"], env);
+  const headWithin = (head, ...tips) => tips.some((tip) => tip !== "" && gitOk(repoRoot, ["merge-base", "--is-ancestor", head, tip], env));
+  const verify = (ref) => gitOut(repoRoot, ["rev-parse", "-q", "--verify", `${ref}^{commit}`], env);
+  let hasCommits = false;
+  let parentTipLocal = "";
+  let parentTipOrigin = "";
+  if (parentBranch !== "") {
+    parentTipLocal = verify(`refs/heads/${parentBranch}`);
+    parentTipOrigin = verify(`refs/remotes/origin/${parentBranch}`);
+  }
+  if (wtHead !== "") {
+    let headInParent = false;
+    if (`${parentTipLocal}${parentTipOrigin}` !== "") {
+      if (headWithin(wtHead, parentTipLocal, parentTipOrigin)) headInParent = true;
+      else hasCommits = true;
+    }
+    if (!hasCommits && !headInParent) {
+      const localFeature = verify(`refs/heads/${branch}`);
+      if (localFeature !== "" && !headWithin(wtHead, localFeature)) hasCommits = true;
+      if (!hasCommits && parentBranch === "" && localFeature !== "" && wtHead === localFeature) {
+        let base2 = cutField3(repoResolve(db, repoRoot, env), 1);
+        if (base2 === "") base2 = repoDefaultBranch(repoRoot, env);
+        if (base2 !== "") {
+          parentTipLocal = verify(`refs/heads/${base2}`);
+          parentTipOrigin = verify(`refs/remotes/origin/${base2}`);
+          let ahead = gitOut(wtPath, ["rev-list", "--count", `origin/${base2}..HEAD`], env);
+          if (ahead === "") ahead = gitOut(wtPath, ["rev-list", "--count", `${base2}..HEAD`], env);
+          if (!/^[0-9]+$/.test(ahead)) ahead = "0";
+          if (Number(ahead) > 0 && !headWithin(wtHead, parentTipLocal, parentTipOrigin)) hasCommits = true;
+        }
+      }
+    }
+  } else {
+    const rootBranch = gitOut(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+    if (rootBranch === branch && `${parentTipLocal}${parentTipOrigin}` !== "") {
+      const rootHead = gitOut(repoRoot, ["rev-parse", "HEAD"], env);
+      if (rootHead !== "" && !headWithin(rootHead, parentTipLocal, parentTipOrigin)) {
+        hasCommits = true;
+        wtHead = rootHead;
+      }
+    }
+  }
+  let decision;
+  let context4 = "";
+  const checkpointed = taskStatus === "running" ? sqliteRo(
+    db,
+    `
+SELECT 1 FROM tasks
+ WHERE id = ${safeTaskId} AND json_valid(checkpoint)
+   AND json_extract(checkpoint, '$.at') >= '${safeFirstTs}';`,
+    env
+  ) : "";
+  if (checkpointed === "1") {
+    decision = "checkpoint";
+    context4 = `SWE for task #${taskId} handed back a checkpoint; the task stays running. Resume swe on it: a fresh spawn reads task_brief.checkpoint (done, left, files) and continues from there.`;
+  } else if (taskStatus === "pending" || taskStatus === "running") {
+    if (hasCommits) {
+      decision = "auto-completed";
+      const safeWtHead = sqlQuote(wtHead);
+      safeNow = sqlQuote(nowIso());
+      const closeJson = jqCompact({
+        task_id: jqNumber2(safeTaskId),
+        commit_sha: wtHead,
+        parent_tip_local: parentTipLocal === "" ? null : parentTipLocal,
+        parent_tip_origin: parentTipOrigin === "" ? null : parentTipOrigin
+      });
+      const audit = auditSql(
+        {
+          issueId: safeIssueId,
+          branchId: branch,
+          fromNode: FROM_NODE2,
+          eventType: "swe_atomic_close_auto_completed",
+          summary: `Task #${safeTaskId} auto-completed at ${wtHead} on SubagentStop`,
+          contentJson: closeJson
+        },
+        "(SELECT changes()) > 0",
+        { caller: GATE_NAME51, env }
+      );
+      if (audit.code !== 0) process.stderr.write(`${audit.error}
+`);
+      const closeAuditSql = audit.code === 0 ? audit.sql : "";
+      const closed = write(
+        db,
+        `UPDATE tasks SET status='completed', commit_sha='${safeWtHead}', updated_at='${safeNow}', completed_at='${safeNow}', checkpoint=NULL WHERE id=${safeTaskId};
+${closeAuditSql}`,
+        env,
+        out2
+      );
+      if (!closed) decision = "auto-complete-failed";
+    } else {
+      decision = "warn-no-commits";
+      context4 = `SWE for task #${taskId} stopped without committing in worktree at ${wtPath}. Bro should send SWE back or mark the task failed.`;
+    }
+  } else {
+    decision = "metrics-only";
+  }
+  const exitReason = decision === "auto-completed" || ["completed", "closed", "needs_validation"].includes(taskStatus) ? "completed" : taskStatus === "escalated" ? "escalated" : "failed";
+  const runWritten = write(
+    db,
+    `
+UPDATE agent_runs
+   SET ${tokensSetSql},
+       tool_uses = ${safeToolUses},
+       duration_ms = ${safeDurationMs},
+       started_at = COALESCE(started_at, '${safeFirstTs}'),
+       completed_at = '${safeNow}',
+       spawn_id = '${safeSpawnId}',
+       session_id = COALESCE(${sessionSql}, session_id),
+       ${usageSetSql},
+       model = COALESCE(${modelSql}, model),
+       host = COALESCE(host, 'claude'),
+       root_dir = COALESCE(root_dir, '${safeRootDir}'),
+       exit_reason = '${exitReason}',
+       effort = COALESCE(effort, (SELECT effort FROM tasks WHERE id = ${safeTaskId}))
+ WHERE id = (
+   SELECT id FROM agent_runs
+    WHERE task_id = ${safeTaskId}
+      AND (spawn_id = '${safeSpawnId}'
+           OR ((spawn_id IS NULL OR spawn_id GLOB 'tool_use:*') AND agent_type = 'swe'
+               AND (completed_at IS NULL
+                    OR started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${safeFirstTs}', '-2 seconds'))))
+    ORDER BY (spawn_id IS '${safeSpawnId}') DESC, id DESC
+    LIMIT 1);
+INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
+                        cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort,
+                        plugin_version)
+SELECT ${safeTaskId}, ${safeIssueId}, 'swe', ${safeTokensIn}, ${safeTokensOut}, ${safeCacheRead},
+       ${safeCacheCreation}, ${safeToolUses}, ${safeDurationMs}, '${safeFirstTs}', '${safeNow}',
+       (SELECT repo FROM tasks WHERE id = ${safeTaskId}), '${safeSpawnId}', ${sessionSql}, ${usageInsertSql},
+       ${modelSql}, 'claude', '${safeRootDir}', '${exitReason}', (SELECT effort FROM tasks WHERE id = ${safeTaskId}),
+       ${versionSql}
+ WHERE (SELECT changes()) = 0;
+UPDATE agent_runs
+   SET usage_source = 'unmeasured',
+       exit_reason = COALESCE(exit_reason, 'swept_orphan'),
+       completed_at = COALESCE(completed_at, '${safeNow}')
+ WHERE task_id = ${safeTaskId}
+   AND agent_type = 'swe'
+   AND ((spawn_id IS NULL
+         AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${safeFirstTs}', '-2 seconds'))
+        OR (spawn_id GLOB 'tool_use:*' AND completed_at IS NULL
+            AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds')))
+   AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+   AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+   AND COALESCE(usage_source, '') <> 'subagent_stop';`,
+    env,
+    out2
+  );
+  if (!runWritten) log.write({ ts, kind: "agent-runs-write-failed", task_id: jqNumber2(taskId) });
+  const stop2 = { TMB_STOP_TASK_ID: safeTaskId, TMB_STOP_SPAWN_ID: spawnId, TMB_STOP_SINCE: safeFirstTs };
+  runRecorder(sweStopCause, inputText, { ...env, ...stop2 });
+  runRecorder(toolOutputSize, inputText, { ...env, TMB_STOP_AGENT_TYPE: "swe", ...stop2 });
+  const hookBlock = sqliteRo(
+    db,
+    `
+SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_detail, 1, 200), '') END
+  FROM agent_runs
+ WHERE task_id = ${safeTaskId} AND agent_type = 'swe' AND spawn_id = '${safeSpawnId}'
+ ORDER BY id DESC LIMIT 1;`,
+    env
+  );
+  if (hookBlock.startsWith("B")) {
+    const detail = hookBlock.slice(1).replaceAll("\n", " ");
+    const blockContext = `SWE for task #${taskId} ended on a hook block with no completion report ("${detail}"), which task_brief.last_stop carries; name the block in the rework spawn_note so the next swe applies the allowed form and continues.`;
+    context4 = context4 === "" ? blockContext : `${context4} ${blockContext}`;
+  }
+  if (decision === "auto-completed" || decision === "auto-complete-failed") {
+    log.write({ ts, kind: "swe-atomic-close", task_id: jqNumber2(taskId), branch, decision, commit_sha: wtHead });
+  } else {
+    log.write({ ts, kind: "swe-atomic-close", task_id: jqNumber2(taskId), branch, decision, worktree: wtPath });
+  }
+  if (context4 !== "") {
+    out2.stdout += `${jqCompact({ hookSpecificOutput: { hookEventName: "SubagentStop", additionalContext: context4 } })}
+`;
+  }
+  return { stdout: out2.stdout, code: 0 };
+};
+
+// src/hooks/post-task-close-rescan.ts
+import { spawn as spawn3 } from "node:child_process";
+import { statSync as statSync27 } from "node:fs";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
+var GATE_NAME52 = "post-task-close-rescan";
+var CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
+function isFile14(path) {
+  try {
+    return statSync27(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function pluginRoot2() {
+  return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
+}
+function launchDetached(spawner, invoker, db, env) {
+  const child = spawner(process.execPath, ["--experimental-sqlite", invoker], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...env, TRAJECTORY_DB_PATH: db }
+  });
+  child.on("error", () => void 0);
+  child.unref();
+}
+function rescan(payload, env, spawner = spawn3, root = pluginRoot2()) {
+  const toolName2 = jqCapture(jqInput(payload), ["tool_name"]);
+  if (!CLOSE_TOOL.test(toolName2)) return ALLOW;
+  if ((env.TMB_SKIP_AUTO_RESCAN || "0") === "1") return ALLOW;
+  const invoker = `${root}/scripts/maintenance/run-scan.mjs`;
+  if (root === "" || !isFile14(invoker)) return ALLOW;
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null) return ALLOW;
+  try {
+    launchDetached(spawner, invoker, db, env);
+  } catch {
+  }
+  return ALLOW;
+}
+function postTaskCloseRescan(payload, env) {
+  return rescan(payload, env);
+}
+
+// src/hooks/post-atomic-close-readme.ts
+import { statSync as statSync28 } from "node:fs";
+var GATE_NAME53 = "post-atomic-close-readme";
+var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
+var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
+var ROOT_DIR = ".";
+function isFile15(path) {
+  try {
+    return statSync28(path).isFile();
   } catch {
     return false;
   }
@@ -19936,7 +20518,7 @@ function surface(payload, env) {
   const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
   if (taskId === "") return ALLOW;
   const db = dbPath(env);
-  if (db === null || !isFile13(db) || !haveSqlite(env)) return ALLOW;
+  if (db === null || !isFile15(db) || !haveSqlite(env)) return ALLOW;
   const row = sqliteRo(
     db,
     `SELECT COALESCE(commit_sha,'') || '|' || COALESCE(repo,'') || '|' || COALESCE(issue_id,'') || '|' || COALESCE(branch_id,'') FROM tasks WHERE id = ${taskId};`,
@@ -19959,12 +20541,12 @@ function surface(payload, env) {
     {
       issueId: sqlInt(task.issueId) || "-1",
       branchId: task.branchId,
-      fromNode: `hook:${GATE_NAME51}`,
+      fromNode: `hook:${GATE_NAME53}`,
       eventType: "readme_staleness_surfaced",
       summary: `task ${taskId}: README may be stale in ${staleLines.filter((line) => line !== "").length} dir(s) after ${task.commitSha.slice(0, 7)}`,
       contentJson: jqCompact({ task_id: jqNumber2(taskId), commit_sha: task.commitSha, stale: staleLines })
     },
-    { env, caller: GATE_NAME51 }
+    { env, caller: GATE_NAME53 }
   );
   if (!w.ok) process.stderr.write(`${w.error}
 `);
@@ -19981,7 +20563,7 @@ var postAtomicCloseReadme = (payload, env) => {
 };
 
 // src/hooks/agent-spawn-dispatch.ts
-var GATE_NAME52 = "agent-spawn-dispatch";
+var GATE_NAME54 = "agent-spawn-dispatch";
 var CHAIN = [
   "require-task-spec",
   "require-spawn-effort",
@@ -19997,14 +20579,14 @@ var PREPARE = ["ensure-swe-worktree", "record-swe-spawn"];
 var CONTEXT_SEPARATOR = "\n\n---\n\n";
 async function quietly(gate, input, env) {
   if (gate === void 0) return "";
-  const write = process.stderr.write;
+  const write2 = process.stderr.write;
   process.stderr.write = (() => true);
   try {
     return (await gate(input, env)).stdout;
   } catch {
     return "";
   } finally {
-    process.stderr.write = write;
+    process.stderr.write = write2;
   }
 }
 async function agentSpawnDispatch(payload, env, find) {
@@ -20028,9 +20610,9 @@ async function agentSpawnDispatch(payload, env, find) {
 
 // src/hooks/ensure-swe-worktree.ts
 import { existsSync as existsSync12 } from "node:fs";
-var GATE_NAME53 = "ensure-swe-worktree";
-function cutField3(text, n2) {
-  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n2 - 1] ?? "" : line);
+var GATE_NAME55 = "ensure-swe-worktree";
+function cutField4(text, n3) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n3 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
 }
 function sweSpawnTaskId(input) {
@@ -20069,8 +20651,8 @@ var ensureSweWorktree = (payload, env) => {
   if (db === null || !haveSqlite(env)) return skip("no trajectory DB or sqlite3 \u2014 skipping (non-isolated fallback)");
   const row = sqliteRo(db, `SELECT branch_id, repo FROM tasks WHERE id=${taskId};`, env);
   if (row === "") return skip(`no tasks row for task_id=${taskId} \u2014 skipping`);
-  const branch = cutField3(row, 1);
-  const repo = cutField3(row, 2);
+  const branch = cutField4(row, 1);
+  const repo = cutField4(row, 2);
   if (branch === "") return skip(`task_id=${taskId} has empty branch_id \u2014 skipping`);
   if (recordedWorktree(db, taskId, branch, env) !== "") return ALLOW;
   const slug = branchSlug(branch);
@@ -20087,7 +20669,7 @@ var ensureSweWorktree = (payload, env) => {
 };
 
 // src/hooks/record-swe-spawn.ts
-var GATE_NAME54 = "record-swe-spawn";
+var GATE_NAME56 = "record-swe-spawn";
 var UNIT_SEPARATOR = "";
 var SPAWN_FIELDS = [["session_id"], ["tool_use_id"], ["tool_input", "effort"], ["tool_input", "model"]];
 function spawnFields(input) {
@@ -20104,8 +20686,8 @@ function spawnFields(input) {
     }
   }
   if (lastFailed) return null;
-  const [sessionId, toolUseId2, effort, model2] = readFields2(commandSubstitution(lines2.join("\n")).split("\n")[0], 4);
-  return { sessionId, toolUseId: toolUseId2, effort, model: model2 };
+  const [sessionId, toolUseId2, effort, model3] = readFields2(commandSubstitution(lines2.join("\n")).split("\n")[0], 4);
+  return { sessionId, toolUseId: toolUseId2, effort, model: model3 };
 }
 function readFields2(line, count) {
   let rest = line;
@@ -20157,16 +20739,16 @@ var recordSweSpawn = (payload, env) => {
     if (db === null || !haveSqlite(env)) return ALLOW;
     const row = sqliteRo(db, `SELECT branch_id, COALESCE(repo, '') FROM tasks WHERE id = ${taskId};`, env);
     if (row === "") return ALLOW;
-    const branch = cutField3(row, 1);
+    const branch = cutField4(row, 1);
     const fields = spawnFields(input);
     if (fields === null) return ALLOW;
     const spawnId = fields.toolUseId !== "" ? `tool_use:${fields.toolUseId}` : `tool_use:${fields.sessionId}:${Date.now()}`;
     let rootDir = null;
     if (branch !== "") {
-      rootDir = recordedWorktree(db, taskId, branch, env) || `${prepareRepoRoot(db, cutField3(row, 2), env).replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
+      rootDir = recordedWorktree(db, taskId, branch, env) || `${prepareRepoRoot(db, cutField4(row, 2), env).replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
     }
     const sql = spawnSql({ taskId, rootDir, fields, spawnId, pluginVersion: pluginVersion(env), now: nowIso() });
-    dbWrite(db, sql, { caller: GATE_NAME54, env });
+    dbWrite(db, sql, { caller: GATE_NAME56, env });
   } catch {
   }
   return ALLOW;
@@ -20326,16 +20908,16 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 
 // src/hooks/cleanup-worktree-on-task-close.ts
-import { statSync as statSync27 } from "node:fs";
-var GATE_NAME55 = "cleanup-worktree-on-task-close";
+import { statSync as statSync29 } from "node:fs";
+var GATE_NAME57 = "cleanup-worktree-on-task-close";
 var BYPASS_ENV8 = "TMB_KEEP_CLOSED_WORKTREES";
 var KEEP_HEAD_ENV = "TMB_KEEP_HEAD_ON_CLOSE";
 var TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record)$/;
 var DEFAULT_PR_TARGET = "dev";
 var WORKTREE_LINE = "worktree ";
-function isFile14(path) {
+function isFile16(path) {
   try {
-    return statSync27(path).isFile();
+    return statSync29(path).isFile();
   } catch {
     return false;
   }
@@ -20390,7 +20972,7 @@ function cleanupWorktree(payload, env, stderr2) {
   const safeId = sqlInt(taskId);
   if (safeId === "") return ALLOW;
   const db = dbPath(env);
-  if (db === null || db === "" || !isFile14(db) || !haveSqlite(env)) return ALLOW;
+  if (db === null || db === "" || !isFile16(db) || !haveSqlite(env)) return ALLOW;
   if (isValidation) {
     const passed = sqliteRo(db, `SELECT 1 FROM tasks t WHERE t.id=${safeId} AND t.status='closed' AND ${HAS_PASS_SQL};`, env);
     if (passed !== "1") return ALLOW;
@@ -20422,9 +21004,9 @@ var cleanupWorktreeOnTaskClose = (payload, env) => cleanupWorktree(payload, env,
 
 // src/hooks/worktree-create.ts
 import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync13, mkdirSync as mkdirSync8, readFileSync as readFileSync16, statSync as statSync28 } from "node:fs";
-import { fileURLToPath as fileURLToPath7 } from "node:url";
-var GATE_NAME56 = "worktree-create";
+import { existsSync as existsSync13, mkdirSync as mkdirSync9, readFileSync as readFileSync17, statSync as statSync30 } from "node:fs";
+import { fileURLToPath as fileURLToPath8 } from "node:url";
+var GATE_NAME58 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
 var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
@@ -20432,15 +21014,15 @@ var fail = (stderr2, line) => {
   stderr2(line);
   return { stdout: "", code: 1 };
 };
-function isFile15(path) {
+function isFile17(path) {
   try {
-    return statSync28(path).isFile();
+    return statSync30(path).isFile();
   } catch {
     return false;
   }
 }
-function pluginRoot2() {
-  return installRoot(posixDirname(fileURLToPath7(import.meta.url))) ?? "";
+function pluginRoot3() {
+  return installRoot(posixDirname(fileURLToPath8(import.meta.url))) ?? "";
 }
 function installMergeDriver(dir, env, stderr2) {
   const top = gitRun(dir, ["rev-parse", "--show-toplevel"], env);
@@ -20448,18 +21030,18 @@ function installMergeDriver(dir, env, stderr2) {
   const root = top.stdout.replace(/\n+$/, "");
   let attributes;
   try {
-    attributes = readFileSync16(`${root}/.gitattributes`, "latin1");
+    attributes = readFileSync17(`${root}/.gitattributes`, "latin1");
   } catch {
     return;
   }
   if (!attributes.includes(MERGE_DRIVER_MARK)) return;
-  const r = spawnSync11("bash", [`${pluginRoot2()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
+  const r = spawnSync11("bash", [`${pluginRoot3()}/${MERGE_DRIVER_SCRIPT}`, root], { env, stdio: "ignore" });
   if (r.error || r.status !== 0) stderr2(`tmb worktree-create: could not install the tmb-regen merge driver in ${root}
 `);
 }
 function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr2) {
   try {
-    mkdirSync8(posixDirname(worktree), { recursive: true });
+    mkdirSync9(posixDirname(worktree), { recursive: true });
   } catch {
   }
   if (existsSync13(`${worktree}/.git`)) {
@@ -20496,7 +21078,7 @@ function worktreeCreateRun(payload, env, stderr2) {
   if (branch === "") return fail(stderr2, NO_BRANCH);
   const slug = branchSlug(branch);
   const db = dbPath(env);
-  if (db === null || db === "" || !isFile15(db)) {
+  if (db === null || db === "" || !isFile17(db)) {
     const cwd = shellPwd(env);
     const worktree2 = `${cwd}/.claude/worktrees/${slug}`;
     if (!gitOk(cwd, ["rev-parse", "--is-inside-work-tree"], env)) {
@@ -20537,9 +21119,9 @@ function worktreeCreateRun(payload, env, stderr2) {
 var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) => process.stderr.write(line));
 
 // src/hooks/remote-id-guard.ts
-import { statSync as statSync29 } from "node:fs";
+import { statSync as statSync31 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
-var GATE_NAME57 = "remote-id-guard";
+var GATE_NAME59 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
 var REMOTE_WRITES = [
@@ -20583,7 +21165,7 @@ function unhex(hex) {
   return nul < 0 ? text : text.slice(0, nul);
 }
 function localRows(db, tokens, env) {
-  const values = tokens.map((n2) => `('${n2}', ${n2})`).join(", ");
+  const values = tokens.map((n3) => `('${n3}', ${n3})`).join(", ");
   const out2 = sqliteRo(
     db,
     `WITH t(n, k) AS (VALUES ${values}) SELECT t.n || '|' || hex(COALESCE(i.gh_iid, '')) || '|' || hex(COALESCE(i.gl_iid, '')) || '|' || hex(COALESCE(i.objective, '')) FROM t JOIN issues i ON i.id = t.k;`,
@@ -20591,9 +21173,9 @@ function localRows(db, tokens, env) {
   );
   const rows = /* @__PURE__ */ new Map();
   for (const line of out2.split("\n")) {
-    const [n2, gh, gl, objective] = line.split("|");
+    const [n3, gh, gl, objective] = line.split("|");
     if (objective === void 0) continue;
-    rows.set(n2, stripTrailingNewlines(`${unhex(gh)}|${unhex(gl)}|${unhex(objective)}`));
+    rows.set(n3, stripTrailingNewlines(`${unhex(gh)}|${unhex(gl)}|${unhex(objective)}`));
   }
   return rows;
 }
@@ -20656,14 +21238,14 @@ function deny9(reason) {
   return { stdout: `${jqCompact(decision)}
 `, code: 0 };
 }
-function offense(n2, row, provider) {
+function offense(n3, row, provider) {
   const gh = cut2(row, 1, false);
   const gl = cut2(row, 2, false);
   const objective = cut2(row, 3, true);
   const [own, ownName, other, otherName] = provider === "glab" ? [gl, "GitLab", gh, "GitHub"] : [gh, "GitHub", gl, "GitLab"];
-  const line = (iid, forge) => `#${n2} \u2192 #${iid} (${forge})  local #${n2}: "${objective}"\\n`;
-  if (own !== "" && own !== n2) return line(own, ownName);
-  if (own === "" && other !== "" && other !== n2) return line(other, otherName);
+  const line = (iid, forge) => `#${n3} \u2192 #${iid} (${forge})  local #${n3}: "${objective}"\\n`;
+  if (own !== "" && own !== n3) return line(own, ownName);
+  if (own === "" && other !== "" && other !== n3) return line(other, otherName);
   return "";
 }
 async function analyze(payload, env, overran) {
@@ -20685,7 +21267,7 @@ async function analyze(payload, env, overran) {
   if (db === "" || !haveSqlite(env)) return ALLOW;
   const rows = localRows(db, tokens, env);
   if (overran()) return OVERRUN;
-  const offenses = tokens.map((n2) => rows.has(n2) ? offense(n2, rows.get(n2) ?? "", provider) : "").join("");
+  const offenses = tokens.map((n3) => rows.has(n3) ? offense(n3, rows.get(n3) ?? "", provider) : "").join("");
   if (offenses === "") return ALLOW;
   return deny9(
     `BLOCKED: this remote-bound text cites LOCAL trajectory issue id(s) that resolve to a DIFFERENT issue on the remote. Re-issue with the remote iid:
@@ -20693,27 +21275,27 @@ ${printfB(offenses)}
 A bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. To cite a number that is already a remote id, write it as GH-<n>, remote:<n> or <owner>/<repo>#<n>. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)`
   );
 }
-function isFile16(path) {
+function isFile18(path) {
   try {
-    return statSync29(path).isFile();
+    return statSync31(path).isFile();
   } catch {
     return false;
   }
 }
 function auditOverrun(deadline, elapsed, env) {
   const db = dbPath(env) ?? "";
-  if (db === "" || !isFile16(db) || !haveSqlite(env)) return;
+  if (db === "" || !isFile18(db) || !haveSqlite(env)) return;
   auditAppend(
     db,
     {
       issueId: "-1",
       branchId: "",
-      fromNode: `hook:${GATE_NAME57}`,
+      fromNode: `hook:${GATE_NAME59}`,
       eventType: "remote_id_guard_overrun",
-      summary: `${GATE_NAME57} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
+      summary: `${GATE_NAME59} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
       contentJson: `{"deadline_s":${jqNumberLiteral(deadline)},"elapsed_s":${jqNumberLiteral(elapsed)}}`
     },
-    { caller: GATE_NAME57, env }
+    { caller: GATE_NAME59, env }
   );
 }
 function seconds(ms) {
@@ -20741,7 +21323,7 @@ var remoteIdGuard = async (payload, processEnv) => {
   }
   if (result !== OVERRUN && !overran()) return result;
   const elapsed = seconds(elapsedMs2());
-  process.stderr.write(`${GATE_NAME57}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
+  process.stderr.write(`${GATE_NAME59}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
 `);
   auditOverrun(deadline, elapsed, env);
   return ALLOW;
@@ -20801,13 +21383,15 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME48, noRemoteAuthGuard],
   [GATE_NAME49, promptIntentHints],
   [GATE_NAME50, sweScopeFence],
-  [GATE_NAME51, postAtomicCloseReadme],
-  [GATE_NAME52, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
-  [GATE_NAME53, ensureSweWorktree],
-  [GATE_NAME54, recordSweSpawn],
-  [GATE_NAME55, cleanupWorktreeOnTaskClose],
-  [GATE_NAME56, worktreeCreate],
-  [GATE_NAME57, remoteIdGuard]
+  [GATE_NAME51, sweAtomicClose],
+  [GATE_NAME52, postTaskCloseRescan],
+  [GATE_NAME53, postAtomicCloseReadme],
+  [GATE_NAME54, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [GATE_NAME55, ensureSweWorktree],
+  [GATE_NAME56, recordSweSpawn],
+  [GATE_NAME57, cleanupWorktreeOnTaskClose],
+  [GATE_NAME58, worktreeCreate],
+  [GATE_NAME59, remoteIdGuard]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -20841,7 +21425,7 @@ var name2 = process.argv[2] ?? "";
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync17(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync18(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

@@ -29,6 +29,7 @@ no-remote-auth-guard
 no-worktree-branch-create
 plugin-hooks-marker
 post-atomic-close-readme
+post-task-close-rescan
 post-task-create-spawn-hint
 prompt-intent-hints
 record-swe-spawn
@@ -45,6 +46,7 @@ session-log-capture
 session-start-persona
 stay-on-base-guard
 substrate-preflight
+swe-atomic-close
 swe-boundary
 swe-brief-gate
 swe-resume-gate

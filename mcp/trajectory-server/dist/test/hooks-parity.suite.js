@@ -207,6 +207,8 @@ const OWN_SANDBOX_GATES = new Set([
     'no-remote-auth-guard',
     'prompt-intent-hints',
     'swe-scope-fence',
+    'swe-atomic-close',
+    'post-task-close-rescan',
     'swe-verification-gate',
     'post-atomic-close-readme',
     'agent-spawn-dispatch',
