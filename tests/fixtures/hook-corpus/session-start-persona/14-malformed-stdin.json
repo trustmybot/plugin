@@ -1,0 +1,4 @@
+{
+  "corpus_stdin": "not json {",
+  "corpus_expect": "\"additionalContext\":"
+}

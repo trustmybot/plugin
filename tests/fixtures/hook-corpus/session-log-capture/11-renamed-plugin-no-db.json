@@ -1,0 +1,8 @@
+{
+  "session_id": "log-session-0008",
+  "prompt": "acme",
+  "corpus_env": {
+    "CLAUDE_PLUGIN_ROOT": "@SANDBOX@/plugin-named"
+  },
+  "corpus_expect": "empty"
+}

@@ -1,0 +1,9 @@
+{
+  "session_id": "act-session-0007",
+  "prompt": "ébro and bro_x and 1bro",
+  "corpus_expect": {
+    "C": "pending=#3",
+    "en_US.UTF-8": "empty",
+    "UTF-8": "pending=#3"
+  }
+}

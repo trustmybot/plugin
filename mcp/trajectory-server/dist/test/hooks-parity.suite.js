@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { gateNames } from '../hooks/registry.js';
 import { TRANSFORMERS_VERSION } from '../runtime-deps.js';
+import { LINT_GATES, lintSandbox } from './lint-hooks-sandbox.js';
 import { shardOf } from './shard.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const CORPUS_ROOT = join(PLUGIN_ROOT, 'tests/fixtures/hook-corpus');
@@ -131,9 +132,15 @@ function containmentGuardSetup(scratch) {
         },
     };
 }
+/** The lint hooks run in lint-hooks-sandbox.ts, gh and glab stubbed so attribution-footer never reaches a forge. */
+function lintSetup(scratch) {
+    const sandbox = lintSandbox(scratch);
+    return { env: sandbox.env, materialize: (raw) => sandbox.materialize(raw) };
+}
 const GATE_SETUP = {
     'ensure-mcp-deps-installed': (scratch) => ({ env: readyDepsEnv(scratch) }),
     'containment-guard': containmentGuardSetup,
+    ...Object.fromEntries(LINT_GATES.map((gate) => [gate, lintSetup])),
 };
 function auditMark(db) {
     const d = new DatabaseSync(db, { readOnly: true });
@@ -156,8 +163,20 @@ function auditRowsAfter(db, mark) {
         d.close();
     }
 }
+/**
+ * Gates that write markers, logs or DB rows into the project, so they run in
+ * hooks-session-parity.suite.ts, which rebuilds its sandbox before each side.
+ */
+const OWN_SANDBOX_GATES = new Set([
+    'activation-routine',
+    'debug-trajectory',
+    'plugin-hooks-marker',
+    'session-log-capture',
+    'session-start-persona',
+    'user-prompt-persona',
+]);
 function parityCases() {
-    return PARITY_GATES.flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
+    return PARITY_GATES.filter((gate) => !OWN_SANDBOX_GATES.has(gate)).flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));
 }
 export function hooksParityShard(k, n) {
     const cases = shardOf(parityCases(), k, n);

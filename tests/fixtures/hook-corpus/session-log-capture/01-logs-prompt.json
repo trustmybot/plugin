@@ -1,0 +1,6 @@
+{
+  "session_id": "log-session-0001",
+  "prompt": "hey bro, ship it",
+  "additionalContext": "ctx",
+  "corpus_expect": "{\"continue\": true}"
+}

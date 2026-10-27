@@ -49,7 +49,7 @@ function valueEnd(text, start) {
     return i === start ? -1 : i;
 }
 /** The JSON values of a jq input stream, up to the first one that fails to parse. */
-export function jsonValues(text) {
+export function jsonValues(text, reviver) {
     const values = [];
     let i = 0;
     for (;;) {
@@ -61,7 +61,7 @@ export function jsonValues(text) {
         if (end < 0)
             return values;
         try {
-            values.push(JSON.parse(text.slice(i, end)));
+            values.push(JSON.parse(text.slice(i, end), reviver));
         }
         catch {
             return values;
@@ -106,10 +106,11 @@ export function jqRawElements(text) {
 }
 class JqError extends Error {
 }
+const isRawJson = (value) => JSON.isRawJSON?.(value) ?? false;
 function index(value, key) {
     if (value === null || value === undefined)
         return null;
-    if (typeof value !== 'object' || Array.isArray(value))
+    if (typeof value !== 'object' || Array.isArray(value) || isRawJson(value))
         throw new JqError(`Cannot index ${typeof value}`);
     const v = value[key];
     return v === undefined ? null : v;
@@ -146,6 +147,35 @@ export function jqAlternatives(text, paths) {
     }
     return out.join('\n');
 }
+/**
+ * <filter> run on every value of <text>, as jq runs a program: a value the
+ * filter cannot index (jqIndex throws) is skipped and the next one runs.
+ */
+export function jqMap(text, filter, reviver) {
+    const out = [];
+    for (const value of jsonValues(text, reviver)) {
+        try {
+            out.push(filter(value));
+        }
+        catch (e) {
+            if (!(e instanceof JqError))
+                throw e;
+        }
+    }
+    return out;
+}
+/** jq's `.<key>`: null on null, an error on anything but an object. */
+export function jqIndex(value, key) {
+    return index(value, key);
+}
+/** jq's `<value> // <fallback>`. */
+export function jqOr(value, fallback) {
+    return truthy(value) ? value : fallback;
+}
+/** `jq -r '.<key> // "<fallback>"'` over every value of <text>, the lines joined by newlines. */
+export function jqFieldOr(text, key, fallback = '') {
+    return jqMap(text, (value) => jqRawText(jqOr(index(value, key), fallback))).join('\n');
+}
 /** `jq -r '.message.content // [] | tostring'`: one line per value. */
 export function jqContentStrings(text) {
     const out = [];
@@ -166,4 +196,32 @@ export function jqContentStrings(text) {
 export function jqCompact(value) {
     return JSON.stringify(value).replace(/\x7f/g, '\\u007f');
 }
+/**
+ * A JSON number literal as jq 1.7 prints it: the decNumber scientific string
+ * of the literal, so 1.000 stays 1.000, 1e2 is 1E+2 and -0 stays -0.
+ */
+export function jqNumberLiteral(source) {
+    const m = /^(-?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(source);
+    if (!m)
+        return source;
+    const [, sign, int, frac = '', exp = '0'] = m;
+    const coefficient = `${int}${frac}`.replace(/^0+(?=\d)/, '');
+    const e = Number(exp) - frac.length;
+    const adjusted = e + coefficient.length - 1;
+    if (e <= 0 && adjusted >= -6) {
+        if (e === 0)
+            return `${sign}${coefficient}`;
+        const point = coefficient.length + e;
+        return point > 0
+            ? `${sign}${coefficient.slice(0, point)}.${coefficient.slice(point)}`
+            : `${sign}0.${'0'.repeat(-point)}${coefficient}`;
+    }
+    const mantissa = coefficient.length > 1 ? `${coefficient[0]}.${coefficient.slice(1)}` : coefficient;
+    return `${sign}${mantissa}E${adjusted >= 0 ? '+' : '-'}${Math.abs(adjusted)}`;
+}
+const rawJson = JSON.rawJSON;
+/** A reviver keeping each number's literal as jq prints it, for jqCompact. */
+export const jqLiteralNumbers = rawJson
+    ? (_key, value, context) => typeof value === 'number' && typeof context?.source === 'string' ? rawJson(jqNumberLiteral(context.source)) : value
+    : undefined;
 //# sourceMappingURL=jq.js.map

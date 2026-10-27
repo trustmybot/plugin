@@ -1,0 +1,10 @@
+{
+  "session_id": "corpus",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "NotebookEdit",
+  "tool_input": {
+    "notebook_path": "@SANDBOX@/new/Bad Name.sql",
+    "new_source": ""
+  },
+  "corpus_expect": "snake_case"
+}

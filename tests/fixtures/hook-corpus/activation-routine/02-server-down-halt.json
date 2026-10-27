@@ -1,0 +1,8 @@
+{
+  "session_id": "act-session-0002",
+  "prompt": "bro",
+  "corpus_env": {
+    "PGREP_STUB": "down"
+  },
+  "corpus_expect": "⛔ MCP trajectory-server is not running"
+}

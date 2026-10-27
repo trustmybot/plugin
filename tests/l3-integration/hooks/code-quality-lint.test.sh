@@ -8,6 +8,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/code-quality-lint.sh"
+# TMB_HOOK_TEST_IMPL=ts runs the TypeScript gate in place of the .sh.
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/code-quality-lint.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
 PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-code-quality-lint.XXXXXX")"

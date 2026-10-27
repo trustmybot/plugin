@@ -9,6 +9,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-log-capture.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/session-log-capture.sh"
 
 TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -88,7 +90,7 @@ fi
 # ---- no-op path ----
 
 test_case "silent no-op when workspace not detected (no DB)"
-unset TRAJECTORY_DB_PATH
+unset TRAJECTORY_DB_PATH CLAUDE_PROJECT_DIR
 isolated_home=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
 isolated_cwd=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
 trap 'rm -rf "$isolated_home" "$isolated_cwd"' RETURN
