@@ -120,7 +120,7 @@ function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: Insi
         <p className="text-xs text-fg-muted tabular-nums">{measuredLine(s)}</p>
         <Stats items={[[`p50 ${metricLabel(params.metric)}`, fmt(m.p50)], ['p95', fmt(m.p95)], ['max', fmt(m.max)]]} />
         {early && <p className="text-xs font-semibold text-(--fgColor-attention)">{earlyData(s.n)}</p>}
-        {buckets.length === 0 ? (
+        {!buckets.some((b) => b.count > 0) ? (
           <p className="text-sm text-fg-muted">{`No ${what} data in this period.`}</p>
         ) : (
           <Histogram

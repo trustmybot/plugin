@@ -875,6 +875,30 @@ describe('Insights view', () => {
     assert.ok(!html.includes('No output tokens data'));
   });
 
+  test('F236-1: an agent with no measured runs shows the empty state for every metric, cache-hit included', () => {
+    const unmeasured = new DatabaseSync(join(tmp, 'view-unmeasured.db'));
+    unmeasured.exec(readFileSync(SCHEMA, 'utf8'));
+    const now = NOW.toISOString();
+    const issue = Number(unmeasured.prepare('INSERT INTO issues (objective, created_at, updated_at) VALUES (?, ?, ?)').run('i', now, now).lastInsertRowid);
+    const task = Number(unmeasured.prepare("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'b', 't', 'd', 'running', ?, ?)").run(issue, now, now).lastInsertRowid);
+    unmeasured
+      .prepare(
+        `INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, usage_source, model)
+         VALUES (?, 'swe', 1, 1, 1, 1, 1, 1, ?, ?, 'unmeasured', 'm')`,
+      )
+      .run(task, now, now);
+    const only = mod.insights(unmeasured, filter('range=30d'), NOW);
+    const swe = only.agents.find((a) => a.agent === 'swe');
+    assert.equal(swe.total, 1);
+    assert.equal(swe.n, 0);
+    assert.equal(swe.histograms.cache_hit.length, 10);
+    for (const [m, noun] of [['cache_hit', 'cache-hit %'], ['context', 'context'], ['tokens_out', 'output tokens'], ['tool_uses', 'tool uses']]) {
+      const card = cardOf(mod.page(`#/insights/tokens?range=30d&m=${m}`, only), 'swe');
+      assert.ok(card.includes(`No ${noun} data in this period.`), m);
+      assert.doesNotMatch(card, /<svg width=/, m);
+    }
+  });
+
   test('SC3: a filter hides the agents it leaves without runs on Tokens, Time and Cost; none left is one empty state', () => {
     const onlySwe = mod.insights(db, filter('range=30d&agent=swe'), NOW);
     const onlySwePriced = mod.insights(pricedDb, filter('range=30d&agent=swe'), NOW);
