@@ -5064,10 +5064,63 @@ var AGENT_OF_RUN = `CASE
     WHEN r.agent_type = 'code-reviewer' THEN 'code-reviewer'
     WHEN r.agent_type = 'bro' AND r.task_id IS NULL THEN 'bro'
   END`;
+var DAY_MS = 864e5;
 var sinceOf = (range, now2) => {
   const days = INSIGHT_RANGES[range];
-  return days === null ? null : new Date(now2.getTime() - days * 864e5).toISOString();
+  return days === null ? null : new Date(now2.getTime() - days * DAY_MS).toISOString();
 };
+var VERSION_PERIODS_ERROR = "version periods are not supported yet";
+var PREV_RANGES = { prev7d: 7, prev30d: 30, prev90d: 90 };
+var utcDay = (s) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = /* @__PURE__ */ new Date(`${s}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s ? null : d;
+};
+var taskBound = (s) => {
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+};
+function parseSlice(s, now2) {
+  const slice = (kind, since, until, from_task = null, to_task = null) => ({ key: s, kind, since, until, from_task, to_task });
+  if (isRange(s)) return slice("range", sinceOf(s, now2), now2.toISOString());
+  if (Object.hasOwn(PREV_RANGES, s)) {
+    const days = PREV_RANGES[s];
+    return slice("prev", new Date(now2.getTime() - 2 * days * DAY_MS).toISOString(), new Date(now2.getTime() - days * DAY_MS).toISOString());
+  }
+  if (s.startsWith("ver:")) return { error: VERSION_PERIODS_ERROR };
+  const dates = /^dates:([^.]*)\.\.([^.]*)$/.exec(s);
+  if (dates) {
+    const [, a = "", b = ""] = dates;
+    const from = a === "" ? null : utcDay(a);
+    const to = b === "" ? null : utcDay(b);
+    if (a !== "" && from === null || b !== "" && to === null) return { error: `${s}: dates must be real YYYY-MM-DD days` };
+    if (from && to && from.getTime() > to.getTime()) return { error: `${s}: the start date is after the end date` };
+    return slice("dates", from?.toISOString() ?? null, to ? new Date(to.getTime() + DAY_MS).toISOString() : null);
+  }
+  const tasks2 = /^tasks:([^-]*)-([^-]*)$/.exec(s);
+  if (tasks2) {
+    const [, a = "", b = ""] = tasks2;
+    const from = a === "" ? 1 : taskBound(a);
+    const to = b === "" ? null : taskBound(b);
+    if (from === null || b !== "" && to === null) return { error: `${s}: task ids must be integers of at least 1` };
+    if (to !== null && from > to) return { error: `${s}: the start task is after the end task` };
+    return slice("tasks", null, null, from, to);
+  }
+  return { error: `${s || "an empty string"} is not a period` };
+}
+var periodOf = (s) => ({
+  since: s.since,
+  before: s.kind === "range" ? null : s.until,
+  fromTask: s.from_task,
+  toTask: s.to_task
+});
+function periodWhere(p, time, task) {
+  return {
+    sql: `(? IS NULL OR ${time} >= ?) AND (? IS NULL OR ${time} < ?) AND (? IS NULL OR ${task} >= ?) AND (? IS NULL OR ${task} <= ?)`,
+    args: [p.since, p.since, p.before, p.before, p.fromTask, p.fromTask, p.toTask, p.toTask]
+  };
+}
 var context = (r) => r.tokens_in + r.cache_read + r.cache_creation;
 var cacheHit = (r) => context(r) > 0 ? r.cache_read / context(r) : 0;
 var HISTOGRAM_METRICS = ["tokens_out", "context", "cache_hit", "tool_uses"];
@@ -5171,16 +5224,17 @@ function bySlowest(a, b) {
   const key = (c) => (ranked(c) ? c.p95 : c.max) ?? 0;
   return key(b) - key(a) || a.command.localeCompare(b.command);
 }
-function qualityOf(db, f, since) {
+function qualityOf(db, f, p) {
   const taskWhere = `(? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)`;
   const taskArgs = [f.repo, f.repo, f.effort, f.effort];
+  const attemptIn = periodWhere(p, "v.created_at", "v.task_id");
+  const runIn = periodWhere(p, "r.started_at", "r.task_id");
   const attempts = all(
     db,
     `SELECT v.task_id, v.attempt_n, v.verdict FROM validation_attempts v JOIN tasks t ON t.id = v.task_id
-      WHERE (? IS NULL OR v.created_at >= ?) AND ${taskWhere}
+      WHERE ${attemptIn.sql} AND ${taskWhere}
       ORDER BY v.task_id, v.attempt_n, v.id`,
-    since,
-    since,
+    ...attemptIn.args,
     ...taskArgs
   );
   const verdicts = { pass: 0, fail: 0, escalate: 0 };
@@ -5199,9 +5253,8 @@ function qualityOf(db, f, since) {
     db,
     `SELECT COUNT(*) AS total, COALESCE(SUM(r.exit_code = 0), 0) AS passed
        FROM verification_runs r JOIN tasks t ON t.id = r.task_id
-      WHERE r.exit_code IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE r.exit_code IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs
   );
   const commands = /* @__PURE__ */ new Map();
@@ -5209,9 +5262,8 @@ function qualityOf(db, f, since) {
     db,
     `SELECT c.command, c.elapsed_s FROM verification_run_commands c
        JOIN verification_runs r ON r.id = c.run_id JOIN tasks t ON t.id = r.task_id
-      WHERE c.elapsed_s IS NOT NULL AND (? IS NULL OR r.started_at >= ?) AND ${taskWhere}`,
-    since,
-    since,
+      WHERE c.elapsed_s IS NOT NULL AND ${runIn.sql} AND ${taskWhere}`,
+    ...runIn.args,
     ...taskArgs
   )) {
     const command = normalizeCommand(String(c["command"]));
@@ -5228,16 +5280,16 @@ function qualityOf(db, f, since) {
     slowest_commands: slowest
   };
 }
-function throughputOf(db, f, since) {
+function throughputOf(db, f, p) {
+  const closedIn = periodWhere(p, "COALESCE(t.completed_at, t.updated_at)", "t.id");
   return all(
     db,
     `SELECT substr(COALESCE(t.completed_at, t.updated_at), 1, 10) AS day, COUNT(*) AS closed
        FROM tasks t
-      WHERE t.status = 'closed' AND (? IS NULL OR COALESCE(t.completed_at, t.updated_at) >= ?)
+      WHERE t.status = 'closed' AND ${closedIn.sql}
         AND (? IS NULL OR t.repo = ?) AND (? IS NULL OR t.effort = ?)
       GROUP BY day ORDER BY day`,
-    since,
-    since,
+    ...closedIn.args,
     f.repo,
     f.repo,
     f.effort,
@@ -5261,9 +5313,9 @@ function outliersOf(runs) {
   const duration_ms = [...durations.filter((r) => !r.idle).slice(0, TOP_N), ...durations.filter((r) => r.idle).slice(0, TOP_N)];
   return { tokens_out: top((r) => r.tokens_out), context: top(context), duration_ms };
 }
-function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
-  const since = sinceOf(f.range, now2);
-  const rows = all(
+function insightRows(db, f, p) {
+  const runIn = periodWhere(p, "COALESCE(r.started_at, r.completed_at)", "r.task_id");
+  return all(
     db,
     `SELECT * FROM (
        SELECT r.id, ${AGENT_OF_RUN} AS agent, r.task_id, t.title AS task_title, r.model,
@@ -5272,12 +5324,11 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
               COALESCE(r.cache_read_tokens, 0) AS cache_read, COALESCE(r.cache_creation_tokens, 0) AS cache_creation,
               r.duration_ms, r.tool_uses
          FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        WHERE (? IS NULL OR COALESCE(r.started_at, r.completed_at) >= ?)
+        WHERE ${runIn.sql}
           AND (? IS NULL OR r.repo = ?) AND (? IS NULL OR r.model = ?) AND (? IS NULL OR r.effort = ?)
      ) WHERE agent IS NOT NULL AND (? IS NULL OR agent = ?)
      ORDER BY id`,
-    since,
-    since,
+    ...runIn.args,
     f.repo,
     f.repo,
     f.model,
@@ -5287,22 +5338,93 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
     f.agent,
     f.agent
   );
-  const sharedEdges = edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== "bro"));
-  const broEdges = edgesOf(rows.filter((r) => r.measured === 1 && r.agent === "bro"));
+}
+var agentEdgesOf = (rows) => ({
+  shared: edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== "bro")),
+  bro: edgesOf(rows.filter((r) => r.measured === 1 && r.agent === "bro"))
+});
+function insightsBody(db, f, p, rows, edges, range) {
   const names = (sql) => all(db, sql).map((r) => String(r["v"]));
+  const maxTask = one(db, `SELECT MAX(task_id) AS v FROM agent_runs WHERE (? IS NULL OR repo = ?)`, f.repo, f.repo)?.["v"];
   return {
-    range: { key: f.range, since, until: now2.toISOString() },
+    range,
     filters: { repo: f.repo, agent: f.agent, model: f.model, effort: f.effort },
     options: {
       repos: names(`SELECT DISTINCT repo AS v FROM agent_runs WHERE repo IS NOT NULL ORDER BY repo`),
-      models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`)
+      models: names(`SELECT DISTINCT model AS v FROM agent_runs WHERE model IS NOT NULL ORDER BY model`),
+      max_task_id: maxTask === null || maxTask === void 0 ? null : Number(maxTask)
     },
-    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === "bro" ? broEdges : sharedEdges)),
+    agents: INSIGHT_AGENTS.map((a) => agentStats(rows, a, a === "bro" ? edges.bro : edges.shared)),
     cost: costOf(db, rows),
-    quality: qualityOf(db, f, since),
-    throughput: throughputOf(db, f, since),
+    quality: qualityOf(db, f, p),
+    throughput: throughputOf(db, f, p),
     outliers: outliersOf(rows)
   };
+}
+function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
+  const since = sinceOf(f.range, now2);
+  const period = { since, before: null, fromTask: null, toTask: null };
+  const rows = insightRows(db, f, period);
+  return insightsBody(db, f, period, rows, agentEdgesOf(rows), { key: f.range, since, until: now2.toISOString() });
+}
+var usd4 = (usd) => Math.round(usd * 1e4) / 1e4;
+function perTaskOf(prices, rows) {
+  const runs = rows.filter((r) => r.measured === 1 && r.agent !== "bro" && r.task_id !== null);
+  const tasks2 = new Set(runs.map((r) => r.task_id)).size;
+  const sum = (v) => runs.reduce((s, r) => s + v(r), 0);
+  const contextSum = sum(context);
+  let usd = 0;
+  let unpriced = 0;
+  for (const r of runs) {
+    const price = priceOf(prices, r);
+    if (price === null) unpriced += 1;
+    else usd += price;
+  }
+  const perTask = (total) => tasks2 === 0 ? null : total / tasks2;
+  return {
+    tasks: tasks2,
+    runs: runs.length,
+    tokens_out: perTask(sum((r) => r.tokens_out)),
+    context: perTask(contextSum),
+    cache_hit: tasks2 === 0 || contextSum === 0 ? null : sum((r) => r.cache_read) / contextSum,
+    cost_usd: tasks2 === 0 || prices.size === 0 ? null : usd4(usd / tasks2),
+    unpriced_runs: unpriced
+  };
+}
+var PERIOD_HINT = "must be a period like 30d, prev30d, dates:2026-10-01..2026-10-15 or tasks:100-200";
+function compareQuery(p, now2 = /* @__PURE__ */ new Date()) {
+  const slices = [];
+  for (const key of ["p1", "p2"]) {
+    const raw = p.get(key);
+    const s = raw === null ? { error: "" } : parseSlice(raw, now2);
+    if ("error" in s) return { error: s.error === VERSION_PERIODS_ERROR ? `${key}: ${VERSION_PERIODS_ERROR}` : `${key} ${PERIOD_HINT}` };
+    slices.push(s);
+  }
+  const rest = new URLSearchParams(p);
+  rest.delete("range");
+  const filter = insightFilter(rest);
+  return "error" in filter ? filter : { filter, p1: slices[0], p2: slices[1] };
+}
+function compare(db, f, s1, s2) {
+  const broExcluded = s1.kind === "tasks" || s2.kind === "tasks";
+  const rowsOf = (s) => {
+    const rows = insightRows(db, f, periodOf(s));
+    return broExcluded ? rows.filter((r) => r.agent !== "bro") : rows;
+  };
+  const r1 = rowsOf(s1);
+  const r2 = rowsOf(s2);
+  const union = /* @__PURE__ */ new Map();
+  for (const r of [...r1, ...r2]) union.set(r.id, r);
+  const edges = agentEdgesOf([...union.values()]);
+  const ids1 = new Set(r1.map((r) => r.id));
+  const prices = modelPrices(db);
+  const body = (s, rows) => ({
+    ...insightsBody(db, f, periodOf(s), rows, edges, { key: s.key, since: s.since, until: s.until }),
+    slice: s,
+    per_task: perTaskOf(prices, rows)
+  });
+  const p1 = body(s1, r1);
+  return { p1, p2: body(s2, r2), shared_runs: r2.filter((r) => ids1.has(r.id)).length, bro_excluded: broExcluded, options: p1["options"] };
 }
 var EXPLORE_MEASURES = ["tokens_out", "context", "cache_hit", "cost", "duration_ms", "tool_uses"];
 var EXPLORE_AGGS = ["avg", "p50", "p95", "max", "sum", "count"];
@@ -8650,6 +8772,10 @@ function handleApi(db, url, res) {
     const filter = insightFilter(url.searchParams);
     const body = "error" in filter ? filter : explore(db, filter, url.searchParams, RELEASES);
     return sendJson(res, "error" in body ? 400 : 200, body);
+  }
+  if (parts.length === 2 && resource === "insights" && id === "compare") {
+    const query = compareQuery(url.searchParams);
+    return "error" in query ? sendJson(res, 400, query) : sendJson(res, 200, compare(db, query.filter, query.p1, query.p2));
   }
   if (parts.length === 2 && resource === "world-model" && id === "search") {
     const p = url.searchParams;
