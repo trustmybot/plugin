@@ -23,6 +23,7 @@ mcp-health-check
 naming-lint
 plugin-hooks-marker
 post-task-create-spawn-hint
+prompt-intent-hints
 require-feature-branch-active
 require-spawn-effort
 require-task-spec

@@ -7354,7 +7354,7 @@ function scan(buf, base2, home, assign, frames) {
   const astack = [];
   const oastack = [];
   const q = [];
-  const emit2 = (dir, text) => records.push({ dir, stmt: text });
+  const emit3 = (dir, text) => records.push({ dir, stmt: text });
   const loops = [];
   const fids = [];
   const fent = [];
@@ -7404,7 +7404,7 @@ function scan(buf, base2, home, assign, frames) {
     if (frames.lost.has(fo)) lose();
     bound();
     fent[fo] = { cur, why: cwhy, alts: [...alts] };
-    emit2(LOOP_OPEN, "do");
+    emit3(LOOP_OPEN, "do");
   }
   function fclose() {
     const fo = fids.pop();
@@ -7422,7 +7422,7 @@ function scan(buf, base2, home, assign, frames) {
     cur = e.cur;
     cwhy = e.why;
     bound();
-    emit2(LOOP_CLOSE, "done");
+    emit3(LOOP_CLOSE, "done");
   }
   function lose() {
     cur = "-";
@@ -7708,7 +7708,7 @@ function scan(buf, base2, home, assign, frames) {
         for (const a of aw) if (!assignword(a, !csure)) ok2 = false;
       }
       if (assign && asg !== "") {
-        emit2("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg);
+        emit3("=" + cur + altTok(alts) + SEP + (oalts.length > 0 ? "-" : old), asg);
         if (!chained) {
           old = "-";
           owhy = "";
@@ -7802,7 +7802,7 @@ function scan(buf, base2, home, assign, frames) {
         break;
       }
     }
-    emit2(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
+    emit3(d + altTok(da) + (assign ? SEP + o + (d === "-" && dw !== "" ? SEP + dw : "") : ""), out2);
     if (!chained) {
       old = "-";
       owhy = "";
@@ -7922,7 +7922,7 @@ function scan(buf, base2, home, assign, frames) {
     stmt += c;
   }
   flush();
-  if (assign && (unbal || loops.length > 0)) emit2(UNBALANCED, "unbalanced");
+  if (assign && (unbal || loops.length > 0)) emit3(UNBALANCED, "unbalanced");
   return records.filter((r) => r.stmt !== "");
 }
 
@@ -16704,11 +16704,11 @@ function makeTaskOverrunAlert(clock = () => /* @__PURE__ */ new Date()) {
     const found = overruns(db, now, thresholdMin(env), env);
     if (found === null || found.length === 0) return ALLOW;
     const claimed = claim(db, found, now, env);
-    const emit2 = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
-    if (emit2.length === 0) return ALLOW;
+    const emit3 = claimed === null ? found : found.filter((o) => claimed.has(o.taskId));
+    if (emit3.length === 0) return ALLOW;
     const event = jqAlternatives(payload, [["hook_event_name"]]) || "UserPromptSubmit";
     return {
-      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: emit2.map(alertLine).join("\n") } })}
+      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: event, additionalContext: emit3.map(alertLine).join("\n") } })}
 `,
       code: 0
     };
@@ -18108,6 +18108,701 @@ var cheatcodeInstallApproval = (payload, env) => {
   return deny7(notApprovedReason(name3, url));
 };
 
+// src/hooks/prompt-intent-hints.ts
+import { statSync as statSync23 } from "node:fs";
+import { fileURLToPath as fileURLToPath5, pathToFileURL as pathToFileURL2 } from "node:url";
+var GATE_NAME44 = "prompt-intent-hints";
+var SUMMARY_MAX_BYTES2 = 200;
+var C_SPACE = "\\t\\n\\v\\f\\r ";
+var UTF8_SPACE = `${C_SPACE}\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`;
+var INJECTED_TAGS = ["system-reminder", "pasted_content", "agent-message"];
+var SEARCH_PATTERNS = [
+  "why did we",
+  "why we chose",
+  "why we picked",
+  "why we decided",
+  "what was the rationale",
+  "what is the rationale",
+  "what did we decide",
+  "what was decided",
+  "what was our decision",
+  "how did we decide",
+  "when did we decide",
+  "rationale for",
+  "reasoning behind",
+  "past decision",
+  "prior decision",
+  "previous decision",
+  "find the discussion",
+  "search the discussion",
+  "search discussions",
+  "recall why",
+  "remind me why"
+];
+var CONCERNS_PATTERNS = [
+  "delete the test",
+  "remove the test",
+  "skip the test",
+  "skip the tests",
+  "skip validation",
+  "skip verification",
+  "skip the gate",
+  "force push",
+  "ignore the gate",
+  "just do it",
+  "just push it",
+  "bypass the check",
+  "weaken the assertion",
+  "loosen the check",
+  "just delete",
+  "just remove",
+  "switch to approxequal",
+  "use approxequal",
+  "replace exact equality",
+  "change to approx",
+  "approxequal with tolerance"
+];
+var PUSH_PATTERNS = [
+  "git push",
+  "push it",
+  "push the work",
+  "push the branch",
+  "push the change",
+  "push up",
+  "push them up",
+  "push my work",
+  "ship it",
+  "ship the work",
+  "send it up",
+  "time to push"
+];
+var REONBOARD_PATTERNS = [
+  "available on github",
+  "available on gitlab",
+  "available on a remote",
+  "host on github",
+  "host on gitlab",
+  "host it on github",
+  "host it on gitlab",
+  "push to github",
+  "push to gitlab",
+  "put this on github",
+  "put this on gitlab",
+  "put it on github",
+  "put it on gitlab",
+  "publish to github",
+  "publish to gitlab",
+  "switch to remote",
+  "go remote",
+  "add a remote",
+  "set up a remote",
+  "set up the remote",
+  "add github remote",
+  "add gitlab remote",
+  "live on a remote",
+  "live on github",
+  "live on gitlab",
+  "lives on a remote",
+  "lives on github",
+  "lives on gitlab",
+  "needs to live on",
+  "needs a remote",
+  "change my issue tracker",
+  "switch issue tracker",
+  "switch to gitflow",
+  "switch to git-flow",
+  "switch to github-flow",
+  "switch to github flow",
+  "change branching model",
+  "change the branching model",
+  "switch branching model",
+  "change pr target",
+  "change the pr target",
+  "update pr target",
+  "update the pr target"
+];
+var HEADLESS_PATTERNS = [
+  "claude -p",
+  "claude --print",
+  "headless",
+  "non-interactive",
+  "noninteractive",
+  "in ci",
+  "ci run",
+  "ci pipeline",
+  "github actions",
+  "gitlab ci"
+];
+var HEADLESS_INVOCATIONS = /* @__PURE__ */ new Set(["claude -p", "claude --print"]);
+var RESUME_PATTERNS = [
+  "keep going",
+  "pick it up",
+  "pick that up",
+  "pick this up",
+  "pick up",
+  "let's continue",
+  "continue the work",
+  "continue with",
+  "resume",
+  "finish that",
+  "finish the",
+  "finish it",
+  "wrap that up",
+  "wrap up",
+  "still pending",
+  "still open",
+  "still waiting"
+];
+var ADR_PATTERNS = [
+  "switch to clerk",
+  "switch to auth0",
+  "switch to okta",
+  "swap our auth",
+  "switch our auth",
+  "change our auth",
+  "migrate to postgres",
+  "migrate to mysql",
+  "migrate from postgres",
+  "migrate from mysql",
+  "switch to sqlite",
+  "switch to postgres",
+  "switch to mysql",
+  "migrate storage",
+  "swap our db",
+  "swap the db",
+  "switch our db",
+  "replace our db",
+  "introduce a new service",
+  "new service boundary",
+  "new module boundary",
+  "public api",
+  "new public api",
+  "change the public api",
+  "strategic stack",
+  "production db",
+  "retention policy",
+  "use react instead",
+  "use vue instead",
+  "use svelte instead",
+  "use fastapi instead",
+  "use django instead",
+  "use flask instead",
+  "replatform",
+  "extract the storage layer",
+  "extract the storage",
+  "storage interface",
+  "storage backend",
+  "backend interface",
+  "pluggable backend",
+  "pluggable storage",
+  "swap between",
+  "plugin loader",
+  "plugin architecture",
+  "dependency inversion"
+];
+var AUDIT_WORDS = ["audit", "verify", "double-check", "check", "architecture"];
+var ADVISORY_SHAPES = [
+  "?",
+  "should we use",
+  "should we keep",
+  "should we move",
+  "should we commit to",
+  "should we",
+  "should i",
+  "recommend",
+  "trade-off",
+  "tradeoff",
+  "your take",
+  "your view",
+  "your read",
+  "which one",
+  "which of",
+  "is it safe",
+  "is it ok",
+  "is it better",
+  "implication",
+  "better to use"
+];
+var DOMAINS = [
+  ["security", ["security", "vulnerability", "injection", "xss", "csrf", "auth bypass"]],
+  ["perf", ["latency", "throughput", "bottleneck", "scaling", " scale", "benchmark"]],
+  ["legal", ["legal", "licensing", "compliance", "gdpr", "pii", "copyright"]],
+  ["architect", ["architecture decision", "design choice", "adr", "architecture trade", "architectural trade"]],
+  ["architect", ["json or sqlite", "sqlite or postgres", "postgres or sqlite", "sqlite vs postgres", "sql or nosql"]]
+];
+var CHEATCODE_INSTALL_CTX = "[tmb cheatcode-install routing] This is a cheatcode install, NOT agent/consultant creation. Record the per-candidate approval (cheatcode_approve) then call cheatcode_install with the requested scope (default local). Do NOT call agent_resolve / /tmb:agent-create for these names.";
+var SEARCH_CTX_TAIL = `
+
+Prefer the *_search MCP tools over linear scans:
+- \`discussion_search(query='<key terms>', mode='hybrid')\` returns ranked snippets across ALL issues (keyword + semantic). Use this first.
+- \`audit_search(query='<key terms>')\` for event-history grounding.
+- \`world_model_search(query='<key terms>')\` for code-context / project-structure grounding.
+
+Only fall back to \`discussion_list(issue_id=N)\` / \`issue_get_with_discussions\` once \`discussion_search\` has narrowed the candidate set \u2014 those tools enumerate, they don't rank. Hybrid mode auto-falls-back to keyword if the embedding model is offline (\`warning: 'semantic_unavailable'\`).`;
+var PENDING_SQL = `
+        SELECT t.id || '|' || t.branch_id || '|' || substr(COALESCE(t.title, ''), 1, 60)
+          FROM tasks t
+         WHERE t.status IN ('needs_validation', 'completed', 'closed')
+           AND t.commit_sha IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM validation_attempts v
+              WHERE v.task_id = t.id
+                AND v.verdict = 'pass'
+           );
+      `;
+var RESUME_SQL = `
+        SELECT
+          t.id,
+          t.issue_id,
+          COALESCE(t.branch_id, ''),
+          replace(substr(COALESCE(t.title, ''), 1, 60), '|', '/'),
+          substr(COALESCE(i.objective, ''), 1, 80)
+        FROM tasks t
+        JOIN issues i ON i.id = t.issue_id
+        JOIN audit a ON a.issue_id = i.id AND a.event_type = 'planning_complete'
+        WHERE t.status = 'pending'
+          AND i.status = 'open'
+        ORDER BY a.id DESC
+        LIMIT 1;
+      `;
+var CONSULTANTS_SQL = "SELECT name FROM agents WHERE kind='consultant';";
+var ONBOARDED_SQL = "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;";
+var HEADLESS_WANTED_SQL = `SELECT 1 WHERE EXISTS (SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true') AND NOT EXISTS (SELECT 1 FROM plugin_config WHERE key='headless_enforcement' AND value_json='"yes"');`;
+function hasNonSpace(text, utf8) {
+  return new RegExp(`[^${utf8 ? UTF8_SPACE : C_SPACE}]`, "u").test(text);
+}
+function stripBashSpans(text) {
+  return text.replace(/<bash-(input|stdout|stderr)>[\s\S]*?<\/bash-\1>/g, "");
+}
+function openingTag(s, tag) {
+  let k = s.indexOf(`<${tag}`);
+  while (k >= 0) {
+    const c = s.charAt(k + tag.length + 1);
+    if (c === ">" || c === " " || c === "	" || c === "\n") return k;
+    k = s.indexOf(`<${tag}`, k + 1);
+  }
+  return -1;
+}
+function stripInjectedBlocks(text) {
+  let buf = text;
+  let out2 = "";
+  for (; ; ) {
+    let first = -1;
+    let tag = "";
+    for (const t of INJECTED_TAGS) {
+      const k = openingTag(buf, t);
+      if (k >= 0 && (first < 0 || k < first)) {
+        first = k;
+        tag = t;
+      }
+    }
+    if (first < 0) break;
+    const closeTag = `</${tag}>`;
+    const e = buf.indexOf(closeTag, first);
+    if (e < 0) {
+      out2 += buf.slice(0, first + 1);
+      buf = buf.slice(first + 1);
+      continue;
+    }
+    out2 += `${buf.slice(0, first)} `;
+    buf = buf.slice(e + closeTag.length);
+  }
+  return commandSubstitution(out2 + buf);
+}
+var AWK_ALNUM = /[A-Za-z0-9]/;
+var AWK_SPACE = /[\t\n\v\f\r ]/;
+function stripQuotedSpans(text) {
+  const n2 = text.length;
+  let out2 = "";
+  let i2 = 0;
+  while (i2 < n2) {
+    const c = text[i2];
+    let j = -1;
+    if (c === "`") {
+      j = text.indexOf("`", i2 + 1);
+    } else if ((c === "'" || c === '"') && (i2 === 0 || !AWK_ALNUM.test(text[i2 - 1])) && i2 + 1 < n2 && !AWK_SPACE.test(text[i2 + 1])) {
+      for (let k = i2 + 2; k < n2; k++) {
+        if (text[k] === c && (k === n2 - 1 || !AWK_ALNUM.test(text[k + 1]))) {
+          j = k;
+          break;
+        }
+      }
+    }
+    if (j >= 0) {
+      out2 += " ";
+      i2 = j + 1;
+      continue;
+    }
+    out2 += c;
+    i2 += 1;
+  }
+  return commandSubstitution(out2);
+}
+function stripFencedBlocks(text) {
+  return text.replace(/```[\s\S]*?```/g, " ");
+}
+function splitClauses(text) {
+  const out2 = [];
+  for (const line of text.split("\n")) {
+    for (const piece of line.split(/(?<=[.;?!])/)) {
+      out2.push({ text: piece.replace(/[.;?!]$/, ""), question: piece.endsWith("?") });
+    }
+  }
+  return out2;
+}
+function codePointBefore(text, k) {
+  if (k <= 0) return "";
+  const low = text.charCodeAt(k - 1);
+  if (k >= 2 && low >= 56320 && low <= 57343) {
+    const high = text.charCodeAt(k - 2);
+    if (high >= 55296 && high <= 56319) return text.slice(k - 2, k);
+  }
+  return text[k - 1];
+}
+function codePointAt(text, k) {
+  if (k >= text.length) return "";
+  return String.fromCodePoint(text.codePointAt(k) ?? 0);
+}
+function globAz(c, utf8) {
+  if (c === "") return false;
+  if (/^[a-z]$/.test(c)) return true;
+  if (!utf8) return false;
+  return new RegExp("^\\p{Script=Latin}$", "u").test(c) && !c.normalize("NFD").startsWith("Z");
+}
+function hasWord(word, text, utf8) {
+  let k = text.indexOf(word);
+  while (k >= 0) {
+    if (!globAz(codePointBefore(text, k), utf8) && !globAz(codePointAt(text, k + word.length), utf8)) return true;
+    k = text.indexOf(word, k + 1);
+  }
+  return false;
+}
+var awkWord = (c) => /^[a-z0-9_]$/.test(c);
+function hasTarget(tail, agent) {
+  for (const prep of ["for", "to", "onto"]) {
+    const needle = `${prep} ${agent}`;
+    let k = tail.indexOf(needle);
+    while (k >= 0) {
+      const before2 = k === 0 ? "" : tail[k - 1];
+      const after2 = tail.charAt(k + needle.length);
+      if (!awkWord(before2) && !awkWord(after2) && after2 !== "-") return true;
+      k = tail.indexOf(needle, k + 1);
+    }
+  }
+  return false;
+}
+function capabilityOnAgent(lower, agents) {
+  for (const clause of splitClauses(lower)) {
+    const s = clause.text.replace(/[ \t]+/g, " ");
+    const verb = /install|add/g;
+    let m;
+    while ((m = verb.exec(s)) !== null) {
+      const v = m.index;
+      const e = v + m[0].length;
+      if ((v === 0 || !awkWord(s[v - 1])) && !awkWord(s.charAt(e))) {
+        const tail = s.slice(e);
+        for (const agent of agents) if (hasTarget(tail, agent)) return agent;
+      }
+      verb.lastIndex = v + 1;
+    }
+  }
+  return "";
+}
+function wholePhrase(pattern) {
+  return new RegExp(`(^|[^a-z0-9_])${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9_]|$)`);
+}
+function headlessMatch(promptRaw, env) {
+  const open = trLower(stripQuotedSpans(stripFencedBlocks(promptRaw)), env);
+  const statements2 = splitClauses(open).filter((c) => !c.question).map((c) => c.text).join("\n");
+  return HEADLESS_PATTERNS.find((pat) => wholePhrase(pat).test(HEADLESS_INVOCATIONS.has(pat) ? statements2 : open)) ?? "";
+}
+function readPipeFields(text, n2) {
+  let rest = text.split("\n")[0];
+  const out2 = [];
+  for (let i2 = 0; i2 < n2 - 1; i2++) {
+    const k = rest.indexOf("|");
+    out2.push(k < 0 ? rest : rest.slice(0, k));
+    rest = k < 0 ? "" : rest.slice(k + 1);
+  }
+  out2.push(/^[^|]*\|$/.test(rest) ? rest.slice(0, -1) : rest);
+  return out2;
+}
+function pendingList(pending2) {
+  return pending2.split("\n").map((line) => {
+    const f = line.split("|");
+    return `  - task_id=${f[0] ?? ""}  branch=${f[1] ?? ""}  (${f[2] ?? ""})`;
+  }).join("\n");
+}
+function proximityMatch(lowerOpen) {
+  const w = lowerOpen.replace(/\n/g, " ").split(/[^a-z0-9]+/);
+  for (let i2 = 0; i2 < w.length; i2++) {
+    if (w[i2] !== "port" && w[i2] !== "rewrite") continue;
+    const want = w[i2] === "port" ? "to" : "in";
+    for (let j = i2 + 1; j < w.length && j <= i2 + 6; j++) if (w[j] === want) return `${w[i2]} ... ${want}`;
+  }
+  return "";
+}
+function firstIncluded(text, patterns) {
+  return patterns.find((pat) => text.includes(pat)) ?? "";
+}
+function disabled(env, key2) {
+  return (env[key2] ?? "0") === "1";
+}
+function emit2(context3, prefix = "") {
+  return {
+    stdout: `${prefix}${jqCompact({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context3 } })}
+`,
+    code: 0
+  };
+}
+function isFile11(path) {
+  try {
+    return statSync23(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function defaultPluginRoot2() {
+  try {
+    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
+  } catch {
+    return "";
+  }
+}
+async function shimEntries(env) {
+  const root = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot2();
+  const mod = `${root}/mcp/trajectory-server/dist/tools/onboard-hooks-shim.js`;
+  if (!isFile11(mod)) return "";
+  try {
+    const shim = await import(pathToFileURL2(mod).href);
+    return String(shim.countShimEntries(root));
+  } catch {
+    return "";
+  }
+}
+var Context = class {
+  constructor(env) {
+    this.env = env;
+  }
+  env;
+  db;
+  /** `tmb_db_path` with sqlite available, else null. */
+  database() {
+    if (this.db === void 0) this.db = dbPath(this.env);
+    return this.db !== null && this.db !== "" && haveSqlite(this.env) ? this.db : null;
+  }
+  query(sql) {
+    const db = this.database();
+    return db === null ? "" : commandSubstitution(sqliteRo(db, sql, this.env));
+  }
+  consultants() {
+    return this.query(CONSULTANTS_SQL).split("\n").filter((role) => role !== "").map((role) => trLower(role, this.env));
+  }
+  /** audit_consultant_spawn_nudged: the audit row, with what sqlite3 printed to pass through on stdout. */
+  auditNudge(detail) {
+    const db = this.database();
+    if (db === null || !isFile11(db)) return "";
+    const cut = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
+    const written = auditAppend(
+      db,
+      {
+        issueId: "-1",
+        branchId: "",
+        fromNode: `hook:${GATE_NAME44}`,
+        eventType: "consultant_spawn_nudged",
+        summary: `Consultant-spawn nudge emitted: ${cut}`,
+        contentJson: "{}"
+      },
+      { caller: GATE_NAME44, env: this.env }
+    );
+    if (!written.ok && written.error !== "") process.stderr.write(`${written.error}
+`);
+    return written.stdout;
+  }
+};
+function cheatcodeInstall(lower, ctx, grep) {
+  if (/(^|[^a-z0-9_])(install|add)([^a-z0-9_]|$)/m.test(lower)) {
+    const agents = ["swe", "code-reviewer", "bro", ...ctx.consultants()].join(" ").split(/[ \t\n]+/).filter((a) => a !== "");
+    const agent = capabilityOnAgent(lower, agents);
+    if (agent !== "") {
+      return emit2(
+        `[tmb cheatcode-routing] This installs a capability ONTO the \`${agent}\` agent \u2014 that is the cheatcode-reuse path. Load \`tmb_cheatcode\`: search/vet/approve the capability (cheatcode_search \u2192 cheatcode_approve) then materialize it onto the agent. This is capability reuse, so it routes through the cheatcode pipeline rather than the build flow.`
+      );
+    }
+  }
+  if (lower.includes("in local scope") || lower.includes("in global scope")) return emit2(CHEATCODE_INSTALL_CTX);
+  if (!lower.includes("install")) return null;
+  const bytes = Buffer.from(`${lower}
+`, "utf8");
+  const space2 = `[${grep.utf8 ? UTF8_SPACE : C_SPACE}]`;
+  if (grep.test(bytes, grep.regex("\\b(install|installing)\\b")) && grep.test(bytes, grep.regex("\\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\\b")) && !grep.test(bytes, grep.regex(`\\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)${space2}+install(ing)?\\b`))) {
+    return emit2(CHEATCODE_INSTALL_CTX);
+  }
+  return null;
+}
+function namedRole(lower, ctx) {
+  for (const role of ctx.consultants()) {
+    const shapes = [`${role}'s read`, `${role}'s view`, `${role}'s take`, `${role} agent`, `the ${role} `, `the ${role}.`, `the ${role},`];
+    if (shapes.some((shape) => lower.includes(shape))) return role;
+  }
+  return "";
+}
+function domainOf(lower, utf8) {
+  for (const [domain, keywords] of DOMAINS) if (keywords.some((k) => lower.includes(k))) return domain;
+  return hasWord("perf", lower, utf8) ? "perf" : "";
+}
+function consultantSpawn(lower, ctx, utf8) {
+  const role = namedRole(lower, ctx);
+  if (role !== "") {
+    const passthrough2 = ctx.auditNudge(`named-role ${role}`);
+    return emit2(
+      `[tmb consultant-spawn enforcement] The user's prompt names the \`${role}\` role. Invoke \`/tmb:agent-create ${role} <one-line restatement of the user question>\` \u2014 the command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant in the same call. Bare \`Agent(subagent_type='${role}')\` without the command bypasses the registry; do NOT take that shortcut.`,
+      passthrough2
+    );
+  }
+  const domain = domainOf(lower, utf8);
+  if (domain === "" || firstIncluded(lower, ADVISORY_SHAPES) === "") return null;
+  const passthrough = ctx.auditNudge(`domain ${domain}`);
+  return emit2(
+    `[tmb consultant-spawn enforcement] The user's prompt looks like a \`${domain}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant. Answering directly from general knowledge bypasses the consultant gate.`,
+    passthrough
+  );
+}
+function pushIntent(lowerOpen, ctx) {
+  const matched = firstIncluded(lowerOpen, PUSH_PATTERNS);
+  if (matched === "" || ctx.database() === null) return null;
+  const pending2 = ctx.query(PENDING_SQL);
+  if (pending2 === "") return null;
+  return emit2(`\u{1F6A6} push-intent hint: the user's prompt contains '${matched}'. ${pending2.split("\n").length} task(s) await code-reviewer signoff before push:
+
+${pendingList(pending2)}
+
+Before \`git push\`, spawn code-reviewer for each pending task via \`Agent(subagent_type='code-reviewer', isolation=)\` (no worktree \u2014 code-reviewer reviews from the main checkout). On all-pass verdicts the push will clear the git-push-guard. If you skip this, the guard will deny the push and you'll have to redo the work anyway.`);
+}
+function reonboardIntent(lower, ctx) {
+  const matched = firstIncluded(lower, REONBOARD_PATTERNS);
+  if (matched === "" || ctx.database() === null || ctx.query(ONBOARDED_SQL) !== "1") return null;
+  return emit2(`\u{1F501} reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (project already onboarded \u2014 switching shape, not initial setup).
+
+Policy/config mutations stay Human-gated. Route the Human to \`/onboard\` \u2014 do NOT call \`onboard_apply\` yourself.
+
+REQUIRED FIRST ACTION \u2014 before any reply or git command: call \`onboard_state_get(agent='bro')\`. Your recommendation must cite the current config it returns (branching_model, pr_target, remotes); a reonboard answer composed without reading state is a workflow violation.
+
+Then reply pointing the Human to \`/onboard\`. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE) and do NOT wire remotes with raw git.`);
+}
+async function headlessIntent(promptRaw, ctx) {
+  const matched = headlessMatch(promptRaw, ctx.env);
+  if (matched === "" || ctx.database() === null || ctx.query(HEADLESS_WANTED_SQL) !== "1") return null;
+  const settings = `${projectRoot(ctx.env) || "<project>"}/.claude/settings.local.json`;
+  const entries = await shimEntries(ctx.env);
+  const what = entries !== "" ? `${entries} PreToolUse gate entries` : "TMB's PreToolUse gate entries";
+  return emit2(`\u{1F916} headless-intent hint: the user's prompt contains '${matched}'. Plugin hooks do not fire in non-interactive \`claude -p\` runs, and headless enforcement is off for this project.
+
+Ask ONE \`AskUserQuestion\` consent before anything else: may TMB write ${what} into \`${settings}\` so its gates also run in \`claude -p\`? Name that file and the entry count in the question; if TMB creates the file in a git work tree, it is added to \`.gitignore\`.
+- Yes \u2192 call \`onboard_apply(agent='bro', headless_enforcement='yes')\` and report \`applied.headless_shim\`.
+- No \u2192 write nothing and carry on with the request.
+
+Never call \`onboard_apply\` for this without the Human's answer.`);
+}
+function resumeIntent(lowerOpen, ctx) {
+  const matched = firstIncluded(lowerOpen, RESUME_PATTERNS);
+  if (matched === "" || ctx.database() === null) return null;
+  const resume = ctx.query(RESUME_SQL);
+  if (resume === "") return null;
+  const [taskId, issueId, branchId, title, objective] = readPipeFields(resume, 5);
+  return emit2(`\u21A9\uFE0F  resume-intent hint: the user's prompt contains '${matched}'. There's a pending task that already has \`planning_complete\` audit \u2014 resume that, do NOT create new tasks or replan.
+
+  task_id=${taskId}
+  issue_id=${issueId}
+  branch_id=${branchId}
+  title='${title}'
+  issue.objective='${objective}'
+
+Required workflow:
+1. Call \`task_get(task_id=${taskId})\` to load the spec.
+2. If the task has no worktree yet, call \`task_reopen(task_id=${taskId}, reason="resume planned task")\`, which creates it; then spawn SWE via \`Agent(subagent_type='swe')\` with \`task_id=${taskId}\` in the prompt. Leave the main checkout on its current branch.
+3. Do NOT call \`issue_create\` or \`task_create_batch\` \u2014 replanning is forbidden when planning_complete already exists for this work.`);
+}
+async function hints(promptRaw, env) {
+  const utf8 = setlocaleUtf8(env);
+  const lower = trLower(promptRaw, env);
+  const lowerOpen = trLower(stripQuotedSpans(promptRaw), env);
+  const ctx = new Context(env);
+  if (!disabled(env, "TMB_DISABLE_CHEATCODE_INSTALL_HINT")) {
+    const r = cheatcodeInstall(lower, ctx, new LocaleGrep(utf8));
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_CONSULTANT_HINT")) {
+    const r = consultantSpawn(lower, ctx, utf8);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_SEARCH_HINT")) {
+    const matched = firstIncluded(lower, SEARCH_PATTERNS);
+    if (matched !== "") {
+      return emit2(`\u{1F50E} search-grounding hint: the user's prompt contains '${matched}' \u2014 a retrieval question over past decisions.${SEARCH_CTX_TAIL}`);
+    }
+  }
+  if (!disabled(env, "TMB_DISABLE_CONCERNS_HINT")) {
+    const matched = firstIncluded(lowerOpen, CONCERNS_PATTERNS);
+    if (matched !== "") {
+      return emit2(
+        `\u{1F6A8} concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request \u2014 load \`tmb_concerns-protocol\`. REQUIRED FIRST ACTION before any compliance, edit, or task creation: \`discussion_append(agent='bro', kind='note', body='Concern: \u2026')\` recording what the request risks (or why it is pointless) and your recommendation. Then follow the protocol \u2014 hold for the Human's alignment; a documented decision is not a substitute for the Concern: record.`
+      );
+    }
+  }
+  if (!disabled(env, "TMB_DISABLE_PUSH_INTENT_HINT")) {
+    const r = pushIntent(lowerOpen, ctx);
+    if (r) return r;
+  }
+  const onboardPrompt = lower.includes("/onboard");
+  if (!disabled(env, "TMB_DISABLE_REONBOARD_HINT") && !onboardPrompt) {
+    const r = reonboardIntent(lower, ctx);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_HEADLESS_HINT") && !onboardPrompt) {
+    const r = await headlessIntent(promptRaw, ctx);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_RESUME_HINT")) {
+    const r = resumeIntent(lowerOpen, ctx);
+    if (r) return r;
+  }
+  if (!disabled(env, "TMB_DISABLE_ADR_HINT")) {
+    const matched = firstIncluded(lowerOpen, ADR_PATTERNS) || proximityMatch(lowerOpen);
+    if (matched !== "") {
+      return emit2(
+        `\u{1F3DB}\uFE0F  architectural-change hint: the user's prompt contains '${matched}'. This change crosses TMB's architectural threshold \u2014 load \`tmb_planning\` and follow \xA7"Architectural changes" before speccing the work.`
+      );
+    }
+  }
+  if (!disabled(env, "TMB_DISABLE_AUDIT_HINT")) {
+    const matched = AUDIT_WORDS.find((word) => hasWord(word, lowerOpen, utf8));
+    if (matched !== void 0) {
+      return emit2(
+        `\u{1F50D} audit-intent hint: the user's prompt contains '${matched}'. Load \`tmb_audit\` and work outputs-first: name the component and the invariants its outputs must satisfy, test each against live data or a dry run before reading code, and report violations architecture-first with their evidence.`
+      );
+    }
+  }
+  return ALLOW;
+}
+async function promptIntentHints(payload, env) {
+  try {
+    let prompt = commandSubstitution(jqFieldOr(`${commandSubstitution(payload)}
+`, "prompt"));
+    if (prompt === "") return ALLOW;
+    const utf8 = setlocaleUtf8(env);
+    prompt = commandSubstitution(stripBashSpans(prompt));
+    if (!hasNonSpace(prompt, utf8) || isHarnessTurn(prompt)) return ALLOW;
+    dbPathAdvisory(GATE_NAME44, env, (line) => process.stderr.write(`${line}
+`));
+    prompt = stripInjectedBlocks(prompt);
+    if (!hasNonSpace(prompt, utf8)) return ALLOW;
+    return await hints(prompt, env);
+  } catch {
+    return ALLOW;
+  }
+}
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -18154,7 +18849,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME40, postTaskCreateSpawnHint],
   [GATE_NAME41, agentArgMatchesCaller],
   [GATE_NAME42, reviewerIdentityObserve],
-  [GATE_NAME43, cheatcodeInstallApproval]
+  [GATE_NAME43, cheatcodeInstallApproval],
+  [GATE_NAME44, promptIntentHints]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
