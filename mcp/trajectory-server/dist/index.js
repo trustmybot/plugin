@@ -40854,6 +40854,31 @@ function branchDivergedResult(tool, branchId, ref2, baseRef, distance, openPrs, 
     ]
   };
 }
+function branchIdUsedOnIssueResult(db2, tool, issueId, branchId) {
+  const existing = db2.get(
+    `SELECT id, status, commit_sha FROM tasks WHERE issue_id = ? AND branch_id = ? LIMIT 1`,
+    [issueId, branchId]
+  );
+  if (!existing) return null;
+  const nextStep = tool === "task_provision" ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or pick a fresh branch_id from branch_id_propose (with base='${branchId}' to stack on it) for a separately gated task.` : `Pick a fresh new_branch_id from branch_id_propose.`;
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "branch_id_used_on_issue",
+          issue_id: issueId,
+          branch_id: branchId,
+          task_id: existing.id,
+          status: existing.status,
+          commit_sha: existing.commit_sha ?? null,
+          message: `${tool}: issue ${issueId} already has task ${existing.id} (status '${existing.status}') on branch '${branchId}'. ${nextStep} No task row or branch was changed.`
+        })
+      }
+    ]
+  };
+}
 function openChangeRequestsForBranch(db2, repoName, repoPath, branchId, spawnFn) {
   if (!repoName) return [];
   const { gated, targets } = resolveMilestoneTargets(db2, repoName, spawnFn);
@@ -41387,6 +41412,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             };
           }
         }
+        const usedOnIssue = branchIdUsedOnIssueResult(db2, "task_provision", issueId, branchId);
+        if (usedOnIssue) return usedOnIssue;
         let repoPath = null;
         if (repoValue) {
           const reposRow = db2.get(
@@ -42030,6 +42057,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (failed.branch_id === newBranchId) {
           return err17("new_branch_id must differ from the failed task's branch_id.");
         }
+        const usedOnIssue = branchIdUsedOnIssueResult(db2, "task_retry", failed.issue_id, newBranchId);
+        if (usedOnIssue) return usedOnIssue;
         {
           const RETRY_CAP = 3;
           let depth = 0;
