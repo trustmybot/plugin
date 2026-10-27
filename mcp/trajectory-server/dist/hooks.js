@@ -20030,7 +20030,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
-  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
+  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
@@ -20574,6 +20574,8 @@ var remoteIdGuard = async (payload, processEnv) => {
 var budgets_default = {
   rounds: 20,
   workers: 4,
+  parse_allowance_ms: 2e3,
+  budget_sum_ms: 85008,
   gates: {
     "containment-guard": {
       kind: "enforcement",
@@ -20835,7 +20837,8 @@ function routerGates(event, tool, groups = ROUTER_GROUPS) {
   return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
 }
 function routerTimeoutS(groups = ROUTER_GROUPS) {
-  return Math.ceil(Math.max(...groups.flatMap((g) => g.gates.map((x) => x.budgetMs))) / 1e3) + 2;
+  const sums = groups.flatMap((g) => g.tools.map((tool) => routerGates(g.event, tool, groups).reduce((n2, x) => n2 + x.budgetMs, 0)));
+  return Math.ceil((budgets_default.parse_allowance_ms + Math.max(0, ...sums)) / 1e3);
 }
 
 // src/hooks/router/main.ts
@@ -20977,13 +20980,18 @@ async function decide(event, payload, env, deps = {}) {
   }
   const find = deps.findGate ?? findGate;
   const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
-  const runs = gates.map((gate) => {
+  if (tool === "Bash" && gates.length > 0) await bashParser().catch(() => void 0);
+  const done = [];
+  for (const gate of gates) {
     const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
     const fn = find(gate.name);
-    const settled = fn ? settle(gate, fn, payload, env, budget, now2) : Promise.resolve({ kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 });
-    return settled.then((s) => ({ gate, s, j: fn ? judge(gate, s, budget) : judgeUnknown(gate) }));
-  });
-  const done = await Promise.all(runs);
+    if (!fn) {
+      done.push({ gate, s: { kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 }, j: judgeUnknown(gate) });
+      continue;
+    }
+    const s = await settle(gate, fn, payload, env, budget, now2);
+    done.push({ gate, s, j: judge(gate, s, budget) });
+  }
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
   const stderr2 = done.map(({ j }) => j.stderr).join("");
   const deny10 = done.find(({ j }) => j.outcome === "deny");

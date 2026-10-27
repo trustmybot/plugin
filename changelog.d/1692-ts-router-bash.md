@@ -5,5 +5,7 @@
     - the `hook_denied` row and the boundary-denies records;
     - the active-install handoff;
     - fail-closed: a gate that throws, exits non-zero, prints unparseable output, is unknown or runs past its budget denies, naming the gate.
+  - The gates run one at a time, each on its own clock, so a slow gate never makes another one time out. The entry's timeout (88 s) covers every gate's budget in turn plus a 2 s allowance for the shared parse.
   - Each router call writes one `hook_call` audit row with every gate's time and outcome.
+  - The headless shim expands the router entry into one `dispatch.sh` entry per gate. It refuses to write, giving a reason, when `dist/hooks-router.txt` is unreadable or lists no gate.
   - Gate budgets come from `src/hooks/router/budgets.json`. They are built from the in-process bench p99 and the p99 recorded in session transcripts. No gate gets less time than its old hooks.json timeout.

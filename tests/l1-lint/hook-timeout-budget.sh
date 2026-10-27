@@ -145,21 +145,24 @@ for chain in $REGISTERED; do
 "
 done
 
-# --- the router: its registration covers its largest gate budget + 2 s -------
-# The router (GH 1692 R1) runs a gate under its own budget (dist/hooks-router.txt)
-# and its registration timeout is the backstop over them all.
+# --- the router: its registration covers its gates run in turn ---------------
+# The router (GH 1692 R1) runs its gates one after another, each under its own
+# budget (dist/hooks-router.txt), after the shared parse; its registration
+# timeout is the backstop over the parse allowance (budgets.json) plus them all.
+ROUTER_BUDGETS="mcp/trajectory-server/src/hooks/router/budgets.json"
 ROUTER_SUMMARY=""
 while IFS=$'\t' read -r event wrap; do
-  max=$(tmb_router_gates_budgets "$ROOT" "$event")
-  if ! require "$max" "$event router gate budgets (dist/hooks-router.txt)"; then
+  sum=$(tmb_router_budget_sum "$ROOT" "$event")
+  parse=$(jq -r '.parse_allowance_ms // empty' "$ROUTER_BUDGETS" 2>/dev/null || true)
+  if ! require "$sum" "$event router gate budgets (dist/hooks-router.txt)" || ! require "$parse" "router parse_allowance_ms ($ROUTER_BUDGETS)"; then
     continue
   fi
-  need=$(( (max + 999) / 1000 + 2 ))
+  need=$(( (parse + sum + 999) / 1000 ))
   if [ "${wrap:-0}" -lt "$need" ]; then
-    printf "hook-timeout-budget: FAIL router %s wrapper %ss < %ss (largest gate budget %sms + 2s)\n" "$event" "${wrap:-?}" "$need" "$max" >&2
+    printf "hook-timeout-budget: FAIL router %s wrapper %ss < %ss (parse allowance %sms + gate budget sum %sms)\n" "$event" "${wrap:-?}" "$need" "$parse" "$sum" >&2
     FAIL=$((FAIL + 1))
   fi
-  ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event}: wrapper ${wrap}s >= largest gate budget ${max}ms + 2s
+  ROUTER_SUMMARY="${ROUTER_SUMMARY}  router ${event}: wrapper ${wrap}s >= parse allowance ${parse}ms + gate budget sum ${sum}ms
 "
 done < <(jq -r '.hooks[][]?.hooks[]? | select((.command // "") | test("^node \"\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/trajectory-server/dist/hooks\\.js\" [A-Za-z]+$")) | [(.command | split(" ") | last), (.timeout // "")] | @tsv' "$HOOKS_JSON")
 

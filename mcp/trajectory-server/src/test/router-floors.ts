@@ -25,6 +25,14 @@ export function floorMs(gate: string): number {
 
 export const BUDGET_MARGIN_MS = 200;
 
+/**
+ * The router's own time on one call beyond its gates' budgets: the shared
+ * bash parser load before the first gate clock starts, the install check,
+ * the dedupe lock and the record writes. It keeps the 2 s margin the
+ * registration timeout had over a gate budget before the gates ran in turn.
+ */
+export const PARSE_ALLOWANCE_MS = 2000;
+
 /** budget_ms = max(floor_ms, ceil(2 x max(bench_p99, transcript_p99)) + 200). */
 export function budgetMs(floor: number, benchP99: number, transcriptP99: number | null): number {
   return Math.max(floor, Math.ceil(2 * Math.max(benchP99, transcriptP99 ?? 0)) + BUDGET_MARGIN_MS);

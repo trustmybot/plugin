@@ -130,8 +130,8 @@ export function gateNames(): string[] {
 
 /*
  * The router (GH 1692 R1): `node dist/hooks.js <event>` runs every gate of the
- * groups whose event and tool match the payload, in this order, each within
- * its budget from router/budgets.json.
+ * groups whose event and tool match the payload, one after another in this
+ * order, each within its budget from router/budgets.json.
  */
 import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
 
@@ -183,7 +183,12 @@ export function routerGates(event: string, tool: string, groups: readonly Router
   return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
 }
 
-/** The router's hooks.json timeout (s): the largest budget, rounded up, plus 2 s. */
+/**
+ * The router's hooks.json timeout (s): its gates run one after another, so
+ * the parse allowance plus the largest sum of the budgets one call runs,
+ * rounded up.
+ */
 export function routerTimeoutS(groups: readonly RouterGroup[] = ROUTER_GROUPS): number {
-  return Math.ceil(Math.max(...groups.flatMap((g) => g.gates.map((x) => x.budgetMs))) / 1000) + 2;
+  const sums = groups.flatMap((g) => g.tools.map((tool) => routerGates(g.event, tool, groups).reduce((n, x) => n + x.budgetMs, 0)));
+  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + Math.max(0, ...sums)) / 1000);
 }

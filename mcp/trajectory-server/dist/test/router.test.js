@@ -155,9 +155,44 @@ describe('router budgets', () => {
         const d = await decide('PreToolUse', bash('ls'), {}, { groups: group(['sync', 'enforcement', 5]), findGate: fakes({ sync: busy }) });
         assert.match(reasonOf(d.stdout), /TMB gate sync timed out after 5 ms/);
     });
-    it('the hooks.json registration is the router timeout: largest budget + 2 s', () => {
-        const max = Math.max(...ROUTER_GROUPS.flatMap((g) => g.gates.map((x) => x.budgetMs)));
-        assert.equal(routerTimeoutS(), Math.ceil(max / 1000) + 2);
+    it('charges each gate only its own work: a sibling that blocks the event loop never times out an idle gate (F271-1)', async () => {
+        const quick = async () => {
+            await new Promise((r) => setImmediate(r));
+            return ALLOW;
+        };
+        const heavy = async () => {
+            await Promise.resolve();
+            const end = performance.now() + 600;
+            while (performance.now() < end) {
+                /* spin */
+            }
+            return ALLOW;
+        };
+        const d = await decide('PreToolUse', bash('true'), {}, {
+            groups: [{ event: 'PreToolUse', tools: ['Bash'], gates: [{ name: 'quick', kind: 'enforcement', budgetMs: 200 }, { name: 'heavy', kind: 'enforcement', budgetMs: 5000 }] }],
+            findGate: fakes({ quick, heavy }),
+        });
+        assert.equal(d.denied, null, JSON.stringify(d.gates));
+        assert.deepEqual(d.gates.map((g) => [g.gate, g.outcome]), [['quick', 'allow'], ['heavy', 'allow']]);
+        assert.ok(d.gates[0].ms < d.gates[1].ms, JSON.stringify(d.gates));
+    });
+    it('runs the gates one at a time in group order', async () => {
+        const log = [];
+        const gate = (name) => async () => {
+            log.push(`${name}:start`);
+            await sleep(5);
+            log.push(`${name}:end`);
+            return ALLOW;
+        };
+        await decide('PreToolUse', bash('true'), {}, { groups: group(['a', 'enforcement'], ['b', 'advisory'], ['c', 'enforcement']), findGate: fakes({ a: gate('a'), b: gate('b'), c: gate('c') }) });
+        assert.deepEqual(log, ['a:start', 'a:end', 'b:start', 'b:end', 'c:start', 'c:end']);
+    });
+    it('the router timeout covers its gates run in turn: the budget sum of one call plus the parse allowance', () => {
+        const sum = ROUTER_GROUPS.flatMap((g) => g.gates).reduce((n, x) => n + x.budgetMs, 0);
+        assert.ok(routerTimeoutS() * 1000 >= sum, `${routerTimeoutS()} s < ${sum} ms`);
+        const two = group(['a', 'enforcement', 1500], ['b', 'advisory', 1500]);
+        assert.ok(routerTimeoutS(two) * 1000 >= 3000);
+        assert.ok(routerTimeoutS(two) < routerTimeoutS(group(['a', 'enforcement', 1500], ['b', 'advisory', 1500], ['c', 'enforcement', 1500])));
     });
 });
 describe('router entry: dedupe and records', () => {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { ROUTER_GROUPS, routerTimeoutS } from '../hooks/registry.js';
 import { gateOf, percentile, transcriptStats } from './hook-transcripts.js';
-import { budgetMs, floorMs, PRE_R1_TIMEOUT_S } from './router-floors.js';
+import { budgetMs, floorMs, PARSE_ALLOWANCE_MS, PRE_R1_TIMEOUT_S } from './router-floors.js';
 import { PLUGIN_ROOT } from './router-sandboxes.js';
 
 interface Budget {
@@ -23,7 +23,13 @@ interface Budget {
   date: unknown;
 }
 
-const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budgets.json'), 'utf8')) as { rounds: number; workers: number; gates: Record<string, Budget> };
+const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budgets.json'), 'utf8')) as {
+  rounds: number;
+  workers: number;
+  parse_allowance_ms: number;
+  budget_sum_ms: number;
+  gates: Record<string, Budget>;
+};
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')) as {
   hooks: Record<string, { matcher: string; hooks: { command: string; timeout: number }[] }[]>;
 };
@@ -69,11 +75,18 @@ describe('router budgets.json (GH 1861)', () => {
     }
   });
 
-  it('the router registration timeout is the largest budget + 2 s', () => {
+  it('budget_sum_ms is the sum of the per-gate budgets, parse_allowance_ms the recorded allowance', () => {
+    assert.equal(BUDGETS.budget_sum_ms, Object.values(BUDGETS.gates).reduce((n, b) => n + b.budget_ms, 0));
+    assert.equal(BUDGETS.budget_sum_ms, gates.reduce((n, g) => n + g.budgetMs, 0));
+    assert.equal(BUDGETS.parse_allowance_ms, PARSE_ALLOWANCE_MS);
+  });
+
+  it('the router registration timeout covers the parse allowance plus every gate budget run in turn', () => {
     const entry = HOOKS.hooks.PreToolUse.flatMap((g) => g.hooks).find((h) => h.command.endsWith('dist/hooks.js" PreToolUse'));
     assert.ok(entry);
+    assert.ok(entry.timeout * 1000 >= BUDGETS.parse_allowance_ms + BUDGETS.budget_sum_ms, `${entry.timeout} s < ${BUDGETS.parse_allowance_ms} + ${BUDGETS.budget_sum_ms} ms`);
     assert.equal(entry.timeout, routerTimeoutS());
-    assert.equal(routerTimeoutS(), Math.ceil(Math.max(...Object.values(BUDGETS.gates).map((b) => b.budget_ms)) / 1000) + 2);
+    assert.equal(routerTimeoutS(), Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.budget_sum_ms) / 1000));
   });
 
   it('the formula: max(floor, ceil(2 x max(bench_p99, transcript_p99)) + 200)', () => {

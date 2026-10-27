@@ -1,6 +1,8 @@
 {
   "rounds": 20,
   "workers": 4,
+  "parse_allowance_ms": 2000,
+  "budget_sum_ms": 85008,
   "gates": {
     "containment-guard": {
       "kind": "enforcement",

@@ -4,7 +4,9 @@
  * for at least 20 rounds; the main process prints p50/p95/p99 per gate next to
  * the transcript p99 of the same gate under dispatch.sh, and with --write
  * records both in src/hooks/router/budgets.json with the floor and
- * budget_ms = max(floor_ms, ceil(2 x max(bench_p99, transcript_p99)) + 200).
+ * budget_ms = max(floor_ms, ceil(2 x max(bench_p99, transcript_p99)) + 200),
+ * plus parse_allowance_ms and budget_sum_ms, the two terms of the router's
+ * registration timeout now that its gates run one after another.
  *
  *   node --experimental-sqlite dist/test/router-p99.bench.js [--rounds 20]
  *     [--workers 4] [--transcripts ~/.claude/projects] [--days 14] [--write]
@@ -18,7 +20,7 @@ import { parseArgs } from 'node:util';
 import { findGate, routerGates } from '../hooks/registry.js';
 import { DEFAULT_DAYS, DEFAULT_TRANSCRIPTS, percentile, transcriptStats } from './hook-transcripts.js';
 import { PLUGIN_ROOT, routerSandbox, underUid } from './router-sandboxes.js';
-import { budgetMs, floorMs } from './router-floors.js';
+import { budgetMs, floorMs, PARSE_ALLOWANCE_MS } from './router-floors.js';
 const MIN_ROUNDS = 20;
 const BUDGETS = join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budgets.json');
 async function worker(rounds) {
@@ -120,8 +122,10 @@ async function main() {
         };
         console.log(`${gate.name.padEnd(30)} ${String(ms.length).padStart(6)} ${String(p50).padStart(8)} ${String(p95).padStart(8)} ${String(p99).padStart(8)} | ${String(tx?.ms.length ?? 0).padStart(6)} ${String(txP99 ?? '-').padStart(8)} ${String(tx?.timedOut ?? 0).padStart(6)} | ${String(floor).padStart(6)} ${String(budget).padStart(6)}`);
     }
+    const budgetSum = Object.values(gates).reduce((n, g) => n + g.budget_ms, 0);
+    console.log(`parse_allowance_ms ${PARSE_ALLOWANCE_MS} + budget_sum_ms ${budgetSum}: router timeout >= ${Math.ceil((PARSE_ALLOWANCE_MS + budgetSum) / 1000)} s`);
     if (values.write) {
-        writeFileSync(BUDGETS, `${JSON.stringify({ rounds, workers, gates }, null, 2)}\n`);
+        writeFileSync(BUDGETS, `${JSON.stringify({ rounds, workers, parse_allowance_ms: PARSE_ALLOWANCE_MS, budget_sum_ms: budgetSum, gates }, null, 2)}\n`);
         console.log(`wrote ${BUDGETS}`);
     }
 }

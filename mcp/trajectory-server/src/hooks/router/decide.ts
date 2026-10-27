@@ -1,13 +1,18 @@
 /**
- * One router decision (GH 1692 R1): the gates of the matching ROUTER_GROUPS
- * run on the payload, sync gates judged on return, async gates raced against
- * their budget. The first deny in group order is the answer, with that gate's
+ * One router decision (GH 1692 R1): once the bash parser the gates share is
+ * loaded, the gates of the matching ROUTER_GROUPS run on the payload one at a
+ * time, each on its own clock, so a gate's budget and recorded ms count only
+ * its own work (decision 919): the gate bodies are synchronous on one event
+ * loop, so running them together would only charge one gate's work to its
+ * siblings. Sync gates are judged on return, async gates raced against their
+ * budget. The first deny in group order is the answer, with that gate's
  * output; with none, the allowing gates' outputs merge as dispatch.sh's
  * run_chain merges a chain's context. Fail-closed as dispatch.sh is: an
  * enforcement gate that throws, exits other than 0 or 2 without a deny,
  * prints unparseable output, is unknown, or runs past its budget denies,
  * naming the gate; an advisory gate's failure is dropped and logged.
  */
+import { bashParser } from '../cmd-analysis/parser.js';
 import type { Gate, GateResult } from '../gate.js';
 import { type RouterGate, type RouterGroup, ROUTER_GROUPS, findGate, routerGates } from '../registry.js';
 
@@ -15,6 +20,7 @@ export type GateOutcomeKind = 'allow' | 'deny' | 'skipped_budget' | 'error';
 
 export interface GateOutcome {
   gate: string;
+  /** Measured on this gate's own clock, from its start to its return or budget expiry: no sibling's work is in it. */
   ms: number;
   outcome: GateOutcomeKind;
 }
@@ -195,15 +201,18 @@ export async function decide(event: string, payload: string, env: NodeJS.Process
   }
   const find = deps.findGate ?? findGate;
   const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
-  const runs = gates.map((gate) => {
+  if (tool === 'Bash' && gates.length > 0) await bashParser().catch(() => undefined);
+  const done: { gate: RouterGate; s: Settled; j: Judged }[] = [];
+  for (const gate of gates) {
     const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
     const fn = find(gate.name);
-    const settled: Promise<Settled> = fn
-      ? settle(gate, fn, payload, env, budget, now)
-      : Promise.resolve({ kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 });
-    return settled.then((s) => ({ gate, s, j: fn ? judge(gate, s, budget) : judgeUnknown(gate) }));
-  });
-  const done = await Promise.all(runs);
+    if (!fn) {
+      done.push({ gate, s: { kind: 'threw', error: `unknown gate '${oneLine(gate.name)}' — not run`, ms: 0 }, j: judgeUnknown(gate) });
+      continue;
+    }
+    const s = await settle(gate, fn, payload, env, budget, now);
+    done.push({ gate, s, j: judge(gate, s, budget) });
+  }
   const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1000) / 1000, outcome: j.outcome }));
   const stderr = done.map(({ j }) => j.stderr).join('');
   const deny = done.find(({ j }) => j.outcome === 'deny');

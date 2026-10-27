@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   countShimEntries,
@@ -205,6 +205,47 @@ describe('project enforcement shim', () => {
     const bash = groupFor(readSettings(), 'Bash');
     assert.ok(bash);
     assert.deepEqual(bash.hooks.map((h) => [hookOf(h.command), h.timeout]), [['containment-guard.sh', 5], ['git-guards.sh', 11]]);
+  });
+
+  describe('fails closed when the router entry cannot be expanded (F271-2)', () => {
+    const ROUTER_HOOKS_JSON = {
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Write|Edit', hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" containment-guard', timeout: 5 }] },
+          { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse', timeout: 18, onFailure: 'block' }] },
+        ],
+      },
+    };
+    const manifestPath = () => join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt');
+
+    beforeEach(() => {
+      writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify(ROUTER_HOOKS_JSON));
+    });
+
+    it('refuses to write, with a reason, when dist/hooks-router.txt is missing', () => {
+      const res = write();
+      assert.equal(res.written, false);
+      assert.equal(res.reason, 'dist/hooks-router.txt missing or unreadable');
+      assert.equal(existsSync(settingsPath()), false);
+      assert.equal(countShimEntries(pluginRoot), 0);
+    });
+
+    it('refuses to write, with a reason, when dist/hooks-router.txt lists no gate for the event', () => {
+      mkdirSync(dirname(manifestPath()), { recursive: true });
+      writeFileSync(manifestPath(), 'other 3000 enforcement PostToolUse Bash\n');
+      const res = write();
+      assert.equal(res.written, false);
+      assert.equal(res.reason, 'dist/hooks-router.txt lists no gate for PreToolUse');
+      assert.equal(existsSync(settingsPath()), false);
+    });
+
+    it('never reports a written shim with no Bash entry', () => {
+      mkdirSync(dirname(manifestPath()), { recursive: true });
+      writeFileSync(manifestPath(), 'git-guards 10200 enforcement PreToolUse Bash\n');
+      const res = write();
+      assert.equal(res.written, true);
+      assert.equal(groupFor(readSettings(), 'Bash')?.hooks.length, 1);
+    });
   });
 
   it('quoted and unquoted placeholder commands yield the same shim', () => {

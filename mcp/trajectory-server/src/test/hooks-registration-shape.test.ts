@@ -72,7 +72,7 @@ describe('hooks.json registration shape', () => {
     assert.equal(shapeViolations({ hooks: { Stop: [{ matcher: '', hooks: [{ type: 'prompt', onFailure: 'block' }] }] } }).length, 1, 'a prompt-type hook');
   });
 
-  it('Bash PreToolUse is one group, matcher Bash, one exec-form router entry that fails closed at the largest budget + 2 s', () => {
+  it('Bash PreToolUse is one group, matcher Bash, one exec-form router entry that fails closed at the router timeout', () => {
     const bash = HOOKS.hooks.PreToolUse.filter((g) => g.matcher.split('|').includes('Bash'));
     assert.equal(bash.length, 1);
     assert.equal(bash[0].matcher, 'Bash');
