@@ -6254,7 +6254,7 @@ function toolUses(message) {
   if (!truthy2(content)) content = [];
   if (!Array.isArray(content)) return 0;
   let count = 0;
-  for (const block of content) if (index2(block, "type") === "tool_use") count += 1;
+  for (const block2 of content) if (index2(block2, "type") === "tool_use") count += 1;
   return count;
 }
 function reduce(values) {
@@ -16301,15 +16301,15 @@ function hookBlockDetail(transcriptText, sinceMs) {
     const inWindow = !Number.isNaN(ts) && ts >= sinceMs;
     for (const raw of content) {
       if (!raw || typeof raw !== "object") continue;
-      const block = raw;
-      if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-        names.set(block.id, block.name);
-        if (inWindow && isCompletedReport(block.name, block.input)) reportUses.add(block.id);
-      } else if (block.type === "tool_result" && inWindow) {
-        const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
-        if (reportUses.has(toolUseId) && block.is_error !== true) reported = true;
+      const block2 = raw;
+      if (block2.type === "tool_use" && typeof block2.id === "string" && typeof block2.name === "string") {
+        names.set(block2.id, block2.name);
+        if (inWindow && isCompletedReport(block2.name, block2.input)) reportUses.add(block2.id);
+      } else if (block2.type === "tool_result" && inWindow) {
+        const toolUseId = typeof block2.tool_use_id === "string" ? block2.tool_use_id : "";
+        if (reportUses.has(toolUseId) && block2.is_error !== true) reported = true;
         if (SKIPPED_TOOL_RE.test(names.get(toolUseId) ?? "")) continue;
-        last = { toolUseId, isError: block.is_error === true, text: resultText(block.content) };
+        last = { toolUseId, isError: block2.is_error === true, text: resultText(block2.content) };
       }
     }
   }
@@ -16936,6 +16936,232 @@ function userPromptPersona(payload, env) {
   }
 }
 
+// src/hooks/consultant-persistence-gate.ts
+var GATE_NAME29 = "consultant-persistence-gate";
+var BACKBONE_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
+var block = (reason) => ({ stdout: `${jqCompact({ decision: "block", reason })}
+`, code: 0 });
+function recoveryMessage(agent, issueId) {
+  return `Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='${agent}', issue_id=${issueId}, author='${agent}', kind='analysis', body=<your analysis>) then return.`;
+}
+function stoppingAgent(echoed) {
+  return normalizeRole(
+    commandSubstitution(jqAlternatives(echoed, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]))
+  );
+}
+function consultantPersistenceGate(payload, env) {
+  const echoed = `${commandSubstitution(payload)}
+`;
+  if (commandSubstitution(jqFieldOr(echoed, "stop_hook_active", "false")) === "true") return ALLOW;
+  const agent = stoppingAgent(echoed);
+  if (agent === "" || BACKBONE_ROLES.has(agent)) return ALLOW;
+  const db = dbPath(env);
+  if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+  const unavailable = () => block(dbUnavailableReason(GATE_NAME29, env));
+  const safeAgent = sqlQuote(agent);
+  const isConsultant = gateRead(db, `SELECT COUNT(*) FROM agents WHERE name='${safeAgent}' AND kind='consultant';`, env);
+  if (isConsultant === GATE_READ_ERROR) return unavailable();
+  if (isConsultant !== "1") return ALLOW;
+  const openIssue = gateRead(db, "SELECT id FROM issues WHERE status='open' ORDER BY updated_at DESC, id DESC LIMIT 1;", env);
+  if (openIssue === GATE_READ_ERROR) return unavailable();
+  const issueId = sqlInt(openIssue);
+  if (issueId === "") return ALLOW;
+  const discussions = gateRead(db, `SELECT COUNT(*) FROM discussions WHERE author='${safeAgent}' AND issue_id=${issueId};`, env);
+  if (discussions === GATE_READ_ERROR) return unavailable();
+  if (/^[0-9]+$/.test(discussions) && Number(discussions) >= 1) return ALLOW;
+  return block(recoveryMessage(agent, issueId));
+}
+
+// src/hooks/roundtable-auq-shape.ts
+var GATE_NAME30 = "roundtable-auq-shape";
+var MAX_QUESTIONS = 4;
+var AWAITING_SQL = `
+  SELECT r.id FROM roundtables r
+  WHERE r.state = 'awaiting_human'
+    AND NOT EXISTS (
+      SELECT 1 FROM roundtable_votes v
+      WHERE v.roundtable_id = r.id AND v.participant = 'human'
+    )
+  ORDER BY r.id DESC LIMIT 1;
+`;
+var LENGTH_ERROR = /* @__PURE__ */ Symbol("length error");
+function jqLength(value) {
+  if (value === null) return "0";
+  if (typeof value === "number") return String(Math.abs(value));
+  if (typeof value === "string") return String([...value].length);
+  if (Array.isArray(value)) return String(value.length);
+  if (typeof value === "object") return String(Object.keys(value).length);
+  return LENGTH_ERROR;
+}
+function bashIntTest(s, compare) {
+  return /^-?[0-9]+$/.test(s) && Number.isSafeInteger(Number(s)) && compare(Number(s));
+}
+function multiSelectAt(questions, i2) {
+  const lines2 = [];
+  for (const q of questions) {
+    if (q !== null && !Array.isArray(q)) continue;
+    const element = q === null ? null : q[i2] ?? null;
+    try {
+      lines2.push(jqOr(jqIndex(element, "multiSelect"), false) === true);
+    } catch {
+    }
+  }
+  return lines2.length === 1 && lines2[0];
+}
+function shapeViolations(echoed) {
+  const questions = jqMap(echoed, (value) => jqOr(jqIndex(jqIndex(value, "tool_input"), "questions"), []));
+  const lengths = questions.map(jqLength).filter((n2) => n2 !== LENGTH_ERROR);
+  const count = lengths.join("\n");
+  if (count === "" || bashIntTest(count, (n2) => n2 === 0)) return null;
+  const violations = [];
+  if (bashIntTest(count, (n2) => n2 > MAX_QUESTIONS)) {
+    violations.push(`AUQ has ${count} questions; max ${MAX_QUESTIONS} allowed during ratification`);
+  }
+  if (!multiSelectAt(questions, 0)) {
+    violations.push("Q1 must have multiSelect:true (agreements checkbox) during ratification");
+  }
+  if (bashIntTest(count, (n2) => n2 > 1)) {
+    const longest = Math.max(0, ...questions.map((q) => Array.isArray(q) ? q.length : 0));
+    const last = Math.min(Number(count), longest);
+    for (let i2 = 1; i2 < last; i2 += 1) {
+      if (multiSelectAt(questions, i2)) {
+        violations.push(`Q${i2 + 1} must not use multiSelect (disagreement radios only) during ratification`);
+      }
+    }
+  }
+  return violations;
+}
+function shapeAsk(rtId, violations) {
+  const message = `roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #${rtId} awaiting human).` + violations.map((v) => `
+  - ${v}`).join("") + "\n\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total \u22644.";
+  return `${jqCompact({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      additionalContext: message
+    }
+  })}
+`;
+}
+function roundtableAuqShape(payload, env) {
+  try {
+    const echoed = `${commandSubstitution(payload)}
+`;
+    if (commandSubstitution(jqFieldOr(echoed, "tool_name")) !== "AskUserQuestion") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+    const rtId = sqliteRo(db, AWAITING_SQL, env);
+    if (rtId === "") return ALLOW;
+    const violations = shapeViolations(echoed);
+    if (violations === null || violations.length === 0) return ALLOW;
+    return { stdout: shapeAsk(rtId, violations), code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/roundtable-cleanup-postcheck.ts
+var GATE_NAME31 = "roundtable-cleanup-postcheck";
+var CLOSE_TOOLS = ["roundtable_close", "roundtable_close_with_decisions"];
+function roundtableIdField(echoed) {
+  return commandSubstitution(
+    jqMap(echoed, (value) => jqRawText(jqOr(jqIndex(jqIndex(value, "tool_input"), "roundtable_id"), "")), jqLiteralNumbers).join("\n")
+  );
+}
+function captureSql(rtId) {
+  return `SELECT r.issue_id,
+    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'analysis'),
+    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'decision'),
+    (SELECT COUNT(*) FROM roundtable_votes v WHERE v.roundtable_id = r.id),
+    (SELECT COUNT(*) FROM audit a WHERE a.event_type = 'roundtable_summary' AND a.issue_id = r.issue_id),
+    r.state, COALESCE(r.outcome, '')
+  FROM roundtables r WHERE r.id = ${rtId} LIMIT 1;`;
+}
+var atLeastOne = (count) => /^[0-9]+$/.test(count) && Number(count) >= 1;
+function missingSurfaces(row) {
+  const [issueId = "", analyses = "", decisions = "", votes = "", summaries = "", state = "", ...rest] = row.split("\n")[0].split("|");
+  if (sqlInt(issueId) === "") return null;
+  const outcome = rest.join("|");
+  const missing = [];
+  if (!atLeastOne(analyses)) missing.push("analysis-discussions");
+  if (!atLeastOne(decisions)) missing.push("decision-discussions");
+  if (state !== "closed") missing.push("roundtable.status=closed");
+  if (outcome === "" || outcome === "|") missing.push("roundtable.outcome");
+  if (!atLeastOne(votes)) missing.push("votes");
+  if (!atLeastOne(summaries)) missing.push("audit(roundtable_summary)");
+  return missing;
+}
+function cleanupContext(rtId, missing) {
+  return `${jqCompact({
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: `[tmb roundtable-cleanup] roundtable_id=${rtId} closed but the following capture surfaces are missing: ${missing.join(" ")}. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.`
+    }
+  })}
+`;
+}
+function roundtableCleanupPostcheck(payload, env) {
+  try {
+    const echoed = `${commandSubstitution(payload)}
+`;
+    const tool = commandSubstitution(jqFieldOr(echoed, "tool_name"));
+    if (!CLOSE_TOOLS.some((name3) => tool.endsWith(name3))) return ALLOW;
+    const rtId = sqlInt(roundtableIdField(echoed));
+    if (rtId === "") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+    const missing = missingSurfaces(sqliteRo(db, captureSql(rtId), env));
+    if (missing === null || missing.length === 0) return ALLOW;
+    return { stdout: cleanupContext(rtId, missing), code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/roundtable-slash-detect.ts
+var GATE_NAME32 = "roundtable-slash-detect";
+var SUMMARY_MAX_BYTES = 200;
+var WRITE_ENV = { TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
+function slashInvoked(prompt) {
+  return prompt.startsWith("/roundtable") || prompt.includes("\n/roundtable") || prompt.includes(" /roundtable");
+}
+function promptSummary(prompt) {
+  return commandSubstitution(Buffer.from(prompt, "utf8").subarray(0, SUMMARY_MAX_BYTES).toString("utf8"));
+}
+function roundtableSlashDetect(payload, env) {
+  try {
+    if (!haveSqlite(env)) return ALLOW;
+    const prompt = commandSubstitution(jqFieldOr(`${commandSubstitution(payload)}
+`, "prompt"));
+    if (isHarnessTurn(prompt) || !slashInvoked(prompt)) return ALLOW;
+    const db = dbPath(env);
+    if (db === null || db === "") return ALLOW;
+    const written = auditAppend(
+      db,
+      {
+        issueId: "-1",
+        branchId: "",
+        fromNode: `hook:${GATE_NAME32}`,
+        eventType: "roundtable_slash_invoked",
+        summary: `User typed /roundtable: ${promptSummary(prompt)}`,
+        contentJson: "{}"
+      },
+      { caller: GATE_NAME32, env: { ...env, ...WRITE_ENV } }
+    );
+    if (!written.ok) {
+      if (written.error !== "") process.stderr.write(`${written.error}
+`);
+      process.stderr.write(
+        `tmb slash-detect: FAILED to record roundtable_slash_invoked after retrying (${db}) \u2014 roundtable_create's gate will refuse
+`
+      );
+    }
+    return ALLOW;
+  } catch {
+    return ALLOW;
+  }
+}
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -16967,7 +17193,11 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME25, pluginHooksMarker],
   [GATE_NAME26, sessionLogCapture],
   [GATE_NAME27, sessionStartPersona],
-  [GATE_NAME28, userPromptPersona]
+  [GATE_NAME28, userPromptPersona],
+  [GATE_NAME29, consultantPersistenceGate],
+  [GATE_NAME30, roundtableAuqShape],
+  [GATE_NAME31, roundtableCleanupPostcheck],
+  [GATE_NAME32, roundtableSlashDetect]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

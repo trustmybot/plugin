@@ -6,6 +6,7 @@ code-quality-lint
 code-reviewer-preflight
 code-reviewer-spawn-note
 commit-msg-lint
+consultant-persistence-gate
 containment-guard
 debug-trajectory
 deferred-tools-drift-warn
@@ -20,6 +21,9 @@ require-feature-branch-active
 require-spawn-effort
 require-task-spec
 rework-limit
+roundtable-auq-shape
+roundtable-cleanup-postcheck
+roundtable-slash-detect
 session-log-capture
 session-start-persona
 substrate-preflight
