@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 53;
+export const TARGET_SCHEMA_VERSION = 54;
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -815,6 +815,9 @@ function runMigrations(
   }
   if (fromVersion < 53 && toVersion >= 53) {
     migrateV52toV53(db);
+  }
+  if (fromVersion < 54 && toVersion >= 54) {
+    migrateV53toV54(db);
   }
 }
 
@@ -3052,6 +3055,34 @@ function migrateV52toV53(db: DatabaseSync): void {
         );
         CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
       `);
+    }
+    commitTransaction(db);
+  } catch (err) {
+    try {
+      rollbackTransaction(db);
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v53→v54: the worktree a task's swe works in (GH 2032). tasks gains
+// worktree_path, set only when a session worktree is adopted, and
+// worktree_adopted; existing rows stay NULL / 0, so every reader keeps the
+// <repo>/.claude/worktrees/<slug> path for them (no backfill).
+function migrateV53toV54(db: DatabaseSync): void {
+  beginImmediate(db);
+  try {
+    if (tableExists(db, 'tasks')) {
+      if (!hasColumn(db, 'tasks', 'worktree_path')) {
+        db.exec('ALTER TABLE tasks ADD COLUMN worktree_path TEXT');
+      }
+      if (!hasColumn(db, 'tasks', 'worktree_adopted')) {
+        db.exec(
+          'ALTER TABLE tasks ADD COLUMN worktree_adopted INTEGER NOT NULL DEFAULT 0 CHECK (worktree_adopted IN (0,1))',
+        );
+      }
     }
     commitTransaction(db);
   } catch (err) {
