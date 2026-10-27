@@ -16,6 +16,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-swe-worktree.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+if [ "$HOOK_IMPL" = ts ]; then
+  HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/ensure-swe-worktree.sh"
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 # ----- helpers ----------------------------------------------------------
 

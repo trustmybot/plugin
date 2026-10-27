@@ -1,0 +1,1 @@
+{"corpus_stdin":"{\"tool_name\":\"Agent\",\"session_id\":12,\"tool_use_id\":7.0,\"tool_input\":{\"subagent_type\":\"swe\",\"prompt\":\"task_id=11\",\"effort\":\"low\",\"model\":5}}","corpus_expect":"\"session_id\":\"12\",\"effort\":\"low\",\"model\":\"5\",\"spawn_id\":\"tool_use:7.0\""}

@@ -238,6 +238,9 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'swe-scope-fence',
   'swe-verification-gate',
   'post-atomic-close-readme',
+  'agent-spawn-dispatch',
+  'ensure-swe-worktree',
+  'record-swe-spawn',
 ]);
 
 function parityCases(): ParityCase[] {

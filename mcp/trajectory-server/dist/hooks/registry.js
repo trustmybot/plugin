@@ -47,6 +47,9 @@ import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from '
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
+import { GATE_NAME as AGENT_SPAWN_DISPATCH_GATE, agentSpawnDispatch } from './agent-spawn-dispatch.js';
+import { GATE_NAME as ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree } from './ensure-swe-worktree.js';
+import { GATE_NAME as RECORD_SWE_SPAWN_GATE, recordSweSpawn } from './record-swe-spawn.js';
 const GATES = new Map([
     ['askuserquestion-length-lint', askuserquestionLengthLint],
     [BRO_TURN_USAGE_GATE, broTurnUsage],
@@ -97,6 +100,9 @@ const GATES = new Map([
     [PROMPT_INTENT_GATE, promptIntentHints],
     [SWE_SCOPE_FENCE_GATE, sweScopeFence],
     [README_STALENESS_GATE, postAtomicCloseReadme],
+    [AGENT_SPAWN_DISPATCH_GATE, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+    [ENSURE_SWE_WORKTREE_GATE, ensureSweWorktree],
+    [RECORD_SWE_SPAWN_GATE, recordSweSpawn],
 ]);
 export function findGate(name) {
     return GATES.get(name);
