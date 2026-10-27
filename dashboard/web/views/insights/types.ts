@@ -1,3 +1,5 @@
+import type { MetricKey } from './params.ts';
+
 export type AgentKey = 'swe' | 'code-reviewer' | 'bro';
 
 export interface Metric {
@@ -23,7 +25,7 @@ export interface AgentStats {
   cache_hit: Metric;
   duration_ms: Metric;
   tool_uses: Metric;
-  histogram: Bucket[];
+  histograms: Record<MetricKey, Bucket[]>;
 }
 
 export interface Outlier {

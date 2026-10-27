@@ -6,7 +6,7 @@ import { ChartCard } from './ChartCard.tsx';
 import { BarList, niceAxis, type Column } from './charts.tsx';
 import type { TableData } from './csv.ts';
 import { AGENT_COLOR, THROUGHPUT_COLOR, compact, duration, durationTicks, pct, plain, usd } from './format.ts';
-import { AGGS, DIMS, MEASURES, METRICS, RANGES, pivotAgg, writeInsightParams, type AggKey, type DimKey, type InsightParams, type MeasureKey } from './params.ts';
+import { AGGS, DIMS, MEASURES, RANGES, pivotAgg, writeInsightParams, type AggKey, type DimKey, type InsightParams, type MeasureKey } from './params.ts';
 import type { AgentKey, Explore, ExploreGroup, Insights } from './types.ts';
 
 export const CACHE_HIT_HELP = "Cache-hit % is a ratio, so it can't be summed.";
@@ -82,10 +82,7 @@ function Pivot({ params, priced }: { params: InsightParams; priced: boolean }) {
   const set = (patch: Partial<InsightParams>) => writeInsightParams({ ...params, ...patch });
   const [first, second] = params.dims as [DimKey, DimKey | undefined];
   const cacheHit = params.measure === 'cache_hit';
-  const setMeasure = (v: string) => {
-    const measure = v as MeasureKey;
-    set({ measure, metric: METRICS.find(([k]) => k === measure)?.[0] ?? params.metric });
-  };
+  const setMeasure = (v: string) => set({ measure: v as MeasureKey });
   const setFirst = (v: string) => set({ dims: [v as DimKey, ...(second && second !== v ? [second] : [])] });
   const setSecond = (v: string) => set({ dims: v ? [first, v as DimKey] : [first] });
   return (

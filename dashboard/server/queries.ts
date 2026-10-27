@@ -594,12 +594,33 @@ const sinceOf = (range: InsightRange, now: Date): string | null => {
 
 const context = (r: RunRow) => r.tokens_in + r.cache_read + r.cache_creation;
 
-function agentStats(runs: RunRow[], agent: InsightAgent, edges: number[]): Row {
+const cacheHit = (r: RunRow) => (context(r) > 0 ? r.cache_read / context(r) : 0);
+
+const HISTOGRAM_METRICS = ['tokens_out', 'context', 'cache_hit', 'tool_uses'] as const;
+type HistogramMetric = (typeof HISTOGRAM_METRICS)[number];
+type Edges = Record<HistogramMetric, number[]>;
+
+const HISTOGRAM_VALUE: Record<HistogramMetric, (r: RunRow) => number> = {
+  tokens_out: (r) => r.tokens_out,
+  context,
+  cache_hit: cacheHit,
+  tool_uses: (r) => r.tool_uses,
+};
+
+// Cache-hit is a ratio, so every agent bins it on the same fixed 10% steps.
+export const CACHE_HIT_EDGES: readonly number[] = Array.from({ length: HISTOGRAM_BUCKETS + 1 }, (_, i) => i / HISTOGRAM_BUCKETS);
+
+function edgesOf(measured: RunRow[]): Edges {
+  const log = (m: HistogramMetric) => logEdges(measured.map(HISTOGRAM_VALUE[m]));
+  return { tokens_out: log('tokens_out'), context: log('context'), cache_hit: [...CACHE_HIT_EDGES], tool_uses: log('tool_uses') };
+}
+
+function agentStats(runs: RunRow[], agent: InsightAgent, edges: Edges): Row {
   const all = runs.filter((r) => r.agent === agent);
   const measured = all.filter((r) => r.measured === 1);
   const contextSum = measured.reduce((s, r) => s + context(r), 0);
   const cacheRead = measured.reduce((s, r) => s + r.cache_read, 0);
-  const hit = metric(measured.map((r) => (context(r) > 0 ? r.cache_read / context(r) : 0)));
+  const hit = metric(measured.map(cacheHit));
   return {
     agent,
     per: agent === 'bro' ? 'session' : 'run',
@@ -610,7 +631,7 @@ function agentStats(runs: RunRow[], agent: InsightAgent, edges: number[]): Row {
     cache_hit: { ...hit, avg: contextSum > 0 ? cacheRead / contextSum : null },
     duration_ms: metric(measured.map((r) => r.duration_ms)),
     tool_uses: metric(measured.map((r) => r.tool_uses)),
-    histogram: histogram(measured.map((r) => r.tokens_out), edges),
+    histograms: Object.fromEntries(HISTOGRAM_METRICS.map((m) => [m, histogram(measured.map(HISTOGRAM_VALUE[m]), edges[m])])),
   };
 }
 
@@ -841,10 +862,8 @@ export function insights(db: DatabaseSync, f: InsightFilter, now: Date = new Dat
     f.agent,
     f.agent,
   ) as unknown as RunRow[];
-  const perRunTokens = rows.filter((r) => r.measured === 1 && r.agent !== 'bro').map((r) => r.tokens_out);
-  const broTokens = rows.filter((r) => r.measured === 1 && r.agent === 'bro').map((r) => r.tokens_out);
-  const sharedEdges = logEdges(perRunTokens);
-  const broEdges = logEdges(broTokens);
+  const sharedEdges = edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== 'bro'));
+  const broEdges = edgesOf(rows.filter((r) => r.measured === 1 && r.agent === 'bro'));
   const names = (sql: string) => all(db, sql).map((r) => String(r['v']));
   return {
     range: { key: f.range, since, until: now.toISOString() },
