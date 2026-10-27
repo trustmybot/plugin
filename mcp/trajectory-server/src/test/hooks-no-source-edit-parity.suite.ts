@@ -6,7 +6,7 @@
  * nothing, so the sandbox is built once per shard and must end as it began.
  *
  * The sandbox: a project whose DB registers repos plugin (project/checkout,
- * a git repo whose manifest names the running plugin, fixture-plugin) and
+ * a git repo whose manifest names the running plugin, tmb) and
  * other (a git repo whose manifest names other-plugin); an unregistered git
  * repo sibling; a dir in no git repo, plain; the running plugin root; a
  * corrupt DB (bad), a DB with no repos table (norepos), a project nested
@@ -72,7 +72,7 @@ function trajectoryDb(file: string, rows: (db: DatabaseSync) => void, schema = r
 export function buildSourceEditSandbox(s: string): void {
   rmSync(s, { recursive: true, force: true });
   const checkout = join(s, 'project/checkout');
-  gitRepo(checkout, 'fixture-plugin');
+  gitRepo(checkout, 'tmb');
   for (const dir of ['src', 'scripts/hooks', 'hooks', 'docs', 'templates', 'agents', '.github/workflows', '.claude/tmb/scratch', '.claude/worktrees/wt/agents', '.claude/worktrees/wt/src']) {
     mkdirSync(join(checkout, dir), { recursive: true });
   }
@@ -83,7 +83,7 @@ export function buildSourceEditSandbox(s: string): void {
   mkdirSync(join(s, 'plain'));
   mkdirSync(join(s, 'home'));
   mkdirSync(join(s, 'running-plugin/.claude-plugin'), { recursive: true });
-  writeFileSync(join(s, 'running-plugin/.claude-plugin/plugin.json'), `${JSON.stringify({ name: 'fixture-plugin' })}\n`);
+  writeFileSync(join(s, 'running-plugin/.claude-plugin/plugin.json'), `${JSON.stringify({ name: 'tmb' })}\n`);
   trajectoryDb(join(s, PROJECT_DB), (db) => {
     const repo = db.prepare('INSERT INTO repos (name, path, last_scanned_at) VALUES (?, ?, ?)');
     repo.run('plugin', checkout, T1);

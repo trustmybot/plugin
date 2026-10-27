@@ -13,11 +13,11 @@
  * to a prompt-surface path outside a worktree is denied for every identity.
  *
  * Decisions and deny text are the .sh's, with these exceptions (decision 703):
- *   - GH 1796: the target and the scratch roots (.claude/tmb/scratch/ and
+ *   - GH 1796: the target and the scratch roots (.claude/<plugin>/scratch/ and
  *     /tmp/claude-<uid>, as containment-guard's harnessTmp admits it) are
  *     compared canonically, so a write under /private/tmp/claude-<uid> on
  *     macOS, where /tmp links to /private/tmp, is allowed; the .sh allows only
- *     a raw .claude/tmb/scratch/ path, and denies a scratch file whose
+ *     a raw .claude/<plugin>/scratch/ path, and denies a scratch file whose
  *     parent dir does not exist yet.
  *   - It needs neither jq nor the sqlite3 CLI: without jq the .sh reads no
  *     tool name and allows everything; without sqlite3 it skips the
@@ -35,7 +35,7 @@ import { pathCanonical } from './lib/agent-context.js';
 import { dbPath, dbState, denyDbUnavailable, gateRead, GATE_READ_ERROR, haveSqlite, projectRoot, realdir, stripTrailingNewlines } from './lib/db.js';
 import { isDir } from './lib/git.js';
 import { jqAlternatives, jqCompact } from './lib/jq.js';
-import { installRoot, posixBasename, posixDirname } from './lib/project-env.js';
+import { installRoot, pluginName, posixBasename, posixDirname, TMB_STATE_HOST_DIR } from './lib/project-env.js';
 import { repoGitRoot, repoNameForRoot } from './lib/repo.js';
 import { agentRole } from './lib/role.js';
 
@@ -47,8 +47,13 @@ const BASH_REASON =
   'BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.';
 const SURFACE_REASON =
   "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
-const SOURCE_REASON =
-  "BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.";
+function sourceReason(env: NodeJS.ProcessEnv): string {
+  return `BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in ${scratchDir(env)}/ (or /tmp/claude-<uid>), which are always writable.`;
+}
+
+function scratchDir(env: NodeJS.ProcessEnv): string {
+  return `${TMB_STATE_HOST_DIR}/${pluginName(env)}/scratch`;
+}
 
 const ALLOWED_BASENAMES = new Set([
   'LICENSE',
@@ -99,16 +104,17 @@ function under(path: string, dir: string): boolean {
 }
 
 /**
- * The scratch allowance: the raw target under .claude/tmb/scratch/, as the
- * .sh has it, or (GH 1796) its canonical path under .claude/tmb/scratch/ or
+ * The scratch allowance: the raw target under .claude/<plugin>/scratch/, as the
+ * .sh has it, or (GH 1796) its canonical path under .claude/<plugin>/scratch/ or
  * under the canonical /tmp/claude-<uid>.
  */
 function inScratch(target: string, input: string, env: NodeJS.ProcessEnv): boolean {
   if (scratchExcluded(target)) return false;
-  if (hasDir(target, '.claude/tmb/scratch')) return true;
+  const scratch = scratchDir(env);
+  if (hasDir(target, scratch)) return true;
   const canonical = capture(pathCanonical(target.startsWith('/') ? target : `${payloadCwd(input, env)}/${target}`));
   if (scratchExcluded(canonical)) return false;
-  return hasDir(canonical, '.claude/tmb/scratch') || under(canonical, harnessTmp(process.getuid?.() ?? 0));
+  return hasDir(canonical, scratch) || under(canonical, harnessTmp(process.getuid?.() ?? 0));
 }
 
 function isFile(path: string): boolean {
@@ -211,7 +217,7 @@ function editRule(input: string, env: NodeJS.ProcessEnv): GateResult {
   if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env)) return deny(SURFACE_REASON);
   if (allowlisted(target)) return ALLOW;
   if (agentRole(input) === 'swe') return ALLOW;
-  return deny(SOURCE_REASON);
+  return deny(sourceReason(env));
 }
 
 export const noSourceEditFromMain: Gate = (payload, env) => {

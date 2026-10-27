@@ -14203,7 +14203,7 @@ var Guard = class {
     if (written.error !== "") process.stderr.write(`${written.error}
 `);
     if (reason === "") {
-      reason = `BLOCKED: containment \u2014 ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/.claude/tmb/scratch/ (or /tmp/claude-${this.uid}).`;
+      reason = `BLOCKED: containment \u2014 ${path} is outside this run's root ${this.root}. TMB agents write only under their root (the task worktree for swe, the project for bro); put scratch files in ${stripSlash(this.root)}/${TMB_STATE_HOST_DIR}/${pluginName2(this.env)}/scratch/ (or /tmp/claude-${this.uid}).`;
     }
     const decision = jqCompact({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
@@ -22758,7 +22758,12 @@ var GATE_NAME64 = "no-source-edit-from-main";
 var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
 var BASH_REASON = "BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.";
 var SURFACE_REASON = "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees \u2014 spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
-var SOURCE_REASON = "BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning \u2192 task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time \u2014 setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in .claude/tmb/scratch/ (or /tmp/claude-<uid>), which are always writable.";
+function sourceReason(env) {
+  return `BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning \u2192 task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time \u2014 setting it in a shell rc file has no effect on an already-running session. Scratch scripts and notes belong in ${scratchDir(env)}/ (or /tmp/claude-<uid>), which are always writable.`;
+}
+function scratchDir(env) {
+  return `${TMB_STATE_HOST_DIR}/${pluginName2(env)}/scratch`;
+}
 var ALLOWED_BASENAMES = /* @__PURE__ */ new Set([
   "LICENSE",
   ".gitignore",
@@ -22800,10 +22805,11 @@ function under3(path, dir) {
 }
 function inScratch(target, input, env) {
   if (scratchExcluded(target)) return false;
-  if (hasDir(target, ".claude/tmb/scratch")) return true;
+  const scratch = scratchDir(env);
+  if (hasDir(target, scratch)) return true;
   const canonical3 = capture5(pathCanonical2(target.startsWith("/") ? target : `${payloadCwd(input, env)}/${target}`));
   if (scratchExcluded(canonical3)) return false;
-  return hasDir(canonical3, ".claude/tmb/scratch") || under3(canonical3, harnessTmp(process.getuid?.() ?? 0));
+  return hasDir(canonical3, scratch) || under3(canonical3, harnessTmp(process.getuid?.() ?? 0));
 }
 function isFile23(path) {
   try {
@@ -22891,7 +22897,7 @@ function editRule(input, env) {
   if (isEnforcementSurface(target) && targetIsPluginSourceRepo(target, input, env)) return deny10(SURFACE_REASON);
   if (allowlisted(target)) return ALLOW;
   if (agentRole(input) === "swe") return ALLOW;
-  return deny10(SOURCE_REASON);
+  return deny10(sourceReason(env));
 }
 var noSourceEditFromMain = (payload, env) => {
   const toolName2 = field5(payload, ["tool_name"]);
