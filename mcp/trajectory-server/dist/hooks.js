@@ -16960,6 +16960,241 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
   return spawnDeny(notClosedReason(taskId, status));
 };
 
+// src/hooks/lib/jq-raw.ts
+var JqUnindexable = class extends Error {
+};
+var isRawJson2 = (value) => JSON.isRawJSON?.(value) ?? false;
+var textReviver = function(key2, value, context3) {
+  if (typeof value === "string") return wellFormed(value);
+  return jqLiteralNumbers ? jqLiteralNumbers.call(this, key2, value, context3) : value;
+};
+function jqInput(payload) {
+  const text = payload.replace(/\0/g, "");
+  const stream = jsonStream(text);
+  return { values: jsonValues(text, textReviver).slice(0, stream.values.length), complete: stream.complete };
+}
+function jqGet(value, ...keys) {
+  let v = value;
+  for (const key2 of keys) {
+    if (v === null || v === void 0) return null;
+    if (typeof v !== "object" || Array.isArray(v) || isRawJson2(v)) throw new JqUnindexable(`Cannot index with "${key2}"`);
+    v = Object.hasOwn(v, key2) ? v[key2] : null;
+  }
+  return v ?? null;
+}
+function jqAlt2(value, fallback) {
+  return value !== null && value !== void 0 && value !== false ? value : fallback;
+}
+function jqTostring(value) {
+  return typeof value === "string" ? value : jqCompact(value);
+}
+function jqRaw2(value) {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2).replace(/\x7f/g, "\\u007f");
+}
+function jqCapture(input, keys, orEmpty = false) {
+  const lines2 = [];
+  for (const value of input.values) {
+    let v;
+    try {
+      v = jqGet(value, ...keys);
+    } catch (e) {
+      if (e instanceof JqUnindexable) continue;
+      throw e;
+    }
+    const picked = jqAlt2(v, orEmpty ? null : "");
+    if (picked !== null) lines2.push(jqRaw2(picked));
+  }
+  return shellCapture2(lines2.join("\n"));
+}
+function jqNumber2(digits) {
+  const raw = JSON.rawJSON;
+  const literal = jqNumberLiteral(digits);
+  return raw ? raw(literal) : Number(literal);
+}
+
+// src/hooks/agent-arg-matches-caller.ts
+var GATE_NAME33 = "agent-arg-matches-caller";
+var WRITE_RUN_BUDGET_MS = "2500";
+var TRAJECTORY_TOOL = /^mcp__.*trajectory-server__/s;
+var TOOL_PREFIX = "trajectory-server__";
+var TR_UNMAPPED = /[ᲉꟋꟌ꟎꟒꟔ꟚꟜ\u{10D50}-\u{10D65}\u{16EA0}-\u{16EB8}]/u;
+var TR_OVERRIDES = /* @__PURE__ */ new Map([
+  ["\u0130", "i"],
+  ["\u038E", "\u03CE"],
+  ["\u038F", "\u03CF"]
+]);
+function trLower(text, env) {
+  if (!setlocaleUtf8(env)) return text.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  return text.replace(new RegExp("\\p{Lu}", "gu"), (c) => {
+    const mapped = TR_OVERRIDES.get(c);
+    if (mapped !== void 0) return mapped;
+    if (TR_UNMAPPED.test(c)) return c;
+    const lower = c.toLowerCase();
+    return [...lower].length === 1 ? lower : c;
+  });
+}
+function gsubString(value) {
+  if (typeof value !== "string") throw new JqUnindexable("cannot be matched, as it is not a string");
+  return value.replace(/[\n\r\x1f]/g, " ").replace(/\0/g, "");
+}
+function fieldsOf(value) {
+  return {
+    tool: gsubString(jqAlt2(jqGet(value, "tool_name"), "")),
+    given: gsubString(jqTostring(jqAlt2(jqGet(value, "tool_input", "agent"), ""))),
+    actual: gsubString(jqAlt2(jqAlt2(jqGet(value, "agent_type"), jqGet(value, "subagent_type")), "")),
+    task: gsubString(jqTostring(jqAlt2(jqGet(value, "tool_input", "task_id"), "")))
+  };
+}
+function callFields(payload) {
+  const input = jqInput(payload);
+  if (!input.complete) return null;
+  let first = null;
+  let lastFailed = false;
+  for (const value of input.values) {
+    try {
+      const f = fieldsOf(value);
+      first ??= f;
+      lastFailed = false;
+    } catch (e) {
+      if (!(e instanceof JqUnindexable)) throw e;
+      lastFailed = true;
+    }
+  }
+  return lastFailed ? null : first;
+}
+function denyJson(reason) {
+  return `${jqCompact({
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason }
+  })}
+`;
+}
+function recordMismatch(env, toolShort, f, actual, caller) {
+  const db = dbPath(env);
+  if (db === null) return;
+  const taskId = sqlInt(f.task);
+  let issue = "-1";
+  if (taskId !== "") {
+    const found = sqlInt(sqliteRo(db, `SELECT issue_id FROM tasks WHERE id = ${taskId};`, env));
+    if (found !== "") issue = found;
+  }
+  const content = jqCompact({ tool: toolShort, given: f.given, actual, task_id: taskId === "" ? null : jqNumber2(taskId) });
+  auditAppend(
+    db,
+    {
+      issueId: issue,
+      branchId: "",
+      fromNode: `hook:${GATE_NAME33}`,
+      eventType: "agent_arg_mismatch",
+      summary: `${toolShort}: agent='${f.given}' but the caller is ${caller}`,
+      contentJson: content
+    },
+    { env: { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS }, caller: GATE_NAME33 }
+  );
+}
+var agentArgMatchesCaller = (payload, env) => {
+  const f = callFields(payload);
+  if (f === null || f.given === "") return ALLOW;
+  if (!TRAJECTORY_TOOL.test(f.tool)) return ALLOW;
+  const given = trLower(normalizeRole(f.given), env);
+  const actual = trLower(normalizeRole(f.actual), env) || "bro";
+  if (given === actual) return ALLOW;
+  const toolShort = f.tool.slice(f.tool.lastIndexOf(TOOL_PREFIX) + TOOL_PREFIX.length);
+  const caller = f.actual === "" ? "the main session (bro)" : `a ${actual} subagent`;
+  dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (dbState(env) === "ok") recordMismatch(env, toolShort, f, actual, caller);
+  return {
+    stdout: denyJson(`BLOCKED: ${toolShort} called with agent='${f.given}' but the caller is ${caller}; pass agent='${actual}'.`),
+    code: 0
+  };
+};
+
+// src/hooks/reviewer-identity-observe.ts
+var GATE_NAME34 = "reviewer-identity-observe";
+var VALIDATION_RECORD_TOOL = /^mcp__[\s\S]*trajectory-server__validation_record$/;
+function denyUnavailable(env, stdout = "") {
+  return { stdout: `${stdout}${denyDbUnavailable(GATE_NAME34, env)}
+`, code: 0 };
+}
+var reviewerIdentityObserve = (payload, env) => {
+  const input = jqInput(payload);
+  if (!VALIDATION_RECORD_TOOL.test(jqCapture(input, ["tool_name"]))) return ALLOW;
+  const agentId = jqCapture(input, ["agent_id"]);
+  if (agentId === "") return ALLOW;
+  if (normalizeRole(jqCapture(input, ["agent_type"])) !== CODE_REVIEWER_ROLE) return ALLOW;
+  const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
+  const attemptN = sqlInt(jqCapture(input, ["tool_input", "attempt_n"]));
+  if (taskId === "" || attemptN === "") return ALLOW;
+  const sessionId = jqCapture(input, ["session_id"]);
+  const toolUseId = jqCapture(input, ["tool_use_id"]);
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  const state = dbState(env);
+  if (state === "unresolved" || db === null) return ALLOW;
+  if (state === "error") return denyUnavailable(env);
+  const issueId = gateRead(db, `SELECT issue_id FROM tasks WHERE id = ${taskId};`, env);
+  if (issueId === GATE_READ_ERROR) return denyUnavailable(env);
+  if (issueId === "") return ALLOW;
+  const content = jqCompact({
+    task_id: jqNumber2(taskId),
+    attempt_n: jqNumber2(attemptN),
+    session_id: sessionId,
+    agent_id: agentId,
+    tool_use_id: toolUseId === "" ? null : toolUseId,
+    observed_at: nowIso(),
+    consumed: 0
+  });
+  const w = auditAppend(
+    db,
+    {
+      issueId,
+      branchId: "",
+      fromNode: `hook:${GATE_NAME34}`,
+      eventType: "reviewer_identity_observed",
+      summary: `code-reviewer ${agentId} called validation_record for task ${taskId} attempt ${attemptN}`,
+      contentJson: content
+    },
+    { env, caller: GATE_NAME34 }
+  );
+  if (w.ok) return { stdout: w.stdout, code: 0 };
+  process.stderr.write(`${w.error}
+`);
+  return denyUnavailable(env, w.stdout);
+};
+
+// src/hooks/cheatcode-install-approval.ts
+var GATE_NAME35 = "cheatcode-install-approval";
+var NO_SOURCE_URL_REASON = "BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.";
+var UNVERIFIABLE_REASON = "BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) \u2014 failing closed. Installs are human-approved, never silent.";
+function notApprovedReason(name3, url) {
+  return `BLOCKED: no human-approval record for cheatcode '${name3 || url}' (${url}). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.`;
+}
+function approvalSql(url) {
+  return `
+  SELECT COUNT(*) FROM audit
+   WHERE event_type = 'cheatcode_approved'
+     AND json_extract(content_json, '$.source_url') = '${sqlQuote(url)}'
+  LIMIT 1;
+`;
+}
+function deny6(reason) {
+  return { stdout: denyJson(reason), code: 0 };
+}
+var cheatcodeInstallApproval = (payload, env) => {
+  const input = jqInput(payload);
+  if (!jqCapture(input, ["tool_name"], true).includes("cheatcode_install")) return ALLOW;
+  const url = jqCapture(input, ["tool_input", "candidate", "source_url"], true);
+  const name3 = jqCapture(input, ["tool_input", "candidate", "name"], true);
+  if (url === "") return deny6(NO_SOURCE_URL_REASON);
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null || !haveSqlite(env)) return deny6(UNVERIFIABLE_REASON);
+  const approved = sqliteRo(db, approvalSql(url), env);
+  if (/^[0-9]+$/.test(approved) && Number(approved) > 0) return ALLOW;
+  return deny6(notApprovedReason(name3, url));
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -16995,7 +17230,10 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME29, roundtableSlashDetect],
   [GATE_NAME30, codeReviewerNoWorktree],
   [GATE_NAME31, codeReviewerSpawnPromptShape],
-  [GATE_NAME32, codeReviewerAfterAtomicClose]
+  [GATE_NAME32, codeReviewerAfterAtomicClose],
+  [GATE_NAME33, agentArgMatchesCaller],
+  [GATE_NAME34, reviewerIdentityObserve],
+  [GATE_NAME35, cheatcodeInstallApproval]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

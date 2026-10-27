@@ -1,7 +1,9 @@
 activation-routine
+agent-arg-matches-caller
 askuserquestion-length-lint
 attribution-footer
 bro-turn-usage
+cheatcode-install-approval
 code-quality-lint
 code-reviewer-after-atomic-close
 code-reviewer-no-worktree
@@ -20,6 +22,7 @@ git-push-guard
 mcp-health-check
 naming-lint
 plugin-hooks-marker
+reviewer-identity-observe
 rework-limit
 roundtable-auq-shape
 roundtable-cleanup-postcheck

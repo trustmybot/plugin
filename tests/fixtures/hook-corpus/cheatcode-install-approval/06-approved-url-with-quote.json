@@ -1,0 +1,11 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__cheatcode_install",
+  "tool_input": {
+    "candidate": {
+      "name": "o'brien",
+      "kind": "skill",
+      "source_url": "https://x.test/o'brien"
+    }
+  },
+  "corpus_expect": "empty"
+}

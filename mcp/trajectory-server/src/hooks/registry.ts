@@ -38,6 +38,9 @@ import { GATE_NAME as RT_SLASH_GATE, roundtableSlashDetect } from './roundtable-
 import { GATE_NAME as CR_NO_WORKTREE_GATE, codeReviewerNoWorktree } from './code-reviewer-no-worktree.js';
 import { GATE_NAME as CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape } from './code-reviewer-spawn-prompt-shape.js';
 import { GATE_NAME as CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose } from './code-reviewer-after-atomic-close.js';
+import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
+import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
+import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -74,6 +77,9 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [CR_NO_WORKTREE_GATE, codeReviewerNoWorktree],
   [CR_PROMPT_SHAPE_GATE, codeReviewerSpawnPromptShape],
   [CR_AFTER_CLOSE_GATE, codeReviewerAfterAtomicClose],
+  [AGENT_ARG_GATE, agentArgMatchesCaller],
+  [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
+  [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
 ]);
 
 export function findGate(name: string): Gate | undefined {

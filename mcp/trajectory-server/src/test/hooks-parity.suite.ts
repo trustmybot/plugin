@@ -222,6 +222,9 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'code-reviewer-no-worktree',
   'code-reviewer-spawn-prompt-shape',
   'code-reviewer-after-atomic-close',
+  'agent-arg-matches-caller',
+  'reviewer-identity-observe',
+  'cheatcode-install-approval',
 ]);
 
 function parityCases(): ParityCase[] {

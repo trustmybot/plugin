@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__github__create_issue",
+  "tool_input": {
+    "agent": "swe"
+  },
+  "corpus_expect": "empty"
+}

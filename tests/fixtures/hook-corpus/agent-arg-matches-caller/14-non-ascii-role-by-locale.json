@@ -1,0 +1,11 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_get",
+  "agent_type": "tmb:swé",
+  "tool_input": {
+    "agent": "SWÉ"
+  },
+  "corpus_expect": {
+    "C": "agent='SWÉ' but the caller is a swé subagent",
+    "en_US.UTF-8": "empty"
+  }
+}

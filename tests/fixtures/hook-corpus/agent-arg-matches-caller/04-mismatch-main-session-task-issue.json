@@ -1,0 +1,9 @@
+{
+  "tool_name": "mcp__plugin_tmb_trajectory-server__task_update_status",
+  "tool_input": {
+    "agent": "swe",
+    "task_id": 42,
+    "status": "completed"
+  },
+  "corpus_expect": "BLOCKED: task_update_status called with agent='swe' but the caller is the main session (bro); pass agent='bro'."
+}
