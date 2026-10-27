@@ -9,7 +9,8 @@
  * target behind a variable, substitution or cd the guard cannot resolve
  * carries it too (GH 1772). A python target name rebound at top level is
  * judged at every literal it is bound to (GH 1756). A loop body's later
- * assignment reaches an earlier use in it (GH 1944).
+ * assignment reaches an earlier use in it (GH 1944), and so does its later
+ * cd, pushd or popd (GH 1977).
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -217,5 +218,21 @@ describe('containment-guard (TS): denies that judge no path', () => {
             assert.ok(reason(r.stdout), r.stdout);
         });
     }
+    for (const cmd of ['while :; do echo > f1977; cd /etc; done', 'for i in 1 2; do echo > f1977; pushd /etc; done', 'while false; do cd /etc; done; echo > f1977']) {
+        it(`denies a relative write a loop body's cd sends to /etc: \`${cmd}\` (GH 1977)`, async () => {
+            const r = await containmentGuard(bash(cmd), env);
+            assert.match(reason(r.stdout) ?? '', /\/etc\/f1977/);
+        });
+    }
+    for (const cd of ['cd "$d"', 'cd -', 'popd']) {
+        it(`denies as unjudged a relative write before a body \`${cd}\` it cannot name (GH 1977)`, async () => {
+            const r = await containmentGuard(bash(`while :; do echo > f1977; ${cd}; done`), env);
+            assert.ok((reason(r.stdout) ?? '').includes(UNJUDGED_PHRASE), r.stdout);
+        });
+    }
+    it('allows a loop whose cd stays in a subshell or under the root (GH 1977)', async () => {
+        assert.deepEqual(await containmentGuard(bash('while :; do echo > f1977; ( cd /etc ); done'), env), { stdout: '', code: 0 });
+        assert.deepEqual(await containmentGuard(bash(`while :; do echo > f1977; cd ${project}/src; done`), env), { stdout: '', code: 0 });
+    });
 });
 //# sourceMappingURL=hooks-containment-guard.test.js.map

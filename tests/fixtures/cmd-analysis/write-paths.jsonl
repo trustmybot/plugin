@@ -1716,3 +1716,35 @@
 {"cmd":"for f in a b; do x=\"/w/$f\"; echo 'done' > \"$x\"; done","cwd":"/w"}
 {"cmd":"x=/w/a; while :; do echo > $x; \u0017done; x=/etc/p1944; done","cwd":"/w"}
 {"cmd":"echo > /w\u0017/p","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd /etc; done","cwd":"/w"}
+{"cmd":"for i in 1 2; do echo > f; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; pushd /etc; done","cwd":"/w"}
+{"cmd":"until false; do echo > f; cd /etc; done","cwd":"/w"}
+{"cmd":"for i in 1 2; { echo > f; cd /etc; }","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd \"$d\"; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd -; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; popd; done","cwd":"/w"}
+{"cmd":"while false; do cd /etc; done; echo > f","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd /etc; done; echo > g","cwd":"/w"}
+{"cmd":"while :; do echo > f; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; ( cd /etc ); done","cwd":"/w"}
+{"cmd":"while :; do echo > f; while :; do cd /etc; done; done","cwd":"/w"}
+{"cmd":"while :; do while :; do echo > f; done; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd /etc; cd /tmp; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd /etc && cd /tmp; done","cwd":"/w"}
+{"cmd":"for f in a b; do echo > $f; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do x=$PWD; echo > $x/g; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do bash -c \"echo > f\"; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do python3 -c \"open('f','w')\"; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do git -C sub add .; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do find . -delete; cd /etc; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd sub; done","cwd":"/w"}
+{"cmd":"cd /w; while :; do echo > f; cd ..; done","cwd":"/w"}
+{"cmd":"while :; do echo > f; cd ..; done","cwd":"/w"}
+{"cmd":"while :; do cd /etc; done; cd -; echo > f","cwd":"/w"}
+{"cmd":"while :; do echo > f1; cd d1; done; while :; do echo > f2; cd d2; done; while :; do echo > f3; cd d3; done; while :; do echo > f4; cd d4; done; echo > g","cwd":"/w"}
+{"cmd":"while :; do cd n1; while :; do cd n2; echo > g; done; done","cwd":"/w"}
+{"cmd":"while :; do cd n1; while :; do cd n2; while :; do cd n3; echo > g; done; done; done","cwd":"/w"}
+{"cmd":"while false; do cd /a1; done; while false; do cd /a2; done; while false; do cd /a3; done; while false; do cd /a4; done; while false; do cd /a5; done; while false; do cd /a6; done; while false; do cd /a7; done; echo > f","cwd":"/w"}
+{"cmd":"while false; do cd /a1; done; while false; do cd /a2; done; while false; do cd /a3; done; while false; do cd /a4; done; while false; do cd /a5; done; while false; do cd /a6; done; while false; do cd /a7; done; while false; do cd /a8; done; echo > f","cwd":"/w"}
