@@ -325,7 +325,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 52, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 53, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -439,6 +439,25 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE c
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL AND resumed_from IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+
+-- agent_run_tool_output (GH 1957; schema v53): how much text each tool returned
+-- into one agent run, one row per (run, tool). calls counts the run's
+-- tool_result blocks of that tool; result_chars sums their text length (image
+-- and other non-text blocks count 0); est_tokens = ceil(result_chars / 4). The
+-- tool-output-size recorder rewrites a run's rows from its transcript at stop
+-- (swe and code-reviewer at SubagentStop, bro at every Stop); a result with no
+-- matching tool_use counts under tool_name 'unknown'.
+CREATE TABLE IF NOT EXISTS agent_run_tool_output (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id       INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    tool_name    TEXT    NOT NULL,
+    calls        INTEGER NOT NULL DEFAULT 0,
+    result_chars INTEGER NOT NULL DEFAULT 0,
+    est_tokens   INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (run_id, tool_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_run_tool_output_run ON agent_run_tool_output(run_id);
 
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
