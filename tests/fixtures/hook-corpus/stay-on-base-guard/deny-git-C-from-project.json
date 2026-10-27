@@ -1,0 +1,8 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git -C @SANDBOX@/base checkout feat/open"
+  },
+  "corpus_cwd": "project",
+  "corpus_expect": "open task #30"
+}

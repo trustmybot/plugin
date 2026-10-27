@@ -50,11 +50,16 @@ import { GATE_NAME as SPAWN_HINT_GATE, postTaskCreateSpawnHint } from './post-ta
 import { GATE_NAME as AGENT_ARG_GATE, agentArgMatchesCaller } from './agent-arg-matches-caller.js';
 import { GATE_NAME as REVIEWER_IDENTITY_GATE, reviewerIdentityObserve } from './reviewer-identity-observe.js';
 import { GATE_NAME as CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval } from './cheatcode-install-approval.js';
+import { GATE_NAME as STAY_ON_BASE_GATE, stayOnBaseGuard } from './stay-on-base-guard.js';
+import { GATE_NAME as BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote } from './branch-up-to-date-with-remote.js';
+import { GATE_NAME as NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate } from './no-worktree-branch-create.js';
+import { GATE_NAME as NO_REMOTE_AUTH_GATE, noRemoteAuthGuard } from './no-remote-auth-guard.js';
 import { GATE_NAME as PROMPT_INTENT_GATE, promptIntentHints } from './prompt-intent-hints.js';
 import { GATE_NAME as SWE_SCOPE_FENCE_GATE, sweScopeFence } from './swe-scope-fence.js';
 import { GATE_NAME as README_STALENESS_GATE, postAtomicCloseReadme } from './post-atomic-close-readme.js';
 import { GATE_NAME as CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose } from './cleanup-worktree-on-task-close.js';
 import { GATE_NAME as WORKTREE_CREATE_GATE, worktreeCreate } from './worktree-create.js';
+import { GATE_NAME as REMOTE_ID_GATE, remoteIdGuard } from './remote-id-guard.js';
 
 const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   ['askuserquestion-length-lint', askuserquestionLengthLint],
@@ -103,11 +108,16 @@ const GATES: ReadonlyMap<string, Gate> = new Map<string, Gate>([
   [AGENT_ARG_GATE, agentArgMatchesCaller],
   [REVIEWER_IDENTITY_GATE, reviewerIdentityObserve],
   [CHEATCODE_APPROVAL_GATE, cheatcodeInstallApproval],
+  [STAY_ON_BASE_GATE, stayOnBaseGuard],
+  [BRANCH_UP_TO_DATE_GATE, branchUpToDateWithRemote],
+  [NO_WORKTREE_BRANCH_CREATE_GATE, noWorktreeBranchCreate],
+  [NO_REMOTE_AUTH_GATE, noRemoteAuthGuard],
   [PROMPT_INTENT_GATE, promptIntentHints],
   [SWE_SCOPE_FENCE_GATE, sweScopeFence],
   [README_STALENESS_GATE, postAtomicCloseReadme],
   [CLEANUP_WORKTREE_GATE, cleanupWorktreeOnTaskClose],
   [WORKTREE_CREATE_GATE, worktreeCreate],
+  [REMOTE_ID_GATE, remoteIdGuard],
 ]);
 
 export function findGate(name: string): Gate | undefined {

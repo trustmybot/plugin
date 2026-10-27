@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git checkout HEAD~1"
+  },
+  "corpus_expect": "empty"
+}

@@ -1,0 +1,8 @@
+{
+  "tool_name": "Write",
+  "tool_input": {
+    "command": "git worktree add ../wt feat/behind"
+  },
+  "corpus_cwd": "stale",
+  "corpus_expect": "empty"
+}

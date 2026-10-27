@@ -1,0 +1,7 @@
+{
+  "tool_name": "Edit",
+  "tool_input": {
+    "command": "git checkout feat/open"
+  },
+  "corpus_expect": "empty"
+}
