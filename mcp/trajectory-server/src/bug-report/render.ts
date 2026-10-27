@@ -32,6 +32,7 @@ export const PREFILL_MAX_CHARS = 8000;
 export const TITLE_MAX_CHARS = 80;
 const TITLE_PREFIX = '🐛 ';
 const NO_RESPONSE = '_No response_';
+const ELLIPSIS = '…';
 const PREFILL_DROP_ORDER: readonly FieldId[] = ['repro-script', 'doctor', 'workaround'];
 
 export function redactFields(input: ReportInput, env: ReportEnv, ctx: RedactContext): RedactedFields {
@@ -76,7 +77,7 @@ export function reportMarker(signature: string): string {
 function buildTitle(summary: string): string {
   const chars = Array.from(summary.replace(/\s+/g, ' ').trim());
   const room = TITLE_MAX_CHARS - Array.from(TITLE_PREFIX).length;
-  const text = chars.length > room ? chars.slice(0, room - 1).join('').trimEnd() + '…' : chars.join('');
+  const text = chars.length > room ? chars.slice(0, room - 1).join('').trimEnd() + ELLIPSIS : chars.join('');
   return TITLE_PREFIX + text;
 }
 
@@ -123,6 +124,40 @@ export function render(input: ReportInput, env: ReportEnv, ctx: RedactContext): 
     dropped.add(id);
     prefill_url = buildPrefillUrl(title, fields, dropped);
   }
+  const shortened = prefill_url.length > PREFILL_MAX_CHARS;
+  if (shortened) prefill_url = shortenPrefill(title, fields, dropped);
 
-  return { title, body, signature, marker, prefill_url, prefill_truncated: dropped.size > 0 };
+  return { title, body, signature, marker, prefill_url, prefill_truncated: dropped.size > 0 || shortened };
+}
+
+function encodedLength(value: string): number {
+  return encodeURIComponent(value).length;
+}
+
+function shortenTo(value: string, maxEncoded: number): string {
+  const chars = Array.from(value);
+  let lo = 0;
+  let hi = chars.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (encodedLength(chars.slice(0, mid).join('') + ELLIPSIS) <= maxEncoded) lo = mid;
+    else hi = mid - 1;
+  }
+  return chars.slice(0, lo).join('') + ELLIPSIS;
+}
+
+function shortenPrefill(title: string, source: Record<FieldId, string>, dropped: ReadonlySet<FieldId>): string {
+  const fields = { ...source };
+  const candidates = (FORM_FIELDS as readonly FormField[])
+    .filter((f) => f.type !== 'checkboxes' && f.type !== 'dropdown' && !dropped.has(f.id as FieldId))
+    .map((f) => f.id as FieldId);
+  let url = buildPrefillUrl(title, fields, dropped);
+  while (url.length > PREFILL_MAX_CHARS) {
+    const longest = candidates.reduce((a, b) => (encodedLength(fields[b]) > encodedLength(fields[a]) ? b : a));
+    const next = shortenTo(fields[longest], encodedLength(fields[longest]) - (url.length - PREFILL_MAX_CHARS));
+    if (encodedLength(next) >= encodedLength(fields[longest])) break;
+    fields[longest] = next;
+    url = buildPrefillUrl(title, fields, dropped);
+  }
+  return url;
 }

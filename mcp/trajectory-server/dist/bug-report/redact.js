@@ -1,7 +1,7 @@
 // Strips tokens, emails, remotes, paths, branch, repo and issue names from bug-report free text before anyone sees it.
 export const REDACT_RULES = ['token', 'email', 'remote', 'project', 'home', 'path', 'branch', 'repo', 'title'];
 export const TOKEN_PATTERNS = [
-    /-----BEGIN [A-Z0-9 ]*KEY-----(?:[\s\S]*?-----END [A-Z0-9 ]*KEY-----|[\s\S]*$)/g,
+    /-----BEGIN [A-Z0-9 ]*KEY(?: BLOCK)?-----(?:[\s\S]*?-----END [A-Z0-9 ]*KEY(?: BLOCK)?-----|[\s\S]*$)/g,
     /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
     /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
     /\bglpat-[A-Za-z0-9_-]{16,}/g,

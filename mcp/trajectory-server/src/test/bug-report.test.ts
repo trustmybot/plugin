@@ -26,6 +26,7 @@ const TOKENS = {
   aws: t('AK', 'IA', 'Q3EXAMPLEKEY7ZZZ'),
   jwt: t('ey', 'JhbGciOiJIUzI1NiJ9', '.', 'eyJzdWIiOiJhbGljZSJ9', '.', 'c2lnbmF0dXJlLXZhbHVl'),
   pem: t('-----BEGIN RSA ', 'PRIVATE KEY-----\n', 'MIIEowIBAAKCAQEA7x\nq9ZKvG2a0\n', '-----END RSA ', 'PRIVATE KEY-----'),
+  pgp: t('-----BEGIN PGP ', 'PRIVATE KEY BLOCK-----\n\n', 'lQOYBGVkZXJzb24\npgpSecretBody7\n', '-----END PGP ', 'PRIVATE KEY BLOCK-----'),
 };
 
 const KEPT_URL = 'https://github.com/trustmybot/plugin/issues/2034';
@@ -265,6 +266,16 @@ const FIXTURES: Fixture[] = [
     }),
     env: { issue: 'My Titlefeature' },
     leaks: ['My Title', 'feature', 'widgets'],
+  },
+  {
+    name: 'PGP private key block',
+    ctx: ctxOf({ home: '/home/pia', projectRoot: '/home/pia/p' }),
+    input: baseInput({
+      'what-happened': `Signing failed with key:\n${TOKENS.pgp}\nand nothing after.`,
+      error: `gpg: ${TOKENS.pgp}`,
+    }),
+    env: { os: 'linux 6.9' },
+    leaks: ['PGP PRIVATE KEY BLOCK', 'lQOYBGVkZXJzb24', 'pgpSecretBody7'],
   },
 ];
 
@@ -545,6 +556,30 @@ describe('render', () => {
     assert.equal(longUrl.searchParams.has('repro-script'), false);
     assert.equal(longUrl.searchParams.has('doctor'), true);
     assert.ok(long.prefill_url.length <= PREFILL_MAX_CHARS);
+  });
+
+  it('shortens the longest prefilled values with a trailing … when dropping the optional fields is not enough', () => {
+    const report = render(
+      {
+        ...input,
+        'what-happened': 'Expected a scan. ' + 'é'.repeat(3000),
+        reproduce: 'step '.repeat(900),
+        'repro-script': 'echo hi\n'.repeat(50),
+        workaround: 'none',
+      },
+      env,
+      ctx,
+    );
+    assert.equal(report.prefill_truncated, true);
+    assert.ok(report.prefill_url.length <= PREFILL_MAX_CHARS, `prefill_url is ${report.prefill_url.length} chars`);
+    const url = new URL(report.prefill_url);
+    for (const id of ['repro-script', 'doctor', 'workaround']) assert.equal(url.searchParams.has(id), false);
+    const whatHappened = url.searchParams.get('what-happened') ?? '';
+    assert.ok(whatHappened.startsWith('Expected a scan. é'));
+    assert.ok(whatHappened.endsWith('…'));
+    assert.equal(url.searchParams.get('summary'), 'scan fails');
+    assert.equal(url.searchParams.get('area'), 'World Model');
+    assert.ok(report.body.includes('é'.repeat(3000)));
   });
 
   it('rejects a dropdown value outside its options', () => {

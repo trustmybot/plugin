@@ -130,6 +130,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `branch_id_proposed` | `bro` | `intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it |
 | `bro_verification_fail` | `bro` | Bro task-gate found a V1/V2/V3 check that failed |
 | `bro_verification_pass` | `bro` | Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads |
+| `bug_report_filed` | `bro` | reserved — Bro filed a TMB bug report on github.com/trustmybot/plugin after the Human approved the `bug_report_draft` draft; written by bro via `audit_append`, and `bug_report_draft` returns the newest row with the same signature as `already_filed`; `content_json` carries `signature`, `url`, `mode` (`issue`, `comment`, `link`) |
 | `cheatcode_activate` | `bro` | `cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status |
 | `cheatcode_approved` | `bro` | `cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it |
 | `cheatcode_healthcheck` | `bro`, `server` | `cheatcode_reconcile` (bro) or the server startup reconcile (server) moved a cheatcode's status (e.g. `active` → `broken`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `from`, `to` |

@@ -4,12 +4,12 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res, err21) => function __init() {
-  if (err21) throw err21[0];
+var __esm = (fn, res, err22) => function __init() {
+  if (err22) throw err22[0];
   try {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   } catch (e) {
-    throw err21 = [e], e;
+    throw err22 = [e], e;
   }
 };
 var __commonJS = (cb, mod) => function __require() {
@@ -1309,21 +1309,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err21 = gen.name("err");
+      const err22 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i2) => {
-        gen.const(err21, (0, codegen_1._)`${names_1.default.vErrors}[${i2}]`);
-        gen.if((0, codegen_1._)`${err21}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err21}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err21}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err22, (0, codegen_1._)`${names_1.default.vErrors}[${i2}]`);
+        gen.if((0, codegen_1._)`${err22}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err22}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err22}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err21}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err21}.data`, data);
+          gen.assign((0, codegen_1._)`${err22}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err22}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err21 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err21}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err21})`);
+      const err22 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err22}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err22})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -6181,7 +6181,7 @@ var require_discriminator = __commonJS({
       error: error2,
       code(cxt) {
         const { gen, data, schema, parentSchema, it } = cxt;
-        const { oneOf } = parentSchema;
+        const { oneOf: oneOf2 } = parentSchema;
         if (!it.opts.discriminator) {
           throw new Error("discriminator: requires discriminator option");
         }
@@ -6190,7 +6190,7 @@ var require_discriminator = __commonJS({
           throw new Error("discriminator: requires propertyName");
         if (schema.mapping)
           throw new Error("discriminator: mapping is not supported");
-        if (!oneOf)
+        if (!oneOf2)
           throw new Error("discriminator: requires oneOf keyword");
         const valid = gen.let("valid", false);
         const tag = gen.const("tag", (0, codegen_1._)`${data}${(0, codegen_1.getProperty)(tagName)}`);
@@ -6218,8 +6218,8 @@ var require_discriminator = __commonJS({
           const oneOfMapping = {};
           const topRequired = hasRequired(parentSchema);
           let tagRequired = true;
-          for (let i2 = 0; i2 < oneOf.length; i2++) {
-            let sch = oneOf[i2];
+          for (let i2 = 0; i2 < oneOf2.length; i2++) {
+            let sch = oneOf2[i2];
             if ((sch === null || sch === void 0 ? void 0 : sch.$ref) && !(0, util_1.schemaHasRulesButRef)(sch, it.self.RULES)) {
               const ref2 = sch.$ref;
               sch = compile_1.resolveRef.call(it.self, it.schemaEnv.root, it.baseId, ref2);
@@ -6882,14 +6882,14 @@ function unmarshalNode(tree, address = TRANSFER_BUFFER) {
   address += SIZE_OF_INT;
   const row = C.getValue(address, "i32");
   address += SIZE_OF_INT;
-  const column = C.getValue(address, "i32");
+  const column2 = C.getValue(address, "i32");
   address += SIZE_OF_INT;
   const other = C.getValue(address, "i32");
   const result2 = new Node(INTERNAL, {
     id,
     tree,
     startIndex: index,
-    startPosition: { row, column },
+    startPosition: { row, column: column2 },
     other
   });
   return result2;
@@ -10152,11 +10152,11 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
         }
         __name(_tree_sitter_log_callback, "_tree_sitter_log_callback");
-        function _tree_sitter_parse_callback(inputBufferAddress, index, row, column, lengthAddress) {
+        function _tree_sitter_parse_callback(inputBufferAddress, index, row, column2, lengthAddress) {
           const INPUT_BUFFER_SIZE = 10 * 1024;
           const string3 = Module.currentParseCallback(index, {
             row,
-            column
+            column: column2
           });
           if (typeof string3 === "string") {
             setValue(lengthAddress, string3.length, "i32");
@@ -11393,8 +11393,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err21) {
-        if (err21?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err22) {
+        if (err22?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -24886,10 +24886,10 @@ function resolveClaudeDbPathForPlugin(pluginName2, opts) {
   const { env, cwd, home } = opts;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) return override;
-  const projectRoot = resolveClaudeProjectRoot(env);
-  const found = findExistingClaudeDbUp(cwd, pluginName2, { home, env, projectRoot });
+  const projectRoot2 = resolveClaudeProjectRoot(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName2, { home, env, projectRoot: projectRoot2 });
   if (found) return found;
-  return claudeDbLocation(projectRoot ?? cwd, pluginName2);
+  return claudeDbLocation(projectRoot2 ?? cwd, pluginName2);
 }
 var CLAUDE_STATE_HOST_DIR = ".claude";
 function claudeDbLocation(root, pluginName2) {
@@ -24906,8 +24906,8 @@ function resolveClaudeLogDir(opts) {
   const pluginName2 = resolveClaudePluginName(env);
   return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName2, { env, cwd, home }), pluginName2);
 }
-function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable path", expectedKind = "either") {
-  if (!isAbsolute(projectRoot)) {
+function assertSafeProjectWritePath(projectRoot2, path2, label = "Codex writable path", expectedKind = "either") {
+  if (!isAbsolute(projectRoot2)) {
     throw new UnsafeProjectWritePathError(
       `${label} project root must be an absolute path`
     );
@@ -24917,7 +24917,7 @@ function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable 
   }
   let rootStat;
   try {
-    rootStat = lstatSync(projectRoot);
+    rootStat = lstatSync(projectRoot2);
   } catch {
     throw new UnsafeProjectWritePathError(
       `${label} project root must remain an existing directory`
@@ -24928,8 +24928,8 @@ function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable 
       `${label} project root must remain a real directory`
     );
   }
-  const canonicalRoot = realpathSync(projectRoot);
-  if (canonicalRoot !== projectRoot) {
+  const canonicalRoot = realpathSync(projectRoot2);
+  if (canonicalRoot !== projectRoot2) {
     throw new UnsafeProjectWritePathError(
       `${label} project root changed after canonicalization`
     );
@@ -25069,8 +25069,8 @@ function findExistingClaudeDbUp(startDir, pluginName2, opts) {
   if (override && override.trim().length > 0) {
     return existsSync(override) ? override : null;
   }
-  const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
-  return walkClaudeDbs(projectRoot ?? startDir, pluginName2, opts).resolved;
+  const projectRoot2 = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
+  return walkClaudeDbs(projectRoot2 ?? startDir, pluginName2, opts).resolved;
 }
 function assertPathContained(root, path2, label) {
   const rel = relative(root, path2);
@@ -25202,6 +25202,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "branch_id_proposed", writers: ["bro"], description: "`intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it" },
   { type: "bro_verification_fail", writers: ["bro"], description: "Bro task-gate found a V1/V2/V3 check that failed" },
   { type: "bro_verification_pass", writers: ["bro"], description: "Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads" },
+  { type: "bug_report_filed", writers: ["bro"], description: "Bro filed a TMB bug report on github.com/trustmybot/plugin after the Human approved the `bug_report_draft` draft; written by bro via `audit_append`, and `bug_report_draft` returns the newest row with the same signature as `already_filed`; `content_json` carries `signature`, `url`, `mode` (`issue`, `comment`, `link`)", reserved: true },
   { type: "cheatcode_activate", writers: ["bro"], description: "`cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status" },
   { type: "cheatcode_approved", writers: ["bro"], description: "`cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it" },
   { type: "cheatcode_healthcheck", writers: ["bro", "server"], description: "`cheatcode_reconcile` (bro) or the server startup reconcile (server) moved a cheatcode's status (e.g. `active` \u2192 `broken`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `from`, `to`" },
@@ -25630,16 +25631,16 @@ var TrajectoryDB = class {
   runVersionSync(target, sql) {
     try {
       this.db.prepare(sql).run(this.pluginVersion);
-    } catch (err21) {
+    } catch (err22) {
       this.serverLog({
         kind: "plugin_version_sync_failed",
         level: "error",
         db_path: this.dbPath,
         target,
         plugin_version: this.pluginVersion,
-        message: err21 instanceof Error ? err21.message : String(err21)
+        message: err22 instanceof Error ? err22.message : String(err22)
       });
-      throw err21;
+      throw err22;
     }
   }
   run(sql, params) {
@@ -25657,16 +25658,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return out2;
-    } catch (err21) {
+    } catch (err22) {
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance2.now() - start2),
         ok: false,
-        error_message: err21 instanceof Error ? err21.message : String(err21)
+        error_message: err22 instanceof Error ? err22.message : String(err22)
       });
-      throw err21;
+      throw err22;
     }
   }
   get(sql, params) {
@@ -25683,16 +25684,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return row;
-    } catch (err21) {
+    } catch (err22) {
       this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance2.now() - start2),
         ok: false,
-        error_message: err21 instanceof Error ? err21.message : String(err21)
+        error_message: err22 instanceof Error ? err22.message : String(err22)
       });
-      throw err21;
+      throw err22;
     }
   }
   all(sql, params) {
@@ -25709,16 +25710,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return rows;
-    } catch (err21) {
+    } catch (err22) {
       this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance2.now() - start2),
         ok: false,
-        error_message: err21 instanceof Error ? err21.message : String(err21)
+        error_message: err22 instanceof Error ? err22.message : String(err22)
       });
-      throw err21;
+      throw err22;
     }
   }
   /**
@@ -25776,10 +25777,10 @@ function nowISO() {
 var transactionDepth = /* @__PURE__ */ new WeakMap();
 var SQLITE_BUSY = 5;
 var backoffCell = new Int32Array(new SharedArrayBuffer(4));
-function isBusyError(err21) {
-  if (!(err21 instanceof Error)) return false;
-  const errcode = err21.errcode;
-  return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err21.message.includes("database is locked");
+function isBusyError(err22) {
+  if (!(err22 instanceof Error)) return false;
+  const errcode = err22.errcode;
+  return typeof errcode === "number" && (errcode & 255) === SQLITE_BUSY || err22.message.includes("database is locked");
 }
 function assertOpenableVersion(storedVersion, migrate) {
   if (storedVersion > TARGET_SCHEMA_VERSION) {
@@ -25799,8 +25800,8 @@ function execRetryingLockUpgrade(db2, sql) {
     try {
       db2.exec(sql);
       return;
-    } catch (err21) {
-      if (!isBusyError(err21) || performance2.now() >= deadline) throw err21;
+    } catch (err22) {
+      if (!isBusyError(err22) || performance2.now() >= deadline) throw err22;
       Atomics.wait(backoffCell, 0, 0, 5 + Math.random() * 45);
     }
   }
@@ -25826,12 +25827,12 @@ function withImmediateTransaction(db2, fn) {
     const result2 = fn();
     commitTransaction(db2);
     return result2;
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function backupDbBeforeMigration(dbPath2, targetVersion) {
@@ -26019,9 +26020,9 @@ function deleteBuiltinCheatcodeAttachments(db2, name2) {
       WHERE cheatcode_id IN (SELECT id FROM cheatcodes WHERE name = ? AND origin = 'builtin')`
   ).run(name2);
 }
-function hasColumn(db2, table, column) {
+function hasColumn(db2, table, column2) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
-  return cols.some((c) => c.name === column);
+  return cols.some((c) => c.name === column2);
 }
 function tableExists(db2, table) {
   const row = db2.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
@@ -26079,12 +26080,12 @@ function migrateV8toV9(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV9toV10(db2) {
@@ -26096,12 +26097,12 @@ function migrateV9toV10(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV10toV11(db2) {
@@ -26119,12 +26120,12 @@ function migrateV10toV11(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV11toV12(db2) {
@@ -26136,12 +26137,12 @@ function migrateV11toV12(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV12toV13(db2) {
@@ -26156,12 +26157,12 @@ function migrateV12toV13(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV13toV14(db2) {
@@ -26193,12 +26194,12 @@ function migrateV13toV14(db2) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV14toV15(db2) {
@@ -26208,12 +26209,12 @@ function migrateV14toV15(db2) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV15toV16(db2) {
@@ -26222,12 +26223,12 @@ function migrateV15toV16(db2) {
     db2.exec("DROP TABLE IF EXISTS rule_invocations");
     db2.exec("DROP TABLE IF EXISTS rules");
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV16toV17(db2) {
@@ -26235,12 +26236,12 @@ function migrateV16toV17(db2) {
   try {
     db2.exec("DROP TABLE IF EXISTS commands");
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV17toV18(db2) {
@@ -26278,12 +26279,12 @@ function migrateV17toV18(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -26378,12 +26379,12 @@ function migrateV18toV19(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -26412,12 +26413,12 @@ function migrateV19toV20(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV20toV21(db2) {
@@ -26458,11 +26459,11 @@ function migrateV28toV29(db2) {
       ["pr_review_runs", "repo", "repo IS NULL OR repo = ''"]
     ];
     const violations = [];
-    for (const [table, column, predicate] of probes) {
-      if (!tableExists(db2, table) || !hasColumn(db2, table, column)) continue;
-      const bad = db2.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
+    for (const [table, column2, predicate] of probes) {
+      if (!tableExists(db2, table) || !hasColumn(db2, table, column2)) continue;
+      const bad = db2.prepare(`SELECT DISTINCT ${column2} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
       if (bad.length > 0) {
-        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
+        violations.push(`${table}.${column2} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
       }
     }
     if (violations.length > 0) {
@@ -26687,12 +26688,12 @@ function migrateV28toV29(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -26739,11 +26740,11 @@ function migrateV29toV30(db2) {
       ["cheatcodes", "name", "origin = 'builtin' AND source_url IS NOT NULL"]
     ];
     const violations = [];
-    for (const [table, column, predicate] of probes) {
-      if (!tableExists(db2, table) || !hasColumn(db2, table, column)) continue;
-      const bad = db2.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
+    for (const [table, column2, predicate] of probes) {
+      if (!tableExists(db2, table) || !hasColumn(db2, table, column2)) continue;
+      const bad = db2.prepare(`SELECT DISTINCT ${column2} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
       if (bad.length > 0) {
-        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")} (${predicate})`);
+        violations.push(`${table}.${column2} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")} (${predicate})`);
       }
     }
     if (violations.length > 0) {
@@ -26916,23 +26917,23 @@ function migrateV29toV30(db2) {
       );
     }
     const presentTimestampColumns = TIMESTAMP_COLUMNS.filter(
-      ([table, column]) => tableExists(db2, table) && hasColumn(db2, table, column)
+      ([table, column2]) => tableExists(db2, table) && hasColumn(db2, table, column2)
     );
-    for (const [table, column] of presentTimestampColumns) {
+    for (const [table, column2] of presentTimestampColumns) {
       db2.exec(
-        `UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
-          WHERE ${column} IS NOT NULL AND length(${column}) <> 24
-            AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`
+        `UPDATE ${table} SET ${column2} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column2})
+          WHERE ${column2} IS NOT NULL AND length(${column2}) <> 24
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column2}) IS NOT NULL`
       );
     }
     const malformed = [];
-    for (const [table, column] of presentTimestampColumns) {
+    for (const [table, column2] of presentTimestampColumns) {
       const bad = db2.prepare(
-        `SELECT DISTINCT ${column} AS v FROM ${table}
-            WHERE ${column} IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NULL LIMIT 5`
+        `SELECT DISTINCT ${column2} AS v FROM ${table}
+            WHERE ${column2} IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column2}) IS NULL LIMIT 5`
       ).all();
       if (bad.length > 0) {
-        malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
+        malformed.push(`${table}.${column2} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
       }
     }
     if (malformed.length > 0) {
@@ -26947,12 +26948,12 @@ function migrateV29toV30(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27017,12 +27018,12 @@ function migrateV30toV31(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27132,12 +27133,12 @@ function migrateV31toV32(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27261,12 +27262,12 @@ function migrateV32toV33(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27310,12 +27311,12 @@ function migrateV33toV34(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27404,12 +27405,12 @@ function migrateV34toV35(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27452,12 +27453,12 @@ function migrateV36toV37(db2) {
       db2.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV37toV38(db2) {
@@ -27475,12 +27476,12 @@ function migrateV37toV38(db2) {
         WHERE event_type NOT IN (${placeholders2})`
     ).run(...documented);
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV38toV39(db2) {
@@ -27503,12 +27504,12 @@ function migrateV38toV39(db2) {
                          AND k.id < audit.id)`
     );
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV39toV40(db2) {
@@ -27522,12 +27523,12 @@ function migrateV40toV41(db2) {
     db2.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
     db2.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV41toV42(db2) {
@@ -27562,34 +27563,34 @@ function migrateV41toV42(db2) {
       )
     `);
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV42toV43(db2) {
   if (!tableExists(db2, "wm_directories")) return;
   beginImmediate(db2);
   try {
-    for (const [column, type] of [
+    for (const [column2, type] of [
       ["summary_sha", "TEXT"],
       ["commits_behind", "INTEGER"],
       ["dead_refs", "TEXT"]
     ]) {
-      if (!hasColumn(db2, "wm_directories", column)) {
-        db2.exec(`ALTER TABLE wm_directories ADD COLUMN ${column} ${type}`);
+      if (!hasColumn(db2, "wm_directories", column2)) {
+        db2.exec(`ALTER TABLE wm_directories ADD COLUMN ${column2} ${type}`);
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV43toV44(db2) {
@@ -27600,12 +27601,12 @@ function migrateV43toV44(db2) {
       db2.exec("ALTER TABLE wm_files ADD COLUMN symbols_md5 TEXT");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV44toV45(db2) {
@@ -27663,12 +27664,12 @@ function migrateV44toV45(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -27684,12 +27685,12 @@ function migrateV45toV46(db2) {
       db2.exec("ALTER TABLE discussions ADD COLUMN supersedes INTEGER REFERENCES discussions(id)");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV46toV47(db2) {
@@ -27722,12 +27723,12 @@ function migrateV47toV48(db2) {
       db2.exec("ALTER TABLE tasks ADD COLUMN spawn_note TEXT");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV48toV49(db2) {
@@ -27743,12 +27744,12 @@ function migrateV48toV49(db2) {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_resumed ON agent_runs(resumed_from) WHERE resumed_from IS NOT NULL;
     `);
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV49toV50(db2) {
@@ -27759,12 +27760,12 @@ function migrateV49toV50(db2) {
       db2.exec("ALTER TABLE agent_runs ADD COLUMN plugin_version TEXT");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 var OLD_REVIEWER = "pr-reviewer";
@@ -27823,12 +27824,12 @@ function migrateV50toV51(db2) {
       ).run(OLD_REVIEWER, REVIEWER, OLD_REVIEWER_TITLE, "Code-reviewer", OLD_REVIEWER, OLD_REVIEWER_TITLE);
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV51toV52(db2) {
@@ -27846,12 +27847,12 @@ function migrateV51toV52(db2) {
       db2.exec("ALTER TABLE tasks ADD COLUMN checkpoint TEXT");
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV22toV23(db2) {
@@ -28030,12 +28031,12 @@ function migrateV22toV23(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -28102,12 +28103,12 @@ function migrateV23toV24(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -28140,12 +28141,12 @@ function migrateV24toV25(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV25toV26(db2) {
@@ -28188,12 +28189,12 @@ function migrateV25toV26(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -28243,12 +28244,12 @@ function migrateV26toV27(db2) {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV7toV8(db2) {
@@ -28264,12 +28265,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV6toV7(db2) {
@@ -28284,12 +28285,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV5toV6(db2) {
@@ -28323,12 +28324,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV4toV5(db2) {
@@ -28349,12 +28350,12 @@ function migrateV4toV5(db2) {
       );
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV3toV4(db2) {
@@ -28403,12 +28404,12 @@ function migrateV3toV4(db2) {
       `);
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV2toV3(db2) {
@@ -28505,12 +28506,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 function migrateV1toV2(db2) {
@@ -28690,12 +28691,12 @@ function migrateV1toV2(db2) {
       }
     }
     commitTransaction(db2);
-  } catch (err21) {
+  } catch (err22) {
     try {
       rollbackTransaction(db2);
     } catch {
     }
-    throw err21;
+    throw err22;
   }
 }
 
@@ -30090,14 +30091,14 @@ function projectRootFromDbPath(dbPath2) {
   if (idx <= 0) return null;
   return segments.slice(0, idx).join(sep2) || sep2;
 }
-function projectSpawnOptions(projectRoot) {
-  return { cwd: projectRoot, env: { ...process.env, TMB_PROJECT_ROOT: projectRoot } };
+function projectSpawnOptions(projectRoot2) {
+  return { cwd: projectRoot2, env: { ...process.env, TMB_PROJECT_ROOT: projectRoot2 } };
 }
-function canonicalPath(path2, projectRoot) {
-  if (!isAbsolute2(path2) && (projectRoot === void 0 || !isAbsolute2(projectRoot))) {
+function canonicalPath(path2, projectRoot2) {
+  if (!isAbsolute2(path2) && (projectRoot2 === void 0 || !isAbsolute2(projectRoot2))) {
     throw new Error(`canonicalPath: relative path '${path2}' needs an absolute project root`);
   }
-  const absolute = isAbsolute2(path2) ? path2 : join6(projectRoot, path2);
+  const absolute = isAbsolute2(path2) ? path2 : join6(projectRoot2, path2);
   const root = parse3(absolute).root;
   const pending2 = absolute.slice(root.length).split(sep2);
   const real = [];
@@ -30144,13 +30145,13 @@ function isWithinRoot(root, path2) {
   const rel = relative2(canonicalPath(root), canonicalPath(path2, root));
   return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
 }
-function outsideProject(tool, projectRoot, path2) {
-  if (projectRoot === null || isWithinRoot(projectRoot, path2)) return null;
+function outsideProject(tool, projectRoot2, path2) {
+  if (projectRoot2 === null || isWithinRoot(projectRoot2, path2)) return null;
   return {
     error: "outside_project",
-    message: `${tool}: ${path2} is outside the project ${projectRoot}; TMB writes only under the project.`,
+    message: `${tool}: ${path2} is outside the project ${projectRoot2}; TMB writes only under the project.`,
     path: path2,
-    project_root: projectRoot
+    project_root: projectRoot2
   };
 }
 
@@ -37435,12 +37436,12 @@ function reportTools(db2) {
       }
       const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
       const relOutputPath = rawOutputPath ?? defaultOutputPath;
-      const projectRoot = projectRootFromDbPath(db2.dbPath);
-      if (projectRoot === null) {
+      const projectRoot2 = projectRootFromDbPath(db2.dbPath);
+      if (projectRoot2 === null) {
         throw new Error("issue_snapshot_md needs the project root, and this trajectory DB is not under a project .claude/ directory");
       }
-      const allowedBase = resolve3(projectRoot, "docs/trustmybot") + sep3;
-      const absPath = resolve3(projectRoot, relOutputPath);
+      const allowedBase = resolve3(projectRoot2, "docs/trustmybot") + sep3;
+      const absPath = resolve3(projectRoot2, relOutputPath);
       if (!absPath.startsWith(allowedBase)) {
         throw new Error(
           `output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`
@@ -42614,8 +42615,8 @@ import { dirname as dirname9, join as join15 } from "node:path";
 import { spawnSync as spawnSync9 } from "node:child_process";
 import { appendFileSync as appendFileSync3, existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync7, statSync as statSync3, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname8, join as join14 } from "node:path";
-function settingsPath(projectRoot) {
-  return join14(projectRoot, ".claude", "settings.local.json");
+function settingsPath(projectRoot2) {
+  return join14(projectRoot2, ".claude", "settings.local.json");
 }
 function isObject4(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -42631,13 +42632,13 @@ function readSettings(path2) {
   }
 }
 var LOCAL_SETTINGS_REL = ".claude/settings.local.json";
-function ensureLocalSettingsIgnored(projectRoot) {
+function ensureLocalSettingsIgnored(projectRoot2) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const inTree = spawnSync9("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], opts);
+  const inTree = spawnSync9("git", ["-C", projectRoot2, "rev-parse", "--is-inside-work-tree"], opts);
   if (inTree.status !== 0 || (inTree.stdout ?? "").trim() !== "true") return { appended: false };
-  const ignored = spawnSync9("git", ["-C", projectRoot, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
+  const ignored = spawnSync9("git", ["-C", projectRoot2, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
   if (ignored.status !== 1) return { appended: false };
-  const gitignore = join14(projectRoot, ".gitignore");
+  const gitignore = join14(projectRoot2, ".gitignore");
   try {
     const current = existsSync7(gitignore) ? readFileSync7(gitignore, "utf8") : "";
     const lead = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
@@ -42660,10 +42661,10 @@ function writeSettings(path2, settings) {
   }
   return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname8(dirname8(path2))).appended };
 }
-function projectUsable(projectRoot) {
-  if (!projectRoot) return false;
+function projectUsable(projectRoot2) {
+  if (!projectRoot2) return false;
   try {
-    return statSync3(projectRoot).isDirectory();
+    return statSync3(projectRoot2).isDirectory();
   } catch {
     return false;
   }
@@ -42702,8 +42703,8 @@ function sandboxRecommended(remoteUrls, platform = process.platform, probes = SA
   const probe = probes[platform];
   return probe !== void 0 && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
-function sandboxToolCacheDir(projectRoot) {
-  return join14(projectRoot, ".claude", resolveClaudePluginName(), "cache");
+function sandboxToolCacheDir(projectRoot2) {
+  return join14(projectRoot2, ".claude", resolveClaudePluginName(), "cache");
 }
 function sandboxToolEnv(toolCacheDir) {
   return { npm_config_cache: join14(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join14(toolCacheDir, "bun") };
@@ -42711,8 +42712,8 @@ function sandboxToolEnv(toolCacheDir) {
 function stringList(v) {
   return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
 }
-function sandboxAllowWrite(projectRoot, cacheDir = TMB_MODEL_CACHE_DIR) {
-  return [.../* @__PURE__ */ new Set([projectRoot, cacheDir])];
+function sandboxAllowWrite(projectRoot2, cacheDir = TMB_MODEL_CACHE_DIR) {
+  return [.../* @__PURE__ */ new Set([projectRoot2, cacheDir])];
 }
 function writeProjectSandbox(opts) {
   if (!projectUsable(opts.projectRoot)) {
@@ -42889,15 +42890,15 @@ function readPreToolUseFromHooksJson(pluginRoot) {
 function keptHooks(group) {
   return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
 }
-function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
+function buildTmbGroups(pre, resolverPath, marketplace, projectRoot2) {
   const groups = [];
   for (const group of pre) {
     const hooks = keptHooks(group).map((h) => ({
       type: h.type,
-      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot2)}`,
       ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
       _tmb_managed: true,
-      _tmb_project: projectRoot
+      _tmb_project: projectRoot2
     }));
     if (hooks.length === 0) continue;
     groups.push({
@@ -42907,8 +42908,8 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
   }
   return groups;
 }
-function resolverPathFor(projectRoot, pluginName2) {
-  return join15(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
+function resolverPathFor(projectRoot2, pluginName2) {
+  return join15(projectRoot2, ".claude", pluginName2, RESOLVER_NAME);
 }
 function materializeResolver(pluginRoot, resolverPath) {
   const canonical = join15(pluginRoot, ...CANONICAL_RESOLVER_REL);
@@ -42942,8 +42943,8 @@ function installedPluginGuard(pluginRoot) {
   if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
   return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
-function settingsFile(projectRoot) {
-  return join15(projectRoot, ...SETTINGS_REL);
+function settingsFile(projectRoot2) {
+  return join15(projectRoot2, ...SETTINGS_REL);
 }
 function readSettings2(path2) {
   if (!existsSync8(path2)) return { settings: {}, exists: false };
@@ -42975,7 +42976,7 @@ function skip(event, reason, result2) {
   return result2;
 }
 function writeProjectEnforcementShim(opts) {
-  const { pluginRoot, projectRoot } = opts;
+  const { pluginRoot, projectRoot: projectRoot2 } = opts;
   if (opts.headlessEnforcement !== "yes") {
     const reason = "headless_enforcement_off";
     return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
@@ -42984,17 +42985,17 @@ function writeProjectEnforcementShim(opts) {
   if ("reason" in guard) {
     return skip("onboard_hooks_shim_skip", guard.reason, { written: false, reason: guard.reason });
   }
-  const path2 = settingsFile(projectRoot);
+  const path2 = settingsFile(projectRoot2);
   const read = readSettings2(path2);
   if ("reason" in read) {
     return skip("onboard_hooks_shim_skip", read.reason, { written: false, reason: read.reason });
   }
-  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
+  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot2, guard.pluginName));
   if (!resolverPath) {
     const reason = "canonical resolver script missing";
     return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
   }
-  const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
+  const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot2);
   const { hooks, pre } = preToolUseOf(read.settings);
   hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
   read.settings.hooks = hooks;
@@ -43005,8 +43006,8 @@ function writeProjectEnforcementShim(opts) {
   return { written: true, entries, settings_path: path2 };
 }
 function removeProjectEnforcementShim(opts) {
-  const { pluginRoot, projectRoot } = opts;
-  const path2 = settingsFile(projectRoot);
+  const { pluginRoot, projectRoot: projectRoot2 } = opts;
+  const path2 = settingsFile(projectRoot2);
   const read = readSettings2(path2);
   if ("reason" in read) {
     return skip("onboard_hooks_shim_remove_skip", read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
@@ -43027,7 +43028,7 @@ function removeProjectEnforcementShim(opts) {
       }
     }
   }
-  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
+  const resolverPath = resolverPathFor(projectRoot2, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
   let resolver_removed = false;
   if (existsSync8(resolverPath)) {
     rmSync(resolverPath, { force: true });
@@ -43794,7 +43795,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
     return workspaceRoot || process.cwd();
   };
-  const projectRoot = () => {
+  const projectRoot2 = () => {
     const fromDb = dbPath2.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
     if (fromDb && fromDb[1]) return fromDb[1];
     return process.env["CLAUDE_PROJECT_DIR"] || process.cwd();
@@ -43809,7 +43810,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   };
   const shimOptions = () => ({
     pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
-    projectRoot: projectRoot()
+    projectRoot: projectRoot2()
   });
   const resolveHeadless = (raw) => {
     const stored = readConfig(db2, "headless_enforcement") ?? "no";
@@ -43852,7 +43853,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   const nesting = () => {
     const session_dir = shimEnv.sessionDir ?? resolveClaudeSessionDir();
     const root = claudeProjectRootOfDb(dbPath2);
-    if (root === null) return { session_dir, project_root: projectRoot(), nested: false, other_dbs: [] };
+    if (root === null) return { session_dir, project_root: projectRoot2(), nested: false, other_dbs: [] };
     const session = canonicalExisting(session_dir);
     const project = canonicalExisting(root);
     return {
@@ -46040,19 +46041,19 @@ function healthcheckTimeoutSec() {
   const raw = Number(process.env["TMB_CHEATCODE_HEALTHCHECK_TIMEOUT"]);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
 }
-function probeChildEnv(projectRoot = null) {
-  const base = projectRoot === null ? process.env : projectSpawnOptions(projectRoot).env;
+function probeChildEnv(projectRoot2 = null) {
+  const base = projectRoot2 === null ? process.env : projectSpawnOptions(projectRoot2).env;
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
-function runClaude(args2, timeoutSec, projectRoot) {
+function runClaude(args2, timeoutSec, projectRoot2) {
   return new Promise((resolve4) => {
     try {
       const child = execFile(
         "claude",
         args2,
         {
-          ...projectRoot === null ? {} : { cwd: projectRoot },
-          env: probeChildEnv(projectRoot),
+          ...projectRoot2 === null ? {} : { cwd: projectRoot2 },
+          env: probeChildEnv(projectRoot2),
           timeout: timeoutSec * 1e3,
           killSignal: "SIGKILL",
           maxBuffer: MAX_LISTING_BYTES,
@@ -46103,10 +46104,10 @@ function parsePluginListing(text) {
   }
   return plugins;
 }
-async function probeListings(timeoutSec, projectRoot) {
+async function probeListings(timeoutSec, projectRoot2) {
   const [mcpText, pluginText] = await Promise.all([
-    runClaude(["mcp", "list"], timeoutSec, projectRoot),
-    runClaude(["plugin", "list", "--json"], timeoutSec, projectRoot)
+    runClaude(["mcp", "list"], timeoutSec, projectRoot2),
+    runClaude(["plugin", "list", "--json"], timeoutSec, projectRoot2)
   ]);
   const mcpNames = /* @__PURE__ */ new Set([...mcpText === null ? [] : parseMcpListing(mcpText), ...claudeJsonMcpKeys()]);
   const plugins = pluginText === null ? null : parsePluginListing(pluginText);
@@ -46134,13 +46135,13 @@ function stableJson(value) {
   }
   return JSON.stringify(value ?? null);
 }
-function cliConfigFingerprint(projectRoot) {
+function cliConfigFingerprint(projectRoot2) {
   const home = homedir3();
   const claudeJson = readJson(join21(home, ".claude.json"));
-  const inProject = (...parts2) => projectRoot === null ? null : readJson(join21(projectRoot, ...parts2));
+  const inProject = (...parts2) => projectRoot2 === null ? null : readJson(join21(projectRoot2, ...parts2));
   const inputs = {
     claudeJsonMcpServers: field(claudeJson, "mcpServers"),
-    claudeJsonProjectMcpServers: projectRoot === null ? null : field(field(field(claudeJson, "projects"), projectRoot), "mcpServers"),
+    claudeJsonProjectMcpServers: projectRoot2 === null ? null : field(field(field(claudeJson, "projects"), projectRoot2), "mcpServers"),
     projectMcpJson: inProject(".mcp.json"),
     enabledPlugins: {
       user: field(readJson(join21(home, ".claude", "settings.json")), "enabledPlugins"),
@@ -46151,20 +46152,20 @@ function cliConfigFingerprint(projectRoot) {
   };
   return createHash3("sha256").update(stableJson(inputs)).digest("hex");
 }
-function probeCachePath(projectRoot) {
-  return join21(projectRoot, ".claude", "tmb", "cheatcode-probe.json");
+function probeCachePath(projectRoot2) {
+  return join21(projectRoot2, ".claude", "tmb", "cheatcode-probe.json");
 }
-function readProbeCache(projectRoot) {
-  if (projectRoot === null) return null;
-  const parsed = readJson(probeCachePath(projectRoot));
+function readProbeCache(projectRoot2) {
+  if (projectRoot2 === null) return null;
+  const parsed = readJson(probeCachePath(projectRoot2));
   const fingerprint = field(parsed, "fingerprint");
   const probedAt = field(parsed, "probed_at");
   if (typeof fingerprint !== "string" || typeof probedAt !== "string" || Number.isNaN(Date.parse(probedAt))) return null;
   return { fingerprint, probed_at: probedAt };
 }
-function writeProbeCache(projectRoot, cache) {
-  if (projectRoot === null) return;
-  const path2 = probeCachePath(projectRoot);
+function writeProbeCache(projectRoot2, cache) {
+  if (projectRoot2 === null) return;
+  const path2 = probeCachePath(projectRoot2);
   try {
     mkdirSync7(dirname12(path2), { recursive: true });
     writeFileSync6(path2, JSON.stringify(cache) + "\n");
@@ -46240,30 +46241,30 @@ function reconcileCheatcodes(db2, evidence, opts) {
   return transitions;
 }
 var NO_EVIDENCE = { mcpServers: null, plugins: null };
-async function probeAndReconcile(db2, identity, projectRoot, fingerprint) {
-  const { evidence, listed: listed2 } = await probeListings(healthcheckTimeoutSec(), projectRoot);
+async function probeAndReconcile(db2, identity, projectRoot2, fingerprint) {
+  const { evidence, listed: listed2 } = await probeListings(healthcheckTimeoutSec(), projectRoot2);
   const now2 = nowISO();
-  if (listed2) writeProbeCache(projectRoot, { fingerprint, probed_at: now2 });
+  if (listed2) writeProbeCache(projectRoot2, { fingerprint, probed_at: now2 });
   const transitions = reconcileCheatcodes(db2, evidence, { ...identity, now: now2 });
   return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
 }
 async function reconcileNow(db2, identity) {
-  const projectRoot = projectRootFromDbPath(db2.dbPath);
-  return probeAndReconcile(db2, identity, projectRoot, cliConfigFingerprint(projectRoot));
+  const projectRoot2 = projectRootFromDbPath(db2.dbPath);
+  return probeAndReconcile(db2, identity, projectRoot2, cliConfigFingerprint(projectRoot2));
 }
 async function reconcileAtStartup(db2) {
   if (process.env["TMB_DISABLE_CHEATCODE_HEALTHCHECK"] === "1") return;
   const identity = { fromNode: "server", writer: "server" };
   try {
-    const projectRoot = projectRootFromDbPath(db2.dbPath);
+    const projectRoot2 = projectRootFromDbPath(db2.dbPath);
     let reason = "no_tracked_rows";
     let fingerprint = "";
     if (hasTrackedRuntimeRows(db2)) {
-      fingerprint = cliConfigFingerprint(projectRoot);
-      reason = startupProbeReason(readProbeCache(projectRoot), fingerprint, Date.now());
+      fingerprint = cliConfigFingerprint(projectRoot2);
+      reason = startupProbeReason(readProbeCache(projectRoot2), fingerprint, Date.now());
     }
     const probed = reason !== "no_tracked_rows" && reason !== "fingerprint_unchanged";
-    const { transitions } = probed ? await probeAndReconcile(db2, identity, projectRoot, fingerprint) : { transitions: reconcileCheatcodes(db2, NO_EVIDENCE, { ...identity, now: nowISO() }) };
+    const { transitions } = probed ? await probeAndReconcile(db2, identity, projectRoot2, fingerprint) : { transitions: reconcileCheatcodes(db2, NO_EVIDENCE, { ...identity, now: nowISO() }) };
     serverLog({ kind: "cheatcode_reconcile", transitions: transitions.length, probed, reason });
   } catch (e) {
     serverLog({ kind: "cheatcode_reconcile", error_message: e instanceof Error ? e.message : String(e) });
@@ -46307,10 +46308,10 @@ var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
 var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
-function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
+function runSearchWithScript(script, query, kind, timeoutMs, projectRoot2) {
   return new Promise((resolve4, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
-      ...projectSpawnOptions(projectRoot),
+      ...projectSpawnOptions(projectRoot2),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -46364,10 +46365,10 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "untrusted",
   "unknown"
 ]);
-function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
+function runVetWithScript(script, candidate, timeoutMs, projectRoot2) {
   return new Promise((resolve4, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      ...projectSpawnOptions(projectRoot),
+      ...projectSpawnOptions(projectRoot2),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -46420,12 +46421,12 @@ function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
   });
 }
 var PROPOSED_PR_TARGET = "proposed-pr";
-function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
+function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot2) {
   return new Promise((resolve4, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
-      { ...projectSpawnOptions(projectRoot), stdio: ["ignore", "pipe", "pipe"] }
+      { ...projectSpawnOptions(projectRoot2), stdio: ["ignore", "pipe", "pipe"] }
     );
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -46474,10 +46475,10 @@ function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) 
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
-function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
+function runUninstallWithScript(script, candidate, timeoutMs, projectRoot2) {
   return new Promise((resolve4, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      ...projectSpawnOptions(projectRoot),
+      ...projectSpawnOptions(projectRoot2),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -46686,9 +46687,9 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
   return content.replace(fm, newFm);
 }
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
-  const projectRoot = projectRootFromDbPath(dbPath2);
-  if (!projectRoot) return null;
-  const claudeDir = join22(projectRoot, ".claude");
+  const projectRoot2 = projectRootFromDbPath(dbPath2);
+  if (!projectRoot2) return null;
+  const claudeDir = join22(projectRoot2, ".claude");
   if (target === "bro") {
     const claudeMd = join22(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
@@ -46727,11 +46728,11 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   };
 }
 function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools = []) {
-  const projectRoot = projectRootFromDbPath(dbPath2);
-  if (!projectRoot) return;
+  const projectRoot2 = projectRootFromDbPath(dbPath2);
+  if (!projectRoot2) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join22(projectRoot, rel);
+    const filePath = join22(projectRoot2, rel);
     if (!existsSync14(filePath)) return;
     const content = readFileSync11(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
@@ -46741,7 +46742,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join22(projectRoot, rel);
+    const filePath = join22(projectRoot2, rel);
     if (!existsSync14(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     const body2 = readFileSync11(filePath, "utf8");
@@ -47053,15 +47054,15 @@ function cheatcodeTools(db2) {
             `cheatcode install blocked: no approval on record for '${name2}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
         }
-        const projectRoot = projectRootFromDbPath(db2.dbPath);
+        const projectRoot2 = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
-          if (projectRoot === null) return null;
-          const paths = [join22(projectRoot, ".claude", "skills", name2, "SKILL.md")];
+          if (projectRoot2 === null) return null;
+          const paths = [join22(projectRoot2, ".claude", "skills", name2, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join22(projectRoot, ".claude", "CLAUDE.md") : join22(projectRoot, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join22(projectRoot2, ".claude", "CLAUDE.md") : join22(projectRoot2, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
-            const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
+            const refusal2 = outsideProject("cheatcode_install", projectRoot2, path2);
             if (refusal2) return { content: [{ type: "text", text: JSON.stringify(refusal2) }], isError: true };
           }
           return null;
@@ -47487,9 +47488,9 @@ function sessionSpawnTypes(records) {
   }
   return out2;
 }
-function defaultTranscriptsDir(projectRoot) {
+function defaultTranscriptsDir(projectRoot2) {
   const configDir = process.env["CLAUDE_CONFIG_DIR"] || join23(homedir4(), ".claude");
-  return join23(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+  return join23(configDir, "projects", projectRoot2.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
@@ -47790,12 +47791,12 @@ function enabledMap(project, env) {
 }
 var str = (v) => typeof v === "string" && v !== "" ? v : null;
 function enabledPluginCopies(env = process.env) {
-  const projectRoot = resolveClaudeProjectRoot(env);
-  if (projectRoot === null) return { skipped: "CLAUDE_PROJECT_DIR is unset" };
+  const projectRoot2 = resolveClaudeProjectRoot(env);
+  if (projectRoot2 === null) return { skipped: "CLAUDE_PROJECT_DIR is unset" };
   const registryPath = installedPluginsJsonPath(env);
   const registry2 = readJsonObject(registryPath);
   if (registry2 === null) return { skipped: `cannot read ${registryPath}` };
-  const project = canonicalDir(projectRoot);
+  const project = canonicalDir(projectRoot2);
   const enabled = enabledMap(project, env);
   const prefix = `${resolveClaudePluginName(env)}@`;
   const plugins = registry2["plugins"];
@@ -47849,7 +47850,7 @@ function noOtherTrajectoryDbs(env, ctx) {
 }
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
-var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
+var ts = (column2) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column2})`;
 var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
 var auditCommitSha = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
 var SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias) => `${alias}.event_type = 'spec_shape_gate_waived'
@@ -48448,6 +48449,594 @@ function trajectoryDoctorTools(db2) {
   };
 }
 
+// src/tools/bug-report.ts
+import os from "node:os";
+import { basename as basename12 } from "node:path";
+
+// src/bug-report/form.ts
+var FREQUENCY_OPTIONS = ["Every time", "Sometimes", "Once"];
+var AREA_OPTIONS = [
+  "Hooks",
+  "Trajectory Server",
+  "World Model",
+  "Dashboard",
+  "Install",
+  "Agents",
+  "Cheatcode",
+  "Adapters",
+  "Release"
+];
+var IMPACT_OPTIONS = [
+  "Blocks all TMB work",
+  "Blocks one task, has a workaround",
+  "Annoying or cosmetic"
+];
+var CHECK_OPTIONS = [
+  { label: "I searched existing issues for this error.", required: true },
+  { label: "I read this report and it contains no secrets, private code or personal paths.", required: true },
+  { label: "It still happens on the latest version.", required: false }
+];
+var FORM_FIELDS = [
+  { id: "summary", label: "What broke", type: "input", required: true },
+  { id: "what-happened", label: "Expected vs actual", type: "textarea", required: true },
+  { id: "reproduce", label: "Steps to reproduce", type: "textarea", required: true },
+  { id: "repro-script", label: "Minimal repro script", type: "textarea", required: false, render: "shell" },
+  { id: "frequency", label: "How often", type: "dropdown", required: true, options: FREQUENCY_OPTIONS },
+  { id: "error", label: "Error message", type: "textarea", required: true, render: "text" },
+  { id: "area", label: "Area", type: "dropdown", required: true, options: AREA_OPTIONS },
+  { id: "impact", label: "Impact", type: "dropdown", required: true, options: IMPACT_OPTIONS },
+  { id: "environment", label: "Environment", type: "textarea", required: true, render: "text" },
+  { id: "doctor", label: "Doctor output", type: "textarea", required: false, render: "text" },
+  { id: "workaround", label: "Workaround", type: "textarea", required: false },
+  { id: "checks", label: "Checks", type: "checkboxes", required: true, options: CHECK_OPTIONS }
+];
+
+// src/bug-report/render.ts
+import { createHash as createHash4 } from "node:crypto";
+
+// src/bug-report/redact.ts
+var REDACT_RULES = ["token", "email", "remote", "project", "home", "path", "branch", "repo", "title"];
+var TOKEN_PATTERNS = [
+  /-----BEGIN [A-Z0-9 ]*KEY(?: BLOCK)?-----(?:[\s\S]*?-----END [A-Z0-9 ]*KEY(?: BLOCK)?-----|[\s\S]*$)/g,
+  /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+  /\bglpat-[A-Za-z0-9_-]{16,}/g,
+  /\bsk-[A-Za-z0-9_-]{16,}/g,
+  /\bxox[abprs]-[A-Za-z0-9-]{8,}/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
+];
+var EMAIL_RE = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g;
+var URL_TAIL = String.raw`[^\s<>"'\`()\[\]{}]*`;
+var USERINFO = String.raw`(?:(?:[^\s/@<>]|<redacted>)+@)?`;
+var GIT_URL_RE = new RegExp(
+  [
+    String.raw`\b(?:git\+ssh|ssh|git)://${USERINFO}${URL_TAIL}`,
+    String.raw`\bhttps?://${USERINFO}[\w.-]*(?:git|bitbucket|codeberg|azure|sr\.ht)[\w.-]*(?::\d+)?(?:/${URL_TAIL})?`,
+    String.raw`\bhttps?://${USERINFO}${URL_TAIL}\.git\b${URL_TAIL}`,
+    String.raw`(?<![\w.@-])[\w.-]+@[\w-]+(?:\.[\w-]+)+:(?!//)[\w.~/-]+`
+  ].join("|"),
+  "g"
+);
+var KEPT_REMOTE_RE = /^(?:https?:\/\/(?:www\.)?|ssh:\/\/git@|git@)github\.com[:/]trustmybot\/plugin(?:\.git)?(?:[/?#].*)?$/i;
+var TRAILING_PUNCT_RE = /[.,;:!?]+$/;
+var PLACEHOLDER_RE = /<(?:redacted|email|repo|project|path|branch|title)>/g;
+var KEPT_BRANCHES = /* @__PURE__ */ new Set(["main", "master", "dev", "develop", "HEAD"]);
+var KEPT_REPO_NAMES = /* @__PURE__ */ new Set(["plugin", "tmb", "trustmybot"]);
+var PATH_SEG = String.raw`[^\s/\\:*?"<>|'\`,;()\[\]{}]+`;
+var WINDOWS_PATH_RE = new RegExp(
+  String.raw`(?<![\w])(?:[A-Za-z]:[\\/](?:${PATH_SEG}[\\/])*${PATH_SEG}|\\\\${PATH_SEG}(?:\\${PATH_SEG})+)`,
+  "g"
+);
+var POSIX_PATH_RE = new RegExp(String.raw`(?<=^|[\s'"\`(\[{=,;|:]|file://)/(?:${PATH_SEG}/)+${PATH_SEG}`, "g");
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function emptyCounts() {
+  return Object.fromEntries(REDACT_RULES.map((r) => [r, 0]));
+}
+function byLengthDesc(values) {
+  return [...new Set(values)].sort((a, b) => b.length - a.length);
+}
+function outsidePlaceholders(text, fn) {
+  let out2 = "";
+  let last = 0;
+  for (const m of text.matchAll(PLACEHOLDER_RE)) {
+    out2 += fn(text.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out2 + fn(text.slice(last));
+}
+function redactTokens(text, counts) {
+  let out2 = text;
+  for (const re of TOKEN_PATTERNS) {
+    out2 = out2.replace(re, () => {
+      counts.token++;
+      return "<redacted>";
+    });
+  }
+  return out2;
+}
+function redactEmails(text, counts) {
+  const urlSpans = [...text.matchAll(GIT_URL_RE)].map((m) => [m.index, m.index + m[0].length]);
+  return text.replace(EMAIL_RE, (match, offset) => {
+    if (urlSpans.some(([start2, end]) => offset >= start2 && offset < end)) return match;
+    counts.email++;
+    return "<email>";
+  });
+}
+function isKeptRemote(url2) {
+  return KEPT_REMOTE_RE.test(url2);
+}
+function redactRemotes(text, remoteUrls, counts) {
+  let out2 = text;
+  const literals = byLengthDesc(remoteUrls.map((u) => redactTokens(u.trim(), emptyCounts()))).filter((u) => u.length > 0 && !isKeptRemote(u));
+  for (const literal2 of literals) {
+    out2 = out2.replace(new RegExp(escapeRe(literal2), "g"), () => {
+      counts.remote++;
+      return "<repo>";
+    });
+  }
+  return out2.replace(GIT_URL_RE, (match) => {
+    const tail = TRAILING_PUNCT_RE.exec(match)?.[0] ?? "";
+    const url2 = match.slice(0, match.length - tail.length);
+    if (isKeptRemote(url2)) return match;
+    counts.remote++;
+    return "<repo>" + tail;
+  });
+}
+function pathVariants(p) {
+  const forward = p.replace(/\\/g, "/");
+  const back = p.replace(/\//g, "\\");
+  return [p, forward, back, back.replace(/\\/g, "\\\\")];
+}
+function isUsableRoot(p) {
+  const trimmed = p.replace(/[\\/]+$/, "");
+  return trimmed.length >= 2 && !/^[A-Za-z]:$/.test(trimmed);
+}
+function redactRoots(text, ctx, counts) {
+  const roots = [];
+  for (const [raw, replacement, rule] of [
+    [ctx.projectRoot, "<project>", "project"],
+    [ctx.home, "~", "home"]
+  ]) {
+    if (!raw || !isUsableRoot(raw)) continue;
+    const base = raw.replace(/[\\/]+$/, "");
+    for (const literal2 of new Set(pathVariants(base))) roots.push({ literal: literal2, replacement, rule });
+  }
+  roots.sort((a, b) => b.literal.length - a.literal.length);
+  let out2 = text;
+  for (const { literal: literal2, replacement, rule } of roots) {
+    const caseInsensitive = /^[A-Za-z]:/.test(literal2) || literal2.startsWith("\\\\");
+    const re = new RegExp(escapeRe(literal2) + String.raw`(?![\w-]|\.[\w-])`, caseInsensitive ? "gi" : "g");
+    out2 = out2.replace(re, () => {
+      counts[rule]++;
+      return replacement;
+    });
+  }
+  return out2;
+}
+function basename11(path2) {
+  const parts2 = path2.split(/[\\/]+/).filter(Boolean);
+  return parts2[parts2.length - 1] ?? "";
+}
+function redactPaths(text, counts) {
+  const replace = (match) => {
+    counts.path++;
+    return `<path>/${basename11(match)}`;
+  };
+  return text.replace(WINDOWS_PATH_RE, replace).replace(POSIX_PATH_RE, replace);
+}
+function redactWords(text, words, pattern, flags2, replacement, rule, counts) {
+  if (words.length === 0) return text;
+  const re = new RegExp(byLengthDesc(words).map((w) => pattern(escapeRe(w))).join("|"), flags2);
+  return outsidePlaceholders(
+    text,
+    (segment) => segment.replace(re, () => {
+      counts[rule]++;
+      return replacement;
+    })
+  );
+}
+var MAX_PASSES = 8;
+function redact(text, ctx) {
+  const counts = emptyCounts();
+  let out2 = text;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    const next = redactOnce(out2, ctx, counts);
+    if (next === out2) break;
+    out2 = next;
+  }
+  return { text: out2, counts };
+}
+function redactOnce(text, ctx, counts) {
+  let out2 = redactTokens(text, counts);
+  out2 = redactEmails(out2, counts);
+  out2 = redactRemotes(out2, ctx.remoteUrls, counts);
+  out2 = redactRoots(out2, ctx, counts);
+  out2 = redactPaths(out2, counts);
+  out2 = redactWords(
+    out2,
+    ctx.branchNames.map((b) => b.trim()).filter((b) => b.length > 0 && !KEPT_BRANCHES.has(b)),
+    (w) => String.raw`(?<![\w.-])${w}(?![\w-]|\.[\w-])`,
+    "g",
+    "<branch>",
+    "branch",
+    counts
+  );
+  out2 = redactWords(
+    out2,
+    ctx.repoNames.map((r) => r.trim()).filter((r) => r.length >= 3 && !KEPT_REPO_NAMES.has(r.toLowerCase())),
+    (w) => String.raw`(?<![A-Za-z0-9_])${w}(?![A-Za-z0-9_])`,
+    "gi",
+    "<repo>",
+    "repo",
+    counts
+  );
+  out2 = redactWords(
+    out2,
+    ctx.titles.map((t) => t.trim()).filter((t) => t.length >= 4),
+    (w) => w,
+    "g",
+    "<title>",
+    "title",
+    counts
+  );
+  return out2;
+}
+
+// src/bug-report/render.ts
+var NEW_ISSUE_URL = "https://github.com/trustmybot/plugin/issues/new";
+var PREFILL_MAX_CHARS = 8e3;
+var TITLE_MAX_CHARS = 80;
+var TITLE_PREFIX = "\u{1F41B} ";
+var NO_RESPONSE = "_No response_";
+var ELLIPSIS = "\u2026";
+var PREFILL_DROP_ORDER = ["repro-script", "doctor", "workaround"];
+function redactFields(input, env, ctx) {
+  const counts = Object.fromEntries(REDACT_RULES.map((r) => [r, 0]));
+  const scrub = (text) => {
+    const result2 = redact(text, ctx);
+    for (const rule of REDACT_RULES) counts[rule] += result2.counts[rule];
+    return result2.text;
+  };
+  const fields = {};
+  for (const field2 of FORM_FIELDS) {
+    const id = field2.id;
+    if (id === "environment" || id === "checks") continue;
+    const raw = (input[id] ?? "").trim();
+    if (field2.type === "dropdown") {
+      const options = field2.options;
+      if (raw && !options.includes(raw)) {
+        throw new RangeError(`${id} must be one of: ${options.join(", ")}`);
+      }
+      fields[id] = raw;
+    } else {
+      fields[id] = scrub(raw).trim();
+    }
+  }
+  const envLines = Object.entries(env).filter(([key]) => key !== "signature").map(([key, value]) => `${key}: ${scrub(String(value).replace(/\s*[\r\n]+\s*/g, " ").trim())}`);
+  fields.environment = "";
+  fields.checks = "";
+  return { fields, envLines, counts };
+}
+function computeSignature(tool, errorClass, redactedError) {
+  const normalized = redactedError.replace(/\d+/g, "N").replace(/\s+/g, " ").trim();
+  return createHash4("sha256").update([tool, errorClass, normalized].join("\n")).digest("hex").slice(0, 12);
+}
+function reportMarker(signature) {
+  return `<!-- tmb-report v1 sig=${signature} -->`;
+}
+function buildTitle(summary) {
+  const chars = Array.from(summary.replace(/\s+/g, " ").trim());
+  const room = TITLE_MAX_CHARS - Array.from(TITLE_PREFIX).length;
+  const text = chars.length > room ? chars.slice(0, room - 1).join("").trimEnd() + ELLIPSIS : chars.join("");
+  return TITLE_PREFIX + text;
+}
+function fence(value, lang) {
+  const longestRun = Math.max(0, ...Array.from(value.matchAll(/`+/g), (m) => m[0].length));
+  const ticks = "`".repeat(Math.max(3, longestRun + 1));
+  return `${ticks}${lang}
+${value}
+${ticks}`;
+}
+function renderValue(field2, value) {
+  if (field2.type === "checkboxes") {
+    return CHECK_OPTIONS.map((option, i2) => `- [${i2 === 0 ? "x" : " "}] ${option.label}`).join("\n");
+  }
+  if (!value) return NO_RESPONSE;
+  return field2.render ? fence(value, field2.render) : value;
+}
+function buildPrefillUrl(title, fields, dropped) {
+  const params = [`template=bug.yml`, `title=${encodeURIComponent(title)}`];
+  for (const field2 of FORM_FIELDS) {
+    const id = field2.id;
+    if (field2.type === "checkboxes" || dropped.has(id)) continue;
+    params.push(`${id}=${encodeURIComponent(fields[id])}`);
+  }
+  return `${NEW_ISSUE_URL}?${params.join("&")}`;
+}
+function render(input, env, ctx) {
+  const { fields, envLines } = redactFields(input, env, ctx);
+  const signature = computeSignature(input.tool ?? "", input.error_class ?? "", fields.error);
+  const marker = reportMarker(signature);
+  fields.environment = [...envLines, `signature: ${signature}`].join("\n");
+  const title = buildTitle(fields.summary);
+  const blocks = FORM_FIELDS.map(
+    (field2) => `### ${field2.label}
+
+${renderValue(field2, fields[field2.id])}`
+  );
+  const body2 = [...blocks, marker].join("\n\n");
+  const dropped = /* @__PURE__ */ new Set();
+  let prefill_url = buildPrefillUrl(title, fields, dropped);
+  for (const id of PREFILL_DROP_ORDER) {
+    if (prefill_url.length <= PREFILL_MAX_CHARS) break;
+    dropped.add(id);
+    prefill_url = buildPrefillUrl(title, fields, dropped);
+  }
+  const shortened = prefill_url.length > PREFILL_MAX_CHARS;
+  if (shortened) prefill_url = shortenPrefill(title, fields, dropped);
+  return { title, body: body2, signature, marker, prefill_url, prefill_truncated: dropped.size > 0 || shortened };
+}
+function encodedLength(value) {
+  return encodeURIComponent(value).length;
+}
+function shortenTo(value, maxEncoded) {
+  const chars = Array.from(value);
+  let lo = 0;
+  let hi = chars.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (encodedLength(chars.slice(0, mid).join("") + ELLIPSIS) <= maxEncoded) lo = mid;
+    else hi = mid - 1;
+  }
+  return chars.slice(0, lo).join("") + ELLIPSIS;
+}
+function shortenPrefill(title, source, dropped) {
+  const fields = { ...source };
+  const candidates = FORM_FIELDS.filter((f) => f.type !== "checkboxes" && f.type !== "dropdown" && !dropped.has(f.id)).map((f) => f.id);
+  let url2 = buildPrefillUrl(title, fields, dropped);
+  while (url2.length > PREFILL_MAX_CHARS) {
+    const longest = candidates.reduce((a, b) => encodedLength(fields[b]) > encodedLength(fields[a]) ? b : a);
+    const next = shortenTo(fields[longest], encodedLength(fields[longest]) - (url2.length - PREFILL_MAX_CHARS));
+    if (encodedLength(next) >= encodedLength(fields[longest])) break;
+    fields[longest] = next;
+    url2 = buildPrefillUrl(title, fields, dropped);
+  }
+  return url2;
+}
+
+// src/tools/bug-report.ts
+var ERROR_CLASSES = ["constraint", "internal", "server_died", "doctor", "hook_deny", "user_reported"];
+var CLIENTS = ["cli", "desktop", "ide"];
+var SESSIONS = ["worktree", "main checkout"];
+var REQUIRED_TEXT = ["tool", "error", "summary", "what_happened", "reproduce"];
+var HOOK_TOOL_RE = /^hook:/;
+var HOOK_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)+(?:\.(?:sh|ts|mjs))?$/;
+var CONSENT_REFUSAL = "bug_report_consent is not 'yes': bro may draft a TMB bug report only after the Human opts in through /onboard (or onboard_apply(bug_report_consent='yes') on an onboarded project), or when the Human asked for this report (user_asked: true)";
+function ok22(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err21(message2, extra = {}) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message2, ...extra }) }], isError: true };
+}
+function defaultArea(tool) {
+  if (tool.startsWith("world_model_") || tool === "scan_run") return "World Model";
+  if (tool.startsWith("cheatcode_")) return "Cheatcode";
+  if (HOOK_TOOL_RE.test(tool) || HOOK_NAME_RE.test(tool)) return "Hooks";
+  return "Trajectory Server";
+}
+function versionChannel(version2) {
+  if (!version2) return "unknown";
+  if (/-dev\b/.test(version2)) return "dev";
+  if (/-rc\b/.test(version2)) return "rc";
+  return "stable";
+}
+function readConfig2(db2, key) {
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [key]);
+  if (!row?.value_json) return null;
+  try {
+    return JSON.parse(row.value_json);
+  } catch {
+    return null;
+  }
+}
+function column(db2, sql) {
+  return db2.all(sql).map((r) => typeof r.v === "string" ? r.v.trim() : "").filter((v) => v.length > 0);
+}
+function projectRoot(db2, env) {
+  return claudeProjectRootOfDb(db2.dbPath) ?? resolveClaudeProjectRoot(env) ?? process.cwd();
+}
+function redactContext(db2, home, root) {
+  const repoPaths = column(db2, `SELECT path AS v FROM repos`);
+  return {
+    home,
+    projectRoot: root,
+    remoteUrls: column(db2, `SELECT url AS v FROM repo_remotes`),
+    repoNames: [.../* @__PURE__ */ new Set([...column(db2, `SELECT name AS v FROM repos`), ...repoPaths, ...repoPaths.map((p) => basename12(p))])],
+    branchNames: column(
+      db2,
+      `SELECT branch_id AS v FROM tasks
+       UNION SELECT parent_branch_id FROM tasks
+       UNION SELECT target_branch FROM repos`
+    ),
+    titles: column(db2, `SELECT objective AS v FROM issues UNION SELECT title FROM tasks`)
+  };
+}
+function projectShape(db2) {
+  const repos = db2.get(`SELECT COUNT(*) AS n FROM repos`)?.n ?? 0;
+  const remotes = db2.get(`SELECT COUNT(*) AS n FROM repo_remotes`)?.n ?? 0;
+  const shape = remotes > 0 ? "remote" : "local";
+  return repos > 1 ? `${shape}, ${repos} repos` : shape;
+}
+function branching(db2) {
+  const models = column(db2, `SELECT DISTINCT branching_model AS v FROM repos ORDER BY branching_model`);
+  return models.length > 0 ? models.join(", ") : "unknown";
+}
+function environment(db2, args2, env) {
+  const version2 = resolvePluginVersion(env);
+  const ccVersion = typeof args2["claude_code_version"] === "string" && args2["claude_code_version"].trim() ? args2["claude_code_version"].trim() : "unknown";
+  const client = typeof args2["client"] === "string" ? ` (${args2["client"]})` : "";
+  const shell = env["SHELL"] ? basename12(env["SHELL"]) : "unknown";
+  return {
+    tmb: version2 ?? "unknown",
+    channel: versionChannel(version2),
+    "claude-code": ccVersion + client,
+    os: `${os.platform()} ${os.release()} ${os.arch()}`,
+    shell,
+    node: process.version,
+    "project-shape": projectShape(db2),
+    branching: branching(db2),
+    "issue-sync": String(readConfig2(db2, "issue_sync") ?? "off"),
+    session: typeof args2["session"] === "string" ? args2["session"] : "unknown",
+    sandbox: String(readConfig2(db2, "sandbox_enforcement") ?? "no"),
+    "reported-by": "bro"
+  };
+}
+function alreadyFiled(db2, signature) {
+  const row = db2.get(
+    `SELECT json_extract(content_json, '$.url') AS url, json_extract(content_json, '$.mode') AS mode, created_at
+       FROM audit
+      WHERE event_type = 'bug_report_filed'
+        AND CASE WHEN json_valid(content_json) THEN json_extract(content_json, '$.signature') END = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    [signature]
+  );
+  if (!row) return null;
+  return {
+    url: typeof row.url === "string" ? row.url : null,
+    mode: typeof row.mode === "string" ? row.mode : null,
+    created_at: row.created_at
+  };
+}
+function oneOf(args2, name2, allowed, required2) {
+  const value = args2[name2];
+  if (value === void 0 || value === null) {
+    if (required2) throw new Error(`Missing required arg: ${name2}`);
+    return null;
+  }
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    throw new Error(`${name2} must be one of: ${allowed.join(", ")} (got ${JSON.stringify(value)})`);
+  }
+  return value;
+}
+function optionalText(args2, name2) {
+  const value = args2[name2];
+  if (value === void 0 || value === null) return "";
+  if (typeof value !== "string") throw new Error(`${name2} must be a string`);
+  return value;
+}
+function doctorText(raw) {
+  if (raw === void 0 || raw === null) return "";
+  if (!Array.isArray(raw)) throw new Error("doctor_violations must be an array of {name, count}");
+  return raw.map((v) => {
+    const item = v;
+    if (typeof item?.name !== "string" || typeof item.count !== "number") {
+      throw new Error("doctor_violations must be an array of {name, count}");
+    }
+    return `${item.name}: ${item.count}`;
+  }).join("\n");
+}
+function reproduceText(reproduce, tool, toolArgs) {
+  if (toolArgs === void 0 || toolArgs === null) return reproduce;
+  if (typeof toolArgs !== "object" || Array.isArray(toolArgs)) throw new Error("args must be an object");
+  return `${reproduce}
+
+Args passed to \`${tool}\`:
+
+\`\`\`json
+${JSON.stringify(toolArgs, null, 2)}
+\`\`\``;
+}
+function buildInput(args2) {
+  for (const name2 of REQUIRED_TEXT) {
+    const value = args2[name2];
+    if (typeof value !== "string" || value.trim().length === 0) throw new Error(`Missing required arg: ${name2}`);
+  }
+  const tool = args2["tool"].trim();
+  const errorClass = oneOf(args2, "error_class", ERROR_CLASSES, true);
+  const frequency = oneOf(args2, "frequency", FREQUENCY_OPTIONS, true);
+  const impact = oneOf(args2, "impact", IMPACT_OPTIONS, true);
+  const area = oneOf(args2, "area", AREA_OPTIONS, false) ?? defaultArea(tool);
+  oneOf(args2, "client", CLIENTS, false);
+  oneOf(args2, "session", SESSIONS, false);
+  return {
+    tool,
+    error_class: errorClass,
+    summary: args2["summary"],
+    "what-happened": args2["what_happened"],
+    reproduce: reproduceText(args2["reproduce"], tool, args2["args"]),
+    "repro-script": optionalText(args2, "repro_script"),
+    frequency,
+    error: args2["error"],
+    area,
+    impact,
+    doctor: doctorText(args2["doctor_violations"]),
+    workaround: optionalText(args2, "workaround")
+  };
+}
+function bugReportTools(db2, opts = {}) {
+  const definitions = [
+    {
+      name: "bug_report_draft",
+      description: "Draft a redacted TMB bug report for github.com/trustmybot/plugin; files nothing. Refused unless bug_report_consent is 'yes' or user_asked. already_filed: {url, mode, created_at} of the newest bug_report_filed audit row with this signature, else null.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          tool: { type: "string", description: "Required. The failing tool, or a hook as hook:<name> or its kebab-case name." },
+          error: { type: "string", description: "Required. The error message, verbatim." },
+          error_class: { type: "string", enum: [...ERROR_CLASSES], description: "Required. How the failure surfaced." },
+          summary: { type: "string", description: "Required. One line: what broke." },
+          what_happened: { type: "string", description: "Required. Expected vs actual." },
+          reproduce: { type: "string", description: "Required. Steps to reproduce." },
+          frequency: { type: "string", enum: [...FREQUENCY_OPTIONS], description: "Required." },
+          impact: { type: "string", enum: [...IMPACT_OPTIONS], description: "Required." },
+          args: { type: "object", description: "Optional. The failing call's arguments; rendered as JSON under the steps, then redacted." },
+          repro_script: { type: "string", description: "Optional. A minimal shell repro." },
+          area: { type: "string", enum: [...AREA_OPTIONS], description: "Optional. Default from tool: world_model_* / scan_run \u2192 World Model, cheatcode_* \u2192 Cheatcode, a hook \u2192 Hooks, else Trajectory Server." },
+          workaround: { type: "string", description: "Optional." },
+          doctor_violations: {
+            type: "array",
+            items: { type: "object", properties: { name: { type: "string" }, count: { type: "number" } }, required: ["name", "count"] },
+            description: "Optional. trajectory_doctor violations as {name, count}."
+          },
+          claude_code_version: { type: "string", description: "Optional. Claude Code's version; 'unknown' when absent." },
+          client: { type: "string", enum: [...CLIENTS], description: "Optional. The Claude Code client." },
+          session: { type: "string", enum: [...SESSIONS], description: "Optional. Where bro runs." },
+          user_asked: { type: "boolean", description: "Optional. True only when the Human asked for this report; admits a draft without bug_report_consent." }
+        },
+        required: ["agent", "tool", "error", "error_class", "summary", "what_happened", "reproduce", "frequency", "impact"]
+      }
+    }
+  ];
+  const handler = async (args2) => {
+    const env = opts.env ?? process.env;
+    const stored = readConfig2(db2, "bug_report_consent");
+    const userAsked = args2["user_asked"] === true;
+    if (stored !== "yes" && !userAsked) {
+      return err21(CONSENT_REFUSAL, { reason: "bug_report_consent_required", bug_report_consent: stored ?? "unset" });
+    }
+    try {
+      const input = buildInput(args2);
+      const reportEnv = environment(db2, args2, env);
+      const ctx = redactContext(db2, opts.home ?? os.homedir(), projectRoot(db2, env));
+      const report = render(input, reportEnv, ctx);
+      return ok22({
+        ...report,
+        consent: stored === "yes" ? "yes" : "user_asked",
+        redactions: redactFields(input, reportEnv, ctx).counts,
+        already_filed: alreadyFiled(db2, report.signature)
+      });
+    } catch (e) {
+      return err21(e.message);
+    }
+  };
+  return { definitions, handlers: { bug_report_draft: requireRoles("bug_report_draft", ["bro"], handler) } };
+}
+
 // src/tools/index.ts
 var toolDefinitions = [];
 var toolHandlers = {};
@@ -48496,6 +49085,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const worldModel = worldModelTools(db2, graphHolder2);
   const backfill = agentRunsBackfillTools(db2, dbPath2);
   const doctor = trajectoryDoctorTools(db2);
+  const bugReport = bugReportTools(db2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
@@ -48518,7 +49108,8 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...cheatcode.definitions,
     ...worldModel.definitions,
     ...backfill.definitions,
-    ...doctor.definitions
+    ...doctor.definitions,
+    ...bugReport.definitions
   ]);
   const handlers = {
     ...discussions.handlers,
@@ -48542,7 +49133,8 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...cheatcode.handlers,
     ...worldModel.handlers,
     ...backfill.handlers,
-    ...doctor.handlers
+    ...doctor.handlers,
+    ...bugReport.handlers
   };
   toolHandlers = Object.fromEntries(
     Object.entries(handlers).map(([name2, handler]) => [name2, requireAgent(name2, handler)])
@@ -48616,8 +49208,8 @@ import { existsSync as existsSync16 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 var RUN_SCAN_SCRIPT = fileURLToPath8(new URL("../../../scripts/maintenance/run-scan.mjs", import.meta.url));
 var STARTUP_CATCHUP_SOURCE = "startup_catchup";
-function startupCatchupArgs(script, projectRoot, execArgv = process.execArgv) {
-  return [...execArgv, script, projectRoot, STARTUP_CATCHUP_SOURCE];
+function startupCatchupArgs(script, projectRoot2, execArgv = process.execArgv) {
+  return [...execArgv, script, projectRoot2, STARTUP_CATCHUP_SOURCE];
 }
 function decideStartupCatchup(opts) {
   const script = opts.script ?? RUN_SCAN_SCRIPT;
@@ -48625,10 +49217,10 @@ function decideStartupCatchup(opts) {
   if (opts.dbPath === ":memory:") return { spawn: false, reason: "memory-db" };
   if (opts.env["TMB_SKIP_AUTO_RESCAN"] === "1") return { spawn: false, reason: "skip-env" };
   if (opts.env["NODE_TEST_CONTEXT"]) return { spawn: false, reason: "test-context" };
-  const projectRoot = opts.env["CLAUDE_PROJECT_DIR"]?.trim();
-  if (!projectRoot) return { spawn: false, reason: "no-project-root" };
+  const projectRoot2 = opts.env["CLAUDE_PROJECT_DIR"]?.trim();
+  if (!projectRoot2) return { spawn: false, reason: "no-project-root" };
   if (!exists(script)) return { spawn: false, reason: "script-missing" };
-  return { spawn: true, script, projectRoot, reason: "spawned" };
+  return { spawn: true, script, projectRoot: projectRoot2, reason: "spawned" };
 }
 function startStartupCatchup(dbPath2) {
   const decision = decideStartupCatchup({ dbPath: dbPath2, env: process.env });
@@ -48711,10 +49303,10 @@ var shutdown = createShutdown({
   exit: (code) => process.exit(code),
   pid: process.pid
 });
-process.on("uncaughtException", (err21) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err21.message, stack: err21.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err21.message}
-${err21.stack ?? ""}
+process.on("uncaughtException", (err22) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err22.message, stack: err22.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err22.message}
+${err22.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -48758,17 +49350,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let result2;
   try {
     result2 = await handler(args2 ?? {});
-  } catch (err21) {
+  } catch (err22) {
     const duration_ms2 = Math.round(performance3.now() - start2);
     serverLog({
       kind: "tool_exit",
       tool: name2,
       agent,
       is_error: true,
-      error_message: err21 instanceof Error ? err21.message : String(err21),
+      error_message: err22 instanceof Error ? err22.message : String(err22),
       duration_ms: duration_ms2
     });
-    throw err21;
+    throw err22;
   }
   const duration_ms = Math.round(performance3.now() - start2);
   serverLog({
