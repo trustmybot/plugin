@@ -17541,7 +17541,7 @@ var codeReviewerAfterAtomicClose = (payload, env) => {
 
 // src/hooks/swe-brief-gate.ts
 var GATE_NAME37 = "swe-brief-gate";
-var BLOCKED_MUTATIONS = /* @__PURE__ */ new Set(["Edit", "Write", "NotebookEdit"]);
+var BLOCKED_MUTATIONS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 var TRAJECTORY_TOOL = /^mcp__[\s\S]*trajectory-server__/;
 function briefSurface(toolName2) {
   if (toolName2.includes("task_brief")) return "task_brief";
@@ -18108,6 +18108,59 @@ var cheatcodeInstallApproval = (payload, env) => {
   return deny7(notApprovedReason(name3, url));
 };
 
+// src/hooks/swe-scope-fence.ts
+var GATE_NAME44 = "swe-scope-fence";
+var EDIT_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+function jqFirst(input, paths, orEmpty2 = false) {
+  const lines2 = [];
+  for (const value of input.values) {
+    let picked = null;
+    try {
+      for (const path of paths) {
+        picked = jqAlt2(jqGet(value, ...path), null);
+        if (picked !== null) break;
+      }
+      if (picked === null && !orEmpty2) picked = "";
+    } catch (e) {
+      if (e instanceof JqUnindexable) continue;
+      throw e;
+    }
+    if (picked !== null) lines2.push(jqRaw2(picked));
+  }
+  return shellCapture2(lines2.join("\n"));
+}
+function worktreeRelative(path, worktree) {
+  const prefix = `${worktree.endsWith("/") ? worktree.slice(0, -1) : worktree}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : null;
+}
+function scopeNote(note) {
+  return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: `TMB: ${note}` } })}
+`;
+}
+var sweScopeFence = (payload, env) => {
+  const captured = shellCapture2(payload);
+  const input = jqInput(`${captured}
+`);
+  if (!EDIT_TOOLS2.has(jqFirst(input, [["tool_name"]]))) return ALLOW;
+  const role = normalizeRole(jqFirst(input, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]], true));
+  if (role !== "swe") return ALLOW;
+  const target = jqFirst(input, [["tool_input", "file_path"], ["tool_input", "notebook_path"]]);
+  if (target === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const ctx = agentContext(captured, db, env);
+  if (ctx.code !== 0) return ALLOW;
+  const fence = new ScopeFence(env);
+  fence.load(db, ctx.taskId);
+  if (fence.state !== "ok") return ALLOW;
+  const cwd = jqFirst(input, [["cwd"]], true) || env.PWD || process.cwd();
+  const abs = shellCapture2(pathCanonical2(target.startsWith("/") ? target : `${cwd}/${target}`));
+  const rel = worktreeRelative(abs, shellCapture2(pathCanonical2(ctx.worktree)));
+  if (rel === null || fence.allows(rel)) return ALLOW;
+  const note = fence.note(ctx.taskId, rel);
+  return note === "" ? ALLOW : { stdout: scopeNote(note), code: 0 };
+};
+
 // src/hooks/registry.ts
 var GATES = /* @__PURE__ */ new Map([
   ["askuserquestion-length-lint", askuserquestionLengthLint],
@@ -18154,7 +18207,8 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME40, postTaskCreateSpawnHint],
   [GATE_NAME41, agentArgMatchesCaller],
   [GATE_NAME42, reviewerIdentityObserve],
-  [GATE_NAME43, cheatcodeInstallApproval]
+  [GATE_NAME43, cheatcodeInstallApproval],
+  [GATE_NAME44, sweScopeFence]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
