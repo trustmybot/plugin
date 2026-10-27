@@ -209,14 +209,14 @@ export function snapshot(root: string): Record<string, string | null> {
   return out;
 }
 
-type SideExpect = string | Record<string, string>;
-type Expect = string | { bash: SideExpect; ts: SideExpect };
+export type SideExpect = string | Record<string, string>;
+export type Expect = string | { bash: SideExpect; ts: SideExpect };
 
-function byLocale(expect: SideExpect, locale: string): string {
+export function byLocale(expect: SideExpect, locale: string): string {
   return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
 
-interface Case {
+export interface Case {
   input: Buffer;
   env: Record<string, string | null>;
   cwd: string;
@@ -265,13 +265,13 @@ function caseEnv(s: string, locale: string, extra: Record<string, string | null>
   return env;
 }
 
-interface Run {
+export interface Run {
   code: number | null;
   stdout: string;
   stderr: string;
 }
 
-function run(cmd: string, args: string[], c: Case, env: NodeJS.ProcessEnv): Run {
+export function run(cmd: string, args: string[], c: Case, env: NodeJS.ProcessEnv): Run {
   const dir = mkdtempSync(join(tmpdir(), 'tmb-swe-run-stdin-'));
   const file = join(dir, 'stdin');
   writeFileSync(file, c.input);
@@ -287,7 +287,7 @@ function run(cmd: string, args: string[], c: Case, env: NodeJS.ProcessEnv): Run 
 }
 
 /** `empty`: no stdout or stderr; anything else: a phrase of the output or of the project DB rows. */
-function assertExpect(side: string, r: Run, tree: Record<string, string | null>, expect: string): void {
+export function assertExpect(side: string, r: Run, tree: Record<string, string | null>, expect: string): void {
   const output = r.stdout + r.stderr;
   if (expect === 'empty') {
     assert.equal(output, '', `${side}: no output`);

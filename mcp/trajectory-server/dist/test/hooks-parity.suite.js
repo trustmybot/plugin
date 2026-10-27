@@ -199,6 +199,7 @@ const OWN_SANDBOX_GATES = new Set([
     'agent-arg-matches-caller',
     'reviewer-identity-observe',
     'cheatcode-install-approval',
+    'prompt-intent-hints',
     'swe-scope-fence',
     'swe-verification-gate',
     'post-atomic-close-readme',

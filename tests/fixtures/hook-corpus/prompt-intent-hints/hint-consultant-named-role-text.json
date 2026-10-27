@@ -1,0 +1,1 @@
+{"session_id":"corpus","hook_event_name":"UserPromptSubmit","prompt":"ask the pm, then decide","corpus_expect":"The user's prompt names the `pm` role."}
