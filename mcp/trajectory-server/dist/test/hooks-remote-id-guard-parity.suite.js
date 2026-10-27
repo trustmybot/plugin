@@ -68,7 +68,7 @@ export function localIssuesDb(path) {
         db.close();
     }
 }
-function buildSandbox(s) {
+export function buildSandbox(s) {
     mkdirSync(join(s, 'project'), { recursive: true });
     localIssuesDb(join(s, 'db/trajectory.db'));
     const empty = new DatabaseSync(join(s, 'no-issues.db'));
@@ -76,7 +76,7 @@ function buildSandbox(s) {
     empty.close();
     writeFileSync(join(s, 'bad.db'), 'this is not a sqlite database\n'.repeat(64));
 }
-function materialize(file, s, paths) {
+export function materialize(file, s, paths) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', s).replaceAll('@NOJQ_PATH@', paths.noJq).replaceAll('@NOSQLITE_PATH@', paths.noSqlite);
     const { corpus_env: env = {}, corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, expect, divergent };

@@ -77,11 +77,22 @@ export CLAUDE_PROJECT_DIR="$PROJECT"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 export TMB_INSTALLED_JSON="$SANDBOX/no-installed-plugins.json"
 
-# gates <tool> — every PreToolUse gate hooks.json registers for <tool>.
+# shellcheck source=scripts/hooks/lib/registrations.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
+
+# gates <tool> — every PreToolUse gate hooks.json registers for <tool>, the
+# router entry's gates (dist/hooks-router.txt) included.
 gates() {
-  jq -r --arg t "$1" '.hooks.PreToolUse[] | select(.matcher as $m | $t | test("^(" + $m + ")$"))
-                      | .hooks[].command' "$PLUGIN_ROOT/hooks/hooks.json" \
-    | sed -nE 's/.*dispatch\.sh"? ([a-z0-9-]+).*/\1/p'
+  local cmd event
+  while IFS= read -r cmd; do
+    event=$(tmb_router_event "$cmd")
+    if [ -n "$event" ]; then
+      tmb_router_gates "$PLUGIN_ROOT" "$event"
+    else
+      printf '%s\n' "$cmd" | sed -nE 's/.*dispatch\.sh"? ([a-z0-9-]+).*/\1/p'
+    fi
+  done < <(jq -r --arg t "$1" '.hooks.PreToolUse[] | select(.matcher as $m | $t | test("^(" + $m + ")$"))
+                      | .hooks[].command' "$PLUGIN_ROOT/hooks/hooks.json")
 }
 
 SEQ_FILE="$SANDBOX/seq"

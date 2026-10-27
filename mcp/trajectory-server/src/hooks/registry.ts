@@ -141,3 +141,70 @@ export function findGate(name: string): Gate | undefined {
 export function gateNames(): string[] {
   return [...GATES.keys()].sort();
 }
+
+/*
+ * The router (GH 1692 R1): `node dist/hooks.js <event>` runs every gate of the
+ * groups whose event and tool match the payload, one after another in this
+ * order, each within its budget from router/budgets.json.
+ */
+import ROUTER_BUDGETS from './router/budgets.json' with { type: 'json' };
+
+export type RouterGateKind = 'enforcement' | 'advisory';
+
+export interface RouterGate {
+  readonly name: string;
+  readonly kind: RouterGateKind;
+  readonly budgetMs: number;
+}
+
+export interface RouterGroup {
+  readonly event: string;
+  readonly tools: readonly string[];
+  readonly gates: readonly RouterGate[];
+}
+
+function routerGate(name: string, kind: RouterGateKind): RouterGate {
+  const budgets: Record<string, { budget_ms: number }> = ROUTER_BUDGETS.gates;
+  return { name, kind, budgetMs: budgets[name].budget_ms };
+}
+
+export const ROUTER_GROUPS: readonly RouterGroup[] = [
+  {
+    event: 'PreToolUse',
+    tools: ['Bash'],
+    gates: [
+      routerGate('containment-guard', 'enforcement'),
+      routerGate(GIT_GUARDS_GATE, 'enforcement'),
+      routerGate(PUSH_GUARD_GATE, 'enforcement'),
+      routerGate(SWE_BOUNDARY_GATE, 'enforcement'),
+      routerGate(NO_WORKTREE_BRANCH_CREATE_GATE, 'enforcement'),
+      routerGate(STAY_ON_BASE_GATE, 'enforcement'),
+      routerGate(BRANCH_UP_TO_DATE_GATE, 'enforcement'),
+      routerGate(COMMIT_MSG_GATE, 'advisory'),
+      routerGate(NO_REMOTE_AUTH_GATE, 'enforcement'),
+      routerGate(REMOTE_ID_GATE, 'enforcement'),
+      routerGate(DEBUG_TRAJECTORY_GATE, 'advisory'),
+    ],
+  },
+];
+
+export function routerEvents(): ReadonlySet<string> {
+  return new Set(ROUTER_GROUPS.map((g) => g.event));
+}
+
+/** The gates a call runs: those of every group matching its event and tool_name, in group order. */
+export function routerGates(event: string, tool: string, groups: readonly RouterGroup[] = ROUTER_GROUPS): RouterGate[] {
+  return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
+}
+
+/**
+ * The time one call's gates share (decision 922): each gate's deadline is the
+ * smaller of its budget and what is left of this, and a gate that starts with
+ * none left is not run.
+ */
+export const ROUTER_GROUP_BUDGET_MS: number = ROUTER_BUDGETS.group_budget_ms;
+
+/** The router's hooks.json timeout (s): the parse allowance plus the group budget, rounded up, plus 1 s. */
+export function routerTimeoutS(groupBudgetMs: number = ROUTER_GROUP_BUDGET_MS): number {
+  return Math.ceil((ROUTER_BUDGETS.parse_allowance_ms + groupBudgetMs) / 1000) + 1;
+}

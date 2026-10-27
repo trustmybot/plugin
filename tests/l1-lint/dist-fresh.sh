@@ -103,6 +103,9 @@ perl scripts/postprocess-bundle.pl "$TMPDIR/run-scan.js" "$TMPDIR/run-scan.js.ma
 ./node_modules/.bin/esbuild src/hooks/manifest.ts \
   --bundle --platform=node --format=esm --target=node22 --log-level=warning \
   | node --input-type=module > "$TMPDIR/hooks-gates.txt"
+./node_modules/.bin/esbuild src/hooks/router/manifest.ts \
+  --bundle --platform=node --format=esm --target=node22 --log-level=warning \
+  | node --input-type=module > "$TMPDIR/hooks-router.txt"
 cp src/schema*.sql "$TMPDIR/"
 mkdir -p "$TMPDIR/parsing"
 # The wasm list comes from the build script itself so the two cannot drift (GH 1848).

@@ -2477,16 +2477,16 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
             return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
           }
-          var str = "";
+          var str2 = "";
           while (idx < endPtr) {
             var u0 = heapOrArray[idx++];
             if (!(u0 & 128)) {
-              str += String.fromCharCode(u0);
+              str2 += String.fromCharCode(u0);
               continue;
             }
             var u1 = heapOrArray[idx++] & 63;
             if ((u0 & 224) == 192) {
-              str += String.fromCharCode((u0 & 31) << 6 | u1);
+              str2 += String.fromCharCode((u0 & 31) << 6 | u1);
               continue;
             }
             var u2 = heapOrArray[idx++] & 63;
@@ -2496,13 +2496,13 @@ ${JSON.stringify(symbolNames, null, 2)}`);
               u0 = (u0 & 7) << 18 | u1 << 12 | u2 << 6 | heapOrArray[idx++] & 63;
             }
             if (u0 < 65536) {
-              str += String.fromCharCode(u0);
+              str2 += String.fromCharCode(u0);
             } else {
               var ch = u0 - 65536;
-              str += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
+              str2 += String.fromCharCode(55296 | ch >> 10, 56320 | ch & 1023);
             }
           }
-          return str;
+          return str2;
         }, "UTF8ArrayToString");
         var getDylinkMetadata = /* @__PURE__ */ __name((binary2) => {
           var offset = 0;
@@ -3410,10 +3410,10 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
           quit_(1, e);
         }, "handleException");
-        var lengthBytesUTF8 = /* @__PURE__ */ __name((str) => {
+        var lengthBytesUTF8 = /* @__PURE__ */ __name((str2) => {
           var len = 0;
-          for (var i2 = 0; i2 < str.length; ++i2) {
-            var c = str.charCodeAt(i2);
+          for (var i2 = 0; i2 < str2.length; ++i2) {
+            var c = str2.charCodeAt(i2);
             if (c <= 127) {
               len++;
             } else if (c <= 2047) {
@@ -3427,14 +3427,14 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           }
           return len;
         }, "lengthBytesUTF8");
-        var stringToUTF8Array = /* @__PURE__ */ __name((str, heap, outIdx, maxBytesToWrite) => {
+        var stringToUTF8Array = /* @__PURE__ */ __name((str2, heap, outIdx, maxBytesToWrite) => {
           if (!(maxBytesToWrite > 0)) return 0;
           var startIdx = outIdx;
           var endIdx = outIdx + maxBytesToWrite - 1;
-          for (var i2 = 0; i2 < str.length; ++i2) {
-            var u = str.charCodeAt(i2);
+          for (var i2 = 0; i2 < str2.length; ++i2) {
+            var u = str2.charCodeAt(i2);
             if (u >= 55296 && u <= 57343) {
-              var u1 = str.charCodeAt(++i2);
+              var u1 = str2.charCodeAt(++i2);
               u = 65536 + ((u & 1023) << 10) | u1 & 1023;
             }
             if (u <= 127) {
@@ -3460,30 +3460,30 @@ ${JSON.stringify(symbolNames, null, 2)}`);
           heap[outIdx] = 0;
           return outIdx - startIdx;
         }, "stringToUTF8Array");
-        var stringToUTF8 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
+        var stringToUTF8 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => stringToUTF8Array(str2, HEAPU8, outPtr, maxBytesToWrite), "stringToUTF8");
         var stackAlloc = /* @__PURE__ */ __name((sz) => __emscripten_stack_alloc(sz), "stackAlloc");
-        var stringToUTF8OnStack = /* @__PURE__ */ __name((str) => {
-          var size = lengthBytesUTF8(str) + 1;
+        var stringToUTF8OnStack = /* @__PURE__ */ __name((str2) => {
+          var size = lengthBytesUTF8(str2) + 1;
           var ret = stackAlloc(size);
-          stringToUTF8(str, ret, size);
+          stringToUTF8(str2, ret, size);
           return ret;
         }, "stringToUTF8OnStack");
         var AsciiToString = /* @__PURE__ */ __name((ptr) => {
-          var str = "";
+          var str2 = "";
           while (1) {
             var ch = HEAPU8[ptr++];
-            if (!ch) return str;
-            str += String.fromCharCode(ch);
+            if (!ch) return str2;
+            str2 += String.fromCharCode(ch);
           }
         }, "AsciiToString");
-        var stringToUTF16 = /* @__PURE__ */ __name((str, outPtr, maxBytesToWrite) => {
+        var stringToUTF16 = /* @__PURE__ */ __name((str2, outPtr, maxBytesToWrite) => {
           maxBytesToWrite ??= 2147483647;
           if (maxBytesToWrite < 2) return 0;
           maxBytesToWrite -= 2;
           var startPtr = outPtr;
-          var numCharsToWrite = maxBytesToWrite < str.length * 2 ? maxBytesToWrite / 2 : str.length;
+          var numCharsToWrite = maxBytesToWrite < str2.length * 2 ? maxBytesToWrite / 2 : str2.length;
           for (var i2 = 0; i2 < numCharsToWrite; ++i2) {
-            var codeUnit = str.charCodeAt(i2);
+            var codeUnit = str2.charCodeAt(i2);
             LE_HEAP_STORE_I16((outPtr >> 1) * 2, codeUnit);
             outPtr += 2;
           }
@@ -4065,7 +4065,7 @@ var init_loader = __esm({
 });
 
 // src/hooks/index.ts
-import { readFileSync as readFileSync18 } from "node:fs";
+import { readFileSync as readFileSync19 } from "node:fs";
 
 // src/hooks/ensure-mcp-deps-installed.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -4952,7 +4952,7 @@ import { readFileSync as readFileSync7, statSync as statSync6 } from "node:fs";
 
 // src/hooks/lib/audit.ts
 import { accessSync as accessSync4, constants as constants4, readFileSync as readFileSync5, statSync as statSync4 } from "node:fs";
-import { performance as performance3 } from "node:perf_hooks";
+import { performance as performance4 } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 // src/hooks/lib/db.ts
@@ -5136,7 +5136,36 @@ function agentRole(input = "") {
 // src/hooks/lib/sqlite-shell.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { accessSync as accessSync2, constants as constants2 } from "node:fs";
+import { performance as performance3 } from "node:perf_hooks";
+
+// src/hooks/lib/deadline.ts
 import { performance as performance2 } from "node:perf_hooks";
+var armed = null;
+function armDeadline(at2, now2 = () => performance2.now()) {
+  armed = { at: at2, now: now2, expired: false };
+}
+function disarmDeadline() {
+  const expired = armed?.expired ?? false;
+  armed = null;
+  return expired;
+}
+function spawnLimit(ownMs, killSignal = "SIGTERM") {
+  const left = armed ? Math.max(1, Math.ceil(armed.at - armed.now())) : void 0;
+  if (left === void 0 || ownMs !== void 0 && ownMs < left) {
+    return ownMs === void 0 ? null : { timeout: ownMs, killSignal, byDeadline: false };
+  }
+  return { timeout: left, killSignal, byDeadline: true };
+}
+function spawnOptions(limit) {
+  return limit ? { timeout: limit.timeout, killSignal: limit.killSignal } : {};
+}
+function noteSpawn(limit, r) {
+  const cut4 = r.error?.code === "ETIMEDOUT" || r.signal !== null;
+  if (cut4 && limit?.byDeadline && armed) armed.expired = true;
+  return cut4;
+}
+
+// src/hooks/lib/sqlite-shell.ts
 var KILLED_CODE = 124;
 var NOT_FOUND_CODE = 127;
 var MAX_BUFFER = 64 * 1024 * 1024;
@@ -5194,14 +5223,16 @@ function cliArgs(call) {
   return args2;
 }
 function runCli(call, env) {
+  const limit = spawnLimit(call.killAfterMs, "SIGKILL");
   const r = spawnSync2("sqlite3", cliArgs(call), {
     env,
     input: call.sql === void 0 ? call.script ?? "" : void 0,
     stdio: [call.sql === void 0 ? "pipe" : "ignore", "pipe", "pipe"],
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
-    ...call.killAfterMs !== void 0 ? { timeout: call.killAfterMs, killSignal: "SIGKILL" } : {}
+    ...spawnOptions(limit)
   });
+  noteSpawn(limit, r);
   const stdout = r.stdout ?? "";
   const stderr2 = r.stderr ?? "";
   const errno = r.error?.code;
@@ -5382,14 +5413,14 @@ var ShellSession = class {
   constructor(db, timeoutMs, killAfterMs) {
     this.db = db;
     this.busyMs = timeoutMs;
-    this.deadline = killAfterMs === void 0 ? Infinity : performance2.now() + killAfterMs;
+    this.deadline = killAfterMs === void 0 ? Infinity : performance3.now() + killAfterMs;
     this.applyTimeout(timeoutMs);
   }
   applyTimeout(ms) {
     this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(ms))}`);
   }
   checkDeadline() {
-    if (performance2.now() >= this.deadline) throw new Killed();
+    if (performance3.now() >= this.deadline) throw new Killed();
   }
   setTimeout(ms) {
     this.busyMs = ms;
@@ -5398,7 +5429,7 @@ var ShellSession = class {
   beforeStatement() {
     this.checkDeadline();
     if (this.deadline !== Infinity) {
-      this.applyTimeout(Math.min(this.busyMs, Math.ceil(this.deadline - performance2.now())));
+      this.applyTimeout(Math.min(this.busyMs, Math.ceil(this.deadline - performance3.now())));
     }
   }
   /** Runs one statement; null on success, else where and why it failed. */
@@ -5983,8 +6014,8 @@ COMMIT;
 `;
   const busy = busyMs(env);
   const budget = runBudgetMs(env);
-  const start2 = performance3.now();
-  const left = () => budget - (spentMs.get(env) ?? 0) - (performance3.now() - start2);
+  const start2 = performance4.now();
+  const left = () => budget - (spentMs.get(env) ?? 0) - (performance4.now() - start2);
   let code = BUDGET_SPENT_CODE;
   let err2 = "";
   let stdout = "";
@@ -6004,7 +6035,7 @@ COMMIT;
     if (!BUSY_PATTERN.test(err2)) break;
     if (attempt < WRITE_ATTEMPTS && left() > BACKOFF_MS) sleepMs(BACKOFF_MS);
   }
-  spentMs.set(env, (spentMs.get(env) ?? 0) + (performance3.now() - start2));
+  spentMs.set(env, (spentMs.get(env) ?? 0) + (performance4.now() - start2));
   if (code === 0) return { ok: true, code: 0, stdout, error: "" };
   const detail = (err2 || `sqlite3 exited ${code}`).split("\n")[0];
   return { ok: false, code, stdout, error: `tmb_db_write: ${caller}: ${detail}` };
@@ -7069,13 +7100,16 @@ import { spawnSync as spawnSync4 } from "node:child_process";
 import { statSync as statSync8 } from "node:fs";
 var GIT_MAX_BUFFER = 256 * 1024 * 1024;
 function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
+  const limit = spawnLimit();
   const r = spawnSync4("git", ["-C", dir, ...args2], {
     encoding: "utf8",
     env,
     input,
     maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", stderr2]
+    stdio: ["pipe", "pipe", stderr2],
+    ...spawnOptions(limit)
   });
+  noteSpawn(limit, r);
   return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
 }
 function gitOut(dir, args2, env = process.env, input = "") {
@@ -8380,10 +8414,10 @@ function agentContext(input = "", db = "", env = process.env) {
   const transcript = agentTranscript(input);
   let task = taskIdFromTranscript(transcript);
   if (task === "") {
-    const run4 = callerRun(input, resolved, env);
-    if (run4 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
-    const bar = run4.indexOf("|");
-    task = sqlInt(bar < 0 ? run4 : run4.slice(0, bar));
+    const run5 = callerRun(input, resolved, env);
+    if (run5 === GATE_READ_ERROR) return { code: 2, role, ...blank2, missing: "the trajectory DB read failed (agent_runs)" };
+    const bar = run5.indexOf("|");
+    task = sqlInt(bar < 0 ? run5 : run5.slice(0, bar));
   }
   if (task === "") {
     const missing = transcript !== "" ? `no task_id: the spawn transcript ${transcript} carries no task_id=<N>` : "no task_id: the payload names no spawn transcript (agent_transcript_path, or transcript_path plus agent_id) and no agent_runs row is bound to this agent_id";
@@ -8678,7 +8712,7 @@ function findModel(mode, args2, raw, acts, m) {
   let k = 0;
   let bad = false;
   let ok = false;
-  const prune = [];
+  const prune2 = [];
   while (k < n3) {
     const a = args2[k];
     if (a === "-L") {
@@ -8700,15 +8734,15 @@ function findModel(mode, args2, raw, acts, m) {
       case "-ok":
       case "-okdir": {
         if (mode !== "exec") return false;
-        const run4 = [];
+        const run5 = [];
         let prev = "";
         while (k < n3) {
           const x = raw[k++];
           if (x === "" || x === "+" && prev === "{}") break;
-          run4.push(x);
+          run5.push(x);
           prev = x;
         }
-        if (run4.length > 0) acts.push("x" + run4.join(" "));
+        if (run5.length > 0) acts.push("x" + run5.join(" "));
         break;
       }
       case "-delete":
@@ -8757,7 +8791,7 @@ function findModel(mode, args2, raw, acts, m) {
       case "-path":
       case "-wholename":
       case "-ipath":
-        if (args2[k + 1] === "-prune") prune.push("R:" + (args2[k] ?? ""));
+        if (args2[k + 1] === "-prune") prune2.push("R:" + (args2[k] ?? ""));
         k++;
         break;
       case "-o":
@@ -8770,7 +8804,7 @@ function findModel(mode, args2, raw, acts, m) {
     m.excl = [];
     if (mode !== "loop") m.pats = [];
   }
-  m.excl.push(...prune);
+  m.excl.push(...prune2);
   if (m.paths.length === 0) m.paths = ["."];
   return !bad;
 }
@@ -8855,16 +8889,16 @@ function fdModel(mode, args2, raw, acts, m) {
     const w = args2[k++];
     if (w === "-x" || w === "--exec" || w === "-X" || w === "--exec-batch") {
       if (mode !== "exec") return false;
-      const run4 = [];
+      const run5 = [];
       let hit = false;
       while (k < n3) {
         const x = raw[k++];
         if (x === "") break;
         if (PLACEHOLDER.test(x)) hit = true;
-        run4.push(x);
+        run5.push(x);
       }
-      if (!hit) run4.push("{}");
-      acts.push("x" + run4.join(" "));
+      if (!hit) run5.push("{}");
+      acts.push("x" + run5.join(" "));
     } else if (/^(--format.*|--path-separator.*|-L|--follow|-l|--list-details|--base-directory.*)$/s.test(w)) bad = true;
     else if (w === "--search-path") m.paths.push(args2[k++] ?? "");
     else if (w === "-E" || w === "--exclude") m.excl.push("F:" + (args2[k++] ?? ""));
@@ -11531,9 +11565,9 @@ function proveScript(lang, src) {
       if (toks[j + 1]?.text === "=") return fail2;
     }
     if (SCRIPT_WORDS.has(name3)) continue;
-    const sleep2 = perl ? perlSleepSelect(toks, k) : 0;
-    if (sleep2) {
-      k += sleep2 - 1;
+    const sleep3 = perl ? perlSleepSelect(toks, k) : 0;
+    if (sleep3) {
+      k += sleep3 - 1;
       continue;
     }
     let dotted = name3;
@@ -11892,9 +11926,9 @@ ${scan2}
 ${line}
 `);
   const cd = has("C");
-  const run4 = has("R");
+  const run5 = has("R");
   const names = scan2.split("\n").flatMap((line) => line.startsWith("F	") ? [line.slice(2)] : []);
-  const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run4 ? lex(lang === "py", program) : void 0;
+  const lexed = names.length > 0 && (lang === "py" || lang === "node") && !has("A") && !run5 ? lex(lang === "py", program) : void 0;
   const held = new Map(names.map((name3) => [name3, lexed && heldLiterals(lexed, name3)]));
   const unread = has("A") || has("F") || [...held.values()].includes(void 0);
   let fail2 = unread || held.size > 0;
@@ -11922,7 +11956,7 @@ ${line}
     const writes = grepO(program, WRITES).map((m) => /^[^'"]*['"][^'"]+['"]/.exec(m)?.[0]).filter((m) => m !== void 0).map((m) => /['"][^'"]+['"]$/.exec(m)?.[0]).filter((m) => m !== void 0);
     const reads = grepO(grepO(program, READS).join("\n"), QUOTED);
     out2 += progLiterals(src, reads, writes, raw).join("\n");
-    if (run4) out2 += "\n$(proc)";
+    if (run5) out2 += "\n$(proc)";
     for (const lits of held.values()) for (const lit of lits ?? []) out2 += `
 ${lit}`;
   }
@@ -15053,6 +15087,20 @@ function duplicateDisableCmds(rows, env = process.env) {
   const name3 = installPluginName(env);
   return rows.map((r) => `claude plugin disable ${name3}@${r.marketplace} --scope ${r.scope}`).join("; ");
 }
+function activeInstall(env = process.env, onStderr = () => {
+}) {
+  const self2 = env.CLAUDE_PLUGIN_ROOT ?? "";
+  if (self2 !== "" && !/\/plugins\/cache\//.test(self2) && !installCandidates(env).some((r) => r.install === self2)) return self2;
+  const projects = projectInstalls(env);
+  if (projects.length > 0) {
+    if (projects.length > 1) {
+      onStderr(`TMB: two project installs for ${env.CLAUDE_PROJECT_DIR ?? ""} \u2014 using ${projects[0].install} (newest), ignoring ${projects[1].install}
+`);
+    }
+    return projects[0].install;
+  }
+  return userInstalls(env)[0]?.install ?? self2;
+}
 
 // src/hooks/mcp-health-check.ts
 var GATE_NAME11 = "mcp-health-check";
@@ -17680,14 +17728,14 @@ function planCarry(req, env = process.env) {
   const passed = passedInSource(req.db, source.id, env);
   if (passed === "error") return refuse("db_unreadable", source);
   const decisions = commands.map((command, i2) => {
-    const decide = (reason) => ({ ordinal: i2 + 1, command, carried: reason === null, reason });
-    if (command.startsWith(PROBE_PREFIX)) return decide("probe");
-    if (!passed.has(command)) return decide("not_passed_in_source");
+    const decide2 = (reason) => ({ ordinal: i2 + 1, command, carried: reason === null, reason });
+    if (command.startsWith(PROBE_PREFIX)) return decide2("probe");
+    if (!passed.has(command)) return decide2("not_passed_in_source");
     const declared = entries.filter((e) => e.match === command);
-    if (declared.length === 0) return decide("undeclared");
-    if (declared.length > 1) return decide("ambiguous_declaration");
+    if (declared.length === 0) return decide2("undeclared");
+    if (declared.length > 1) return decide2("ambiguous_declaration");
     const touched = declared[0].inputs.some((glob) => changed.some((path) => matchesGlob(path, glob)));
-    return decide(touched ? "inputs_changed" : null);
+    return decide2(touched ? "inputs_changed" : null);
   });
   return {
     source_run: source.id,
@@ -18101,12 +18149,12 @@ Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION
       { ...this.c.env, PATH: this.c.toolchainPath }
     );
     if (typeof plan.source_run !== "number" || typeof plan.source_sha !== "string" || !Array.isArray(plan.carry)) return;
-    const run4 = String(plan.source_run);
+    const run5 = String(plan.source_run);
     const ords = plan.carry.map(String).join(" ");
-    if (!/^[0-9]+$/.test(run4)) return;
+    if (!/^[0-9]+$/.test(run5)) return;
     if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(plan.source_sha)) return;
     if (!/^[0-9]+( [0-9]+)*$/.test(ords)) return;
-    this.carryRun = run4;
+    this.carryRun = run5;
     this.carrySha = plan.source_sha;
     this.carryOrdinals = new Set(plan.carry);
   }
@@ -20097,6 +20145,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
   { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back, or a process loaded the model healthy while an earlier process left a degraded episode open (`reason` `process_start`, `retries` 0); one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "hook_block_bypassed", writers: ["hook"], description: "`swe-boundary` saw an Edit/Write to a path that a PreToolUse Bash gate had judged as a literal write target and denied in the same session within `TMB_BYPASS_WINDOW_MIN` minutes (default 10); a deny that could not judge its target records no path, so the literal-path write it prescribes is never counted (GH 1750); the write is still allowed (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `denied_gate`, `denied_at`, `session_id`, `task_id`" },
+  { type: "hook_call", writers: ["hook"], description: "The PreToolUse router (`node dist/hooks.js PreToolUse`, GH 1692) decided one tool call: one row per call it decided (a replayed duplicate writes none), from_node `hook:router`, on the task's issue else the system issue `-1`; `content_json` carries `event`, `tool`, `decision` (`allow` or `deny`), `denied_gate`, `task_id`, and `gates`: one `{gate, ms, outcome}` per gate run, in group order, `ms` measured on that gate's own clock (from its start to its return or budget expiry, so no sibling's work is in it), `outcome` being `allow`, `deny`, `skipped_budget` or `error`" },
   { type: "hook_denied", writers: ["hook"], description: "`dispatch.sh` returned a deny: a gate's exit 2, `permissionDecision: \"deny\"` or `decision: \"block\"`, or the dispatcher's own fail-closed decision; one row per deny (a replayed duplicate writes none), from_node `hook:dispatch`, on the task's issue else the system issue `-1`; `content_json` carries `hook` (the gate), `rule` (the first 200 characters of the deny reason), `tool`, `agent_type`, `task_id` (the calling swe's run, else `tool_input.task_id`; null when unknown), `cwd` (the payload's). `audit_append` refuses this event" },
   { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", writers: ["bro"], description: "`issue_create`, `issue_adopt_remote` or `issue_sync_retry` adopted an existing remote issue as the local issue's twin (`issue_sync_retry`: the issue an earlier lost create made, found by its body marker); `content_json` carries `issue_id`, `backend`, `remote_iid`, plus `via: 'issue_sync_retry'` from that tool" },
@@ -20561,8 +20610,8 @@ function isoStamp(v) {
   const m = ISO2.exec(v);
   return m === null ? null : `${m[1]}.${`${m[3] ?? ""}000`.slice(0, 3)}Z`;
 }
-function stampMs(stamp) {
-  const m = STAMP_PARTS.exec(stamp);
+function stampMs(stamp2) {
+  const m = STAMP_PARTS.exec(stamp2);
   if (m === null) throw new JqError6("ms");
   const [year, month, day, hour, minute, second, frac] = m.slice(1).map(Number);
   if (month < 1 || month > 12 || day > 31 || hour > 23 || minute > 59 || second > 60) throw new JqError6("strptime");
@@ -21625,7 +21674,7 @@ var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) =>
 
 // src/hooks/remote-id-guard.ts
 import { statSync as statSync33 } from "node:fs";
-import { performance as performance4 } from "node:perf_hooks";
+import { performance as performance5 } from "node:perf_hooks";
 var GATE_NAME61 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
@@ -21812,9 +21861,9 @@ var remoteIdGuard = async (payload, processEnv) => {
   const env = { ...processEnv, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS2 };
   const deadline = deadlineSeconds(env);
   const budgetMs = Number(deadline) * 1e3;
-  const start2 = performance4.now();
+  const start2 = performance5.now();
   const skew = env.TMB_REMOTE_ID_GUARD_TEST_OVERRUN === "1" ? budgetMs : 0;
-  const elapsedMs2 = () => performance4.now() - start2 + skew;
+  const elapsedMs2 = () => performance5.now() - start2 + skew;
   const overran = () => elapsedMs2() >= budgetMs;
   let timer;
   const expired = new Promise((resolve4) => {
@@ -21832,6 +21881,183 @@ var remoteIdGuard = async (payload, processEnv) => {
 `);
   auditOverrun(deadline, elapsed, env);
   return ALLOW;
+};
+
+// src/hooks/router/budgets.json
+var budgets_default = {
+  rounds: 20,
+  workers: 4,
+  parse_allowance_ms: 2e3,
+  max_budget_ms: 16e3,
+  p99_sum_ms: 21492,
+  group_budget_ms: 32238,
+  gates: {
+    "containment-guard": {
+      kind: "enforcement",
+      bench_p50: 3.2,
+      bench_p95: 6.2,
+      bench_p99: 7.7,
+      bench_runs: 4320,
+      bench_load_avg: 6.84,
+      transcript_p99: 1173,
+      transcript_samples: 1,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 5e3,
+      budget_ms: 5e3,
+      date: "2026-10-27"
+    },
+    "git-guards": {
+      kind: "enforcement",
+      bench_p50: 95.5,
+      bench_p95: 222.8,
+      bench_p99: 269.4,
+      bench_runs: 4800,
+      bench_load_avg: 6.84,
+      transcript_p99: 998,
+      transcript_samples: 2,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 11e3,
+      budget_ms: 11e3,
+      date: "2026-10-27"
+    },
+    "git-push-guard": {
+      kind: "enforcement",
+      bench_p50: 34.6,
+      bench_p95: 187.6,
+      bench_p99: 235.7,
+      bench_runs: 2960,
+      bench_load_avg: 6.84,
+      transcript_p99: 828,
+      transcript_samples: 1,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-10-27"
+    },
+    "swe-boundary": {
+      kind: "enforcement",
+      bench_p50: 17.5,
+      bench_p95: 52,
+      bench_p99: 79.4,
+      bench_runs: 5120,
+      bench_load_avg: 6.84,
+      transcript_p99: 3945,
+      transcript_samples: 213,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 8090,
+      date: "2026-10-27"
+    },
+    "no-worktree-branch-create": {
+      kind: "enforcement",
+      bench_p50: 114,
+      bench_p95: 132.3,
+      bench_p99: 187.4,
+      bench_runs: 1360,
+      bench_load_avg: 6.84,
+      transcript_p99: 1115,
+      transcript_samples: 2,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-10-27"
+    },
+    "stay-on-base-guard": {
+      kind: "enforcement",
+      bench_p50: 227.9,
+      bench_p95: 340.5,
+      bench_p99: 423.7,
+      bench_runs: 1680,
+      bench_load_avg: 6.84,
+      transcript_p99: 1049,
+      transcript_samples: 3,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-10-27"
+    },
+    "branch-up-to-date-with-remote": {
+      kind: "enforcement",
+      bench_p50: 338.7,
+      bench_p95: 1074.8,
+      bench_p99: 1223,
+      bench_runs: 1600,
+      bench_load_avg: 6.84,
+      transcript_p99: 1104,
+      transcript_samples: 2,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 16e3,
+      budget_ms: 16e3,
+      date: "2026-10-27"
+    },
+    "commit-msg-lint": {
+      kind: "advisory",
+      bench_p50: 0.1,
+      bench_p95: 0.2,
+      bench_p99: 0.3,
+      bench_runs: 1600,
+      bench_load_avg: 6.84,
+      transcript_p99: 3540,
+      transcript_samples: 120,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 4e3,
+      budget_ms: 7280,
+      date: "2026-10-27"
+    },
+    "no-remote-auth-guard": {
+      kind: "enforcement",
+      bench_p50: 330.3,
+      bench_p95: 376.4,
+      bench_p99: 453.7,
+      bench_runs: 1200,
+      bench_load_avg: 6.84,
+      transcript_p99: 1002,
+      transcript_samples: 2,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6e3,
+      date: "2026-10-27"
+    },
+    "remote-id-guard": {
+      kind: "enforcement",
+      bench_p50: 16.4,
+      bench_p95: 20.8,
+      bench_p99: 28.2,
+      bench_runs: 2480,
+      bench_load_avg: 6.84,
+      transcript_p99: 2976,
+      transcript_samples: 50,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 6e3,
+      budget_ms: 6152,
+      date: "2026-10-27"
+    },
+    "debug-trajectory": {
+      kind: "advisory",
+      bench_p50: 2.3,
+      bench_p95: 4.6,
+      bench_p99: 6.2,
+      bench_runs: 880,
+      bench_load_avg: 6.84,
+      transcript_p99: 3643,
+      transcript_samples: 8,
+      transcript_timed_out: 0,
+      window_days: 14,
+      floor_ms: 4e3,
+      budget_ms: 7486,
+      date: "2026-10-27"
+    }
+  }
 };
 
 // src/hooks/registry.ts
@@ -21903,16 +22129,635 @@ var GATES = /* @__PURE__ */ new Map([
 function findGate(name3) {
   return GATES.get(name3);
 }
+function routerGate(name3, kind) {
+  const budgets = budgets_default.gates;
+  return { name: name3, kind, budgetMs: budgets[name3].budget_ms };
+}
+var ROUTER_GROUPS = [
+  {
+    event: "PreToolUse",
+    tools: ["Bash"],
+    gates: [
+      routerGate("containment-guard", "enforcement"),
+      routerGate(GATE_NAME6, "enforcement"),
+      routerGate(GATE_NAME10, "enforcement"),
+      routerGate(GATE_NAME20, "enforcement"),
+      routerGate(GATE_NAME47, "enforcement"),
+      routerGate(GATE_NAME45, "enforcement"),
+      routerGate(GATE_NAME46, "enforcement"),
+      routerGate(GATE_NAME7, "advisory"),
+      routerGate(GATE_NAME48, "enforcement"),
+      routerGate(GATE_NAME61, "enforcement"),
+      routerGate(GATE_NAME25, "advisory")
+    ]
+  }
+];
+function routerEvents() {
+  return new Set(ROUTER_GROUPS.map((g) => g.event));
+}
+function routerGates(event, tool, groups = ROUTER_GROUPS) {
+  return groups.filter((g) => g.event === event && g.tools.includes(tool)).flatMap((g) => g.gates);
+}
+var ROUTER_GROUP_BUDGET_MS = budgets_default.group_budget_ms;
+function routerTimeoutS(groupBudgetMs = ROUTER_GROUP_BUDGET_MS) {
+  return Math.ceil((budgets_default.parse_allowance_ms + groupBudgetMs) / 1e3) + 1;
+}
+
+// src/hooks/router/main.ts
+import { spawnSync as spawnSync13 } from "node:child_process";
+import { existsSync as existsSync15, mkdirSync as mkdirSync12 } from "node:fs";
+import { dirname as dirname3 } from "node:path";
+import { fileURLToPath as fileURLToPath9 } from "node:url";
+
+// src/hooks/router/decide.ts
+var ROUTER_NAME = "router";
+var DENY_PATTERN = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
+function oneLine(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function trimNewlines(text) {
+  return text.replace(/\n+$/, "");
+}
+function failClosedReason(gate, cause) {
+  return `BLOCKED: TMB gate ${gate} ${cause} without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry.`;
+}
+function timeoutReason(gate, budgetMs) {
+  return `BLOCKED: TMB gate ${gate} timed out after ${budgetMs} ms (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+}
+function groupBudgetReason(gate, groupBudgetMs, ran) {
+  const what = ran ? `ran out of the router's ${groupBudgetMs} ms group budget` : `was not run: the gates before it spent the router's ${groupBudgetMs} ms group budget`;
+  return `BLOCKED: TMB gate ${gate} ${what} (infrastructure load, not a policy decision), so the action is denied (fail-closed); retry the same call, and if it keeps timing out, report it.`;
+}
+function denyOutput(reason) {
+  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
+`;
+}
+function denyReason4(stdout, fallback) {
+  for (const line of stdout.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const o = JSON.parse(line);
+      if (o === null || typeof o !== "object" || Array.isArray(o)) continue;
+      const rec = o;
+      const r = rec.hookSpecificOutput?.permissionDecisionReason ?? rec.reason;
+      if (typeof r === "string" && r !== "") return r;
+      if (r !== void 0 && r !== null && r !== false) return JSON.stringify(r);
+    } catch {
+    }
+  }
+  return fallback;
+}
+function parses(stdout) {
+  try {
+    JSON.parse(stdout);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function mergeContext(outputs) {
+  if (outputs.length === 0) return "";
+  if (outputs.length === 1) return `${outputs[0]}
+`;
+  const parsed = outputs.map((o) => JSON.parse(o));
+  const event = parsed.map((p) => p.hookSpecificOutput?.hookEventName).find((e) => typeof e === "string" && e !== "") ?? "PreToolUse";
+  const context4 = parsed.map((p) => p.hookSpecificOutput?.additionalContext).filter((c) => c !== void 0 && c !== null && c !== false).map((c) => typeof c === "string" ? c : JSON.stringify(c)).join("\n\n");
+  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context4 } })}
+`;
+}
+var LATE = /* @__PURE__ */ Symbol("late");
+async function settle(fn, payload, env, limit, now2) {
+  const start2 = now2();
+  armDeadline(start2 + limit, now2);
+  const s = await run4(fn, payload, env, limit, now2, start2);
+  return { s, cut: disarmDeadline() };
+}
+async function run4(fn, payload, env, limit, now2, start2) {
+  let out2;
+  try {
+    out2 = fn(payload, env);
+  } catch (err2) {
+    return { kind: "threw", error: err2 instanceof Error ? err2.message : String(err2), ms: now2() - start2 };
+  }
+  if (!(out2 instanceof Promise)) return { kind: "result", result: out2, ms: now2() - start2 };
+  let timer;
+  const late = new Promise((resolve4) => {
+    timer = setTimeout(() => resolve4(LATE), Math.max(0, limit - (now2() - start2)));
+    timer.unref();
+  });
+  try {
+    const r = await Promise.race([out2, late]);
+    if (r === LATE) return { kind: "late", ms: now2() - start2 };
+    return { kind: "result", result: r, ms: now2() - start2 };
+  } catch (err2) {
+    return { kind: "threw", error: err2 instanceof Error ? err2.message : String(err2), ms: now2() - start2 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function overBudget(gate, b, ran) {
+  const what = !ran ? `got no time: the ${b.groupBudgetMs} ms group budget was spent` : b.byGroup ? `ran out of the ${b.groupBudgetMs} ms group budget` : `ran past its ${b.budget} ms budget`;
+  if (gate.kind !== "enforcement") return { outcome: "skipped_budget", stdout: "", code: 0, reason: "", stderr: `TMB router: advisory gate ${gate.name} ${what} \u2014 skipped, output dropped
+` };
+  const reason = b.byGroup || !ran ? groupBudgetReason(gate.name, b.groupBudgetMs, ran) : timeoutReason(gate.name, b.budget);
+  return { outcome: "deny", stdout: denyOutput(reason), code: 0, reason, stderr: `TMB dispatch: gate ${gate.name} ${what} \u2014 failing closed
+` };
+}
+function judge(gate, s, cut4, b) {
+  const enforce = gate.kind === "enforcement";
+  const closed = (cause, stderr2 = "") => enforce ? { outcome: "deny", stdout: denyOutput(failClosedReason(gate.name, cause)), code: 0, reason: failClosedReason(gate.name, cause), stderr: `${stderr2}TMB dispatch: gate ${gate.name} ${cause} \u2014 failing closed
+` } : { outcome: "error", stdout: "", code: 0, reason: "", stderr: `${stderr2}TMB router: advisory gate ${gate.name} ${cause} \u2014 output dropped
+` };
+  if (s.kind === "unrun") return overBudget(gate, b, false);
+  if (cut4 || s.kind === "late") return overBudget(gate, b, true);
+  if (s.kind === "threw") return closed("exited 1", `TMB hooks: gate '${oneLine(gate.name)}' failed: ${oneLine(s.error)}
+`);
+  if (s.ms > b.limit && !(s.result.code === 2 || DENY_PATTERN.test(s.result.stdout))) return overBudget(gate, b, true);
+  const { code } = s.result;
+  const out2 = trimNewlines(s.result.stdout);
+  const denies = DENY_PATTERN.test(out2);
+  if (code === 2 || denies) {
+    if (code === 0 || code === 2 || enforce) {
+      return { outcome: "deny", stdout: out2 === "" ? "" : `${out2}
+`, code: code === 2 ? 2 : 0, reason: denyReason4(out2, `exit ${code}`), stderr: "" };
+    }
+  }
+  if (code !== 0) return closed(`exited ${code}`);
+  if (out2 !== "" && !parses(out2)) return closed("printed unparseable output");
+  return { outcome: "allow", stdout: out2, code: 0, reason: "", stderr: "" };
+}
+function payloadTool(payload) {
+  let parsed;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const tool = parsed.tool_name;
+  return typeof tool === "string" ? tool : "";
+}
+async function decide(event, payload, env, deps = {}) {
+  const now2 = deps.now ?? (() => performance.now());
+  const tool = payloadTool(payload);
+  if (tool === null) {
+    const reason = failClosedReason(ROUTER_NAME, "got an unparseable payload");
+    return {
+      stdout: denyOutput(reason),
+      stderr: `TMB dispatch: gate ${ROUTER_NAME} got an unparseable payload \u2014 failing closed
+`,
+      code: 0,
+      tool: "",
+      gates: [],
+      denied: { gate: ROUTER_NAME, reason }
+    };
+  }
+  const find = deps.findGate ?? findGate;
+  const gates = routerGates(event, tool, deps.groups ?? ROUTER_GROUPS);
+  if (tool === "Bash" && gates.length > 0) await bashParser().catch(() => void 0);
+  const groupBudgetMs = deps.groupBudgetMs ?? ROUTER_GROUP_BUDGET_MS;
+  const groupStart = now2();
+  const done = [];
+  let spent = false;
+  for (const gate of gates) {
+    const budget = deps.budgetMs?.(gate) ?? gate.budgetMs;
+    const left = groupBudgetMs - (now2() - groupStart);
+    const b = { limit: Math.min(budget, left), budget, groupBudgetMs, byGroup: left < budget };
+    const fn = find(gate.name);
+    if (!fn) {
+      done.push({ gate, s: { kind: "threw", error: `unknown gate '${oneLine(gate.name)}' \u2014 not run`, ms: 0 }, j: judgeUnknown(gate) });
+      continue;
+    }
+    if (spent || left <= 0) {
+      const s2 = { kind: "unrun", ms: 0 };
+      done.push({ gate, s: s2, j: judge(gate, s2, false, b) });
+      continue;
+    }
+    const { s, cut: cut4 } = await settle(fn, payload, env, b.limit, now2);
+    spent = b.byGroup && (cut4 || s.kind === "late" || s.ms >= b.limit);
+    done.push({ gate, s, j: judge(gate, s, cut4, b) });
+  }
+  const outcomes = done.map(({ gate, s, j }) => ({ gate: gate.name, ms: Math.round(s.ms * 1e3) / 1e3, outcome: j.outcome }));
+  const stderr2 = done.map(({ j }) => j.stderr).join("");
+  const deny10 = done.find(({ j }) => j.outcome === "deny");
+  if (deny10) {
+    return { stdout: deny10.j.stdout, stderr: stderr2, code: deny10.j.code, tool, gates: outcomes, denied: { gate: deny10.gate.name, reason: deny10.j.reason } };
+  }
+  const context4 = done.filter(({ j }) => j.outcome === "allow" && j.stdout !== "").map(({ j }) => j.stdout);
+  return { stdout: mergeContext(context4), stderr: stderr2, code: 0, tool, gates: outcomes, denied: null };
+}
+function judgeUnknown(gate) {
+  const note2 = `TMB hooks: unknown gate '${oneLine(gate.name)}' \u2014 not run
+`;
+  if (gate.kind !== "enforcement") return { outcome: "error", stdout: "", code: 0, reason: "", stderr: `${note2}TMB router: advisory gate ${gate.name} exited 1 \u2014 output dropped
+` };
+  const reason = failClosedReason(gate.name, "exited 1");
+  return { outcome: "deny", stdout: denyOutput(reason), code: 0, reason, stderr: `${note2}TMB dispatch: gate ${gate.name} exited 1 \u2014 failing closed
+` };
+}
+
+// src/hooks/router/dedupe.ts
+import { createHash as createHash2 } from "node:crypto";
+import { existsSync as existsSync14, mkdirSync as mkdirSync10, readdirSync as readdirSync6, readFileSync as readFileSync18, renameSync as renameSync4, rmSync as rmSync5, statSync as statSync34, writeFileSync as writeFileSync6 } from "node:fs";
+import { setTimeout as sleep2 } from "node:timers/promises";
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const rec = value;
+    return `{${Object.keys(rec).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(rec[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+function dedupeKey(payload) {
+  let o;
+  try {
+    o = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (o === null || typeof o !== "object" || Array.isArray(o) || !("tool_name" in o)) return null;
+  const p = o;
+  const material = canonicalJson([p.hook_event_name ?? "", p.session_id ?? "", p.tool_name, p.tool_input ?? null, p.tool_use_id ?? ""]);
+  return createHash2("sha256").update(material).digest("hex");
+}
+function intEnv(env, name3, fallback) {
+  const v = env[name3] ?? "";
+  return /^[0-9]+$/.test(v) ? Number(v) : fallback;
+}
+function nowS2() {
+  return Math.floor(Date.now() / 1e3);
+}
+function stamp(file) {
+  try {
+    const line = readFileSync18(file, "utf8").split("\n")[0];
+    return /^[0-9]+$/.test(line) ? Number(line) : null;
+  } catch {
+    return null;
+  }
+}
+function ageS(path) {
+  try {
+    return nowS2() - Math.floor(statSync34(path).mtimeMs / 1e3);
+  } catch {
+    return null;
+  }
+}
+var Dedupe = class {
+  constructor(base2, timeoutS, env) {
+    this.timeoutS = timeoutS;
+    this.base = base2;
+    this.ttlMin = intEnv(env, "TMB_DISPATCH_TTL_MIN", 10);
+    this.windowS = intEnv(env, "TMB_DISPATCH_WINDOW_S", 5);
+    this.sweepS = intEnv(env, "TMB_DISPATCH_SWEEP_S", 60);
+  }
+  timeoutS;
+  base;
+  ttlMin;
+  windowS;
+  sweepS;
+  expired(lock) {
+    const done = existsSync14(`${lock}/rc`);
+    if (!done) {
+      const deadline = stamp(`${lock}/deadline`);
+      if (deadline !== null) return nowS2() > deadline;
+    }
+    const age = ageS(lock);
+    if (age === null) return false;
+    return done ? age > this.windowS : age > this.timeoutS;
+  }
+  sweep() {
+    const stampFile = `${this.base}.sweep`;
+    const now2 = nowS2();
+    const last = stamp(stampFile);
+    if (last !== null && last <= now2 && now2 - last < this.sweepS) return;
+    try {
+      writeFileSync6(stampFile, `${now2}
+`);
+    } catch {
+    }
+    let names;
+    try {
+      names = readdirSync6(this.base);
+    } catch {
+      return;
+    }
+    for (const name3 of names) {
+      const d = `${this.base}/${name3}`;
+      let st;
+      try {
+        st = statSync34(d);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const ageMin = (Date.now() - st.mtimeMs) / 6e4;
+      const done = existsSync14(`${d}/rc`);
+      const deadline = done ? null : stamp(`${d}/deadline`);
+      const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now2 > deadline;
+      if (gone) rmSync5(d, { recursive: true, force: true });
+    }
+  }
+  take(lock) {
+    try {
+      mkdirSync10(lock);
+    } catch {
+      return false;
+    }
+    try {
+      writeFileSync6(`${lock}/deadline`, `${nowS2() + this.timeoutS + 5}
+`);
+    } catch {
+    }
+    return true;
+  }
+  replay(lock) {
+    let rc;
+    try {
+      const text = readFileSync18(`${lock}/rc`, "utf8").trim();
+      if (!/^[0-9]+$/.test(text)) return null;
+      rc = Number(text);
+    } catch {
+      return null;
+    }
+    const read = (f) => {
+      try {
+        return readFileSync18(`${lock}/${f}`, "utf8");
+      } catch {
+        return "";
+      }
+    };
+    const result = read("result");
+    if (rc === 2) return { stdout: result, stderr: read("stderr"), code: 2 };
+    const denies = result.split("\n").some((line) => {
+      try {
+        return JSON.parse(line).hookSpecificOutput?.permissionDecision === "deny";
+      } catch {
+        return false;
+      }
+    });
+    return denies ? { stdout: result, stderr: "", code: rc } : { stdout: "", stderr: "", code: 0 };
+  }
+  reclaim(lock) {
+    const mutex = `${lock}.reclaim`;
+    try {
+      mkdirSync10(mutex);
+    } catch {
+      const age = ageS(mutex);
+      if (age !== null && age > 30) rmSync5(mutex, { recursive: true, force: true });
+      return false;
+    }
+    try {
+      if (!existsSync14(lock) || this.expired(lock)) {
+        rmSync5(lock, { recursive: true, force: true });
+        return this.take(lock);
+      }
+      return false;
+    } finally {
+      rmSync5(mutex, { recursive: true, force: true });
+    }
+  }
+  /** hold: this call decides and stores; replay: a duplicate's answer; none: a duplicate that gave up. */
+  async claim(key2) {
+    this.sweep();
+    const lock = `${this.base}/${key2}`;
+    const giveUp = nowS2() + Math.max(1, this.timeoutS - 1);
+    for (; ; ) {
+      if (this.take(lock)) return { kind: "hold", lock };
+      if (existsSync14(`${lock}/rc`) && !this.expired(lock)) {
+        const out2 = this.replay(lock);
+        return out2 === null ? { kind: "none" } : { kind: "replay", out: out2 };
+      }
+      if (this.expired(lock) && this.reclaim(lock)) return { kind: "hold", lock };
+      if (nowS2() >= giveUp) return { kind: "none" };
+      await sleep2(100);
+    }
+  }
+  static store(lock, out2) {
+    try {
+      writeFileSync6(`${lock}/result`, out2.stdout);
+      writeFileSync6(`${lock}/stderr`, out2.stderr);
+      writeFileSync6(`${lock}/rc.tmp`, `${out2.code}
+`);
+      renameSync4(`${lock}/rc.tmp`, `${lock}/rc`);
+    } catch {
+    }
+  }
+};
+
+// src/hooks/router/records.ts
+import { mkdirSync as mkdirSync11, readdirSync as readdirSync7, rmdirSync as rmdirSync2, statSync as statSync35, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
+var CALLER = "router";
+function parse(payload) {
+  try {
+    const o = JSON.parse(payload);
+    return o !== null && typeof o === "object" && !Array.isArray(o) ? o : {};
+  } catch {
+    return {};
+  }
+}
+function str(v) {
+  return typeof v === "string" ? v : null;
+}
+function taskAndIssue(payload, p, db, env) {
+  const run5 = callerRun(payload, db, env);
+  let taskId = sqlInt(run5.split("|")[0]);
+  if (taskId === "") {
+    const t = p.tool_input?.task_id;
+    taskId = sqlInt(typeof t === "number" || typeof t === "string" ? String(t) : "");
+  }
+  if (taskId === "") return { taskId, issue: "-1" };
+  const issue = sqlInt(sqliteRo(db, `SELECT issue_id FROM tasks WHERE id = ${taskId};`, env).trim());
+  return { taskId, issue: issue === "" ? "-1" : issue };
+}
+function auditCall(event, payload, d, env) {
+  const writeEnv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "300", TMB_DB_WRITE_RUN_BUDGET_MS: "600" };
+  const db = dbPath(writeEnv);
+  if (db === null) return;
+  const p = parse(payload);
+  const { taskId, issue } = taskAndIssue(payload, p, db, writeEnv);
+  const tool = str(p.tool_name);
+  const decision = d.denied ? "deny" : "allow";
+  auditAppend(
+    db,
+    {
+      issueId: issue,
+      branchId: "",
+      fromNode: "hook:router",
+      eventType: "hook_call",
+      summary: `${event}${tool ? ` ${tool}` : ""}: ${decision}${d.denied ? ` by ${d.denied.gate}` : ""}`,
+      contentJson: JSON.stringify({
+        event,
+        tool,
+        decision,
+        denied_gate: d.denied?.gate ?? null,
+        task_id: taskId === "" ? null : Number(taskId),
+        gates: d.gates
+      })
+    },
+    { caller: CALLER, env: writeEnv }
+  );
+  if (!d.denied) return;
+  auditAppend(
+    db,
+    {
+      issueId: issue,
+      branchId: "",
+      fromNode: "hook:dispatch",
+      eventType: "hook_denied",
+      summary: `${d.denied.gate} denied${tool ? ` ${tool}` : ""}`,
+      contentJson: JSON.stringify({
+        hook: d.denied.gate,
+        rule: d.denied.reason.slice(0, 200),
+        tool,
+        agent_type: p.agent_type ?? null,
+        task_id: taskId === "" ? null : Number(taskId),
+        cwd: p.cwd ?? null
+      })
+    },
+    { caller: CALLER, env: writeEnv }
+  );
+}
+function unjudgedDeny(reason) {
+  const head = 'BLOCKED: write target "';
+  const sep2 = `" ${UNJUDGED_PHRASE} `;
+  if (!reason.startsWith(head)) return false;
+  const at2 = reason.lastIndexOf(sep2);
+  if (at2 < head.length) return false;
+  return !reason.slice(at2 + sep2.length).includes('"');
+}
+function prune(dir, cutoffMs) {
+  let names;
+  try {
+    names = readdirSync7(dir);
+  } catch {
+    return false;
+  }
+  let empty = true;
+  for (const name3 of names) {
+    const path = `${dir}/${name3}`;
+    try {
+      const st = statSync35(path);
+      if (st.isDirectory()) {
+        if (prune(path, cutoffMs)) rmdirSync2(path);
+        else empty = false;
+      } else if (st.mtimeMs < cutoffMs) unlinkSync2(path);
+      else empty = false;
+    } catch {
+      empty = false;
+    }
+  }
+  return empty;
+}
+async function recordBashDeny(base2, payload, d, env) {
+  if (!d.denied || d.tool !== "Bash" || unjudgedDeny(d.denied.reason)) return;
+  const p = parse(payload);
+  const session = str(p.session_id) ?? "";
+  if (session === "" || session.includes("/") || session.startsWith(".")) return;
+  const cmd = str(p.tool_input?.command) ?? "";
+  if (cmd === "") return;
+  const w = env.TMB_BYPASS_WINDOW_MIN ?? "";
+  const window2 = /^[0-9]+$/.test(w) && Number(w) > 0 ? Number(w) : 10;
+  try {
+    prune(base2, Date.now() - window2 * 6e4);
+    const dir = `${base2}/${session}`;
+    mkdirSync11(dir, { recursive: true });
+    const paths = await writePaths(cmd, { cwd: payloadCwd(payload, env), raw: false, root: projectRoot(env), env });
+    const epoch = Math.floor(Date.now() / 1e3);
+    for (const path of paths) {
+      if (path.startsWith("/")) writeFileSync7(`${dir}/${pathDigest(path)}`, `${d.denied.gate}
+${epoch}
+`);
+    }
+  } catch {
+  }
+}
+
+// src/hooks/router/main.ts
+var ROUTER_MANIFEST = "mcp/trajectory-server/dist/hooks-router.txt";
+var BUNDLE = "mcp/trajectory-server/dist/hooks.js";
+var HOP_ENV = "TMB_ROUTER_HOP";
+function ownRoot(env) {
+  return installRoot(dirname3(fileURLToPath9(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
+}
+function hopTo(root, event, payload, env) {
+  const r = spawnSync13(process.execPath, [`${root}/${BUNDLE}`, event], {
+    input: payload,
+    env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024
+  });
+  if (r.error || r.status === null) {
+    const cause = `could not run in ${root}`;
+    return { stdout: denyOutput(failClosedReason(ROUTER_NAME, cause)), stderr: `TMB dispatch: gate ${ROUTER_NAME} ${cause} \u2014 failing closed
+`, code: 0 };
+  }
+  return { stdout: r.stdout, stderr: r.stderr, code: r.status };
+}
+function lockBase(env) {
+  if (!haveSqlite(env)) return null;
+  const state = stateDir(env);
+  return state === null ? null : `${canonicalDir(state)}/locks`;
+}
+async function routerMain(event, env, io, opts = {}) {
+  const payload = io.readStdin();
+  const self2 = opts.selfRoot ?? ownRoot(env);
+  if (opts.hop !== false && env[HOP_ENV] !== "1") {
+    const root = activeInstall(env, io.writeStderr);
+    if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
+      if (existsSync15(`${root}/${ROUTER_MANIFEST}`) && existsSync15(`${root}/${BUNDLE}`)) {
+        const out2 = hopTo(root, event, payload, env);
+        io.writeStderr(out2.stderr);
+        await io.writeStdout(out2.stdout);
+        return out2.code;
+      }
+      io.writeStderr(`TMB router: no router in ${root} \u2014 using ${self2}
+`);
+    }
+  }
+  const gateEnv = self2 === "" ? env : { ...env, CLAUDE_PLUGIN_ROOT: self2 };
+  const locks = opts.dedupe === false ? null : lockBase(gateEnv);
+  const key2 = locks === null ? null : dedupeKey(payload);
+  let dedupe = null;
+  let lock = null;
+  if (locks !== null && key2 !== null) {
+    dedupe = new Dedupe(`${locks}/events`, routerTimeoutS(opts.groupBudgetMs), gateEnv);
+    try {
+      mkdirSync12(dedupe.base, { recursive: true });
+      const claim2 = await dedupe.claim(key2);
+      if (claim2.kind === "replay") {
+        io.writeStderr(claim2.out.stderr);
+        await io.writeStdout(claim2.out.stdout);
+        return claim2.out.code;
+      }
+      if (claim2.kind === "none") return 0;
+      lock = claim2.lock;
+    } catch {
+      lock = null;
+    }
+  }
+  const d = await decide(event, payload, gateEnv, opts);
+  if (lock !== null) Dedupe.store(lock, d);
+  io.writeStderr(d.stderr);
+  await io.writeStdout(d.stdout);
+  if (opts.record !== false) {
+    try {
+      auditCall(event, payload, d, gateEnv);
+    } catch {
+    }
+    if (locks !== null && lock !== null) await recordBashDeny(`${locks}/boundary-denies`, payload, d, gateEnv);
+  }
+  return d.code;
+}
 
 // src/hooks/run.ts
-function oneLine(text) {
+function oneLine2(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 async function runHook(name3, findGate2, env, io) {
   try {
     const gate = findGate2(name3);
     if (!gate) {
-      io.writeStderr(`TMB hooks: unknown gate '${oneLine(name3)}' \u2014 not run
+      io.writeStderr(`TMB hooks: unknown gate '${oneLine2(name3)}' \u2014 not run
 `);
       return 1;
     }
@@ -21921,7 +22766,7 @@ async function runHook(name3, findGate2, env, io) {
     return result.code;
   } catch (err2) {
     const detail = err2 instanceof Error ? err2.message : String(err2);
-    io.writeStderr(`TMB hooks: gate '${oneLine(name3)}' failed: ${oneLine(detail)}
+    io.writeStderr(`TMB hooks: gate '${oneLine2(name3)}' failed: ${oneLine2(detail)}
 `);
     return 1;
   }
@@ -21929,10 +22774,21 @@ async function runHook(name3, findGate2, env, io) {
 
 // src/hooks/index.ts
 var name2 = process.argv[2] ?? "";
+if (routerEvents().has(name2)) {
+  const code = await routerMain(name2, process.env, {
+    readStdin: () => readFileSync19(0, "utf8"),
+    writeStdout: (text) => new Promise((resolve4) => text === "" ? resolve4() : process.stdout.write(text, () => resolve4())),
+    writeStderr: (text) => {
+      if (text !== "") process.stderr.write(text);
+    }
+  });
+  await new Promise((resolve4) => process.stderr.write("", () => resolve4()));
+  process.exit(code);
+}
 var installWorker = name2 === GATE_NAME && process.argv[3] === INSTALL_FLAG;
 var worker = (_payload, env) => ({ stdout: "", code: runInstallWorker(env) });
 process.exitCode = await runHook(name2, installWorker ? () => worker : findGate, process.env, {
-  readStdin: () => installWorker ? "" : readFileSync18(0, "utf8"),
+  readStdin: () => installWorker ? "" : readFileSync19(0, "utf8"),
   writeStdout: (text) => process.stdout.write(text),
   writeStderr: (text) => process.stderr.write(text)
 });

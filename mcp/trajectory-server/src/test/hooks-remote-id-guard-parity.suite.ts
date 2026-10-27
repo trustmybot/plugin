@@ -71,7 +71,7 @@ export function localIssuesDb(path: string): void {
   }
 }
 
-function buildSandbox(s: string): void {
+export function buildSandbox(s: string): void {
   mkdirSync(join(s, 'project'), { recursive: true });
   localIssuesDb(join(s, 'db/trajectory.db'));
   const empty = new DatabaseSync(join(s, 'no-issues.db'));
@@ -94,7 +94,7 @@ interface Paths {
   noSqlite: string;
 }
 
-function materialize(file: string, s: string, paths: Paths): Case {
+export function materialize(file: string, s: string, paths: Paths): Case {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', s).replaceAll('@NOJQ_PATH@', paths.noJq).replaceAll('@NOSQLITE_PATH@', paths.noSqlite);
   const {
     corpus_env: env = {},

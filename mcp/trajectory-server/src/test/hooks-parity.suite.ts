@@ -88,7 +88,7 @@ function readyDepsEnv(scratch: string): NodeJS.ProcessEnv {
  * whose audit rows both sides must write alike, and the payload as fed (the
  * corpus file with its placeholders filled, plus per-payload env).
  */
-interface GateSetup {
+export interface GateSetup {
   env: NodeJS.ProcessEnv;
   cwd?: string;
   auditDb?: string;
@@ -107,7 +107,7 @@ const NOW = '2026-10-11T10:00:00.000Z';
  * @SANDBOX@ and the project's Claude Code slug as @PROJECT_SLUG@; a payload's
  * top-level corpus_env (removed before the run) overrides the env.
  */
-function containmentGuardSetup(scratch: string): GateSetup {
+export function containmentGuardSetup(scratch: string): GateSetup {
   const project = join(scratch, 'project');
   const wt = join(project, '.claude/worktrees/cg-task');
   const db = join(project, '.claude/tmb/trajectory.db');
