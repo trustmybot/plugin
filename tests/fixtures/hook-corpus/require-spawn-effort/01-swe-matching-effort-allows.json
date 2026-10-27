@@ -1,0 +1,1 @@
+{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"swe","prompt":"task_id=1 You are swe.","effort":"medium"},"corpus_expect":"empty"}

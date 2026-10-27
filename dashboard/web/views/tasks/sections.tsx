@@ -67,7 +67,7 @@ export function CriteriaSection({ report, raw }: { report: CompletionReport | nu
         )}
         {fixed.length > 0 && (
           <p className="text-sm">
-            <span className="font-semibold text-fg">Findings fixed:</span>{' '}
+            <span className="font-semibold text-fg">Findings Fixed:</span>{' '}
             {fixed.map((f, i) => (
               <span key={f}>
                 {i > 0 && ', '}
@@ -78,7 +78,7 @@ export function CriteriaSection({ report, raw }: { report: CompletionReport | nu
         )}
       </>
     );
-  return <Section title="Success criteria">{body}</Section>;
+  return <Section title="Success Criteria">{body}</Section>;
 }
 
 function Finding({ f }: { f: Row }) {
@@ -145,7 +145,7 @@ const exitText = (code: unknown) => (code === null || code === undefined ? 'runn
 
 export function VerificationSection({ runs, web, provider }: { runs: TaskDetail['verifications']; web?: unknown; provider?: unknown }) {
   return (
-    <Section title="Verification runs">
+    <Section title="Verification Runs">
       {runs.length ? (
         <div className="space-y-2">
           {runs.map((r, i) => (
@@ -205,10 +205,10 @@ const AGENT_RUN_COLUMNS: Column[] = [
   { key: 'agent_type', header: 'Agent' },
   { key: 'model', header: 'Model', hideBelow: 'md' },
   { key: 'effort', header: 'Effort', hideBelow: 'md' },
-  { key: 'tokens_in', header: 'Tokens in', cell: count('tokens_in') },
-  { key: 'tokens_out', header: 'Tokens out', cell: count('tokens_out') },
-  { key: 'cache_read_tokens', header: 'Cache read', cell: count('cache_read_tokens'), hideBelow: 'sm' },
-  { key: 'cache_creation_tokens', header: 'Cache write', cell: count('cache_creation_tokens'), hideBelow: 'sm' },
+  { key: 'tokens_in', header: 'Tokens In', cell: count('tokens_in') },
+  { key: 'tokens_out', header: 'Tokens Out', cell: count('tokens_out') },
+  { key: 'cache_read_tokens', header: 'Cache Read', cell: count('cache_read_tokens'), hideBelow: 'sm' },
+  { key: 'cache_creation_tokens', header: 'Cache Write', cell: count('cache_creation_tokens'), hideBelow: 'sm' },
   { key: 'duration_ms', header: 'Duration', cell: (r) => `${Math.round(Number(r['duration_ms'] ?? 0) / 1000)}s`, hideBelow: 'sm' },
   { key: 'started_at', header: 'Started', cell: time('started_at'), hideBelow: 'md' },
   { key: 'exit_reason', header: 'Exit', cell: (r) => <Badge value={r['completed_at'] ? r['exit_reason'] ?? 'completed' : 'running'} /> },
@@ -216,7 +216,7 @@ const AGENT_RUN_COLUMNS: Column[] = [
 
 export function AgentRunsSection({ runs }: { runs: Row[] }) {
   return (
-    <Section title="Agent runs">
+    <Section title="Agent Runs">
       {runs.length ? <DataTable rows={runs} columns={AGENT_RUN_COLUMNS} filter={false} /> : <Muted>No agent runs recorded.</Muted>}
     </Section>
   );

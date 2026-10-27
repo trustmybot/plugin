@@ -3,13 +3,13 @@ export function ProgressBar({
   value,
   max,
   label,
-  fill = 'bg-(--bgColor-success-emphasis)',
+  fill,
   className,
 }: {
   value: number;
   max: number;
   label: string;
-  fill?: string;
+  fill: string;
   className?: string;
 }) {
   const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;

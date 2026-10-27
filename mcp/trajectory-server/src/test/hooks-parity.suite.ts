@@ -201,7 +201,9 @@ interface ParityCase {
 /**
  * Gates that write markers, logs or DB rows into the project, or read the
  * host's processes and installs, so they run in hooks-session-parity.suite.ts
- * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side.
+ * or hooks-health-parity.suite.ts, which rebuild their sandbox before each side;
+ * and the task-DB Agent-spawn gates, which read a sandbox of git repos and
+ * trajectory DBs in hooks-spawn-gates-parity.suite.ts.
  */
 const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'activation-routine',
@@ -211,6 +213,9 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'ensure-gitignore',
   'mcp-health-check',
   'plugin-hooks-marker',
+  'require-feature-branch-active',
+  'require-spawn-effort',
+  'require-task-spec',
   'session-log-capture',
   'session-start-persona',
   'substrate-preflight',
@@ -219,6 +224,9 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'roundtable-auq-shape',
   'roundtable-cleanup-postcheck',
   'roundtable-slash-detect',
+  'code-reviewer-no-worktree',
+  'code-reviewer-spawn-prompt-shape',
+  'code-reviewer-after-atomic-close',
 ]);
 
 function parityCases(): ParityCase[] {

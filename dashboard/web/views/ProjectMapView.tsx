@@ -55,7 +55,7 @@ export function ProjectMapView() {
         if (!wm.available) {
           return (
             <Box>
-              <Blankslate icon={DatabaseIcon} heading="World model not built yet" description="Open a Claude Code session to upgrade the DB and run /scan." />
+              <Blankslate icon={DatabaseIcon} heading="World Model Not Built Yet" description="Open a Claude Code session to upgrade the DB and run /scan." />
             </Box>
           );
         }
@@ -63,7 +63,7 @@ export function ProjectMapView() {
         if (repo === undefined) {
           return (
             <Box>
-              <Blankslate icon={FileDirectoryIcon} heading="The world model is empty" description="Run /scan in a Claude Code session." />
+              <Blankslate icon={FileDirectoryIcon} heading="The World Model Is Empty" description="Run /scan in a Claude Code session." />
             </Box>
           );
         }
