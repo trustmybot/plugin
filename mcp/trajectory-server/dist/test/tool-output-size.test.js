@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { toolOutputSize, toolOutputSizes, UNKNOWN_TOOL } from '../hooks/tool-output-size.js';
 import { gateNames } from '../hooks/registry.js';
+import { broTurnUsage } from '../hooks/bro-turn-usage.js';
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCHEMA = readFileSync(join(SERVER_ROOT, 'src/schema.sql'), 'utf8');
 const HOOKS_JS = join(SERVER_ROOT, 'dist/hooks.js');
@@ -163,6 +164,30 @@ describe('tool-output-size (GH 1957)', () => {
         };
         assert.deepEqual(toolOutputSize(JSON.stringify({ session_id: SESSION, transcript_path: t }), env), ALLOWED);
         assert.deepEqual(f.rows(f.runs.bro).find((r) => r.tool_name === 'Bash'), { tool_name: 'Bash', calls: 2, result_chars: 102, est_tokens: 26 });
+        assert.deepEqual(f.rows(f.runs.swe), []);
+    });
+    it('the TypeScript bro-turn-usage gate records the session row after its write', () => {
+        const f = fixture();
+        const usage = {
+            timestamp: '2026-10-26T10:06:00.000Z',
+            type: 'assistant',
+            message: {
+                id: 'msg_1',
+                role: 'assistant',
+                model: 'claude-opus-5-5',
+                usage: { input_tokens: 10, output_tokens: 5 },
+                content: [{ type: 'text', text: 'hi' }],
+            },
+        };
+        const t = f.transcript([...FIXTURE_LINES, usage], 'session.jsonl');
+        const env = { PATH: process.env.PATH, HOME: join(f.root, 'home'), TRAJECTORY_DB_PATH: f.db };
+        const payload = JSON.stringify({ session_id: SESSION, transcript_path: t });
+        assert.deepEqual(broTurnUsage(payload, env), ALLOWED);
+        const rows = f.rows(f.runs.bro);
+        assert.ok(rows.length > 0);
+        assert.deepEqual(rows.find((r) => r.tool_name === 'Bash'), { tool_name: 'Bash', calls: 2, result_chars: 102, est_tokens: 26 });
+        assert.deepEqual(broTurnUsage(payload, env), ALLOWED);
+        assert.deepEqual(f.rows(f.runs.bro), rows);
         assert.deepEqual(f.rows(f.runs.swe), []);
     });
     it('writes nothing and exits 0 with empty stdout on a missing or malformed transcript or a missing run row', () => {

@@ -8,7 +8,8 @@
  * printed as jq prints them, the model with the most tokens, and no write
  * when jq would have stopped on an error. Bypass:
  * TMB_DISABLE_BRO_TURN_USAGE_HOOK=1. It never denies; a failed write is one
- * stderr line.
+ * stderr line. After a written row it runs the tool-output-size recorder on
+ * the session row (GH 1957), fail-open.
  *
  * Divergence: the .sh exits 0 without jq or the sqlite3 CLI; this gate needs
  * neither (node:sqlite writes the row).
@@ -20,6 +21,7 @@ import { dbLocation, dbPath, sqlQuote, stripTrailingNewlines } from './lib/db.js
 import { byteCompare, commandSubstitution } from './lib/host.js';
 import { jsonStream, jsonValues } from './lib/jq.js';
 import { jqRawText, posixDirname } from './lib/project-env.js';
+import { toolOutputSize } from './tool-output-size.js';
 export const GATE_NAME = 'bro-turn-usage';
 const ISO = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z\n?$/;
 const STAMP = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/;
@@ -333,8 +335,17 @@ export const broTurnUsage = (payload, env) => {
     if (usage === null || !usageValid(usage))
         return ALLOW;
     const r = dbWrite(db, usageSql(db, sessionId, usage, env), { env, caller: GATE_NAME });
-    if (!r.ok)
+    if (!r.ok) {
         process.stderr.write(`${r.error}\n`);
+    }
+    else {
+        try {
+            toolOutputSize(payload, { ...env, TMB_STOP_AGENT_TYPE: 'bro', TMB_STOP_SESSION_ID: sessionId });
+        }
+        catch {
+            // The recorder never fails the gate.
+        }
+    }
     return { stdout: r.stdout, code: 0 };
 };
 //# sourceMappingURL=bro-turn-usage.js.map
