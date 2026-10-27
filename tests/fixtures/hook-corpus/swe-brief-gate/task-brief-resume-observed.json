@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","agent_type":"swe","agent_id":"agent-resumed","agent_transcript_path":"@SANDBOX@/transcripts/spawn-12.jsonl","tool_name":"mcp__plugin_tmb_trajectory-server__task_brief","tool_input":{"agent":"swe","task_id":12},"corpus_expect":"swe agent-resumed resumed task 12 and called task_brief"}

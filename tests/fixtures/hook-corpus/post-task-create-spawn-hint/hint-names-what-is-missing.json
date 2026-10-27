@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__plugin_tmb_trajectory-server__task_create_batch","tool_response":{"content":[{"type":"text","text":"[{\"id\":18,\"branch_id\":\"feat/ghost\"},{\"id\":20,\"branch_id\":\"feat/no-repo\"},{\"id\":99,\"branch_id\":\"feat/none\"}]"}]},"corpus_expect":"task_id=99 branch_id=feat/none worktree=unresolved (task 99 has no tasks row)"}

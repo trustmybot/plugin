@@ -222,6 +222,10 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'code-reviewer-no-worktree',
   'code-reviewer-spawn-prompt-shape',
   'code-reviewer-after-atomic-close',
+  'swe-brief-gate',
+  'swe-spawn-bind',
+  'swe-spawn-rollback',
+  'post-task-create-spawn-hint',
 ]);
 
 function parityCases(): ParityCase[] {
