@@ -32,6 +32,23 @@ const TOKENS = {
 const KEPT_URL = 'https://github.com/trustmybot/plugin/issues/2034';
 const SURVIVOR_TAIL = ` Seen on main and dev, tracked at ${KEPT_URL}.`;
 
+function urlsIn(text: string): URL[] {
+  const urls: URL[] = [];
+  for (const match of text.match(/https?:\/\/\S+/g) ?? []) {
+    try {
+      urls.push(new URL(match.replace(/[.,;:)\]]+$/, '')));
+    } catch {
+      continue;
+    }
+  }
+  return urls;
+}
+
+function hasKeptUrl(urls: URL[]): boolean {
+  const kept = new URL(KEPT_URL);
+  return urls.some((u) => u.hostname === kept.hostname && u.pathname === kept.pathname);
+}
+
 interface Fixture {
   name: string;
   ctx: RedactContext;
@@ -334,8 +351,9 @@ describe('GH 2034 V5: rendered bug reports leak no private data across the fixtu
       it('keeps main, dev and the trustmybot/plugin URL', () => {
         assert.match(report.body, /\bmain\b/);
         assert.match(report.body, /\bdev\b/);
-        assert.ok(report.body.includes(KEPT_URL));
-        assert.ok(decodeURIComponent(report.prefill_url).includes(KEPT_URL));
+        assert.ok(hasKeptUrl(urlsIn(report.body)));
+        const prefillUrls = [...new URL(report.prefill_url).searchParams.values()].flatMap(urlsIn);
+        assert.ok(hasKeptUrl(prefillUrls));
       });
 
       it('signature is stable across runs with different homes', () => {
