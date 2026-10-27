@@ -495,6 +495,35 @@ function branchDivergedResult(tool, branchId, ref, baseRef, distance, openPrs, r
         ],
     };
 }
+// Refuses a branch_id the issue already has a task on, before any git call, so
+// idx_tasks_issue_branch never surfaces as a raw UNIQUE error after a ref moved.
+function branchIdUsedOnIssueResult(db, tool, issueId, branchId) {
+    const existing = db.get(`SELECT id, status, commit_sha FROM tasks WHERE issue_id = ? AND branch_id = ? LIMIT 1`, [issueId, branchId]);
+    if (!existing)
+        return null;
+    const nextStep = tool === 'task_provision'
+        ? `Call task_reopen(task_id=${existing.id}) to continue the same work, or pick a fresh branch_id from ` +
+            `branch_id_propose (with base='${branchId}' to stack on it) for a separately gated task.`
+        : `Pick a fresh new_branch_id from branch_id_propose.`;
+    return {
+        isError: true,
+        content: [
+            {
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'branch_id_used_on_issue',
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    task_id: existing.id,
+                    status: existing.status,
+                    commit_sha: existing.commit_sha ?? null,
+                    message: `${tool}: issue ${issueId} already has task ${existing.id} (status '${existing.status}') on branch ` +
+                        `'${branchId}'. ${nextStep} No task row or branch was changed.`,
+                }),
+            },
+        ],
+    };
+}
 // Open PRs/MRs whose head is `branchId`, read under the issue-sync gate
 // (plugin_config.issue_sync / TMB_DISABLE_REMOTE_SYNC). Read-only; any remote
 // failure yields no entry.
@@ -1085,6 +1114,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     };
                 }
             }
+            const usedOnIssue = branchIdUsedOnIssueResult(db, 'task_provision', issueId, branchId);
+            if (usedOnIssue)
+                return usedOnIssue;
             // --- GIT SETUP BEFORE THE COMMIT (atomic guarantee) ---
             // Resolve the repo path + base ref and create the branch ref BEFORE
             // writing the task row. A git failure here returns an error and
@@ -1714,6 +1746,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (failed.branch_id === newBranchId) {
                 return err('new_branch_id must differ from the failed task\'s branch_id.');
             }
+            const usedOnIssue = branchIdUsedOnIssueResult(db, 'task_retry', failed.issue_id, newBranchId);
+            if (usedOnIssue)
+                return usedOnIssue;
             // --- Retry cap gate ---
             // Walk the task_retry_attempted audit chain: each hop in the chain
             // is one retry. The chain is stored in audit.content_json as

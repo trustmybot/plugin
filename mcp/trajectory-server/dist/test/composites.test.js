@@ -2804,6 +2804,84 @@ describe('task_provision (#157)', () => {
                 rmSync(ws, { recursive: true, force: true });
             }
         });
+        it('GH 1731: a branch_id the issue already uses is refused with branch_id_used_on_issue, with and without reuse_existing, changing no ref, worktree or row', async () => {
+            const { ws, repoRoot, git } = makeRepo();
+            try {
+                git(repoRoot, 'branch', 'feat/dup', 'refs/remotes/origin/main');
+                advanceOrigin(repoRoot, git);
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, commit_sha, created_at, updated_at)
+           VALUES (1, 'feat/dup', '', 'd', 'closed', ?, 'app', 'abc1234', datetime('now'), datetime('now'))`, [SPEC]);
+                const existingId = db.get(`SELECT id FROM tasks WHERE branch_id = 'feat/dup'`).id;
+                const snapshot = () => ({
+                    ref: git(repoRoot, 'rev-parse', 'refs/heads/feat/dup'),
+                    worktrees: git(repoRoot, 'worktree', 'list', '--porcelain'),
+                    tasks: db.get('SELECT COUNT(*) AS c FROM tasks').c,
+                    discussions: db.get('SELECT COUNT(*) AS c FROM discussions').c,
+                    audit: db.get('SELECT COUNT(*) AS c FROM audit').c,
+                });
+                const before = snapshot();
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                for (const extra of [{}, { reuse_existing: true }]) {
+                    const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/dup', extra));
+                    assert.equal(r.isError, true);
+                    const out = parse(r);
+                    assert.equal(out['error'], 'branch_id_used_on_issue', JSON.stringify(out));
+                    assert.equal(out['issue_id'], 1);
+                    assert.equal(out['branch_id'], 'feat/dup');
+                    assert.equal(out['task_id'], existingId);
+                    assert.equal(out['status'], 'closed');
+                    assert.equal(out['commit_sha'], 'abc1234');
+                    assert.match(String(out['message']), new RegExp(`task_reopen\\(task_id=${existingId}\\)`));
+                    assert.match(String(out['message']), /branch_id_propose \(with base='feat\/dup'/);
+                    assert.match(String(out['message']), /No task row or branch was changed\.$/);
+                    assert.deepEqual(snapshot(), before);
+                }
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it('GH 1731: the existing task with no commit_sha reports commit_sha null', async () => {
+            const { ws, repoRoot } = makeRepo();
+            try {
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+           VALUES (1, 'feat/no-sha', '', 'd', 'pending', ?, 'app', datetime('now'), datetime('now'))`, [SPEC]);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const out = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/no-sha')));
+                assert.equal(out['error'], 'branch_id_used_on_issue');
+                assert.equal(out['status'], 'pending');
+                assert.equal(out['commit_sha'], null);
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
+        it('GH 1731: the same branch_id used by a different issue still provisions', async () => {
+            const { ws, repoRoot } = makeRepo();
+            try {
+                const db = tempDB();
+                seedIssue(db, repoRoot);
+                db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+                VALUES (2, 'o2', 'd2', 'open', datetime('now'), datetime('now'))`);
+                db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+           VALUES (2, 'feat/shared', '', 'd', 'closed', ?, 'app', datetime('now'), datetime('now'))`, [SPEC]);
+                const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+                const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/shared'));
+                assert.ok(!r.isError, JSON.stringify(parse(r)));
+                assert.equal(parse(r)['git_setup'], 'created');
+                assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/shared'`).c, 2);
+                db.close();
+            }
+            finally {
+                rmSync(ws, { recursive: true, force: true });
+            }
+        });
     });
     it('rejects a non-bro caller', async () => {
         const db = tempDB();
@@ -3317,6 +3395,39 @@ describe('task_retry and task_reopen cut a missing branch and worktree (GH 1781)
             assert.match(String(out['message']), /^task_retry: .*new_branch_id.*No task row was created\.$/);
             assert.equal(taskCount(), before, 'no task row');
             assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/stale-v2'), sideSha, 'ref untouched');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('GH 1731: task_retry refuses a new_branch_id the issue already uses with branch_id_used_on_issue, changing no ref, worktree or row', async () => {
+        const { ws, repoRoot, db, git, first, failedTask, retry, taskCount } = setup();
+        try {
+            const id = failedTask('fix/orig', 'main');
+            git(repoRoot, 'branch', 'fix/orig-v2', first);
+            db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, commit_sha, created_at, updated_at)
+         VALUES (1, 'fix/orig-v2', '', 'd', 'closed', ?, 'app', 'def5678', datetime('now'), datetime('now'))`, [SPEC]);
+            const existingId = db.get(`SELECT id FROM tasks WHERE branch_id = 'fix/orig-v2'`).id;
+            const snapshot = () => ({
+                ref: git(repoRoot, 'rev-parse', 'refs/heads/fix/orig-v2'),
+                worktrees: git(repoRoot, 'worktree', 'list', '--porcelain'),
+                tasks: taskCount(),
+                discussions: db.get('SELECT COUNT(*) AS c FROM discussions').c,
+                audit: db.get('SELECT COUNT(*) AS c FROM audit').c,
+            });
+            const before = snapshot();
+            const r = await retry(id, 'fix/orig-v2');
+            assert.equal(r.isError, true);
+            const out = parse(r);
+            assert.equal(out['error'], 'branch_id_used_on_issue', JSON.stringify(out));
+            assert.equal(out['issue_id'], 1);
+            assert.equal(out['branch_id'], 'fix/orig-v2');
+            assert.equal(out['task_id'], existingId);
+            assert.equal(out['status'], 'closed');
+            assert.equal(out['commit_sha'], 'def5678');
+            assert.match(String(out['message']), /^task_retry: .*new_branch_id from branch_id_propose\. No task row or branch was changed\.$/);
+            assert.deepEqual(snapshot(), before);
             db.close();
         }
         finally {

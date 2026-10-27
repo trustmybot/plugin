@@ -120,7 +120,7 @@ export function buildSandbox(s) {
     transcript(join(s, 'transcripts/spawn-12.jsonl'), 'task_id=12 worktree=/w');
 }
 /** PATH with <cmd> gone: each dir holding it replaced by a dir of links to everything else. */
-function noCmdPath(dir, cmd, path) {
+export function noCmdPath(dir, cmd, path) {
     let n = 0;
     return path
         .split(':')

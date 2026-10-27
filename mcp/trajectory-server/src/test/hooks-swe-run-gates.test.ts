@@ -54,12 +54,12 @@ describe('swe-run gates are registered', () => {
 });
 
 describe('swe-run gate helpers', () => {
-  it('briefSurface keeps the .sh allowlist: Edit, Write and NotebookEdit, not MultiEdit', () => {
+  it('briefSurface gates Edit, Write, MultiEdit (GH 2070) and NotebookEdit', () => {
     assert.equal(briefSurface('mcp__plugin_tmb_trajectory-server__task_brief'), 'task_brief');
     assert.equal(briefSurface('Edit'), 'mutation');
     assert.equal(briefSurface('Write'), 'mutation');
     assert.equal(briefSurface('NotebookEdit'), 'mutation');
-    assert.equal(briefSurface('MultiEdit'), 'other');
+    assert.equal(briefSurface('MultiEdit'), 'mutation');
     assert.equal(briefSurface('mcp__tmb__trajectory-server__task_get'), 'trajectory');
     assert.equal(briefSurface('mcp__other-server__task_get'), 'other');
     assert.equal(briefSurface('Bash'), 'other');
@@ -169,10 +169,16 @@ describe('swe-run gates without jq or the sqlite3 CLI (decision 703)', () => {
     sweBriefGate(brief({ tool_name: 'mcp__plugin_tmb_trajectory-server__task_brief', agent_id: 'agent-new\n', tool_input: { task_id: 11 } }), env());
     assert.deepEqual(rows<{ spawn_id: string }>('SELECT spawn_id FROM agent_runs WHERE task_id = 11').map((x) => x.spawn_id), ['agent-new']);
   });
-  it('swe-brief-gate allows a briefed task, exploration, MultiEdit, other roles, no task and no DB', () => {
+  it('swe-brief-gate denies an unbriefed MultiEdit with the Edit deny text, where the .sh lets it through (GH 2070)', () => {
+    const multi = deny(sweBriefGate(brief({ tool_name: 'MultiEdit', tool_input: { task_id: 11, edits: [] } }), env()).stdout);
+    const edit = deny(sweBriefGate(brief({ tool_name: 'Edit', tool_input: { task_id: 11 } }), env()).stdout);
+    assert.equal(multi, denyReason('11', 'MultiEdit'));
+    assert.equal(multi, edit.replace('before Edit.', 'before MultiEdit.'));
+    assert.deepEqual(sweBriefGate(brief({ tool_name: 'MultiEdit', tool_input: { task_id: 10, edits: [] } }), env()), ALLOWED);
+  });
+  it('swe-brief-gate allows a briefed task, exploration, other roles, no task and no DB', () => {
     assert.deepEqual(sweBriefGate(brief({ tool_name: 'Edit', tool_input: { task_id: 10 } }), env()), ALLOWED);
     assert.deepEqual(sweBriefGate(brief({ tool_name: 'Read', tool_input: { task_id: 11 } }), env()), ALLOWED);
-    assert.deepEqual(sweBriefGate(brief({ tool_name: 'MultiEdit', tool_input: { task_id: 11 } }), env()), ALLOWED);
     assert.deepEqual(sweBriefGate(JSON.stringify({ agent_type: 'bro', tool_name: 'Edit', tool_input: { task_id: 11 } }), env()), ALLOWED);
     assert.deepEqual(sweBriefGate(brief({ tool_name: 'Edit', tool_input: { task_id: '11; DROP TABLE tasks' } }), env()), ALLOWED);
     assert.deepEqual(sweBriefGate(brief({ tool_name: 'Edit', tool_input: { task_id: 11 } }), env({ TRAJECTORY_DB_PATH: join(s, 'none.db') })), ALLOWED);
