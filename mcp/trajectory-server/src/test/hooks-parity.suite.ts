@@ -201,6 +201,10 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'session-log-capture',
   'session-start-persona',
   'user-prompt-persona',
+  'consultant-persistence-gate',
+  'roundtable-auq-shape',
+  'roundtable-cleanup-postcheck',
+  'roundtable-slash-detect',
 ]);
 
 function parityCases(): ParityCase[] {

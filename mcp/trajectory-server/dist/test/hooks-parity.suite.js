@@ -167,6 +167,10 @@ const OWN_SANDBOX_GATES = new Set([
     'session-log-capture',
     'session-start-persona',
     'user-prompt-persona',
+    'consultant-persistence-gate',
+    'roundtable-auq-shape',
+    'roundtable-cleanup-postcheck',
+    'roundtable-slash-detect',
 ]);
 function parityCases() {
     return PARITY_GATES.filter((gate) => !OWN_SANDBOX_GATES.has(gate)).flatMap((gate) => corpusFiles(CORPUS_ROOT, gate).flatMap((file) => LOCALES.map((locale) => ({ gate, file, locale }))));

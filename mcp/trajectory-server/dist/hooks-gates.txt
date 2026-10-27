@@ -2,6 +2,7 @@ activation-routine
 askuserquestion-length-lint
 code-reviewer-preflight
 code-reviewer-spawn-note
+consultant-persistence-gate
 containment-guard
 debug-trajectory
 ensure-mcp-deps-installed
@@ -9,6 +10,9 @@ git-guards
 git-push-guard
 plugin-hooks-marker
 rework-limit
+roundtable-auq-shape
+roundtable-cleanup-postcheck
+roundtable-slash-detect
 session-log-capture
 session-start-persona
 swe-boundary
