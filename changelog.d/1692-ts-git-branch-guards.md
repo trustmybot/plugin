@@ -5,8 +5,6 @@
   - `no-worktree-branch-create` denies `git worktree add` that creates a branch or detaches HEAD (`TMB_ALLOW_WORKTREE_BRANCH_CREATE=1` and `TMB_ALLOW_WORKTREE_DETACH=1` bypass).
   - `no-remote-auth-guard` denies an interactive `gh auth login` or `glab auth login` in a repo with no remote URL.
 
-  `cmd-analysis/lister.ts` now imports `isPromptSurfacePath` from `cmd-analysis/surface.ts` instead of keeping its own copy (GH 1861).
-
   A 73-payload corpus in `tests/fixtures/hook-corpus/` runs each hook through both versions in the C and `en_US.UTF-8` locales, split into three parity shards. The sandbox holds real git repos with local bare origins: a repo with a branch behind origin, one targeting `dev`, a linked worktree, a repo with an empty remote URL and an unregistered one. Both versions exit the same way and print byte-identical stdout. The corpus covers every allow, deny and bypass branch, `git -C` and `cd` targets, non-Bash tools, stdin that is not one JSON object, and missing and corrupt DBs. The four l3 suites pass against both versions; `TMB_HOOK_TEST_IMPL=ts` picks the TypeScript one.
 
   The TypeScript hooks differ from the .sh in three places. Each difference has a payload in the corpus marked `corpus_divergent` and a unit test:
