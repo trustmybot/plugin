@@ -16,7 +16,10 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
 HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
 [ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-task-spec.sh"
-[ "$HOOK_IMPL" != ts ] || export TMB_TEST_NODE="$(node -p process.execPath)"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 . "$HERE/fixtures/wal-no-holder.sh"
 
 # Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
