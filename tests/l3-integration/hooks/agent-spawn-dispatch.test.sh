@@ -13,6 +13,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 DISPATCHER="$PLUGIN_ROOT/scripts/hooks/agent-spawn-dispatch.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+if [ "$HOOK_IMPL" = ts ]; then
+  DISPATCHER="$PLUGIN_ROOT/tests/lib/ts-hooks/agent-spawn-dispatch.sh"
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 # ----- fixture helpers ------------------------------------------------------
 
@@ -230,6 +236,10 @@ assert_eq "" "$out" "silent no-op for non-Agent tool"
 
 # ----- tests: context union -------------------------------------------------
 
+# The two stub-dir cases copy the .sh dispatcher next to stub .sh gates; the
+# TypeScript dispatcher runs its gates in-process, so under ts its union and
+# short-circuit are proven by src/test/hooks-agent-spawn-dispatch.test.ts.
+if [ "$HOOK_IMPL" != ts ]; then
 test_case "context union: real dispatcher merges additionalContext from gate hooks"
 # Drive the REAL dispatcher (copied verbatim) against stub gate hooks named
 # exactly as the dispatcher expects. SCRIPT_DIR resolves to the temp dir, so the
@@ -281,6 +291,7 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny present"
 assert_contains "$out" "first hook denied" "deny reason from first hook"
 assert_not_contains "$out" "should-not-appear" "later gate context not emitted"
 rm -rf "$WORK"
+fi
 
 # ----- tests: tmb:code-reviewer passes every Agent-spawn gate (GH 1641) -------
 

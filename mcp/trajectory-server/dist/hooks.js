@@ -8849,16 +8849,16 @@ function listerBind(host, name3, dirtok, mode, words2, acts) {
   if (dir === "" && mode !== "exec") return null;
   const args2 = [];
   const raw = [];
-  let skip = false;
+  let skip2 = false;
   for (let k = 1; k < words2.length; k++) {
     const w = dec2[k] ?? "";
     if (mode === "exec") {
-      if (skip) {
-        skip = false;
+      if (skip2) {
+        skip2 = false;
         continue;
       }
       if (EXEC_REDIRECT.test(words2[k])) {
-        skip = true;
+        skip2 = true;
         continue;
       }
       if (EXEC_REDIRECT_WORD.test(words2[k])) continue;
@@ -12220,11 +12220,11 @@ function unwrapStatement(stmt) {
 function inplaceFiles(tool, args2) {
   let inplace = false;
   let hasprog = false;
-  let skip = false;
+  let skip2 = false;
   let ops = [];
   for (const w of args2) {
-    if (skip) {
-      skip = false;
+    if (skip2) {
+      skip2 = false;
       continue;
     }
     if (w === "--") continue;
@@ -12232,18 +12232,18 @@ function inplaceFiles(tool, args2) {
       if (w.startsWith("--in-place") || w.startsWith("-i") || /^-[a-zA-Z].*i$/s.test(w)) inplace = true;
       else if (/^(-e|-f|--expression|--file|-l)$/.test(w)) {
         hasprog = true;
-        skip = true;
+        skip2 = true;
       } else if (w.startsWith("--expression=") || w.startsWith("--file=")) hasprog = true;
       else if (/^-[a-zA-Z].*[ef]$/s.test(w)) {
         hasprog = true;
-        skip = true;
+        skip2 = true;
       } else if (!w.startsWith("-")) ops.push(w);
     } else {
       if (w.startsWith("--")) continue;
       if (/^-.*[eE]$/s.test(w)) {
         if (w.includes("i")) inplace = true;
         hasprog = true;
-        skip = true;
+        skip2 = true;
       } else if (/^-.*i/s.test(w)) inplace = true;
       else if (!w.startsWith("-")) ops.push(w);
     }
@@ -12476,20 +12476,20 @@ function stdinProgram(words2) {
   else return { kind: "", info: false };
   const none = { kind: "", info: false };
   let info2 = false;
-  let skip = false;
+  let skip2 = false;
   for (let k = 1; k < words2.length; k++) {
     const w = words2[k];
-    if (skip) {
-      skip = false;
+    if (skip2) {
+      skip2 = false;
       continue;
     }
     if (w === "<<<") {
-      skip = true;
+      skip2 = true;
       continue;
     }
     if (w.startsWith("<<")) continue;
     if (/^(<|>|>>|>\||&>|&>>|[0-9]<|[0-9]>|[0-9]>>)$/.test(w)) {
-      skip = true;
+      skip2 = true;
       continue;
     }
     if (/^(<|>|&>|[0-9]<|[0-9]>)/.test(w)) continue;
@@ -12499,14 +12499,14 @@ function stdinProgram(words2) {
     if (w.startsWith("--")) {
       if (/^node:--(eval|print)(=.*)?$/s.test(kw)) return none;
       if (/^node:--(test|run|watch|watch-path)(=.*)?$/s.test(kw)) return none;
-      if (/^node:--(require|import|loader|input-type)$/.test(kw)) skip = true;
+      if (/^node:--(require|import|loader|input-type)$/.test(kw)) skip2 = true;
       continue;
     }
     if (w.startsWith("-")) {
       if (/^(py:-.*c|py:-.*m$|node:-[ep]$|perl:-.*[eE]|ruby:-.*e|sh:-.*c)/s.test(kw)) return none;
       if (/^py:-[bBdEhiIOPqRsSuvVx]*m/.test(kw)) return none;
       if (/^sh:-.*s/s.test(kw)) return { kind, info: info2 };
-      if (/^(py:-[WX]|node:-r|ruby:-[rI]|perl:-[IM]|sh:-[oO])$/.test(kw)) skip = true;
+      if (/^(py:-[WX]|node:-r|ruby:-[rI]|perl:-[IM]|sh:-[oO])$/.test(kw)) skip2 = true;
       continue;
     }
     return none;
@@ -12933,15 +12933,15 @@ var WritePaths = class _WritePaths {
       }
       case "read": {
         let mk = "";
-        let skip = false;
+        let skip2 = false;
         const names = [];
         for (const w of words2.slice(1)) {
-          if (skip) {
-            skip = false;
+          if (skip2) {
+            skip2 = false;
             continue;
           }
           if (w.startsWith(SEP)) mk = w;
-          else if (w === "-d") skip = true;
+          else if (w === "-d") skip2 = true;
           else if (w === "-r" || w === "-e") continue;
           else if (w.startsWith("-")) mk = "!";
           else if (/^[A-Za-z_]/.test(w)) names.push(w);
@@ -13780,9 +13780,9 @@ var GitGuards = class {
     }
     if (!ff || target === "") return false;
     let branch = this.ffSyncSwitch(idx - 1, own);
-    const skip = branch === "" ? -1 : idx - 1;
+    const skip2 = branch === "" ? -1 : idx - 1;
     for (let j = 0; j < this.stmts.length; j++) {
-      if (j === idx || j === skip || this.stmts[j] === "") continue;
+      if (j === idx || j === skip2 || this.stmts[j] === "") continue;
       if (!ffSyncOtherOk(this.stmts[j])) return false;
     }
     branch ||= this.git(dir, "branch", "--show-current");
@@ -19980,6 +19980,198 @@ var postAtomicCloseReadme = (payload, env) => {
   }
 };
 
+// src/hooks/agent-spawn-dispatch.ts
+var GATE_NAME52 = "agent-spawn-dispatch";
+var CHAIN = [
+  "require-task-spec",
+  "require-spawn-effort",
+  "require-feature-branch-active",
+  "code-reviewer-no-worktree",
+  "code-reviewer-spawn-prompt-shape",
+  "code-reviewer-after-atomic-close",
+  "code-reviewer-spawn-note",
+  "code-reviewer-preflight",
+  "rework-limit"
+];
+var PREPARE = ["ensure-swe-worktree", "record-swe-spawn"];
+var CONTEXT_SEPARATOR = "\n\n---\n\n";
+async function quietly(gate, input, env) {
+  if (gate === void 0) return "";
+  const write = process.stderr.write;
+  process.stderr.write = (() => true);
+  try {
+    return (await gate(input, env)).stdout;
+  } catch {
+    return "";
+  } finally {
+    process.stderr.write = write;
+  }
+}
+async function agentSpawnDispatch(payload, env, find) {
+  const input = commandSubstitution(payload);
+  const parts2 = [];
+  for (const name3 of CHAIN) {
+    const out2 = commandSubstitution(await quietly(find(name3), input, env));
+    if (out2 === "") continue;
+    const reply = jqInput(out2);
+    if (jqCapture(reply, ["hookSpecificOutput", "permissionDecision"]) === "deny") return { stdout: `${out2}
+`, code: 0 };
+    const ctx = jqCapture(reply, ["hookSpecificOutput", "additionalContext"]);
+    if (ctx !== "") parts2.push(ctx);
+  }
+  for (const name3 of PREPARE) await quietly(find(name3), input, env);
+  if (parts2.length === 0) return ALLOW;
+  const merged = parts2.join(CONTEXT_SEPARATOR);
+  return { stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: merged } })}
+`, code: 0 };
+}
+
+// src/hooks/ensure-swe-worktree.ts
+import { existsSync as existsSync12 } from "node:fs";
+var GATE_NAME53 = "ensure-swe-worktree";
+function cutField3(text, n2) {
+  const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n2 - 1] ?? "" : line);
+  return stripTrailingNewlines(lines2.join("\n"));
+}
+function sweSpawnTaskId(input) {
+  if (normalizeRole(jqCapture(input, ["tool_input", "subagent_type"], true)) !== "swe") return "";
+  return sqlInt(promptTaskId(jqCapture(input, ["tool_input", "prompt"], true)));
+}
+function prepareRepoRoot(db, repo, env) {
+  const workspaceRoot = posixDirname(posixDirname(posixDirname(db)));
+  if (repo !== "") return repoPathByName(db, repo, env) || `${workspaceRoot}/${repo}`;
+  return repoSinglePath(db, env) || workspaceRoot;
+}
+function recordedWorktree(db, taskId, branch, env) {
+  const loc = taskLocation(db, taskId, env);
+  if (loc.code !== 0 || loc.worktree === `${loc.repoRoot}/.claude/worktrees/${branchSlug(branch)}`) return "";
+  return existsSync12(loc.worktree) ? loc.worktree : "";
+}
+function registered(repoRoot, slug, env) {
+  let pattern;
+  try {
+    pattern = new RegExp(`^worktree .*/\\.claude/worktrees/${slug}$`);
+  } catch {
+    return false;
+  }
+  return gitRun(repoRoot, ["worktree", "list", "--porcelain"], env).stdout.split("\n").some((line) => pattern.test(line));
+}
+function skip(line) {
+  process.stderr.write(`ensure-swe-worktree: ${line}
+`);
+  return ALLOW;
+}
+var ensureSweWorktree = (payload, env) => {
+  if (env.TMB_DISABLE_ENSURE_SWE_WORKTREE === "1") return ALLOW;
+  const taskId = sweSpawnTaskId(jqInput(commandSubstitution(payload)));
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || !haveSqlite(env)) return skip("no trajectory DB or sqlite3 \u2014 skipping (non-isolated fallback)");
+  const row = sqliteRo(db, `SELECT branch_id, repo FROM tasks WHERE id=${taskId};`, env);
+  if (row === "") return skip(`no tasks row for task_id=${taskId} \u2014 skipping`);
+  const branch = cutField3(row, 1);
+  const repo = cutField3(row, 2);
+  if (branch === "") return skip(`task_id=${taskId} has empty branch_id \u2014 skipping`);
+  if (recordedWorktree(db, taskId, branch, env) !== "") return ALLOW;
+  const slug = branchSlug(branch);
+  const repoRoot = prepareRepoRoot(db, repo, env);
+  if (!isDir(`${repoRoot}/.git`)) return skip(`repo root '${repoRoot}' is not a git repo \u2014 skipping`);
+  const wtRel = `.claude/worktrees/${slug}`;
+  const wtAbs = `${repoRoot}/${wtRel}`;
+  if (registered(repoRoot, slug, env)) return ALLOW;
+  if (existsSync12(wtAbs)) return skip(`'${wtAbs}' exists but is not a registered worktree \u2014 skipping`);
+  if (gitOk(repoRoot, ["worktree", "add", wtRel, branch], env)) {
+    return skip(`created worktree ${wtAbs} for branch ${branch}`);
+  }
+  return skip(`'git worktree add ${wtRel} ${branch}' failed \u2014 skipping (non-isolated fallback)`);
+};
+
+// src/hooks/record-swe-spawn.ts
+var GATE_NAME54 = "record-swe-spawn";
+var UNIT_SEPARATOR = "";
+var SPAWN_FIELDS = [["session_id"], ["tool_use_id"], ["tool_input", "effort"], ["tool_input", "model"]];
+function spawnFields(input) {
+  if (!input.complete) return null;
+  const lines2 = [];
+  let lastFailed = false;
+  for (const value of input.values) {
+    try {
+      lines2.push(SPAWN_FIELDS.map((keys) => jqTostring(jqAlt2(jqGet(value, ...keys), ""))).join(UNIT_SEPARATOR));
+      lastFailed = false;
+    } catch (e) {
+      if (!(e instanceof JqUnindexable)) throw e;
+      lastFailed = true;
+    }
+  }
+  if (lastFailed) return null;
+  const [sessionId, toolUseId2, effort, model2] = readFields2(commandSubstitution(lines2.join("\n")).split("\n")[0], 4);
+  return { sessionId, toolUseId: toolUseId2, effort, model: model2 };
+}
+function readFields2(line, count) {
+  let rest = line;
+  const fields = [];
+  for (let i2 = 0; i2 < count - 1; i2 += 1) {
+    const at2 = rest.indexOf(UNIT_SEPARATOR);
+    if (at2 < 0) {
+      fields.push(rest);
+      rest = "";
+      continue;
+    }
+    fields.push(rest.slice(0, at2));
+    rest = rest.slice(at2 + 1);
+  }
+  if (rest.endsWith(UNIT_SEPARATOR) && !rest.slice(0, -1).includes(UNIT_SEPARATOR)) rest = rest.slice(0, -1);
+  fields.push(rest);
+  return fields;
+}
+var quoted = (value) => value === "" ? "NULL" : `'${sqlQuote(value)}'`;
+function spawnSql(row) {
+  const { taskId, now: now2 } = row;
+  const rootDirSql = row.rootDir === null ? "NULL" : `'${sqlQuote(row.rootDir)}'`;
+  const effortSql = ["low", "medium", "high"].includes(row.fields.effort) ? `'${row.fields.effort}'` : "effort";
+  return `
+UPDATE agent_runs
+   SET completed_at = '${now2}',
+       exit_reason = 'swept_orphan',
+       ${RUN_UNMEASURED_SQL},
+       duration_ms = CASE WHEN duration_ms = 0
+                          THEN COALESCE(CAST(ROUND((julianday('${now2}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
+                          ELSE duration_ms END
+ WHERE task_id = ${taskId} AND agent_type = 'swe' AND completed_at IS NULL
+   AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+   AND started_at IS NOT NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds');
+UPDATE tasks SET status = 'running', updated_at = '${now2}', completed_at = NULL
+ WHERE id = ${taskId} AND status = 'pending';
+INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host,
+                        session_id, effort, model, spawn_id, plugin_version)
+SELECT id, issue_id, 'swe', '${now2}', repo, ${rootDirSql}, 'claude',
+       ${quoted(row.fields.sessionId)}, ${effortSql}, ${quoted(row.fields.model)}, '${sqlQuote(row.spawnId)}', ${quoted(row.pluginVersion)}
+  FROM tasks WHERE id = ${taskId};`;
+}
+var recordSweSpawn = (payload, env) => {
+  try {
+    const input = jqInput(commandSubstitution(payload));
+    const taskId = sweSpawnTaskId(input);
+    if (taskId === "") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || !haveSqlite(env)) return ALLOW;
+    const row = sqliteRo(db, `SELECT branch_id, COALESCE(repo, '') FROM tasks WHERE id = ${taskId};`, env);
+    if (row === "") return ALLOW;
+    const branch = cutField3(row, 1);
+    const fields = spawnFields(input);
+    if (fields === null) return ALLOW;
+    const spawnId = fields.toolUseId !== "" ? `tool_use:${fields.toolUseId}` : `tool_use:${fields.sessionId}:${Date.now()}`;
+    let rootDir = null;
+    if (branch !== "") {
+      rootDir = recordedWorktree(db, taskId, branch, env) || `${prepareRepoRoot(db, cutField3(row, 2), env).replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
+    }
+    const sql = spawnSql({ taskId, rootDir, fields, spawnId, pluginVersion: pluginVersion(env), now: nowIso() });
+    dbWrite(db, sql, { caller: GATE_NAME54, env });
+  } catch {
+  }
+  return ALLOW;
+};
+
 // src/db.ts
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
@@ -20135,7 +20327,7 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
 
 // src/hooks/cleanup-worktree-on-task-close.ts
 import { statSync as statSync27 } from "node:fs";
-var GATE_NAME52 = "cleanup-worktree-on-task-close";
+var GATE_NAME55 = "cleanup-worktree-on-task-close";
 var BYPASS_ENV8 = "TMB_KEEP_CLOSED_WORKTREES";
 var KEEP_HEAD_ENV = "TMB_KEEP_HEAD_ON_CLOSE";
 var TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record)$/;
@@ -20230,9 +20422,9 @@ var cleanupWorktreeOnTaskClose = (payload, env) => cleanupWorktree(payload, env,
 
 // src/hooks/worktree-create.ts
 import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync16, statSync as statSync28 } from "node:fs";
+import { existsSync as existsSync13, mkdirSync as mkdirSync8, readFileSync as readFileSync16, statSync as statSync28 } from "node:fs";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
-var GATE_NAME53 = "worktree-create";
+var GATE_NAME56 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
 var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
@@ -20270,7 +20462,7 @@ function ensureWorktree(repo, worktree, branch, addFailed, created2, env, stderr
     mkdirSync8(posixDirname(worktree), { recursive: true });
   } catch {
   }
-  if (existsSync12(`${worktree}/.git`)) {
+  if (existsSync13(`${worktree}/.git`)) {
     stderr2(`tmb worktree-create: reusing existing worktree ${worktree} for branch ${branch}
 `);
     installMergeDriver(repo, env, stderr2);
@@ -20347,7 +20539,7 @@ var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) =>
 // src/hooks/remote-id-guard.ts
 import { statSync as statSync29 } from "node:fs";
 import { performance as performance4 } from "node:perf_hooks";
-var GATE_NAME54 = "remote-id-guard";
+var GATE_NAME57 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
 var REMOTE_WRITES = [
@@ -20516,12 +20708,12 @@ function auditOverrun(deadline, elapsed, env) {
     {
       issueId: "-1",
       branchId: "",
-      fromNode: `hook:${GATE_NAME54}`,
+      fromNode: `hook:${GATE_NAME57}`,
       eventType: "remote_id_guard_overrun",
-      summary: `${GATE_NAME54} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
+      summary: `${GATE_NAME57} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
       contentJson: `{"deadline_s":${jqNumberLiteral(deadline)},"elapsed_s":${jqNumberLiteral(elapsed)}}`
     },
-    { caller: GATE_NAME54, env }
+    { caller: GATE_NAME57, env }
   );
 }
 function seconds(ms) {
@@ -20549,7 +20741,7 @@ var remoteIdGuard = async (payload, processEnv) => {
   }
   if (result !== OVERRUN && !overran()) return result;
   const elapsed = seconds(elapsedMs2());
-  process.stderr.write(`${GATE_NAME54}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
+  process.stderr.write(`${GATE_NAME57}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
 `);
   auditOverrun(deadline, elapsed, env);
   return ALLOW;
@@ -20610,9 +20802,12 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME49, promptIntentHints],
   [GATE_NAME50, sweScopeFence],
   [GATE_NAME51, postAtomicCloseReadme],
-  [GATE_NAME52, cleanupWorktreeOnTaskClose],
-  [GATE_NAME53, worktreeCreate],
-  [GATE_NAME54, remoteIdGuard]
+  [GATE_NAME52, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [GATE_NAME53, ensureSweWorktree],
+  [GATE_NAME54, recordSweSpawn],
+  [GATE_NAME55, cleanupWorktreeOnTaskClose],
+  [GATE_NAME56, worktreeCreate],
+  [GATE_NAME57, remoteIdGuard]
 ]);
 function findGate(name3) {
   return GATES.get(name3);

@@ -1,5 +1,6 @@
 activation-routine
 agent-arg-matches-caller
+agent-spawn-dispatch
 askuserquestion-length-lint
 attribution-footer
 branch-up-to-date-with-remote
@@ -19,6 +20,7 @@ debug-trajectory
 deferred-tools-drift-warn
 ensure-gitignore
 ensure-mcp-deps-installed
+ensure-swe-worktree
 git-guards
 git-push-guard
 mcp-health-check
@@ -29,6 +31,7 @@ plugin-hooks-marker
 post-atomic-close-readme
 post-task-create-spawn-hint
 prompt-intent-hints
+record-swe-spawn
 remote-id-guard
 require-feature-branch-active
 require-spawn-effort
