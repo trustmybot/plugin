@@ -13,7 +13,10 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-feature-branch-active.sh"
 HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
 [ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/require-feature-branch-active.sh"
-[ "$HOOK_IMPL" != ts ] || export TMB_TEST_NODE="$(node -p process.execPath)"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 
 # ----- helpers ----------------------------------------------------------
 
