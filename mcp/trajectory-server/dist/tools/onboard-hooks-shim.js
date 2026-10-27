@@ -88,21 +88,59 @@ function pluginNameOf(pluginRoot) {
     }
     return 'tmb';
 }
+const NO_PRE_TOOL_USE = 'hooks/hooks.json missing or has no PreToolUse';
 function readPreToolUseFromHooksJson(pluginRoot) {
     const hooksJsonPath = join(pluginRoot, 'hooks', 'hooks.json');
     if (!existsSync(hooksJsonPath))
-        return null;
+        return { reason: NO_PRE_TOOL_USE };
     let parsed;
     try {
         parsed = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
     }
     catch {
-        return null;
+        return { reason: NO_PRE_TOOL_USE };
     }
     const pre = parsed.hooks?.PreToolUse;
     if (!Array.isArray(pre))
+        return { reason: NO_PRE_TOOL_USE };
+    const groups = [];
+    for (const group of pre) {
+        const hooks = [];
+        for (const h of group.hooks ?? []) {
+            const gates = routerGateHooks(pluginRoot, h);
+            if (gates !== null && 'reason' in gates)
+                return gates;
+            hooks.push(...(gates ?? [h]));
+        }
+        groups.push({ ...group, hooks });
+    }
+    return groups;
+}
+const ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
+// The router entry (GH 1692 R1) as one `dispatch.sh <gate>` entry per gate
+// dist/hooks-router.txt lists for its event, timed out at the gate's budget,
+// so the shim runs each gate as it ran before the router; null for any other
+// entry, and a reason when the manifest is unreadable or lists no gate for the
+// event, so no shim is written without the router's gates.
+function routerGateHooks(pluginRoot, h) {
+    const event = ROUTER_COMMAND.exec(h.command ?? '')?.[1];
+    if (event === undefined)
         return null;
-    return pre;
+    let manifest;
+    try {
+        manifest = readFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), 'utf8');
+    }
+    catch {
+        return { reason: 'dist/hooks-router.txt missing or unreadable' };
+    }
+    const gates = manifest
+        .split('\n')
+        .map((line) => line.split(' '))
+        .filter((f) => f.length >= 4 && f[3] === event && /^[a-z0-9-]+$/.test(f[0]))
+        .map(([gate, budgetMs]) => ({ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${gate}`, timeout: Math.ceil(Number(budgetMs) / 1000) }));
+    if (gates.length === 0)
+        return { reason: `dist/hooks-router.txt lists no gate for ${event}` };
+    return gates;
 }
 function keptHooks(group) {
     return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
@@ -132,13 +170,13 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
 }
 /**
  * How many PreToolUse entries the shim would write for this plugin root — the
- * N quoted in the onboard question. 0 when hooks.json is unreadable.
+ * N quoted in the onboard question. 0 when hooks.json, or the router manifest it needs, is unreadable.
  */
 export function countShimEntries(pluginRoot) {
     if (!pluginRoot)
         return 0;
     const pre = readPreToolUseFromHooksJson(pluginRoot);
-    if (!pre)
+    if ('reason' in pre)
         return 0;
     return pre.reduce((n, g) => n + keptHooks(g).length, 0);
 }
@@ -187,8 +225,8 @@ function installedPluginGuard(pluginRoot) {
     if (!marketplace)
         return { reason: 'plugin-root-not-installed' };
     const pre = readPreToolUseFromHooksJson(pluginRoot);
-    if (!pre)
-        return { reason: 'hooks/hooks.json missing or has no PreToolUse' };
+    if ('reason' in pre)
+        return { reason: pre.reason };
     return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 function settingsFile(projectRoot) {

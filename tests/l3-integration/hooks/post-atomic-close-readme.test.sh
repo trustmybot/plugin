@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# L3 tests: post-atomic-close-readme.sh PostToolUse hook on bro_atomic_close.
+# L3 tests: post-atomic-close-readme.sh PostToolUse hook on bro_atomic_close,
+# or its TypeScript port under TMB_HOOK_TEST_IMPL=ts.
 #
 # When a closed task's commit touched a directory whose README.md is missing
 # or older than the commit, the hook emits an additionalContext nudge and
-# writes one `readme_staleness_surfaced` audit row. A fresh README (newer than
-# the commit) or an unresolvable payload is a no-op at exit 0 — never blocks.
+# writes one `readme_staleness_surfaced` audit row. A fresh README (one the
+# commit itself changes, its mtime newer than the commit) or an unresolvable
+# payload is a no-op at exit 0 — never blocks.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +14,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 HOOK="$PLUGIN_ROOT/scripts/hooks/post-atomic-close-readme.sh"
+HOOK_IMPL="${TMB_HOOK_TEST_IMPL:-bash}"
+[ "$HOOK_IMPL" != ts ] || HOOK="$PLUGIN_ROOT/tests/lib/ts-hooks/post-atomic-close-readme.sh"
+if [ "$HOOK_IMPL" = ts ]; then
+  TMB_TEST_NODE="$(node -p process.execPath)"
+  export TMB_TEST_NODE
+fi
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not available"; exit 0; }
@@ -105,12 +113,13 @@ assert_contains "$CTX2" "docs" "nudge names the dir with no README"
 test_case "fresh README → no nudge, no new audit row"
 mkdir -p "$REPO/fresh"
 echo "v1" > "$REPO/fresh/code.txt"
-git -C "$REPO" add fresh/code.txt
+echo "# fresh" > "$REPO/fresh/README.md"
+git -C "$REPO" add fresh/code.txt fresh/README.md
 git -C "$REPO" commit -qm "add fresh dir"
 COMMIT3=$(git -C "$REPO" rev-parse HEAD)
-# README written AFTER the commit → newer than commit epoch → fresh.
-echo "# fresh" > "$REPO/fresh/README.md"
-echo "# repo-a (refreshed)" > "$REPO/README.md"
+# The commit adds the README (fresh for the TypeScript gate) and its mtime is
+# past the commit epoch (fresh for the .sh).
+touch -t 209901010000 "$REPO/fresh/README.md"
 sqlite3 "$DB" "UPDATE tasks SET commit_sha='${COMMIT3}' WHERE id=1;"
 BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='readme_staleness_surfaced';")
 OUT3=$(_payload 1 | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null; echo "EXIT:$?")

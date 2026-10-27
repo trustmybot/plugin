@@ -56,14 +56,14 @@ function write(path: string, text: string): void {
   writeFileSync(path, text);
 }
 
-interface Sandbox {
+export interface Sandbox {
   dir: string;
   db: string;
   scratch: string;
   scratchProject: string;
 }
 
-function buildSandbox(dir: string): Sandbox {
+export function buildSandbox(dir: string): Sandbox {
   const project = join(dir, 'project');
   const wts = join(project, '.claude/worktrees');
   for (const rel of ['src/a.ts', 'src/b.ts', 'agents/swe.md', 'docs/guide.md', 'CLAUDE.md']) write(join(wts, 'sb-task', rel), 'a\n');
@@ -106,7 +106,7 @@ function buildSandbox(dir: string): Sandbox {
   return { dir, db, scratch, scratchProject };
 }
 
-interface DenyRecord {
+export interface DenyRecord {
   session: string;
   path: string;
   gate: string;
@@ -120,7 +120,7 @@ interface Materialized {
   expect: string;
 }
 
-function materialize(file: string, sb: Pick<Sandbox, 'dir' | 'scratch'>): Materialized {
+export function materialize(file: string, sb: Pick<Sandbox, 'dir' | 'scratch'>): Materialized {
   const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sb.dir).replaceAll('@SCRATCH@', sb.scratch);
   const {
     corpus_env: env = {},
@@ -132,7 +132,7 @@ function materialize(file: string, sb: Pick<Sandbox, 'dir' | 'scratch'>): Materi
 }
 
 /** The state a run starts from: no scope-note markers or deny records, then <record> as dispatch.sh writes it. */
-function resetState(sb: Sandbox, record: DenyRecord | null, now: number): void {
+export function resetState(sb: Sandbox, record: DenyRecord | null, now: number): void {
   rmSync(join(dirname(sb.db), 'locks'), { recursive: true, force: true });
   if (record === null) return;
   const at = record.at === 'now' ? String(now) : record.at;

@@ -201,7 +201,7 @@ export function snapshot(root) {
     walk(root);
     return out;
 }
-function byLocale(expect, locale) {
+export function byLocale(expect, locale) {
     return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
 export function materialize(file, s, paths) {
@@ -228,7 +228,7 @@ function caseEnv(s, locale, extra, cwd) {
     }
     return env;
 }
-function run(cmd, args, c, env) {
+export function run(cmd, args, c, env) {
     const dir = mkdtempSync(join(tmpdir(), 'tmb-swe-run-stdin-'));
     const file = join(dir, 'stdin');
     writeFileSync(file, c.input);
@@ -245,7 +245,7 @@ function run(cmd, args, c, env) {
     }
 }
 /** `empty`: no stdout or stderr; anything else: a phrase of the output or of the project DB rows. */
-function assertExpect(side, r, tree, expect) {
+export function assertExpect(side, r, tree, expect) {
     const output = r.stdout + r.stderr;
     if (expect === 'empty') {
         assert.equal(output, '', `${side}: no output`);

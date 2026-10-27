@@ -4,7 +4,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import type { GraphHolder, WorldModelGraph } from '../graph.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertAudit } from './audit.js';
-import { taskWorktreePath } from './composites.js';
+import { taskWorktreeDir } from './composites.js';
 import { LIVE_TASK_STATUSES } from './lifecycle.js';
 export { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRemotes, type Remote } from '../repos/remotes.js';
@@ -55,12 +55,12 @@ function pathHasSegment(path: string, segment: string): boolean {
   return path.split('/').includes(segment);
 }
 
-// Live tasks whose worktree (the computed task_provision path, or an open run's
+// Live tasks whose worktree (taskWorktreeDir, or an open run's
 // root_dir) sits under a directory named `old`. Renaming under them would strand
 // the worktree's recorded location.
 function blockingTasks(db: TrajectoryDB, old: string, oldPath: string): Array<{ id: number; status: string; worktree: string }> {
-  const tasks = db.all<{ id: number; status: string; branch_id: string; repo_path: string | null }>(
-    `SELECT t.id, t.status, t.branch_id, r.path AS repo_path
+  const tasks = db.all<{ id: number; status: string; branch_id: string; worktree_path: string | null; repo_path: string | null }>(
+    `SELECT t.id, t.status, t.branch_id, t.worktree_path, r.path AS repo_path
        FROM tasks t LEFT JOIN repos r ON r.name = t.repo
       WHERE t.status IN (SELECT value FROM json_each(?))`,
     [JSON.stringify(LIVE_TASK_STATUSES)],
@@ -74,7 +74,7 @@ function blockingTasks(db: TrajectoryDB, old: string, oldPath: string): Array<{ 
       )
       .map((r) => r.root_dir);
     const repoPath = t.repo_path ?? oldPath;
-    const candidates = [taskWorktreePath(repoPath, t.branch_id), ...roots];
+    const candidates = [taskWorktreeDir(repoPath, t), ...roots];
     const hit = candidates.find((p) => pathHasSegment(p, old));
     if (hit) blocking.push({ id: t.id, status: t.status, worktree: hit });
   }

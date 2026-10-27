@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "SubagentStop",
+  "agent_type": "swe",
+  "agent_id": "agent-31",
+  "agent_transcript_path": "@SANDBOX@/transcripts/31.jsonl",
+  "corpus_expect": "\"decision\":\"auto-completed\""
+}

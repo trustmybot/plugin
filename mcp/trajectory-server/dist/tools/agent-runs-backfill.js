@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { projectRootFromDbPath } from './containment.js';
-import { resolveRepoPath, taskWorktreePath } from './composites.js';
+import { resolveRepoPath, taskWorktreeDir } from './composites.js';
 const UNBOUND_SAMPLE = 20;
 const BACKFILL_AGENTS = new Set(['swe', 'code-reviewer']);
 // Parses a JSONL transcript; unparsable lines are dropped.
@@ -283,7 +283,7 @@ export function agentRunsBackfill(db, opts) {
             unbound(path, 'no task_id=<N> in the spawn prompt');
             continue;
         }
-        const task = db.get('SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ?', [taskId]);
+        const task = db.get('SELECT id, issue_id, branch_id, status, repo, worktree_path FROM tasks WHERE id = ?', [taskId]);
         if (!task) {
             unbound(path, `task_id=${taskId} has no task row`);
             continue;
@@ -310,7 +310,7 @@ export function agentRunsBackfill(db, opts) {
         const tokens = usageTotal(stats);
         report.tokens_total_added += tokens;
         const repoPath = resolveRepoPath(db, task.repo);
-        const rootDir = repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null;
+        const rootDir = repoPath?.startsWith('/') ? taskWorktreeDir(repoPath, task) : null;
         if (target) {
             claimedRunIds.add(target.id);
             report.rows_updated++;

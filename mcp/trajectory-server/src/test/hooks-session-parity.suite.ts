@@ -252,7 +252,7 @@ export function materialize(file: string, s: string, noJqPath: string): Case {
   return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect };
 }
 
-function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
+export function caseEnv(s: string, locale: string, extra: Record<string, string | null>, cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of UNSET) delete env[key];
   Object.assign(env, {

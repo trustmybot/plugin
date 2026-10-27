@@ -51,7 +51,7 @@ function write(path, text) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, text);
 }
-function buildSandbox(dir) {
+export function buildSandbox(dir) {
     const project = join(dir, 'project');
     const wts = join(project, '.claude/worktrees');
     for (const rel of ['src/a.ts', 'src/b.ts', 'agents/swe.md', 'docs/guide.md', 'CLAUDE.md'])
@@ -92,13 +92,13 @@ function buildSandbox(dir) {
     mkdirSync(scratch, { recursive: true });
     return { dir, db, scratch, scratchProject };
 }
-function materialize(file, sb) {
+export function materialize(file, sb) {
     const text = readFileSync(file, 'utf8').replaceAll('@SANDBOX@', sb.dir).replaceAll('@SCRATCH@', sb.scratch);
     const { corpus_env: env = {}, corpus_record: record = null, corpus_expect: expect = '', ...payload } = JSON.parse(text);
     return { input: JSON.stringify(payload), env, record, expect };
 }
 /** The state a run starts from: no scope-note markers or deny records, then <record> as dispatch.sh writes it. */
-function resetState(sb, record, now) {
+export function resetState(sb, record, now) {
     rmSync(join(dirname(sb.db), 'locks'), { recursive: true, force: true });
     if (record === null)
         return;

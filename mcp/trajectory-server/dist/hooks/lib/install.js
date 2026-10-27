@@ -412,4 +412,24 @@ export function legacyHookEntries(hooks) {
 export function legacyHookProjects(projects) {
     return projects.map((p) => `${p.path} (${p.version})`).join(', ');
 }
+/**
+ * tmb_active_install: the install every hook of this project runs. A
+ * CLAUDE_PLUGIN_ROOT outside the plugins cache that no install names is
+ * itself; else the newest project/local install for CLAUDE_PROJECT_DIR (two
+ * of them: a stderr notice naming both), else the newest user install, else
+ * CLAUDE_PLUGIN_ROOT.
+ */
+export function activeInstall(env = process.env, onStderr = () => { }) {
+    const self = env.CLAUDE_PLUGIN_ROOT ?? '';
+    if (self !== '' && !/\/plugins\/cache\//.test(self) && !installCandidates(env).some((r) => r.install === self))
+        return self;
+    const projects = projectInstalls(env);
+    if (projects.length > 0) {
+        if (projects.length > 1) {
+            onStderr(`TMB: two project installs for ${env.CLAUDE_PROJECT_DIR ?? ''} — using ${projects[0].install} (newest), ignoring ${projects[1].install}\n`);
+        }
+        return projects[0].install;
+    }
+    return userInstalls(env)[0]?.install ?? self;
+}
 //# sourceMappingURL=install.js.map
