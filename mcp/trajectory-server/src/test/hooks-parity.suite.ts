@@ -234,6 +234,7 @@ const OWN_SANDBOX_GATES: ReadonlySet<string> = new Set([
   'agent-arg-matches-caller',
   'reviewer-identity-observe',
   'cheatcode-install-approval',
+  'swe-scope-fence',
   'swe-verification-gate',
 ]);
 
