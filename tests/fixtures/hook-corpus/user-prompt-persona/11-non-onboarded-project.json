@@ -1,0 +1,8 @@
+{
+  "session_id": "prompt-session-0006",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/fresh"
+  },
+  "corpus_cwd": "fresh",
+  "corpus_expect": "@SANDBOX@/fresh"
+}

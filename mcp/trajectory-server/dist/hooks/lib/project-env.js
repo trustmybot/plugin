@@ -42,9 +42,21 @@ export function jqRawText(value) {
 /** tmb_plugin_name: `.name // "tmb"` of $CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json, else "tmb". */
 export function pluginName(env = process.env) {
     const root = env.CLAUDE_PLUGIN_ROOT ?? '';
-    if (root === '')
-        return DEFAULT_PLUGIN_NAME;
-    const manifest = `${root}/.claude-plugin/plugin.json`;
+    return root === '' ? DEFAULT_PLUGIN_NAME : manifestName(`${root}/.claude-plugin/plugin.json`);
+}
+/**
+ * tmb_resolve_plugin_name (scripts/lib/resolve-plugin-name.sh): as
+ * pluginName, except that an unset or empty CLAUDE_PLUGIN_ROOT reads
+ * /.claude-plugin/plugin.json.
+ */
+export function resolvePluginName(env = process.env) {
+    return manifestName(`${env.CLAUDE_PLUGIN_ROOT ?? ''}/.claude-plugin/plugin.json`);
+}
+/** What a `$(...)` capture holds of <text>: NUL bytes dropped, trailing newlines stripped. */
+export function commandSubstitution(text) {
+    return text.replace(/\0/g, '').replace(/\n+$/, '');
+}
+function manifestName(manifest) {
     let text;
     try {
         if (!statSync(manifest).isFile())
@@ -118,5 +130,24 @@ export function installRoot(fromDir) {
 export function ctypeUtf8(env = process.env) {
     const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || 'C';
     return /(^|\.)utf-?8$/i.test(locale) && !locale.includes('/') && existsSync(`/usr/share/locale/${locale}/LC_CTYPE`);
+}
+const LOCALE_CATEGORIES = ['LC_COLLATE', 'LC_CTYPE', 'LC_MESSAGES', 'LC_MONETARY', 'LC_NUMERIC', 'LC_TIME'];
+function localeInstalled(name, category) {
+    if (name === 'C' || name === 'POSIX')
+        return true;
+    return !name.includes('/') && existsSync(`/usr/share/locale/${name}/${category}`);
+}
+/**
+ * Whether a macOS tool that calls setlocale(LC_ALL, "") (grep) runs with a
+ * UTF-8 LC_CTYPE: every category's locale (LC_ALL, else LC_<category>, else
+ * LANG, else C) must be installed, or the whole call fails and the tool runs
+ * in C. A bare `LC_ALL=UTF-8` names a locale with only LC_CTYPE, so grep runs
+ * in C under it.
+ */
+export function setlocaleUtf8(env = process.env) {
+    const pick = (category) => env.LC_ALL || env[category] || env.LANG || 'C';
+    if (!LOCALE_CATEGORIES.every((category) => localeInstalled(pick(category), category)))
+        return false;
+    return /(^|\.)utf-?8$/i.test(pick('LC_CTYPE'));
 }
 //# sourceMappingURL=project-env.js.map

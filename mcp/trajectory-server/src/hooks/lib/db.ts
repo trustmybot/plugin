@@ -286,7 +286,22 @@ export function denyDbUnavailable(hook = '', env: NodeJS.ProcessEnv = process.en
   });
 }
 
-/** tmb_sqlite_ro <db> <sql>: tmb_gate_read with a 500 ms busy wait; "" on error. */
+/**
+ * tmb_db_path_advisory <hook>: the DB path when it resolves and reads, for an
+ * advisory hook; null when unresolved (silent) or when the read errors, which
+ * `onWarning` hears as the .sh's stderr line.
+ */
+export function dbPathAdvisory(hook = '', env: NodeJS.ProcessEnv = process.env, onWarning?: (line: string) => void): string | null {
+  const db = dbPath(env, onWarning);
+  if (db === null) return null;
+  if (dbState(env) === 'error') {
+    onWarning?.(`${hook || 'hook'}: trajectory DB unavailable (${db}) — skipped`);
+    return null;
+  }
+  return db;
+}
+
+/** tmb_sqlite_ro <db> <sql>:tmb_gate_read with a 500 ms busy wait; "" on error. */
 export function sqliteRo(db: string, sql: string, env: NodeJS.ProcessEnv = process.env): string {
   const out = gateRead(db, sql, { ...env, TMB_DB_WRITE_TIMEOUT_MS: String(SQLITE_RO_TIMEOUT_MS) });
   return out === GATE_READ_ERROR ? '' : out;

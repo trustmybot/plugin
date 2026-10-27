@@ -1,0 +1,7 @@
+{
+  "session_id": "prompt-session-0003",
+  "corpus_env": {
+    "PATH": "@NOJQ_PATH@"
+  },
+  "corpus_expect": "[Persona loaded by the TMB persona hook from the tmb plugin's CLAUDE.md, v1.1.0]"
+}

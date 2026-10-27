@@ -1,0 +1,9 @@
+{
+  "prompt": "bro",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/bad",
+    "PGREP_STUB": "down"
+  },
+  "corpus_cwd": "bad",
+  "corpus_expect": "⛔"
+}

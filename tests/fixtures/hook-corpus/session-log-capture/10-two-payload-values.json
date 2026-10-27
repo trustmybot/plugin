@@ -1,0 +1,4 @@
+{
+  "corpus_stdin": "{\"session_id\":\"log-session-0007\",\"prompt\":\"one\"} {\"prompt\":\"two\"} 5",
+  "corpus_expect": "{\"continue\": true}"
+}

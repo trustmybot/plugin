@@ -1,0 +1,12 @@
+{
+  "tool": "Read",
+  "tool_input": {
+    "file_path": "/x"
+  },
+  "corpus_env": {
+    "TMB_EVAL_MODE": "1",
+    "TMB_DEBUG_TRAJECTORY": "1",
+    "CLAUDE_SESSION_ID": "dbg-session-0002"
+  },
+  "corpus_expect": "empty"
+}

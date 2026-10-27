@@ -1,0 +1,8 @@
+{
+  "session_id": "hooks-session-0002",
+  "corpus_env": {
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/bare"
+  },
+  "corpus_cwd": "bare",
+  "corpus_expect": "empty"
+}

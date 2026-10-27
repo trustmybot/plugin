@@ -1,0 +1,6 @@
+{
+  "prompt": "continue",
+  "transcript_path": "@SANDBOX@/transcripts/sticky.jsonl",
+  "session_id": "act-session-0006",
+  "corpus_expect": "session_id=act-session-0006"
+}

@@ -1,0 +1,7 @@
+{
+  "session_id": "start-session-0007",
+  "corpus_env": {
+    "CLAUDE_PLUGIN_ROOT": "@SANDBOX@/plugin-named"
+  },
+  "corpus_expect": "from the acme plugin's CLAUDE.md, v2.0.0"
+}

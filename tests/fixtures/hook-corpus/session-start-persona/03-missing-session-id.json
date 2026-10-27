@@ -1,0 +1,4 @@
+{
+  "hook_event_name": "SessionStart",
+  "corpus_expect": "# You are bro"
+}

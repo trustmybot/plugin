@@ -1,0 +1,10 @@
+{
+  "tool_name": "Bash",
+  "corpus_env": {
+    "TMB_EVAL_MODE": "1",
+    "TMB_DEBUG_TRAJECTORY": "1",
+    "CLAUDE_PROJECT_DIR": "@SANDBOX@/bare"
+  },
+  "corpus_cwd": "bare",
+  "corpus_expect": "empty"
+}
