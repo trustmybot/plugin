@@ -3,6 +3,7 @@
  * gates, materialized in its gate's parity sandbox, gets from the router the
  * decision the gates give one by one: the first deny in ROUTER_GROUPS order
  * with that gate's output, else the allowing gates' contexts merged.
+ * One router-parity.<gate>.test.ts per gate runs it as its own node --test process (GH 2118).
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { basename, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { findGate, routerGates } from '../hooks/registry.js';
 import { decide, failClosedReason, payloadTool } from '../hooks/router/decide.js';
-import { ROUTER_CORPUS_GATES, type RouterCase, type RouterSandbox, routerSandbox, underUid } from './router-sandboxes.js';
+import { type RouterCase, type RouterCorpusGate, type RouterSandbox, routerSandbox, underUid } from './router-sandboxes.js';
 
 const DENY = /"permissionDecision"\s*:\s*"deny"|"decision"\s*:\s*"block"/;
 const EVENT = 'PreToolUse';
@@ -61,14 +62,14 @@ async function inCase<T>(c: RouterCase, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-describe('router decision parity over the 11 Bash gates corpora', () => {
-  let sandbox: RouterSandbox;
-  before(() => {
-    sandbox = routerSandbox(mkdtempSync(join(tmpdir(), 'tmb-router-parity-')));
-  });
-  after(() => sandbox.cleanup());
+export function routerParityGate(gate: RouterCorpusGate): void {
+  describe('router decision parity over the 11 Bash gates corpora', () => {
+    let sandbox: RouterSandbox;
+    before(() => {
+      sandbox = routerSandbox(mkdtempSync(join(tmpdir(), 'tmb-router-parity-')), [gate]);
+    });
+    after(() => sandbox.cleanup());
 
-  for (const gate of ROUTER_CORPUS_GATES) {
     it(`${gate}: the router decides as the gates do one by one`, async () => {
       const cases = sandbox.cases.filter((c) => c.gate === gate);
       assert.ok(cases.length > 0, `${gate} has a corpus`);
@@ -88,5 +89,5 @@ describe('router decision parity over the 11 Bash gates corpora', () => {
       }
       assert.ok(bash > 0, `${gate} has Bash payloads`);
     });
-  }
-});
+  });
+}

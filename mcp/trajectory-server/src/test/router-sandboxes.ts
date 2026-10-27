@@ -2,7 +2,7 @@
  * The corpus of the 11 PreToolUse Bash router gates, each payload materialized
  * in its gate's parity sandbox (the builders of the hooks-*-parity suites),
  * with the env and cwd its parity run uses, in-process. Shared by the router
- * parity test and the router benches.
+ * parity tests and the router benches.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -31,6 +31,8 @@ export const ROUTER_CORPUS_GATES = [
   'remote-id-guard',
   'debug-trajectory',
 ] as const;
+
+export type RouterCorpusGate = (typeof ROUTER_CORPUS_GATES)[number];
 
 export interface RouterCase {
   gate: string;
@@ -74,8 +76,9 @@ function clean(env: NodeJS.ProcessEnv, drop: readonly string[] = []): NodeJS.Pro
   return out;
 }
 
-/** Every router gate's corpus, materialized under <root> (an existing, real dir). */
-export function routerSandbox(rootDir: string): RouterSandbox {
+/** The corpus of <gates> (default: every router gate), materialized under <root> (an existing, real dir); only those gates' sandboxes are built. */
+export function routerSandbox(rootDir: string, gates?: readonly RouterCorpusGate[]): RouterSandbox {
+  const want = (gate: RouterCorpusGate): boolean => gates === undefined || gates.includes(gate);
   const root = realpathSync(rootDir);
   const cases: RouterCase[] = [];
   const cleanups: (() => void)[] = [];
@@ -83,23 +86,26 @@ export function routerSandbox(rootDir: string): RouterSandbox {
   mkdirSync(emptyProject, { recursive: true });
   const path = process.env.PATH ?? '';
 
-  const cg = containmentGuardSetup(join(root, 'cg'));
-  for (const file of files('containment-guard')) {
-    const { input, env } = cg.materialize?.(readFileSync(file)) ?? { input: readFileSync(file), env: {} };
-    cases.push({
-      gate: 'containment-guard',
-      file,
-      input: input.toString('utf8'),
-      env: clean({ ...process.env, CLAUDE_PROJECT_DIR: emptyProject, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE, ...cg.env, ...env }, ['NODE_OPTIONS']),
-      cwd: cg.cwd ?? emptyProject,
-      fakeUid: true,
-    });
+  if (want('containment-guard')) {
+    const cg = containmentGuardSetup(join(root, 'cg'));
+    for (const file of files('containment-guard')) {
+      const { input, env } = cg.materialize?.(readFileSync(file)) ?? { input: readFileSync(file), env: {} };
+      cases.push({
+        gate: 'containment-guard',
+        file,
+        input: input.toString('utf8'),
+        env: clean({ ...process.env, CLAUDE_PROJECT_DIR: emptyProject, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE, ...cg.env, ...env }, ['NODE_OPTIONS']),
+        cwd: cg.cwd ?? emptyProject,
+        fakeUid: true,
+      });
+    }
   }
 
   for (const [gate, build, materialize] of [
     ['git-guards', gitGuardsSandbox, gitGuardsCase],
     ['git-push-guard', pushGuardSandbox, pushGuardCase],
   ] as const) {
+    if (!want(gate)) continue;
     const sb = join(root, gate);
     mkdirSync(sb, { recursive: true });
     build(sb);
@@ -127,86 +133,97 @@ export function routerSandbox(rootDir: string): RouterSandbox {
     }
   }
 
-  const sbDir = join(root, 'swe-boundary');
-  mkdirSync(sbDir, { recursive: true });
-  const sb = sweBoundarySandbox(sbDir);
-  cleanups.push(() => rmSync(sb.scratchProject, { recursive: true, force: true }));
-  for (const file of files('swe-boundary')) {
-    const c = sweBoundaryCase(file, sb);
-    cases.push({
-      gate: 'swe-boundary',
-      file,
-      input: c.input,
-      env: clean(
-        { ...process.env, CLAUDE_PROJECT_DIR: join(sb.dir, 'project'), CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TRAJECTORY_DB_PATH: sb.db, LC_ALL: LOCALE, ...c.env },
-        ['TMB_HOOKS_SQLITE', 'NODE_OPTIONS'],
-      ),
-      cwd: join(sb.dir, 'project'),
-      fakeUid: false,
-      reset: () => sweBoundaryReset(sb, c.record, Math.floor(Date.now() / 1000)),
-    });
-  }
-
-  const gb = join(root, 'git-branch/sandbox');
-  mkdirSync(gb, { recursive: true });
-  gitBranchSandbox(gb);
-  for (const gate of GIT_BRANCH_GATES) {
-    for (const file of files(gate)) {
-      const c = gitBranchCase(file, gb, { noJq: path, noSqlite: path });
-      cases.push({ gate, file, input: c.input.toString('utf8'), env: clean(gitBranchEnv(gb, LOCALE, c.env, c.cwd)), cwd: c.cwd, fakeUid: false });
+  if (want('swe-boundary')) {
+    const sbDir = join(root, 'swe-boundary');
+    mkdirSync(sbDir, { recursive: true });
+    const sb = sweBoundarySandbox(sbDir);
+    cleanups.push(() => rmSync(sb.scratchProject, { recursive: true, force: true }));
+    for (const file of files('swe-boundary')) {
+      const c = sweBoundaryCase(file, sb);
+      cases.push({
+        gate: 'swe-boundary',
+        file,
+        input: c.input,
+        env: clean(
+          { ...process.env, CLAUDE_PROJECT_DIR: join(sb.dir, 'project'), CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TRAJECTORY_DB_PATH: sb.db, LC_ALL: LOCALE, ...c.env },
+          ['TMB_HOOKS_SQLITE', 'NODE_OPTIONS'],
+        ),
+        cwd: join(sb.dir, 'project'),
+        fakeUid: false,
+        reset: () => sweBoundaryReset(sb, c.record, Math.floor(Date.now() / 1000)),
+      });
     }
   }
 
-  const lint = lintSandbox(join(root, 'lint'));
-  for (const file of files('commit-msg-lint')) {
-    const c = lint.materialize(readFileSync(file));
-    cases.push({
-      gate: 'commit-msg-lint',
-      file,
-      input: c.input.toString('utf8'),
-      env: clean({ ...process.env, CLAUDE_PROJECT_DIR: emptyProject, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE, ...lint.env, ...c.env }),
-      cwd: emptyProject,
-      fakeUid: false,
-    });
+  const branchGates = GIT_BRANCH_GATES.filter(want);
+  if (branchGates.length > 0) {
+    const gb = join(root, 'git-branch/sandbox');
+    mkdirSync(gb, { recursive: true });
+    gitBranchSandbox(gb);
+    for (const gate of branchGates) {
+      for (const file of files(gate)) {
+        const c = gitBranchCase(file, gb, { noJq: path, noSqlite: path });
+        cases.push({ gate, file, input: c.input.toString('utf8'), env: clean(gitBranchEnv(gb, LOCALE, c.env, c.cwd)), cwd: c.cwd, fakeUid: false });
+      }
+    }
   }
 
-  const rid = join(root, 'remote-id/sandbox');
-  remoteIdSandbox(rid);
-  for (const file of files('remote-id-guard')) {
-    const c = remoteIdCase(file, rid, { noJq: path, noSqlite: path });
-    cases.push({
-      gate: 'remote-id-guard',
-      file,
-      input: c.input,
-      env: clean(
-        {
-          ...process.env,
-          CLAUDE_PROJECT_DIR: join(rid, 'project'),
-          CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
-          TRAJECTORY_DB_PATH: join(rid, 'db/trajectory.db'),
-          LC_ALL: LOCALE,
-          ...c.env,
-        },
-        ['TMB_HOOKS_SQLITE', 'TMB_DB_WRITE_TIMEOUT_MS', 'LANG', 'LC_CTYPE'],
-      ),
-      cwd: join(rid, 'project'),
-      fakeUid: false,
-    });
+  if (want('commit-msg-lint')) {
+    const lint = lintSandbox(join(root, 'lint'));
+    for (const file of files('commit-msg-lint')) {
+      const c = lint.materialize(readFileSync(file));
+      cases.push({
+        gate: 'commit-msg-lint',
+        file,
+        input: c.input.toString('utf8'),
+        env: clean({ ...process.env, CLAUDE_PROJECT_DIR: emptyProject, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, LC_ALL: LOCALE, ...lint.env, ...c.env }),
+        cwd: emptyProject,
+        fakeUid: false,
+      });
+    }
   }
 
-  const ss = join(root, 'session/sandbox');
-  sessionSandbox(ss);
-  for (const file of files('debug-trajectory')) {
-    const c = sessionCase(file, ss, path);
-    cases.push({
-      gate: 'debug-trajectory',
-      file,
-      input: c.input.toString('utf8'),
-      env: clean(sessionEnv(ss, LOCALE, c.env, c.cwd)),
-      cwd: c.cwd,
-      fakeUid: false,
-      reset: () => sessionSandbox(ss),
-    });
+  if (want('remote-id-guard')) {
+    const rid = join(root, 'remote-id/sandbox');
+    remoteIdSandbox(rid);
+    for (const file of files('remote-id-guard')) {
+      const c = remoteIdCase(file, rid, { noJq: path, noSqlite: path });
+      cases.push({
+        gate: 'remote-id-guard',
+        file,
+        input: c.input,
+        env: clean(
+          {
+            ...process.env,
+            CLAUDE_PROJECT_DIR: join(rid, 'project'),
+            CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
+            TRAJECTORY_DB_PATH: join(rid, 'db/trajectory.db'),
+            LC_ALL: LOCALE,
+            ...c.env,
+          },
+          ['TMB_HOOKS_SQLITE', 'TMB_DB_WRITE_TIMEOUT_MS', 'LANG', 'LC_CTYPE'],
+        ),
+        cwd: join(rid, 'project'),
+        fakeUid: false,
+      });
+    }
+  }
+
+  if (want('debug-trajectory')) {
+    const ss = join(root, 'session/sandbox');
+    sessionSandbox(ss);
+    for (const file of files('debug-trajectory')) {
+      const c = sessionCase(file, ss, path);
+      cases.push({
+        gate: 'debug-trajectory',
+        file,
+        input: c.input.toString('utf8'),
+        env: clean(sessionEnv(ss, LOCALE, c.env, c.cwd)),
+        cwd: c.cwd,
+        fakeUid: false,
+        reset: () => sessionSandbox(ss),
+      });
+    }
   }
 
   return {
