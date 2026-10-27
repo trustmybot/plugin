@@ -354,18 +354,21 @@ export const niceAxis = (format: (v: number) => string) => (max: number) => {
   return { top: s.domain()[1]!, ticks: ticks.map((at) => ({ at, label: format(at) })) };
 };
 
-// Fractional column position of `v` inside log-spaced buckets.
-export function bucketPosition(buckets: readonly Bucket[], v: number): number {
+// Fractional column position of `v` inside log-spaced (or, with `linear`, evenly spaced) buckets.
+export function bucketPosition(buckets: readonly Bucket[], v: number, linear = false): number {
   const i = buckets.findIndex((b) => v < b.to);
   const at = i === -1 ? buckets.length - 1 : i;
   const b = buckets[at]!;
   if (b.to <= b.from || v <= b.from) return at;
-  return at + Math.min(1, Math.log(v / b.from) / Math.log(b.to / b.from));
+  const within = linear ? (v - b.from) / (b.to - b.from) : Math.log(v / b.from) / Math.log(b.to / b.from);
+  return at + Math.min(1, within);
 }
 
 export interface HistogramProps {
   label: string;
+  measure: string;
   buckets: Bucket[];
+  linear?: boolean;
   color: string;
   who: string;
   noun: (n: number) => string;
@@ -375,14 +378,14 @@ export interface HistogramProps {
   format: (v: number) => string;
 }
 
-export function Histogram({ label, buckets, color, who, noun, yMax, p50, p95, format }: HistogramProps) {
+export function Histogram({ label, measure, buckets, linear = false, color, who, noun, yMax, p50, p95, format }: HistogramProps) {
   const columns: Column[] = buckets.map((b) => {
     const range = `${format(b.from)}–${format(b.to)}`;
-    return { key: `${b.from}`, label: format(b.from), value: b.count, color, aria: `${who}, ${range} output tokens: ${b.count} ${noun(b.count)}`, tip: `${range}: ${b.count} ${noun(b.count)}` };
+    return { key: `${b.from}`, label: format(b.from), value: b.count, color, aria: `${who}, ${range} ${measure}: ${b.count} ${noun(b.count)}`, tip: `${range}: ${b.count} ${noun(b.count)}` };
   });
   const markers: Marker[] = [];
-  if (p50 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p50), label: `p50 ${format(p50)}` });
-  if (p95 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p95), label: `p95 ${format(p95)}` });
+  if (p50 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p50, linear), label: `p50 ${format(p50)}` });
+  if (p95 !== null && buckets.length > 0) markers.push({ at: bucketPosition(buckets, p95, linear), label: `p95 ${format(p95)}` });
   const edges: Tick[] = buckets.map((b, i) => ({ at: i, label: format(b.from) })).concat(buckets.length > 0 ? [{ at: buckets.length, label: format(buckets.at(-1)!.to) }] : []);
   return <ColumnChart label={label} columns={columns} yMax={yMax} format={(v) => (Number.isInteger(v) ? String(v) : '')} edgeTicks={edges} markers={markers} contiguous />;
 }
