@@ -1,20 +1,38 @@
+import { FilterIcon } from '@primer/octicons-react';
 import type { ReactNode } from 'react';
 import type { Row } from '../../api.ts';
 import { DataTable, type Column as TableColumn } from '../../DataTable.tsx';
 import { agentCell, entityLink } from '../../shared/columns.tsx';
+import { Blankslate } from '../../ui/Blankslate.tsx';
 import { Box } from '../../ui/Box.tsx';
+import { Button } from '../../ui/Button.tsx';
 import { Flash } from '../../ui/Flash.tsx';
 import { Label } from '../../ui/Label.tsx';
 import { ProgressBar, StackedProgressBar } from '../../ui/ProgressBar.tsx';
 import { ChartCard } from './ChartCard.tsx';
 import { BarList, ColumnChart, Histogram, niceAxis, type Column } from './charts.tsx';
 import { AGENT_COLOR, THROUGHPUT_COLOR, compact, duration, durationTicks, pct, plain, ratio, shortDay, usd } from './format.ts';
-import { METRICS, RANGES, type InsightParams, type MetricKey } from './params.ts';
+import {
+  METRICS,
+  METRIC_COPY,
+  PERIOD_LOWER,
+  RANGES,
+  activeFilterCount,
+  activeFilterList,
+  clearFilters,
+  histogramColumns,
+  histogramSubtitle,
+  insightHash,
+  type InsightParams,
+  type MetricKey,
+} from './params.ts';
 import type { AgentKey, AgentStats, Insights, Metric, Outlier } from './types.ts';
 import type { TableData } from './csv.ts';
 
 export const NO_PRICES = 'Cost tracking is off: no model prices set. Ask bro to set your model prices to turn it on.';
 export const EFFORT_CAPTION = 'Effort is set per task, so this compares task size, not the setting.';
+export const TASK_LEVEL_CAPTION = "Agent and Model filters don't apply here. These charts count tasks, not agent runs.";
+export const NO_MATCH_HEADING = 'No Runs Match These Filters';
 export const BRO_CAPTION = 'bro is metered per session, not per run.';
 export const IDLE_CAPTION = 'Likely idle: over 30 min with under 1 tool use and 500 output tokens a minute. Listed last.';
 export const EARLY_MIN = 20;
@@ -56,22 +74,45 @@ function Stats({ items }: { items: Array<[string, string]> }) {
 const perRun = (agents: AgentStats[]) => agents.filter((a) => a.per === 'run');
 const bro = (agents: AgentStats[]) => agents.find((a) => a.agent === 'bro');
 
-function histogramTable(s: AgentStats): TableData {
-  return { columns: ['From (tokens)', 'To (tokens)', s.per === 'session' ? 'Sessions' : 'Runs'], rows: s.histogram.map((b) => [b.from, b.to, b.count]) };
+// While any filter is set, agents it leaves without runs are not drawn.
+const shownAgents = (data: Insights, params: InsightParams) => (activeFilterCount(params) > 0 ? data.agents.filter((a) => a.total > 0) : data.agents);
+
+function NoMatch({ params }: { params: InsightParams }) {
+  return (
+    <Box>
+      <Blankslate
+        icon={FilterIcon}
+        heading={NO_MATCH_HEADING}
+        description={`Nothing in ${PERIOD_LOWER[params.range]} matches ${activeFilterList(params)}.`}
+        action={<Button href={insightHash(clearFilters(params))}>Clear Filters</Button>}
+      />
+    </Box>
+  );
+}
+
+const tableValue = (metric: MetricKey, v: number) => (metric === 'cache_hit' ? Math.round(v * 100) : v);
+
+export function histogramTable(s: AgentStats, metric: MetricKey): TableData {
+  return {
+    columns: [...histogramColumns(metric), s.per === 'session' ? 'Sessions' : 'Runs'],
+    rows: s.histograms[metric].map((b) => [tableValue(metric, b.from), tableValue(metric, b.to), b.count]),
+  };
 }
 
 function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: InsightParams; rank: string | null; yMax?: number }) {
   const m = s[params.metric];
   const fmt = formatFor(params.metric);
+  const what = METRIC_COPY[params.metric].noun;
+  const buckets = s.histograms[params.metric];
   const per = s.per === 'session' ? 'Per session' : 'Per run';
   const early = s.n < EARLY_MIN;
   return (
     <ChartCard
       title={s.agent}
-      subtitle={`${period(params)} · ${per} · ${noun(s, 2)} by output tokens`}
+      subtitle={`${period(params)} · ${per} · ${histogramSubtitle(params.metric, s.per)}`}
       section="tokens"
       range={params.range}
-      table={histogramTable(s)}
+      table={histogramTable(s, params.metric)}
       caption={s.per === 'session' ? BRO_CAPTION : undefined}
     >
       <div className="space-y-2" data-agent={s.agent}>
@@ -79,17 +120,23 @@ function AgentTokenCard({ s, params, rank, yMax }: { s: AgentStats; params: Insi
         <p className="text-xs text-fg-muted tabular-nums">{measuredLine(s)}</p>
         <Stats items={[[`p50 ${metricLabel(params.metric)}`, fmt(m.p50)], ['p95', fmt(m.p95)], ['max', fmt(m.max)]]} />
         {early && <p className="text-xs font-semibold text-(--fgColor-attention)">{earlyData(s.n)}</p>}
-        <Histogram
-          label={`${s.agent} output tokens ${per.toLowerCase()}: ${s.n} measured, ${s.histogram.length} buckets${early ? '' : `, p50 ${compact(s.tokens_out.p50)}, p95 ${compact(s.tokens_out.p95)}`}`}
-          who={s.agent}
-          noun={(n) => noun(s, n)}
-          buckets={s.histogram}
-          color={AGENT_COLOR[s.agent]}
-          yMax={yMax}
-          p50={early ? null : s.tokens_out.p50}
-          p95={early ? null : s.tokens_out.p95}
-          format={compact}
-        />
+        {!buckets.some((b) => b.count > 0) ? (
+          <p className="text-sm text-fg-muted">{`No ${what} data in this period.`}</p>
+        ) : (
+          <Histogram
+            label={`${s.agent} ${what} ${per.toLowerCase()}: ${s.n} measured, ${buckets.length} buckets${early ? '' : `, p50 ${fmt(m.p50)}, p95 ${fmt(m.p95)}`}`}
+            measure={what}
+            who={s.agent}
+            noun={(n) => noun(s, n)}
+            buckets={buckets}
+            linear={params.metric === 'cache_hit'}
+            color={AGENT_COLOR[s.agent]}
+            yMax={yMax}
+            p50={early ? null : m.p50}
+            p95={early ? null : m.p95}
+            format={fmt}
+          />
+        )}
       </div>
     </ChartCard>
   );
@@ -142,21 +189,28 @@ function Outliers({ kind, rows }: { kind: keyof typeof OUTLIER_TITLE; rows: Outl
 }
 
 export function TokensSection({ data, params }: SectionProps) {
-  const runs = perRun(data.agents);
-  const shared = Math.max(0, ...runs.flatMap((a) => a.histogram.map((b) => b.count)));
-  const ranks = rankOf(runs, params.metric);
-  const b = bro(data.agents);
+  const agents = shownAgents(data, params);
+  const runs = perRun(agents);
+  const shared = Math.max(0, ...runs.flatMap((a) => a.histograms[params.metric].map((b) => b.count)));
+  const ranks = runs.length >= 2 ? rankOf(runs, params.metric) : new Map<AgentKey, string>();
+  const b = bro(agents);
   return (
     <div className="space-y-4">
       <SectionHeading>Tokens</SectionHeading>
-      <Grid>
-        {runs.map((s) => (
-          <AgentTokenCard key={s.agent} s={s} params={params} rank={ranks.get(s.agent) ?? null} yMax={shared} />
-        ))}
-        {b && <AgentTokenCard s={b} params={params} rank={null} />}
-      </Grid>
-      <Outliers kind="tokens_out" rows={data.outliers.tokens_out} />
-      <Outliers kind="context" rows={data.outliers.context} />
+      {agents.length === 0 ? (
+        <NoMatch params={params} />
+      ) : (
+        <>
+          <Grid>
+            {runs.map((s) => (
+              <AgentTokenCard key={s.agent} s={s} params={params} rank={ranks.get(s.agent) ?? null} yMax={shared} />
+            ))}
+            {b && <AgentTokenCard s={b} params={params} rank={null} />}
+          </Grid>
+          <Outliers kind="tokens_out" rows={data.outliers.tokens_out} />
+          <Outliers kind="context" rows={data.outliers.context} />
+        </>
+      )}
     </div>
   );
 }
@@ -238,21 +292,28 @@ function TimeCard({ title, unit, agents, pick, fmt, axis, params, bars }: TimeCa
 }
 
 export function TimeSection({ data, params }: SectionProps) {
-  const runs = perRun(data.agents);
-  const b = bro(data.agents);
+  const agents = shownAgents(data, params);
+  const runs = perRun(agents);
+  const b = bro(agents);
   const ms = (v: number | null) => duration(v);
   const durationAxis = (max: number) => durationTicks(max);
   const toolAxis = niceAxis((v) => plain(v));
   return (
     <div className="space-y-4">
       <SectionHeading>Time</SectionHeading>
-      <Grid>
-        <TimeCard title="Duration per run" unit="duration; bars show the average" agents={runs} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars />
-        <TimeCard title="Tool uses per run" unit="tool uses; bars show the average" agents={runs} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars />
-        {b && <TimeCard title="bro duration per session" unit="duration" agents={[b]} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars={false} />}
-        {b && <TimeCard title="bro tool uses per session" unit="tool uses" agents={[b]} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars={false} />}
-      </Grid>
-      <Outliers kind="duration_ms" rows={data.outliers.duration_ms} />
+      {agents.length === 0 ? (
+        <NoMatch params={params} />
+      ) : (
+        <>
+          <Grid>
+            {runs.length > 0 && <TimeCard title="Duration per run" unit="duration; bars show the average" agents={runs} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars />}
+            {runs.length > 0 && <TimeCard title="Tool uses per run" unit="tool uses; bars show the average" agents={runs} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars />}
+            {b && <TimeCard title="bro duration per session" unit="duration" agents={[b]} pick={(s) => s.duration_ms} fmt={ms} axis={durationAxis} params={params} bars={false} />}
+            {b && <TimeCard title="bro tool uses per session" unit="tool uses" agents={[b]} pick={(s) => s.tool_uses} fmt={plain} axis={toolAxis} params={params} bars={false} />}
+          </Grid>
+          <Outliers kind="duration_ms" rows={data.outliers.duration_ms} />
+        </>
+      )}
     </div>
   );
 }
@@ -288,9 +349,19 @@ export function CostSection({ data, params }: SectionProps) {
       </div>
     );
   }
+  const shown = new Set(shownAgents(data, params).map((a) => a.agent));
+  if (shown.size === 0) {
+    return (
+      <div className="space-y-4">
+        <SectionHeading>Cost</SectionHeading>
+        <NoMatch params={params} />
+      </div>
+    );
+  }
   const agentRows = (keys: AgentKey[]) =>
     cost.by_agent.filter((a) => keys.includes(a.agent)).map((a) => ({ key: a.agent, usd: a.usd, runs: a.runs, color: AGENT_COLOR[a.agent] }));
-  const broRows = agentRows(['bro']);
+  const runAgents = (['swe', 'code-reviewer'] as const).filter((a) => shown.has(a));
+  const broRows = shown.has('bro') ? agentRows(['bro']) : [];
   return (
     <div className="space-y-4">
       <SectionHeading>Cost</SectionHeading>
@@ -300,7 +371,7 @@ export function CostSection({ data, params }: SectionProps) {
         </Flash>
       )}
       <Grid>
-        <CostCard title="Cost by agent" rows={agentRows(['swe', 'code-reviewer'])} label="runs" params={params} />
+        {runAgents.length > 0 && <CostCard title="Cost by agent" rows={agentRows(runAgents)} label="runs" params={params} />}
         {broRows.length > 0 && <CostTile title="bro cost" rows={broRows} label="sessions" params={params} />}
         <CostCard
           title="Cost by model"

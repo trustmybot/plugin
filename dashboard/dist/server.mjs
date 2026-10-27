@@ -5040,12 +5040,25 @@ var sinceOf = (range, now2) => {
   return days === null ? null : new Date(now2.getTime() - days * 864e5).toISOString();
 };
 var context = (r) => r.tokens_in + r.cache_read + r.cache_creation;
+var cacheHit = (r) => context(r) > 0 ? r.cache_read / context(r) : 0;
+var HISTOGRAM_METRICS = ["tokens_out", "context", "cache_hit", "tool_uses"];
+var HISTOGRAM_VALUE = {
+  tokens_out: (r) => r.tokens_out,
+  context,
+  cache_hit: cacheHit,
+  tool_uses: (r) => r.tool_uses
+};
+var CACHE_HIT_EDGES = Array.from({ length: HISTOGRAM_BUCKETS + 1 }, (_, i) => i / HISTOGRAM_BUCKETS);
+function edgesOf(measured) {
+  const log = (m) => logEdges(measured.map(HISTOGRAM_VALUE[m]));
+  return { tokens_out: log("tokens_out"), context: log("context"), cache_hit: [...CACHE_HIT_EDGES], tool_uses: log("tool_uses") };
+}
 function agentStats(runs, agent, edges) {
   const all2 = runs.filter((r) => r.agent === agent);
   const measured = all2.filter((r) => r.measured === 1);
   const contextSum = measured.reduce((s, r) => s + context(r), 0);
   const cacheRead = measured.reduce((s, r) => s + r.cache_read, 0);
-  const hit = metric(measured.map((r) => context(r) > 0 ? r.cache_read / context(r) : 0));
+  const hit = metric(measured.map(cacheHit));
   return {
     agent,
     per: agent === "bro" ? "session" : "run",
@@ -5056,7 +5069,7 @@ function agentStats(runs, agent, edges) {
     cache_hit: { ...hit, avg: contextSum > 0 ? cacheRead / contextSum : null },
     duration_ms: metric(measured.map((r) => r.duration_ms)),
     tool_uses: metric(measured.map((r) => r.tool_uses)),
-    histogram: histogram(measured.map((r) => r.tokens_out), edges)
+    histograms: Object.fromEntries(HISTOGRAM_METRICS.map((m) => [m, histogram(measured.map(HISTOGRAM_VALUE[m]), edges[m])]))
   };
 }
 function priceOf(prices, r) {
@@ -5245,10 +5258,8 @@ function insights(db, f, now2 = /* @__PURE__ */ new Date()) {
     f.agent,
     f.agent
   );
-  const perRunTokens = rows.filter((r) => r.measured === 1 && r.agent !== "bro").map((r) => r.tokens_out);
-  const broTokens = rows.filter((r) => r.measured === 1 && r.agent === "bro").map((r) => r.tokens_out);
-  const sharedEdges = logEdges(perRunTokens);
-  const broEdges = logEdges(broTokens);
+  const sharedEdges = edgesOf(rows.filter((r) => r.measured === 1 && r.agent !== "bro"));
+  const broEdges = edgesOf(rows.filter((r) => r.measured === 1 && r.agent === "bro"));
   const names = (sql) => all(db, sql).map((r) => String(r["v"]));
   return {
     range: { key: f.range, since, until: now2.toISOString() },
