@@ -18,9 +18,10 @@
 #      bro_atomic_close (GH 1744)
 #   8. code-reviewer-preflight          — TypeScript gate (dist/hooks.js): the
 #      task commit's five deterministic checks; denies {check, expected, actual}
-#   9. rework-limit                   — TypeScript gate (dist/hooks.js): a swe
-#      spawn after two review FAILs since the last pass needs a newer decision
-#      row or a Human comment (GH 1738)
+#   9. rework-limit                   — TypeScript gate (dist/hooks.js): denies a
+#      swe spawn at any of three limits since the latest Human waiver: 2 task
+#      FAILs since the last pass, 6 swe runs excluding budget stops, 4 issue
+#      FAILs; only the Human's typed `waive task <N>` lifts one (GH 1738, GH 2148)
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
 #

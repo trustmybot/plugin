@@ -1,6 +1,6 @@
 /**
  * The swe-resume-gate (GH 1742) on a temp trajectory DB: a SendMessage to a
- * swe is a resume of its task, denied at the rework limit with rework-limit's
+ * swe is a resume of its task, denied at any rework limit with rework-limit's
  * reason and on an effort mismatch with the task, allowed otherwise; any other
  * target, or a swe of a closed task, passes with no output.
  */
@@ -73,22 +73,43 @@ describe('swe-resume-gate', () => {
         assert.equal(findGate('swe-resume-gate'), sweResumeGate);
         assert.ok(gateNames().includes('swe-resume-gate'));
     });
-    it('denies a resume after two FAILs with no newer decision, with the spawn gate reason', () => {
+    it('denies a resume after two FAILs, with the spawn gate reason', () => {
         const f = fixture();
         f.fails(2);
         const reason = denyReason(run(f).stdout);
         assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
-        assert.match(reason, /task 3 has 2 review FAILs since its last pass/);
+        assert.match(reason, /task FAILs: 2 review FAILs on the task since its last pass \(limit 2\)/);
+        assert.match(reason, /waive task 3/);
     });
-    it('allows the resume after a kind=decision row newer than the latest FAIL, or a Human row', () => {
+    it('still denies the resume after a newer kind=decision row by bro', () => {
         const f = fixture();
         f.fails(2);
         f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, 'bro', 'decision', 'b', ?, ?)", ISSUE_ID, AFTER_LATEST_FAIL, TASK_ID);
+        denyReason(run(f).stdout);
+    });
+    it('allows the resume after a newer Human decision row on the task or on its issue', () => {
+        const f = fixture();
+        f.fails(2);
+        f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, 'human', 'decision', 'b', ?, ?)", ISSUE_ID, AFTER_LATEST_FAIL, TASK_ID);
         assert.deepEqual(run(f), ALLOWED);
         const g = fixture();
         g.fails(2);
-        g.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'note', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
+        g.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
         assert.deepEqual(run(g), ALLOWED);
+    });
+    it('denies a resume at six swe runs with no FAILs, budget handbacks aside, until a Human decision row', () => {
+        const f = fixture();
+        const addRun = (startedAt, stopCause) => f.exec("INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at, spawn_id, effort, exit_reason, stop_cause) VALUES (?, ?, 'swe', ?, ?, ?, 'medium', 'completed', ?)", TASK_ID, ISSUE_ID, startedAt, startedAt, `agent-swe-extra-${startedAt}`, stopCause);
+        for (let i = 1; i <= 4; i += 1)
+            addRun(`2026-10-25T10:1${i}:00.000Z`, null);
+        addRun('2026-10-25T10:20:00.000Z', 'budget');
+        assert.deepEqual(run(f), ALLOWED);
+        addRun('2026-10-25T10:21:00.000Z', 'hook_block');
+        const reason = denyReason(run(f).stdout);
+        assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
+        assert.match(reason, /task runs: 6 swe runs of the task, budget handbacks aside \(limit 6\)/);
+        f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
+        assert.deepEqual(run(f), ALLOWED);
     });
     it('allows a resume under the limit at the task effort', () => {
         const f = fixture();
@@ -132,7 +153,7 @@ describe('swe-resume-gate', () => {
             timeout: 30_000,
         });
         assert.equal(r.status, 0);
-        assert.match(denyReason(r.stdout.trim()), /2 review FAILs since its last pass/);
+        assert.match(denyReason(r.stdout.trim()), /task FAILs: 2 review FAILs on the task since its last pass/);
     });
 });
 //# sourceMappingURL=hooks-swe-resume-gate.test.js.map

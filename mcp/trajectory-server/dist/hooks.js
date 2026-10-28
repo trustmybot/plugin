@@ -15789,6 +15789,8 @@ var codeReviewerSpawnNote = (payload, env) => {
 // src/task-rework.ts
 var SWE_SPAWN_SQL = "agent_type = 'swe' AND COALESCE(exit_reason, '') <> 'swept_orphan'";
 var REWORK_FAIL_LIMIT = 2;
+var SWE_RUN_LIMIT = 6;
+var ISSUE_FAIL_LIMIT = 4;
 function elapsedMs(createdAt, endedAt) {
   const start2 = Date.parse(createdAt);
   const end = endedAt.getTime();
@@ -15802,27 +15804,46 @@ function readState(db, taskId, env) {
   const out2 = gateRead(
     db,
     `WITH t AS (SELECT id, issue_id FROM tasks WHERE id = ${taskId}),
+          human AS (SELECT MAX(d.created_at) AS at FROM discussions d, t
+                     WHERE (d.task_id = t.id OR (d.task_id IS NULL AND d.issue_id = t.issue_id))
+                       AND d.author = 'human' AND d.kind = 'decision'),
           since AS (SELECT COALESCE(MAX(v.id), 0) AS pass_id FROM validation_attempts v, t
-                     WHERE v.task_id = t.id AND v.verdict = 'pass'),
-          fails AS (SELECT v.id, v.created_at FROM validation_attempts v, t, since
-                     WHERE v.task_id = t.id AND v.verdict = 'fail' AND v.id > since.pass_id),
-          latest AS (SELECT created_at FROM fails ORDER BY id DESC LIMIT 1)
+                     WHERE v.task_id = t.id AND v.verdict = 'pass')
      SELECT json_object(
-       'fails', (SELECT COUNT(*) FROM fails),
-       'last_fail_at', (SELECT created_at FROM latest),
-       'waived', EXISTS (SELECT 1 FROM discussions d, t, latest
-                          WHERE d.issue_id = t.issue_id AND d.created_at > latest.created_at
-                            AND ((d.kind = 'decision' AND (d.task_id = t.id OR d.task_id IS NULL)) OR d.author = 'human')))
+       'task_fails', (SELECT COUNT(*) FROM validation_attempts v, t, since, human
+                       WHERE v.task_id = t.id AND v.verdict = 'fail' AND v.id > since.pass_id
+                         AND (human.at IS NULL OR v.created_at > human.at)),
+       'task_runs', (SELECT COUNT(*) FROM agent_runs r, t, human
+                      WHERE r.task_id = t.id AND ${SWE_SPAWN_SQL} AND COALESCE(r.stop_cause, '') <> 'budget'
+                        AND (human.at IS NULL OR r.started_at > human.at)),
+       'issue_fails', (SELECT COUNT(*) FROM validation_attempts v JOIN tasks x ON x.id = v.task_id, t, human
+                        WHERE x.issue_id = t.issue_id AND v.verdict = 'fail'
+                          AND (human.at IS NULL OR v.created_at > human.at)),
+       'waived_at', (SELECT at FROM human))
      FROM t;`,
     env
   );
   if (out2 === GATE_READ_ERROR) return GATE_READ_ERROR;
   if (out2 === "") return null;
   const row = JSON.parse(out2.split("\n")[0]);
-  return { fails: row.fails, lastFailAt: row.last_fail_at, waived: row.waived === 1 };
+  return { taskFails: row.task_fails, taskRuns: row.task_runs, issueFails: row.issue_fails, waivedAt: row.waived_at };
 }
-function denyReason2(taskId, state) {
-  return `BLOCKED: task ${taskId} has ${state.fails} review FAILs since its last pass (the latest at ${state.lastFailAt}) and no decision since, so a further swe spawn would repeat the approach that failed. Before spawning swe again, do one of: write a decision naming the change of approach (discussion_append kind='decision' task_id=${taskId}); task_retry with a redesigned spec; split the task into smaller tasks; or ask the Human (a Human comment on the issue waives this).`;
+function trippedLimits(state) {
+  const tripped = [];
+  if (state.taskFails >= REWORK_FAIL_LIMIT) {
+    tripped.push(`task FAILs: ${state.taskFails} review FAILs on the task since its last pass (limit ${REWORK_FAIL_LIMIT})`);
+  }
+  if (state.taskRuns >= SWE_RUN_LIMIT) {
+    tripped.push(`task runs: ${state.taskRuns} swe runs of the task, budget handbacks aside (limit ${SWE_RUN_LIMIT})`);
+  }
+  if (state.issueFails >= ISSUE_FAIL_LIMIT) {
+    tripped.push(`issue FAILs: ${state.issueFails} review FAILs across the issue's tasks (limit ${ISSUE_FAIL_LIMIT})`);
+  }
+  return tripped;
+}
+function denyReason2(taskId, state, tripped = trippedLimits(state)) {
+  const since = state.waivedAt === null ? "" : ` since the Human's last waiver at ${state.waivedAt}`;
+  return `BLOCKED: task ${taskId} is at the rework limit${since}: ${tripped.join("; ")}. A further swe run would repeat an approach that keeps failing. Stop and report the task to the Human with its findings; only the Human lifts this limit, by typing \`waive task ${taskId}\`. No agent action lifts it.`;
 }
 function denyPreToolUse(reason) {
   return {
@@ -15840,8 +15861,10 @@ function denyUnreadable(gate, env) {
 function reworkLimitVerdict(gate, db, taskId, env) {
   const state = readState(db, taskId, env);
   if (state === GATE_READ_ERROR) return denyUnreadable(gate, env);
-  if (state === null || state.fails < REWORK_FAIL_LIMIT || state.waived) return ALLOW;
-  return denyPreToolUse(denyReason2(taskId, state));
+  if (state === null) return ALLOW;
+  const tripped = trippedLimits(state);
+  if (tripped.length === 0) return ALLOW;
+  return denyPreToolUse(denyReason2(taskId, state, tripped));
 }
 var reworkLimit = (payload, env) => {
   if (jqAlternatives(payload, [["tool_name"]]) !== "Agent") return ALLOW;

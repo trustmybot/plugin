@@ -199,6 +199,7 @@ sqlite3 "$db" "
   CREATE TABLE repos (name TEXT, path TEXT);
   CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
   CREATE TABLE discussions (id INTEGER PRIMARY KEY, issue_id INTEGER, task_id INTEGER, author TEXT, kind TEXT, created_at TEXT);
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY, task_id INTEGER, agent_type TEXT, exit_reason TEXT, stop_cause TEXT, started_at TEXT);
   INSERT INTO repos (name, path) VALUES ('fixture', '$WORK');
   INSERT INTO issues (id) VALUES (1);
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body)
@@ -214,17 +215,21 @@ spawn() {
 out=$(spawn)
 assert_eq "" "$out" "silent pass — no deny, no context"
 
-test_case "rework-limit: a swe spawn after two review FAILs is denied until a newer decision"
+test_case "rework-limit: a swe spawn after two review FAILs is denied until a Human waiver"
 sqlite3 "$db" "
   INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES
     (1, 'fail', '2026-10-25T10:01:00.000Z'), (1, 'fail', '2026-10-25T10:02:00.000Z');
 " >/dev/null
 out=$(spawn)
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
-assert_contains "$out" "2 review FAILs since its last pass" "rework-limit wording present"
+assert_contains "$out" "task FAILs: 2 review FAILs on the task since its last pass" "rework-limit names the task-FAILs limit"
+assert_contains "$out" 'waive task 1' "rework-limit names the Human waiver"
 sqlite3 "$db" "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'bro', 'decision', '2026-10-25T11:00:00.000Z');" >/dev/null
 out=$(spawn)
-assert_not_contains "$out" '"permissionDecision":"deny"' "a newer decision lets the spawn through"
+assert_contains "$out" '"permissionDecision":"deny"' "a newer bro decision keeps the spawn denied"
+sqlite3 "$db" "INSERT INTO discussions (issue_id, task_id, author, kind, created_at) VALUES (1, 1, 'human', 'decision', '2026-10-25T12:00:00.000Z');" >/dev/null
+out=$(spawn)
+assert_not_contains "$out" '"permissionDecision":"deny"' "a newer Human decision lets the spawn through"
 rm -rf "$WORK"
 
 # ----- tests: non-Agent tool is a no-op ------------------------------------
