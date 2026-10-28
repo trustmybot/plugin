@@ -1,5 +1,0 @@
-{
-  "max_turns": 2,
-  "user_after_bro": [],
-  "terminal_pattern": "WAL|SQLite|analysis|architect|concurrency|sufficient|mode"
-}

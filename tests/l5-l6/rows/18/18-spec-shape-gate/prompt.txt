@@ -1,3 +1,0 @@
-@bro add a "priority" column to the todo store schema and show it in "list".
-
-Don't ask questions.

@@ -1,2 +1,0 @@
-### Fixed
-- **The hook shellcheck lint passes again on dev** (GH 2081): two l3 hook tests, `agent-arg-matches-caller` and `reviewer-identity-observe`, exported `TMB_TEST_NODE` in the same statement that ran `node -p`, which shellcheck flags as SC2155 because a failing `node` was masked. They now assign the value first and export it on its own line, so `tests/l1-lint/shellcheck-hooks.sh` exits clean.

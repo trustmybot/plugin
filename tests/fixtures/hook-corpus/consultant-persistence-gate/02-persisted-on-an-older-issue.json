@@ -1,4 +1,0 @@
-{
-  "subagent_type": "cto",
-  "corpus_expect": "discussion_append(agent='cto', issue_id=2, author='cto'"
-}

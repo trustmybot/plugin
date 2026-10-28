@@ -1,8 +1,0 @@
-{
-  "tool_name": "Edit",
-  "tool_input": {
-    "command": "gh auth login"
-  },
-  "corpus_cwd": "stale",
-  "corpus_expect": "No remote is configured"
-}

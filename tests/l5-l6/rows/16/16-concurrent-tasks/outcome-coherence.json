@@ -1,7 +1,0 @@
-{
-  "expected_writes": {
-    "tasks": ">=2",
-    "audit WHERE event_type = 'planning_complete'": ">=2",
-    "agent_runs WHERE agent_type = 'swe'": ">=2"
-  }
-}

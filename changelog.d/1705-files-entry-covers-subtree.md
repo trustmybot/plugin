@@ -1,2 +1,0 @@
-### Fixed
-- **A file in a task's `files[]` no longer puts its whole directory in scope** (GH 1705): an entry like `src/a/b.ts` used to cover every file in `src/a/`, so both the edit-time scope note and the close-time scope gate let sibling files through. A `files[]` entry now covers only itself and everything beneath it, the same rule as CODEOWNERS and git pathspecs: `src/a/b.ts` covers that file, `src/a/` the whole directory. Any `tests/` entry still covers all of `tests/`. List a directory when the task may touch any file in it.

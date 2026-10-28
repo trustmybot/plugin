@@ -1,1 +1,0 @@
-{"tool_name":"Agent","hook_event_name":"PreToolUse","tool_input":{"subagent_type":"plugin:ns:code-reviewer","prompt":"task_id=1 commit_sha=abc1234 branch_id=feat/linked attempt_n=1","effort":1},"corpus_expect":"passed effort=\\\"1\\\""}

@@ -1,8 +1,0 @@
-{
-  "session_id": "start-session-0004",
-  "corpus_env": {
-    "CLAUDE_PROJECT_DIR": null
-  },
-  "corpus_cwd": "bare",
-  "corpus_expect": "unresolved (no CLAUDE_PROJECT_DIR and no trajectory DB)"
-}

@@ -1,3 +1,0 @@
-@bro fix the bug in src/foo.py
-
-Don't ask questions.

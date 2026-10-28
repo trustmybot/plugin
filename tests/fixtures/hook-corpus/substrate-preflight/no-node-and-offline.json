@@ -1,9 +1,0 @@
-{
-  "hook_event_name": "SessionStart",
-  "session_id": "s6",
-  "source": "startup",
-  "corpus_env": {
-    "PATH": "@PATH_WITHOUT:node@"
-  },
-  "corpus_expect": "missing node — MCP trajectory-server and scan tooling cannot start. Install the missing tools to restore enforcement. TMB: operating locally"
-}

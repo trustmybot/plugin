@@ -1,7 +1,0 @@
-{
-  "hook_event_name": "WorktreeCreate",
-  "session_id": "sess-wt",
-  "cwd": "@SANDBOX@/ws",
-  "branch": "feat/no-such-task",
-  "corpus_expect": "resolved repo @SANDBOX@/ws is not a git work tree"
-}

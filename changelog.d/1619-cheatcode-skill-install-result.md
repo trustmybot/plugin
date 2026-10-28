@@ -1,2 +1,0 @@
-### Fixed
-- **Installing a skill cheatcode now reports what it actually wrote** (GH 1619): `cheatcode_install` for a skill added it to the consuming agent's `skills:` frontmatter but still answered `installed: false` with a "proposed PR, never an automatic write" payload and recorded a phantom `proposed-pr` attachment. When the agent file is written, the result and its audit row now say `installed: true`, `method: agent-frontmatter`, list the written agent file as the attachment, and carry no proposed PR. A skill with no agent file to write still returns the proposed PR.

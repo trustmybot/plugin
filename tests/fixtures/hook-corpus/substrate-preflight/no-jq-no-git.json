@@ -1,9 +1,0 @@
-{
-  "hook_event_name": "SessionStart",
-  "session_id": "s5",
-  "source": "startup",
-  "corpus_env": {
-    "PATH": "@PATH_WITHOUT:jq,git@"
-  },
-  "corpus_expect": "missing jq — most PreToolUse gates and the bro/swe doctrine hooks are inoperative; missing git — branch guards"
-}

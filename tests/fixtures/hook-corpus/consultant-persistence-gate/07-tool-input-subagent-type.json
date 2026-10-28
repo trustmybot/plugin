@@ -1,6 +1,0 @@
-{
-  "tool_input": {
-    "subagent_type": "ceo"
-  },
-  "corpus_expect": "agent='ceo'"
-}

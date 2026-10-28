@@ -1,8 +1,0 @@
-{
-  "tool_name": "mcp__plugin_tmb_trajectory-server__discussion_add",
-  "agent_type": "tmb:swe",
-  "tool_input": {
-    "agent": "bro"
-  },
-  "corpus_expect": "the caller is a swe subagent; pass agent='swe'."
-}

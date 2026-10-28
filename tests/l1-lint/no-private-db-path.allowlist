@@ -1,3 +1,0 @@
-# Scripts that name the DB file without resolving where it lives.
-# health.sh derives the legacy graph-file sibling from an already-resolved DB path's basename.
-scripts/health.sh

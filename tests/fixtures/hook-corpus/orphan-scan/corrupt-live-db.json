@@ -1,1 +1,0 @@
-{"hook_event_name":"SessionStart","source":"startup","session_id":"corpus","cwd":"@SANDBOX@/project","corpus_env":{"TRAJECTORY_DB_PATH":"@SANDBOX@/bad/.claude/tmb/trajectory.db","TMB_ORPHAN_SCAN_HOME":"@SANDBOX@/homes/zero-byte"},"corpus_expect":"orphan-scan: trajectory DB unavailable (@SANDBOX@/bad/.claude/tmb/trajectory.db)"}

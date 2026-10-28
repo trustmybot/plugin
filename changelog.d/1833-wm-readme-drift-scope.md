@@ -1,2 +1,0 @@
-### Fixed
-- **World-model READMEs no longer read as drifting just because their directory grew** (GH 1833): `commits_behind` used to count every commit under a directory since its README last changed, so active directories such as `changelog.d/` always read `drifting(n)`. It now counts only the commits that edit, delete or rename a file the README references; adding files, changes to files the README does not name, and anything under a directory it names never count. Trust labels pick up the new numbers on the next `/scan`.

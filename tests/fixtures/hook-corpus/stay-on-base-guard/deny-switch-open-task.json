@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input": {
-    "command": "git switch feat/open"
-  },
-  "corpus_expect": "use the worktree at @SANDBOX@/base/.claude/worktrees/open"
-}

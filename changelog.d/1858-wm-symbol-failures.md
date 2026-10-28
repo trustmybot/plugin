@@ -1,2 +1,0 @@
-### Fixed
-- **Files the symbol index cannot read or parse now show up instead of vanishing** (GH 1858): a file whose read or extraction threw was counted as failed but left unstamped and unnamed, so it stayed missing from symbol lookups on every scan with nothing saying why. Such a file is now stamped `:failed`, named with its error in the symbol pass's `failed_paths`, and retried when its content changes; a new `wm_files_symbols_indexed` check in `trajectory_doctor` lists the files that are failed, never indexed, or indexed at an older extractor version.

@@ -1,2 +1,0 @@
-### Fixed
-- **`task_brief` says when a symbol has more callers than it lists** (GH 1985): each symbol in `locations.symbols` showed at most 3 callers with nothing marking the cut, so a swe editing a symbol with 12 callers saw 3. Each symbol now carries its index `id`, its real `caller_count` and `callers_truncated`, plus a `callers_hint` pointing at `world_model_symbol(id=<id>, impact=1)` when the list was cut. Every list on a `world_model_symbol` card also gains `total`, the full count before the 50-entry cap.
