@@ -67,7 +67,7 @@ The concept endpoints answer `available: false` (HTTP 200) on a DB below schema 
 | Action | Body | Handler |
 |---|---|---|
 | `edit` | `updated_at` plus any of `objective`, `description`, `labels` (array, one classification and one priority), `milestone` | `issue_update`, then `issue_update_description` for `description` |
-| `comment` | `body` | `discussion_append` with `author: human`, `kind: note` |
+| `comment` | `body` | `discussion_append` with `author: dashboard`, `kind: note` |
 | `close` | `updated_at` | `issue_close` (no cascade, no waiver) |
 
 Guards, in order:

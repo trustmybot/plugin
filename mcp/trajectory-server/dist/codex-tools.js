@@ -27,7 +27,6 @@ const IDENTITY_KEYS = new Set([
     'author',
     'provenance',
     'role',
-    'verified_human',
 ]);
 const OUT_OF_SCOPE_TOOL = /^(?:agent|branch|cheatcode|config|discussion|issue|milestone|onboard|pr_monitor|report|repos|roundtable|scan|skill|stats|task|validation|worktree)(?:_|$)/;
 export const CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([

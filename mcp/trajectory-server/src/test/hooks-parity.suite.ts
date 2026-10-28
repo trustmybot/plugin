@@ -6,7 +6,8 @@
  * that audits writes the same audit rows (id and created_at aside). A gate
  * born in TypeScript, with no scripts/hooks/<gate>.sh to port from
  * (code-reviewer-preflight, code-reviewer-spawn-note, rework-limit,
- * swe-resume-gate, task-overrun-alert), has no bash side and is not in the parity set.
+ * rework-waiver-capture, swe-resume-gate, task-overrun-alert), has no bash side
+ * and is not in the parity set.
  * The gate × payload × locale runs split across
  * hooks-parity.shard-<k>of<n>.test.ts (GH 1947); shard 1 also runs the
  * whole-corpus checks, and each shard checks its own sandbox stayed untouched.
@@ -293,6 +294,7 @@ export function hooksParityShard(k: number, n: number): void {
           'code-reviewer-preflight',
           'code-reviewer-spawn-note',
           'rework-limit',
+          'rework-waiver-capture',
           'swe-resume-gate',
           'swe-stop-cause',
           'task-overrun-alert',

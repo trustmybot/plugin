@@ -697,7 +697,6 @@ describe('Codex tool surface', () => {
             for (const identity of [
                 'agent',
                 'author',
-                'verified_human',
                 'role',
                 'provenance',
             ]) {
@@ -711,6 +710,7 @@ describe('Codex tool surface', () => {
                 assert.equal((toolPayload(spoofed)['error']['code']), 'unsupported_identity_claim');
             }
             for (const remoteArgument of [
+                { verified_human: true },
                 { remote_iid: 1171 },
                 { remote_backend: 'github' },
                 { issue_sync: 'gh' },

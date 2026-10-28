@@ -17448,1443 +17448,14 @@ function userPromptPersona(payload, env) {
   }
 }
 
-// src/hooks/consultant-persistence-gate.ts
-var GATE_NAME30 = "consultant-persistence-gate";
-var BACKBONE_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
-var block = (reason) => ({ stdout: `${jqCompact({ decision: "block", reason })}
-`, code: 0 });
-function recoveryMessage(agent, issueId) {
-  return `Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='${agent}', issue_id=${issueId}, author='${agent}', kind='analysis', body=<your analysis>) then return.`;
-}
-function stoppingAgent(echoed) {
-  return normalizeRole(
-    commandSubstitution(jqAlternatives(echoed, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]))
-  );
-}
-function consultantPersistenceGate(payload, env) {
-  const echoed = `${commandSubstitution(payload)}
-`;
-  if (commandSubstitution(jqFieldOr(echoed, "stop_hook_active", "false")) === "true") return ALLOW;
-  const agent = stoppingAgent(echoed);
-  if (agent === "" || BACKBONE_ROLES.has(agent)) return ALLOW;
-  const db = dbPath(env);
-  if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
-  const unavailable = () => block(dbUnavailableReason(GATE_NAME30, env));
-  const safeAgent = sqlQuote(agent);
-  const isConsultant = gateRead(db, `SELECT COUNT(*) FROM agents WHERE name='${safeAgent}' AND kind='consultant';`, env);
-  if (isConsultant === GATE_READ_ERROR) return unavailable();
-  if (isConsultant !== "1") return ALLOW;
-  const openIssue = gateRead(db, "SELECT id FROM issues WHERE status='open' ORDER BY updated_at DESC, id DESC LIMIT 1;", env);
-  if (openIssue === GATE_READ_ERROR) return unavailable();
-  const issueId = sqlInt(openIssue);
-  if (issueId === "") return ALLOW;
-  const discussions = gateRead(db, `SELECT COUNT(*) FROM discussions WHERE author='${safeAgent}' AND issue_id=${issueId};`, env);
-  if (discussions === GATE_READ_ERROR) return unavailable();
-  if (/^[0-9]+$/.test(discussions) && Number(discussions) >= 1) return ALLOW;
-  return block(recoveryMessage(agent, issueId));
-}
-
-// src/hooks/roundtable-auq-shape.ts
-var GATE_NAME31 = "roundtable-auq-shape";
-var MAX_QUESTIONS = 4;
-var AWAITING_SQL = `
-  SELECT r.id FROM roundtables r
-  WHERE r.state = 'awaiting_human'
-    AND NOT EXISTS (
-      SELECT 1 FROM roundtable_votes v
-      WHERE v.roundtable_id = r.id AND v.participant = 'human'
-    )
-  ORDER BY r.id DESC LIMIT 1;
-`;
-var LENGTH_ERROR = /* @__PURE__ */ Symbol("length error");
-function jqLength(value) {
-  if (value === null) return "0";
-  if (typeof value === "number") return String(Math.abs(value));
-  if (typeof value === "string") return String([...value].length);
-  if (Array.isArray(value)) return String(value.length);
-  if (typeof value === "object") return String(Object.keys(value).length);
-  return LENGTH_ERROR;
-}
-function bashIntTest(s, compare) {
-  return /^-?[0-9]+$/.test(s) && Number.isSafeInteger(Number(s)) && compare(Number(s));
-}
-function multiSelectAt(questions, i2) {
-  const lines2 = [];
-  for (const q of questions) {
-    if (q !== null && !Array.isArray(q)) continue;
-    const element = q === null ? null : q[i2] ?? null;
-    try {
-      lines2.push(jqOr(jqIndex(element, "multiSelect"), false) === true);
-    } catch {
-    }
-  }
-  return lines2.length === 1 && lines2[0];
-}
-function shapeViolations(echoed) {
-  const questions = jqMap(echoed, (value) => jqOr(jqIndex(jqIndex(value, "tool_input"), "questions"), []));
-  const lengths = questions.map(jqLength).filter((n3) => n3 !== LENGTH_ERROR);
-  const count = lengths.join("\n");
-  if (count === "" || bashIntTest(count, (n3) => n3 === 0)) return null;
-  const violations = [];
-  if (bashIntTest(count, (n3) => n3 > MAX_QUESTIONS)) {
-    violations.push(`AUQ has ${count} questions; max ${MAX_QUESTIONS} allowed during ratification`);
-  }
-  if (!multiSelectAt(questions, 0)) {
-    violations.push("Q1 must have multiSelect:true (agreements checkbox) during ratification");
-  }
-  if (bashIntTest(count, (n3) => n3 > 1)) {
-    const longest = Math.max(0, ...questions.map((q) => Array.isArray(q) ? q.length : 0));
-    const last = Math.min(Number(count), longest);
-    for (let i2 = 1; i2 < last; i2 += 1) {
-      if (multiSelectAt(questions, i2)) {
-        violations.push(`Q${i2 + 1} must not use multiSelect (disagreement radios only) during ratification`);
-      }
-    }
-  }
-  return violations;
-}
-function shapeAsk(rtId, violations) {
-  const message = `roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #${rtId} awaiting human).` + violations.map((v) => `
-  - ${v}`).join("") + "\n\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total \u22644.";
-  return `${jqCompact({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "ask",
-      additionalContext: message
-    }
-  })}
-`;
-}
-function roundtableAuqShape(payload, env) {
-  try {
-    const echoed = `${commandSubstitution(payload)}
-`;
-    if (commandSubstitution(jqFieldOr(echoed, "tool_name")) !== "AskUserQuestion") return ALLOW;
-    const db = dbPath(env);
-    if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
-    const rtId = sqliteRo(db, AWAITING_SQL, env);
-    if (rtId === "") return ALLOW;
-    const violations = shapeViolations(echoed);
-    if (violations === null || violations.length === 0) return ALLOW;
-    return { stdout: shapeAsk(rtId, violations), code: 0 };
-  } catch {
-    return ALLOW;
-  }
-}
-
-// src/hooks/roundtable-cleanup-postcheck.ts
-var GATE_NAME32 = "roundtable-cleanup-postcheck";
-var CLOSE_TOOLS = ["roundtable_close", "roundtable_close_with_decisions"];
-function roundtableIdField(echoed) {
-  return commandSubstitution(
-    jqMap(echoed, (value) => jqRawText(jqOr(jqIndex(jqIndex(value, "tool_input"), "roundtable_id"), "")), jqLiteralNumbers).join("\n")
-  );
-}
-function captureSql(rtId) {
-  return `SELECT r.issue_id,
-    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'analysis'),
-    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'decision'),
-    (SELECT COUNT(*) FROM roundtable_votes v WHERE v.roundtable_id = r.id),
-    (SELECT COUNT(*) FROM audit a WHERE a.event_type = 'roundtable_summary' AND a.issue_id = r.issue_id),
-    r.state, COALESCE(r.outcome, '')
-  FROM roundtables r WHERE r.id = ${rtId} LIMIT 1;`;
-}
-var atLeastOne = (count) => /^[0-9]+$/.test(count) && Number(count) >= 1;
-function missingSurfaces(row) {
-  const [issueId = "", analyses = "", decisions = "", votes = "", summaries = "", state = "", ...rest] = row.split("\n")[0].split("|");
-  if (sqlInt(issueId) === "") return null;
-  const outcome = rest.join("|");
-  const missing = [];
-  if (!atLeastOne(analyses)) missing.push("analysis-discussions");
-  if (!atLeastOne(decisions)) missing.push("decision-discussions");
-  if (state !== "closed") missing.push("roundtable.status=closed");
-  if (outcome === "" || outcome === "|") missing.push("roundtable.outcome");
-  if (!atLeastOne(votes)) missing.push("votes");
-  if (!atLeastOne(summaries)) missing.push("audit(roundtable_summary)");
-  return missing;
-}
-function cleanupContext(rtId, missing) {
-  return `${jqCompact({
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: `[tmb roundtable-cleanup] roundtable_id=${rtId} closed but the following capture surfaces are missing: ${missing.join(" ")}. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.`
-    }
-  })}
-`;
-}
-function roundtableCleanupPostcheck(payload, env) {
-  try {
-    const echoed = `${commandSubstitution(payload)}
-`;
-    const tool = commandSubstitution(jqFieldOr(echoed, "tool_name"));
-    if (!CLOSE_TOOLS.some((name3) => tool.endsWith(name3))) return ALLOW;
-    const rtId = sqlInt(roundtableIdField(echoed));
-    if (rtId === "") return ALLOW;
-    const db = dbPath(env);
-    if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
-    const missing = missingSurfaces(sqliteRo(db, captureSql(rtId), env));
-    if (missing === null || missing.length === 0) return ALLOW;
-    return { stdout: cleanupContext(rtId, missing), code: 0 };
-  } catch {
-    return ALLOW;
-  }
-}
-
-// src/hooks/roundtable-slash-detect.ts
-var GATE_NAME33 = "roundtable-slash-detect";
-var SUMMARY_MAX_BYTES = 200;
-var WRITE_ENV = { TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
-function slashInvoked(prompt) {
-  return prompt.startsWith("/roundtable") || prompt.includes("\n/roundtable") || prompt.includes(" /roundtable");
-}
-function promptSummary(prompt) {
-  return commandSubstitution(Buffer.from(prompt, "utf8").subarray(0, SUMMARY_MAX_BYTES).toString("utf8"));
-}
-function roundtableSlashDetect(payload, env) {
-  try {
-    if (!haveSqlite(env)) return ALLOW;
-    const prompt = commandSubstitution(jqFieldOr(`${commandSubstitution(payload)}
-`, "prompt"));
-    if (isHarnessTurn(prompt) || !slashInvoked(prompt)) return ALLOW;
-    const db = dbPath(env);
-    if (db === null || db === "") return ALLOW;
-    const written = auditAppend(
-      db,
-      {
-        issueId: "-1",
-        branchId: "",
-        fromNode: `hook:${GATE_NAME33}`,
-        eventType: "roundtable_slash_invoked",
-        summary: `User typed /roundtable: ${promptSummary(prompt)}`,
-        contentJson: "{}"
-      },
-      { caller: GATE_NAME33, env: { ...env, ...WRITE_ENV } }
-    );
-    if (!written.ok) {
-      if (written.error !== "") process.stderr.write(`${written.error}
-`);
-      process.stderr.write(
-        `tmb slash-detect: FAILED to record roundtable_slash_invoked after retrying (${db}) \u2014 roundtable_create's gate will refuse
-`
-      );
-    }
-    return ALLOW;
-  } catch {
-    return ALLOW;
-  }
-}
-
-// src/hooks/code-reviewer-no-worktree.ts
-var GATE_NAME34 = "code-reviewer-no-worktree";
-var BYPASS_ENV3 = "TMB_ALLOW_CODE_REVIEWER_WORKTREE";
-var DENY_REASON = `code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin \u2014 from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.
-
-Spawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set ${BYPASS_ENV3}=1.`;
-function spawnField(payload, ...keys) {
-  return jqRawOr(`${commandSubstitution(payload)}
-`, [jqPath(...keys)]);
-}
-function isCodeReviewerSpawn(payload) {
-  return spawnField(payload, "tool_name") === "Agent" && normalizeRole(spawnField(payload, "tool_input", "subagent_type")) === CODE_REVIEWER_ROLE;
-}
-function spawnDeny(reason) {
-  return {
-    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
-`,
-    code: 0
-  };
-}
-var codeReviewerNoWorktree = (payload, env) => {
-  if (env[BYPASS_ENV3] === "1") return ALLOW;
-  if (!isCodeReviewerSpawn(payload)) return ALLOW;
-  return spawnField(payload, "tool_input", "isolation") === "worktree" ? spawnDeny(DENY_REASON) : ALLOW;
-};
-
-// src/hooks/code-reviewer-spawn-prompt-shape.ts
-var GATE_NAME35 = "code-reviewer-spawn-prompt-shape";
-var BYPASS_ENV4 = "TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE";
-var RUBBER_STAMP_PHRASES = ["trust the prior verdict", "fast-track if", "rubber.stamp", "prior verdict"];
-var ANCHOR_LIST = `${ANCHORS.slice(0, -1).join(", ")}, and ${ANCHORS[ANCHORS.length - 1]}`;
-function missingAnchorsReason(missing) {
-  return `BLOCKED: code-reviewer spawn prompt missing required anchors:${missing.map((a) => ` ${a}`).join("")}.
-
-Per tmb_push-gate, the prompt MUST contain ${ANCHOR_LIST}, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings \u2014 pass only the bare anchors plus a one-line context summary.`;
-}
-function rubberStampReason(phrase) {
-  return `BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: "${phrase}").
-
-Per tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.`;
-}
-function grepLines(prompt, multibyte) {
-  const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
-  return text.split("\n");
-}
-function missingAnchors(prompt, multibyte) {
-  const lines2 = grepLines(prompt, multibyte);
-  const flags2 = multibyte ? "u" : "";
-  return ANCHORS.filter((anchor) => {
-    const re = new RegExp(`(?:^|[^${grepAlnum(multibyte)}_])${anchor}=`, flags2);
-    return !lines2.some((line) => re.test(line));
-  });
-}
-function phraseRegExp(phrase, multibyte) {
-  const source = [...phrase].map((ch) => ch === "." ? "[^\\n]" : ch.replace(/[\\^$*+?()[\]{}|/]/g, "\\$&")).join("");
-  return new RegExp(source, multibyte ? "u" : "");
-}
-function rubberStampPhrase(prompt, multibyte) {
-  const lines2 = grepLines(prompt, multibyte).map((line) => line.replace(/[A-Z]/g, (c) => c.toLowerCase()));
-  return RUBBER_STAMP_PHRASES.find((phrase) => lines2.some((line) => phraseRegExp(phrase, multibyte).test(line))) ?? null;
-}
-var codeReviewerSpawnPromptShape = (payload, env) => {
-  if (env[BYPASS_ENV4] === "1") return ALLOW;
-  if (!isCodeReviewerSpawn(payload)) return ALLOW;
-  const prompt = spawnField(payload, "tool_input", "prompt");
-  const multibyte = grepMultibyte(env);
-  const missing = missingAnchors(prompt, multibyte);
-  if (missing.length > 0) return spawnDeny(missingAnchorsReason(missing));
-  const phrase = rubberStampPhrase(prompt, multibyte);
-  return phrase === null ? ALLOW : spawnDeny(rubberStampReason(phrase));
-};
-
-// src/hooks/code-reviewer-after-atomic-close.ts
-var GATE_NAME36 = "code-reviewer-after-atomic-close";
-var BYPASS_ENV5 = "TMB_SKIP_CODE_REVIEWER_CLOSE_GATE";
-function notClosedReason(taskId, status) {
-  return `BLOCKED: code-reviewer spawn requires task ${taskId} status=closed but actual status=${status}.
-
-Per tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:
-  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
-  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
-  3. ONLY THEN: spawn code-reviewer for the push gate.
-
-SWE returning completed does not close the trajectory task \u2014 that is bro_atomic_close.
-
-Fix: call bro_atomic_close(agent='bro', task_id=${taskId}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.`;
-}
-function promptTaskId2(prompt, multibyte) {
-  const space2 = grepSpace(multibyte);
-  const re = new RegExp(`task_id[${space2}]*=[${space2}]*([0-9]+)`, multibyte ? "u" : "");
-  const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
-  for (const line of text.split("\n")) {
-    const m = re.exec(line);
-    if (m) return m[1];
-  }
-  return "";
-}
-var codeReviewerAfterAtomicClose = (payload, env) => {
-  if (env[BYPASS_ENV5] === "1") return ALLOW;
-  if (!isCodeReviewerSpawn(payload)) return ALLOW;
-  const taskId = sqlInt(promptTaskId2(spawnField(payload, "tool_input", "prompt"), grepMultibyte(env)));
-  if (taskId === "") return ALLOW;
-  const db = dbPath(env);
-  if (db === null || !haveSqlite(env)) return ALLOW;
-  const status = gateRead(db, `SELECT status FROM tasks WHERE id = ${taskId};`, env);
-  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME36, env)}
-`, code: 0 };
-  if (status === "" || status === "closed") return ALLOW;
-  return spawnDeny(notClosedReason(taskId, status));
-};
-
-// src/hooks/swe-verification-gate.ts
-import { spawn as spawn2, spawnSync as spawnSync10 } from "node:child_process";
-import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync7, mkdtempSync, openSync as openSync3, readFileSync as readFileSync15, rmSync as rmSync4, statSync as statSync23, writeFileSync as writeFileSync5 } from "node:fs";
-import { constants as osConstants, tmpdir } from "node:os";
-import { resolve as resolve3 } from "node:path";
-
-// src/hooks/lib/verification-carry.ts
-import { realpathSync as realpathSync6 } from "node:fs";
-import { basename as basename7, matchesGlob } from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
-var VERIFICATION_INPUTS_PATH = ".config/tmb/verification-inputs.json";
-var VERIFICATION_INPUTS_VERSION = 1;
-var SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
-var PROBE_PREFIX = "[probe ";
-function refuse(reason, source = null) {
-  return { source_run: source?.id ?? null, source_sha: source?.sha ?? null, carry: [], refused: reason, commands: [] };
-}
-function parseCommands(json) {
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) && parsed.every((c) => typeof c === "string" && c !== "") ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function parseInputsMap(text) {
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return "map_invalid";
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return "map_invalid";
-  const map = parsed;
-  if (map.version !== VERIFICATION_INPUTS_VERSION) return "map_unknown_version";
-  if (!Array.isArray(map.commands)) return "map_invalid";
-  const entries = [];
-  for (const entry of map.commands) {
-    if (entry === null || typeof entry !== "object") return "map_invalid";
-    const { match: match2, inputs } = entry;
-    if (typeof match2 !== "string" || match2 === "") return "map_invalid";
-    if (!Array.isArray(inputs) || inputs.length === 0 || !inputs.every((g) => typeof g === "string" && g !== "")) return "map_invalid";
-    entries.push({ match: match2, inputs });
-  }
-  return entries;
-}
-function sourceRun(db, taskId, head, env) {
-  const out2 = gateRead(
-    db,
-    `SELECT json_object('id', id, 'sha', lower(commit_sha)) FROM verification_runs
-      WHERE task_id = ${taskId} AND finished_at IS NOT NULL AND exit_code = 0 AND timed_out = 0
-        AND lower(commit_sha) <> '${sqlQuote(head)}'
-      ORDER BY finished_at DESC, id DESC LIMIT 1;`,
-    env
-  );
-  if (out2 === GATE_READ_ERROR) return "error";
-  if (out2 === "") return null;
-  const row = JSON.parse(out2);
-  if (typeof row.id !== "number" || typeof row.sha !== "string" || !SHA_RE.test(row.sha)) return null;
-  return { id: row.id, sha: row.sha };
-}
-function passedInSource(db, runId, env) {
-  const out2 = gateRead(
-    db,
-    `SELECT COALESCE(json_group_array(command), '[]') FROM verification_run_commands WHERE run_id = ${runId} AND exit_code = 0;`,
-    env
-  );
-  if (out2 === GATE_READ_ERROR) return "error";
-  const commands = parseCommands(out2 === "" ? "[]" : out2);
-  return commands === null ? "error" : new Set(commands);
-}
-function changedPaths(worktree, from, to, env) {
-  const r = gitRun(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to, "--"], env);
-  if (r.code !== 0) return null;
-  return r.stdout.split("\0").filter((p) => p !== "");
-}
-function planCarry(req, env = process.env) {
-  const taskId = sqlInt(req.taskId);
-  const head = req.head.toLowerCase();
-  const commands = parseCommands(req.commandsJson);
-  if (req.db === "" || taskId === "" || req.worktree === "" || !SHA_RE.test(head) || commands === null) return refuse("bad_input");
-  const actualHead = gitRun(req.worktree, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], env);
-  if (actualHead.code !== 0 || actualHead.stdout.trim().toLowerCase() !== head) return refuse("head_mismatch");
-  const source = sourceRun(req.db, taskId, head, env);
-  if (source === "error") return refuse("db_unreadable");
-  if (source === null) return refuse("no_source_run");
-  if (gitRun(req.worktree, ["merge-base", "--is-ancestor", source.sha, head], env).code !== 0) return refuse("not_ancestor", source);
-  const merges = gitRun(req.worktree, ["rev-list", "--merges", `${source.sha}..${head}`], env);
-  if (merges.code !== 0 || merges.stdout.trim() !== "") return refuse("merge_in_range", source);
-  const status = gitRun(req.worktree, ["status", "--porcelain"], env);
-  if (status.code !== 0 || status.stdout.trim() !== "") return refuse("dirty_worktree", source);
-  const changed = changedPaths(req.worktree, source.sha, head, env);
-  if (changed === null) return refuse("diff_failed", source);
-  if (changed.includes(VERIFICATION_INPUTS_PATH)) return refuse("map_changed", source);
-  const mapText = gitRun(req.worktree, ["show", `${head}:${VERIFICATION_INPUTS_PATH}`], env);
-  if (mapText.code !== 0) return refuse("map_missing", source);
-  const entries = parseInputsMap(mapText.stdout);
-  if (typeof entries === "string") return refuse(entries, source);
-  const passed = passedInSource(req.db, source.id, env);
-  if (passed === "error") return refuse("db_unreadable", source);
-  const decisions = commands.map((command, i2) => {
-    const decide2 = (reason) => ({ ordinal: i2 + 1, command, carried: reason === null, reason });
-    if (command.startsWith(PROBE_PREFIX)) return decide2("probe");
-    if (!passed.has(command)) return decide2("not_passed_in_source");
-    const declared = entries.filter((e) => e.match === command);
-    if (declared.length === 0) return decide2("undeclared");
-    if (declared.length > 1) return decide2("ambiguous_declaration");
-    const touched = declared[0].inputs.some((glob) => changed.some((path) => matchesGlob(path, glob)));
-    return decide2(touched ? "inputs_changed" : null);
-  });
-  return {
-    source_run: source.id,
-    source_sha: source.sha,
-    carry: decisions.filter((d) => d.carried).map((d) => d.ordinal),
-    refused: null,
-    commands: decisions
-  };
-}
-function planCarrySafe(req, env = process.env) {
-  try {
-    return planCarry(req, env);
-  } catch {
-    return refuse("error");
-  }
-}
-function isMainModule() {
-  const entry = process.argv[1];
-  const self2 = fileURLToPath5(import.meta.url);
-  if (entry === void 0 || basename7(self2) !== "verification-carry.js") return false;
-  try {
-    return realpathSync6(entry) === realpathSync6(self2);
-  } catch {
-    return false;
-  }
-}
-if (isMainModule()) {
-  const [db = "", taskId = "", worktree = "", head = "", commandsJson = ""] = process.argv.slice(2);
-  process.stdout.write(`${JSON.stringify(planCarrySafe({ db, taskId, worktree, head, commandsJson }))}
-`);
-}
-
-// src/hooks/swe-brief-gate.ts
-var GATE_NAME37 = "swe-brief-gate";
-var BLOCKED_MUTATIONS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-var TRAJECTORY_TOOL = /^mcp__[\s\S]*trajectory-server__/;
-function briefSurface(toolName2) {
-  if (toolName2.includes("task_brief")) return "task_brief";
-  if (BLOCKED_MUTATIONS.has(toolName2)) return "mutation";
-  if (TRAJECTORY_TOOL.test(toolName2)) return "trajectory";
-  return "other";
-}
-function rawOrEmpty(input, path) {
-  return jqMap(
-    input,
-    (value) => {
-      const v = path.reduce((acc, key2) => jqIndex(acc, key2), value);
-      return v === null || v === void 0 || v === false ? null : jqRawText(v);
-    },
-    jqLiteralNumbers
-  ).filter((line) => line !== null).join("\n");
-}
-function denyReason3(taskId, toolName2) {
-  return `BLOCKED: SWE must call task_brief(agent='swe', task_id=${taskId}) before ${toolName2 || "this tool"}. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=${taskId})`;
-}
-function resumeJson(taskId, agentId, observedAt) {
-  return `{"task_id":${jqNumberLiteral(taskId)},"agent_id":${jqCompact(agentId)},"observed_at":${jqCompact(observedAt)},"consumed":0}`;
-}
-function bindRun(db, taskId, input, env) {
-  const agentId = commandSubstitution(jqAlternatives(input, [["agent_id"]]));
-  if (agentId === "") return;
-  const safeAgentId = sqlQuote(agentId);
-  const keyed = sqliteRo(
-    db,
-    `
-SELECT COALESCE(MAX(completed_at IS NULL), -1) || '|' || (SELECT issue_id FROM tasks WHERE id = ${taskId})
-  FROM agent_runs
- WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${safeAgentId}';`,
-    env
-  );
-  if (keyed.startsWith("-1|")) {
-    dbWrite(
-      db,
-      `
-UPDATE agent_runs SET spawn_id = '${safeAgentId}'
- WHERE id = (SELECT id FROM agent_runs
-              WHERE task_id = ${taskId} AND agent_type = 'swe' AND completed_at IS NULL
-                AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
-              ORDER BY id DESC LIMIT 1);`,
-      { caller: GATE_NAME37, env }
-    );
-  } else if (keyed.startsWith("0|")) {
-    auditAppend(
-      db,
-      {
-        issueId: keyed.slice(keyed.indexOf("|") + 1),
-        branchId: "",
-        fromNode: `hook:${GATE_NAME37}`,
-        eventType: "swe_resume_observed",
-        summary: `swe ${agentId} resumed task ${taskId} and called task_brief`,
-        contentJson: resumeJson(taskId, agentId, nowIso())
-      },
-      { caller: GATE_NAME37, env }
-    );
-  }
-}
-var sweBriefGate = (payload, env) => {
-  const captured = commandSubstitution(payload);
-  const input = `${captured}
-`;
-  const agentType = normalizeRole(
-    commandSubstitution(jqAlternatives(input, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]))
-  );
-  if (agentType !== "swe") return ALLOW;
-  const toolName2 = commandSubstitution(jqAlternatives(input, [["tool_name"]]));
-  const db = dbPath(env, (line) => process.stderr.write(`${line}
-`));
-  if (db === null || !haveSqlite(env)) return ALLOW;
-  let taskId = taskIdFromTranscript(agentTranscript(captured));
-  if (taskId === "") taskId = sqlInt(commandSubstitution(rawOrEmpty(input, ["tool_input", "task_id"])));
-  if (taskId === "") return ALLOW;
-  const surface2 = briefSurface(toolName2);
-  if (surface2 === "other") return ALLOW;
-  if (surface2 === "task_brief") {
-    bindRun(db, taskId, input, env);
-    return ALLOW;
-  }
-  const sentinel = sqliteRo(
-    db,
-    `
-  SELECT COUNT(*) FROM audit
-   WHERE event_type = 'swe_brief_fetched'
-     AND json_extract(content_json, '$.task_id') = ${taskId}
-  LIMIT 1;
-`,
-    env
-  );
-  if (Number(sentinel || "0") > 0) return ALLOW;
-  return {
-    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denyReason3(taskId, toolName2) } })}
-`,
-    code: 0
-  };
-};
-
-// src/hooks/swe-verification-gate.ts
-var GATE_NAME38 = "swe-verification-gate";
-var VERIFICATION_DEFAULT_S = 900;
-var VERIFICATION_MAX_S = 1800;
-var RECORD_BUDGET_MS = 3e3;
-var RECORD_POOL_MS = 9e3;
-var FINISH_ATTEMPTS = 3;
-var FINISH_BACKOFF_MS = 500;
-var LOCK_POLL_MS = 500;
-var TAIL_LINES = 20;
-var FAILURE_LINES = 15;
-var DEFAULT_TAIL_CHARS = 4e3;
-var signals = osConstants.signals;
-var DB_UNAVAILABLE_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
-var WAIVER_UNRECORDED_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
-var NO_VERIFICATION_CONTEXT = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed verification[] \u2014 verification gate skipped. Ask bro to set the task's verification[] field (Typed Rails #673) to enforce verification commands."}}
-`;
-var UNRECORDED_PASS_CONTEXT = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: verification[] passed (not recorded: worktree HEAD unresolvable)."}}\n';
-var stderr = (text) => {
-  process.stderr.write(text);
-};
-var sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-function beforeBar(s) {
-  const i2 = s.indexOf("|");
-  return i2 < 0 ? s : s.slice(0, i2);
-}
-function afterBar(s) {
-  const i2 = s.indexOf("|");
-  return i2 < 0 ? s : s.slice(i2 + 1);
-}
-function deny7(reason) {
-  return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
-`;
-}
-function context3(text) {
-  return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: text } })}
-`;
-}
-function shellLength(s, env) {
-  return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
-}
-function shellTail(s, n3, env) {
-  if (ctypeUtf8(env)) return [...s].slice(-n3).join("");
-  const bytes = Buffer.from(s);
-  return bytes.subarray(Math.max(0, bytes.length - n3)).toString("utf8");
-}
-function msToS(ms) {
-  const abs = Math.abs(ms);
-  const sign = ms < 0 ? "-" : "";
-  if (abs % 1e3 === 250) return `${sign}${Math.floor(abs / 1e3)}.2`;
-  return `${sign}${(abs / 1e3).toFixed(1)}`;
-}
-function parseBudget(raw) {
-  let timeoutS = VERIFICATION_DEFAULT_S;
-  if (raw !== "") {
-    if (!/^[0-9]+$/.test(raw)) timeoutS = null;
-    else if (raw.length > 9) timeoutS = VERIFICATION_MAX_S;
-    else timeoutS = Number(raw) >= 1 ? Number(raw) : null;
-  }
-  let warning = "";
-  if (timeoutS === null) {
-    warning = `${GATE_NAME38}: verification_timeout_s '${raw.replaceAll("\n", " ")}' is not an integer from 1 to ${VERIFICATION_MAX_S}; using the default ${VERIFICATION_DEFAULT_S}s
-`;
-    timeoutS = VERIFICATION_DEFAULT_S;
-  }
-  return { timeoutS: Math.min(timeoutS, VERIFICATION_MAX_S), warning };
-}
-function executable(path) {
-  if (path === "") return false;
-  try {
-    accessSync9(path, constants9.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function capture3(cmd, args2, env) {
-  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
-  return r.stdout ?? "";
-}
-function toolchainDirs(env) {
-  const home = env.HOME ?? "";
-  const out2 = [];
-  const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
-  if (isDir(`${miseData}/shims`)) out2.push(`${miseData}/shims`);
-  const mise = [env.MISE_INSTALL_PATH ?? "", "/opt/homebrew/bin/mise", "/usr/local/bin/mise", `${home}/.local/bin/mise`].find(executable);
-  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], env).split("\n"));
-  const brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(executable);
-  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], env));
-  const brewDirs = brewPrefix !== "" ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
-  out2.push(...brewDirs.filter(isDir));
-  if (home !== "" && isDir(`${home}/.local/bin`)) out2.push(`${home}/.local/bin`);
-  if (home !== "") {
-    for (const dir of [`${home}/Library/Application Support/reflex/bun/bin`, `${home}/.bun/bin`]) {
-      if (isDir(dir) && executable(`${dir}/bun`)) out2.push(dir);
-    }
-  }
-  return out2;
-}
-function joinToolchainPath(dirs, base2) {
-  const seen = /* @__PURE__ */ new Set();
-  for (const dir of [...dirs.filter((d) => d !== ""), ...base2.split(":")]) {
-    if (dir !== "") seen.add(dir);
-  }
-  return [...seen].join(":");
-}
-function repoPathByName2(db, name3, env) {
-  let file = false;
-  try {
-    file = statSync23(db).isFile();
-  } catch {
-  }
-  if (!file || !haveSqlite(env) || name3 === "") return "";
-  return firstLine(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-}
-function reviewFindingsActive(db, taskId, env) {
-  const has = gateRead(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_findings';", env);
-  if (has === GATE_READ_ERROR) return GATE_READ_ERROR;
-  if (has !== "1") return "[]";
-  const out2 = gateRead(
-    db,
-    `SELECT COALESCE(json_group_array(json_object('id', id, 'status', status, 'probe_cmd', probe_cmd)), '[]')
-     FROM (SELECT id, status, probe_cmd FROM review_findings
-            WHERE task_id = ${taskId} AND status <> 'wontfix'
-            ORDER BY CAST(substr(id, instr(id, '-') + 1) AS INTEGER));`,
-    env
-  );
-  return out2 || "[]";
-}
-function parseFindings(json) {
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-function probeCommand(f) {
-  return `[probe ${typeof f.id === "string" ? f.id : ""}] ${typeof f.probe_cmd === "string" ? f.probe_cmd : ""}`;
-}
-function lastLines(text, n3) {
-  return text.split("\n").slice(-n3).join("\n");
-}
-function failureLines(text) {
-  return text.split("\n").filter((line) => /FAIL|failed|Error|❌/.test(line)).slice(0, FAILURE_LINES).join("\n");
-}
-function reusableRun(db, taskId, sha, commandsJson, env) {
-  const cmds = sqlQuote(commandsJson);
-  return sqliteRo(
-    db,
-    `SELECT r.id || '|' || r.finished_at FROM verification_runs r
-     WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}'
-       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
-       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3600 seconds')
-       AND json_valid('${cmds}')
-       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${cmds}')
-       AND NOT EXISTS (SELECT 1 FROM json_each('${cmds}') e
-             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
-            WHERE c.command IS NOT e.value)
-     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`,
-    env
-  );
-}
-var VerificationRun = class {
-  constructor(c) {
-    this.c = c;
-  }
-  c;
-  runId = "";
-  recordMs = 0;
-  poolNoted = false;
-  ordinal = 0;
-  runStart = 0;
-  carryRun = "";
-  carrySha = "";
-  carryOrdinals = /* @__PURE__ */ new Set();
-  allowanceMs() {
-    const left = RECORD_POOL_MS - this.recordMs;
-    if (left <= 0) return null;
-    return Math.min(left, RECORD_BUDGET_MS);
-  }
-  write(ms, sql) {
-    const env = { ...this.c.env, TMB_DB_WRITE_TIMEOUT_MS: String(ms), TMB_DB_WRITE_RUN_BUDGET_MS: String(ms) };
-    const r = dbWrite(this.c.db, sql, { caller: GATE_NAME38, env });
-    if (!r.ok && r.error !== "") stderr(`${r.error}
-`);
-    return r;
-  }
-  invalid(message) {
-    stderr(`tmb_verification_run: ${GATE_NAME38}: ${message}
-`);
-    return { ok: false, code: 2, stdout: "", error: "" };
-  }
-  start(ms) {
-    const now2 = nowIso();
-    const r = this.write(
-      ms,
-      `UPDATE verification_runs SET finished_at = '${now2}', exit_code = 137, timed_out = 0
- WHERE finished_at IS NULL
-   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now2}', '-' || (budget_s + 60) || ' seconds');
-INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now2}', ${this.c.timeoutS});
-SELECT last_insert_rowid();`
-    );
-    return r.ok ? commandSubstitution(r.stdout) : "";
-  }
-  commandWrite(ms, ordinal, command, rc, elapsed, output) {
-    if (!/^[0-9]+$/.test(this.runId)) {
-      this.invalid(`invalid run_id '${this.runId}'`);
-      return;
-    }
-    const rawCap = this.c.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
-    const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
-    const tail = cap > 0 && shellLength(output, this.c.env) > cap ? shellTail(output, cap, this.c.env) : output;
-    this.write(
-      ms,
-      `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`
-    );
-  }
-  finishWrite(rc, timedOut) {
-    if (!/^[0-9]+$/.test(this.runId)) return this.invalid(`invalid run_id '${this.runId}'`);
-    return this.write(
-      RECORD_BUDGET_MS,
-      `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut} WHERE id = ${this.runId};`
-    );
-  }
-  fixedWrite(ms, id) {
-    if (!/^F[0-9]+-[0-9]+$/.test(id)) return this.invalid(`invalid finding id '${id}'`);
-    return this.write(ms, `UPDATE review_findings SET status = 'fixed', resolved_at = '${nowIso()}' WHERE id = '${sqlQuote(id)}' AND status = 'open';`);
-  }
-  recordCommand(ordinal, command, rc, elapsed, output) {
-    if (this.runId === "") return;
-    const ms = this.allowanceMs();
-    if (ms === null) {
-      if (!this.poolNoted) {
-        this.poolNoted = true;
-        stderr(`${GATE_NAME38}: run-record write budget (${RECORD_POOL_MS}ms) spent; verification run #${this.runId} keeps no further command rows
-`);
-      }
-      return;
-    }
-    const t0 = Date.now();
-    this.commandWrite(ms, ordinal, command, rc, elapsed, output);
-    this.recordMs += Date.now() - t0;
-  }
-  async recordFinish(rc, timedOut) {
-    if (this.runId === "") return;
-    for (let attempt = 1; ; attempt += 1) {
-      if (this.finishWrite(rc, timedOut).ok) return;
-      if (attempt >= FINISH_ATTEMPTS) break;
-      await sleep(attempt * FINISH_BACKOFF_MS);
-    }
-    stderr(
-      `${GATE_NAME38}: verification run #${this.runId} record unfinished \u2014 its finish write failed ${FINISH_ATTEMPTS} times; the decision stands (trajectory_doctor reports it under no_unfinished_verification_runs after 2 h)
-`
-    );
-  }
-  recordNote() {
-    if (this.runId !== "") return ` Recorded as verification run #${this.runId}.`;
-    return this.c.wtSha === "" ? " (not recorded: worktree HEAD unresolvable)" : "";
-  }
-  activeMs() {
-    return Date.now() - this.runStart - this.recordMs;
-  }
-  timeoutReason(ordinal, command, elapsed, cumulative) {
-    const ran = elapsed !== "" ? ` after ${elapsed}s` : "";
-    return commandSubstitution(
-      `BLOCKED: verification timed out \u2014 the ${this.c.timeoutS}s budget ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:
-${command}
-
-Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`
-    );
-  }
-  planCarry() {
-    const plan = planCarrySafe(
-      { db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson },
-      { ...this.c.env, PATH: this.c.toolchainPath }
-    );
-    if (typeof plan.source_run !== "number" || typeof plan.source_sha !== "string" || !Array.isArray(plan.carry)) return;
-    const run5 = String(plan.source_run);
-    const ords = plan.carry.map(String).join(" ");
-    if (!/^[0-9]+$/.test(run5)) return;
-    if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(plan.source_sha)) return;
-    if (!/^[0-9]+( [0-9]+)*$/.test(ords)) return;
-    this.carryRun = run5;
-    this.carrySha = plan.source_sha;
-    this.carryOrdinals = new Set(plan.carry);
-  }
-  execute(command, seconds2, outPath) {
-    return new Promise((done) => {
-      const fd = openSync3(outPath, "w");
-      let fired = false;
-      let settled = false;
-      const finish = (rc) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        done({ rc, fired });
-      };
-      const child = spawn2("bash", ["-c", command], {
-        cwd: this.c.worktree,
-        env: { ...this.c.env, PATH: this.c.toolchainPath, PWD: this.c.worktree },
-        stdio: ["ignore", fd, fd],
-        detached: true
-      });
-      closeSync3(fd);
-      const timer = setTimeout(() => {
-        fired = true;
-        try {
-          if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
-        } catch {
-        }
-      }, seconds2 * 1e3);
-      child.on("error", () => finish(127));
-      child.on("exit", (code, signal2) => {
-        if (fired) finish(124);
-        else finish(code ?? 128 + (signal2 !== null ? signals[signal2] ?? 0 : 0));
-      });
-    });
-  }
-  /** run_one: <runCmd> in the worktree within the remaining budget, recorded as <recordedCmd>; a deny string when the budget ran out. */
-  async runOne(runCmd, recordedCmd) {
-    this.ordinal += 1;
-    const ordinal = this.ordinal;
-    const remaining = this.c.timeoutS - Math.trunc(this.activeMs() / 1e3);
-    if (remaining <= 0) {
-      await this.recordFinish(124, 1);
-      return deny7(this.timeoutReason(ordinal, recordedCmd, "", msToS(this.activeMs())));
-    }
-    const outPath = `${this.c.scratch}/out-${ordinal}`;
-    const cmdStart = Date.now();
-    const { rc, fired } = await this.execute(runCmd, remaining, outPath);
-    const cmdMs = Date.now() - cmdStart;
-    let out2 = "";
-    try {
-      out2 = commandSubstitution(readFileSync15(outPath, "utf8"));
-      rmSync4(outPath, { force: true });
-    } catch {
-    }
-    const elapsed = msToS(cmdMs);
-    const total = msToS(this.activeMs());
-    const tail = lastLines(out2, TAIL_LINES);
-    this.recordCommand(ordinal, recordedCmd, rc, elapsed, tail);
-    if (rc === 124 && fired) {
-      await this.recordFinish(124, 1);
-      return deny7(this.timeoutReason(ordinal, recordedCmd, elapsed, total));
-    }
-    return { rc, out: out2, elapsed, total, tail };
-  }
-  /** run_verification: the deny decision, the pass context, or "" when every command passed. */
-  async run() {
-    const c = this.c;
-    this.runStart = Date.now();
-    if (c.wtSha !== "") {
-      const ms = this.allowanceMs();
-      if (ms !== null) {
-        this.runId = this.start(ms);
-        this.recordMs = Date.now() - this.runStart;
-      }
-    }
-    if (this.runId !== "") this.planCarry();
-    const carried = [];
-    for (const cmd of c.commands) {
-      if (this.carryOrdinals.has(this.ordinal + 1)) {
-        this.ordinal += 1;
-        this.recordCommand(this.ordinal, cmd, 0, "0", `carried from run #${this.carryRun} at ${this.carrySha.slice(0, 12)}`);
-        carried.push(cmd);
-        continue;
-      }
-      const r = await this.runOne(cmd, cmd);
-      if (typeof r === "string") return r;
-      if (r.rc !== 0) {
-        await this.recordFinish(r.rc, 0);
-        const hits = failureLines(r.out);
-        const hitsBlock = hits !== "" ? `
-
-Failure lines (max ${FAILURE_LINES}):
-${hits}` : "";
-        return deny7(
-          commandSubstitution(
-            `BLOCKED: verification failed.
-Failing command (${this.ordinal}/${c.cmdTotal}): ${cmd}
-Exit ${r.rc} after ${r.elapsed}s; ${r.total}s cumulative.${this.recordNote()}${hitsBlock}
-
-Output (last ${TAIL_LINES} lines):
-${r.tail}`
-          )
-        );
-      }
-    }
-    let probeFail = "";
-    let probeRc = 0;
-    for (const f of c.findings) {
-      const fid = commandSubstitution(jqRawText(f.id));
-      const fstatus = commandSubstitution(jqRawText(f.status));
-      const pcmd = commandSubstitution(jqRawText(f.probe_cmd));
-      const r = await this.runOne(pcmd, `[probe ${fid}] ${pcmd}`);
-      if (typeof r === "string") return r;
-      if (r.rc === 0) {
-        if (fstatus === "open") {
-          const ms = this.allowanceMs();
-          if (ms !== null) {
-            const t0 = Date.now();
-            if (!this.fixedWrite(ms, fid).ok) stderr(`${GATE_NAME38}: review finding ${fid} probe passed but its fixed write failed; it stays open
-`);
-            this.recordMs += Date.now() - t0;
-          } else {
-            stderr(`${GATE_NAME38}: run-record write budget (${RECORD_POOL_MS}ms) spent; review finding ${fid} probe passed but it stays open
-`);
-          }
-        }
-        continue;
-      }
-      if (probeRc === 0) probeRc = r.rc;
-      const regressed = fstatus === "fixed" ? " \u2014 REGRESSION: this finding was fixed and its probe fails again" : "";
-      probeFail += commandSubstitution(
-        `
-
-Finding ${fid} (probe ${this.ordinal}/${c.cmdTotal})${regressed}: ${pcmd}
-Exit ${r.rc} after ${r.elapsed}s.
-Output (last ${TAIL_LINES} lines):
-${r.tail}`
-      );
-    }
-    if (probeFail !== "") {
-      await this.recordFinish(probeRc, 0);
-      return deny7(
-        `BLOCKED: verification failed \u2014 review finding probe(s) failed; ${msToS(this.activeMs())}s cumulative.${this.recordNote()}${probeFail}
-
-Fix each finding so its probe exits 0 (task_brief.open_findings lists the open ones).`
-      );
-    }
-    await this.recordFinish(0, 0);
-    if (c.wtSha === "") return UNRECORDED_PASS_CONTEXT;
-    if (carried.length > 0) {
-      return context3(
-        `TMB: verification carried forward from run #${this.carryRun} at ${this.carrySha.slice(0, 12)} \u2014 this commit touched none of their declared inputs (.config/tmb/verification-inputs.json), so these commands were not run again; the rest of the ${c.cmdTotal} ran:
-${carried.join("\n")}`
-      );
-    }
-    return "";
-  }
-};
-function nowS() {
-  return Math.floor(Date.now() / 1e3);
-}
-function lockHeldSince(lock) {
-  try {
-    const since = commandSubstitution(readFileSync15(`${lock}/started`, "utf8"));
-    if (/^[0-9]+$/.test(since)) return Number(since);
-  } catch {
-  }
-  try {
-    return Math.floor(statSync23(lock).mtimeMs / 1e3);
-  } catch {
-    return null;
-  }
-}
-function tryMkdir(dir) {
-  try {
-    mkdirSync7(dir);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function removeQuietly(path) {
-  try {
-    rmSync4(path, { recursive: true, force: true });
-  } catch {
-  }
-}
-async function acquireLock(lock, staleS) {
-  while (!tryMkdir(lock)) {
-    const held = lockHeldSince(lock) ?? nowS();
-    if (nowS() - held > staleS) {
-      removeQuietly(lock);
-      continue;
-    }
-    while (isDir(lock)) {
-      await sleep(LOCK_POLL_MS);
-      const since = lockHeldSince(lock);
-      if (since === null) continue;
-      if (nowS() - since > staleS) break;
-    }
-  }
-}
-function makeScratch(db) {
-  try {
-    return resolve3(mkdtempSync(`${posixDirname(db)}/verify-run.`));
-  } catch {
-    return mkdtempSync(`${tmpdir()}/verify-run.`);
-  }
-}
-function waive(db, taskId, reason, field6, env) {
-  const row = gateRead(
-    db,
-    `SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') || '|' || COALESCE(commit_sha, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`,
-    env
-  );
-  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(`${GATE_NAME38} (waiver)`, env)}
-`, code: 0 };
-  if (row === "") return ALLOW;
-  const rest = afterBar(row);
-  const sha = field6("commit_sha") || afterBar(rest);
-  const r = auditAppend(
-    db,
-    {
-      issueId: beforeBar(row),
-      branchId: beforeBar(rest),
-      fromNode: `hook:${GATE_NAME38}`,
-      eventType: "verification_gate_waived",
-      summary: `SWE waived verification gate for task_id=${taskId}`,
-      contentJson: `{"task_id":${jqNumberLiteral(taskId)},"commit_sha":${jqCompact(sha)},"waiver_reason":${jqCompact(reason)}}`,
-      dedupePaths: ["$.task_id", "$.commit_sha"]
-    },
-    { caller: GATE_NAME38, env }
-  );
-  if (r.ok) return { stdout: r.stdout, code: 0 };
-  if (r.error !== "") stderr(`${r.error}
-`);
-  return { stdout: `${r.stdout}${WAIVER_UNRECORDED_DENY}`, code: 0 };
-}
-var sweVerificationGate = async (payload, env) => {
-  const input = `${commandSubstitution(payload)}
-`;
-  const field6 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
-  if (normalizeRole(field6("agent")) !== "swe") return ALLOW;
-  if (field6("status") !== "completed") return ALLOW;
-  const taskId = field6("task_id");
-  if (!/^[0-9]+$/.test(taskId)) return ALLOW;
-  const db = dbPath(env, (line) => stderr(`${line}
-`));
-  if (db === null || !haveSqlite(env)) return ALLOW;
-  const genv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
-  const waiver = field6("waive_verification_gate_reason");
-  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field6, genv);
-  const verificationJson = sqliteRo(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
-  const branchId = gateRead(db, `SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
-  if (branchId === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
-  const taskRepo = sqliteRo(db, `SELECT COALESCE(repo, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
-  if (branchId === "") return ALLOW;
-  const findingsJson = reviewFindingsActive(db, taskId, genv);
-  if (findingsJson === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
-  const findings = parseFindings(findingsJson);
-  const block2 = commandSubstitution(jqRawElements(verificationJson));
-  if (block2 === "" && findings.length === 0) return { stdout: NO_VERIFICATION_CONTEXT, code: 0 };
-  const slug = branchSlug(branchId);
-  const wsRoot = posixDirname(posixDirname(posixDirname(db)));
-  const repoRoot = taskRepo !== "" ? repoPathByName2(db, taskRepo, genv) || `${wsRoot}/${taskRepo}` : repoSinglePath(db, genv) || wsRoot;
-  const worktree = `${repoRoot}/.claude/worktrees/${slug}`;
-  if (repoRoot === "" || !isDir(worktree)) {
-    const missingAt = `${repoRoot || wsRoot || "?"}/.claude/worktrees/${slug}`;
-    return {
-      stdout: deny7(
-        `BLOCKED: verification gate could not locate the task worktree at ${missingAt} \u2014 refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason.`
-      ),
-      code: 0
-    };
-  }
-  const toolchainPath = joinToolchainPath(toolchainDirs(genv), genv.PATH ?? "");
-  const budget = parseBudget(
-    genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv)
-  );
-  if (budget.warning !== "") stderr(budget.warning);
-  const head = gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
-  const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : "";
-  const expectedSha = field6("commit_sha");
-  const commands = block2.split("\n").filter((line) => line !== "");
-  const gateCmdsJson = jqCompact([...commands, ...findings.map(probeCommand)]);
-  const scratch = makeScratch(db);
-  let lock = "";
-  try {
-    const ctx = {
-      db,
-      taskId,
-      worktree,
-      wtSha,
-      timeoutS: budget.timeoutS,
-      commands,
-      findings,
-      cmdTotal: commands.length + findings.length,
-      gateCmdsJson,
-      toolchainPath,
-      scratch,
-      env: genv
-    };
-    const reuse = () => {
-      if (wtSha === "") return null;
-      if (expectedSha !== "" && !wtSha.startsWith(expectedSha)) return null;
-      const row = reusableRun(db, taskId, wtSha, gateCmdsJson, genv);
-      if (row === "") return null;
-      return context3(
-        `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) \u2014 verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`
-      );
-    };
-    const reused = reuse();
-    if (reused !== null) return { stdout: reused, code: 0 };
-    if (wtSha === "") return { stdout: await new VerificationRun(ctx).run(), code: 0 };
-    const lockRoot = `${posixDirname(db)}/locks`;
-    try {
-      mkdirSync7(lockRoot, { recursive: true });
-    } catch {
-      return { stdout: await new VerificationRun(ctx).run(), code: 0 };
-    }
-    const lockDir = `${lockRoot}/verify-${taskId}-${wtSha}`;
-    await acquireLock(lockDir, budget.timeoutS + 60);
-    lock = lockDir;
-    try {
-      writeFileSync5(`${lock}/started`, `${nowS()}
-`);
-    } catch {
-    }
-    const reusedAfterWait = reuse();
-    if (reusedAfterWait !== null) return { stdout: reusedAfterWait, code: 0 };
-    return { stdout: await new VerificationRun(ctx).run(), code: 0 };
-  } finally {
-    if (lock !== "") removeQuietly(lock);
-    removeQuietly(scratch);
-  }
-};
-
-// src/hooks/swe-spawn-bind.ts
-var GATE_NAME39 = "swe-spawn-bind";
-var FIELD_SEPARATOR = "";
-var FieldsError = class extends Error {
-};
-function jqToString(value) {
-  return typeof value === "string" ? value : jqCompact(value);
-}
-function orEmpty(value, path) {
-  let v = value;
-  try {
-    for (const key2 of path) v = jqIndex(v, key2);
-  } catch {
-    throw new FieldsError();
-  }
-  return v === null || v === void 0 || v === false ? "" : v;
-}
-function joinedFields(input, a, b) {
-  if (!jsonStream(input).complete) return null;
-  try {
-    return jsonValues(input, jqLiteralNumbers).map((value) => `${jqToString(orEmpty(value, a))}${FIELD_SEPARATOR}${jqToString(orEmpty(value, b))}`).join("\n");
-  } catch (e) {
-    if (e instanceof FieldsError) return null;
-    throw e;
-  }
-}
-function readTwo(text, sep2) {
-  const line = text.split("\n")[0];
-  const at2 = line.indexOf(sep2);
-  if (at2 < 0) return [line, ""];
-  let rest = line.slice(at2 + 1);
-  if (rest.endsWith(sep2) && !rest.slice(0, -1).includes(sep2)) rest = rest.slice(0, -1);
-  return [line.slice(0, at2), rest];
-}
-function bindSql(toolUseId2, agentId) {
-  const safeSpawnId = sqlQuote(`tool_use:${toolUseId2}`);
-  const safeAgentId = sqlQuote(agentId);
-  return `
-UPDATE agent_runs SET spawn_id = '${safeAgentId}'
- WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}'
-   AND NOT EXISTS (SELECT 1 FROM agent_runs b
-                    WHERE b.task_id = agent_runs.task_id AND b.spawn_id = '${safeAgentId}');`;
-}
-var sweSpawnBind = (payload, env) => {
-  try {
-    const input = commandSubstitution(payload);
-    if (normalizeRole(commandSubstitution(jqAlternatives(input, [["tool_input", "subagent_type"]]))) !== "swe") return ALLOW;
-    const fields = joinedFields(input, ["tool_use_id"], ["tool_response", "agentId"]);
-    if (fields === null) return ALLOW;
-    const [toolUseId2, agentId] = readTwo(commandSubstitution(fields), FIELD_SEPARATOR);
-    if (toolUseId2 === "" || agentId === "") return ALLOW;
-    const db = dbPath(env);
-    if (db === null || !haveSqlite(env)) return ALLOW;
-    dbWrite(db, bindSql(toolUseId2, agentId), { caller: GATE_NAME39, env });
-  } catch {
-  }
-  return ALLOW;
-};
-
-// src/hooks/swe-spawn-rollback.ts
-var GATE_NAME40 = "swe-spawn-rollback";
-var RUN_NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
-var RUN_UNMEASURED_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${RUN_NO_USAGE_SQL} THEN 'unmeasured' END)`;
-function toolUseId(input) {
-  if (!jsonStream(input).complete) return null;
-  const lines2 = [];
-  for (const value of jsonValues(input, jqLiteralNumbers)) {
-    let v;
-    try {
-      v = jqIndex(value, "tool_use_id");
-    } catch {
-      return null;
-    }
-    if (v !== null && v !== void 0 && v !== false) lines2.push(jqRawText(v));
-  }
-  return commandSubstitution(lines2.join("\n"));
-}
-function rollbackSql(id, now2) {
-  const safeSpawnId = sqlQuote(`tool_use:${id}`);
-  return `
-UPDATE tasks SET status = 'pending', updated_at = '${now2}'
- WHERE status = 'running'
-   AND id = (SELECT task_id FROM agent_runs
-              WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL)
-   AND NOT EXISTS (SELECT 1 FROM agent_runs o
-                    WHERE o.task_id = tasks.id AND o.agent_type = 'swe' AND o.completed_at IS NULL
-                      AND o.spawn_id IS NOT '${safeSpawnId}');
-UPDATE agent_runs
-   SET completed_at = '${now2}',
-       exit_reason = 'swept_orphan',
-       ${RUN_UNMEASURED_SQL},
-       duration_ms = CASE WHEN duration_ms = 0
-                          THEN COALESCE(CAST(ROUND((julianday('${now2}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
-                          ELSE duration_ms END
- WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL;`;
-}
-var sweSpawnRollback = (payload, env) => {
-  try {
-    const input = commandSubstitution(payload);
-    if (normalizeRole(commandSubstitution(jqAlternatives(input, [["tool_input", "subagent_type"]]))) !== "swe") return ALLOW;
-    const id = toolUseId(input);
-    if (id === null || id === "") return ALLOW;
-    const db = dbPath(env);
-    if (db === null || !haveSqlite(env)) return ALLOW;
-    dbWrite(db, rollbackSql(id, nowIso()), { caller: GATE_NAME40, env });
-  } catch {
-  }
-  return ALLOW;
-};
-
-// src/hooks/post-task-create-spawn-hint.ts
-var GATE_NAME41 = "post-task-create-spawn-hint";
-var BYPASS_ENV6 = "TMB_DISABLE_SPAWN_HINT";
-var CREATE_BATCH_TOOL = /^mcp__[\s\S]*trajectory-server__task_create_batch$/;
-var IndexError = class extends Error {
-};
-var isRawJson2 = (value) => JSON.isRawJSON?.(value) ?? false;
-function at(value, key2) {
-  if (value === null || value === void 0) return null;
-  if (typeof value !== "object" || isRawJson2(value)) throw new IndexError();
-  if (typeof key2 === "number") {
-    if (!Array.isArray(value)) throw new IndexError();
-    return value[key2] ?? null;
-  }
-  if (Array.isArray(value)) throw new IndexError();
-  const v = value[key2];
-  return v === void 0 ? null : v;
-}
-function truthy3(value) {
-  return value !== null && value !== void 0 && value !== false;
-}
-function rawOr(text, path, fallback) {
-  const lines2 = jqMap(text, (value) => {
-    let v = value;
-    try {
-      for (const key2 of path) v = at(v, key2);
-    } catch {
-      return null;
-    }
-    return truthy3(v) ? jqRawText(v) : fallback;
-  }).filter((line) => line !== null);
-  return commandSubstitution(lines2.join("\n"));
-}
-function interpolate(value) {
-  return typeof value === "string" ? value : jqCompact(value);
-}
-function taskLine(task) {
-  return [interpolate(at(task, "id")), interpolate(at(task, "branch_id"))];
-}
-function taskList(responseText) {
-  const out2 = [];
-  for (const value of jsonValues(`${responseText}
-`, jqLiteralNumbers)) {
-    if (!Array.isArray(value)) {
-      out2.push("");
-      continue;
-    }
-    try {
-      out2.push(value.map((t) => taskLine(t)).map(([id, branch]) => `  - task_id=${id} branch_id=${branch}`).join("\n"));
-    } catch (e) {
-      if (!(e instanceof IndexError)) throw e;
-    }
-  }
-  return commandSubstitution(out2.join("\n"));
-}
-function taskRows(responseText) {
-  const out2 = [];
-  for (const value of jsonValues(`${responseText}
-`, jqLiteralNumbers)) {
-    if (value === null || typeof value !== "object" || isRawJson2(value)) continue;
-    const items = Array.isArray(value) ? value : Object.values(value);
-    try {
-      for (const item of items) out2.push(taskLine(item).join("	"));
-    } catch (e) {
-      if (!(e instanceof IndexError)) throw e;
-    }
-  }
-  const text = out2.map((row) => `${row}
-`).join("");
-  const lines2 = text.split("\n");
-  lines2.pop();
-  return lines2;
-}
-function readTabFields(line) {
-  const trimmed = line.replace(/^\t+/, "");
-  const at2 = trimmed.indexOf("	");
-  if (at2 < 0) return [trimmed, ""];
-  return [trimmed.slice(0, at2), trimmed.slice(at2).replace(/^\t+/, "").replace(/\t+$/, "")];
-}
-function worktreeOf(db, id, env) {
-  if (db === null) return "unresolved (no trajectory DB)";
-  const loc = taskLocation(db, id, env);
-  return loc.code === 0 ? loc.worktree : `unresolved (${loc.missing})`;
-}
-function hintReason(toolName2, tasks) {
-  const tool = toolName2.slice(toolName2.lastIndexOf("__") + 2);
-  return `\u{1F680} SWE-spawn hint: ${tool} created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn \u2014 one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.
-
-Tasks created:
-${tasks}
-
-For each task, run the two-step proven flow:
-1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` \u2014 capture the printed path.
-2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` \u2014 no isolation= parameter.
-
-If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.`;
-}
-var postTaskCreateSpawnHint = (payload, env) => {
-  try {
-    if (env[BYPASS_ENV6] === "1") return ALLOW;
-    const input = `${commandSubstitution(payload)}
-`;
-    const toolName2 = rawOr(input, ["tool_name"], "");
-    if (!CREATE_BATCH_TOOL.test(toolName2)) return ALLOW;
-    if (rawOr(input, ["tool_response", "is_error"], "false") === "true") return ALLOW;
-    const responseText = rawOr(input, ["tool_response", "content", 0, "text"], "");
-    if (responseText === "") return ALLOW;
-    const list = taskList(responseText);
-    if (list === "") return ALLOW;
-    const db = dbPath(env);
-    const withPaths = taskRows(responseText).map(readTabFields).map(([id, branch]) => `  - task_id=${id} branch_id=${branch} worktree=${worktreeOf(db, id, env)}`).join("\n");
-    return {
-      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: hintReason(toolName2, withPaths || list) } })}
-`,
-      code: 0
-    };
-  } catch {
-    return ALLOW;
-  }
-};
+// src/hooks/prompt-intent-hints.ts
+import { statSync as statSync23 } from "node:fs";
+import { fileURLToPath as fileURLToPath5, pathToFileURL as pathToFileURL2 } from "node:url";
 
 // src/hooks/lib/jq-raw.ts
 var JqUnindexable = class extends Error {
 };
-var isRawJson3 = (value) => JSON.isRawJSON?.(value) ?? false;
+var isRawJson2 = (value) => JSON.isRawJSON?.(value) ?? false;
 var textReviver = function(key2, value, context4) {
   if (typeof value === "string") return wellFormed(value);
   return jqLiteralNumbers ? jqLiteralNumbers.call(this, key2, value, context4) : value;
@@ -18898,7 +17469,7 @@ function jqGet(value, ...keys) {
   let v = value;
   for (const key2 of keys) {
     if (v === null || v === void 0) return null;
-    if (typeof v !== "object" || Array.isArray(v) || isRawJson3(v)) throw new JqUnindexable(`Cannot index with "${key2}"`);
+    if (typeof v !== "object" || Array.isArray(v) || isRawJson2(v)) throw new JqUnindexable(`Cannot index with "${key2}"`);
     v = Object.hasOwn(v, key2) ? v[key2] : null;
   }
   return v ?? null;
@@ -18935,9 +17506,9 @@ function jqNumber2(digits) {
 }
 
 // src/hooks/agent-arg-matches-caller.ts
-var GATE_NAME42 = "agent-arg-matches-caller";
+var GATE_NAME30 = "agent-arg-matches-caller";
 var WRITE_RUN_BUDGET_MS = "2500";
-var TRAJECTORY_TOOL2 = /^mcp__.*trajectory-server__/s;
+var TRAJECTORY_TOOL = /^mcp__.*trajectory-server__/s;
 var TOOL_PREFIX = "trajectory-server__";
 var TR_UNMAPPED = /[ᲉꟋꟌ꟎꟒꟔ꟚꟜ\u{10D50}-\u{10D65}\u{16EA0}-\u{16EB8}]/u;
 var TR_OVERRIDES = /* @__PURE__ */ new Map([
@@ -19005,18 +17576,18 @@ function recordMismatch(env, toolShort, f, actual, caller) {
     {
       issueId: issue,
       branchId: "",
-      fromNode: `hook:${GATE_NAME42}`,
+      fromNode: `hook:${GATE_NAME30}`,
       eventType: "agent_arg_mismatch",
       summary: `${toolShort}: agent='${f.given}' but the caller is ${caller}`,
       contentJson: content
     },
-    { env: { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS }, caller: GATE_NAME42 }
+    { env: { ...env, TMB_DB_WRITE_RUN_BUDGET_MS: WRITE_RUN_BUDGET_MS }, caller: GATE_NAME30 }
   );
 }
 var agentArgMatchesCaller = (payload, env) => {
   const f = callFields(payload);
   if (f === null || f.given === "") return ALLOW;
-  if (!TRAJECTORY_TOOL2.test(f.tool)) return ALLOW;
+  if (!TRAJECTORY_TOOL.test(f.tool)) return ALLOW;
   const given = trLower(normalizeRole(f.given), env);
   const actual = trLower(normalizeRole(f.actual), env) || "bro";
   if (given === actual) return ALLOW;
@@ -19031,341 +17602,9 @@ var agentArgMatchesCaller = (payload, env) => {
   };
 };
 
-// src/hooks/reviewer-identity-observe.ts
-var GATE_NAME43 = "reviewer-identity-observe";
-var VALIDATION_RECORD_TOOL = /^mcp__[\s\S]*trajectory-server__validation_record$/;
-function denyUnavailable(env, stdout = "") {
-  return { stdout: `${stdout}${denyDbUnavailable(GATE_NAME43, env)}
-`, code: 0 };
-}
-var reviewerIdentityObserve = (payload, env) => {
-  const input = jqInput(payload);
-  if (!VALIDATION_RECORD_TOOL.test(jqCapture(input, ["tool_name"]))) return ALLOW;
-  const agentId = jqCapture(input, ["agent_id"]);
-  if (agentId === "") return ALLOW;
-  if (normalizeRole(jqCapture(input, ["agent_type"])) !== CODE_REVIEWER_ROLE) return ALLOW;
-  const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
-  const attemptN = sqlInt(jqCapture(input, ["tool_input", "attempt_n"]));
-  if (taskId === "" || attemptN === "") return ALLOW;
-  const sessionId = jqCapture(input, ["session_id"]);
-  const toolUseId2 = jqCapture(input, ["tool_use_id"]);
-  const db = dbPath(env, (line) => process.stderr.write(`${line}
-`));
-  const state = dbState(env);
-  if (state === "unresolved" || db === null) return ALLOW;
-  if (state === "error") return denyUnavailable(env);
-  const issueId = gateRead(db, `SELECT issue_id FROM tasks WHERE id = ${taskId};`, env);
-  if (issueId === GATE_READ_ERROR) return denyUnavailable(env);
-  if (issueId === "") return ALLOW;
-  const content = jqCompact({
-    task_id: jqNumber2(taskId),
-    attempt_n: jqNumber2(attemptN),
-    session_id: sessionId,
-    agent_id: agentId,
-    tool_use_id: toolUseId2 === "" ? null : toolUseId2,
-    observed_at: nowIso(),
-    consumed: 0
-  });
-  const w = auditAppend(
-    db,
-    {
-      issueId,
-      branchId: "",
-      fromNode: `hook:${GATE_NAME43}`,
-      eventType: "reviewer_identity_observed",
-      summary: `code-reviewer ${agentId} called validation_record for task ${taskId} attempt ${attemptN}`,
-      contentJson: content
-    },
-    { env, caller: GATE_NAME43 }
-  );
-  if (w.ok) return { stdout: w.stdout, code: 0 };
-  process.stderr.write(`${w.error}
-`);
-  return denyUnavailable(env, w.stdout);
-};
-
-// src/hooks/cheatcode-install-approval.ts
-var GATE_NAME44 = "cheatcode-install-approval";
-var NO_SOURCE_URL_REASON = "BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.";
-var UNVERIFIABLE_REASON = "BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) \u2014 failing closed. Installs are human-approved, never silent.";
-function notApprovedReason(name3, url) {
-  return `BLOCKED: no human-approval record for cheatcode '${name3 || url}' (${url}). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.`;
-}
-function approvalSql(url) {
-  return `
-  SELECT COUNT(*) FROM audit
-   WHERE event_type = 'cheatcode_approved'
-     AND json_extract(content_json, '$.source_url') = '${sqlQuote(url)}'
-  LIMIT 1;
-`;
-}
-function deny8(reason) {
-  return { stdout: denyJson(reason), code: 0 };
-}
-var cheatcodeInstallApproval = (payload, env) => {
-  const input = jqInput(payload);
-  if (!jqCapture(input, ["tool_name"], true).includes("cheatcode_install")) return ALLOW;
-  const url = jqCapture(input, ["tool_input", "candidate", "source_url"], true);
-  const name3 = jqCapture(input, ["tool_input", "candidate", "name"], true);
-  if (url === "") return deny8(NO_SOURCE_URL_REASON);
-  const db = dbPath(env, (line) => process.stderr.write(`${line}
-`));
-  if (db === null || !haveSqlite(env)) return deny8(UNVERIFIABLE_REASON);
-  const approved = sqliteRo(db, approvalSql(url), env);
-  if (/^[0-9]+$/.test(approved) && Number(approved) > 0) return ALLOW;
-  return deny8(notApprovedReason(name3, url));
-};
-
-// src/hooks/stay-on-base-guard.ts
-import { statSync as statSync24 } from "node:fs";
-
-// src/hooks/lib/statement-rows.ts
-function readTabFields2(line, n3) {
-  let s = line.replace(/^\t+/, "");
-  const fields = [];
-  for (let i2 = 0; i2 < n3 - 1; i2++) {
-    const tab = s.indexOf("	");
-    if (tab < 0) {
-      fields.push(s);
-      s = "";
-      continue;
-    }
-    fields.push(s.slice(0, tab));
-    s = s.slice(tab).replace(/^\t+/, "");
-  }
-  fields.push(s.replace(/\t+$/, ""));
-  return fields;
-}
-function statementRows(statements2) {
-  const text = stripTrailingNewlines(statements2.map(({ dir, stmt }) => `${dir}	${stmt}`).join("\n"));
-  if (text === "") return [];
-  return text.split("\n").map((line) => {
-    const [dir, stmt] = readTabFields2(line, 2);
-    return { dir, stmt };
-  });
-}
-function payloadCwdOf(input, env = process.env) {
-  return jqCapture(input, ["cwd"], true) || shellPwd(env);
-}
-function denyResult(reason) {
-  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
-  return { stdout: `${jqCompact(decision)}
-`, code: 0 };
-}
-
-// src/hooks/stay-on-base-guard.ts
-var GATE_NAME45 = "stay-on-base-guard";
-var BRANCH_WORD = /^[a-zA-Z0-9_./:@^~-]+$/;
-var CREATES_OR_RESTORES = [" -b ", " -B ", " -c ", " -C ", " --create ", " -- "];
-function switchTarget(sub) {
-  const rest = sub.slice(sub.indexOf(" ") + 1);
-  let target = "";
-  for (const w of (rest.split("\n")[0] ?? "").split(/[ \t]+/)) if (w !== "" && !w.startsWith("-")) target = w;
-  return target;
-}
-function isFile11(path) {
-  try {
-    return statSync24(path).isFile();
-  } catch {
-    return false;
-  }
-}
-var stayOnBaseGuard = async (payload, env) => {
-  const input = jqInput(payload);
-  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
-  const command = jqCapture(input, ["tool_input", "command"]);
-  if (!command.includes("checkout") && !command.includes("switch")) return ALLOW;
-  const listed2 = await cmdStatements(command, payloadCwdOf(input, env), env);
-  if (!listed2.ok) return haveSqlite(env) && isFile11(dbPath(env) ?? "") ? denyResult(PARSE_REASON) : ALLOW;
-  let lines2 = "";
-  for (const { dir, stmt } of statementRows(listed2.statements)) {
-    const sub = gitSubcommand(stmt);
-    if (!sub.startsWith("checkout ") && !sub.startsWith("switch ")) continue;
-    if (CREATES_OR_RESTORES.some((flag) => ` ${sub} `.includes(flag))) continue;
-    const target = switchTarget(sub);
-    if (target === "" || !BRANCH_WORD.test(target)) continue;
-    lines2 += `${dir}	${target}	${stmt}
-`;
-  }
-  if (lines2 === "") return ALLOW;
-  if (!haveSqlite(env)) return ALLOW;
-  const db = dbPath(env) ?? "";
-  if (!isFile11(db)) return ALLOW;
-  const switches = lines2.split("\n").map((line) => {
-    const [dir, target, stmt] = readTabFields2(line, 3);
-    return { dir, target, stmt };
-  });
-  for (const { dir, target, stmt } of switches) {
-    if (target === "") continue;
-    if (dir === "-" || dir.includes("/.claude/worktrees/")) continue;
-    const openTask = gateRead(
-      db,
-      `
-    SELECT id FROM tasks
-     WHERE branch_id = '${sqlQuote(target)}'
-       AND status IN ('pending','running','needs_validation')
-     LIMIT 1;
-  `,
-      env
-    );
-    if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME45, env)}
-`, code: 0 };
-    if (openTask === "" || !openTask.split("\n").some((l) => /^[0-9]+$/.test(l))) continue;
-    if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
-    const loc = taskLocation(db, openTask, env);
-    const wt = loc.code === 0 ? loc.worktree : `${repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
-    return denyResult(
-      `the main checkout stays on the base; SWE work lives in worktrees \u2014 use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`
-    );
-  }
-  return ALLOW;
-};
-
-// src/hooks/branch-up-to-date-with-remote.ts
-var GATE_NAME46 = "branch-up-to-date-with-remote";
-var CREATES_BRANCH = [" -b ", " -B ", " --create-branch "];
-function behindCount(root, range, env) {
-  const r = gitRun(root, ["rev-list", "--count", range], env);
-  return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}?
-`);
-}
-var branchUpToDateWithRemote = async (payload, env) => {
-  const input = jqInput(payload);
-  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
-  if ((env.TMB_ALLOW_STALE_BRANCH ?? "") === "1") return ALLOW;
-  const command = jqCapture(input, ["tool_input", "command"]);
-  if (command === "" || !command.includes("worktree")) return ALLOW;
-  const cwd = payloadCwdOf(input, env);
-  const listed2 = await cmdStatements(command, cwd, env);
-  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
-  let wtDir = "";
-  let wtSub = "";
-  for (const { dir, stmt } of statementRows(listed2.statements)) {
-    const sub = gitSubcommand(stmt);
-    if (sub.startsWith("worktree add ")) {
-      wtDir = dir;
-      wtSub = sub;
-      break;
-    }
-  }
-  if (wtSub === "") return ALLOW;
-  if (CREATES_BRANCH.some((flag) => ` ${wtSub} `.includes(flag))) return ALLOW;
-  const branch = wtSub.slice(wtSub.lastIndexOf(" ") + 1);
-  if (branch === "") return ALLOW;
-  const root = stmtRepoRoot(wtDir, cwd, env);
-  if (root === "") return ALLOW;
-  const db = dbPath(env, (line) => process.stderr.write(`${line}
-`));
-  if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return ALLOW;
-  const repo = sqlQuote(repoNameForRoot(db, root, env));
-  const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
-  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME46, env)}
-`, code: 0 };
-  if (row === "") return ALLOW;
-  const prTarget = (row.startsWith("repo|") ? row.slice(5) : row) || "main";
-  if (!gitOk(root, ["rev-parse", "--verify", branch], env)) return ALLOW;
-  if (gitOut(root, ["remote", "get-url", "origin"], env) === "") return ALLOW;
-  gitRun(root, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", prTarget, "--quiet"], env);
-  if (!gitOk(root, ["rev-parse", "--verify", `origin/${prTarget}`], env)) return ALLOW;
-  if (gitOk(root, ["merge-base", "--is-ancestor", `origin/${prTarget}`, branch], env)) return ALLOW;
-  const behind = behindCount(root, `${branch}..origin/${prTarget}`, env);
-  return denyResult(
-    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it: \`git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}\`) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`
-  );
-};
-
-// src/hooks/no-worktree-branch-create.ts
-var GATE_NAME47 = "no-worktree-branch-create";
-var CREATES_BRANCH2 = [" -b ", " -B ", " --create-branch "];
-var BRANCH_CREATE_REASON = "BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.";
-var DETACH_REASON = "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
-var REASONS = { "branch-create": BRANCH_CREATE_REASON, detach: DETACH_REASON, parse: PARSE_REASON };
-function violationOf(statements2, env) {
-  for (const { stmt } of statementRows(statements2)) {
-    const sub = gitSubcommand(stmt);
-    if (!sub.startsWith("worktree add ")) continue;
-    const padded = ` ${sub} `;
-    if (CREATES_BRANCH2.some((flag) => padded.includes(flag)) && (env.TMB_ALLOW_WORKTREE_BRANCH_CREATE ?? "0") !== "1") return "branch-create";
-    if (padded.includes(" --detach ") && (env.TMB_ALLOW_WORKTREE_DETACH ?? "0") !== "1") return "detach";
-  }
-  return null;
-}
-var noWorktreeBranchCreate = async (payload, env) => {
-  const input = jqInput(payload);
-  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
-  const command = jqCapture(input, ["tool_input", "command"]);
-  if (!command.includes("worktree")) return ALLOW;
-  const listed2 = await cmdStatements(command, "/", env);
-  const violation = listed2.ok ? violationOf(listed2.statements, env) : "parse";
-  if (violation === null) return ALLOW;
-  dbPath(env, (line) => process.stderr.write(`${line}
-`));
-  const state = dbState(env);
-  if (state === "unresolved") return ALLOW;
-  if (state === "error") return { stdout: `${denyDbUnavailable(GATE_NAME47, env)}
-`, code: 0 };
-  return denyResult(REASONS[violation]);
-};
-
-// src/hooks/no-remote-auth-guard.ts
-var GATE_NAME48 = "no-remote-auth-guard";
-var AUTH_LOGIN = [
-  ["gh", "gh auth login"],
-  ["glab", "glab auth login"]
-];
-function hasRemoteUrl(remotesJson) {
-  const lines2 = [];
-  for (const value of jqInput(remotesJson).values) {
-    if (value === null || typeof value !== "object") break;
-    let n3 = 0;
-    try {
-      for (const item of Object.values(value)) {
-        const url = jqGet(item, "url");
-        if (url !== null && url !== "") n3++;
-      }
-    } catch (e) {
-      if (e instanceof JqUnindexable) break;
-      throw e;
-    }
-    lines2.push(jqRaw2(n3 > 0));
-  }
-  return shellCapture2(lines2.join("\n"));
-}
-var noRemoteAuthGuard = async (payload, env) => {
-  const input = jqInput(payload);
-  const command = jqCapture(input, ["tool_input", "command"], true);
-  if (command === "" || !command.includes("login")) return ALLOW;
-  const cwd = payloadCwdOf(input, env);
-  const listed2 = await cmdStatements(command, cwd, env);
-  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
-  let tool = "";
-  let matchedDir = "";
-  for (const { dir, stmt } of statementRows(listed2.statements)) {
-    const hit = AUTH_LOGIN.find(([, login]) => stmt === login || stmt.startsWith(`${login} `));
-    if (hit) {
-      [tool] = hit;
-      matchedDir = dir;
-      break;
-    }
-  }
-  if (tool === "") return ALLOW;
-  const db = dbPath(env);
-  if (db === null) return ALLOW;
-  if (!haveSqlite(env)) return ALLOW;
-  const remotes = repoRemotes(db, stmtRepoRoot(matchedDir, cwd, env), env);
-  if (remotes === "") return ALLOW;
-  if (hasRemoteUrl(remotes) !== "false") return ALLOW;
-  return denyResult(
-    `BLOCKED: No remote is configured (remotes have no URL) \u2014 TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`
-  );
-};
-
 // src/hooks/prompt-intent-hints.ts
-import { statSync as statSync25 } from "node:fs";
-import { fileURLToPath as fileURLToPath6, pathToFileURL as pathToFileURL2 } from "node:url";
-var GATE_NAME49 = "prompt-intent-hints";
-var SUMMARY_MAX_BYTES2 = 200;
+var GATE_NAME31 = "prompt-intent-hints";
+var SUMMARY_MAX_BYTES = 200;
 var C_SPACE = "\\t\\n\\v\\f\\r ";
 var UTF8_SPACE = `${C_SPACE}\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`;
 var INJECTED_TAGS = ["system-reminder", "pasted_content", "agent-message"];
@@ -19808,16 +18047,16 @@ function emit2(context4, prefix = "") {
     code: 0
   };
 }
-function isFile12(path) {
+function isFile11(path) {
   try {
-    return statSync25(path).isFile();
+    return statSync23(path).isFile();
   } catch {
     return false;
   }
 }
 function defaultPluginRoot2() {
   try {
-    return installRoot(posixDirname(fileURLToPath6(import.meta.url))) ?? "";
+    return installRoot(posixDirname(fileURLToPath5(import.meta.url))) ?? "";
   } catch {
     return "";
   }
@@ -19825,7 +18064,7 @@ function defaultPluginRoot2() {
 async function shimEntries(env) {
   const root = env.CLAUDE_PLUGIN_ROOT || defaultPluginRoot2();
   const mod = `${root}/mcp/trajectory-server/dist/tools/onboard-hooks-shim.js`;
-  if (!isFile12(mod)) return "";
+  if (!isFile11(mod)) return "";
   try {
     const shim = await import(pathToFileURL2(mod).href);
     return String(shim.countShimEntries(root));
@@ -19854,19 +18093,19 @@ var Context = class {
   /** audit_consultant_spawn_nudged: the audit row, with what sqlite3 printed to pass through on stdout. */
   auditNudge(detail) {
     const db = this.database();
-    if (db === null || !isFile12(db)) return "";
-    const cut4 = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
+    if (db === null || !isFile11(db)) return "";
+    const cut4 = commandSubstitution(Buffer.from(detail, "utf8").subarray(0, SUMMARY_MAX_BYTES).toString("utf8"));
     const written = auditAppend(
       db,
       {
         issueId: "-1",
         branchId: "",
-        fromNode: `hook:${GATE_NAME49}`,
+        fromNode: `hook:${GATE_NAME31}`,
         eventType: "consultant_spawn_nudged",
         summary: `Consultant-spawn nudge emitted: ${cut4}`,
         contentJson: "{}"
       },
-      { caller: GATE_NAME49, env: this.env }
+      { caller: GATE_NAME31, env: this.env }
     );
     if (!written.ok && written.error !== "") process.stderr.write(`${written.error}
 `);
@@ -20046,7 +18285,7 @@ async function promptIntentHints(payload, env) {
     const utf8 = setlocaleUtf8(env);
     prompt = commandSubstitution(stripBashSpans(prompt));
     if (!hasNonSpace(prompt, utf8) || isHarnessTurn(prompt)) return ALLOW;
-    dbPathAdvisory(GATE_NAME49, env, (line) => process.stderr.write(`${line}
+    dbPathAdvisory(GATE_NAME31, env, (line) => process.stderr.write(`${line}
 `));
     prompt = stripInjectedBlocks(prompt);
     if (!hasNonSpace(prompt, utf8)) return ALLOW;
@@ -20056,8 +18295,1814 @@ async function promptIntentHints(payload, env) {
   }
 }
 
+// src/hooks/rework-waiver-capture.ts
+var GATE_NAME32 = "rework-waiver-capture";
+var WAIVER_BODY_MAX_CHARS = 500;
+var WAIVER = /\bwaive task #?(\d+)\b/gi;
+function waivers(prompt) {
+  const seen = /* @__PURE__ */ new Set();
+  const found = [];
+  for (const line of prompt.split(/\r?\n/)) {
+    for (const m of line.matchAll(WAIVER)) {
+      const taskId = Number(m[1]);
+      if (!Number.isSafeInteger(taskId) || seen.has(taskId)) continue;
+      seen.add(taskId);
+      found.push({ taskId, body: [...line.trim()].slice(0, WAIVER_BODY_MAX_CHARS).join("") });
+    }
+  }
+  return found;
+}
+function waiverSql(w, now2) {
+  return `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, task_id)
+  SELECT t.issue_id, 'human', 'decision', '${sqlQuote(w.body)}', '${now2}', (SELECT i.repo FROM issues i WHERE i.id = t.issue_id), t.id
+    FROM tasks t WHERE t.id = ${w.taskId};`;
+}
+function makeReworkWaiverCapture(clock = () => /* @__PURE__ */ new Date()) {
+  return (payload, env) => {
+    try {
+      const prompt = commandSubstitution(jqFieldOr(`${commandSubstitution(payload)}
+`, "prompt"));
+      if (prompt === "" || isHarnessTurn(prompt)) return ALLOW;
+      const found = waivers(stripInjectedBlocks(prompt));
+      if (found.length === 0) return ALLOW;
+      if (!haveSqlite(env)) return ALLOW;
+      const db = dbPath(env);
+      if (db === null) return ALLOW;
+      const now2 = nowIso(clock());
+      dbWrite(db, found.map((w) => waiverSql(w, now2)).join("\n"), { caller: GATE_NAME32, env });
+      return ALLOW;
+    } catch {
+      return ALLOW;
+    }
+  };
+}
+var reworkWaiverCapture = makeReworkWaiverCapture();
+
+// src/hooks/consultant-persistence-gate.ts
+var GATE_NAME33 = "consultant-persistence-gate";
+var BACKBONE_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "code-reviewer"]);
+var block = (reason) => ({ stdout: `${jqCompact({ decision: "block", reason })}
+`, code: 0 });
+function recoveryMessage(agent, issueId) {
+  return `Consultant persistence gate: you must persist your analysis before returning. Append your analysis via discussion_append(agent='${agent}', issue_id=${issueId}, author='${agent}', kind='analysis', body=<your analysis>) then return.`;
+}
+function stoppingAgent(echoed) {
+  return normalizeRole(
+    commandSubstitution(jqAlternatives(echoed, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]))
+  );
+}
+function consultantPersistenceGate(payload, env) {
+  const echoed = `${commandSubstitution(payload)}
+`;
+  if (commandSubstitution(jqFieldOr(echoed, "stop_hook_active", "false")) === "true") return ALLOW;
+  const agent = stoppingAgent(echoed);
+  if (agent === "" || BACKBONE_ROLES.has(agent)) return ALLOW;
+  const db = dbPath(env);
+  if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+  const unavailable = () => block(dbUnavailableReason(GATE_NAME33, env));
+  const safeAgent = sqlQuote(agent);
+  const isConsultant = gateRead(db, `SELECT COUNT(*) FROM agents WHERE name='${safeAgent}' AND kind='consultant';`, env);
+  if (isConsultant === GATE_READ_ERROR) return unavailable();
+  if (isConsultant !== "1") return ALLOW;
+  const openIssue = gateRead(db, "SELECT id FROM issues WHERE status='open' ORDER BY updated_at DESC, id DESC LIMIT 1;", env);
+  if (openIssue === GATE_READ_ERROR) return unavailable();
+  const issueId = sqlInt(openIssue);
+  if (issueId === "") return ALLOW;
+  const discussions = gateRead(db, `SELECT COUNT(*) FROM discussions WHERE author='${safeAgent}' AND issue_id=${issueId};`, env);
+  if (discussions === GATE_READ_ERROR) return unavailable();
+  if (/^[0-9]+$/.test(discussions) && Number(discussions) >= 1) return ALLOW;
+  return block(recoveryMessage(agent, issueId));
+}
+
+// src/hooks/roundtable-auq-shape.ts
+var GATE_NAME34 = "roundtable-auq-shape";
+var MAX_QUESTIONS = 4;
+var AWAITING_SQL = `
+  SELECT r.id FROM roundtables r
+  WHERE r.state = 'awaiting_human'
+    AND NOT EXISTS (
+      SELECT 1 FROM roundtable_votes v
+      WHERE v.roundtable_id = r.id AND v.participant = 'human'
+    )
+  ORDER BY r.id DESC LIMIT 1;
+`;
+var LENGTH_ERROR = /* @__PURE__ */ Symbol("length error");
+function jqLength(value) {
+  if (value === null) return "0";
+  if (typeof value === "number") return String(Math.abs(value));
+  if (typeof value === "string") return String([...value].length);
+  if (Array.isArray(value)) return String(value.length);
+  if (typeof value === "object") return String(Object.keys(value).length);
+  return LENGTH_ERROR;
+}
+function bashIntTest(s, compare) {
+  return /^-?[0-9]+$/.test(s) && Number.isSafeInteger(Number(s)) && compare(Number(s));
+}
+function multiSelectAt(questions, i2) {
+  const lines2 = [];
+  for (const q of questions) {
+    if (q !== null && !Array.isArray(q)) continue;
+    const element = q === null ? null : q[i2] ?? null;
+    try {
+      lines2.push(jqOr(jqIndex(element, "multiSelect"), false) === true);
+    } catch {
+    }
+  }
+  return lines2.length === 1 && lines2[0];
+}
+function shapeViolations(echoed) {
+  const questions = jqMap(echoed, (value) => jqOr(jqIndex(jqIndex(value, "tool_input"), "questions"), []));
+  const lengths = questions.map(jqLength).filter((n3) => n3 !== LENGTH_ERROR);
+  const count = lengths.join("\n");
+  if (count === "" || bashIntTest(count, (n3) => n3 === 0)) return null;
+  const violations = [];
+  if (bashIntTest(count, (n3) => n3 > MAX_QUESTIONS)) {
+    violations.push(`AUQ has ${count} questions; max ${MAX_QUESTIONS} allowed during ratification`);
+  }
+  if (!multiSelectAt(questions, 0)) {
+    violations.push("Q1 must have multiSelect:true (agreements checkbox) during ratification");
+  }
+  if (bashIntTest(count, (n3) => n3 > 1)) {
+    const longest = Math.max(0, ...questions.map((q) => Array.isArray(q) ? q.length : 0));
+    const last = Math.min(Number(count), longest);
+    for (let i2 = 1; i2 < last; i2 += 1) {
+      if (multiSelectAt(questions, i2)) {
+        violations.push(`Q${i2 + 1} must not use multiSelect (disagreement radios only) during ratification`);
+      }
+    }
+  }
+  return violations;
+}
+function shapeAsk(rtId, violations) {
+  const message = `roundtable-auq-shape: AskUserQuestion shape is invalid for ratification (roundtable #${rtId} awaiting human).` + violations.map((v) => `
+  - ${v}`).join("") + "\n\nExpected shape: Q1 multiSelect=true (agreements); Q2..Qn radio (disagreements); total \u22644.";
+  return `${jqCompact({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      additionalContext: message
+    }
+  })}
+`;
+}
+function roundtableAuqShape(payload, env) {
+  try {
+    const echoed = `${commandSubstitution(payload)}
+`;
+    if (commandSubstitution(jqFieldOr(echoed, "tool_name")) !== "AskUserQuestion") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+    const rtId = sqliteRo(db, AWAITING_SQL, env);
+    if (rtId === "") return ALLOW;
+    const violations = shapeViolations(echoed);
+    if (violations === null || violations.length === 0) return ALLOW;
+    return { stdout: shapeAsk(rtId, violations), code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/roundtable-cleanup-postcheck.ts
+var GATE_NAME35 = "roundtable-cleanup-postcheck";
+var CLOSE_TOOLS = ["roundtable_close", "roundtable_close_with_decisions"];
+function roundtableIdField(echoed) {
+  return commandSubstitution(
+    jqMap(echoed, (value) => jqRawText(jqOr(jqIndex(jqIndex(value, "tool_input"), "roundtable_id"), "")), jqLiteralNumbers).join("\n")
+  );
+}
+function captureSql(rtId) {
+  return `SELECT r.issue_id,
+    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'analysis'),
+    (SELECT COUNT(*) FROM discussions d WHERE d.issue_id = r.issue_id AND d.kind = 'decision'),
+    (SELECT COUNT(*) FROM roundtable_votes v WHERE v.roundtable_id = r.id),
+    (SELECT COUNT(*) FROM audit a WHERE a.event_type = 'roundtable_summary' AND a.issue_id = r.issue_id),
+    r.state, COALESCE(r.outcome, '')
+  FROM roundtables r WHERE r.id = ${rtId} LIMIT 1;`;
+}
+var atLeastOne = (count) => /^[0-9]+$/.test(count) && Number(count) >= 1;
+function missingSurfaces(row) {
+  const [issueId = "", analyses = "", decisions = "", votes = "", summaries = "", state = "", ...rest] = row.split("\n")[0].split("|");
+  if (sqlInt(issueId) === "") return null;
+  const outcome = rest.join("|");
+  const missing = [];
+  if (!atLeastOne(analyses)) missing.push("analysis-discussions");
+  if (!atLeastOne(decisions)) missing.push("decision-discussions");
+  if (state !== "closed") missing.push("roundtable.status=closed");
+  if (outcome === "" || outcome === "|") missing.push("roundtable.outcome");
+  if (!atLeastOne(votes)) missing.push("votes");
+  if (!atLeastOne(summaries)) missing.push("audit(roundtable_summary)");
+  return missing;
+}
+function cleanupContext(rtId, missing) {
+  return `${jqCompact({
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: `[tmb roundtable-cleanup] roundtable_id=${rtId} closed but the following capture surfaces are missing: ${missing.join(" ")}. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable.`
+    }
+  })}
+`;
+}
+function roundtableCleanupPostcheck(payload, env) {
+  try {
+    const echoed = `${commandSubstitution(payload)}
+`;
+    const tool = commandSubstitution(jqFieldOr(echoed, "tool_name"));
+    if (!CLOSE_TOOLS.some((name3) => tool.endsWith(name3))) return ALLOW;
+    const rtId = sqlInt(roundtableIdField(echoed));
+    if (rtId === "") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || db === "" || !haveSqlite(env)) return ALLOW;
+    const missing = missingSurfaces(sqliteRo(db, captureSql(rtId), env));
+    if (missing === null || missing.length === 0) return ALLOW;
+    return { stdout: cleanupContext(rtId, missing), code: 0 };
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/roundtable-slash-detect.ts
+var GATE_NAME36 = "roundtable-slash-detect";
+var SUMMARY_MAX_BYTES2 = 200;
+var WRITE_ENV = { TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
+function slashInvoked(prompt) {
+  return prompt.startsWith("/roundtable") || prompt.includes("\n/roundtable") || prompt.includes(" /roundtable");
+}
+function promptSummary(prompt) {
+  return commandSubstitution(Buffer.from(prompt, "utf8").subarray(0, SUMMARY_MAX_BYTES2).toString("utf8"));
+}
+function roundtableSlashDetect(payload, env) {
+  try {
+    if (!haveSqlite(env)) return ALLOW;
+    const prompt = commandSubstitution(jqFieldOr(`${commandSubstitution(payload)}
+`, "prompt"));
+    if (isHarnessTurn(prompt) || !slashInvoked(prompt)) return ALLOW;
+    const db = dbPath(env);
+    if (db === null || db === "") return ALLOW;
+    const written = auditAppend(
+      db,
+      {
+        issueId: "-1",
+        branchId: "",
+        fromNode: `hook:${GATE_NAME36}`,
+        eventType: "roundtable_slash_invoked",
+        summary: `User typed /roundtable: ${promptSummary(prompt)}`,
+        contentJson: "{}"
+      },
+      { caller: GATE_NAME36, env: { ...env, ...WRITE_ENV } }
+    );
+    if (!written.ok) {
+      if (written.error !== "") process.stderr.write(`${written.error}
+`);
+      process.stderr.write(
+        `tmb slash-detect: FAILED to record roundtable_slash_invoked after retrying (${db}) \u2014 roundtable_create's gate will refuse
+`
+      );
+    }
+    return ALLOW;
+  } catch {
+    return ALLOW;
+  }
+}
+
+// src/hooks/code-reviewer-no-worktree.ts
+var GATE_NAME37 = "code-reviewer-no-worktree";
+var BYPASS_ENV3 = "TMB_ALLOW_CODE_REVIEWER_WORKTREE";
+var DENY_REASON = `code-reviewer must NOT run with isolation="worktree". The push gate reviews the FEATURE branch as it would land in origin \u2014 from the main checkout, not from SWE's per-task worktree. Bro works on the worktree branch as the task-close gate (V1/V2/V3 + bro_atomic_close); code-reviewer reviews afterward, on the bare branch ref before push.
+
+Spawn code-reviewer without isolation (defaults to none) or with an explicit non-worktree isolation. For exceptional override, set ${BYPASS_ENV3}=1.`;
+function spawnField(payload, ...keys) {
+  return jqRawOr(`${commandSubstitution(payload)}
+`, [jqPath(...keys)]);
+}
+function isCodeReviewerSpawn(payload) {
+  return spawnField(payload, "tool_name") === "Agent" && normalizeRole(spawnField(payload, "tool_input", "subagent_type")) === CODE_REVIEWER_ROLE;
+}
+function spawnDeny(reason) {
+  return {
+    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
+`,
+    code: 0
+  };
+}
+var codeReviewerNoWorktree = (payload, env) => {
+  if (env[BYPASS_ENV3] === "1") return ALLOW;
+  if (!isCodeReviewerSpawn(payload)) return ALLOW;
+  return spawnField(payload, "tool_input", "isolation") === "worktree" ? spawnDeny(DENY_REASON) : ALLOW;
+};
+
+// src/hooks/code-reviewer-spawn-prompt-shape.ts
+var GATE_NAME38 = "code-reviewer-spawn-prompt-shape";
+var BYPASS_ENV4 = "TMB_SKIP_CODE_REVIEWER_PROMPT_SHAPE";
+var RUBBER_STAMP_PHRASES = ["trust the prior verdict", "fast-track if", "rubber.stamp", "prior verdict"];
+var ANCHOR_LIST = `${ANCHORS.slice(0, -1).join(", ")}, and ${ANCHORS[ANCHORS.length - 1]}`;
+function missingAnchorsReason(missing) {
+  return `BLOCKED: code-reviewer spawn prompt missing required anchors:${missing.map((a) => ` ${a}`).join("")}.
+
+Per tmb_push-gate, the prompt MUST contain ${ANCHOR_LIST}, each as name=value, so code-reviewer can load context independently and author its validation_record verdict. Do not pre-summarize findings \u2014 pass only the bare anchors plus a one-line context summary.`;
+}
+function rubberStampReason(phrase) {
+  return `BLOCKED: code-reviewer spawn prompt contains a rubber-stamp shortcut (matched: "${phrase}").
+
+Per tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself.`;
+}
+function grepLines(prompt, multibyte) {
+  const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
+  return text.split("\n");
+}
+function missingAnchors(prompt, multibyte) {
+  const lines2 = grepLines(prompt, multibyte);
+  const flags2 = multibyte ? "u" : "";
+  return ANCHORS.filter((anchor) => {
+    const re = new RegExp(`(?:^|[^${grepAlnum(multibyte)}_])${anchor}=`, flags2);
+    return !lines2.some((line) => re.test(line));
+  });
+}
+function phraseRegExp(phrase, multibyte) {
+  const source = [...phrase].map((ch) => ch === "." ? "[^\\n]" : ch.replace(/[\\^$*+?()[\]{}|/]/g, "\\$&")).join("");
+  return new RegExp(source, multibyte ? "u" : "");
+}
+function rubberStampPhrase(prompt, multibyte) {
+  const lines2 = grepLines(prompt, multibyte).map((line) => line.replace(/[A-Z]/g, (c) => c.toLowerCase()));
+  return RUBBER_STAMP_PHRASES.find((phrase) => lines2.some((line) => phraseRegExp(phrase, multibyte).test(line))) ?? null;
+}
+var codeReviewerSpawnPromptShape = (payload, env) => {
+  if (env[BYPASS_ENV4] === "1") return ALLOW;
+  if (!isCodeReviewerSpawn(payload)) return ALLOW;
+  const prompt = spawnField(payload, "tool_input", "prompt");
+  const multibyte = grepMultibyte(env);
+  const missing = missingAnchors(prompt, multibyte);
+  if (missing.length > 0) return spawnDeny(missingAnchorsReason(missing));
+  const phrase = rubberStampPhrase(prompt, multibyte);
+  return phrase === null ? ALLOW : spawnDeny(rubberStampReason(phrase));
+};
+
+// src/hooks/code-reviewer-after-atomic-close.ts
+var GATE_NAME39 = "code-reviewer-after-atomic-close";
+var BYPASS_ENV5 = "TMB_SKIP_CODE_REVIEWER_CLOSE_GATE";
+function notClosedReason(taskId, status) {
+  return `BLOCKED: code-reviewer spawn requires task ${taskId} status=closed but actual status=${status}.
+
+Per tmb_planning Step 5 (verify + close, then code-reviewer per tmb_push-gate), the order is:
+  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
+  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
+  3. ONLY THEN: spawn code-reviewer for the push gate.
+
+SWE returning completed does not close the trajectory task \u2014 that is bro_atomic_close.
+
+Fix: call bro_atomic_close(agent='bro', task_id=${taskId}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn.`;
+}
+function promptTaskId2(prompt, multibyte) {
+  const space2 = grepSpace(multibyte);
+  const re = new RegExp(`task_id[${space2}]*=[${space2}]*([0-9]+)`, multibyte ? "u" : "");
+  const text = multibyte ? prompt : Buffer.from(prompt, "utf8").toString("latin1");
+  for (const line of text.split("\n")) {
+    const m = re.exec(line);
+    if (m) return m[1];
+  }
+  return "";
+}
+var codeReviewerAfterAtomicClose = (payload, env) => {
+  if (env[BYPASS_ENV5] === "1") return ALLOW;
+  if (!isCodeReviewerSpawn(payload)) return ALLOW;
+  const taskId = sqlInt(promptTaskId2(spawnField(payload, "tool_input", "prompt"), grepMultibyte(env)));
+  if (taskId === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const status = gateRead(db, `SELECT status FROM tasks WHERE id = ${taskId};`, env);
+  if (status === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME39, env)}
+`, code: 0 };
+  if (status === "" || status === "closed") return ALLOW;
+  return spawnDeny(notClosedReason(taskId, status));
+};
+
+// src/hooks/swe-verification-gate.ts
+import { spawn as spawn2, spawnSync as spawnSync10 } from "node:child_process";
+import { accessSync as accessSync9, closeSync as closeSync3, constants as constants9, mkdirSync as mkdirSync7, mkdtempSync, openSync as openSync3, readFileSync as readFileSync15, rmSync as rmSync4, statSync as statSync24, writeFileSync as writeFileSync5 } from "node:fs";
+import { constants as osConstants, tmpdir } from "node:os";
+import { resolve as resolve3 } from "node:path";
+
+// src/hooks/lib/verification-carry.ts
+import { realpathSync as realpathSync6 } from "node:fs";
+import { basename as basename7, matchesGlob } from "node:path";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
+var VERIFICATION_INPUTS_PATH = ".config/tmb/verification-inputs.json";
+var VERIFICATION_INPUTS_VERSION = 1;
+var SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+var PROBE_PREFIX = "[probe ";
+function refuse(reason, source = null) {
+  return { source_run: source?.id ?? null, source_sha: source?.sha ?? null, carry: [], refused: reason, commands: [] };
+}
+function parseCommands(json) {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) && parsed.every((c) => typeof c === "string" && c !== "") ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function parseInputsMap(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return "map_invalid";
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return "map_invalid";
+  const map = parsed;
+  if (map.version !== VERIFICATION_INPUTS_VERSION) return "map_unknown_version";
+  if (!Array.isArray(map.commands)) return "map_invalid";
+  const entries = [];
+  for (const entry of map.commands) {
+    if (entry === null || typeof entry !== "object") return "map_invalid";
+    const { match: match2, inputs } = entry;
+    if (typeof match2 !== "string" || match2 === "") return "map_invalid";
+    if (!Array.isArray(inputs) || inputs.length === 0 || !inputs.every((g) => typeof g === "string" && g !== "")) return "map_invalid";
+    entries.push({ match: match2, inputs });
+  }
+  return entries;
+}
+function sourceRun(db, taskId, head, env) {
+  const out2 = gateRead(
+    db,
+    `SELECT json_object('id', id, 'sha', lower(commit_sha)) FROM verification_runs
+      WHERE task_id = ${taskId} AND finished_at IS NOT NULL AND exit_code = 0 AND timed_out = 0
+        AND lower(commit_sha) <> '${sqlQuote(head)}'
+      ORDER BY finished_at DESC, id DESC LIMIT 1;`,
+    env
+  );
+  if (out2 === GATE_READ_ERROR) return "error";
+  if (out2 === "") return null;
+  const row = JSON.parse(out2);
+  if (typeof row.id !== "number" || typeof row.sha !== "string" || !SHA_RE.test(row.sha)) return null;
+  return { id: row.id, sha: row.sha };
+}
+function passedInSource(db, runId, env) {
+  const out2 = gateRead(
+    db,
+    `SELECT COALESCE(json_group_array(command), '[]') FROM verification_run_commands WHERE run_id = ${runId} AND exit_code = 0;`,
+    env
+  );
+  if (out2 === GATE_READ_ERROR) return "error";
+  const commands = parseCommands(out2 === "" ? "[]" : out2);
+  return commands === null ? "error" : new Set(commands);
+}
+function changedPaths(worktree, from, to, env) {
+  const r = gitRun(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to, "--"], env);
+  if (r.code !== 0) return null;
+  return r.stdout.split("\0").filter((p) => p !== "");
+}
+function planCarry(req, env = process.env) {
+  const taskId = sqlInt(req.taskId);
+  const head = req.head.toLowerCase();
+  const commands = parseCommands(req.commandsJson);
+  if (req.db === "" || taskId === "" || req.worktree === "" || !SHA_RE.test(head) || commands === null) return refuse("bad_input");
+  const actualHead = gitRun(req.worktree, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], env);
+  if (actualHead.code !== 0 || actualHead.stdout.trim().toLowerCase() !== head) return refuse("head_mismatch");
+  const source = sourceRun(req.db, taskId, head, env);
+  if (source === "error") return refuse("db_unreadable");
+  if (source === null) return refuse("no_source_run");
+  if (gitRun(req.worktree, ["merge-base", "--is-ancestor", source.sha, head], env).code !== 0) return refuse("not_ancestor", source);
+  const merges = gitRun(req.worktree, ["rev-list", "--merges", `${source.sha}..${head}`], env);
+  if (merges.code !== 0 || merges.stdout.trim() !== "") return refuse("merge_in_range", source);
+  const status = gitRun(req.worktree, ["status", "--porcelain"], env);
+  if (status.code !== 0 || status.stdout.trim() !== "") return refuse("dirty_worktree", source);
+  const changed = changedPaths(req.worktree, source.sha, head, env);
+  if (changed === null) return refuse("diff_failed", source);
+  if (changed.includes(VERIFICATION_INPUTS_PATH)) return refuse("map_changed", source);
+  const mapText = gitRun(req.worktree, ["show", `${head}:${VERIFICATION_INPUTS_PATH}`], env);
+  if (mapText.code !== 0) return refuse("map_missing", source);
+  const entries = parseInputsMap(mapText.stdout);
+  if (typeof entries === "string") return refuse(entries, source);
+  const passed = passedInSource(req.db, source.id, env);
+  if (passed === "error") return refuse("db_unreadable", source);
+  const decisions = commands.map((command, i2) => {
+    const decide2 = (reason) => ({ ordinal: i2 + 1, command, carried: reason === null, reason });
+    if (command.startsWith(PROBE_PREFIX)) return decide2("probe");
+    if (!passed.has(command)) return decide2("not_passed_in_source");
+    const declared = entries.filter((e) => e.match === command);
+    if (declared.length === 0) return decide2("undeclared");
+    if (declared.length > 1) return decide2("ambiguous_declaration");
+    const touched = declared[0].inputs.some((glob) => changed.some((path) => matchesGlob(path, glob)));
+    return decide2(touched ? "inputs_changed" : null);
+  });
+  return {
+    source_run: source.id,
+    source_sha: source.sha,
+    carry: decisions.filter((d) => d.carried).map((d) => d.ordinal),
+    refused: null,
+    commands: decisions
+  };
+}
+function planCarrySafe(req, env = process.env) {
+  try {
+    return planCarry(req, env);
+  } catch {
+    return refuse("error");
+  }
+}
+function isMainModule() {
+  const entry = process.argv[1];
+  const self2 = fileURLToPath6(import.meta.url);
+  if (entry === void 0 || basename7(self2) !== "verification-carry.js") return false;
+  try {
+    return realpathSync6(entry) === realpathSync6(self2);
+  } catch {
+    return false;
+  }
+}
+if (isMainModule()) {
+  const [db = "", taskId = "", worktree = "", head = "", commandsJson = ""] = process.argv.slice(2);
+  process.stdout.write(`${JSON.stringify(planCarrySafe({ db, taskId, worktree, head, commandsJson }))}
+`);
+}
+
+// src/hooks/swe-brief-gate.ts
+var GATE_NAME40 = "swe-brief-gate";
+var BLOCKED_MUTATIONS = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+var TRAJECTORY_TOOL2 = /^mcp__[\s\S]*trajectory-server__/;
+function briefSurface(toolName2) {
+  if (toolName2.includes("task_brief")) return "task_brief";
+  if (BLOCKED_MUTATIONS.has(toolName2)) return "mutation";
+  if (TRAJECTORY_TOOL2.test(toolName2)) return "trajectory";
+  return "other";
+}
+function rawOrEmpty(input, path) {
+  return jqMap(
+    input,
+    (value) => {
+      const v = path.reduce((acc, key2) => jqIndex(acc, key2), value);
+      return v === null || v === void 0 || v === false ? null : jqRawText(v);
+    },
+    jqLiteralNumbers
+  ).filter((line) => line !== null).join("\n");
+}
+function denyReason3(taskId, toolName2) {
+  return `BLOCKED: SWE must call task_brief(agent='swe', task_id=${taskId}) before ${toolName2 || "this tool"}. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=${taskId})`;
+}
+function resumeJson(taskId, agentId, observedAt) {
+  return `{"task_id":${jqNumberLiteral(taskId)},"agent_id":${jqCompact(agentId)},"observed_at":${jqCompact(observedAt)},"consumed":0}`;
+}
+function bindRun(db, taskId, input, env) {
+  const agentId = commandSubstitution(jqAlternatives(input, [["agent_id"]]));
+  if (agentId === "") return;
+  const safeAgentId = sqlQuote(agentId);
+  const keyed = sqliteRo(
+    db,
+    `
+SELECT COALESCE(MAX(completed_at IS NULL), -1) || '|' || (SELECT issue_id FROM tasks WHERE id = ${taskId})
+  FROM agent_runs
+ WHERE task_id = ${taskId} AND agent_type = 'swe' AND spawn_id = '${safeAgentId}';`,
+    env
+  );
+  if (keyed.startsWith("-1|")) {
+    dbWrite(
+      db,
+      `
+UPDATE agent_runs SET spawn_id = '${safeAgentId}'
+ WHERE id = (SELECT id FROM agent_runs
+              WHERE task_id = ${taskId} AND agent_type = 'swe' AND completed_at IS NULL
+                AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+              ORDER BY id DESC LIMIT 1);`,
+      { caller: GATE_NAME40, env }
+    );
+  } else if (keyed.startsWith("0|")) {
+    auditAppend(
+      db,
+      {
+        issueId: keyed.slice(keyed.indexOf("|") + 1),
+        branchId: "",
+        fromNode: `hook:${GATE_NAME40}`,
+        eventType: "swe_resume_observed",
+        summary: `swe ${agentId} resumed task ${taskId} and called task_brief`,
+        contentJson: resumeJson(taskId, agentId, nowIso())
+      },
+      { caller: GATE_NAME40, env }
+    );
+  }
+}
+var sweBriefGate = (payload, env) => {
+  const captured = commandSubstitution(payload);
+  const input = `${captured}
+`;
+  const agentType = normalizeRole(
+    commandSubstitution(jqAlternatives(input, [["agent_type"], ["subagent_type"], ["tool_input", "subagent_type"]]))
+  );
+  if (agentType !== "swe") return ALLOW;
+  const toolName2 = commandSubstitution(jqAlternatives(input, [["tool_name"]]));
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  let taskId = taskIdFromTranscript(agentTranscript(captured));
+  if (taskId === "") taskId = sqlInt(commandSubstitution(rawOrEmpty(input, ["tool_input", "task_id"])));
+  if (taskId === "") return ALLOW;
+  const surface2 = briefSurface(toolName2);
+  if (surface2 === "other") return ALLOW;
+  if (surface2 === "task_brief") {
+    bindRun(db, taskId, input, env);
+    return ALLOW;
+  }
+  const sentinel = sqliteRo(
+    db,
+    `
+  SELECT COUNT(*) FROM audit
+   WHERE event_type = 'swe_brief_fetched'
+     AND json_extract(content_json, '$.task_id') = ${taskId}
+  LIMIT 1;
+`,
+    env
+  );
+  if (Number(sentinel || "0") > 0) return ALLOW;
+  return {
+    stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denyReason3(taskId, toolName2) } })}
+`,
+    code: 0
+  };
+};
+
+// src/hooks/swe-verification-gate.ts
+var GATE_NAME41 = "swe-verification-gate";
+var VERIFICATION_DEFAULT_S = 900;
+var VERIFICATION_MAX_S = 1800;
+var RECORD_BUDGET_MS = 3e3;
+var RECORD_POOL_MS = 9e3;
+var FINISH_ATTEMPTS = 3;
+var FINISH_BACKOFF_MS = 500;
+var LOCK_POLL_MS = 500;
+var TAIL_LINES = 20;
+var FAILURE_LINES = 15;
+var DEFAULT_TAIL_CHARS = 4e3;
+var signals = osConstants.signals;
+var DB_UNAVAILABLE_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}\n';
+var WAIVER_UNRECORDED_DENY = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable \u2014 the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}\n';
+var NO_VERIFICATION_CONTEXT = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed verification[] \u2014 verification gate skipped. Ask bro to set the task's verification[] field (Typed Rails #673) to enforce verification commands."}}
+`;
+var UNRECORDED_PASS_CONTEXT = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: verification[] passed (not recorded: worktree HEAD unresolvable)."}}\n';
+var stderr = (text) => {
+  process.stderr.write(text);
+};
+var sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+function beforeBar(s) {
+  const i2 = s.indexOf("|");
+  return i2 < 0 ? s : s.slice(0, i2);
+}
+function afterBar(s) {
+  const i2 = s.indexOf("|");
+  return i2 < 0 ? s : s.slice(i2 + 1);
+}
+function deny7(reason) {
+  return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } })}
+`;
+}
+function context3(text) {
+  return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: text } })}
+`;
+}
+function shellLength(s, env) {
+  return ctypeUtf8(env) ? [...s].length : Buffer.byteLength(s);
+}
+function shellTail(s, n3, env) {
+  if (ctypeUtf8(env)) return [...s].slice(-n3).join("");
+  const bytes = Buffer.from(s);
+  return bytes.subarray(Math.max(0, bytes.length - n3)).toString("utf8");
+}
+function msToS(ms) {
+  const abs = Math.abs(ms);
+  const sign = ms < 0 ? "-" : "";
+  if (abs % 1e3 === 250) return `${sign}${Math.floor(abs / 1e3)}.2`;
+  return `${sign}${(abs / 1e3).toFixed(1)}`;
+}
+function parseBudget(raw) {
+  let timeoutS = VERIFICATION_DEFAULT_S;
+  if (raw !== "") {
+    if (!/^[0-9]+$/.test(raw)) timeoutS = null;
+    else if (raw.length > 9) timeoutS = VERIFICATION_MAX_S;
+    else timeoutS = Number(raw) >= 1 ? Number(raw) : null;
+  }
+  let warning = "";
+  if (timeoutS === null) {
+    warning = `${GATE_NAME41}: verification_timeout_s '${raw.replaceAll("\n", " ")}' is not an integer from 1 to ${VERIFICATION_MAX_S}; using the default ${VERIFICATION_DEFAULT_S}s
+`;
+    timeoutS = VERIFICATION_DEFAULT_S;
+  }
+  return { timeoutS: Math.min(timeoutS, VERIFICATION_MAX_S), warning };
+}
+function executable(path) {
+  if (path === "") return false;
+  try {
+    accessSync9(path, constants9.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function capture3(cmd, args2, env) {
+  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+  return r.stdout ?? "";
+}
+function toolchainDirs(env) {
+  const home = env.HOME ?? "";
+  const out2 = [];
+  const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
+  if (isDir(`${miseData}/shims`)) out2.push(`${miseData}/shims`);
+  const mise = [env.MISE_INSTALL_PATH ?? "", "/opt/homebrew/bin/mise", "/usr/local/bin/mise", `${home}/.local/bin/mise`].find(executable);
+  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], env).split("\n"));
+  const brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(executable);
+  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], env));
+  const brewDirs = brewPrefix !== "" ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+  out2.push(...brewDirs.filter(isDir));
+  if (home !== "" && isDir(`${home}/.local/bin`)) out2.push(`${home}/.local/bin`);
+  if (home !== "") {
+    for (const dir of [`${home}/Library/Application Support/reflex/bun/bin`, `${home}/.bun/bin`]) {
+      if (isDir(dir) && executable(`${dir}/bun`)) out2.push(dir);
+    }
+  }
+  return out2;
+}
+function joinToolchainPath(dirs, base2) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const dir of [...dirs.filter((d) => d !== ""), ...base2.split(":")]) {
+    if (dir !== "") seen.add(dir);
+  }
+  return [...seen].join(":");
+}
+function repoPathByName2(db, name3, env) {
+  let file = false;
+  try {
+    file = statSync24(db).isFile();
+  } catch {
+  }
+  if (!file || !haveSqlite(env) || name3 === "") return "";
+  return firstLine(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+}
+function reviewFindingsActive(db, taskId, env) {
+  const has = gateRead(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_findings';", env);
+  if (has === GATE_READ_ERROR) return GATE_READ_ERROR;
+  if (has !== "1") return "[]";
+  const out2 = gateRead(
+    db,
+    `SELECT COALESCE(json_group_array(json_object('id', id, 'status', status, 'probe_cmd', probe_cmd)), '[]')
+     FROM (SELECT id, status, probe_cmd FROM review_findings
+            WHERE task_id = ${taskId} AND status <> 'wontfix'
+            ORDER BY CAST(substr(id, instr(id, '-') + 1) AS INTEGER));`,
+    env
+  );
+  return out2 || "[]";
+}
+function parseFindings(json) {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function probeCommand(f) {
+  return `[probe ${typeof f.id === "string" ? f.id : ""}] ${typeof f.probe_cmd === "string" ? f.probe_cmd : ""}`;
+}
+function lastLines(text, n3) {
+  return text.split("\n").slice(-n3).join("\n");
+}
+function failureLines(text) {
+  return text.split("\n").filter((line) => /FAIL|failed|Error|❌/.test(line)).slice(0, FAILURE_LINES).join("\n");
+}
+function reusableRun(db, taskId, sha, commandsJson, env) {
+  const cmds = sqlQuote(commandsJson);
+  return sqliteRo(
+    db,
+    `SELECT r.id || '|' || r.finished_at FROM verification_runs r
+     WHERE r.task_id = ${taskId} AND r.commit_sha = '${sqlQuote(sha)}'
+       AND r.exit_code = 0 AND r.timed_out = 0 AND r.finished_at IS NOT NULL
+       AND r.finished_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3600 seconds')
+       AND json_valid('${cmds}')
+       AND (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) = json_array_length('${cmds}')
+       AND NOT EXISTS (SELECT 1 FROM json_each('${cmds}') e
+             LEFT JOIN verification_run_commands c ON c.run_id = r.id AND c.ordinal = e.key + 1
+            WHERE c.command IS NOT e.value)
+     ORDER BY r.finished_at DESC, r.id DESC LIMIT 1;`,
+    env
+  );
+}
+var VerificationRun = class {
+  constructor(c) {
+    this.c = c;
+  }
+  c;
+  runId = "";
+  recordMs = 0;
+  poolNoted = false;
+  ordinal = 0;
+  runStart = 0;
+  carryRun = "";
+  carrySha = "";
+  carryOrdinals = /* @__PURE__ */ new Set();
+  allowanceMs() {
+    const left = RECORD_POOL_MS - this.recordMs;
+    if (left <= 0) return null;
+    return Math.min(left, RECORD_BUDGET_MS);
+  }
+  write(ms, sql) {
+    const env = { ...this.c.env, TMB_DB_WRITE_TIMEOUT_MS: String(ms), TMB_DB_WRITE_RUN_BUDGET_MS: String(ms) };
+    const r = dbWrite(this.c.db, sql, { caller: GATE_NAME41, env });
+    if (!r.ok && r.error !== "") stderr(`${r.error}
+`);
+    return r;
+  }
+  invalid(message) {
+    stderr(`tmb_verification_run: ${GATE_NAME41}: ${message}
+`);
+    return { ok: false, code: 2, stdout: "", error: "" };
+  }
+  start(ms) {
+    const now2 = nowIso();
+    const r = this.write(
+      ms,
+      `UPDATE verification_runs SET finished_at = '${now2}', exit_code = 137, timed_out = 0
+ WHERE finished_at IS NULL
+   AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ', '${now2}', '-' || (budget_s + 60) || ' seconds');
+INSERT INTO verification_runs (task_id, commit_sha, source, started_at, budget_s) VALUES (${this.c.taskId}, '${sqlQuote(this.c.wtSha)}', 'gate', '${now2}', ${this.c.timeoutS});
+SELECT last_insert_rowid();`
+    );
+    return r.ok ? commandSubstitution(r.stdout) : "";
+  }
+  commandWrite(ms, ordinal, command, rc, elapsed, output) {
+    if (!/^[0-9]+$/.test(this.runId)) {
+      this.invalid(`invalid run_id '${this.runId}'`);
+      return;
+    }
+    const rawCap = this.c.env.TMB_VERIFICATION_TAIL_CHARS || String(DEFAULT_TAIL_CHARS);
+    const cap = /^[0-9]+$/.test(rawCap) ? Number(rawCap) : DEFAULT_TAIL_CHARS;
+    const tail = cap > 0 && shellLength(output, this.c.env) > cap ? shellTail(output, cap, this.c.env) : output;
+    this.write(
+      ms,
+      `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail) VALUES (${this.runId}, ${ordinal}, '${sqlQuote(command)}', ${rc}, ${elapsed}, '${sqlQuote(tail)}');`
+    );
+  }
+  finishWrite(rc, timedOut) {
+    if (!/^[0-9]+$/.test(this.runId)) return this.invalid(`invalid run_id '${this.runId}'`);
+    return this.write(
+      RECORD_BUDGET_MS,
+      `UPDATE verification_runs SET finished_at = '${nowIso()}', exit_code = ${rc}, timed_out = ${timedOut} WHERE id = ${this.runId};`
+    );
+  }
+  fixedWrite(ms, id) {
+    if (!/^F[0-9]+-[0-9]+$/.test(id)) return this.invalid(`invalid finding id '${id}'`);
+    return this.write(ms, `UPDATE review_findings SET status = 'fixed', resolved_at = '${nowIso()}' WHERE id = '${sqlQuote(id)}' AND status = 'open';`);
+  }
+  recordCommand(ordinal, command, rc, elapsed, output) {
+    if (this.runId === "") return;
+    const ms = this.allowanceMs();
+    if (ms === null) {
+      if (!this.poolNoted) {
+        this.poolNoted = true;
+        stderr(`${GATE_NAME41}: run-record write budget (${RECORD_POOL_MS}ms) spent; verification run #${this.runId} keeps no further command rows
+`);
+      }
+      return;
+    }
+    const t0 = Date.now();
+    this.commandWrite(ms, ordinal, command, rc, elapsed, output);
+    this.recordMs += Date.now() - t0;
+  }
+  async recordFinish(rc, timedOut) {
+    if (this.runId === "") return;
+    for (let attempt = 1; ; attempt += 1) {
+      if (this.finishWrite(rc, timedOut).ok) return;
+      if (attempt >= FINISH_ATTEMPTS) break;
+      await sleep(attempt * FINISH_BACKOFF_MS);
+    }
+    stderr(
+      `${GATE_NAME41}: verification run #${this.runId} record unfinished \u2014 its finish write failed ${FINISH_ATTEMPTS} times; the decision stands (trajectory_doctor reports it under no_unfinished_verification_runs after 2 h)
+`
+    );
+  }
+  recordNote() {
+    if (this.runId !== "") return ` Recorded as verification run #${this.runId}.`;
+    return this.c.wtSha === "" ? " (not recorded: worktree HEAD unresolvable)" : "";
+  }
+  activeMs() {
+    return Date.now() - this.runStart - this.recordMs;
+  }
+  timeoutReason(ordinal, command, elapsed, cumulative) {
+    const ran = elapsed !== "" ? ` after ${elapsed}s` : "";
+    return commandSubstitution(
+      `BLOCKED: verification timed out \u2014 the ${this.c.timeoutS}s budget ran out ${cumulative}s in, while running command ${ordinal}/${this.c.cmdTotal}${ran}:
+${command}
+
+Raise plugin_config.verification_timeout_s (config_set; capped at ${VERIFICATION_MAX_S}s) or speed up the command.${this.recordNote()}`
+    );
+  }
+  planCarry() {
+    const plan = planCarrySafe(
+      { db: this.c.db, taskId: this.c.taskId, worktree: this.c.worktree, head: this.c.wtSha, commandsJson: this.c.gateCmdsJson },
+      { ...this.c.env, PATH: this.c.toolchainPath }
+    );
+    if (typeof plan.source_run !== "number" || typeof plan.source_sha !== "string" || !Array.isArray(plan.carry)) return;
+    const run5 = String(plan.source_run);
+    const ords = plan.carry.map(String).join(" ");
+    if (!/^[0-9]+$/.test(run5)) return;
+    if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(plan.source_sha)) return;
+    if (!/^[0-9]+( [0-9]+)*$/.test(ords)) return;
+    this.carryRun = run5;
+    this.carrySha = plan.source_sha;
+    this.carryOrdinals = new Set(plan.carry);
+  }
+  execute(command, seconds2, outPath) {
+    return new Promise((done) => {
+      const fd = openSync3(outPath, "w");
+      let fired = false;
+      let settled = false;
+      const finish = (rc) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        done({ rc, fired });
+      };
+      const child = spawn2("bash", ["-c", command], {
+        cwd: this.c.worktree,
+        env: { ...this.c.env, PATH: this.c.toolchainPath, PWD: this.c.worktree },
+        stdio: ["ignore", fd, fd],
+        detached: true
+      });
+      closeSync3(fd);
+      const timer = setTimeout(() => {
+        fired = true;
+        try {
+          if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
+        } catch {
+        }
+      }, seconds2 * 1e3);
+      child.on("error", () => finish(127));
+      child.on("exit", (code, signal2) => {
+        if (fired) finish(124);
+        else finish(code ?? 128 + (signal2 !== null ? signals[signal2] ?? 0 : 0));
+      });
+    });
+  }
+  /** run_one: <runCmd> in the worktree within the remaining budget, recorded as <recordedCmd>; a deny string when the budget ran out. */
+  async runOne(runCmd, recordedCmd) {
+    this.ordinal += 1;
+    const ordinal = this.ordinal;
+    const remaining = this.c.timeoutS - Math.trunc(this.activeMs() / 1e3);
+    if (remaining <= 0) {
+      await this.recordFinish(124, 1);
+      return deny7(this.timeoutReason(ordinal, recordedCmd, "", msToS(this.activeMs())));
+    }
+    const outPath = `${this.c.scratch}/out-${ordinal}`;
+    const cmdStart = Date.now();
+    const { rc, fired } = await this.execute(runCmd, remaining, outPath);
+    const cmdMs = Date.now() - cmdStart;
+    let out2 = "";
+    try {
+      out2 = commandSubstitution(readFileSync15(outPath, "utf8"));
+      rmSync4(outPath, { force: true });
+    } catch {
+    }
+    const elapsed = msToS(cmdMs);
+    const total = msToS(this.activeMs());
+    const tail = lastLines(out2, TAIL_LINES);
+    this.recordCommand(ordinal, recordedCmd, rc, elapsed, tail);
+    if (rc === 124 && fired) {
+      await this.recordFinish(124, 1);
+      return deny7(this.timeoutReason(ordinal, recordedCmd, elapsed, total));
+    }
+    return { rc, out: out2, elapsed, total, tail };
+  }
+  /** run_verification: the deny decision, the pass context, or "" when every command passed. */
+  async run() {
+    const c = this.c;
+    this.runStart = Date.now();
+    if (c.wtSha !== "") {
+      const ms = this.allowanceMs();
+      if (ms !== null) {
+        this.runId = this.start(ms);
+        this.recordMs = Date.now() - this.runStart;
+      }
+    }
+    if (this.runId !== "") this.planCarry();
+    const carried = [];
+    for (const cmd of c.commands) {
+      if (this.carryOrdinals.has(this.ordinal + 1)) {
+        this.ordinal += 1;
+        this.recordCommand(this.ordinal, cmd, 0, "0", `carried from run #${this.carryRun} at ${this.carrySha.slice(0, 12)}`);
+        carried.push(cmd);
+        continue;
+      }
+      const r = await this.runOne(cmd, cmd);
+      if (typeof r === "string") return r;
+      if (r.rc !== 0) {
+        await this.recordFinish(r.rc, 0);
+        const hits = failureLines(r.out);
+        const hitsBlock = hits !== "" ? `
+
+Failure lines (max ${FAILURE_LINES}):
+${hits}` : "";
+        return deny7(
+          commandSubstitution(
+            `BLOCKED: verification failed.
+Failing command (${this.ordinal}/${c.cmdTotal}): ${cmd}
+Exit ${r.rc} after ${r.elapsed}s; ${r.total}s cumulative.${this.recordNote()}${hitsBlock}
+
+Output (last ${TAIL_LINES} lines):
+${r.tail}`
+          )
+        );
+      }
+    }
+    let probeFail = "";
+    let probeRc = 0;
+    for (const f of c.findings) {
+      const fid = commandSubstitution(jqRawText(f.id));
+      const fstatus = commandSubstitution(jqRawText(f.status));
+      const pcmd = commandSubstitution(jqRawText(f.probe_cmd));
+      const r = await this.runOne(pcmd, `[probe ${fid}] ${pcmd}`);
+      if (typeof r === "string") return r;
+      if (r.rc === 0) {
+        if (fstatus === "open") {
+          const ms = this.allowanceMs();
+          if (ms !== null) {
+            const t0 = Date.now();
+            if (!this.fixedWrite(ms, fid).ok) stderr(`${GATE_NAME41}: review finding ${fid} probe passed but its fixed write failed; it stays open
+`);
+            this.recordMs += Date.now() - t0;
+          } else {
+            stderr(`${GATE_NAME41}: run-record write budget (${RECORD_POOL_MS}ms) spent; review finding ${fid} probe passed but it stays open
+`);
+          }
+        }
+        continue;
+      }
+      if (probeRc === 0) probeRc = r.rc;
+      const regressed = fstatus === "fixed" ? " \u2014 REGRESSION: this finding was fixed and its probe fails again" : "";
+      probeFail += commandSubstitution(
+        `
+
+Finding ${fid} (probe ${this.ordinal}/${c.cmdTotal})${regressed}: ${pcmd}
+Exit ${r.rc} after ${r.elapsed}s.
+Output (last ${TAIL_LINES} lines):
+${r.tail}`
+      );
+    }
+    if (probeFail !== "") {
+      await this.recordFinish(probeRc, 0);
+      return deny7(
+        `BLOCKED: verification failed \u2014 review finding probe(s) failed; ${msToS(this.activeMs())}s cumulative.${this.recordNote()}${probeFail}
+
+Fix each finding so its probe exits 0 (task_brief.open_findings lists the open ones).`
+      );
+    }
+    await this.recordFinish(0, 0);
+    if (c.wtSha === "") return UNRECORDED_PASS_CONTEXT;
+    if (carried.length > 0) {
+      return context3(
+        `TMB: verification carried forward from run #${this.carryRun} at ${this.carrySha.slice(0, 12)} \u2014 this commit touched none of their declared inputs (.config/tmb/verification-inputs.json), so these commands were not run again; the rest of the ${c.cmdTotal} ran:
+${carried.join("\n")}`
+      );
+    }
+    return "";
+  }
+};
+function nowS() {
+  return Math.floor(Date.now() / 1e3);
+}
+function lockHeldSince(lock) {
+  try {
+    const since = commandSubstitution(readFileSync15(`${lock}/started`, "utf8"));
+    if (/^[0-9]+$/.test(since)) return Number(since);
+  } catch {
+  }
+  try {
+    return Math.floor(statSync24(lock).mtimeMs / 1e3);
+  } catch {
+    return null;
+  }
+}
+function tryMkdir(dir) {
+  try {
+    mkdirSync7(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function removeQuietly(path) {
+  try {
+    rmSync4(path, { recursive: true, force: true });
+  } catch {
+  }
+}
+async function acquireLock(lock, staleS) {
+  while (!tryMkdir(lock)) {
+    const held = lockHeldSince(lock) ?? nowS();
+    if (nowS() - held > staleS) {
+      removeQuietly(lock);
+      continue;
+    }
+    while (isDir(lock)) {
+      await sleep(LOCK_POLL_MS);
+      const since = lockHeldSince(lock);
+      if (since === null) continue;
+      if (nowS() - since > staleS) break;
+    }
+  }
+}
+function makeScratch(db) {
+  try {
+    return resolve3(mkdtempSync(`${posixDirname(db)}/verify-run.`));
+  } catch {
+    return mkdtempSync(`${tmpdir()}/verify-run.`);
+  }
+}
+function waive(db, taskId, reason, field6, env) {
+  const row = gateRead(
+    db,
+    `SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') || '|' || COALESCE(commit_sha, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`,
+    env
+  );
+  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(`${GATE_NAME41} (waiver)`, env)}
+`, code: 0 };
+  if (row === "") return ALLOW;
+  const rest = afterBar(row);
+  const sha = field6("commit_sha") || afterBar(rest);
+  const r = auditAppend(
+    db,
+    {
+      issueId: beforeBar(row),
+      branchId: beforeBar(rest),
+      fromNode: `hook:${GATE_NAME41}`,
+      eventType: "verification_gate_waived",
+      summary: `SWE waived verification gate for task_id=${taskId}`,
+      contentJson: `{"task_id":${jqNumberLiteral(taskId)},"commit_sha":${jqCompact(sha)},"waiver_reason":${jqCompact(reason)}}`,
+      dedupePaths: ["$.task_id", "$.commit_sha"]
+    },
+    { caller: GATE_NAME41, env }
+  );
+  if (r.ok) return { stdout: r.stdout, code: 0 };
+  if (r.error !== "") stderr(`${r.error}
+`);
+  return { stdout: `${r.stdout}${WAIVER_UNRECORDED_DENY}`, code: 0 };
+}
+var sweVerificationGate = async (payload, env) => {
+  const input = `${commandSubstitution(payload)}
+`;
+  const field6 = (key2) => commandSubstitution(rawOrEmpty(input, ["tool_input", key2]));
+  if (normalizeRole(field6("agent")) !== "swe") return ALLOW;
+  if (field6("status") !== "completed") return ALLOW;
+  const taskId = field6("task_id");
+  if (!/^[0-9]+$/.test(taskId)) return ALLOW;
+  const db = dbPath(env, (line) => stderr(`${line}
+`));
+  if (db === null || !haveSqlite(env)) return ALLOW;
+  const genv = { ...env, TMB_DB_WRITE_TIMEOUT_MS: "5000", TMB_DB_WRITE_RUN_BUDGET_MS: "10200" };
+  const waiver = field6("waive_verification_gate_reason");
+  if (waiver !== "" && shellLength(waiver, genv) >= 10) return waive(db, taskId, waiver, field6, genv);
+  const verificationJson = sqliteRo(db, `SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
+  const branchId = gateRead(db, `SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
+  if (branchId === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
+  const taskRepo = sqliteRo(db, `SELECT COALESCE(repo, '') FROM tasks WHERE id = ${taskId} LIMIT 1;`, genv);
+  if (branchId === "") return ALLOW;
+  const findingsJson = reviewFindingsActive(db, taskId, genv);
+  if (findingsJson === GATE_READ_ERROR) return { stdout: DB_UNAVAILABLE_DENY, code: 0 };
+  const findings = parseFindings(findingsJson);
+  const block2 = commandSubstitution(jqRawElements(verificationJson));
+  if (block2 === "" && findings.length === 0) return { stdout: NO_VERIFICATION_CONTEXT, code: 0 };
+  const slug = branchSlug(branchId);
+  const wsRoot = posixDirname(posixDirname(posixDirname(db)));
+  const repoRoot = taskRepo !== "" ? repoPathByName2(db, taskRepo, genv) || `${wsRoot}/${taskRepo}` : repoSinglePath(db, genv) || wsRoot;
+  const worktree = `${repoRoot}/.claude/worktrees/${slug}`;
+  if (repoRoot === "" || !isDir(worktree)) {
+    const missingAt = `${repoRoot || wsRoot || "?"}/.claude/worktrees/${slug}`;
+    return {
+      stdout: deny7(
+        `BLOCKED: verification gate could not locate the task worktree at ${missingAt} \u2014 refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task's repo maps to the correct repos.path, or set waive_verification_gate_reason.`
+      ),
+      code: 0
+    };
+  }
+  const toolchainPath = joinToolchainPath(toolchainDirs(genv), genv.PATH ?? "");
+  const budget = parseBudget(
+    genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv)
+  );
+  if (budget.warning !== "") stderr(budget.warning);
+  const head = gitRun(worktree, ["rev-parse", "--verify", "-q", "HEAD"], genv);
+  const wtSha = head.code === 0 ? commandSubstitution(head.stdout) : "";
+  const expectedSha = field6("commit_sha");
+  const commands = block2.split("\n").filter((line) => line !== "");
+  const gateCmdsJson = jqCompact([...commands, ...findings.map(probeCommand)]);
+  const scratch = makeScratch(db);
+  let lock = "";
+  try {
+    const ctx = {
+      db,
+      taskId,
+      worktree,
+      wtSha,
+      timeoutS: budget.timeoutS,
+      commands,
+      findings,
+      cmdTotal: commands.length + findings.length,
+      gateCmdsJson,
+      toolchainPath,
+      scratch,
+      env: genv
+    };
+    const reuse = () => {
+      if (wtSha === "") return null;
+      if (expectedSha !== "" && !wtSha.startsWith(expectedSha)) return null;
+      const row = reusableRun(db, taskId, wtSha, gateCmdsJson, genv);
+      if (row === "") return null;
+      return context3(
+        `TMB: verification reused run #${beforeBar(row)} (${afterBar(row)}) \u2014 verification[] passed on commit ${wtSha} within the last hour, so it was not run again.`
+      );
+    };
+    const reused = reuse();
+    if (reused !== null) return { stdout: reused, code: 0 };
+    if (wtSha === "") return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    const lockRoot = `${posixDirname(db)}/locks`;
+    try {
+      mkdirSync7(lockRoot, { recursive: true });
+    } catch {
+      return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+    }
+    const lockDir = `${lockRoot}/verify-${taskId}-${wtSha}`;
+    await acquireLock(lockDir, budget.timeoutS + 60);
+    lock = lockDir;
+    try {
+      writeFileSync5(`${lock}/started`, `${nowS()}
+`);
+    } catch {
+    }
+    const reusedAfterWait = reuse();
+    if (reusedAfterWait !== null) return { stdout: reusedAfterWait, code: 0 };
+    return { stdout: await new VerificationRun(ctx).run(), code: 0 };
+  } finally {
+    if (lock !== "") removeQuietly(lock);
+    removeQuietly(scratch);
+  }
+};
+
+// src/hooks/swe-spawn-bind.ts
+var GATE_NAME42 = "swe-spawn-bind";
+var FIELD_SEPARATOR = "";
+var FieldsError = class extends Error {
+};
+function jqToString(value) {
+  return typeof value === "string" ? value : jqCompact(value);
+}
+function orEmpty(value, path) {
+  let v = value;
+  try {
+    for (const key2 of path) v = jqIndex(v, key2);
+  } catch {
+    throw new FieldsError();
+  }
+  return v === null || v === void 0 || v === false ? "" : v;
+}
+function joinedFields(input, a, b) {
+  if (!jsonStream(input).complete) return null;
+  try {
+    return jsonValues(input, jqLiteralNumbers).map((value) => `${jqToString(orEmpty(value, a))}${FIELD_SEPARATOR}${jqToString(orEmpty(value, b))}`).join("\n");
+  } catch (e) {
+    if (e instanceof FieldsError) return null;
+    throw e;
+  }
+}
+function readTwo(text, sep2) {
+  const line = text.split("\n")[0];
+  const at2 = line.indexOf(sep2);
+  if (at2 < 0) return [line, ""];
+  let rest = line.slice(at2 + 1);
+  if (rest.endsWith(sep2) && !rest.slice(0, -1).includes(sep2)) rest = rest.slice(0, -1);
+  return [line.slice(0, at2), rest];
+}
+function bindSql(toolUseId2, agentId) {
+  const safeSpawnId = sqlQuote(`tool_use:${toolUseId2}`);
+  const safeAgentId = sqlQuote(agentId);
+  return `
+UPDATE agent_runs SET spawn_id = '${safeAgentId}'
+ WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}'
+   AND NOT EXISTS (SELECT 1 FROM agent_runs b
+                    WHERE b.task_id = agent_runs.task_id AND b.spawn_id = '${safeAgentId}');`;
+}
+var sweSpawnBind = (payload, env) => {
+  try {
+    const input = commandSubstitution(payload);
+    if (normalizeRole(commandSubstitution(jqAlternatives(input, [["tool_input", "subagent_type"]]))) !== "swe") return ALLOW;
+    const fields = joinedFields(input, ["tool_use_id"], ["tool_response", "agentId"]);
+    if (fields === null) return ALLOW;
+    const [toolUseId2, agentId] = readTwo(commandSubstitution(fields), FIELD_SEPARATOR);
+    if (toolUseId2 === "" || agentId === "") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || !haveSqlite(env)) return ALLOW;
+    dbWrite(db, bindSql(toolUseId2, agentId), { caller: GATE_NAME42, env });
+  } catch {
+  }
+  return ALLOW;
+};
+
+// src/hooks/swe-spawn-rollback.ts
+var GATE_NAME43 = "swe-spawn-rollback";
+var RUN_NO_USAGE_SQL = "COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0 AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0";
+var RUN_UNMEASURED_SQL = `usage_source = COALESCE(usage_source, CASE WHEN ${RUN_NO_USAGE_SQL} THEN 'unmeasured' END)`;
+function toolUseId(input) {
+  if (!jsonStream(input).complete) return null;
+  const lines2 = [];
+  for (const value of jsonValues(input, jqLiteralNumbers)) {
+    let v;
+    try {
+      v = jqIndex(value, "tool_use_id");
+    } catch {
+      return null;
+    }
+    if (v !== null && v !== void 0 && v !== false) lines2.push(jqRawText(v));
+  }
+  return commandSubstitution(lines2.join("\n"));
+}
+function rollbackSql(id, now2) {
+  const safeSpawnId = sqlQuote(`tool_use:${id}`);
+  return `
+UPDATE tasks SET status = 'pending', updated_at = '${now2}'
+ WHERE status = 'running'
+   AND id = (SELECT task_id FROM agent_runs
+              WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM agent_runs o
+                    WHERE o.task_id = tasks.id AND o.agent_type = 'swe' AND o.completed_at IS NULL
+                      AND o.spawn_id IS NOT '${safeSpawnId}');
+UPDATE agent_runs
+   SET completed_at = '${now2}',
+       exit_reason = 'swept_orphan',
+       ${RUN_UNMEASURED_SQL},
+       duration_ms = CASE WHEN duration_ms = 0
+                          THEN COALESCE(CAST(ROUND((julianday('${now2}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
+                          ELSE duration_ms END
+ WHERE agent_type = 'swe' AND spawn_id = '${safeSpawnId}' AND completed_at IS NULL;`;
+}
+var sweSpawnRollback = (payload, env) => {
+  try {
+    const input = commandSubstitution(payload);
+    if (normalizeRole(commandSubstitution(jqAlternatives(input, [["tool_input", "subagent_type"]]))) !== "swe") return ALLOW;
+    const id = toolUseId(input);
+    if (id === null || id === "") return ALLOW;
+    const db = dbPath(env);
+    if (db === null || !haveSqlite(env)) return ALLOW;
+    dbWrite(db, rollbackSql(id, nowIso()), { caller: GATE_NAME43, env });
+  } catch {
+  }
+  return ALLOW;
+};
+
+// src/hooks/post-task-create-spawn-hint.ts
+var GATE_NAME44 = "post-task-create-spawn-hint";
+var BYPASS_ENV6 = "TMB_DISABLE_SPAWN_HINT";
+var CREATE_BATCH_TOOL = /^mcp__[\s\S]*trajectory-server__task_create_batch$/;
+var IndexError = class extends Error {
+};
+var isRawJson3 = (value) => JSON.isRawJSON?.(value) ?? false;
+function at(value, key2) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "object" || isRawJson3(value)) throw new IndexError();
+  if (typeof key2 === "number") {
+    if (!Array.isArray(value)) throw new IndexError();
+    return value[key2] ?? null;
+  }
+  if (Array.isArray(value)) throw new IndexError();
+  const v = value[key2];
+  return v === void 0 ? null : v;
+}
+function truthy3(value) {
+  return value !== null && value !== void 0 && value !== false;
+}
+function rawOr(text, path, fallback) {
+  const lines2 = jqMap(text, (value) => {
+    let v = value;
+    try {
+      for (const key2 of path) v = at(v, key2);
+    } catch {
+      return null;
+    }
+    return truthy3(v) ? jqRawText(v) : fallback;
+  }).filter((line) => line !== null);
+  return commandSubstitution(lines2.join("\n"));
+}
+function interpolate(value) {
+  return typeof value === "string" ? value : jqCompact(value);
+}
+function taskLine(task) {
+  return [interpolate(at(task, "id")), interpolate(at(task, "branch_id"))];
+}
+function taskList(responseText) {
+  const out2 = [];
+  for (const value of jsonValues(`${responseText}
+`, jqLiteralNumbers)) {
+    if (!Array.isArray(value)) {
+      out2.push("");
+      continue;
+    }
+    try {
+      out2.push(value.map((t) => taskLine(t)).map(([id, branch]) => `  - task_id=${id} branch_id=${branch}`).join("\n"));
+    } catch (e) {
+      if (!(e instanceof IndexError)) throw e;
+    }
+  }
+  return commandSubstitution(out2.join("\n"));
+}
+function taskRows(responseText) {
+  const out2 = [];
+  for (const value of jsonValues(`${responseText}
+`, jqLiteralNumbers)) {
+    if (value === null || typeof value !== "object" || isRawJson3(value)) continue;
+    const items = Array.isArray(value) ? value : Object.values(value);
+    try {
+      for (const item of items) out2.push(taskLine(item).join("	"));
+    } catch (e) {
+      if (!(e instanceof IndexError)) throw e;
+    }
+  }
+  const text = out2.map((row) => `${row}
+`).join("");
+  const lines2 = text.split("\n");
+  lines2.pop();
+  return lines2;
+}
+function readTabFields(line) {
+  const trimmed = line.replace(/^\t+/, "");
+  const at2 = trimmed.indexOf("	");
+  if (at2 < 0) return [trimmed, ""];
+  return [trimmed.slice(0, at2), trimmed.slice(at2).replace(/^\t+/, "").replace(/\t+$/, "")];
+}
+function worktreeOf(db, id, env) {
+  if (db === null) return "unresolved (no trajectory DB)";
+  const loc = taskLocation(db, id, env);
+  return loc.code === 0 ? loc.worktree : `unresolved (${loc.missing})`;
+}
+function hintReason(toolName2, tasks) {
+  const tool = toolName2.slice(toolName2.lastIndexOf("__") + 2);
+  return `\u{1F680} SWE-spawn hint: ${tool} created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn \u2014 one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.
+
+Tasks created:
+${tasks}
+
+For each task, run the two-step proven flow:
+1. Pre-create the worktree: \`printf '{"branch":"<branch_id>"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` \u2014 capture the printed path.
+2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` \u2014 no isolation= parameter.
+
+If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug.`;
+}
+var postTaskCreateSpawnHint = (payload, env) => {
+  try {
+    if (env[BYPASS_ENV6] === "1") return ALLOW;
+    const input = `${commandSubstitution(payload)}
+`;
+    const toolName2 = rawOr(input, ["tool_name"], "");
+    if (!CREATE_BATCH_TOOL.test(toolName2)) return ALLOW;
+    if (rawOr(input, ["tool_response", "is_error"], "false") === "true") return ALLOW;
+    const responseText = rawOr(input, ["tool_response", "content", 0, "text"], "");
+    if (responseText === "") return ALLOW;
+    const list = taskList(responseText);
+    if (list === "") return ALLOW;
+    const db = dbPath(env);
+    const withPaths = taskRows(responseText).map(readTabFields).map(([id, branch]) => `  - task_id=${id} branch_id=${branch} worktree=${worktreeOf(db, id, env)}`).join("\n");
+    return {
+      stdout: `${jqCompact({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: hintReason(toolName2, withPaths || list) } })}
+`,
+      code: 0
+    };
+  } catch {
+    return ALLOW;
+  }
+};
+
+// src/hooks/reviewer-identity-observe.ts
+var GATE_NAME45 = "reviewer-identity-observe";
+var VALIDATION_RECORD_TOOL = /^mcp__[\s\S]*trajectory-server__validation_record$/;
+function denyUnavailable(env, stdout = "") {
+  return { stdout: `${stdout}${denyDbUnavailable(GATE_NAME45, env)}
+`, code: 0 };
+}
+var reviewerIdentityObserve = (payload, env) => {
+  const input = jqInput(payload);
+  if (!VALIDATION_RECORD_TOOL.test(jqCapture(input, ["tool_name"]))) return ALLOW;
+  const agentId = jqCapture(input, ["agent_id"]);
+  if (agentId === "") return ALLOW;
+  if (normalizeRole(jqCapture(input, ["agent_type"])) !== CODE_REVIEWER_ROLE) return ALLOW;
+  const taskId = sqlInt(jqCapture(input, ["tool_input", "task_id"]));
+  const attemptN = sqlInt(jqCapture(input, ["tool_input", "attempt_n"]));
+  if (taskId === "" || attemptN === "") return ALLOW;
+  const sessionId = jqCapture(input, ["session_id"]);
+  const toolUseId2 = jqCapture(input, ["tool_use_id"]);
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  const state = dbState(env);
+  if (state === "unresolved" || db === null) return ALLOW;
+  if (state === "error") return denyUnavailable(env);
+  const issueId = gateRead(db, `SELECT issue_id FROM tasks WHERE id = ${taskId};`, env);
+  if (issueId === GATE_READ_ERROR) return denyUnavailable(env);
+  if (issueId === "") return ALLOW;
+  const content = jqCompact({
+    task_id: jqNumber2(taskId),
+    attempt_n: jqNumber2(attemptN),
+    session_id: sessionId,
+    agent_id: agentId,
+    tool_use_id: toolUseId2 === "" ? null : toolUseId2,
+    observed_at: nowIso(),
+    consumed: 0
+  });
+  const w = auditAppend(
+    db,
+    {
+      issueId,
+      branchId: "",
+      fromNode: `hook:${GATE_NAME45}`,
+      eventType: "reviewer_identity_observed",
+      summary: `code-reviewer ${agentId} called validation_record for task ${taskId} attempt ${attemptN}`,
+      contentJson: content
+    },
+    { env, caller: GATE_NAME45 }
+  );
+  if (w.ok) return { stdout: w.stdout, code: 0 };
+  process.stderr.write(`${w.error}
+`);
+  return denyUnavailable(env, w.stdout);
+};
+
+// src/hooks/cheatcode-install-approval.ts
+var GATE_NAME46 = "cheatcode-install-approval";
+var NO_SOURCE_URL_REASON = "BLOCKED: cheatcode_install requires a candidate.source_url so the per-candidate approval can be verified. Recovery: call cheatcode_install with candidate={name,kind,source_url}.";
+var UNVERIFIABLE_REASON = "BLOCKED: cheatcode_install approval cannot be verified (trajectory DB unavailable) \u2014 failing closed. Installs are human-approved, never silent.";
+function notApprovedReason(name3, url) {
+  return `BLOCKED: no human-approval record for cheatcode '${name3 || url}' (${url}). Installs are human-approved, never silent. Recovery: record approval via cheatcode_approve(agent='bro', candidate={name,kind,source_url}) after the Human confirms, then retry cheatcode_install.`;
+}
+function approvalSql(url) {
+  return `
+  SELECT COUNT(*) FROM audit
+   WHERE event_type = 'cheatcode_approved'
+     AND json_extract(content_json, '$.source_url') = '${sqlQuote(url)}'
+  LIMIT 1;
+`;
+}
+function deny8(reason) {
+  return { stdout: denyJson(reason), code: 0 };
+}
+var cheatcodeInstallApproval = (payload, env) => {
+  const input = jqInput(payload);
+  if (!jqCapture(input, ["tool_name"], true).includes("cheatcode_install")) return ALLOW;
+  const url = jqCapture(input, ["tool_input", "candidate", "source_url"], true);
+  const name3 = jqCapture(input, ["tool_input", "candidate", "name"], true);
+  if (url === "") return deny8(NO_SOURCE_URL_REASON);
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null || !haveSqlite(env)) return deny8(UNVERIFIABLE_REASON);
+  const approved = sqliteRo(db, approvalSql(url), env);
+  if (/^[0-9]+$/.test(approved) && Number(approved) > 0) return ALLOW;
+  return deny8(notApprovedReason(name3, url));
+};
+
+// src/hooks/stay-on-base-guard.ts
+import { statSync as statSync25 } from "node:fs";
+
+// src/hooks/lib/statement-rows.ts
+function readTabFields2(line, n3) {
+  let s = line.replace(/^\t+/, "");
+  const fields = [];
+  for (let i2 = 0; i2 < n3 - 1; i2++) {
+    const tab = s.indexOf("	");
+    if (tab < 0) {
+      fields.push(s);
+      s = "";
+      continue;
+    }
+    fields.push(s.slice(0, tab));
+    s = s.slice(tab).replace(/^\t+/, "");
+  }
+  fields.push(s.replace(/\t+$/, ""));
+  return fields;
+}
+function statementRows(statements2) {
+  const text = stripTrailingNewlines(statements2.map(({ dir, stmt }) => `${dir}	${stmt}`).join("\n"));
+  if (text === "") return [];
+  return text.split("\n").map((line) => {
+    const [dir, stmt] = readTabFields2(line, 2);
+    return { dir, stmt };
+  });
+}
+function payloadCwdOf(input, env = process.env) {
+  return jqCapture(input, ["cwd"], true) || shellPwd(env);
+}
+function denyResult(reason) {
+  const decision = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return { stdout: `${jqCompact(decision)}
+`, code: 0 };
+}
+
+// src/hooks/stay-on-base-guard.ts
+var GATE_NAME47 = "stay-on-base-guard";
+var BRANCH_WORD = /^[a-zA-Z0-9_./:@^~-]+$/;
+var CREATES_OR_RESTORES = [" -b ", " -B ", " -c ", " -C ", " --create ", " -- "];
+function switchTarget(sub) {
+  const rest = sub.slice(sub.indexOf(" ") + 1);
+  let target = "";
+  for (const w of (rest.split("\n")[0] ?? "").split(/[ \t]+/)) if (w !== "" && !w.startsWith("-")) target = w;
+  return target;
+}
+function isFile12(path) {
+  try {
+    return statSync25(path).isFile();
+  } catch {
+    return false;
+  }
+}
+var stayOnBaseGuard = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (!command.includes("checkout") && !command.includes("switch")) return ALLOW;
+  const listed2 = await cmdStatements(command, payloadCwdOf(input, env), env);
+  if (!listed2.ok) return haveSqlite(env) && isFile12(dbPath(env) ?? "") ? denyResult(PARSE_REASON) : ALLOW;
+  let lines2 = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const sub = gitSubcommand(stmt);
+    if (!sub.startsWith("checkout ") && !sub.startsWith("switch ")) continue;
+    if (CREATES_OR_RESTORES.some((flag) => ` ${sub} `.includes(flag))) continue;
+    const target = switchTarget(sub);
+    if (target === "" || !BRANCH_WORD.test(target)) continue;
+    lines2 += `${dir}	${target}	${stmt}
+`;
+  }
+  if (lines2 === "") return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const db = dbPath(env) ?? "";
+  if (!isFile12(db)) return ALLOW;
+  const switches = lines2.split("\n").map((line) => {
+    const [dir, target, stmt] = readTabFields2(line, 3);
+    return { dir, target, stmt };
+  });
+  for (const { dir, target, stmt } of switches) {
+    if (target === "") continue;
+    if (dir === "-" || dir.includes("/.claude/worktrees/")) continue;
+    const openTask = gateRead(
+      db,
+      `
+    SELECT id FROM tasks
+     WHERE branch_id = '${sqlQuote(target)}'
+       AND status IN ('pending','running','needs_validation')
+     LIMIT 1;
+  `,
+      env
+    );
+    if (openTask === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME47, env)}
+`, code: 0 };
+    if (openTask === "" || !openTask.split("\n").some((l) => /^[0-9]+$/.test(l))) continue;
+    if (dir === "?") return { stdout: denyAmbiguousGitTarget(stmt), code: 0 };
+    const loc = taskLocation(db, openTask, env);
+    const wt = loc.code === 0 ? loc.worktree : `${repoGitRoot(dir, env) || dir}/.claude/worktrees/${branchSlug(target)}`;
+    return denyResult(
+      `the main checkout stays on the base; SWE work lives in worktrees \u2014 use the worktree at ${wt}. Branch '${target}' belongs to open task #${openTask}. Switch to the worktree instead: cd ${wt}`
+    );
+  }
+  return ALLOW;
+};
+
+// src/hooks/branch-up-to-date-with-remote.ts
+var GATE_NAME48 = "branch-up-to-date-with-remote";
+var CREATES_BRANCH = [" -b ", " -B ", " --create-branch "];
+function behindCount(root, range, env) {
+  const r = gitRun(root, ["rev-list", "--count", range], env);
+  return stripTrailingNewlines(r.code === 0 ? r.stdout : `${r.stdout}?
+`);
+}
+var branchUpToDateWithRemote = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  if ((env.TMB_ALLOW_STALE_BRANCH ?? "") === "1") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (command === "" || !command.includes("worktree")) return ALLOW;
+  const cwd = payloadCwdOf(input, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  let wtDir = "";
+  let wtSub = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const sub = gitSubcommand(stmt);
+    if (sub.startsWith("worktree add ")) {
+      wtDir = dir;
+      wtSub = sub;
+      break;
+    }
+  }
+  if (wtSub === "") return ALLOW;
+  if (CREATES_BRANCH.some((flag) => ` ${wtSub} `.includes(flag))) return ALLOW;
+  const branch = wtSub.slice(wtSub.lastIndexOf(" ") + 1);
+  if (branch === "") return ALLOW;
+  const root = stmtRepoRoot(wtDir, cwd, env);
+  if (root === "") return ALLOW;
+  const db = dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const repo = sqlQuote(repoNameForRoot(db, root, env));
+  const row = gateRead(db, `SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '${repo}' LIMIT 1;`, env);
+  if (row === GATE_READ_ERROR) return { stdout: `${denyDbUnavailable(GATE_NAME48, env)}
+`, code: 0 };
+  if (row === "") return ALLOW;
+  const prTarget = (row.startsWith("repo|") ? row.slice(5) : row) || "main";
+  if (!gitOk(root, ["rev-parse", "--verify", branch], env)) return ALLOW;
+  if (gitOut(root, ["remote", "get-url", "origin"], env) === "") return ALLOW;
+  gitRun(root, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=5", "fetch", "origin", prTarget, "--quiet"], env);
+  if (!gitOk(root, ["rev-parse", "--verify", `origin/${prTarget}`], env)) return ALLOW;
+  if (gitOk(root, ["merge-base", "--is-ancestor", `origin/${prTarget}`, branch], env)) return ALLOW;
+  const behind = behindCount(root, `${branch}..origin/${prTarget}`, env);
+  return denyResult(
+    `BLOCKED: branch '${branch}' is behind origin/${prTarget} by ${behind} commit(s). bro must rebase the task branch onto the latest origin/${prTarget} (or recreate it: \`git branch -D ${branch} && git fetch origin ${prTarget} && git branch ${branch} origin/${prTarget}\`) before SWE attaches a worktree. This catches stale-local-main bugs where the worktree starts from yesterday's commit and conflicts on push. Bypass: TMB_ALLOW_STALE_BRANCH=1 (e.g. offline work).`
+  );
+};
+
+// src/hooks/no-worktree-branch-create.ts
+var GATE_NAME49 = "no-worktree-branch-create";
+var CREATES_BRANCH2 = [" -b ", " -B ", " --create-branch "];
+var BRANCH_CREATE_REASON = "BLOCKED: `git worktree add` cannot create a branch (-b/-B/--create-branch). Branch authority belongs to bro: bro creates the branch first via `git branch <task.branch_id> HEAD`, then SWE attaches the worktree with `git worktree add <path> <branch>` (no -b/-B). Without this rule, SWE may invent a different branch name than the spec (`tasks.branch_id`), breaking the push-gate lookup. Bypass: TMB_ALLOW_WORKTREE_BRANCH_CREATE=1.";
+var DETACH_REASON = "BLOCKED: `git worktree add --detach` strands SWE's commits on a detached HEAD instead of advancing the branch ref. Pushes then upload an empty branch and MRs open with no diff (#2869). Use a plain `git worktree add <path> <branch>` so commits advance the named branch naturally. Bypass: TMB_ALLOW_WORKTREE_DETACH=1.";
+var REASONS = { "branch-create": BRANCH_CREATE_REASON, detach: DETACH_REASON, parse: PARSE_REASON };
+function violationOf(statements2, env) {
+  for (const { stmt } of statementRows(statements2)) {
+    const sub = gitSubcommand(stmt);
+    if (!sub.startsWith("worktree add ")) continue;
+    const padded = ` ${sub} `;
+    if (CREATES_BRANCH2.some((flag) => padded.includes(flag)) && (env.TMB_ALLOW_WORKTREE_BRANCH_CREATE ?? "0") !== "1") return "branch-create";
+    if (padded.includes(" --detach ") && (env.TMB_ALLOW_WORKTREE_DETACH ?? "0") !== "1") return "detach";
+  }
+  return null;
+}
+var noWorktreeBranchCreate = async (payload, env) => {
+  const input = jqInput(payload);
+  if (jqCapture(input, ["tool_name"]) !== "Bash") return ALLOW;
+  const command = jqCapture(input, ["tool_input", "command"]);
+  if (!command.includes("worktree")) return ALLOW;
+  const listed2 = await cmdStatements(command, "/", env);
+  const violation = listed2.ok ? violationOf(listed2.statements, env) : "parse";
+  if (violation === null) return ALLOW;
+  dbPath(env, (line) => process.stderr.write(`${line}
+`));
+  const state = dbState(env);
+  if (state === "unresolved") return ALLOW;
+  if (state === "error") return { stdout: `${denyDbUnavailable(GATE_NAME49, env)}
+`, code: 0 };
+  return denyResult(REASONS[violation]);
+};
+
+// src/hooks/no-remote-auth-guard.ts
+var GATE_NAME50 = "no-remote-auth-guard";
+var AUTH_LOGIN = [
+  ["gh", "gh auth login"],
+  ["glab", "glab auth login"]
+];
+function hasRemoteUrl(remotesJson) {
+  const lines2 = [];
+  for (const value of jqInput(remotesJson).values) {
+    if (value === null || typeof value !== "object") break;
+    let n3 = 0;
+    try {
+      for (const item of Object.values(value)) {
+        const url = jqGet(item, "url");
+        if (url !== null && url !== "") n3++;
+      }
+    } catch (e) {
+      if (e instanceof JqUnindexable) break;
+      throw e;
+    }
+    lines2.push(jqRaw2(n3 > 0));
+  }
+  return shellCapture2(lines2.join("\n"));
+}
+var noRemoteAuthGuard = async (payload, env) => {
+  const input = jqInput(payload);
+  const command = jqCapture(input, ["tool_input", "command"], true);
+  if (command === "" || !command.includes("login")) return ALLOW;
+  const cwd = payloadCwdOf(input, env);
+  const listed2 = await cmdStatements(command, cwd, env);
+  if (!listed2.ok) return dbPath(env) !== null && haveSqlite(env) ? denyResult(PARSE_REASON) : ALLOW;
+  let tool = "";
+  let matchedDir = "";
+  for (const { dir, stmt } of statementRows(listed2.statements)) {
+    const hit = AUTH_LOGIN.find(([, login]) => stmt === login || stmt.startsWith(`${login} `));
+    if (hit) {
+      [tool] = hit;
+      matchedDir = dir;
+      break;
+    }
+  }
+  if (tool === "") return ALLOW;
+  const db = dbPath(env);
+  if (db === null) return ALLOW;
+  if (!haveSqlite(env)) return ALLOW;
+  const remotes = repoRemotes(db, stmtRepoRoot(matchedDir, cwd, env), env);
+  if (remotes === "") return ALLOW;
+  if (hasRemoteUrl(remotes) !== "false") return ALLOW;
+  return denyResult(
+    `BLOCKED: No remote is configured (remotes have no URL) \u2014 TMB is operating locally. Interactive '${tool} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally.`
+  );
+};
+
 // src/hooks/swe-scope-fence.ts
-var GATE_NAME50 = "swe-scope-fence";
+var GATE_NAME51 = "swe-scope-fence";
 var EDIT_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 function jqFirst(input, paths, orEmpty2 = false) {
   const lines2 = [];
@@ -20112,7 +20157,7 @@ var sweScopeFence = (payload, env) => {
 // src/hooks/orphan-scan.ts
 import { spawnSync as spawnSync11 } from "node:child_process";
 import { existsSync as existsSync12, lstatSync as lstatSync8, opendirSync, readFileSync as readFileSync16, rmSync as rmSync5, statSync as statSync26 } from "node:fs";
-var GATE_NAME51 = "orphan-scan";
+var GATE_NAME52 = "orphan-scan";
 var DEADLINE_S = 4;
 var ANCESTRY_GUARD2 = 40;
 var INT64_MIN2 = -(2n ** 63n);
@@ -20414,7 +20459,7 @@ var orphanScan = (_payload, env) => {
 import { spawn as spawn3 } from "node:child_process";
 import { readdirSync as readdirSync6, readFileSync as readFileSync17, statSync as statSync27 } from "node:fs";
 import { fileURLToPath as fileURLToPath7 } from "node:url";
-var GATE_NAME52 = "session-start-prescan";
+var GATE_NAME53 = "session-start-prescan";
 var NO_JQ_LINE = '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found \u2014 every TMB gate will deny until it is installed"}}\n';
 var SUBDIR_STACKS_MAX = 3;
 var TOPLEVEL_MAX = 10;
@@ -20726,7 +20771,7 @@ function pluginRoot2() {
 }
 function sessionStartPrescanRun(env, root, stderr2) {
   if (!commandOnPath("jq", env)) return { stdout: NO_JQ_LINE, code: 0 };
-  const db = dbPathAdvisory(GATE_NAME52, env, (line) => stderr2(`${line}
+  const db = dbPathAdvisory(GATE_NAME53, env, (line) => stderr2(`${line}
 `));
   if (db === null) return ALLOW;
   if (!haveSqlite(env) || !commandOnPath("git", env)) return ALLOW;
@@ -20849,7 +20894,7 @@ function mergeFailed(response) {
 }
 
 // src/hooks/clean-merged-branch.ts
-var GATE_NAME53 = "clean-merged-branch";
+var GATE_NAME54 = "clean-merged-branch";
 var MERGE_CMD = /(^|[^A-Za-z0-9_-])(gh[ \t\v\f\r]+pr[ \t\v\f\r]+merge|glab[ \t\v\f\r]+mr[ \t\v\f\r]+merge)([^A-Za-z0-9_-]|$)/m;
 var MERGE_PREFIX = /^.*(gh[ \t\v\f\r]+pr|glab[ \t\v\f\r]+mr)[ \t\v\f\r]+merge/;
 function isFile15(path) {
@@ -21132,7 +21177,7 @@ var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 
 // src/hooks/close-issue-on-merge.ts
-var GATE_NAME54 = "close-issue-on-merge";
+var GATE_NAME55 = "close-issue-on-merge";
 var FROM = "hook:close-issue-on-merge";
 var LIVE = "'pending','running','needs_validation','completed'";
 var GH_TIMEOUT_MS = 1e4;
@@ -21262,7 +21307,7 @@ var Merge = class {
   }
   audit(row) {
     const r = auditSql({ ...row, fromNode: FROM }, "", {
-      caller: GATE_NAME54,
+      caller: GATE_NAME55,
       env: this.env
     });
     if (r.code === 0) return r.sql;
@@ -21425,7 +21470,7 @@ function close(payload, env) {
   const merge = new Merge(db, head, syncOn(db, env), env);
   const sql = merge.build(prJson);
   if (sql === "") return;
-  const w = dbWrite(db, sql, { caller: GATE_NAME54, env });
+  const w = dbWrite(db, sql, { caller: GATE_NAME55, env });
   if (!w.ok) {
     process.stderr.write(`${w.error}
 `);
@@ -21444,7 +21489,7 @@ var closeIssueOnMerge = (payload, env) => {
 
 // src/hooks/swe-atomic-close.ts
 import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync8, readFileSync as readFileSync18, realpathSync as realpathSync7, renameSync as renameSync3, statSync as statSync30 } from "node:fs";
-var GATE_NAME55 = "swe-atomic-close";
+var GATE_NAME56 = "swe-atomic-close";
 var FROM_NODE2 = "hook:swe-atomic-close";
 var LOG_ROTATE_BYTES2 = 1048576;
 var NO_STATS = "0|0|0|0|0|0||";
@@ -21652,7 +21697,7 @@ var Log = class _Log {
   }
 };
 function write(db, sql, env, out2) {
-  const r = dbWrite(db, sql, { caller: GATE_NAME55, env });
+  const r = dbWrite(db, sql, { caller: GATE_NAME56, env });
   out2.stdout += r.stdout;
   if (!r.ok) process.stderr.write(`${r.error}
 `);
@@ -21677,7 +21722,7 @@ function skipUnbound(db, transcript, spawnId, taskId, env, out2) {
       summary: `SWE spawn not metered: ${reason}`,
       contentJson: content
     },
-    { caller: GATE_NAME55, env }
+    { caller: GATE_NAME56, env }
   );
   out2.stdout += r.stdout;
   if (!r.ok) process.stderr.write(`${r.error}
@@ -21877,7 +21922,7 @@ SELECT 1 FROM tasks
           contentJson: closeJson
         },
         "(SELECT changes()) > 0",
-        { caller: GATE_NAME55, env }
+        { caller: GATE_NAME56, env }
       );
       if (audit.code !== 0) process.stderr.write(`${audit.error}
 `);
@@ -21984,7 +22029,7 @@ SELECT CASE WHEN stop_cause = 'hook_block' THEN 'B' || COALESCE(substr(stop_deta
 import { spawn as spawn5 } from "node:child_process";
 import { statSync as statSync31 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
-var GATE_NAME56 = "post-task-close-rescan";
+var GATE_NAME57 = "post-task-close-rescan";
 var CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 function isFile18(path) {
   try {
@@ -22026,7 +22071,7 @@ function postTaskCloseRescan(payload, env) {
 
 // src/hooks/post-atomic-close-readme.ts
 import { statSync as statSync32 } from "node:fs";
-var GATE_NAME57 = "post-atomic-close-readme";
+var GATE_NAME58 = "post-atomic-close-readme";
 var BYPASS_ENV7 = "TMB_DISABLE_README_STALENESS_HOOK";
 var ATOMIC_CLOSE_TOOL = /^mcp__[\s\S]*trajectory-server__bro_atomic_close$/;
 var ROOT_DIR = ".";
@@ -22116,12 +22161,12 @@ function surface(payload, env) {
     {
       issueId: sqlInt(task.issueId) || "-1",
       branchId: task.branchId,
-      fromNode: `hook:${GATE_NAME57}`,
+      fromNode: `hook:${GATE_NAME58}`,
       eventType: "readme_staleness_surfaced",
       summary: `task ${taskId}: README may be stale in ${staleLines.filter((line) => line !== "").length} dir(s) after ${task.commitSha.slice(0, 7)}`,
       contentJson: jqCompact({ task_id: jqNumber2(taskId), commit_sha: task.commitSha, stale: staleLines })
     },
-    { env, caller: GATE_NAME57 }
+    { env, caller: GATE_NAME58 }
   );
   if (!w.ok) process.stderr.write(`${w.error}
 `);
@@ -22138,7 +22183,7 @@ var postAtomicCloseReadme = (payload, env) => {
 };
 
 // src/hooks/agent-spawn-dispatch.ts
-var GATE_NAME58 = "agent-spawn-dispatch";
+var GATE_NAME59 = "agent-spawn-dispatch";
 var CHAIN = [
   "require-task-spec",
   "require-spawn-effort",
@@ -22185,7 +22230,7 @@ async function agentSpawnDispatch(payload, env, find) {
 
 // src/hooks/ensure-swe-worktree.ts
 import { existsSync as existsSync13 } from "node:fs";
-var GATE_NAME59 = "ensure-swe-worktree";
+var GATE_NAME60 = "ensure-swe-worktree";
 function cutField4(text, n3) {
   const lines2 = text.split("\n").map((line) => line.includes("|") ? line.split("|")[n3 - 1] ?? "" : line);
   return stripTrailingNewlines(lines2.join("\n"));
@@ -22244,7 +22289,7 @@ var ensureSweWorktree = (payload, env) => {
 };
 
 // src/hooks/record-swe-spawn.ts
-var GATE_NAME60 = "record-swe-spawn";
+var GATE_NAME61 = "record-swe-spawn";
 var UNIT_SEPARATOR = "";
 var SPAWN_FIELDS = [["session_id"], ["tool_use_id"], ["tool_input", "effort"], ["tool_input", "model"]];
 function spawnFields(input) {
@@ -22323,7 +22368,7 @@ var recordSweSpawn = (payload, env) => {
       rootDir = recordedWorktree(db, taskId, branch, env) || `${prepareRepoRoot(db, cutField4(row, 2), env).replace(/\/$/, "")}/.claude/worktrees/${branchSlug(branch)}`;
     }
     const sql = spawnSql({ taskId, rootDir, fields, spawnId, pluginVersion: pluginVersion(env), now: nowIso() });
-    dbWrite(db, sql, { caller: GATE_NAME60, env });
+    dbWrite(db, sql, { caller: GATE_NAME61, env });
   } catch {
   }
   return ALLOW;
@@ -22331,7 +22376,7 @@ var recordSweSpawn = (payload, env) => {
 
 // src/hooks/cleanup-worktree-on-task-close.ts
 import { statSync as statSync33 } from "node:fs";
-var GATE_NAME61 = "cleanup-worktree-on-task-close";
+var GATE_NAME62 = "cleanup-worktree-on-task-close";
 var BYPASS_ENV8 = "TMB_KEEP_CLOSED_WORKTREES";
 var KEEP_HEAD_ENV = "TMB_KEEP_HEAD_ON_CLOSE";
 var TOOL = /^mcp__[\s\S]*trajectory-server__(?:task_update_status|validation_record)$/;
@@ -22428,7 +22473,7 @@ var cleanupWorktreeOnTaskClose = (payload, env) => cleanupWorktree(payload, env,
 import { spawnSync as spawnSync13 } from "node:child_process";
 import { existsSync as existsSync14, mkdirSync as mkdirSync9, readFileSync as readFileSync19, statSync as statSync34 } from "node:fs";
 import { fileURLToPath as fileURLToPath9 } from "node:url";
-var GATE_NAME62 = "worktree-create";
+var GATE_NAME63 = "worktree-create";
 var MERGE_DRIVER_MARK = "merge=tmb-regen";
 var MERGE_DRIVER_SCRIPT = "scripts/maintenance/install-merge-driver.sh";
 var NO_BRANCH = "tmb worktree-create: WorktreeCreate input has no .branch field \u2014 cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task's branch.\n";
@@ -22543,7 +22588,7 @@ var worktreeCreate = (payload, env) => worktreeCreateRun(payload, env, (line) =>
 // src/hooks/remote-id-guard.ts
 import { statSync as statSync35 } from "node:fs";
 import { performance as performance5 } from "node:perf_hooks";
-var GATE_NAME63 = "remote-id-guard";
+var GATE_NAME64 = "remote-id-guard";
 var DEFAULT_DEADLINE_S = "3";
 var WRITE_RUN_BUDGET_MS2 = "1000";
 var REMOTE_WRITES = [
@@ -22712,12 +22757,12 @@ function auditOverrun(deadline, elapsed, env) {
     {
       issueId: "-1",
       branchId: "",
-      fromNode: `hook:${GATE_NAME63}`,
+      fromNode: `hook:${GATE_NAME64}`,
       eventType: "remote_id_guard_overrun",
-      summary: `${GATE_NAME63} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
+      summary: `${GATE_NAME64} allowed a Bash command: its analysis passed the ${deadline}s deadline`,
       contentJson: `{"deadline_s":${jqNumberLiteral(deadline)},"elapsed_s":${jqNumberLiteral(elapsed)}}`
     },
-    { caller: GATE_NAME63, env }
+    { caller: GATE_NAME64, env }
   );
 }
 function seconds(ms) {
@@ -22745,7 +22790,7 @@ var remoteIdGuard = async (payload, processEnv) => {
   }
   if (result !== OVERRUN && !overran()) return result;
   const elapsed = seconds(elapsedMs2());
-  process.stderr.write(`${GATE_NAME63}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
+  process.stderr.write(`${GATE_NAME64}: analysis passed its ${deadline}s deadline (TMB_REMOTE_ID_GUARD_DEADLINE_S) after ${elapsed}s; allowing
 `);
   auditOverrun(deadline, elapsed, env);
   return ALLOW;
@@ -22754,7 +22799,7 @@ var remoteIdGuard = async (payload, processEnv) => {
 // src/hooks/no-source-edit-from-main.ts
 import { readFileSync as readFileSync20, statSync as statSync36 } from "node:fs";
 import { fileURLToPath as fileURLToPath10 } from "node:url";
-var GATE_NAME64 = "no-source-edit-from-main";
+var GATE_NAME65 = "no-source-edit-from-main";
 var JUDGED_TOOLS2 = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]);
 var BASH_REASON = "BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed.";
 var SURFACE_REASON = "BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees \u2014 spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type.";
@@ -22788,7 +22833,7 @@ function deny10(reason) {
 `, code: 0 };
 }
 function dbDenied(env) {
-  return { stdout: `${denyDbUnavailable(GATE_NAME64, env)}
+  return { stdout: `${denyDbUnavailable(GATE_NAME65, env)}
 `, code: 0 };
 }
 function hasDir(path, dir) {
@@ -23116,42 +23161,43 @@ var GATES = /* @__PURE__ */ new Map([
   [GATE_NAME27, sessionLogCapture],
   [GATE_NAME28, sessionStartPersona],
   [GATE_NAME29, userPromptPersona],
-  [GATE_NAME30, consultantPersistenceGate],
-  [GATE_NAME31, roundtableAuqShape],
-  [GATE_NAME32, roundtableCleanupPostcheck],
-  [GATE_NAME33, roundtableSlashDetect],
+  [GATE_NAME32, reworkWaiverCapture],
+  [GATE_NAME33, consultantPersistenceGate],
+  [GATE_NAME34, roundtableAuqShape],
+  [GATE_NAME35, roundtableCleanupPostcheck],
+  [GATE_NAME36, roundtableSlashDetect],
   [GATE_NAME2, toolOutputSize],
-  [GATE_NAME34, codeReviewerNoWorktree],
-  [GATE_NAME35, codeReviewerSpawnPromptShape],
-  [GATE_NAME36, codeReviewerAfterAtomicClose],
-  [GATE_NAME38, sweVerificationGate],
-  [GATE_NAME37, sweBriefGate],
-  [GATE_NAME39, sweSpawnBind],
-  [GATE_NAME40, sweSpawnRollback],
-  [GATE_NAME41, postTaskCreateSpawnHint],
-  [GATE_NAME42, agentArgMatchesCaller],
-  [GATE_NAME43, reviewerIdentityObserve],
-  [GATE_NAME44, cheatcodeInstallApproval],
-  [GATE_NAME45, stayOnBaseGuard],
-  [GATE_NAME46, branchUpToDateWithRemote],
-  [GATE_NAME47, noWorktreeBranchCreate],
-  [GATE_NAME48, noRemoteAuthGuard],
-  [GATE_NAME49, promptIntentHints],
-  [GATE_NAME50, sweScopeFence],
-  [GATE_NAME51, orphanScan],
-  [GATE_NAME52, sessionStartPrescan],
-  [GATE_NAME53, cleanMergedBranch],
-  [GATE_NAME54, closeIssueOnMerge],
-  [GATE_NAME55, sweAtomicClose],
-  [GATE_NAME56, postTaskCloseRescan],
-  [GATE_NAME57, postAtomicCloseReadme],
-  [GATE_NAME58, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
-  [GATE_NAME59, ensureSweWorktree],
-  [GATE_NAME60, recordSweSpawn],
-  [GATE_NAME61, cleanupWorktreeOnTaskClose],
-  [GATE_NAME62, worktreeCreate],
-  [GATE_NAME63, remoteIdGuard],
-  [GATE_NAME64, noSourceEditFromMain]
+  [GATE_NAME37, codeReviewerNoWorktree],
+  [GATE_NAME38, codeReviewerSpawnPromptShape],
+  [GATE_NAME39, codeReviewerAfterAtomicClose],
+  [GATE_NAME41, sweVerificationGate],
+  [GATE_NAME40, sweBriefGate],
+  [GATE_NAME42, sweSpawnBind],
+  [GATE_NAME43, sweSpawnRollback],
+  [GATE_NAME44, postTaskCreateSpawnHint],
+  [GATE_NAME30, agentArgMatchesCaller],
+  [GATE_NAME45, reviewerIdentityObserve],
+  [GATE_NAME46, cheatcodeInstallApproval],
+  [GATE_NAME47, stayOnBaseGuard],
+  [GATE_NAME48, branchUpToDateWithRemote],
+  [GATE_NAME49, noWorktreeBranchCreate],
+  [GATE_NAME50, noRemoteAuthGuard],
+  [GATE_NAME31, promptIntentHints],
+  [GATE_NAME51, sweScopeFence],
+  [GATE_NAME52, orphanScan],
+  [GATE_NAME53, sessionStartPrescan],
+  [GATE_NAME54, cleanMergedBranch],
+  [GATE_NAME55, closeIssueOnMerge],
+  [GATE_NAME56, sweAtomicClose],
+  [GATE_NAME57, postTaskCloseRescan],
+  [GATE_NAME58, postAtomicCloseReadme],
+  [GATE_NAME59, (payload, env) => agentSpawnDispatch(payload, env, findGate)],
+  [GATE_NAME60, ensureSweWorktree],
+  [GATE_NAME61, recordSweSpawn],
+  [GATE_NAME62, cleanupWorktreeOnTaskClose],
+  [GATE_NAME63, worktreeCreate],
+  [GATE_NAME64, remoteIdGuard],
+  [GATE_NAME65, noSourceEditFromMain]
 ]);
 function findGate(name3) {
   return GATES.get(name3);
@@ -23169,12 +23215,12 @@ var ROUTER_GROUPS = [
       routerGate(GATE_NAME6, "enforcement"),
       routerGate(GATE_NAME10, "enforcement"),
       routerGate(GATE_NAME20, "enforcement"),
+      routerGate(GATE_NAME49, "enforcement"),
       routerGate(GATE_NAME47, "enforcement"),
-      routerGate(GATE_NAME45, "enforcement"),
-      routerGate(GATE_NAME46, "enforcement"),
-      routerGate(GATE_NAME7, "advisory"),
       routerGate(GATE_NAME48, "enforcement"),
-      routerGate(GATE_NAME63, "enforcement"),
+      routerGate(GATE_NAME7, "advisory"),
+      routerGate(GATE_NAME50, "enforcement"),
+      routerGate(GATE_NAME64, "enforcement"),
       routerGate(GATE_NAME25, "advisory")
     ]
   }

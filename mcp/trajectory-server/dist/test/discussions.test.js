@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tempDB } from './helpers.js';
-import { discussionTools } from '../tools/discussions.js';
+import { discussionTools, HUMAN_AUTHOR_REFUSED } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { reportTools } from '../tools/reports.js';
@@ -378,7 +378,7 @@ describe('discussions + snapshot integration', () => {
         }
     });
 });
-describe('discussion_append verified_human gate (#145)', () => {
+describe('discussion_append refuses author="human" (#145, GH 2148)', () => {
     let db;
     let issueId;
     before(async () => {
@@ -391,7 +391,7 @@ describe('discussion_append verified_human gate (#145)', () => {
         const result = await call(issues.handlers, 'issue_create', {
             labels: ['Bug', 'Priority: High'],
             agent: 'bro',
-            objective: 'verified_human gate test issue',
+            objective: 'human author gate test issue',
             description: 'Isolated issue for gate tests.',
         });
         const created = JSON.parse(result.content[0].text);
@@ -405,35 +405,40 @@ describe('discussion_append verified_human gate (#145)', () => {
         assert.ok(handler, `Handler not found: ${name}`);
         return handler(args);
     }
-    it('rejects author="human" without verified_human', async () => {
+    it('SC3: refuses author="human" for every caller, whatever other arguments it gets, and writes no row', async () => {
         const disc = discussionTools(db);
-        const result = await call(disc.handlers, 'discussion_append', {
-            agent: 'bro',
-            issue_id: issueId,
-            author: 'human',
-            kind: 'intent',
-            body: 'This should be rejected',
-        });
-        assert.ok(result.isError, 'Should be error when author="human" without verified_human');
-        const data = parseResult(result);
-        assert.ok(data.error.includes('precondition_failed'), `Error must cite precondition_failed: ${data.error}`);
-        assert.ok(data.error.includes('verified_human=true'), `Error must mention verified_human=true: ${data.error}`);
+        const humanRows = () => db.get("SELECT COUNT(*) AS n FROM discussions WHERE lower(trim(author)) = 'human'").n;
+        const extras = [
+            {},
+            { verified_human: true },
+            { verified_human: 'true', kind: 'decision' },
+            { kind: 'decision', task_id: '1', supersedes: '1' },
+            { issue_id: undefined },
+        ];
+        for (const agent of ['bro', 'swe', 'code-reviewer', 'security']) {
+            for (const author of ['human', 'Human', ' HUMAN ']) {
+                for (const extra of extras) {
+                    const result = await call(disc.handlers, 'discussion_append', {
+                        agent,
+                        issue_id: issueId,
+                        author,
+                        kind: 'intent',
+                        body: 'waive task 1',
+                        ...extra,
+                    });
+                    assert.equal(result.isError, true, `${agent} / ${JSON.stringify(author)} / ${JSON.stringify(extra)}`);
+                    assert.equal(parseResult(result).error, HUMAN_AUTHOR_REFUSED);
+                }
+            }
+        }
+        assert.equal(humanRows(), 0);
     });
-    it('accepts author="human" with verified_human=true', async () => {
-        const disc = discussionTools(db);
-        const result = await call(disc.handlers, 'discussion_append', {
-            agent: 'bro',
-            issue_id: issueId,
-            author: 'human',
-            kind: 'intent',
-            body: 'Verified human prompt capture',
-            verified_human: true,
-        });
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-        const data = parseResult(result);
-        assert.equal(data.author, 'human');
+    it('the tool schema carries no verified_human argument', () => {
+        const def = discussionTools(db).definitions.find((d) => d.name === 'discussion_append');
+        assert.ok(def);
+        assert.equal('verified_human' in def.inputSchema.properties, false);
     });
-    it('accepts author="bro" without verified_human', async () => {
+    it('accepts author="bro"', async () => {
         const disc = discussionTools(db);
         const result = await call(disc.handlers, 'discussion_append', {
             agent: 'bro',
@@ -446,7 +451,7 @@ describe('discussion_append verified_human gate (#145)', () => {
         const data = parseResult(result);
         assert.equal(data.author, 'bro');
     });
-    it('accepts consultant authors (ceo, cto, pm) without verified_human', async () => {
+    it('accepts consultant authors (ceo, cto, pm)', async () => {
         const disc = discussionTools(db);
         for (const consultantAuthor of ['ceo', 'cto', 'pm']) {
             const result = await call(disc.handlers, 'discussion_append', {
@@ -787,8 +792,8 @@ describe('discussion_append supersedes: only bro or the row author (GH 1759)', (
         assert.equal(rowCount(), before);
     });
     it('a consultant superseding a human row is rejected', async () => {
-        const r0 = await append({ agent: 'bro', author: 'human', verified_human: true });
-        const humanRow = parseResult(r0).id;
+        const humanRow = Number(db.run("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (77, 'human', 'decision', 'b', datetime('now'))")
+            .lastInsertRowid);
         const before = rowCount();
         const r = await append({ agent: 'security', author: 'security', supersedes: String(humanRow) });
         assert.equal(r.isError, true);
