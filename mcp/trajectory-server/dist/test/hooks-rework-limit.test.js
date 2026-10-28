@@ -300,5 +300,17 @@ describe('rework-limit', () => {
             assert.equal(existsSync(join(marks, 'record-swe-spawn')), true, 'record-swe-spawn.sh ran');
         });
     });
+    describe('hook docs', () => {
+        for (const [doc, stale] of [
+            ['scripts/hooks/README.md', 'a decision naming the change of approach'],
+            ['scripts/hooks/agent-spawn-dispatch.sh', 'needs a newer decision'],
+        ]) {
+            it(`${doc} names the Human-only waiver and no decision-row escape`, () => {
+                const text = readFileSync(join(PLUGIN_ROOT, doc), 'utf8');
+                assert.equal(text.includes(stale), false, `${doc} still says "${stale}"`);
+                assert.ok(text.includes('waive task'), `${doc} names \`waive task <N>\``);
+            });
+        }
+    });
 });
 //# sourceMappingURL=hooks-rework-limit.test.js.map
