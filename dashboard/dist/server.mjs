@@ -8017,6 +8017,8 @@ function issueTools(db, dbPath = "", options = {}) {
 // ../mcp/trajectory-server/src/tools/discussions.ts
 var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
 var MAX_BODY_BYTES = 65536;
+var HUMAN_AUTHOR = "human";
+var HUMAN_AUTHOR_REFUSED = "author_forbidden: discussion_append never writes author='human'. Human rows come only from the rework-waiver-capture hook, which records the Human's own prompt. Write the row under your own name and quote the Human verbatim.";
 function ok2(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -8124,7 +8126,7 @@ function discussionTools(db) {
         properties: {
           agent: { type: "string", description: "Caller agent name" },
           issue_id: { type: "string", description: "The issue ID (integer as string). Optional \u2014 defaults to the newest open issue, else -1." },
-          author: { type: "string", description: "Author of this entry (agent name or human)" },
+          author: { type: "string", description: "Author of this entry: an agent name. 'human' is refused; quote the Human verbatim under your own name." },
           kind: {
             type: "string",
             enum: ["intent", "question", "answer", "decision", "note", "analysis"],
@@ -8138,10 +8140,6 @@ function discussionTools(db) {
           supersedes: {
             type: "string",
             description: "Optional \u2014 id of an earlier discussion on this issue that this entry replaces. Only bro or the author of the earlier row may set it. task_brief skips the superseded row; discussion_search still returns it."
-          },
-          verified_human: {
-            type: "boolean",
-            description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
           }
         },
         required: ["agent", "author", "body"]
@@ -8352,6 +8350,7 @@ function discussionTools(db) {
         const rawIssueId = args["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
         const author = requireArg2(args, "author");
+        if (String(author).trim().toLowerCase() === HUMAN_AUTHOR) return err2(HUMAN_AUTHOR_REFUSED);
         const body = requireArg2(args, "body");
         const kind = args["kind"] ?? "note";
         const bodyBytes = Buffer.byteLength(body, "utf8");
@@ -8365,12 +8364,6 @@ function discussionTools(db) {
         }
         if (!author.trim()) {
           throw new Error("author must be a non-empty string");
-        }
-        const verifiedHuman = Boolean(args["verified_human"]);
-        if (author === "human" && !verifiedHuman) {
-          throw new Error(
-            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
-          );
         }
         const issue = db.get("SELECT id FROM issues WHERE id = ?", [issueId]);
         if (!issue) {
@@ -8704,10 +8697,9 @@ var IssueWriter = class {
     }
     const res = await this.call("discussion_append", {
       issue_id: String(issueId),
-      author: "human",
+      author: "dashboard",
       kind: "note",
-      body: text,
-      verified_human: true
+      body: text
     });
     if (!res.ok) return handlerError("discussion_append", res.data);
     this.audit(issueId, "discussion_append", ["comment"], { discussion_id: res.data["id"] });

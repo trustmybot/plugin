@@ -172,9 +172,9 @@ expect "close refuses a cascade field" 400 'unknown_fields'
 echo "  comment:"
 post "api/issues/$EDIT_ID/comment" '{"body":"A Human comment from the dashboard"}'
 expect "comment" 200 '"tools":["discussion_append"]'
-expect_sql "comment landed as author=human kind=note" \
+expect_sql "comment landed as author=dashboard kind=note" \
   "SELECT author, kind FROM discussions WHERE issue_id = $EDIT_ID AND body = 'A Human comment from the dashboard'" \
-  '[{"author":"human","kind":"note"}]'
+  '[{"author":"dashboard","kind":"note"}]'
 expect_sql "comment audit row" \
   "SELECT COUNT(*) AS n FROM audit WHERE issue_id = $EDIT_ID AND json_extract(content_json, '\$.tool') = 'discussion_append' AND json_extract(content_json, '\$.source') = 'dashboard'" '"n":1'
 
@@ -203,7 +203,7 @@ out=$(curl -sS --max-time 5 -X POST -o /dev/null -w '%{http_code}' -H 'content-t
   -H "x-tmb-token: $TOKEN" --data '{"body":"no origin"}' "${URL}api/issues/$EDIT_ID/comment")
 [ "$out" = 403 ] && pass "POST without Origin" || fail "POST without Origin: HTTP $out"
 expect_sql "guarded comments did not land" \
-  "SELECT COUNT(*) AS n FROM discussions WHERE issue_id = $EDIT_ID AND author = 'human'" '"n":1'
+  "SELECT COUNT(*) AS n FROM discussions WHERE issue_id = $EDIT_ID AND author = 'dashboard'" '"n":1'
 
 for path in "api/tasks" "api/tasks/1" "api/tasks/1/edit" "api/plugin_config" "api/config" \
   "api/issues" "api/issues/create" "api/issues/$EDIT_ID/create" "api/issues/$EDIT_ID/reopen" \
