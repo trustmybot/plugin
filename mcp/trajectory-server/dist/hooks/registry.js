@@ -28,6 +28,7 @@ import { GATE_NAME as PLUGIN_HOOKS_MARKER_GATE, pluginHooksMarker } from './plug
 import { GATE_NAME as SESSION_LOG_GATE, sessionLogCapture } from './session-log-capture.js';
 import { GATE_NAME as SESSION_START_PERSONA_GATE, sessionStartPersona } from './session-start-persona.js';
 import { GATE_NAME as USER_PROMPT_PERSONA_GATE, userPromptPersona } from './user-prompt-persona.js';
+import { GATE_NAME as REWORK_WAIVER_GATE, reworkWaiverCapture } from './rework-waiver-capture.js';
 import { GATE_NAME as CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate } from './consultant-persistence-gate.js';
 import { GATE_NAME as RT_AUQ_SHAPE_GATE, roundtableAuqShape } from './roundtable-auq-shape.js';
 import { GATE_NAME as RT_CLEANUP_GATE, roundtableCleanupPostcheck } from './roundtable-cleanup-postcheck.js';
@@ -95,6 +96,7 @@ const GATES = new Map([
     [SESSION_LOG_GATE, sessionLogCapture],
     [SESSION_START_PERSONA_GATE, sessionStartPersona],
     [USER_PROMPT_PERSONA_GATE, userPromptPersona],
+    [REWORK_WAIVER_GATE, reworkWaiverCapture],
     [CONSULTANT_PERSISTENCE_GATE, consultantPersistenceGate],
     [RT_AUQ_SHAPE_GATE, roundtableAuqShape],
     [RT_CLEANUP_GATE, roundtableCleanupPostcheck],

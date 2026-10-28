@@ -26,7 +26,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **milestones**: `milestone_close`
 - **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`
 - **stats**: `task_stats`
-- **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
+- **discussions**: `discussion_append` (refuses author='human'; only the `rework-waiver-capture` hook writes Human rows), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
 - **pr_monitor**: `pr_monitor_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_monitor_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='code-reviewer'), `validation_history`
@@ -88,6 +88,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `substrate-preflight.sh` | SessionStart | Verify the trajectory DB + world-model substrates are reachable before the session proceeds |
 | `orphan-scan.sh` | SessionStart | Report this project's stale trajectory DBs, duplicate server procs and unpinned caches left by upgrades (cleans only when opted in) |
 | `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin hooks reloaded mid-session) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
+| `rework-waiver-capture.ts` | UserPromptSubmit | The one writer of `author='human'` discussions rows: for each `waive task <N>` in the Human's prompt (case-insensitive, optional `#`), write a `decision` row on task N and its issue whose body is the prompt line (500 characters at most). Other wording, an unknown task, a harness turn or no DB writes nothing; never blocks |
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running |
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / headless / ADR / consultant / search-grounding) to the right guidance; `headless-intent` asks one consent before enabling headless enforcement |

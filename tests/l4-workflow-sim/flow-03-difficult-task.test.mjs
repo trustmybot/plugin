@@ -12,10 +12,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, startProjectClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, startProjectClient, call, seedHumanRow } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 3 — difficult task: Q+A discussions precede task_provision; its decision_body drives ADR', async (t) => {
-  const { client, close, project } = await startProjectClient();
+  const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
   // 1. Issue
@@ -29,10 +29,7 @@ test('Flow 3 — difficult task: Q+A discussions precede task_provision; its dec
   const issueId = issue.data.id;
 
   // 2. Intent + triage note
-  await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, author: 'human', kind: 'intent',
-    body: '@bro switch us to JWT auth', verified_human: true,
-  });
+  seedHumanRow(dbPath, issueId, { kind: 'intent', body: '@bro switch us to JWT auth' });
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',
     body: 'Triage: difficult — touches architecture, multiple services.',
@@ -45,11 +42,7 @@ test('Flow 3 — difficult task: Q+A discussions precede task_provision; its dec
   });
   assert.equal(q1.ok, true);
 
-  const a1 = await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, author: 'human', kind: 'answer',
-    body: 'RS256 with rotation; we need this for compliance.', verified_human: true,
-  });
-  assert.equal(a1.ok, true);
+  assert.ok(seedHumanRow(dbPath, issueId, { kind: 'answer', body: 'RS256 with rotation; we need this for compliance.' }) > 0);
 
   const q2 = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question',
@@ -57,11 +50,7 @@ test('Flow 3 — difficult task: Q+A discussions precede task_provision; its dec
   });
   assert.equal(q2.ok, true);
 
-  const a2 = await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, author: 'human', kind: 'answer',
-    body: 'Force re-login; cleaner cutover, acceptable UX cost.', verified_human: true,
-  });
-  assert.equal(a2.ok, true);
+  assert.ok(seedHumanRow(dbPath, issueId, { kind: 'answer', body: 'Force re-login; cleaner cutover, acceptable UX cost.' }) > 0);
 
   // 4. Task creation through task_provision: its decision_body is the decision
   // row (the ADR seed), written in the same call that creates the task, branch

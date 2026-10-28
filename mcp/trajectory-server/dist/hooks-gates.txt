@@ -43,6 +43,7 @@ require-spawn-effort
 require-task-spec
 reviewer-identity-observe
 rework-limit
+rework-waiver-capture
 roundtable-auq-shape
 roundtable-cleanup-postcheck
 roundtable-slash-detect

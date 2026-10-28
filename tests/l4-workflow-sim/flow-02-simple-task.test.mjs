@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { startProjectClient, call, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedHumanRow, seedPassingVerificationRun } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → bro closes (no per-task code-reviewer)', async (t) => {
   const { client, close, dbPath, project } = await startProjectClient();
@@ -30,11 +30,7 @@ test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes 
   const issueId = issue.data.id;
 
   // 2. bro logs intent + triage discussion
-  const intent = await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, author: 'human', kind: 'intent',
-    body: '@bro add /hello endpoint', verified_human: true,
-  });
-  assert.equal(intent.ok, true);
+  assert.ok(seedHumanRow(dbPath, issueId, { kind: 'intent', body: '@bro add /hello endpoint' }) > 0);
 
   const triage = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',

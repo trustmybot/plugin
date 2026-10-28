@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call, serverEnv } from './harness.mjs';
+import { startClient, call, serverEnv, seedHumanRow } from './harness.mjs';
 
 const SLASH_HOOK = fileURLToPath(new URL('../../../scripts/hooks/roundtable-slash-detect.sh', import.meta.url));
 
@@ -39,7 +39,7 @@ test('issue_create returns a single id (no issue_string_id ghost field)', async 
 });
 
 test('discussion_append chronology: answer rows have a preceding question row', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
@@ -54,9 +54,13 @@ test('discussion_append chronology: answer rows have a preceding question row', 
   for (const entry of [
     { kind: 'note',     author: 'architect', body: 'Triage' },
     { kind: 'question', author: 'architect', body: 'Which lib?\n1. argparse\n2. click' },
-    { kind: 'answer',   author: 'human',     body: '1', verified_human: true },
+    { kind: 'answer',   author: 'human',     body: '1' },
     { kind: 'decision', author: 'architect', body: 'Going with argparse' },
   ]) {
+    if (entry.author === 'human') {
+      seedHumanRow(dbPath, issueId, entry);
+      continue;
+    }
     const res = await call(client, 'discussion_append', {
       agent: 'bro',
       issue_id: issueId,
@@ -127,7 +131,7 @@ test('task_create_batch — rejects when issue has 0 question rows and no waiver
 });
 
 test('task_create_batch — accepts when a kind=question row exists', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
@@ -145,14 +149,7 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
     author: 'architect',
     body: 'Which lib?',
   });
-  await call(client, 'discussion_append', {
-    agent: 'bro',
-    issue_id: issueId,
-    kind: 'answer',
-    author: 'human',
-    body: 'argparse',
-    verified_human: true,
-  });
+  seedHumanRow(dbPath, issueId, { kind: 'answer', body: 'argparse' });
 
   const attempt = await call(client, 'task_create_batch', {
     agent: 'bro',
@@ -382,7 +379,7 @@ test('task_create_batch — waive_registry_gate rejects too-short reason', async
 // --- Intent + Triage + Decision-when-difficult gates on task_create_batch ---
 
 test('task_create_batch — intent_gate rejects when no kind=intent discussion exists', async (t) => {
-  const { client, close } = await startClient();  // pre-seeds deep_scan_completed
+  const { client, close, dbPath } = await startClient({ fileDb: true });  // pre-seeds deep_scan_completed
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
@@ -397,9 +394,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which lib?',
   });
-  await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
-  });
+  seedHumanRow(dbPath, issueId, { kind: 'answer', body: 'argparse' });
   await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
@@ -419,7 +414,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
 });
 
 test('task_create_batch — decision_gate rejects when no kind=decision discussion exists', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
@@ -433,9 +428,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which lib?',
   });
-  await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
-  });
+  seedHumanRow(dbPath, issueId, { kind: 'answer', body: 'argparse' });
   await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
@@ -455,7 +448,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
 });
 
 test('task_create_batch — decision_gate clears when a kind=decision discussion exists', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
@@ -469,9 +462,7 @@ test('task_create_batch — decision_gate clears when a kind=decision discussion
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which lib?',
   });
-  await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
-  });
+  seedHumanRow(dbPath, issueId, { kind: 'answer', body: 'argparse' });
   await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
