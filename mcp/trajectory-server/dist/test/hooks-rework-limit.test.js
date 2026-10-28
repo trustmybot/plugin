@@ -2,8 +2,9 @@
  * The rework-limit gate (GH 1738, GH 2148) on a temp trajectory DB: a swe
  * spawn is denied once the task has two review FAILs since its last pass, six
  * swe runs (budget handbacks aside), or its issue four FAILs across its tasks,
- * each counted since the latest Human-authored row on the task or its issue;
- * no agent-written row lifts it. agent-spawn-dispatch.sh returns that deny
+ * each counted since the latest Human waiver (an author 'human', kind
+ * 'decision' row) on the task or its issue; no agent-written row and no Human
+ * note lifts it. agent-spawn-dispatch.sh returns that deny
  * before any PREPARE step.
  */
 import { describe, it, before, after } from 'node:test';
@@ -139,19 +140,19 @@ describe('rework-limit', () => {
         it('a newer issue-level Human row lifts it', () => {
             const f = fixture();
             f.verdicts('fail', 'fail');
-            f.discuss({ author: 'human', taskId: null });
+            f.discuss({ author: 'human', kind: 'decision', taskId: null });
             assert.deepEqual(run(f), ALLOWED);
         });
         it('a Human row on another task of the issue does not lift it', () => {
             const f = fixture();
             f.verdicts('fail', 'fail');
-            f.discuss({ author: 'human', taskId: OTHER_TASK_ID });
+            f.discuss({ author: 'human', kind: 'decision', taskId: OTHER_TASK_ID });
             denyReason(run(f).stdout);
         });
         it('counts the FAILs after the latest Human row afresh', () => {
             const f = fixture();
             f.verdicts('fail', 'fail');
-            f.discuss({ author: 'human' });
+            f.discuss({ author: 'human', kind: 'decision' });
             f.verdicts('fail');
             assert.deepEqual(run(f), ALLOWED);
             f.verdicts('fail');
@@ -192,7 +193,7 @@ describe('rework-limit', () => {
             f.runs(6);
             f.discuss({ kind: 'decision' });
             denyReason(run(f).stdout);
-            f.discuss({ author: 'human', taskId: null });
+            f.discuss({ author: 'human', kind: 'decision', taskId: null });
             assert.deepEqual(run(f), ALLOWED);
             f.runs(5);
             assert.deepEqual(run(f), ALLOWED);
@@ -222,14 +223,14 @@ describe('rework-limit', () => {
             denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
             f.discuss({ kind: 'decision', taskId: null });
             denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
-            f.discuss({ author: 'human', taskId: null });
+            f.discuss({ author: 'human', kind: 'decision', taskId: null });
             assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
             assert.deepEqual(spawnOf(f, TASK_ID), ALLOWED);
         });
         it('a newer Human row on the task being spawned lifts it for that task only', () => {
             const f = fixture();
             f.verdictsOn(OTHER_TASK_ID, 'fail', 'pass', 'fail', 'pass', 'fail', 'pass', 'fail');
-            f.discuss({ author: 'human', taskId: FRESH_TASK_ID });
+            f.discuss({ author: 'human', kind: 'decision', taskId: FRESH_TASK_ID });
             assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
             denyReason(spawnOf(f, TASK_ID).stdout);
         });
@@ -241,6 +242,18 @@ describe('rework-limit', () => {
         const reason = denyReason(run(f).stdout);
         assert.match(reason, /task FAILs: 2 .*; task runs: 6 .*; issue FAILs: 4 /);
         assertHumanOnlyWaiver(reason, TASK_ID);
+    });
+    it("a newer author 'human' kind 'note' row (pr_monitor's shape for a login named human) resets none of the three limits", () => {
+        const f = fixture();
+        f.runs(6);
+        f.verdicts('fail', 'fail', 'pass', 'fail', 'fail');
+        f.discuss({ author: 'human', kind: 'note' });
+        f.discuss({ author: 'human', kind: 'note', taskId: null });
+        const reason = denyReason(run(f).stdout);
+        assert.match(reason, /task FAILs: 2 .*; task runs: 6 .*; issue FAILs: 4 /);
+        assert.doesNotMatch(reason, /since the Human's last waiver/);
+        f.discuss({ author: 'human', kind: 'decision' });
+        assert.deepEqual(run(f), ALLOWED);
     });
     it('allows one FAIL, no FAIL, an unknown task, a non-swe spawn, a non-Agent tool and a prompt without task_id', () => {
         const f = fixture();
@@ -291,7 +304,7 @@ describe('rework-limit', () => {
         it('passes after a Human waiver and runs the PREPARE steps', () => {
             const f = fixture();
             f.verdicts('fail', 'fail');
-            f.discuss({ author: 'human' });
+            f.discuss({ author: 'human', kind: 'decision' });
             const { hooks, marks } = dispatcherRoot();
             const r = dispatch(hooks, f.env);
             assert.equal(r.status, 0);

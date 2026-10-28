@@ -124,11 +124,11 @@ describe('swe-resume-gate', () => {
     denyReason(run(f).stdout);
   });
 
-  it('allows the resume after a newer Human row on the task or on its issue', () => {
+  it('allows the resume after a newer Human decision row on the task or on its issue', () => {
     const f = fixture();
     f.fails(2);
     f.exec(
-      "INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, 'human', 'note', 'b', ?, ?)",
+      "INSERT INTO discussions (issue_id, author, kind, body, created_at, task_id) VALUES (?, 'human', 'decision', 'b', ?, ?)",
       ISSUE_ID,
       AFTER_LATEST_FAIL,
       TASK_ID,
@@ -136,11 +136,11 @@ describe('swe-resume-gate', () => {
     assert.deepEqual(run(f), ALLOWED);
     const g = fixture();
     g.fails(2);
-    g.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'note', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
+    g.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
     assert.deepEqual(run(g), ALLOWED);
   });
 
-  it('denies a resume at six swe runs with no FAILs, budget handbacks aside, until a Human row', () => {
+  it('denies a resume at six swe runs with no FAILs, budget handbacks aside, until a Human decision row', () => {
     const f = fixture();
     const addRun = (startedAt: string, stopCause: string | null) =>
       f.exec(
@@ -159,7 +159,7 @@ describe('swe-resume-gate', () => {
     const reason = denyReason(run(f).stdout);
     assert.equal(reason, denyReason(reworkLimit(spawnPayload(), f.env).stdout));
     assert.match(reason, /task runs: 6 swe runs of the task, budget handbacks aside \(limit 6\)/);
-    f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'note', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
+    f.exec("INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'human', 'decision', 'b', ?)", ISSUE_ID, AFTER_LATEST_FAIL);
     assert.deepEqual(run(f), ALLOWED);
   });
 

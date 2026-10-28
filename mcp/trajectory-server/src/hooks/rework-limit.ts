@@ -2,7 +2,8 @@
  * PreToolUse(Agent) gate (GH 1738, GH 2148), run by agent-spawn-dispatch.sh:
  * a swe spawn for task_id=<N> is denied once any of three limits trips, each
  * counted since the latest Human waiver (a discussions row with author
- * 'human' on the task, or on its issue with task_id NULL):
+ * 'human' and kind 'decision' on the task, or on its issue with task_id NULL;
+ * a pr_monitor comment by a login named 'human' is a 'note' and never counts):
  *
  *   - task FAILs: REWORK_FAIL_LIMIT review FAILs on the task since its latest pass,
  *   - task runs: SWE_RUN_LIMIT swe runs of the task, minus budget handbacks,
@@ -33,7 +34,8 @@ function readState(db: string, taskId: string, env: NodeJS.ProcessEnv): ReworkSt
     db,
     `WITH t AS (SELECT id, issue_id FROM tasks WHERE id = ${taskId}),
           human AS (SELECT MAX(d.created_at) AS at FROM discussions d, t
-                     WHERE d.author = 'human' AND (d.task_id = t.id OR (d.task_id IS NULL AND d.issue_id = t.issue_id))),
+                     WHERE (d.task_id = t.id OR (d.task_id IS NULL AND d.issue_id = t.issue_id))
+                       AND d.author = 'human' AND d.kind = 'decision'),
           since AS (SELECT COALESCE(MAX(v.id), 0) AS pass_id FROM validation_attempts v, t
                      WHERE v.task_id = t.id AND v.verdict = 'pass')
      SELECT json_object(
