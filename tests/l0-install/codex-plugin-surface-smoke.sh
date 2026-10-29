@@ -53,6 +53,7 @@ MARKETPLACE_NAME="$(jq -er '.marketplaceName' "$MARKETPLACE_JSON")"
 env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin add "tmb@$MARKETPLACE_NAME" --json > "$INSTALL_JSON"
 
 INSTALLED_PATH="$(jq -er '.installedPath' "$INSTALL_JSON")"
+INSTALLED_PATH="$(cd "$INSTALLED_PATH" && pwd -P)"
 case "$INSTALLED_PATH" in
   "$SMOKE_HOME"/plugins/cache/*) ;;
   *)
@@ -61,11 +62,60 @@ case "$INSTALLED_PATH" in
     ;;
 esac
 
+for relative_dir in \
+  .codex-plugin \
+  adapters adapters/codex adapters/codex/skills \
+  hooks hooks/codex \
+  mcp mcp/trajectory-server mcp/trajectory-server/dist; do
+  for artifact in "$ARTIFACT_ROOT" "$INSTALLED_PATH"; do
+    if [ ! -d "$artifact/$relative_dir" ] || [ -L "$artifact/$relative_dir" ]; then
+      printf 'codex-plugin-surface-smoke: expected a regular directory: %s\n' "$artifact/$relative_dir" >&2
+      exit 1
+    fi
+  done
+done
+
+for relative_file in \
+  .codex-plugin/plugin.json \
+  adapters/codex/.mcp.json \
+  hooks/codex/hooks.json \
+  mcp/trajectory-server/dist/codex.js \
+  mcp/trajectory-server/dist/schema.sql; do
+  if [ ! -f "$ARTIFACT_ROOT/$relative_file" ] || [ -L "$ARTIFACT_ROOT/$relative_file" ] ||
+     [ ! -f "$INSTALLED_PATH/$relative_file" ] || [ -L "$INSTALLED_PATH/$relative_file" ]; then
+    printf 'codex-plugin-surface-smoke: expected a regular file in source and installed artifact: %s\n' "$relative_file" >&2
+    exit 1
+  fi
+  if ! cmp -s "$ARTIFACT_ROOT/$relative_file" "$INSTALLED_PATH/$relative_file"; then
+    printf 'codex-plugin-surface-smoke: installed bytes changed for %s\n' "$relative_file" >&2
+    exit 1
+  fi
+done
+
 INSTALLED_MANIFEST="$INSTALLED_PATH/.codex-plugin/plugin.json"
-jq -e '
+if ! jq -e '
   .commands == [] and
-  .skills == "./adapters/codex/skills/"
-' "$INSTALLED_MANIFEST" >/dev/null
+  .skills == "./adapters/codex/skills/" and
+  .mcpServers == "./adapters/codex/.mcp.json" and
+  .hooks == "./hooks/codex/hooks.json"
+' "$INSTALLED_MANIFEST" >/dev/null; then
+  printf 'codex-plugin-surface-smoke: unexpected Codex manifest routing\n' >&2
+  exit 1
+fi
+if ! jq -e '. == {"hooks": {}}' "$INSTALLED_PATH/hooks/codex/hooks.json" >/dev/null; then
+  printf 'codex-plugin-surface-smoke: Codex Hooks must remain empty\n' >&2
+  exit 1
+fi
+if ! jq -e '. == {
+  "trajectory-server": {
+    "command": "node",
+    "args": ["--experimental-sqlite", "mcp/trajectory-server/dist/codex.js"],
+    "cwd": "."
+  }
+}' "$INSTALLED_PATH/adapters/codex/.mcp.json" >/dev/null; then
+  printf 'codex-plugin-surface-smoke: unexpected Codex MCP configuration\n' >&2
+  exit 1
+fi
 
 SKILLS_REL="$(jq -er '.skills' "$INSTALLED_MANIFEST")"
 SKILLS_DIR="$(cd "$INSTALLED_PATH/$SKILLS_REL" && pwd -P)"
@@ -104,6 +154,32 @@ compare_regular_tree() {
   done <<< "$source_files"
 }
 
+# Codex payload trees must retain directories as well as regular-file bytes.
+# Claude trees below keep their existing regular-file packaging contract.
+compare_codex_tree() {
+  local relative_dir="$1"
+  local tree
+  local source_dirs
+  local installed_dirs
+  for tree in "$ARTIFACT_ROOT/$relative_dir" "$INSTALLED_PATH/$relative_dir"; do
+    if find "$tree" ! -type f ! -type d -print | grep . >/dev/null; then
+      printf 'codex-plugin-surface-smoke: non-regular entry in Codex payload: %s\n' "$tree" >&2
+      exit 1
+    fi
+  done
+  source_dirs="$(cd "$ARTIFACT_ROOT/$relative_dir" && find . -type d | LC_ALL=C sort)"
+  installed_dirs="$(cd "$INSTALLED_PATH/$relative_dir" && find . -type d | LC_ALL=C sort)"
+  if [ "$source_dirs" != "$installed_dirs" ]; then
+    printf 'codex-plugin-surface-smoke: directory inventory changed for %s\n' "$relative_dir" >&2
+    exit 1
+  fi
+  compare_regular_tree "$ARTIFACT_ROOT/$relative_dir" "$INSTALLED_PATH/$relative_dir"
+}
+
+compare_codex_tree .codex-plugin
+compare_codex_tree adapters/codex
+compare_codex_tree hooks/codex
+
 ROOT_SKILL_DIRS="$(find "$ARTIFACT_ROOT/skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort)"
 INSTALLED_ROOT_SKILL_DIRS="$(find "$INSTALLED_PATH/skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort)"
 if [ "$ROOT_SKILL_DIRS" != "$INSTALLED_ROOT_SKILL_DIRS" ]; then
@@ -117,5 +193,7 @@ compare_regular_tree "$ARTIFACT_ROOT/skills" "$INSTALLED_PATH/skills"
 printf 'codex-plugin-surface-smoke: PASS\n'
 printf '  Codex: %s\n' "$(env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" --version)"
 printf '  Codex Skills: %s\n' "$(printf '%s' "$ACTUAL_SKILLS" | tr '\n' ' ')"
+printf '  Codex metadata, adapter and Hook trees: directory inventory and regular-file bytes preserved\n'
+printf '  Codex runtime and schema: regular-file bytes preserved; Hooks remain empty\n'
 printf '  Claude commands/ and skills/: regular files and Skill directories preserved\n'
 printf '  source-command-* migrations: absent\n'
