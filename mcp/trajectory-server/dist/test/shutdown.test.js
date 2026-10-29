@@ -65,6 +65,25 @@ describe('createShutdown — idempotency (#145)', () => {
         assert.deepEqual(calls.exit, [1]);
         assert.deepEqual(calls.signals, ['stdin-eof', 'stdout-drain-error:EPIPE']);
     });
+    it('exits with failure when the flush never completes and ignores late completion', async () => {
+        const { deps, calls } = spyDeps();
+        let complete;
+        deps.flushStdout = (done) => { complete = done; };
+        deps.flushTimeoutMs = 0;
+        await new Promise((resolve, reject) => {
+            const guard = setTimeout(() => reject(new Error('shutdown deadline did not fire')), 1000);
+            deps.exit = (code) => {
+                clearTimeout(guard);
+                calls.exit.push(code);
+                resolve();
+            };
+            createShutdown(deps)('stdin-eof');
+        });
+        complete?.();
+        assert.equal(calls.closeDb, 1);
+        assert.deepEqual(calls.exit, [1]);
+        assert.deepEqual(calls.signals, ['stdin-eof', 'stdout-drain-error:ETIMEDOUT']);
+    });
 });
 describe('installShutdownHandlers — stdin-EOF watchdog (#145)', () => {
     it('triggers a single shutdown on stdin end', () => {

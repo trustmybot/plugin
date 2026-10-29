@@ -1,3 +1,4 @@
+// Verify queued protocol output survives graceful shutdown and failed readers remain bounded (GH 2161).
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -61,7 +62,10 @@ function largeResponseFixture(flushTimeoutMs = 5000): string[] {
 
 describe('stdio shutdown preserves queued responses (GH 2161)', () => {
   for (const signal of [false, true]) {
-    it(`drains a response larger than pipe capacity on ${signal ? 'SIGTERM' : 'stdin EOF'}`, async () => {
+    it(`drains a response larger than pipe capacity on ${signal ? 'SIGTERM' : 'stdin EOF'}`, {
+      // Node's child.kill() terminates Windows children abruptly; it does not deliver a POSIX signal.
+      skip: signal && process.platform === 'win32' ? 'Windows has no graceful child.kill(SIGTERM); stdin EOF remains covered.' : false,
+    }, async () => {
       const result = await run(largeResponseFixture(), { signal });
       assert.equal(result.code, 0, result.stderr);
       assert.equal(result.signal, null);
@@ -73,7 +77,10 @@ describe('stdio shutdown preserves queued responses (GH 2161)', () => {
   }
 
   for (const reader of ['closed', 'stalled'] as const) {
-    it(`reports failed output and leaves no process when the stdout reader is ${reader}`, async () => {
+    it(`reports failed output and leaves no process when the stdout reader is ${reader}`, {
+      // Windows stdout pipes are synchronous: the initial write can block before shutdown starts.
+      skip: process.platform === 'win32' ? 'Requires asynchronous POSIX stdout; injected flush error/deadline tests cover the shutdown policy on every OS.' : false,
+    }, async () => {
       const result = await run(largeResponseFixture(reader === 'stalled' ? 100 : 5000), { reader });
       assert.equal(result.code, 1, result.stderr);
       assert.equal(result.signal, null, 'shutdown must finish before the external SIGKILL deadline');
