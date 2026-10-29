@@ -1,116 +1,74 @@
-// Keep failed scorer fixture setup from writing or committing in the caller's checkout.
+// Failed fixture setup must never write or commit in the caller's checkout.
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { createScorerFixtures, fixtureOperations, type FixtureOperations } from './lib/scorer-fixture.js';
+import { scoreAll } from './lib/l5-scorers.js';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const script = join(root, 'tests/l5-l6/lib/scorers-test.sh');
-const commands = Object.fromEntries(['mktemp', 'git', 'sqlite3'].map((name) =>
-  [name, execFileSync('which', [name], { encoding: 'utf8' }).trim()],
-));
-
-function runFixture(failure: string): { output: string; status: number | null; calls: string[][] } {
-  const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-scorers-safety-')));
-  const outer = join(fixture, 'caller');
-  const scratch = join(fixture, 'scratch');
-  const shims = join(fixture, 'bin');
-  const isolatedHome = join(fixture, 'home');
-  for (const dir of [outer, scratch, shims, isolatedHome]) mkdirSync(dir);
-  writeFileSync(join(shims, 'package.json'), '{"type":"module"}\n');
-  const env = { ...process.env, HOME: isolatedHome, TMPDIR: scratch, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
-  const git = (...args: string[]): string => execFileSync(commands['git']!, ['-C', outer, ...args], { env, encoding: 'utf8' }).trim();
-  const callsFile = join(fixture, 'calls.jsonl');
+function runFixture(failure: string): string[] {
+  const owned = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-scorers-safety-')));
+  const outer = join(owned, 'caller');
+  const scratch = join(owned, 'scratch');
+  mkdirSync(outer); mkdirSync(scratch);
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(owned, 'global-config') };
+  writeFileSync(env.GIT_CONFIG_GLOBAL, '');
+  const git = (...args: string[]) => fixtureOperations.git(outer, args, env);
+  const calls: string[] = [];
   try {
-    git('init', '-q', '-b', 'main');
-    git('config', 'user.email', 'fixture@example.test');
-    git('config', 'user.name', 'Fixture');
+    git('init', '-q', '-b', 'main'); git('config', 'user.email', 'fixture@example.test'); git('config', 'user.name', 'Fixture');
     writeFileSync(join(outer, 'README.md'), 'Caller checkout must stay unchanged.\n');
-    writeFileSync(join(outer, 'staged.txt'), 'original\n');
-    git('add', '.');
-    git('commit', '-qm', 'caller sentinel');
-    writeFileSync(join(outer, 'staged.txt'), 'staged change must survive\n');
-    git('add', 'staged.txt');
-    const snapshot = () => ({
-      readme: readFileSync(join(outer, 'README.md'), 'utf8'),
-      head: git('rev-parse', 'HEAD'),
-      index: git('write-tree'),
-      status: git('status', '--porcelain=v1', '--untracked-files=all'),
-    });
+    writeFileSync(join(outer, 'staged.txt'), 'original\n'); git('add', '.'); git('commit', '-qm', 'caller sentinel');
+    writeFileSync(join(outer, 'staged.txt'), 'staged change must survive\n'); git('add', 'staged.txt');
+    const snapshot = () => ({ readme: readFileSync(join(outer, 'README.md'), 'utf8'),
+      head: git('rev-parse', 'HEAD'), index: git('write-tree'), status: git('status', '--porcelain=v1', '--untracked-files=all') });
     const before = snapshot();
     writeFileSync(join(scratch, 'keep.txt'), 'unowned sibling\n');
-    const config = { commands, failure, outer, callsFile, counter: join(fixture, 'mktemp-count') };
-    const shim = `#!/usr/bin/env node
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename } from 'node:path';
-import { spawnSync } from 'node:child_process';
-const config = ${JSON.stringify(config)};
-const tool = basename(process.argv[1]);
-const args = process.argv.slice(2);
-appendFileSync(config.callsFile, JSON.stringify([tool, ...args]) + '\\n');
-if (tool === 'mktemp') {
-  const n = existsSync(config.counter) ? Number(readFileSync(config.counter, 'utf8')) + 1 : 1;
-  writeFileSync(config.counter, String(n));
-  if ((config.failure === 'root' || config.failure === 'empty-root') && n === 1) {
-    process.stderr.write('forced scratch allocation failure\\n');
-    process.exit(config.failure === 'empty-root' ? 0 : 97);
-  }
-  if ((config.failure === 'project' && n === 2) || (config.failure === 'flow' && n === 3)) {
-    // A failing allocator's stdout must never become a usable fixture path.
-    process.stdout.write(config.outer + '\\n');
-    process.exit(97);
-  }
-}
-if ((tool === 'git' && config.failure === 'git-' + args[0]) || (tool === 'sqlite3' && config.failure === 'sqlite')) {
-  process.stderr.write('forced fixture setup failure\\n');
-  process.exit(97);
-}
-const result = spawnSync(config.commands[tool], args, { stdio: 'inherit', env: process.env });
-process.exit(result.status ?? 1);
-`;
-    for (const name of Object.keys(commands)) writeFileSync(join(shims, name), shim, { mode: 0o755 });
-    const run = spawnSync('bash', [script], {
-      cwd: outer,
-      env: { ...env, PATH: `${shims}${delimiter}${process.env.PATH ?? ''}`, TMB_DISABLE_REMOTE_SYNC: '1' },
-      encoding: 'utf8',
-      timeout: 30_000,
-    });
-    assert.equal(run.error, undefined, String(run.error));
-    assert.deepEqual(snapshot(), before,
-      'fixture setup must preserve the caller README, HEAD and staged index');
+    let allocation = 0;
+    const ops: Partial<FixtureOperations> = {
+      allocate(prefix) {
+        const stage = ['root', 'project', 'flow'][allocation++] ?? 'later';
+        calls.push(stage);
+        if (failure === 'empty-root' && stage === 'root') return '';
+        if (failure === stage) throw new Error(`forced ${stage} allocation failure`);
+        return fixtureOperations.allocate(prefix);
+      },
+      git(project, args, isolatedEnv) {
+        calls.push(`git-${args[0]}`);
+        if (failure === `git-${args[0]}`) throw new Error(`forced git ${args[0]} failure`);
+        return fixtureOperations.git(project, args, isolatedEnv);
+      },
+      initializeDatabase(path) {
+        calls.push('sqlite');
+        if (failure === 'sqlite') throw new Error('forced schema initialization failure');
+        fixtureOperations.initializeDatabase(path);
+      },
+    };
+    const attempt = () => {
+      const fixtures = createScorerFixtures(scratch, ops);
+      try {
+        const fixture = fixtures.create();
+        calls.push('scoring');
+        assert.equal(scoreAll({ ...fixture, flow: 'test', runId: 'safe', stdout: () => {}, stderr: () => {} }), 0);
+      } finally { fixtures.cleanup(); }
+    };
+    if (failure === 'none') attempt(); else assert.throws(attempt);
+    assert.deepEqual(snapshot(), before, 'preserve caller README, HEAD and staged index');
     assert.equal(readFileSync(join(scratch, 'keep.txt'), 'utf8'), 'unowned sibling\n');
-    assert.deepEqual(readdirSync(scratch), ['keep.txt'], 'remove only the owned scratch root, including all its fixtures');
-    const calls = readFileSync(callsFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as string[]);
-    return { output: run.stdout + run.stderr, status: run.status, calls };
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
-  }
+    assert.deepEqual(readdirSync(scratch), ['keep.txt'], 'remove only the owned root and its fixtures');
+    return calls;
+  } finally { rmSync(owned, { recursive: true, force: true }); }
 }
 
 describe('scorer fixture setup fails closed (GH 2160)', () => {
   for (const failure of ['root', 'empty-root', 'project', 'flow', 'git-init', 'git-config', 'git-add', 'git-commit', 'sqlite']) {
     it(`stops on ${failure} failure without changing the caller checkout`, () => {
-      const run = runFixture(failure);
-      assert.notEqual(run.status, 0, run.output);
-      assert.doesNotMatch(run.output, /^\s+(?:PASS|FAIL) /m, 'no scorer runs after setup fails');
-      if (['root', 'empty-root', 'project'].includes(failure)) {
-        assert.ok(run.calls.every(([tool]) => tool === 'mktemp'), 'no Git or database setup after allocation fails');
-      } else if (failure.startsWith('git-')) {
-        assert.deepEqual(run.calls.at(-1)?.slice(0, 2), ['git', failure.slice(4)]);
-      } else if (failure === 'sqlite') {
-        assert.equal(run.calls.at(-1)?.[0], 'sqlite3');
-      }
+      const calls = runFixture(failure);
+      assert.ok(!calls.includes('scoring'), 'no scorer runs after setup fails');
+      if (['root', 'empty-root', 'project'].includes(failure)) assert.ok(calls.every((call) => ['root', 'project'].includes(call)), 'no Git or database setup after allocation fails');
+      else assert.equal(calls.at(-1), failure);
     });
   }
-
-  it('runs every existing scorer assertion and cleans its owned fixtures', () => {
-    const run = runFixture('none');
-    const summary = /scorers-test: (\d+) pass \/ (\d+) fail/.exec(run.output);
-    assert.ok(summary, run.output);
-    assert.equal(Number(summary[1]) + Number(summary[2]), 31, 'retain all existing scorer assertions');
-    assert.equal(run.status, Number(summary[2]) === 0 ? 0 : 1, 'retain the existing scorer verdict');
-  });
+  it('runs every scorer after successful setup and cleans its owned fixtures', () => assert.equal(runFixture('none').at(-1), 'scoring'));
 });
