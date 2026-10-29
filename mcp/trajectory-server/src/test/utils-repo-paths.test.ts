@@ -20,10 +20,11 @@ describe('repoRowPath — explicit runtime project root (GH 2158)', () => {
         trustedProjectRoot: project,
       });
       try {
+        const absoluteRepo = join(dirname(project), 'absolute-repo');
         assert.notEqual(project, process.cwd());
         assert.equal(repoRowPath(db, '.'), project);
         assert.equal(repoRowPath(db, 'packages/app'), join(project, 'packages/app'));
-        assert.equal(repoRowPath(db, '/absolute/repo'), '/absolute/repo');
+        assert.equal(repoRowPath(db, absoluteRepo), absoluteRepo);
         db.run(`INSERT INTO repos (name, path) VALUES ('app', 'packages/app')`);
         assert.deepEqual(resolveSoleRepo(db), { name: 'app', path: join(project, 'packages/app') });
       } finally {
@@ -44,11 +45,12 @@ describe('repoRowPath — explicit runtime project root (GH 2158)', () => {
         sqlLog: () => {},
       });
       try {
+        const absoluteRepo = join(dirname(project), 'absolute-repo');
         const base = location === ':memory:' ? process.cwd()
           : location.startsWith('.claude/') ? project : dirname(dbPath);
         assert.equal(repoRowPath(db, '.'), resolve(base));
         assert.equal(repoRowPath(db, 'packages/app'), resolve(base, 'packages/app'));
-        assert.equal(repoRowPath(db, '/absolute/repo'), '/absolute/repo');
+        assert.equal(repoRowPath(db, absoluteRepo), absoluteRepo);
       } finally {
         db.close();
         rmSync(project, { recursive: true, force: true });
