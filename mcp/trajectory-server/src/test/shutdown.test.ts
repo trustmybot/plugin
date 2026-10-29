@@ -20,6 +20,7 @@ function spyDeps(): {
       calls.exit.push(code);
     },
     pid: 1234,
+    flushStdout: (done) => done(),
   };
   return { deps, calls };
 }
@@ -44,6 +45,34 @@ describe('createShutdown — idempotency (#145)', () => {
     assert.equal(calls.closeDb, 1, 'db closed exactly once');
     assert.deepEqual(calls.exit, [0], 'exits exactly once');
     assert.deepEqual(calls.signals, ['SIGINT'], 'only the first signal is logged');
+  });
+
+  it('releases the DB once but waits for stdout completion before exit (GH 2161)', () => {
+    const { deps, calls } = spyDeps();
+    let complete: ((error?: Error | null) => void) | undefined;
+    deps.flushStdout = (done) => { complete = done; };
+    const shutdown = createShutdown(deps);
+    shutdown('stdin-eof');
+    shutdown('stdin-close');
+    shutdown('SIGTERM');
+    assert.equal(calls.closeDb, 1, 'DB release does not wait for a slow stdout consumer');
+    assert.deepEqual(calls.exit, [], 'exit must not discard queued stdout');
+    assert.ok(complete);
+    complete();
+    assert.deepEqual(calls.exit, [0]);
+    assert.deepEqual(calls.signals, ['stdin-eof']);
+  });
+
+  it('reports a failed flush and exits once with failure instead of hanging', () => {
+    const { deps, calls } = spyDeps();
+    deps.flushStdout = (done) => {
+      done(Object.assign(new Error('reader disappeared'), { code: 'EPIPE' }));
+      done();
+    };
+    createShutdown(deps)('stdin-eof');
+    assert.equal(calls.closeDb, 1);
+    assert.deepEqual(calls.exit, [1]);
+    assert.deepEqual(calls.signals, ['stdin-eof', 'stdout-drain-error:EPIPE']);
   });
 });
 
