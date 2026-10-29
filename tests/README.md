@@ -87,13 +87,15 @@ L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call;
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or a fixed-SHA artifact:
 
 ```bash
-bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
-CODEX_BIN=/path/to/codex bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
+node mcp/trajectory-server/dist/test/codex-plugin-surface-smoke.js [artifact-root]
+CODEX_BIN=/path/to/codex node mcp/trajectory-server/dist/test/codex-plugin-surface-smoke.js [artifact-root]
 ```
 
 The smoke compares directory inventories and regular-file bytes in `.codex-plugin/`, `adapters/codex/` and `hooks/codex/`, plus the bytes of `dist/codex.js` and `dist/schema.sql` under `mcp/trajectory-server/`. Missing files, extra entries and symlinks in those Codex trees or their required parent paths fail the check. The manifest must select exactly the two Codex Skills, the Codex MCP configuration and the empty Hook manifest. The MCP configuration must launch the bundled Codex entrypoint from the installed plugin root.
 
 The existing Claude checks still require the root `commands/` regular files, `skills/` directories and regular files to survive unchanged, with no `source-command-*` migration. Claude symlink packaging remains the installer's responsibility. The smoke never reads or writes the user's normal Codex home.
+
+The smoke and its L2 regressions are TypeScript, compiled by the server build; they do not require Bash, jq, find or cmp. `CODEX_BIN` names an executable, not a shell command; on Windows use the Codex `.exe`, not the npm `.cmd` shim. Windows host acceptance remains unverified.
 
 L2 includes `codex-plugin-surface-smoke.test.ts`, which uses an offline installer test double to inject missing files, changed bytes, extra entries, symlinks and incorrect configuration. These regressions verify the smoke's rejection behavior; they do not establish Codex host acceptance. The real installer command above remains a separate check. A real-installer CI job and future active-Hook launcher integrity remain outstanding under GH 1187.
 

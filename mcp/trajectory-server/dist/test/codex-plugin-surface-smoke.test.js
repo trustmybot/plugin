@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { runCodexPluginSurfaceSmoke } from './codex-plugin-surface-smoke.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const script = join(root, 'tests/l0-install/codex-plugin-surface-smoke.sh');
+const script = join(root, 'mcp/trajectory-server/dist/test/codex-plugin-surface-smoke.js');
 const files = {
     '.agents/plugins/marketplace.json': '{"name":"fixture","plugins":[]}\n',
     '.codex-plugin/plugin.json': JSON.stringify({
@@ -32,12 +33,13 @@ const files = {
     'commands/help.md': '# Claude command fixture\n',
     'skills/example/SKILL.md': '# Claude Skill fixture\n',
 };
-function runSmoke(mutation, sourceOverrides = {}) {
+function runSmoke(mutation, sourceOverrides = {}, failure) {
     const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-codex-smoke-test-')));
     const artifact = join(fixture, 'artifact with spaces');
     const scratch = join(fixture, 'scratch');
     const isolatedHome = join(fixture, 'home');
     const fakeCodex = join(fixture, 'codex-test-double.mjs');
+    const mutationReceipt = join(fixture, 'mutation.json');
     const sourceFiles = { ...files, ...sourceOverrides };
     try {
         for (const dir of [artifact, scratch, isolatedHome])
@@ -47,15 +49,28 @@ function runSmoke(mutation, sourceOverrides = {}) {
             writeFileSync(join(artifact, path), content);
         }
         writeFileSync(join(scratch, 'keep.txt'), 'unowned sibling\n');
-        writeFileSync(fakeCodex, `#!/usr/bin/env node
-import { appendFileSync, cpSync, mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+        writeFileSync(fakeCodex, `
+import { appendFileSync, cpSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const artifact = ${JSON.stringify(artifact)};
 const mutation = ${JSON.stringify(mutation ?? null)};
+const failure = ${JSON.stringify(failure ?? null)};
 const args = process.argv.slice(2);
+if (failure === 'timeout') {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
+  if (failure === 'marketplace-exit') process.exit(2);
+  if (failure === 'marketplace-json') { process.stdout.write('not json'); process.exit(0); }
+  if (failure === 'marketplace-name') { process.stdout.write('{}'); process.exit(0); }
   process.stdout.write(JSON.stringify({ marketplaceName: 'fixture' }));
 } else if (args[0] === 'plugin' && args[1] === 'add') {
+  if (failure === 'install-exit') process.exit(2);
+  if (failure === 'install-json') { process.stdout.write('not json'); process.exit(0); }
+  if (failure === 'install-path') { process.stdout.write('{}'); process.exit(0); }
+  if (failure === 'outside-cache') { process.stdout.write(JSON.stringify({ installedPath: artifact })); process.exit(0); }
   const installedPath = join(process.env.CODEX_HOME, 'plugins/cache/fixture/tmb/1.1.0');
   mkdirSync(installedPath, { recursive: true });
   cpSync(artifact, installedPath, { recursive: true });
@@ -65,30 +80,52 @@ if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
   if (mutation?.kind === 'symlink') {
     const target = join(process.env.CODEX_HOME, 'replacement');
     renameSync(join(installedPath, mutation.path), target);
-    symlinkSync(target, join(installedPath, mutation.path));
+    try {
+      symlinkSync(target, join(installedPath, mutation.path));
+    } catch (error) {
+      if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) {
+        process.stderr.write('SYMLINK_FIXTURE_UNAVAILABLE');
+        process.exit(77);
+      }
+      throw error;
+    }
   }
+  if (mutation) writeFileSync(${JSON.stringify(mutationReceipt)}, JSON.stringify(mutation));
   process.stdout.write(JSON.stringify({ installedPath }));
 } else if (args[0] === '--version') {
+  if (failure === 'version-exit') process.exit(2);
   process.stdout.write('offline-installer-test-double\\n');
 } else {
   process.stderr.write('unexpected installer invocation\\n');
   process.exit(97);
 }
-`, { mode: 0o755 });
-        const run = spawnSync('bash', [script, artifact], {
-            cwd: fixture,
-            env: { ...process.env, HOME: isolatedHome, TMPDIR: scratch, CODEX_BIN: fakeCodex, TMB_DISABLE_REMOTE_SYNC: '1' },
-            encoding: 'utf8',
-            timeout: 15_000,
-        });
-        assert.equal(run.error, undefined, String(run.error));
+`);
+        let run;
+        try {
+            run = { status: 0, output: runCodexPluginSurfaceSmoke({
+                    artifactRoot: artifact,
+                    codex: { executable: failure === 'missing-executable' ? join(fixture, 'missing-codex') : process.execPath, args: [fakeCodex] },
+                    env: { ...process.env, HOME: isolatedHome, USERPROFILE: isolatedHome, TMB_DISABLE_REMOTE_SYNC: '1' },
+                    scratchParent: failure === 'scratch-parent-file' ? join(scratch, 'keep.txt') : scratch,
+                    commandTimeoutMs: failure === 'timeout' ? 150 : undefined,
+                }) };
+        }
+        catch (error) {
+            run = { status: 1, output: error instanceof Error ? error.message : String(error) };
+        }
+        if (process.platform === 'win32' && run.output.includes('SYMLINK_FIXTURE_UNAVAILABLE'))
+            run.status = 77;
+        if (mutation && run.status !== 77) {
+            assert.doesNotMatch(run.output, /Codex plugin .* failed:/, 'the installer must finish injecting the mutation before the integrity check rejects it');
+            assert.deepEqual(JSON.parse(readFileSync(mutationReceipt, 'utf8')), mutation, 'the mutation must be applied before the integrity check can reject it');
+        }
         for (const [path, content] of Object.entries(sourceFiles)) {
             assert.equal(readFileSync(join(artifact, path), 'utf8'), content, `source artifact changed: ${path}`);
         }
         assert.deepEqual(readdirSync(scratch), ['keep.txt'], 'smoke removes only its own temporary Codex home');
         assert.equal(readFileSync(join(scratch, 'keep.txt'), 'utf8'), 'unowned sibling\n');
         assert.deepEqual(readdirSync(isolatedHome), [], 'installer must use the temporary CODEX_HOME');
-        return { status: run.status, output: run.stdout + run.stderr };
+        return run;
     }
     finally {
         rmSync(fixture, { recursive: true, force: true });
@@ -101,6 +138,26 @@ describe('Codex install-smoke integrity checks (offline test double, GH 1187)', 
         assert.match(run.output, /codex-plugin-surface-smoke: PASS/);
         assert.match(run.output, /offline-installer-test-double/);
     });
+    for (const failure of ['marketplace-exit', 'marketplace-json', 'marketplace-name', 'install-exit', 'install-json', 'install-path', 'outside-cache', 'version-exit', 'missing-executable', 'scratch-parent-file']) {
+        it(`fails closed and cleans its temporary home on ${failure}`, () => {
+            const run = runSmoke(undefined, {}, failure);
+            assert.equal(run.status, 1, run.output);
+            assert.doesNotMatch(run.output, /codex-plugin-surface-smoke: PASS/);
+        });
+    }
+    it('rejects CLI invocation with a missing artifact and reports nonzero exit', () => {
+        const run = spawnSync(process.execPath, [script, join(tmpdir(), 'missing-tmb-artifact', 'absent')], { encoding: 'utf8', timeout: 15_000 });
+        assert.equal(run.error, undefined, String(run.error));
+        assert.equal(run.status, 1, run.stdout + run.stderr);
+        assert.doesNotMatch(run.stdout, /PASS/);
+    });
+    it('kills an installer that ignores SIGTERM within the command timeout', () => {
+        const started = Date.now();
+        const run = runSmoke(undefined, {}, 'timeout');
+        assert.equal(run.status, 1, run.output);
+        assert.match(run.output, /ETIMEDOUT/);
+        assert.ok(Date.now() - started < 3000, 'the installer must not defeat the timeout by ignoring SIGTERM');
+    });
     for (const path of [
         '.codex-plugin/plugin.json',
         'adapters/codex/.mcp.json',
@@ -111,8 +168,12 @@ describe('Codex install-smoke integrity checks (offline test double, GH 1187)', 
         'adapters/codex/skills/tmb-bro/agents/openai.yaml',
     ]) {
         for (const kind of ['append', 'remove', 'symlink']) {
-            it(`rejects ${kind} of installed ${path}`, () => {
+            it(`rejects ${kind} of installed ${path}`, t => {
                 const run = runSmoke({ path, kind });
+                if (run.status === 77) {
+                    t.skip('Windows requires symlink privilege for this mutation fixture');
+                    return;
+                }
                 assert.notEqual(run.status, 0, run.output);
                 assert.doesNotMatch(run.output, /codex-plugin-surface-smoke: PASS/);
             });
@@ -130,8 +191,12 @@ describe('Codex install-smoke integrity checks (offline test double, GH 1187)', 
         { path: 'adapters/codex/skills/unexpected', kind: 'mkdir' },
         { path: 'source-command-unexpected', kind: 'mkdir' },
     ]) {
-        it(`rejects ${mutation.kind} of installed ${mutation.path}`, () => {
+        it(`rejects ${mutation.kind} of installed ${mutation.path}`, t => {
             const run = runSmoke(mutation);
+            if (run.status === 77) {
+                t.skip('Windows requires symlink privilege for this mutation fixture');
+                return;
+            }
             assert.notEqual(run.status, 0, run.output);
             assert.doesNotMatch(run.output, /codex-plugin-surface-smoke: PASS/);
         });

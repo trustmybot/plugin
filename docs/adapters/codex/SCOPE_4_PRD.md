@@ -1582,7 +1582,7 @@ Desktop 测试是本 Scope 唯一可能触及当前 Codex profile 的步骤，�
 因此还要针对同一 fixed-SHA artifact 单独运行：
 
 ```bash
-bash tests/l0-install/codex-plugin-surface-smoke.sh <artifact-root>
+node mcp/trajectory-server/dist/test/codex-plugin-surface-smoke.js <artifact-root>
 ```
 
 脚本必须使用临时 `CODEX_HOME`，通过真实 `codex plugin marketplace add` 与
