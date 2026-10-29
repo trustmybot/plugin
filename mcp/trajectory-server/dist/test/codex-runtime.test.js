@@ -1276,6 +1276,45 @@ describe('Codex tool surface', () => {
             }
         }
     });
+    it('queries the nested repository recorded by a relative path (GH 2158)', async () => {
+        const project = gitProject();
+        const repo = join(project, 'app');
+        execFileSync('git', ['init', '--quiet', '--initial-branch=main', repo]);
+        const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
+        git('config', 'user.email', 'test@example.com');
+        git('config', 'user.name', 'Codex Test');
+        git('commit', '--quiet', '--allow-empty', '-m', 'checkout');
+        const checkout = git('rev-parse', 'HEAD');
+        git('commit', '--quiet', '--allow-empty', '-m', 'upstream');
+        git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+        git('checkout', '--quiet', '--detach', checkout);
+        const behind = Number(git('rev-list', '--count', 'HEAD..refs/remotes/origin/main'));
+        assert.equal(behind, 1);
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', 'app', 'main')`);
+            });
+            for (const [name, args] of [
+                ['world_model_get', {}],
+                ['world_model_search', { query: 'fixture', mode: 'keyword' }],
+            ]) {
+                const result = await registry.call(name, { project_root: project, repo: 'app', ...args });
+                assert.notEqual(result.isError, true, JSON.stringify(toolPayload(result)));
+                const data = toolPayload(result)['data'];
+                assert.equal(data['checkout_behind_upstream'], behind, name);
+                assert.equal(data['upstream'], 'origin/main', name);
+            }
+            assert.equal(existsSync(join(project, '.claude')), false);
+            assert.equal(existsSync(join(project, '.codex')), false);
+            assert.equal(existsSync(join(project, '.agents')), false);
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
     it('runs a local-only scan and planning flow with fixed Bro authorship', async () => {
         const project = gitProject();
         execFileSync('git', ['-C', project, 'config', 'user.email', 'test@example.com']);

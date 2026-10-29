@@ -25465,6 +25465,7 @@ var TrajectoryDB = class {
   sqlLog;
   migrate;
   dbPath;
+  trustedProjectRoot;
   /**
    * True when the DB opened with user tables present but NO plugin_meta table
    * (a pre-stamp legacy shape that predates schema versioning). Such a DB is
@@ -25476,6 +25477,7 @@ var TrajectoryDB = class {
   constructor(dbPath2, dependencies, options = {}) {
     const resolvedDependencies = resolveDependencies(dependencies);
     this.dbPath = dbPath2;
+    this.trustedProjectRoot = resolvedDependencies.trustedProjectRoot;
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
@@ -30205,7 +30207,7 @@ function outsideProject(tool, projectRoot, path2) {
 // src/utils/repo-paths.ts
 function repoRowPath(db2, path2) {
   if (isAbsolute3(path2)) return path2;
-  const base = db2.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db2.dbPath) ?? dirname3(db2.dbPath);
+  const base = db2.trustedProjectRoot ?? (db2.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db2.dbPath) ?? dirname3(db2.dbPath));
   return resolve2(base, path2);
 }
 function resolveSoleRepoPath(db2) {

@@ -4515,6 +4515,7 @@ var TrajectoryDB = class {
   sqlLog;
   migrate;
   dbPath;
+  trustedProjectRoot;
   /**
    * True when the DB opened with user tables present but NO plugin_meta table
    * (a pre-stamp legacy shape that predates schema versioning). Such a DB is
@@ -4526,6 +4527,7 @@ var TrajectoryDB = class {
   constructor(dbPath, dependencies, options = {}) {
     const resolvedDependencies = resolveDependencies(dependencies);
     this.dbPath = dbPath;
+    this.trustedProjectRoot = resolvedDependencies.trustedProjectRoot;
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
@@ -9331,7 +9333,7 @@ function projectRootFromDbPath(dbPath) {
 // src/utils/repo-paths.ts
 function repoRowPath(db, path) {
   if (isAbsolute3(path)) return path;
-  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath);
+  const base = db.trustedProjectRoot ?? (db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname3(db.dbPath));
   return resolve2(base, path);
 }
 function resolveRepoForSync(db, repoName) {

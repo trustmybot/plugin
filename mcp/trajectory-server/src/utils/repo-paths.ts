@@ -2,14 +2,14 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { projectRootFromDbPath } from '../tools/containment.js';
 
-// A repos.path as an absolute directory: a relative path resolves against the
-// project root (the directory holding .claude/<plugin>/trajectory.db). A DB
-// outside that layout resolves against its own directory; `:memory:` against
-// the server's working directory.
+// A repos.path as an absolute directory: explicit runtime project roots take
+// precedence over legacy DB-layout inference. Without one, preserve the Claude
+// project root, custom DB directory, or in-memory working-directory fallback.
 export function repoRowPath(db: TrajectoryDB, path: string): string {
   if (isAbsolute(path)) return path;
   const base =
-    db.dbPath === ':memory:' ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname(db.dbPath);
+    db.trustedProjectRoot ??
+    (db.dbPath === ':memory:' ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname(db.dbPath));
   return resolve(base, path);
 }
 

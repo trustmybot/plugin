@@ -69,7 +69,7 @@ export interface TrajectoryDBDependencies {
   readonly pluginVersion: string | null;
   readonly serverLog: TrajectoryLog;
   readonly sqlLog: TrajectoryLog;
-  /** Canonical project root for Codex-bound persistent databases. */
+  /** Canonical project root supplied by a project-bound runtime. */
   readonly trustedProjectRoot?: string;
 }
 
@@ -88,6 +88,7 @@ export class TrajectoryDB {
   private readonly sqlLog: TrajectoryLog;
   private readonly migrate: boolean;
   readonly dbPath: string;
+  readonly trustedProjectRoot: string | undefined;
 
   /**
    * True when the DB opened with user tables present but NO plugin_meta table
@@ -109,6 +110,7 @@ export class TrajectoryDB {
     const resolvedDependencies = resolveDependencies(dependencies);
 
     this.dbPath = dbPath;
+    this.trustedProjectRoot = resolvedDependencies.trustedProjectRoot;
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;

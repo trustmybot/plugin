@@ -1,7 +1,61 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
-import { resolveSoleRepo, resolveSoleRepoPath } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo, resolveSoleRepoPath } from '../utils/repo-paths.js';
+
+describe('repoRowPath — explicit runtime project root (GH 2158)', () => {
+  for (const location of ['.tmb/tmb/trajectory.db', 'state/custom.sqlite', ':memory:']) {
+    it(`resolves relative paths under the explicit root with ${location}`, () => {
+      const project = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-repo-paths-')));
+      const dbPath = location === ':memory:' ? location : join(project, location);
+      if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
+      const db = new TrajectoryDB(dbPath, {
+        pluginVersion: null,
+        serverLog: () => {},
+        sqlLog: () => {},
+        trustedProjectRoot: project,
+      });
+      try {
+        assert.notEqual(project, process.cwd());
+        assert.equal(repoRowPath(db, '.'), project);
+        assert.equal(repoRowPath(db, 'packages/app'), join(project, 'packages/app'));
+        assert.equal(repoRowPath(db, '/absolute/repo'), '/absolute/repo');
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', 'packages/app')`);
+        assert.deepEqual(resolveSoleRepo(db), { name: 'app', path: join(project, 'packages/app') });
+      } finally {
+        db.close();
+        rmSync(project, { recursive: true, force: true });
+      }
+    });
+  }
+
+  for (const location of ['.claude/tmb/trajectory.db', 'state/custom.sqlite', ':memory:']) {
+    it(`preserves the existing base without an explicit root for ${location}`, () => {
+      const project = mkdtempSync(join(tmpdir(), 'tmb-repo-paths-'));
+      const dbPath = location === ':memory:' ? location : join(project, location);
+      if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
+      const db = new TrajectoryDB(dbPath, {
+        pluginVersion: null,
+        serverLog: () => {},
+        sqlLog: () => {},
+      });
+      try {
+        const base = location === ':memory:' ? process.cwd()
+          : location.startsWith('.claude/') ? project : dirname(dbPath);
+        assert.equal(repoRowPath(db, '.'), resolve(base));
+        assert.equal(repoRowPath(db, 'packages/app'), resolve(base, 'packages/app'));
+        assert.equal(repoRowPath(db, '/absolute/repo'), '/absolute/repo');
+      } finally {
+        db.close();
+        rmSync(project, { recursive: true, force: true });
+      }
+    });
+  }
+});
 
 describe('resolveSoleRepoPath — single-repo fallback', () => {
   it('exactly one repos row: resolves to that row path verbatim', () => {
