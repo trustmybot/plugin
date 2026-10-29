@@ -10,30 +10,56 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 PASS=0
 FAIL=0
-TMPDIR_ROOT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/scorers-test-XXXXXX")
-trap 'rm -rf "$TMPDIR_ROOT"' EXIT
+
+setup_failed() {
+  printf 'scorers-test: fixture setup failed: %s\n' "$1" >&2
+  exit 1
+}
+
+SCRATCH_PARENT=$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')
+TMPDIR_ROOT=$(mktemp -d "$SCRATCH_PARENT/scorers-test-XXXXXX") || setup_failed 'scratch allocation'
+case "$TMPDIR_ROOT" in
+  "$SCRATCH_PARENT"/scorers-test-*) [ -d "$TMPDIR_ROOT" ] || setup_failed 'scratch directory missing' ;;
+  *) setup_failed 'invalid scratch directory' ;;
+esac
+trap 'rm -rf -- "$TMPDIR_ROOT"' EXIT
 
 # ---- helpers --------------------------------------------------------------
 
+mk_fixture_dir() {
+  local dir
+  dir=$(mktemp -d "$TMPDIR_ROOT/$1-XXXXXX") || return 1
+  case "$dir" in
+    "$TMPDIR_ROOT/$1-"*) [ -d "$dir" ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$dir"
+}
+
 mk_project() {
   local p
-  p=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/scorers-XXXXXX")
+  p=$(mk_fixture_dir project) || return 1
   (
-    cd "$p" || exit 1
-    git init -q -b main
-    git config user.email t@t.test
-    git config user.name t
-    echo init > README.md
+    cd "$p" &&
+    git init -q -b main &&
+    git config user.email t@t.test &&
+    git config user.name t &&
+    echo init > README.md &&
     git add . && git commit -qm init
-  ) >/dev/null 2>&1
-  mkdir -p "$p/.claude/tmb"
+  ) >/dev/null || return 1
+  mkdir -p "$p/.claude/tmb" || return 1
   # Schema runs PRAGMA journal_mode = WAL which echoes "wal" to stdout — redirect.
-  sqlite3 "$p/.claude/tmb/trajectory.db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
-  echo "$p"
+  sqlite3 "$p/.claude/tmb/trajectory.db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null || return 1
+  printf '%s\n' "$p"
 }
 
 mk_flow_dir() {
-  mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/scorers-flow-XXXXXX"
+  mk_fixture_dir flow
+}
+
+new_fixture() {
+  P=$(mk_project) || setup_failed 'project initialization'
+  FD=$(mk_flow_dir) || setup_failed 'flow directory allocation'
 }
 
 assert_exit() {
@@ -50,7 +76,7 @@ assert_exit() {
 # ---- coherence scorer -----------------------------------------------------
 
 echo "== coherence: missing config = no-op (pass) =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 l5_score_coherence "$P" "test" "$FD" "run-1" >/dev/null 2>&1
 assert_exit 0 $? "no outcome-coherence.json → exit 0"
 
@@ -94,7 +120,7 @@ assert_exit 1 $? "invalid operator → fail"
 # ---- git scorer -----------------------------------------------------------
 
 echo "== git: missing config = no-op (pass) =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 l5_score_git "$P" "test" "$FD" "run-g1" >/dev/null 2>&1
 assert_exit 0 $? "no outcome-git.json → exit 0"
 
@@ -113,13 +139,13 @@ l5_score_git "$P" "test" "$FD" "run-g3" >/dev/null 2>&1
 assert_exit 1 $? "base advanced post-snapshot → fail"
 
 echo "== git: missing pre-run snapshot is reported =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 echo '{"base_branch_unchanged": true}' > "$FD/outcome-git.json"
 l5_score_git "$P" "test" "$FD" "run-g3b" >/dev/null 2>&1
 assert_exit 1 $? "no pre-run snapshot → fail (loud signal)"
 
 echo "== git: worktree HEAD on expected branch =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'x', '', 'open', datetime('now'), datetime('now')); INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (1, 1, 'feat/check', 'main', '', 'pending', datetime('now'), datetime('now'));"
 (cd "$P" && git branch feat/check HEAD && mkdir -p .claude/worktrees && git worktree add -q .claude/worktrees/check feat/check)
 echo '{"worktrees": [{"path": ".claude/worktrees/<slug>", "head_branch": "<task.branch_id>"}]}' > "$FD/outcome-git.json"
@@ -153,7 +179,7 @@ write_assistant_line() {
 }
 
 echo "== trajectory_forbidden: subagent call is not attributed to bro =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 write_assistant_line "$P/trajectory.jsonl" "$T_INTENT"
 write_assistant_line "$P/trajectory.jsonl" "$T_VALID" "toolu_x"
 jq -nc --arg t "$T_VALID" '[$t]' > "$FD/tools-forbidden.json"
@@ -166,7 +192,7 @@ l5_score_trajectory_forbidden "$P" "test" "$FD" "run-tf2" >/dev/null 2>&1
 assert_exit 1 $? "top-level validation_record → fail"
 
 echo "== trajectory_required: any_of satisfied by one alternative =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 write_assistant_line "$P/trajectory.jsonl" "$T_INTENT"
 jq -nc --arg a "$T_ISSUE" --arg b "$T_INTENT" '[{any_of:[$a,$b]}]' > "$FD/tools-required.json"
 l5_score_trajectory_required "$P" "test" "$FD" "run-tr1" >/dev/null 2>&1
@@ -192,7 +218,7 @@ assert_exit 0 $? "string entry satisfied by subagent call → pass"
 
 echo "== trajectory_required: row 06 waives Agent + bro_atomic_close when step 5 already closed the task =="
 ROW06="$PLUGIN_ROOT/tests/l5-l6/rows/06/06-swe-atomic-close"
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 cp "$ROW06/tools-required.json" "$FD/tools-required.json"
 write_assistant_line "$P/trajectory.jsonl" "$T_INTENT"
 l5_score_trajectory_required "$P" "test" "$FD" "run-tr6" >/dev/null 2>&1
@@ -212,12 +238,11 @@ assert_exit 1 $? "pre-step DB with a closed task but no swe run, neither tool ca
 sqlite3 "$P/.claude/tmb/_l6_pre_step.db" "INSERT INTO agent_runs (task_id, issue_id, agent_type) VALUES (1, 1, 'swe');"
 l5_score_trajectory_required "$P" "test" "$FD" "run-tr9" >/dev/null 2>&1
 assert_exit 0 $? "pre-step DB with a closed task and a swe run, neither tool called → pass"
-rm -rf "$P" "$FD"
 
 # ---- no_sandbox scorer (GH 1549) ------------------------------------------
 
 echo "== no_sandbox: TEST MODE pins the sandbox answer to no =="
-P=$(mk_project) && FD=$(mk_flow_dir)
+new_fixture
 l5_score_no_sandbox "$P" "test" "$FD" "run-ns1" >/dev/null 2>&1
 assert_exit 0 $? "no settings.local.json, no answer → pass"
 sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO plugin_config (key, value_json) VALUES ('sandbox_enforcement', '\"no\"');"
@@ -231,7 +256,6 @@ echo '{}' > "$P/.claude/settings.local.json"
 sqlite3 "$P/.claude/tmb/trajectory.db" "UPDATE plugin_config SET value_json = '\"yes\"' WHERE key = 'sandbox_enforcement';"
 l5_score_no_sandbox "$P" "test" "$FD" "run-ns4" >/dev/null 2>&1
 assert_exit 1 $? "sandbox_enforcement = yes → fail"
-rm -rf "$P" "$FD"
 
 # ---- summary --------------------------------------------------------------
 
