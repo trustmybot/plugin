@@ -1,0 +1,2 @@
+### Fixed
+- The Codex install smoke now rejects missing, altered or unexpected Codex payload files and directories, symlink replacements, incorrect MCP routing and non-empty Hooks (GH 1187). The installer smoke runs as TypeScript compiled by the existing server build, with no Shell utilities. Offline L2 regressions exercise those failures and retain the Claude packaging checks. Running the real Codex installer remains an explicit L0 check; its CI job and active-Hook launcher integrity are still pending.
