@@ -48,6 +48,7 @@ export class TrajectoryDB {
     sqlLog;
     migrate;
     dbPath;
+    trustedProjectRoot;
     /**
      * True when the DB opened with user tables present but NO plugin_meta table
      * (a pre-stamp legacy shape that predates schema versioning). Such a DB is
@@ -62,6 +63,7 @@ export class TrajectoryDB {
         // unconditionally — it's required on 22 and a no-op on 24+.
         const resolvedDependencies = resolveDependencies(dependencies);
         this.dbPath = dbPath;
+        this.trustedProjectRoot = resolvedDependencies.trustedProjectRoot;
         this.pluginVersion = resolvedDependencies.pluginVersion;
         this.serverLog = resolvedDependencies.serverLog;
         this.sqlLog = resolvedDependencies.sqlLog;
