@@ -6,3 +6,4 @@ The normative standard for building TMB platform adapters — the rules a host-s
 |---|---|
 | [`ADAPTER_CONTRACT.md`](./ADAPTER_CONTRACT.md) | The binding normative standard for platform-adapter development — core invariance, adapter isolation, host-located state, and the enforcement-parity matrix every adapter declares |
 | [`codex/PARITY.md`](./codex/PARITY.md) | The current Codex capability declaration, enforcement-parity matrix, identity/spoofing analysis, and security-delta disclosure |
+| [`codex/ALIGNMENT.md`](./codex/ALIGNMENT.md) | The fixed-source baseline, delivery dependencies, and user journeys for bringing the complete shared TMB workflow to Codex |
