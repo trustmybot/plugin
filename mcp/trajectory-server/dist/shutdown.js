@@ -14,7 +14,10 @@
  * stream without competing with or starving the transport's reader.
  *
  * shutdown() is idempotent (the `shuttingDown` guard) so SIGINT, SIGTERM, and
- * the two stdin events may all fire without a double-close.
+ * the two stdin events may all fire without a double-close. Explicit exit must
+ * wait for queued stdout writes: pipe output is asynchronous and process.exit
+ * would otherwise truncate large JSON-RPC responses on stdin EOF (GH 2161).
+ * This flushes bytes already queued; it does not wait for unfinished handlers.
  */
 export function createShutdown(deps) {
     let shuttingDown = false;
@@ -24,7 +27,32 @@ export function createShutdown(deps) {
         shuttingDown = true;
         deps.log(signal);
         deps.closeDb();
-        deps.exit(0);
+        let finished = false;
+        const finish = (error) => {
+            if (finished)
+                return;
+            finished = true;
+            clearTimeout(deadline);
+            if (error) {
+                const code = error.code ?? error.message;
+                deps.log(`stdout-drain-error:${code}`);
+                process.stderr.write(`stdout drain failed: ${code}\n`);
+            }
+            deps.exit(error ? 1 : 0);
+        };
+        // A deadline bounds failed shutdown; successful writes exit immediately on
+        // completion. Never keep an orphan alive behind an unresponsive reader.
+        const deadline = setTimeout(() => finish(Object.assign(new Error('stdout drain timed out'), { code: 'ETIMEDOUT' })), deps.flushTimeoutMs ?? 5000);
+        deadline.unref();
+        const flushStdout = deps.flushStdout ?? ((done) => {
+            process.stdout.write('', done);
+        });
+        try {
+            flushStdout(finish);
+        }
+        catch (error) {
+            finish(error);
+        }
     };
 }
 export function installShutdownHandlers(shutdown, proc, stdin) {

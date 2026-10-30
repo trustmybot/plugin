@@ -1,0 +1,2 @@
+### Fixed
+- **MCP responses remain complete through piped stdout on shutdown** (GH 2161): Claude and Codex servers close their database once, then flush already queued output before exiting on stdin EOF or a signal. A disconnected reader or a reader that remains blocked for five seconds produces an explicit shutdown failure instead of silent truncation or a permanent process. This does not wait for unfinished tool handlers.

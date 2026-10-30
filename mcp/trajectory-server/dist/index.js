@@ -48740,7 +48740,32 @@ function createShutdown(deps) {
     shuttingDown = true;
     deps.log(signal);
     deps.closeDb();
-    deps.exit(0);
+    let finished = false;
+    const finish = (error2) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(deadline);
+      if (error2) {
+        const code = error2.code ?? error2.message;
+        deps.log(`stdout-drain-error:${code}`);
+        process.stderr.write(`stdout drain failed: ${code}
+`);
+      }
+      deps.exit(error2 ? 1 : 0);
+    };
+    const deadline = setTimeout(
+      () => finish(Object.assign(new Error("stdout drain timed out"), { code: "ETIMEDOUT" })),
+      deps.flushTimeoutMs ?? 5e3
+    );
+    deadline.unref();
+    const flushStdout = deps.flushStdout ?? ((done) => {
+      process.stdout.write("", done);
+    });
+    try {
+      flushStdout(finish);
+    } catch (error2) {
+      finish(error2);
+    }
   };
 }
 function installShutdownHandlers(shutdown2, proc, stdin) {
