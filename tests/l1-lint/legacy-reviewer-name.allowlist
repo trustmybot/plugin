@@ -11,3 +11,4 @@ tests/fixtures/hook-corpus/git-push-guard/deny-pr-reviewer.json	SC4: a push whos
 tests/l1-lint/legacy-reviewer-name.sh	this lint
 tests/l1-lint/legacy-reviewer-name.allowlist	this allowlist
 dashboard/dist/server.mjs	bundles the db.ts v51 migration
+research/gh1346-ab/m3/questions.ts	the v51-migration question asks about the v50 to v51 rename
