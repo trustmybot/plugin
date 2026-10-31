@@ -5,12 +5,15 @@
  * artifact's body and writes it back carrying exactly the TMB footer. Best
  * effort: a missing CLI, a failed read or no URL in the response is a no-op.
  *
- * Decisions and the bodies written are the .sh's; the hook also runs with no
+ * Decisions, argv and the bodies written are the .sh's. The repo comes from
+ * the response's URL through GH_REPO / GITLAB_REPO, so no directory chooses
+ * it; the CLI only needs a place to start. The hook also runs with no
  * jq on PATH, and grep's `[:alnum:]` under a UTF-8 locale is Unicode's
  * letters and decimal digits as node knows them.
  */
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
+import { payloadCwd } from './cmd-analysis/path.js';
 import { ALLOW, type SyncGate } from './gate.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
 import {
@@ -27,8 +30,8 @@ import {
   shellCapture,
   wellFormed,
 } from './lib/lint-shell.js';
+import { isDir } from './lib/git.js';
 import { jqRawText } from './lib/project-env.js';
-import { forgeCliCwd } from './lib/repo.js';
 
 export const GATE_NAME = 'attribution-footer';
 
@@ -75,8 +78,8 @@ function onPath(name: string, env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
-function run(file: string, args: string[], repoDir: string, env: NodeJS.ProcessEnv): { stdout: string; ok: boolean } {
-  const r = spawnSync(file, args, { cwd: repoDir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
+function run(file: string, args: string[], cwd: string | undefined, env: NodeJS.ProcessEnv): { stdout: string; ok: boolean } {
+  const r = spawnSync(file, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
   return { stdout: r.stdout ?? '', ok: r.error === undefined && r.status === 0 };
 }
 
@@ -114,14 +117,18 @@ function created(command: string, kind: Kind, multibyte: boolean): boolean {
   return command.split('\n').some((line) => re.test(line));
 }
 
-/** `grep -oE 'https://[^[:space:]"]+<path>[0-9]+' | grep -oE '[0-9]+$' | head -n1`. */
-function artifactNumber(response: string, kind: Kind, multibyte: boolean): string {
-  const re = new RegExp(`https://[^${grepSpace(multibyte)}"]+${kind.urlPath}([0-9]+)`, 'u');
+/** `grep -oE 'https://[^[:space:]"]+<path>[0-9]+'`'s first match: its number and the `host/owner/repo` before <path>. */
+function createdArtifact(response: string, kind: Kind, multibyte: boolean): { number: string; repoPath: string } | null {
+  const re = new RegExp(`https://([^${grepSpace(multibyte)}"]+)${kind.urlPath}([0-9]+)`, 'u');
   for (const line of response.split('\n')) {
     const m = re.exec(line);
-    if (m) return m[1];
+    if (m) return { number: m[2], repoPath: m[1] };
   }
-  return '';
+  return null;
+}
+
+function targetingRepo(kind: Kind, repoPath: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return kind.cli === 'gh' ? { ...env, GH_REPO: repoPath } : { ...env, GITLAB_REPO: `https://${repoPath}` };
 }
 
 export const attributionFooter: SyncGate = (payload, env) => {
@@ -133,19 +140,22 @@ export const attributionFooter: SyncGate = (payload, env) => {
   const multibyte = grepMultibyte(env);
   const kind = KINDS.find((k) => created(command, k, multibyte));
   if (kind === undefined) return ALLOW;
-  const number = artifactNumber(response, kind, multibyte);
-  if (number === '') return ALLOW;
+  const artifact = createdArtifact(response, kind, multibyte);
+  if (artifact === null) return ALLOW;
+  const { number, repoPath } = artifact;
 
   const cli = onPath(kind.cli, env);
   if (cli === null) return ALLOW;
-  const repoDir = forgeCliCwd(command, payload, env);
+  const startDir = payloadCwd(payload, env);
+  const cwd = isDir(startDir) ? startDir : undefined;
+  const forgeEnv = targetingRepo(kind, repoPath, env);
   let orig: string;
   if (kind.cli === 'gh') {
-    const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], repoDir, env);
+    const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], cwd, forgeEnv);
     if (!view.ok) return ALLOW;
     orig = shellCapture(view.stdout);
   } else {
-    const view = run(cli, [kind.group, 'view', number, '-F', 'json'], repoDir, env);
+    const view = run(cli, [kind.group, 'view', number, '-F', 'json'], cwd, forgeEnv);
     const description = view.ok ? glabDescription(view.stdout) : null;
     if (description === null) return ALLOW;
     orig = description;
@@ -156,6 +166,6 @@ export const attributionFooter: SyncGate = (payload, env) => {
   const write = kind.cli === 'gh'
     ? [kind.group, 'edit', number, '--body', updated]
     : [kind.group, 'update', number, '--description', updated];
-  run(cli, write, repoDir, env);
+  run(cli, write, cwd, forgeEnv);
   return ALLOW;
 };

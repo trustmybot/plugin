@@ -15,6 +15,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { attributionFooter } from '../hooks/attribution-footer.js';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { branchFromCmd, cleanMergedBranch, integrated, namesMerge, worktreeForBranch } from '../hooks/clean-merged-branch.js';
 import { closeIssueOnMerge, closingRefs, mergeArgs, refFromArgs, syncOn } from '../hooks/close-issue-on-merge.js';
@@ -310,6 +311,51 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
 
     const first = readFileSync(pwds, 'utf8').trim().split('\n')[0];
     assert.equal(spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: first, encoding: 'utf8' }).stdout.trim(), upstream);
+  });
+
+  it('a cd that did not run before gh chooses no directory for the footer or the merge (F292-4)', () => {
+    const pwds = join(s, 'gh-pwd.log');
+    writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\nif [ "$2" = view ]; then echo Body; fi\n`);
+    chmodSync(join(s, 'bin/gh'), 0o755);
+    const a = join(realpathSync(s), 'probe-a');
+    const b = join(realpathSync(s), 'probe-b');
+    mkdirSync(a);
+    mkdirSync(b);
+    const url = 'https://github.com/o/a/pull/9';
+    const readPwds = (): string[] => {
+      const lines = readFileSync(pwds, 'utf8').trim().split('\n');
+      writeFileSync(pwds, '');
+      return lines;
+    };
+    const footer = (command: string) => attributionFooter(JSON.stringify({ tool_name: 'Bash', cwd: a, tool_input: { command }, tool_response: url }), env());
+
+    footer(`gh pr create --title t --body "$(cat <<X\nTest plan:\ncd ${b}\nnpm test\nX\n)"`);
+    assert.deepEqual(readPwds(), [a, a], 'footer: heredoc body');
+    footer(`gh pr create --fill\ncd ${b} && git status`);
+    assert.deepEqual(readPwds(), [a, a], 'footer: cd after gh');
+
+    closeIssueOnMerge(payload(`gh pr merge 46 --squash\ncd ${b} && git pull`, a), env());
+    assert.equal(readPwds()[0], a, 'merge: cd after gh');
+    closeIssueOnMerge(payload(`gh pr merge 46 --squash --body "$(cat <<X\ncd ${b}\nX\n)"`, a), env());
+    assert.equal(readPwds()[0], a, 'merge: heredoc body');
+  });
+
+  it('close-issue-on-merge reads a cd leading the first non-blank line, and only that line (F292-4)', () => {
+    const pwds = join(s, 'gh-pwd.log');
+    writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
+    chmodSync(join(s, 'bin/gh'), 0o755);
+    const a = join(realpathSync(s), 'lead-a');
+    const b = join(realpathSync(s), 'lead-b');
+    mkdirSync(a);
+    mkdirSync(b);
+    const first = (command: string): string => {
+      writeFileSync(pwds, '');
+      closeIssueOnMerge(payload(command, a), env());
+      return readFileSync(pwds, 'utf8').trim().split('\n')[0];
+    };
+    assert.equal(first(`\n  \ncd ${b} && gh pr merge 46 --squash`), b);
+    assert.equal(first(`echo start\ncd ${b}\ngh pr merge 46 --squash`), a);
+    assert.equal(first(`echo "cd ${b}" && gh pr merge 46 --squash`), a);
   });
 
   it('close-issue-on-merge kills a hanging gh at its 10 s bound with no timeout on PATH and exits 0 (decision 703)', () => {

@@ -105,25 +105,6 @@ describe('lint hooks: the TypeScript gates', () => {
             assert.equal(existsSync(log), false);
         });
     });
-    it('attribution-footer views and edits the artifact in the dir the create ran in, not the hook process cwd (GH 2134)', () => {
-        const bin = join(dir, 'pwd-bin');
-        const repoDir = join(dir, 'other-repo');
-        const pwds = join(dir, 'gh-pwd.log');
-        mkdirSync(bin);
-        mkdirSync(repoDir);
-        writeFileSync(join(bin, 'gh'), `#!/bin/bash\npwd -P >> '${pwds}'\nif [ "$2" = view ]; then echo Body; fi\n`);
-        chmodSync(join(bin, 'gh'), 0o755);
-        const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, LC_ALL: 'C' };
-        const input = JSON.stringify({
-            tool_name: 'Bash',
-            cwd: tmpdir(),
-            tool_input: { command: `cd '${repoDir}' && gh pr create --fill` },
-            tool_response: 'https://github.com/o/r/pull/9',
-        });
-        assert.deepEqual(attributionFooter(input, env), { stdout: '', code: 0 });
-        const expected = realpathSync(repoDir);
-        assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected]);
-    });
     function ghPwdStub(name) {
         const bin = join(dir, `${name}-bin`);
         const pwds = join(dir, `${name}.log`);
@@ -159,6 +140,50 @@ describe('lint hooks: the TypeScript gates', () => {
         }), env);
         const expected = realpathSync(here);
         assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected]);
+    });
+    function forgeStub(cli, name) {
+        const bin = join(dir, `${name}-bin`);
+        const calls = join(dir, `${name}.log`);
+        mkdirSync(bin);
+        writeFileSync(join(bin, cli), `#!/bin/bash\necho "$(pwd -P)|\${GH_REPO:-}|\${GITLAB_REPO:-}|$1 $2 $3" >> '${calls}'\nif [ "$2" = view ]; then echo "\${STUB_VIEW_OUT:-Body}"; fi\n`);
+        chmodSync(join(bin, cli), 0o755);
+        return { calls, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, LC_ALL: 'C' } };
+    }
+    it('attribution-footer targets the repo in the response URL with the .sh argv, whatever the command text says (F292-4)', () => {
+        mkdirSync(join(dir, 'url-here'));
+        const here = realpathSync(join(dir, 'url-here'));
+        const other = join(dir, 'url-other');
+        mkdirSync(other);
+        const commands = {
+            'leading cd': `cd '${other}' && gh pr create --fill`,
+            'heredoc body': `gh pr create --title t --body "$(cat <<X\nTest plan:\ncd ${other}\nnpm test\nX\n)"`,
+            'cd after gh': `gh pr create --fill\ncd ${other} && git status`,
+        };
+        for (const [name, command] of Object.entries(commands)) {
+            const { calls, env } = forgeStub('gh', `url-${name.replace(' ', '-')}`);
+            attributionFooter(JSON.stringify({ tool_name: 'Bash', cwd: here, tool_input: { command }, tool_response: 'https://github.example.com/o/r/pull/9' }), env);
+            assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), [`${here}|github.example.com/o/r||pr view 9`, `${here}|github.example.com/o/r||pr edit 9`], name);
+        }
+    });
+    it('attribution-footer targets a nested GitLab project by its URL', () => {
+        const { calls, env } = forgeStub('glab', 'glab-url');
+        attributionFooter(JSON.stringify({
+            tool_name: 'Bash',
+            cwd: dir,
+            tool_input: { command: 'glab mr create --fill' },
+            tool_response: 'https://gitlab.example.com/g/s/p/-/merge_requests/4',
+        }), { ...env, STUB_VIEW_OUT: '{"description":"Body"}' });
+        const start = `${realpathSync(dir)}||https://gitlab.example.com/g/s/p`;
+        assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), [`${start}|mr view 4`, `${start}|mr update 4`]);
+    });
+    it('attribution-footer still writes when the payload cwd is gone, and writes nothing with no URL', () => {
+        const { calls, env } = forgeStub('gh', 'gone-cwd');
+        const input = (response) => JSON.stringify({ tool_name: 'Bash', cwd: join(dir, 'never-existed'), tool_input: { command: 'gh pr create --fill' }, tool_response: response });
+        attributionFooter(input('no url here'), env);
+        assert.equal(existsSync(calls), false);
+        attributionFooter(input('https://github.com/o/r/pull/3'), env);
+        const lines = readFileSync(calls, 'utf8').trim().split('\n');
+        assert.deepEqual(lines.map((l) => l.split('|').slice(1).join('|')), ['github.com/o/r||pr view 3', 'github.com/o/r||pr edit 3']);
     });
     it('attribution-footer reads a letter newer than the OS tables (U+105C0) as a word char under UTF-8', () => {
         const log = join(dir, 'alnum.log');

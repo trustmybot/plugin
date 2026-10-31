@@ -44,17 +44,6 @@ function cdTarget(line) {
     }
     return best === null ? null : best[1];
 }
-function leadingCd(lines) {
-    for (const line of lines) {
-        const target = cdTarget(line);
-        if (target !== null)
-            return target;
-    }
-    return null;
-}
-function joinCwd(base, path) {
-    return path.startsWith('/') ? path : `${base.replace(/\/$/, '')}/${path}`;
-}
 /**
  * tmb_cmd_cwd <command> <input>: the dir a Bash command runs in: the first
  * line's leading `cd <path>`, else the first `git -C <path>` (quotes
@@ -63,7 +52,12 @@ function joinCwd(base, path) {
 export function cmdCwd(cmd, input, env = process.env) {
     const base = payloadCwd(input, env);
     const lines = cmd.split('\n');
-    let cdPath = leadingCd(lines);
+    let cdPath = null;
+    for (const line of lines) {
+        cdPath = cdTarget(line);
+        if (cdPath !== null)
+            break;
+    }
     if (cdPath === null) {
         cdPath = '';
         for (const line of lines) {
@@ -76,25 +70,23 @@ export function cmdCwd(cmd, input, env = process.env) {
     }
     if (cdPath === '')
         return base;
-    return joinCwd(base, cdPath);
+    if (cdPath.startsWith('/'))
+        return cdPath;
+    return `${base.replace(/\/$/, '')}/${cdPath}`;
 }
 /**
  * The dir a forge CLI (gh, glab) in a Bash command started in, which may no
- * longer exist: the first line's leading `cd <path>`, else the payload's cwd.
- * These CLIs ignore `git -C`, so unlike cmdCwd this does too.
+ * longer exist: a `cd <path>` leading the first non-blank line, else the
+ * payload's cwd. No other text is read: a later line may run after the CLI or
+ * sit in a heredoc body, and these CLIs ignore `git -C`.
  */
 export function forgeCommandDir(cmd, input, env = process.env) {
     const base = payloadCwd(input, env);
-    const cdPath = leadingCd(cmd.split('\n'));
-    return cdPath === null ? base : joinCwd(base, cdPath);
-}
-/**
- * forgeCommandDir when it exists, else the payload's cwd: the payload can
- * record the cwd after the command's `cd`, so a relative target may not join.
- */
-export function forgeCliCwd(cmd, input, env = process.env) {
-    const dir = forgeCommandDir(cmd, input, env);
-    return isDir(dir) ? dir : payloadCwd(input, env);
+    const leading = cmd.split('\n').find((line) => line.trim() !== '');
+    const cdPath = leading === undefined ? null : cdTarget(leading);
+    if (cdPath === null)
+        return base;
+    return cdPath.startsWith('/') ? cdPath : `${base.replace(/\/$/, '')}/${cdPath}`;
 }
 /**
  * The checkout holding forgeCommandDir or its nearest existing parent, else
