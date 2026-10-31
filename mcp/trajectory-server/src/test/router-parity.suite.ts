@@ -32,7 +32,7 @@ function parsed(stdout: string): unknown {
 async function oneByOne(c: RouterCase): Promise<Expected> {
   const tool = payloadTool(c.input);
   if (tool === null) return { decision: 'deny', gate: 'router', stdout: parsed(`${JSON.stringify({ hookSpecificOutput: { hookEventName: EVENT, permissionDecision: 'deny', permissionDecisionReason: failClosedReason('router', 'got an unparseable payload') } })}`), code: 0 };
-  const contexts: { hookSpecificOutput?: { hookEventName?: string; additionalContext?: unknown } }[] = [];
+  const contexts: { hookSpecificOutput?: { hookEventName?: string; additionalContext?: unknown; permissionDecision?: string; permissionDecisionReason?: string } }[] = [];
   for (const gate of routerGates(EVENT, tool)) {
     const fn = findGate(gate.name);
     assert.ok(fn, `${gate.name} is registered`);
@@ -43,10 +43,11 @@ async function oneByOne(c: RouterCase): Promise<Expected> {
   }
   if (contexts.length === 0) return { decision: 'allow', gate: null, stdout: null, code: 0 };
   if (contexts.length === 1) return { decision: 'allow', gate: null, stdout: contexts[0], code: 0 };
+  const asks = contexts.find((x) => x.hookSpecificOutput?.permissionDecision === 'ask')?.hookSpecificOutput;
   return {
     decision: 'allow',
     gate: null,
-    stdout: { hookSpecificOutput: { hookEventName: contexts.find((x) => x.hookSpecificOutput?.hookEventName)?.hookSpecificOutput?.hookEventName ?? EVENT, additionalContext: contexts.map((x) => x.hookSpecificOutput?.additionalContext).filter((x) => x !== undefined && x !== null).join('\n\n') } },
+    stdout: { hookSpecificOutput: { hookEventName: contexts.find((x) => x.hookSpecificOutput?.hookEventName)?.hookSpecificOutput?.hookEventName ?? EVENT, additionalContext: contexts.map((x) => x.hookSpecificOutput?.additionalContext).filter((x) => x !== undefined && x !== null).join('\n\n'), ...(asks ? { permissionDecision: 'ask' } : {}), ...(asks?.permissionDecisionReason === undefined ? {} : { permissionDecisionReason: asks.permissionDecisionReason }) } },
     code: 0,
   };
 }

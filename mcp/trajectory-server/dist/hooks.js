@@ -3982,7 +3982,7 @@ __export(loader_exports, {
   parserLoadCount: () => parserLoadCount,
   wasmDir: () => wasmDir
 });
-import { existsSync as existsSync5 } from "node:fs";
+import { existsSync as existsSync6 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parserLoadCount() {
@@ -3991,7 +3991,7 @@ function parserLoadCount() {
 function wasmDir() {
   const here = dirname2(fileURLToPath2(import.meta.url));
   for (const dir of [join4(here, "parsing"), here]) {
-    if (existsSync5(join4(dir, RUNTIME_WASM))) return dir;
+    if (existsSync6(join4(dir, RUNTIME_WASM))) return dir;
   }
   throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join4(here, "parsing")} or ${here}`);
 }
@@ -6596,11 +6596,66 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { accessSync as accessSync6, constants as constants6, statSync as statSync7 } from "node:fs";
+import { spawnSync as spawnSync4 } from "node:child_process";
+import { accessSync as accessSync6, constants as constants6, statSync as statSync8 } from "node:fs";
+
+// src/hooks/cmd-analysis/path.ts
+import { existsSync as existsSync4, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
+var MAX_HOPS = 40;
+function isLink(p) {
+  try {
+    return lstatSync2(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function pathCanonical(path) {
+  if (!path.startsWith("/")) return path;
+  let cur = "";
+  let tail = "";
+  let rest = path;
+  let hops = 0;
+  while (rest !== "") {
+    rest = rest.replace(/^\//, "");
+    const slash = rest.indexOf("/");
+    const part = slash < 0 ? rest : rest.slice(0, slash);
+    rest = slash < 0 ? "" : rest.slice(slash + 1);
+    if (part === "" || part === ".") continue;
+    if (tail !== "") {
+      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
+      continue;
+    }
+    if (part === "..") {
+      cur = cur.replace(/\/[^/]*$/, "");
+      continue;
+    }
+    const next = `${cur}/${part}`;
+    if (hops < MAX_HOPS && isLink(next)) {
+      hops++;
+      const link = readlinkSync2(next);
+      if (link.startsWith("/")) cur = "";
+      rest = `${link}/${rest}`;
+      continue;
+    }
+    if (existsSync4(next)) cur = next;
+    else tail = `/${part}`;
+  }
+  return cur + tail || "/";
+}
+function payloadCwd(json, env = process.env) {
+  try {
+    const cwd = JSON.parse(json)?.cwd;
+    if (typeof cwd === "string") {
+      const c = cwd.replace(/\n+$/, "");
+      if (c !== "") return c;
+    }
+  } catch {
+  }
+  return env.PWD ?? "";
+}
 
 // src/hooks/lib/lint-shell.ts
-import { existsSync as existsSync4 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 var JqError4 = class extends Error {
 };
 function jqIndex2(value, key2) {
@@ -6656,7 +6711,7 @@ function jqEachOptional(value) {
 var LOCALE_CATEGORIES2 = ["LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"];
 function localeLoads(name3, category) {
   if (name3 === "C" || name3 === "POSIX") return true;
-  return !name3.includes("/") && existsSync4(`/usr/share/locale/${name3}/${category}`);
+  return !name3.includes("/") && existsSync5(`/usr/share/locale/${name3}/${category}`);
 }
 function grepMultibyte(env) {
   const name3 = (category) => env.LC_ALL || env[category] || env.LANG || "C";
@@ -6680,6 +6735,49 @@ function anyLine(text, re) {
 function preToolContext(ctx) {
   return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: wellFormed(ctx) } })}
 `;
+}
+
+// src/hooks/lib/git.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { statSync as statSync7 } from "node:fs";
+var GIT_MAX_BUFFER = 256 * 1024 * 1024;
+function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
+  const limit = spawnLimit();
+  const r = spawnSync3("git", ["-C", dir, ...args2], {
+    encoding: "utf8",
+    env,
+    input,
+    maxBuffer: GIT_MAX_BUFFER,
+    stdio: ["pipe", "pipe", stderr2],
+    ...spawnOptions(limit)
+  });
+  noteSpawn(limit, r);
+  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
+}
+function gitOut(dir, args2, env = process.env, input = "") {
+  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
+}
+function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
+  return gitRun(dir, args2, env, "", stderr2).code === 0;
+}
+function isDir(path) {
+  if (path === "") return false;
+  try {
+    return statSync7(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function cdPwd(path, pwd) {
+  if (!isDir(path === "" ? "." : path)) return "";
+  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
+  const out2 = [];
+  for (const part of abs.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") out2.pop();
+    else out2.push(part);
+  }
+  return `/${out2.join("/")}`;
 }
 
 // src/hooks/attribution-footer.ts
@@ -6711,7 +6809,7 @@ function onPath3(name3, env) {
   for (const dir of (env.PATH ?? "").split(":")) {
     const file = `${dir === "" ? "." : dir}/${name3}`;
     try {
-      if (!statSync7(file).isFile()) continue;
+      if (!statSync8(file).isFile()) continue;
       accessSync6(file, constants6.X_OK);
       return file;
     } catch {
@@ -6720,8 +6818,8 @@ function onPath3(name3, env) {
   }
   return null;
 }
-function run2(file, args2, env) {
-  const r = spawnSync3(file, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
+function run2(file, args2, cwd, env) {
+  const r = spawnSync4(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
 function glabDescription(json) {
@@ -6753,13 +6851,16 @@ function created(command, kind, multibyte) {
   const re = new RegExp(`(^|${edge})${kind.cli}${space2}${kind.group}${space2}create(${edge}|$)`, "u");
   return command.split("\n").some((line) => re.test(line));
 }
-function artifactNumber(response, kind, multibyte) {
-  const re = new RegExp(`https://[^${grepSpace(multibyte)}"]+${kind.urlPath}([0-9]+)`, "u");
+function createdArtifact(response, kind, multibyte) {
+  const re = new RegExp(`https://([^${grepSpace(multibyte)}"]+)${kind.urlPath}([0-9]+)`, "u");
   for (const line of response.split("\n")) {
     const m = re.exec(line);
-    if (m) return m[1];
+    if (m) return { number: m[2], repoPath: m[1] };
   }
-  return "";
+  return null;
+}
+function targetingRepo(kind, repoPath, env) {
+  return kind.cli === "gh" ? { ...env, GH_REPO: repoPath } : { ...env, GITLAB_REPO: `https://${repoPath}` };
 }
 var attributionFooter = (payload, env) => {
   if (jqRawOr(payload, [jqPath("tool_name")]) !== "Bash") return ALLOW;
@@ -6769,17 +6870,21 @@ var attributionFooter = (payload, env) => {
   const multibyte = grepMultibyte(env);
   const kind = KINDS.find((k) => created(command, k, multibyte));
   if (kind === void 0) return ALLOW;
-  const number = artifactNumber(response, kind, multibyte);
-  if (number === "") return ALLOW;
+  const artifact = createdArtifact(response, kind, multibyte);
+  if (artifact === null) return ALLOW;
+  const { number, repoPath } = artifact;
   const cli = onPath3(kind.cli, env);
   if (cli === null) return ALLOW;
+  const startDir = payloadCwd(payload, env);
+  const cwd = isDir(startDir) ? startDir : void 0;
+  const forgeEnv = targetingRepo(kind, repoPath, env);
   let orig;
   if (kind.cli === "gh") {
-    const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], env);
+    const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], cwd, forgeEnv);
     if (!view.ok) return ALLOW;
     orig = shellCapture2(view.stdout);
   } else {
-    const view = run2(cli, [kind.group, "view", number, "-F", "json"], env);
+    const view = run2(cli, [kind.group, "view", number, "-F", "json"], cwd, forgeEnv);
     const description = view.ok ? glabDescription(view.stdout) : null;
     if (description === null) return ALLOW;
     orig = description;
@@ -6787,7 +6892,7 @@ var attributionFooter = (payload, env) => {
   const updated = shellCapture2(normalizeFooter(orig, env));
   if (updated === orig) return ALLOW;
   const write2 = kind.cli === "gh" ? [kind.group, "edit", number, "--body", updated] : [kind.group, "update", number, "--description", updated];
-  run2(cli, write2, env);
+  run2(cli, write2, cwd, forgeEnv);
   return ALLOW;
 };
 
@@ -7113,49 +7218,6 @@ function encode(parser2, command) {
   } finally {
     tree.delete();
   }
-}
-
-// src/hooks/lib/git.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
-import { statSync as statSync8 } from "node:fs";
-var GIT_MAX_BUFFER = 256 * 1024 * 1024;
-function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
-  const limit = spawnLimit();
-  const r = spawnSync4("git", ["-C", dir, ...args2], {
-    encoding: "utf8",
-    env,
-    input,
-    maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", stderr2],
-    ...spawnOptions(limit)
-  });
-  noteSpawn(limit, r);
-  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
-}
-function gitOut(dir, args2, env = process.env, input = "") {
-  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
-}
-function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
-  return gitRun(dir, args2, env, "", stderr2).code === 0;
-}
-function isDir(path) {
-  if (path === "") return false;
-  try {
-    return statSync8(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-function cdPwd(path, pwd) {
-  if (!isDir(path === "" ? "." : path)) return "";
-  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
-  const out2 = [];
-  for (const part of abs.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") out2.pop();
-    else out2.push(part);
-  }
-  return `/${out2.join("/")}`;
 }
 
 // src/hooks/cmd-analysis/parser.ts
@@ -8153,61 +8215,6 @@ import { accessSync as accessSync7, constants as constants7, realpathSync as rea
 // src/hooks/cmd-analysis/lister.ts
 import { statSync as statSync11 } from "node:fs";
 
-// src/hooks/cmd-analysis/path.ts
-import { existsSync as existsSync6, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
-var MAX_HOPS = 40;
-function isLink(p) {
-  try {
-    return lstatSync2(p).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function pathCanonical(path) {
-  if (!path.startsWith("/")) return path;
-  let cur = "";
-  let tail = "";
-  let rest = path;
-  let hops = 0;
-  while (rest !== "") {
-    rest = rest.replace(/^\//, "");
-    const slash = rest.indexOf("/");
-    const part = slash < 0 ? rest : rest.slice(0, slash);
-    rest = slash < 0 ? "" : rest.slice(slash + 1);
-    if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
-      continue;
-    }
-    if (part === "..") {
-      cur = cur.replace(/\/[^/]*$/, "");
-      continue;
-    }
-    const next = `${cur}/${part}`;
-    if (hops < MAX_HOPS && isLink(next)) {
-      hops++;
-      const link = readlinkSync2(next);
-      if (link.startsWith("/")) cur = "";
-      rest = `${link}/${rest}`;
-      continue;
-    }
-    if (existsSync6(next)) cur = next;
-    else tail = `/${part}`;
-  }
-  return cur + tail || "/";
-}
-function payloadCwd(json, env = process.env) {
-  try {
-    const cwd = JSON.parse(json)?.cwd;
-    if (typeof cwd === "string") {
-      const c = cwd.replace(/\n+$/, "");
-      if (c !== "") return c;
-    }
-  } catch {
-  }
-  return env.PWD ?? "";
-}
-
 // src/hooks/lib/repo.ts
 import { statSync as statSync9 } from "node:fs";
 function isFile5(path) {
@@ -8260,6 +8267,19 @@ function cmdCwd(cmd, input, env = process.env) {
   if (cdPath === "") return base2;
   if (cdPath.startsWith("/")) return cdPath;
   return `${base2.replace(/\/$/, "")}/${cdPath}`;
+}
+function forgeCommandDir(cmd, input, env = process.env) {
+  const base2 = payloadCwd(input, env);
+  const leading = cmd.split("\n").find((line) => line.trim() !== "");
+  const cdPath = leading === void 0 ? null : cdTarget(leading);
+  if (cdPath === null) return base2;
+  return cdPath.startsWith("/") ? cdPath : `${base2.replace(/\/$/, "")}/${cdPath}`;
+}
+function forgeRepoDir(cmd, input, env = process.env) {
+  let dir = forgeCommandDir(cmd, input, env);
+  if (dir === "") return "";
+  while (!isDir(dir) && dir !== "/" && dir !== ".") dir = posixDirname(dir);
+  return gitOut(dir, ["rev-parse", "--show-toplevel"], env) || dir;
 }
 function repoDefaultBranch(root, env = process.env) {
   if (root === "") return "";
@@ -15818,6 +15838,8 @@ function readState(db, taskId, env) {
                         AND (human.at IS NULL OR r.started_at > human.at)),
        'issue_fails', (SELECT COUNT(*) FROM validation_attempts v JOIN tasks x ON x.id = v.task_id, t, human
                         WHERE x.issue_id = t.issue_id AND v.verdict = 'fail'
+                          AND NOT EXISTS (SELECT 1 FROM validation_attempts p
+                                           WHERE p.task_id = v.task_id AND p.verdict = 'pass' AND p.id > v.id)
                           AND (human.at IS NULL OR v.created_at > human.at)),
        'waived_at', (SELECT at FROM human))
      FROM t;`,
@@ -19018,19 +19040,19 @@ function executable(path) {
     return false;
   }
 }
-function capture3(cmd, args2, env) {
-  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+function capture3(cmd, args2, dir, env) {
+  const r = spawnSync10(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
-function toolchainDirs(env) {
+function toolchainDirs(env, worktree) {
   const home = env.HOME ?? "";
   const out2 = [];
   const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
   if (isDir(`${miseData}/shims`)) out2.push(`${miseData}/shims`);
   const mise = [env.MISE_INSTALL_PATH ?? "", "/opt/homebrew/bin/mise", "/usr/local/bin/mise", `${home}/.local/bin/mise`].find(executable);
-  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], env).split("\n"));
+  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], worktree, env).split("\n"));
   const brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(executable);
-  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], env));
+  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], worktree, env));
   const brewDirs = brewPrefix !== "" ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
   out2.push(...brewDirs.filter(isDir));
   if (home !== "" && isDir(`${home}/.local/bin`)) out2.push(`${home}/.local/bin`);
@@ -19501,7 +19523,7 @@ var sweVerificationGate = async (payload, env) => {
       code: 0
     };
   }
-  const toolchainPath = joinToolchainPath(toolchainDirs(genv), genv.PATH ?? "");
+  const toolchainPath = joinToolchainPath(toolchainDirs(genv, worktree), genv.PATH ?? "");
   const budget = parseBudget(
     genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv)
   );
@@ -21229,8 +21251,9 @@ function isFile16(path) {
     return false;
   }
 }
-function gh(args2, env) {
+function gh(args2, repoDir, env) {
   const r = spawnSync12("gh", args2, {
+    cwd: repoDir,
     encoding: "utf8",
     env,
     timeout: GH_TIMEOUT_MS,
@@ -21313,15 +21336,17 @@ function closingRefs(json) {
   return sortUniqueNumeric(lines2.filter((l) => /^[0-9]+$/.test(l)));
 }
 var Merge = class {
-  constructor(db, head, syncOn2, env) {
+  constructor(db, head, syncOn2, repoDir, env) {
     this.db = db;
     this.head = head;
     this.syncOn = syncOn2;
+    this.repoDir = repoDir;
     this.env = env;
   }
   db;
   head;
   syncOn;
+  repoDir;
   env;
   sql = [];
   closedIds = [];
@@ -21453,8 +21478,8 @@ var Merge = class {
       if (!this.syncOn) continue;
       const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
       if (ghIid === "") continue;
-      if (gh(["issue", "view", ghIid, "--json", "state", "-q", ".state"], this.env) !== "CLOSED") {
-        gh(["issue", "close", ghIid], this.env);
+      if (gh(["issue", "view", ghIid, "--json", "state", "-q", ".state"], this.repoDir, this.env) !== "CLOSED") {
+        gh(["issue", "close", ghIid], this.repoDir, this.env);
       }
     }
   }
@@ -21485,12 +21510,13 @@ function close(payload, env) {
   const db = dbPath(env);
   if (db === null || !isFile16(db) || !haveSqlite(env)) return;
   let ref = refFromArgs(commandSubstitution(args2.join("\n")).split("\n"));
-  if (ref === "") ref = gitOut(cmdCwd(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  if (ref === "") ref = gitOut(forgeCommandDir(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
   if (ref === "" || ref === "HEAD") return;
-  const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], env);
+  const repoDir = forgeRepoDir(cmd, input, env);
+  const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, "headRefName"));
   if (head === "" && /[^0-9]/.test(ref) && !ref.includes("://")) head = ref;
-  const merge = new Merge(db, head, syncOn(db, env), env);
+  const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
   const sql = merge.build(prJson);
   if (sql === "") return;
   const w = dbWrite(db, sql, { caller: GATE_NAME55, env });
@@ -23529,10 +23555,32 @@ function routerTimeoutS(group) {
 }
 
 // src/hooks/router/main.ts
-import { spawnSync as spawnSync14 } from "node:child_process";
-import { existsSync as existsSync16, mkdirSync as mkdirSync12, readFileSync as readFileSync22 } from "node:fs";
+import { spawnSync as spawnSync15 } from "node:child_process";
+import { existsSync as existsSync17, mkdirSync as mkdirSync12, readFileSync as readFileSync22 } from "node:fs";
 import { dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath11 } from "node:url";
+
+// src/hooks/router/sh-gate.ts
+import { spawnSync as spawnSync14 } from "node:child_process";
+import { existsSync as existsSync15 } from "node:fs";
+function shGate(name3) {
+  return (payload, env) => {
+    const script = `${env.CLAUDE_PLUGIN_ROOT ?? ""}/scripts/hooks/${name3}.sh`;
+    if (!existsSync15(script)) throw new Error(`no ${script} (TMB_HOOKS_IMPL=bash runs only .sh gates) \u2014 not run`);
+    const limit = spawnLimit(void 0, "SIGKILL");
+    const r = spawnSync14("bash", [script], {
+      input: payload,
+      env,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "inherit"],
+      ...spawnOptions(limit)
+    });
+    const cut4 = noteSpawn(limit, r);
+    if (r.error && !cut4) throw r.error;
+    return { stdout: r.stdout ?? "", code: r.status ?? 1 };
+  };
+}
 
 // src/hooks/router/decide.ts
 var ROUTER_NAME = "router";
@@ -23580,14 +23628,33 @@ function parses(stdout) {
     return false;
   }
 }
+var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var DECISION_KEYS = /* @__PURE__ */ new Set(["permissionDecision", "permissionDecisionReason"]);
+var SPECIFIC_KEY = /* @__PURE__ */ new Set(["hookSpecificOutput"]);
+function firstWins(records2, into, skip2) {
+  for (const record of records2) {
+    for (const [key2, value] of Object.entries(record)) {
+      if (!skip2.has(key2) && !(key2 in into)) into[key2] = value;
+    }
+  }
+  return into;
+}
 function mergeContext(outputs) {
   if (outputs.length === 0) return "";
   if (outputs.length === 1) return `${outputs[0]}
 `;
-  const parsed = outputs.map((o) => JSON.parse(o));
-  const event = parsed.map((p) => p.hookSpecificOutput?.hookEventName).find((e) => typeof e === "string" && e !== "") ?? "PreToolUse";
-  const context4 = parsed.map((p) => p.hookSpecificOutput?.additionalContext).filter((c) => c !== void 0 && c !== null && c !== false).map((c) => typeof c === "string" ? c : JSON.stringify(c)).join("\n\n");
-  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: context4 } })}
+  const parsed = outputs.map((o) => asRecord(JSON.parse(o)));
+  const specifics = parsed.map((p) => asRecord(p.hookSpecificOutput));
+  const event = specifics.map((p) => p.hookEventName).find((e) => typeof e === "string" && e !== "") ?? "PreToolUse";
+  const context4 = specifics.map((p) => p.additionalContext).filter((c) => c !== void 0 && c !== null && c !== false).map((c) => typeof c === "string" ? c : JSON.stringify(c)).join("\n\n");
+  const specific = firstWins(specifics, { hookEventName: event, additionalContext: context4 }, DECISION_KEYS);
+  const decided = specifics.filter((p) => p.permissionDecision !== void 0);
+  const winner = decided.find((p) => p.permissionDecision !== "allow") ?? decided[0];
+  if (winner) {
+    specific.permissionDecision = winner.permissionDecision;
+    if (winner.permissionDecisionReason !== void 0) specific.permissionDecisionReason = winner.permissionDecisionReason;
+  }
+  return `${JSON.stringify({ ...firstWins(parsed, {}, SPECIFIC_KEY), hookSpecificOutput: specific })}
 `;
 }
 var LATE = /* @__PURE__ */ Symbol("late");
@@ -23677,11 +23744,12 @@ async function decide(event, payload, env, deps = {}) {
       denied: { gate: ROUTER_NAME, reason }
     };
   }
-  const find = deps.findGate ?? findGate;
+  const bashImpl = env.TMB_HOOKS_IMPL === "bash";
+  const find = deps.findGate ?? (bashImpl ? shGate : findGate);
   const groups = deps.groups ?? ROUTER_GROUPS;
   const group = routerGroup(event, tool, groups);
   const gates = routerGates(event, tool, groups);
-  if (tool === "Bash" && gates.length > 0) await bashParser().catch(() => void 0);
+  if (tool === "Bash" && gates.length > 0 && !bashImpl) await bashParser().catch(() => void 0);
   const groupBudgetMs = deps.groupBudgetMs ?? group?.groupBudgetMs ?? 0;
   const groupStart = now2();
   const done = [];
@@ -23727,7 +23795,7 @@ function judgeUnknown(gate) {
 
 // src/hooks/router/dedupe.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync15, mkdirSync as mkdirSync10, readdirSync as readdirSync7, readFileSync as readFileSync21, renameSync as renameSync4, rmSync as rmSync6, statSync as statSync37, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync16, mkdirSync as mkdirSync10, readdirSync as readdirSync7, readFileSync as readFileSync21, renameSync as renameSync4, rmSync as rmSync6, statSync as statSync37, writeFileSync as writeFileSync6 } from "node:fs";
 import { setTimeout as sleep2 } from "node:timers/promises";
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -23785,7 +23853,7 @@ var Dedupe = class {
   windowS;
   sweepS;
   expired(lock) {
-    const done = existsSync15(`${lock}/rc`);
+    const done = existsSync16(`${lock}/rc`);
     if (!done) {
       const deadline = stamp(`${lock}/deadline`);
       if (deadline !== null) return nowS2() > deadline;
@@ -23820,7 +23888,7 @@ var Dedupe = class {
       }
       if (!st.isDirectory()) continue;
       const ageMin = (Date.now() - st.mtimeMs) / 6e4;
-      const done = existsSync15(`${d}/rc`);
+      const done = existsSync16(`${d}/rc`);
       const deadline = done ? null : stamp(`${d}/deadline`);
       const gone = done && ageMin > this.ttlMin || !done && deadline === null && ageMin > this.ttlMin * 3 || !done && deadline !== null && now2 > deadline;
       if (gone) rmSync6(d, { recursive: true, force: true });
@@ -23876,7 +23944,7 @@ var Dedupe = class {
       return false;
     }
     try {
-      if (!existsSync15(lock) || this.expired(lock)) {
+      if (!existsSync16(lock) || this.expired(lock)) {
         rmSync6(lock, { recursive: true, force: true });
         return this.take(lock);
       }
@@ -23892,7 +23960,7 @@ var Dedupe = class {
     const giveUp = nowS2() + Math.max(1, this.timeoutS - 1);
     for (; ; ) {
       if (this.take(lock)) return { kind: "hold", lock };
-      if (existsSync15(`${lock}/rc`) && !this.expired(lock)) {
+      if (existsSync16(`${lock}/rc`) && !this.expired(lock)) {
         const out2 = this.replay(lock);
         return out2 === null ? { kind: "none" } : { kind: "replay", out: out2 };
       }
@@ -24049,7 +24117,7 @@ function ownRoot(env) {
   return installRoot(dirname3(fileURLToPath11(import.meta.url))) ?? env.CLAUDE_PLUGIN_ROOT ?? "";
 }
 function hopTo(root, event, payload, env) {
-  const r = spawnSync14(process.execPath, [`${root}/${BUNDLE}`, event], {
+  const r = spawnSync15(process.execPath, [`${root}/${BUNDLE}`, event], {
     input: payload,
     env: { ...env, CLAUDE_PLUGIN_ROOT: root, [HOP_ENV]: "1" },
     encoding: "utf8",
@@ -24087,7 +24155,7 @@ async function routerMain(event, env, io, opts = {}) {
   if (opts.hop !== false && env[HOP_ENV] !== "1") {
     const root = activeInstall(env, io.writeStderr);
     if (root !== "" && self2 !== "" && canonicalDir(root) !== canonicalDir(self2)) {
-      if (existsSync16(`${root}/${ROUTER_MANIFEST}`) && existsSync16(`${root}/${BUNDLE}`) && servesCall(root, event, tool)) {
+      if (existsSync17(`${root}/${ROUTER_MANIFEST}`) && existsSync17(`${root}/${BUNDLE}`) && servesCall(root, event, tool)) {
         const out2 = hopTo(root, event, payload, env);
         io.writeStderr(out2.stderr);
         await io.writeStdout(out2.stdout);

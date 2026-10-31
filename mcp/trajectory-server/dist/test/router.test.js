@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +12,7 @@ import { ALLOW } from '../hooks/gate.js';
 import { armDeadline, disarmDeadline, noteSpawn, spawnLimit } from '../hooks/lib/deadline.js';
 import { gitRun } from '../hooks/lib/git.js';
 import { ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
-import { decide } from '../hooks/router/decide.js';
+import { decide, mergeContext } from '../hooks/router/decide.js';
 import { routerMain } from '../hooks/router/main.js';
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCHEMA = readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/schema.sql'), 'utf8');
@@ -66,6 +67,56 @@ describe('router decision: deny, allow, merge', () => {
         assert.equal(one.stdout, context('only').stdout);
         const two = await decide('PreToolUse', bash('ls'), {}, { groups: group(['a', 'advisory'], ['b', 'enforcement']), findGate: fakes({ a: () => context('one'), b: () => context('two') }) });
         assert.deepEqual(JSON.parse(two.stdout), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'one\n\ntwo' } });
+    });
+    it('a merge drops no decision: ask beats allow in either order, with its own reason and both contexts (F287-4)', () => {
+        const allow = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'fine', additionalContext: 'one' } });
+        const ask = JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'check', additionalContext: 'two' } });
+        assert.deepEqual(JSON.parse(mergeContext([allow, ask])), {
+            hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'check', additionalContext: 'one\n\ntwo' },
+        });
+        assert.deepEqual(JSON.parse(mergeContext([ask, allow])), {
+            hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: 'check', additionalContext: 'two\n\none' },
+        });
+        assert.deepEqual(JSON.parse(mergeContext([allow, context('more').stdout.trim()])), {
+            hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'fine', additionalContext: 'one\n\nmore' },
+        });
+    });
+    it('a merge keeps the first value of every other key, in hookSpecificOutput and at the top level (F287-4)', () => {
+        const first = JSON.stringify({ systemMessage: 'first', hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { a: 1 } } });
+        const second = JSON.stringify({ systemMessage: 'second', suppressOutput: true, hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { a: 2 }, extra: 'kept' } });
+        assert.deepEqual(JSON.parse(mergeContext([first, second])), {
+            systemMessage: 'first',
+            suppressOutput: true,
+            hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: '', updatedInput: { a: 1 }, extra: 'kept' },
+        });
+    });
+    it('the bundle keeps the ask of a malformed ratification batch that also breaks the brevity targets (F287-4)', () => {
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-ask-')));
+        try {
+            const db = new DatabaseSync(join(dir, 't.db'));
+            db.exec(`CREATE TABLE roundtables(id INTEGER PRIMARY KEY, state TEXT);
+        CREATE TABLE roundtable_votes(roundtable_id INT, participant TEXT);
+        INSERT INTO roundtables(state) VALUES ('awaiting_human');`);
+            db.close();
+            const payload = JSON.stringify({
+                tool_name: 'AskUserQuestion',
+                session_id: 's1',
+                tool_use_id: 't1',
+                tool_input: { questions: [{ question: 'q', multiSelect: false, options: [{ label: 'one two three four five six seven eight' }] }] },
+            });
+            const out = execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'PreToolUse'], {
+                input: payload,
+                encoding: 'utf8',
+                cwd: dir,
+                env: { ...process.env, TRAJECTORY_DB_PATH: join(dir, 't.db'), CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TMB_INSTALLED_JSON: join(dir, 'none.json') },
+            });
+            const { hookSpecificOutput: o } = JSON.parse(out);
+            assert.equal(o.permissionDecision, 'ask');
+            assert.match(o.additionalContext, /label is 8 words/);
+        }
+        finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
     it('runs no gate for a tool no group names, and allows', async () => {
         let ran = 0;
@@ -401,6 +452,73 @@ describe('router deadlines: every spawn stops at the gate deadline (decision 922
         }
         finally {
             disarmDeadline();
+        }
+    });
+});
+describe('TMB_HOOKS_IMPL=bash: the router runs each gate as its .sh (F287-6)', () => {
+    const HANG_S = 30;
+    let root;
+    before(() => {
+        root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-')));
+        mkdirSync(join(root, 'scripts/hooks'), { recursive: true });
+        writeFileSync(join(root, 'scripts/hooks/says-context.sh'), `cat >/dev/null\nprintf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"from the sh"}}\\n'\n`);
+        writeFileSync(join(root, 'scripts/hooks/says-deny.sh'), `cat >/dev/null\nprintf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"the sh says no"}}\\n'\n`);
+        writeFileSync(join(root, 'scripts/hooks/exits-3.sh'), 'exit 3\n');
+        writeFileSync(join(root, 'scripts/hooks/hangs.sh'), `trap '' TERM\nsleep ${HANG_S}\n`);
+    });
+    after(() => rmSync(root, { recursive: true, force: true }));
+    const shEnv = () => ({ ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PLUGIN_ROOT: root });
+    it('a gate with a .sh answers from its .sh, not from the TypeScript registry', async () => {
+        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['says-context', 'enforcement']) });
+        assert.deepEqual(JSON.parse(d.stdout), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'from the sh' } });
+        assert.equal(d.denied, null);
+    });
+    it('a .sh deny is the router deny, named by its gate', async () => {
+        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['says-context', 'advisory'], ['says-deny', 'enforcement']) });
+        assert.deepEqual(d.denied, { gate: 'says-deny', reason: 'the sh says no' });
+    });
+    it('an enforcement gate with no .sh denies naming itself; an advisory one is dropped and logged', async () => {
+        const denied = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['no-such-gate', 'enforcement']) });
+        assert.equal(denied.denied?.gate, 'no-such-gate');
+        assert.match(reasonOf(denied.stdout), /^BLOCKED: TMB gate no-such-gate exited 1 without a decision/);
+        assert.match(denied.stderr, /TMB_HOOKS_IMPL=bash runs only \.sh gates/);
+        const dropped = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['no-such-gate', 'advisory']) });
+        assert.equal(dropped.denied, null);
+        assert.equal(dropped.stdout, '');
+        assert.match(dropped.stderr, /advisory gate no-such-gate exited 1 — output dropped/);
+    });
+    it('the real swe-resume-gate, born in TypeScript, denies under the switch as dispatch.sh refusing it does', async () => {
+        const payload = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'SendMessage', tool_input: {}, tool_use_id: 't' });
+        const d = await decide('PreToolUse', payload, { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT });
+        assert.equal(d.denied?.gate, 'swe-resume-gate');
+    });
+    it('a .sh exiting other than 0 or 2 fails closed as a gate does', async () => {
+        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['exits-3', 'enforcement']) });
+        assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate exits-3 exited 3 without a decision/);
+    });
+    it('a .sh that holds SIGTERM still ends at the gate budget, and denies by name', async () => {
+        const d = await decide('PreToolUse', bash('ls'), shEnv(), { groups: group(['hangs', 'enforcement', 300]) });
+        assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate hangs timed out after 300 ms/);
+    });
+    it('with no switch the same group runs the TypeScript registry', async () => {
+        const d = await decide('PreToolUse', bash('ls'), { ...process.env, CLAUDE_PLUGIN_ROOT: root }, { groups: group(['says-context', 'advisory']) });
+        assert.equal(d.stdout, '');
+        assert.match(d.stderr, /unknown gate 'says-context'/);
+    });
+    it('the switch reaches a real .sh through the bundle: askuserquestion-length-lint.sh answers', () => {
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-router-sh-real-')));
+        try {
+            const payload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's1', tool_use_id: 'real', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'q', multiSelect: false, options: [{ label: 'one two three four five six seven eight' }] }] } });
+            const out = execFileSync(process.execPath, [join(PLUGIN_ROOT, 'mcp/trajectory-server/dist/hooks.js'), 'PreToolUse'], {
+                input: payload,
+                encoding: 'utf8',
+                cwd: dir,
+                env: { ...process.env, TMB_HOOKS_IMPL: 'bash', CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, TMB_INSTALLED_JSON: join(dir, 'none.json') },
+            });
+            assert.match(out, /label is 8 words/);
+        }
+        finally {
+            rmSync(dir, { recursive: true, force: true });
         }
     });
 });

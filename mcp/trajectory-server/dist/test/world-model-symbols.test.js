@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { loadParsers, parserLoadCount } from '../parsing/loader.js';
 import { EXTRACTOR_VERSION, FAILED_SUFFIX, indexRepoSymbols, symbolsStamp } from '../symbol-index.js';
 import { DATA_CONTRACTS, IN_SYMBOL_SCOPE_SQL, isSqlContract } from '../data-contracts.js';
 import { extractFile, inSymbolScope, isGeneratedPath, isRuleLine } from '../parsing/extract.js';
+import { dispatchChains, extractHooks } from '../parsing/hooks.js';
 import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { WorldModelGraph, GraphHolder } from '../graph.js';
@@ -723,13 +724,78 @@ describe('a comment banner or a comment set off by a blank line is never a symbo
             execFileSync('git', ['add', '-A'], { cwd: root });
             execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
             await scan(db, holder, ws);
-            assert.equal(EXTRACTOR_VERSION, 2);
+            assert.equal(EXTRACTOR_VERSION, 3);
             db.run(`UPDATE wm_files SET symbols_md5 = content_md5 || ':1' WHERE repo = 'app' AND path = 'scripts/banner.sh'`);
             db.run(`UPDATE wm_symbols SET doc = 'JSON output helpers' WHERE repo = 'app' AND qualified_name = 'error_json'`);
             const out = await scan(db, holder, ws);
             assert.equal(out.symbols.files_parsed, 1);
             const doc = db.get(`SELECT doc FROM wm_symbols WHERE repo = 'app' AND qualified_name = 'error_json'`).doc;
             assert.equal(doc, '');
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('world model hook symbols: router entries (GH 2185, F287-5)', () => {
+    const PLUGIN_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
+    const read = (path) => readFileSync(join(PLUGIN_ROOT, path), 'utf8');
+    it('the shipped Write group has one runs edge per routed gate, in run order, named by its first gate', () => {
+        const table = read('mcp/trajectory-server/dist/hooks-router.txt');
+        const x = extractHooks(read('hooks/hooks.json'), dispatchChains(read('scripts/hooks/lib/registrations.sh')), table);
+        const at = x.symbols.findIndex((s) => s.qualified_name.startsWith('PreToolUse#') && s.doc.includes('Write|Edit'));
+        assert.ok(at >= 0);
+        assert.equal(x.symbols[at].qualified_name, 'PreToolUse#1:containment-guard');
+        assert.ok(x.symbols[at].start_line > 0, 'the symbol sits on its command line');
+        const gates = table.split('\n').map((l) => l.split(' ')).filter((f) => f[3] === 'PreToolUse' && f[4] === 'Write|Edit|MultiEdit|NotebookEdit').map((f) => f[0]);
+        assert.ok(gates.includes('swe-boundary'));
+        assert.match(x.symbols[at].doc, new RegExp(`runs router gates ${gates.join(', ')}$`));
+        const edges = x.edges.filter((e) => e.src === at && e.kind === 'runs');
+        assert.deepEqual(edges.map((e) => e.dst_name), gates.map((g) => `scripts/hooks/${g}.sh`));
+        assert.deepEqual(edges.map((e) => e.line), gates.map((_, i) => i + 1));
+    });
+    it('every PreToolUse entry of the shipped hooks.json is named by a gate, not by its position', () => {
+        const x = extractHooks(read('hooks/hooks.json'), new Map(), read('mcp/trajectory-server/dist/hooks-router.txt'));
+        for (const s of x.symbols.filter((y) => y.qualified_name.startsWith('PreToolUse#'))) {
+            assert.doesNotMatch(s.qualified_name, /:hook\d+$/);
+        }
+    });
+    it('with no table a router entry stays a bare hook with no runs edge', () => {
+        const x = extractHooks(read('hooks/hooks.json'), new Map());
+        const at = x.symbols.findIndex((s) => s.qualified_name.startsWith('PreToolUse#'));
+        assert.equal(x.symbols[at].qualified_name, 'PreToolUse#1:hook1');
+        assert.equal(x.edges.filter((e) => e.src === at).length, 0);
+    });
+    it('a scan indexes the table, and a registry.ts change refreshes hooks.json with no change of its own', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'wm-router-hooks-'));
+        const root = join(ws, 'app');
+        const db = tempDB();
+        const holder = GraphHolder.fixed(new WorldModelGraph(db));
+        const hooks = JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse' }] }] } }, null, 2);
+        const commit = () => {
+            execFileSync('git', ['add', '-A'], { cwd: root });
+            execFileSync('git', ['commit', '-qm', 'c'], { cwd: root });
+        };
+        const runs = () => db.all(`SELECT e.dst_name FROM wm_edges e JOIN wm_symbols s ON s.id = e.src_id WHERE s.repo = 'app' AND s.kind = 'hook' AND e.kind = 'runs' ORDER BY e.line`).map((r) => r.dst_name);
+        try {
+            mkdirSync(join(root, 'hooks'), { recursive: true });
+            mkdirSync(join(root, 'mcp/trajectory-server/dist'), { recursive: true });
+            mkdirSync(join(root, 'mcp/trajectory-server/src/hooks'), { recursive: true });
+            execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+            execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+            execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+            writeFileSync(join(root, 'hooks/hooks.json'), hooks);
+            writeFileSync(join(root, 'mcp/trajectory-server/src/hooks/registry.ts'), 'export const A = 1;\n');
+            writeFileSync(join(root, 'mcp/trajectory-server/dist/hooks-router.txt'), 'a 1 enforcement PreToolUse Bash *\n');
+            commit();
+            await scan(db, holder, ws);
+            assert.deepEqual(runs(), ['scripts/hooks/a.sh']);
+            writeFileSync(join(root, 'mcp/trajectory-server/src/hooks/registry.ts'), 'export const A = 2;\n');
+            writeFileSync(join(root, 'mcp/trajectory-server/dist/hooks-router.txt'), 'a 1 enforcement PreToolUse Bash *\nb 1 advisory PreToolUse Bash *\n');
+            commit();
+            await scan(db, holder, ws);
+            assert.deepEqual(runs(), ['scripts/hooks/a.sh', 'scripts/hooks/b.sh']);
         }
         finally {
             db.close();
