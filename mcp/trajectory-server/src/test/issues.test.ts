@@ -2798,9 +2798,9 @@ describe('issue_create skip reasons (GH 1601)', () => {
     };
   }
 
-  async function create(db: ReturnType<typeof tempDB>, calls: Call[]) {
+  async function create(db: ReturnType<typeof tempDB>, { _spawnFn }: { _spawnFn: ReturnType<typeof recordingSpawn> }) {
     const r = await call(issueTools(db).handlers, 'issue_create', {
-      agent: 'bro', objective: 'skip reason', labels: VALID_LABELS, _spawnFn: recordingSpawn(calls),
+      agent: 'bro', objective: 'skip reason', labels: VALID_LABELS, _spawnFn,
     });
     assert.ok(!r.isError, JSON.stringify(parseResult(r)));
     return parseResult(r);
@@ -2811,7 +2811,7 @@ describe('issue_create skip reasons (GH 1601)', () => {
     registerSoleRepo(db, undefined, ['gitlab']);
     await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
     const calls: Call[] = [];
-    const created = await create(db, calls);
+    const created = await create(db, { _spawnFn: recordingSpawn(calls) });
     assert.equal(created._sync.sync_skipped, true);
     assert.equal(created._sync.reason, 'not_synced');
     assert.equal(created._sync.backend, 'gh');
@@ -2826,7 +2826,7 @@ describe('issue_create skip reasons (GH 1601)', () => {
     registerSoleRepo(db, [{ name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' }]);
     await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
     const calls: Call[] = [];
-    const created = await create(db, calls);
+    const created = await create(db, { _spawnFn: recordingSpawn(calls) });
     assert.equal(created._sync.reason, 'blank_remote_url');
     assert.deepEqual(calls, []);
     db.close();
@@ -2837,7 +2837,7 @@ describe('issue_create skip reasons (GH 1601)', () => {
     registerSoleRepo(db, undefined, []);
     await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const calls: Call[] = [];
-    const created = await create(db, calls);
+    const created = await create(db, { _spawnFn: recordingSpawn(calls) });
     assert.equal(created._sync.sync_skipped, true);
     assert.equal(created._sync.reason, 'not_synced');
     assert.match(created._sync.hint, /GitHub and GitLab/);
