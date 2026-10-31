@@ -41845,9 +41845,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           [taskId]
         );
         if (!task) return err17(`No task with id=${taskId}`);
+        const repoPath = resolveRepoPath(db2, task.repo);
+        const worktreePath = repoPath?.startsWith("/") ? taskWorktreeDir(repoPath, task) : null;
         if (isSwe) {
-          const repoPath = resolveRepoPath(db2, task.repo);
-          openSweRun(db2, task, nowISO(), runContext, repoPath?.startsWith("/") ? taskWorktreeDir(repoPath, task) : null);
+          openSweRun(db2, task, nowISO(), runContext, worktreePath);
           const sentinel = db2.get(
             `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`,
             [task.id]
@@ -41892,6 +41893,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             status: task.status,
             commit_sha: task.commit_sha,
             repo,
+            worktree_path: worktreePath,
             effort: task.effort,
             spec_body: task.spec_body,
             files: parseTaskFiles(task.files),

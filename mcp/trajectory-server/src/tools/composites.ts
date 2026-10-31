@@ -2028,9 +2028,11 @@ export function compositeTools(
         );
         if (!task) return err(`No task with id=${taskId}`);
 
+        const repoPath = resolveRepoPath(db, task.repo);
+        const worktreePath = repoPath?.startsWith('/') ? taskWorktreeDir(repoPath, task) : null;
+
         if (isSwe) {
-          const repoPath = resolveRepoPath(db, task.repo);
-          openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreeDir(repoPath, task) : null);
+          openSweRun(db, task, nowISO(), runContext, worktreePath);
           const sentinel = db.get<{ n: number }>(
             `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`,
             [task.id],
@@ -2088,6 +2090,7 @@ export function compositeTools(
             status: task.status,
             commit_sha: task.commit_sha,
             repo,
+            worktree_path: worktreePath,
             effort: task.effort,
             spec_body: task.spec_body,
             files: parseTaskFiles(task.files),

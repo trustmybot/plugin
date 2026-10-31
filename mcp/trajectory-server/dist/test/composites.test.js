@@ -1915,7 +1915,7 @@ describe('task_brief (#300)', () => {
 describe('task_brief sections (GH 1743)', () => {
     const SPEC = ['## Description', 'do it', '', '## Success Criteria', '- SC1: works'].join('\n');
     const CORE_KEYS = [
-        'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'effort',
+        'task_id', 'issue_id', 'branch_id', 'title', 'objective', 'status', 'commit_sha', 'repo', 'worktree_path', 'effort',
         'spec_body', 'files', 'open_findings', 'completion_report', 'spawn_note', 'checkpoint', 'last_stop', 'locations',
     ];
     const ALL_KEYS = [
@@ -1940,6 +1940,30 @@ describe('task_brief sections (GH 1743)', () => {
         assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'scope' })), ['scope', 'scope_world_model', 'world_model_warning']);
         assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'history' })), ['task_discussions']);
         assert.deepEqual(keys(await brief(db, { agent: 'swe', task_id: id, section: 'all' })), [...ALL_KEYS].sort(), 'all carries no sections hint');
+        db.close();
+    });
+    it('worktree_path is the slug path under the repo when no path is recorded, and the recorded path when one is', async () => {
+        const db = tempDB();
+        const id = seed(db);
+        const branch = db.get('SELECT branch_id FROM tasks WHERE id = ?', [id]).branch_id;
+        const slug = branch.replace(/^[^/]+\//, '');
+        const core = async () => parse(await brief(db, { agent: 'swe', task_id: id, section: 'core' }));
+        assert.equal((await core())['worktree_path'], `/tmp/app/.claude/worktrees/${slug}`);
+        db.run('UPDATE tasks SET worktree_path = ?, worktree_adopted = 1 WHERE id = ?', ['/tmp/adopted-session-worktree', id]);
+        assert.equal((await core())['worktree_path'], '/tmp/adopted-session-worktree');
+        db.close();
+    });
+    it('worktree_path is null with the rest of the brief intact when the repo path cannot be resolved', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('one', '/tmp/one'), ('two', '/tmp/two')`);
+        const id = seedTask(db, { spec: SPEC, files: ['src/a.ts'], verification: ['true'] });
+        const r = await brief(db, { agent: 'swe', task_id: id, section: 'core' });
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        const core = parse(r);
+        assert.equal(core['worktree_path'], null);
+        assert.deepEqual(Object.keys(core).sort(), [...CORE_KEYS, 'sections'].sort());
+        assert.equal(core['spec_body'], SPEC);
+        assert.equal(core['branch_id'], 'fix/1-brief');
         db.close();
     });
     it('bro and code-reviewer calls with no section return the full brief', async () => {
@@ -2148,6 +2172,8 @@ describe('task_provision (#157)', () => {
             assert.equal(out['git_setup'], 'created');
             assert.equal(out['worktree_path'], join(repoRoot, '.claude', 'worktrees', 'the-thing'));
             assert.equal(out['diagnostic'], undefined);
+            const briefed = parse(await call(composites.handlers, 'task_brief', { agent: 'swe', task_id: out['task_id'], section: 'core' }));
+            assert.equal(briefed['worktree_path'], out['worktree_path'], 'task_brief returns the provisioned path');
             // Decision discussion written.
             const decision = db.get(`SELECT body, author FROM discussions WHERE issue_id = 1 AND kind = 'decision' LIMIT 1`);
             assert.ok(decision);
