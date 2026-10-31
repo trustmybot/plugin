@@ -42,7 +42,7 @@ async function oneByOne(c) {
     return {
         decision: 'allow',
         gate: null,
-        stdout: { hookSpecificOutput: { hookEventName: contexts.find((x) => x.hookSpecificOutput?.hookEventName)?.hookSpecificOutput?.hookEventName ?? EVENT, additionalContext: contexts.map((x) => x.hookSpecificOutput?.additionalContext).filter((x) => x !== undefined && x !== null).join('\n\n'), ...(asks ? { permissionDecision: 'ask', permissionDecisionReason: asks.permissionDecisionReason } : {}) } },
+        stdout: { hookSpecificOutput: { hookEventName: contexts.find((x) => x.hookSpecificOutput?.hookEventName)?.hookSpecificOutput?.hookEventName ?? EVENT, additionalContext: contexts.map((x) => x.hookSpecificOutput?.additionalContext).filter((x) => x !== undefined && x !== null).join('\n\n'), ...(asks ? { permissionDecision: 'ask' } : {}), ...(asks?.permissionDecisionReason === undefined ? {} : { permissionDecisionReason: asks.permissionDecisionReason }) } },
         code: 0,
     };
 }
