@@ -3982,7 +3982,7 @@ __export(loader_exports, {
   parserLoadCount: () => parserLoadCount,
   wasmDir: () => wasmDir
 });
-import { existsSync as existsSync5 } from "node:fs";
+import { existsSync as existsSync6 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parserLoadCount() {
@@ -3991,7 +3991,7 @@ function parserLoadCount() {
 function wasmDir() {
   const here = dirname2(fileURLToPath2(import.meta.url));
   for (const dir of [join4(here, "parsing"), here]) {
-    if (existsSync5(join4(dir, RUNTIME_WASM))) return dir;
+    if (existsSync6(join4(dir, RUNTIME_WASM))) return dir;
   }
   throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join4(here, "parsing")} or ${here}`);
 }
@@ -6596,11 +6596,66 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { accessSync as accessSync6, constants as constants6, statSync as statSync7 } from "node:fs";
+import { spawnSync as spawnSync4 } from "node:child_process";
+import { accessSync as accessSync6, constants as constants6, statSync as statSync8 } from "node:fs";
+
+// src/hooks/cmd-analysis/path.ts
+import { existsSync as existsSync4, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
+var MAX_HOPS = 40;
+function isLink(p) {
+  try {
+    return lstatSync2(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function pathCanonical(path) {
+  if (!path.startsWith("/")) return path;
+  let cur = "";
+  let tail = "";
+  let rest = path;
+  let hops = 0;
+  while (rest !== "") {
+    rest = rest.replace(/^\//, "");
+    const slash = rest.indexOf("/");
+    const part = slash < 0 ? rest : rest.slice(0, slash);
+    rest = slash < 0 ? "" : rest.slice(slash + 1);
+    if (part === "" || part === ".") continue;
+    if (tail !== "") {
+      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
+      continue;
+    }
+    if (part === "..") {
+      cur = cur.replace(/\/[^/]*$/, "");
+      continue;
+    }
+    const next = `${cur}/${part}`;
+    if (hops < MAX_HOPS && isLink(next)) {
+      hops++;
+      const link = readlinkSync2(next);
+      if (link.startsWith("/")) cur = "";
+      rest = `${link}/${rest}`;
+      continue;
+    }
+    if (existsSync4(next)) cur = next;
+    else tail = `/${part}`;
+  }
+  return cur + tail || "/";
+}
+function payloadCwd(json, env = process.env) {
+  try {
+    const cwd = JSON.parse(json)?.cwd;
+    if (typeof cwd === "string") {
+      const c = cwd.replace(/\n+$/, "");
+      if (c !== "") return c;
+    }
+  } catch {
+  }
+  return env.PWD ?? "";
+}
 
 // src/hooks/lib/lint-shell.ts
-import { existsSync as existsSync4 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 var JqError4 = class extends Error {
 };
 function jqIndex2(value, key2) {
@@ -6656,7 +6711,7 @@ function jqEachOptional(value) {
 var LOCALE_CATEGORIES2 = ["LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"];
 function localeLoads(name3, category) {
   if (name3 === "C" || name3 === "POSIX") return true;
-  return !name3.includes("/") && existsSync4(`/usr/share/locale/${name3}/${category}`);
+  return !name3.includes("/") && existsSync5(`/usr/share/locale/${name3}/${category}`);
 }
 function grepMultibyte(env) {
   const name3 = (category) => env.LC_ALL || env[category] || env.LANG || "C";
@@ -6680,6 +6735,49 @@ function anyLine(text, re) {
 function preToolContext(ctx) {
   return `${jqCompact({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: wellFormed(ctx) } })}
 `;
+}
+
+// src/hooks/lib/git.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { statSync as statSync7 } from "node:fs";
+var GIT_MAX_BUFFER = 256 * 1024 * 1024;
+function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
+  const limit = spawnLimit();
+  const r = spawnSync3("git", ["-C", dir, ...args2], {
+    encoding: "utf8",
+    env,
+    input,
+    maxBuffer: GIT_MAX_BUFFER,
+    stdio: ["pipe", "pipe", stderr2],
+    ...spawnOptions(limit)
+  });
+  noteSpawn(limit, r);
+  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
+}
+function gitOut(dir, args2, env = process.env, input = "") {
+  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
+}
+function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
+  return gitRun(dir, args2, env, "", stderr2).code === 0;
+}
+function isDir(path) {
+  if (path === "") return false;
+  try {
+    return statSync7(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function cdPwd(path, pwd) {
+  if (!isDir(path === "" ? "." : path)) return "";
+  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
+  const out2 = [];
+  for (const part of abs.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") out2.pop();
+    else out2.push(part);
+  }
+  return `/${out2.join("/")}`;
 }
 
 // src/hooks/attribution-footer.ts
@@ -6711,7 +6809,7 @@ function onPath3(name3, env) {
   for (const dir of (env.PATH ?? "").split(":")) {
     const file = `${dir === "" ? "." : dir}/${name3}`;
     try {
-      if (!statSync7(file).isFile()) continue;
+      if (!statSync8(file).isFile()) continue;
       accessSync6(file, constants6.X_OK);
       return file;
     } catch {
@@ -6720,8 +6818,8 @@ function onPath3(name3, env) {
   }
   return null;
 }
-function run2(file, args2, env) {
-  const r = spawnSync3(file, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
+function run2(file, args2, cwd, env) {
+  const r = spawnSync4(file, args2, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
 function glabDescription(json) {
@@ -6753,13 +6851,16 @@ function created(command, kind, multibyte) {
   const re = new RegExp(`(^|${edge})${kind.cli}${space2}${kind.group}${space2}create(${edge}|$)`, "u");
   return command.split("\n").some((line) => re.test(line));
 }
-function artifactNumber(response, kind, multibyte) {
-  const re = new RegExp(`https://[^${grepSpace(multibyte)}"]+${kind.urlPath}([0-9]+)`, "u");
+function createdArtifact(response, kind, multibyte) {
+  const re = new RegExp(`https://([^${grepSpace(multibyte)}"]+)${kind.urlPath}([0-9]+)`, "u");
   for (const line of response.split("\n")) {
     const m = re.exec(line);
-    if (m) return m[1];
+    if (m) return { number: m[2], repoPath: m[1] };
   }
-  return "";
+  return null;
+}
+function targetingRepo(kind, repoPath, env) {
+  return kind.cli === "gh" ? { ...env, GH_REPO: repoPath } : { ...env, GITLAB_REPO: `https://${repoPath}` };
 }
 var attributionFooter = (payload, env) => {
   if (jqRawOr(payload, [jqPath("tool_name")]) !== "Bash") return ALLOW;
@@ -6769,17 +6870,21 @@ var attributionFooter = (payload, env) => {
   const multibyte = grepMultibyte(env);
   const kind = KINDS.find((k) => created(command, k, multibyte));
   if (kind === void 0) return ALLOW;
-  const number = artifactNumber(response, kind, multibyte);
-  if (number === "") return ALLOW;
+  const artifact = createdArtifact(response, kind, multibyte);
+  if (artifact === null) return ALLOW;
+  const { number, repoPath } = artifact;
   const cli = onPath3(kind.cli, env);
   if (cli === null) return ALLOW;
+  const startDir = payloadCwd(payload, env);
+  const cwd = isDir(startDir) ? startDir : void 0;
+  const forgeEnv = targetingRepo(kind, repoPath, env);
   let orig;
   if (kind.cli === "gh") {
-    const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], env);
+    const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], cwd, forgeEnv);
     if (!view.ok) return ALLOW;
     orig = shellCapture2(view.stdout);
   } else {
-    const view = run2(cli, [kind.group, "view", number, "-F", "json"], env);
+    const view = run2(cli, [kind.group, "view", number, "-F", "json"], cwd, forgeEnv);
     const description = view.ok ? glabDescription(view.stdout) : null;
     if (description === null) return ALLOW;
     orig = description;
@@ -6787,7 +6892,7 @@ var attributionFooter = (payload, env) => {
   const updated = shellCapture2(normalizeFooter(orig, env));
   if (updated === orig) return ALLOW;
   const write2 = kind.cli === "gh" ? [kind.group, "edit", number, "--body", updated] : [kind.group, "update", number, "--description", updated];
-  run2(cli, write2, env);
+  run2(cli, write2, cwd, forgeEnv);
   return ALLOW;
 };
 
@@ -7113,49 +7218,6 @@ function encode(parser2, command) {
   } finally {
     tree.delete();
   }
-}
-
-// src/hooks/lib/git.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
-import { statSync as statSync8 } from "node:fs";
-var GIT_MAX_BUFFER = 256 * 1024 * 1024;
-function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
-  const limit = spawnLimit();
-  const r = spawnSync4("git", ["-C", dir, ...args2], {
-    encoding: "utf8",
-    env,
-    input,
-    maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", stderr2],
-    ...spawnOptions(limit)
-  });
-  noteSpawn(limit, r);
-  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
-}
-function gitOut(dir, args2, env = process.env, input = "") {
-  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
-}
-function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
-  return gitRun(dir, args2, env, "", stderr2).code === 0;
-}
-function isDir(path) {
-  if (path === "") return false;
-  try {
-    return statSync8(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-function cdPwd(path, pwd) {
-  if (!isDir(path === "" ? "." : path)) return "";
-  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
-  const out2 = [];
-  for (const part of abs.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") out2.pop();
-    else out2.push(part);
-  }
-  return `/${out2.join("/")}`;
 }
 
 // src/hooks/cmd-analysis/parser.ts
@@ -8153,61 +8215,6 @@ import { accessSync as accessSync7, constants as constants7, realpathSync as rea
 // src/hooks/cmd-analysis/lister.ts
 import { statSync as statSync11 } from "node:fs";
 
-// src/hooks/cmd-analysis/path.ts
-import { existsSync as existsSync6, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
-var MAX_HOPS = 40;
-function isLink(p) {
-  try {
-    return lstatSync2(p).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function pathCanonical(path) {
-  if (!path.startsWith("/")) return path;
-  let cur = "";
-  let tail = "";
-  let rest = path;
-  let hops = 0;
-  while (rest !== "") {
-    rest = rest.replace(/^\//, "");
-    const slash = rest.indexOf("/");
-    const part = slash < 0 ? rest : rest.slice(0, slash);
-    rest = slash < 0 ? "" : rest.slice(slash + 1);
-    if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
-      continue;
-    }
-    if (part === "..") {
-      cur = cur.replace(/\/[^/]*$/, "");
-      continue;
-    }
-    const next = `${cur}/${part}`;
-    if (hops < MAX_HOPS && isLink(next)) {
-      hops++;
-      const link = readlinkSync2(next);
-      if (link.startsWith("/")) cur = "";
-      rest = `${link}/${rest}`;
-      continue;
-    }
-    if (existsSync6(next)) cur = next;
-    else tail = `/${part}`;
-  }
-  return cur + tail || "/";
-}
-function payloadCwd(json, env = process.env) {
-  try {
-    const cwd = JSON.parse(json)?.cwd;
-    if (typeof cwd === "string") {
-      const c = cwd.replace(/\n+$/, "");
-      if (c !== "") return c;
-    }
-  } catch {
-  }
-  return env.PWD ?? "";
-}
-
 // src/hooks/lib/repo.ts
 import { statSync as statSync9 } from "node:fs";
 function isFile5(path) {
@@ -8260,6 +8267,19 @@ function cmdCwd(cmd, input, env = process.env) {
   if (cdPath === "") return base2;
   if (cdPath.startsWith("/")) return cdPath;
   return `${base2.replace(/\/$/, "")}/${cdPath}`;
+}
+function forgeCommandDir(cmd, input, env = process.env) {
+  const base2 = payloadCwd(input, env);
+  const leading = cmd.split("\n").find((line) => line.trim() !== "");
+  const cdPath = leading === void 0 ? null : cdTarget(leading);
+  if (cdPath === null) return base2;
+  return cdPath.startsWith("/") ? cdPath : `${base2.replace(/\/$/, "")}/${cdPath}`;
+}
+function forgeRepoDir(cmd, input, env = process.env) {
+  let dir = forgeCommandDir(cmd, input, env);
+  if (dir === "") return "";
+  while (!isDir(dir) && dir !== "/" && dir !== ".") dir = posixDirname(dir);
+  return gitOut(dir, ["rev-parse", "--show-toplevel"], env) || dir;
 }
 function repoDefaultBranch(root, env = process.env) {
   if (root === "") return "";
@@ -19020,19 +19040,19 @@ function executable(path) {
     return false;
   }
 }
-function capture3(cmd, args2, env) {
-  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+function capture3(cmd, args2, dir, env) {
+  const r = spawnSync10(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
-function toolchainDirs(env) {
+function toolchainDirs(env, worktree) {
   const home = env.HOME ?? "";
   const out2 = [];
   const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
   if (isDir(`${miseData}/shims`)) out2.push(`${miseData}/shims`);
   const mise = [env.MISE_INSTALL_PATH ?? "", "/opt/homebrew/bin/mise", "/usr/local/bin/mise", `${home}/.local/bin/mise`].find(executable);
-  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], env).split("\n"));
+  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], worktree, env).split("\n"));
   const brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(executable);
-  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], env));
+  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], worktree, env));
   const brewDirs = brewPrefix !== "" ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
   out2.push(...brewDirs.filter(isDir));
   if (home !== "" && isDir(`${home}/.local/bin`)) out2.push(`${home}/.local/bin`);
@@ -19503,7 +19523,7 @@ var sweVerificationGate = async (payload, env) => {
       code: 0
     };
   }
-  const toolchainPath = joinToolchainPath(toolchainDirs(genv), genv.PATH ?? "");
+  const toolchainPath = joinToolchainPath(toolchainDirs(genv, worktree), genv.PATH ?? "");
   const budget = parseBudget(
     genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv)
   );
@@ -21231,8 +21251,9 @@ function isFile16(path) {
     return false;
   }
 }
-function gh(args2, env) {
+function gh(args2, repoDir, env) {
   const r = spawnSync12("gh", args2, {
+    cwd: repoDir,
     encoding: "utf8",
     env,
     timeout: GH_TIMEOUT_MS,
@@ -21315,15 +21336,17 @@ function closingRefs(json) {
   return sortUniqueNumeric(lines2.filter((l) => /^[0-9]+$/.test(l)));
 }
 var Merge = class {
-  constructor(db, head, syncOn2, env) {
+  constructor(db, head, syncOn2, repoDir, env) {
     this.db = db;
     this.head = head;
     this.syncOn = syncOn2;
+    this.repoDir = repoDir;
     this.env = env;
   }
   db;
   head;
   syncOn;
+  repoDir;
   env;
   sql = [];
   closedIds = [];
@@ -21455,8 +21478,8 @@ var Merge = class {
       if (!this.syncOn) continue;
       const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
       if (ghIid === "") continue;
-      if (gh(["issue", "view", ghIid, "--json", "state", "-q", ".state"], this.env) !== "CLOSED") {
-        gh(["issue", "close", ghIid], this.env);
+      if (gh(["issue", "view", ghIid, "--json", "state", "-q", ".state"], this.repoDir, this.env) !== "CLOSED") {
+        gh(["issue", "close", ghIid], this.repoDir, this.env);
       }
     }
   }
@@ -21487,12 +21510,13 @@ function close(payload, env) {
   const db = dbPath(env);
   if (db === null || !isFile16(db) || !haveSqlite(env)) return;
   let ref = refFromArgs(commandSubstitution(args2.join("\n")).split("\n"));
-  if (ref === "") ref = gitOut(cmdCwd(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  if (ref === "") ref = gitOut(forgeCommandDir(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
   if (ref === "" || ref === "HEAD") return;
-  const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], env);
+  const repoDir = forgeRepoDir(cmd, input, env);
+  const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, "headRefName"));
   if (head === "" && /[^0-9]/.test(ref) && !ref.includes("://")) head = ref;
-  const merge = new Merge(db, head, syncOn(db, env), env);
+  const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
   const sql = merge.build(prJson);
   if (sql === "") return;
   const w = dbWrite(db, sql, { caller: GATE_NAME55, env });
