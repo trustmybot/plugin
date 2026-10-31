@@ -18,7 +18,7 @@ export const REWORK_FAIL_LIMIT = 2;
 /** swe runs of a task, budget handbacks aside, since its latest Human waiver at which a further run is denied. */
 export const SWE_RUN_LIMIT = 6;
 
-/** FAIL verdicts across an issue's tasks since the latest Human waiver at which a further swe run on any of them is denied. */
+/** FAIL verdicts across an issue's tasks, each with no later pass on the same task, since the latest Human waiver at which a further swe run on any of them is denied. */
 export const ISSUE_FAIL_LIMIT = 4;
 
 /** Spawns after the first. */

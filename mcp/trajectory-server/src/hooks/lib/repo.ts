@@ -74,6 +74,32 @@ export function cmdCwd(cmd: string, input: string, env: NodeJS.ProcessEnv = proc
   return `${base.replace(/\/$/, '')}/${cdPath}`;
 }
 
+/**
+ * The dir a forge CLI (gh, glab) in a Bash command started in, which may no
+ * longer exist: a `cd <path>` leading the first non-blank line, else the
+ * payload's cwd. No other text is read: a later line may run after the CLI or
+ * sit in a heredoc body, and these CLIs ignore `git -C`.
+ */
+export function forgeCommandDir(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+  const base = payloadCwd(input, env);
+  const leading = cmd.split('\n').find((line) => line.trim() !== '');
+  const cdPath = leading === undefined ? null : cdTarget(leading);
+  if (cdPath === null) return base;
+  return cdPath.startsWith('/') ? cdPath : `${base.replace(/\/$/, '')}/${cdPath}`;
+}
+
+/**
+ * The checkout holding forgeCommandDir or its nearest existing parent, else
+ * that dir: a removed worktree resolves to its main checkout, a submodule or
+ * a live linked worktree to itself, so origin is the command's own remote.
+ */
+export function forgeRepoDir(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+  let dir = forgeCommandDir(cmd, input, env);
+  if (dir === '') return '';
+  while (!isDir(dir) && dir !== '/' && dir !== '.') dir = posixDirname(dir);
+  return gitOut(dir, ['rev-parse', '--show-toplevel'], env) || dir;
+}
+
 /** tmb_repo_default_branch <root>: origin/HEAD's branch, else main / master / dev, else HEAD's, else main. */
 export function repoDefaultBranch(root: string, env: NodeJS.ProcessEnv = process.env): string {
   if (root === '') return '';

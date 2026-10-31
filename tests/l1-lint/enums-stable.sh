@@ -11,6 +11,8 @@
 #   doc → code  every documented value appears in that code, unless its row is
 #               marked `reserved`.
 #
+# Comments in .ts/.mjs/.js files and prefix tests of 'hook:' are not uses; a
+# constant passed as insertAudit's event_type counts as its string value.
 # src/test/ is not code for this purpose; audit-events.ts and the generated
 # scripts/hooks/lib/audit-events.txt are the enum's own source and are skipped
 # so a documented event must be written or read somewhere else.
