@@ -15,7 +15,7 @@ import { ALLOW } from './gate.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
 import { awkSpace, grepAlnum, grepMultibyte, grepSpace, JqError, jqIndex, jqPath, jqRawLines, jqRawOr, jqTruthy, shellCapture, wellFormed, } from './lib/lint-shell.js';
 import { jqRawText } from './lib/project-env.js';
-import { cmdCwd } from './lib/repo.js';
+import { forgeCliCwd } from './lib/repo.js';
 export const GATE_NAME = 'attribution-footer';
 export const TMB_FOOTER = '🤖 Generated with [Claude Code](https://claude.com/claude-code), powered by [Bro](https://github.com/trustmybot/plugin)';
 const KINDS = [
@@ -122,7 +122,7 @@ export const attributionFooter = (payload, env) => {
     const cli = onPath(kind.cli, env);
     if (cli === null)
         return ALLOW;
-    const repoDir = cmdCwd(command, payload, env);
+    const repoDir = forgeCliCwd(command, payload, env);
     let orig;
     if (kind.cli === 'gh') {
         const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], repoDir, env);

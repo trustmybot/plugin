@@ -28,7 +28,7 @@ import {
   wellFormed,
 } from './lib/lint-shell.js';
 import { jqRawText } from './lib/project-env.js';
-import { cmdCwd } from './lib/repo.js';
+import { forgeCliCwd } from './lib/repo.js';
 
 export const GATE_NAME = 'attribution-footer';
 
@@ -138,7 +138,7 @@ export const attributionFooter: SyncGate = (payload, env) => {
 
   const cli = onPath(kind.cli, env);
   if (cli === null) return ALLOW;
-  const repoDir = cmdCwd(command, payload, env);
+  const repoDir = forgeCliCwd(command, payload, env);
   let orig: string;
   if (kind.cli === 'gh') {
     const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], repoDir, env);

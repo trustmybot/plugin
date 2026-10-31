@@ -46,6 +46,18 @@ function cdTarget(line: string): string | null {
   return best === null ? null : best[1];
 }
 
+function leadingCd(lines: readonly string[]): string | null {
+  for (const line of lines) {
+    const target = cdTarget(line);
+    if (target !== null) return target;
+  }
+  return null;
+}
+
+function joinCwd(base: string, path: string): string {
+  return path.startsWith('/') ? path : `${base.replace(/\/$/, '')}/${path}`;
+}
+
 /**
  * tmb_cmd_cwd <command> <input>: the dir a Bash command runs in: the first
  * line's leading `cd <path>`, else the first `git -C <path>` (quotes
@@ -54,11 +66,7 @@ function cdTarget(line: string): string | null {
 export function cmdCwd(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
   const base = payloadCwd(input, env);
   const lines = cmd.split('\n');
-  let cdPath: string | null = null;
-  for (const line of lines) {
-    cdPath = cdTarget(line);
-    if (cdPath !== null) break;
-  }
+  let cdPath = leadingCd(lines);
   if (cdPath === null) {
     cdPath = '';
     for (const line of lines) {
@@ -70,8 +78,39 @@ export function cmdCwd(cmd: string, input: string, env: NodeJS.ProcessEnv = proc
     }
   }
   if (cdPath === '') return base;
-  if (cdPath.startsWith('/')) return cdPath;
-  return `${base.replace(/\/$/, '')}/${cdPath}`;
+  return joinCwd(base, cdPath);
+}
+
+/**
+ * The dir a forge CLI (gh, glab) in a Bash command started in, which may no
+ * longer exist: the first line's leading `cd <path>`, else the payload's cwd.
+ * These CLIs ignore `git -C`, so unlike cmdCwd this does too.
+ */
+export function forgeCommandDir(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+  const base = payloadCwd(input, env);
+  const cdPath = leadingCd(cmd.split('\n'));
+  return cdPath === null ? base : joinCwd(base, cdPath);
+}
+
+/**
+ * forgeCommandDir when it exists, else the payload's cwd: the payload can
+ * record the cwd after the command's `cd`, so a relative target may not join.
+ */
+export function forgeCliCwd(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+  const dir = forgeCommandDir(cmd, input, env);
+  return isDir(dir) ? dir : payloadCwd(input, env);
+}
+
+/**
+ * The checkout holding forgeCommandDir or its nearest existing parent, else
+ * that dir: a removed worktree resolves to its main checkout, a submodule or
+ * a live linked worktree to itself, so origin is the command's own remote.
+ */
+export function forgeRepoDir(cmd: string, input: string, env: NodeJS.ProcessEnv = process.env): string {
+  let dir = forgeCommandDir(cmd, input, env);
+  if (dir === '') return '';
+  while (!isDir(dir) && dir !== '/' && dir !== '.') dir = posixDirname(dir);
+  return gitOut(dir, ['rev-parse', '--show-toplevel'], env) || dir;
 }
 
 /** tmb_repo_default_branch <root>: origin/HEAD's branch, else main / master / dev, else HEAD's, else main. */

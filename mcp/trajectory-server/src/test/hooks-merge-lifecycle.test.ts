@@ -262,7 +262,7 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     assert.doesNotMatch(readFileSync(join(s, 'gh.log'), 'utf8'), /issue close/);
   });
 
-  it('close-issue-on-merge runs gh in the repo the merge ran in, also once its worktree is gone, not the hook process cwd (GH 2134)', () => {
+  it('close-issue-on-merge runs gh in the checkout the merge ran in, the main one once its worktree is gone, not the hook process cwd (GH 2134)', () => {
     const pwds = join(s, 'gh-pwd.log');
     writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
     chmodSync(join(s, 'bin/gh'), 0o755);
@@ -273,7 +273,43 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
     closeIssueOnMerge(payload(`cd '${join(s, 'wt/clean')}' && gh pr merge 46 --squash`, tmpdir()), env());
     closeIssueOnMerge(payload(`cd '${join(repo(), '.claude/worktrees/removed')}' && gh pr merge 46 --squash`, tmpdir()), env());
 
-    assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected, expected]);
+    assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, realpathSync(join(s, 'wt/clean')), expected]);
+  });
+
+  it('close-issue-on-merge runs gh in the payload cwd, not a git -C target, and reads a no-arg ref there too (F292-2)', () => {
+    const pwds = join(s, 'gh-pwd.log');
+    writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\necho "$*" >> '${pwds}.args'\n`);
+    chmodSync(join(s, 'bin/gh'), 0o755);
+    const here = realpathSync(repo());
+    const other = join(s, 'git-c-other');
+    spawnSync('git', ['init', '-q', '-b', 'other-branch', other]);
+    spawnSync('git', ['-C', other, '-c', 'user.name=x', '-c', 'user.email=x@x', 'commit', '-q', '--allow-empty', '-m', 'i']);
+
+    closeIssueOnMerge(payload(`git -C ${other} fetch && gh pr merge 46 --squash`, here), env());
+    assert.equal(readFileSync(pwds, 'utf8').trim().split('\n')[0], here);
+
+    closeIssueOnMerge(payload(`git -C ${other} fetch && gh pr merge --squash`, here), env());
+    assert.doesNotMatch(readFileSync(`${pwds}.args`, 'utf8'), /other-branch/);
+  });
+
+  it('close-issue-on-merge runs gh in a submodule whose origin is its own remote, not the superproject (F292-3)', () => {
+    const pwds = join(s, 'gh-pwd.log');
+    writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
+    chmodSync(join(s, 'bin/gh'), 0o755);
+    const upstream = realpathSync(s) + '/sub-upstream';
+    const superproject = realpathSync(s) + '/superproject';
+    const identity = ['-c', 'protocol.file.allow=always', '-c', 'user.name=x', '-c', 'user.email=x@x'];
+    const git = (...args: string[]) => assert.equal(spawnSync('git', args, { stdio: 'ignore' }).status, 0, args.join(' '));
+    git('init', '-q', upstream);
+    git('-C', upstream, ...identity, 'commit', '-q', '--allow-empty', '-m', 'i');
+    git('init', '-q', superproject);
+    git('-C', superproject, 'remote', 'add', 'origin', 'https://github.com/o/super.git');
+    git('-C', superproject, ...identity, 'submodule', 'add', '-q', upstream, 'sub');
+
+    closeIssueOnMerge(payload(`cd '${join(superproject, 'sub')}' && gh pr merge 46 --squash`, tmpdir()), env());
+
+    const first = readFileSync(pwds, 'utf8').trim().split('\n')[0];
+    assert.equal(spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: first, encoding: 'utf8' }).stdout.trim(), upstream);
   });
 
   it('close-issue-on-merge kills a hanging gh at its 10 s bound with no timeout on PATH and exits 0 (decision 703)', () => {

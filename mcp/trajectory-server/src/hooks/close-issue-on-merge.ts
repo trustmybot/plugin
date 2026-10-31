@@ -27,7 +27,7 @@ import { commandOnPath } from './lib/host.js';
 import { jqFieldOr, jqIndex, jqLiteralNumbers, jqMap } from './lib/jq.js';
 import { mergeFailed, readMergePayload } from './lib/merge.js';
 import { commandSubstitution, jqRawText } from './lib/project-env.js';
-import { cmdCwd, repoGitRoot } from './lib/repo.js';
+import { forgeCommandDir, forgeRepoDir } from './lib/repo.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
 
 export const GATE_NAME = 'close-issue-on-merge';
@@ -347,12 +347,10 @@ function close(payload: string, env: NodeJS.ProcessEnv): void {
   if (db === null || !isFile(db) || !haveSqlite(env)) return;
 
   let ref = refFromArgs(commandSubstitution(args.join('\n')).split('\n'));
-  const mergeDir = cmdCwd(cmd, input, env);
-  if (ref === '') ref = gitOut(mergeDir, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+  if (ref === '') ref = gitOut(forgeCommandDir(cmd, input, env), ['rev-parse', '--abbrev-ref', 'HEAD'], env);
   if (ref === '' || ref === 'HEAD') return;
 
-  // clean-merged-branch may already have removed a merged worktree, so gh runs in the repo's main checkout.
-  const repoDir = repoGitRoot(mergeDir, env) || mergeDir;
+  const repoDir = forgeRepoDir(cmd, input, env);
   const prJson = gh(['pr', 'view', ref, '--json', 'closingIssuesReferences,body,headRefName'], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, 'headRefName'));
   if (head === '' && /[^0-9]/.test(ref) && !ref.includes('://')) head = ref;

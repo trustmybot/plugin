@@ -124,6 +124,42 @@ describe('lint hooks: the TypeScript gates', () => {
         const expected = realpathSync(repoDir);
         assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected]);
     });
+    function ghPwdStub(name) {
+        const bin = join(dir, `${name}-bin`);
+        const pwds = join(dir, `${name}.log`);
+        mkdirSync(bin);
+        writeFileSync(join(bin, 'gh'), `#!/bin/bash\npwd -P >> '${pwds}'\nif [ "$2" = view ]; then echo Body; fi\n`);
+        chmodSync(join(bin, 'gh'), 0o755);
+        return { pwds, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, LC_ALL: 'C' } };
+    }
+    it('attribution-footer falls back to the payload cwd when a relative cd target does not join it (F292-1)', () => {
+        const { pwds, env } = ghPwdStub('post-cd');
+        const postCd = join(dir, 'post-cd-repo', 'sub');
+        mkdirSync(postCd, { recursive: true });
+        attributionFooter(JSON.stringify({
+            tool_name: 'Bash',
+            cwd: postCd,
+            tool_input: { command: 'cd sub && gh pr create --fill' },
+            tool_response: 'https://github.com/o/r/pull/9',
+        }), env);
+        const expected = realpathSync(postCd);
+        assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected]);
+    });
+    it('attribution-footer runs gh in the payload cwd, not a git -C target (F292-2)', () => {
+        const { pwds, env } = ghPwdStub('git-c');
+        const here = join(dir, 'git-c-here');
+        const other = join(dir, 'git-c-other');
+        mkdirSync(here);
+        mkdirSync(other);
+        attributionFooter(JSON.stringify({
+            tool_name: 'Bash',
+            cwd: here,
+            tool_input: { command: `git -C ${other} pull && gh pr create --fill` },
+            tool_response: 'https://github.com/o/r/pull/9',
+        }), env);
+        const expected = realpathSync(here);
+        assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected]);
+    });
     it('attribution-footer reads a letter newer than the OS tables (U+105C0) as a word char under UTF-8', () => {
         const log = join(dir, 'alnum.log');
         const env = { ...process.env, ...sandbox.env, LC_ALL: 'en_US.UTF-8', STUB_LOG: log, STUB_VIEW_OUT: 'Body' };

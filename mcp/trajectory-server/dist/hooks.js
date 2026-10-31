@@ -6811,14 +6811,20 @@ function cdTarget(line) {
   }
   return best === null ? null : best[1];
 }
+function leadingCd(lines2) {
+  for (const line of lines2) {
+    const target = cdTarget(line);
+    if (target !== null) return target;
+  }
+  return null;
+}
+function joinCwd(base2, path) {
+  return path.startsWith("/") ? path : `${base2.replace(/\/$/, "")}/${path}`;
+}
 function cmdCwd(cmd, input, env = process.env) {
   const base2 = payloadCwd(input, env);
   const lines2 = cmd.split("\n");
-  let cdPath = null;
-  for (const line of lines2) {
-    cdPath = cdTarget(line);
-    if (cdPath !== null) break;
-  }
+  let cdPath = leadingCd(lines2);
   if (cdPath === null) {
     cdPath = "";
     for (const line of lines2) {
@@ -6830,8 +6836,22 @@ function cmdCwd(cmd, input, env = process.env) {
     }
   }
   if (cdPath === "") return base2;
-  if (cdPath.startsWith("/")) return cdPath;
-  return `${base2.replace(/\/$/, "")}/${cdPath}`;
+  return joinCwd(base2, cdPath);
+}
+function forgeCommandDir(cmd, input, env = process.env) {
+  const base2 = payloadCwd(input, env);
+  const cdPath = leadingCd(cmd.split("\n"));
+  return cdPath === null ? base2 : joinCwd(base2, cdPath);
+}
+function forgeCliCwd(cmd, input, env = process.env) {
+  const dir = forgeCommandDir(cmd, input, env);
+  return isDir(dir) ? dir : payloadCwd(input, env);
+}
+function forgeRepoDir(cmd, input, env = process.env) {
+  let dir = forgeCommandDir(cmd, input, env);
+  if (dir === "") return "";
+  while (!isDir(dir) && dir !== "/" && dir !== ".") dir = posixDirname(dir);
+  return gitOut(dir, ["rev-parse", "--show-toplevel"], env) || dir;
 }
 function repoDefaultBranch(root, env = process.env) {
   if (root === "") return "";
@@ -6997,7 +7017,7 @@ var attributionFooter = (payload, env) => {
   if (number === "") return ALLOW;
   const cli = onPath3(kind.cli, env);
   if (cli === null) return ALLOW;
-  const repoDir = cmdCwd(command, payload, env);
+  const repoDir = forgeCliCwd(command, payload, env);
   let orig;
   if (kind.cli === "gh") {
     const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], repoDir, env);
@@ -21489,10 +21509,9 @@ function close(payload, env) {
   const db = dbPath(env);
   if (db === null || !isFile16(db) || !haveSqlite(env)) return;
   let ref = refFromArgs(commandSubstitution(args2.join("\n")).split("\n"));
-  const mergeDir = cmdCwd(cmd, input, env);
-  if (ref === "") ref = gitOut(mergeDir, ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  if (ref === "") ref = gitOut(forgeCommandDir(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
   if (ref === "" || ref === "HEAD") return;
-  const repoDir = repoGitRoot(mergeDir, env) || mergeDir;
+  const repoDir = forgeRepoDir(cmd, input, env);
   const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, "headRefName"));
   if (head === "" && /[^0-9]/.test(ref) && !ref.includes("://")) head = ref;
