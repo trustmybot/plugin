@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from '../tools/onboard-hooks-shim.js';
 // A hooks.json mirroring the real plugin's PreToolUse shape (every command is
 // `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>`): each deny-capable
@@ -56,6 +57,7 @@ const HOOKS_JSON = {
 };
 // The shim never writes outside the project: HOME is an empty temp dir for the
 // whole file and must still be empty at the end.
+const PLUGIN_SOURCE = fileURLToPath(new URL('../../../../', import.meta.url));
 const ISOLATED_HOME = mkdtempSync(join(tmpdir(), 'shim-home-'));
 process.env['HOME'] = ISOLATED_HOME;
 describe('project enforcement shim', () => {
@@ -173,6 +175,29 @@ describe('project enforcement shim', () => {
         assert.ok(bash);
         assert.deepEqual(bash.hooks.map((h) => [hookOf(h.command), h.timeout]), [['containment-guard.sh', 5], ['git-guards.sh', 11]]);
     });
+    it('every router group becomes its own gates, advisory ones dropped, and the trajectory-server group its chain', () => {
+        const entry = (matcher, timeout, block = true) => ({
+            matcher,
+            hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js" PreToolUse', timeout, ...(block ? { onFailure: 'block' } : {}) }],
+        });
+        const realDist = join(PLUGIN_SOURCE, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt');
+        const realHooks = JSON.parse(readFileSync(join(PLUGIN_SOURCE, 'hooks', 'hooks.json'), 'utf8'));
+        const realMatchers = realHooks.hooks.PreToolUse.map((g) => g.matcher);
+        writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: realMatchers.map((m) => entry(m, 40, m !== 'AskUserQuestion' && m !== 'Read|Skill')) } }));
+        mkdirSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist'), { recursive: true });
+        writeFileSync(join(pluginRoot, 'mcp', 'trajectory-server', 'dist', 'hooks-router.txt'), readFileSync(realDist, 'utf8'));
+        assert.equal(write().written, true);
+        const settings = readSettings();
+        const gatesOf = (matcher) => groupFor(settings, matcher)?.hooks.map((h) => hookOf(h.command));
+        assert.deepEqual(gatesOf('Write|Edit|MultiEdit|NotebookEdit'), ['containment-guard.sh', 'no-source-edit-from-main.sh', 'swe-boundary.sh', 'swe-scope-fence.sh']);
+        assert.deepEqual(gatesOf('Agent'), ['agent-spawn-dispatch.sh']);
+        assert.deepEqual(gatesOf('SendMessage'), ['swe-resume-gate.sh']);
+        assert.deepEqual(gatesOf('AskUserQuestion'), ['roundtable-auq-shape.sh']);
+        assert.deepEqual(gatesOf('mcp__.*trajectory-server__.*'), ['trajectory-gates.sh']);
+        assert.ok((groupFor(settings, 'mcp__.*trajectory-server__.*')?.hooks[0].timeout ?? 0) >= 1842, 'every unfiltered gate plus the verification budget');
+        assert.equal(groupFor(settings, 'Read|Skill'), undefined, 'debug-trajectory alone: nothing to enforce');
+        assert.ok(gatesOf('Bash')?.includes('git-guards.sh'));
+    });
     describe('fails closed when the router entry cannot be expanded (F271-2)', () => {
         const ROUTER_HOOKS_JSON = {
             hooks: {
@@ -198,7 +223,7 @@ describe('project enforcement shim', () => {
             writeFileSync(manifestPath(), 'other 3000 enforcement PostToolUse Bash\n');
             const res = write();
             assert.equal(res.written, false);
-            assert.equal(res.reason, 'dist/hooks-router.txt lists no gate for PreToolUse');
+            assert.equal(res.reason, 'dist/hooks-router.txt lists no gate for PreToolUse Bash');
             assert.equal(existsSync(settingsPath()), false);
         });
         it('never reports a written shim with no Bash entry', () => {

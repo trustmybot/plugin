@@ -43004,7 +43004,7 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   for (const group of pre) {
     const hooks = [];
     for (const h of group.hooks ?? []) {
-      const gates = routerGateHooks(pluginRoot, h);
+      const gates = routerGateHooks(pluginRoot, group.matcher ?? "", h);
       if (gates !== null && "reason" in gates) return gates;
       hooks.push(...gates ?? [h]);
     }
@@ -43013,7 +43013,8 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   return groups;
 }
 var ROUTER_COMMAND = /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/trajectory-server\/dist\/hooks\.js" ([A-Za-z]+)$/;
-function routerGateHooks(pluginRoot, h) {
+var GROUP_CHAIN = { "mcp__.*trajectory-server__.*": "trajectory-gates" };
+function routerGateHooks(pluginRoot, matcher, h) {
   const event = ROUTER_COMMAND.exec(h.command ?? "")?.[1];
   if (event === void 0) return null;
   let manifest;
@@ -43022,9 +43023,15 @@ function routerGateHooks(pluginRoot, h) {
   } catch {
     return { reason: "dist/hooks-router.txt missing or unreadable" };
   }
-  const gates = manifest.split("\n").map((line) => line.split(" ")).filter((f) => f.length >= 4 && f[3] === event && /^[a-z0-9-]+$/.test(f[0])).map(([gate, budgetMs]) => ({ type: "command", command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${gate}`, timeout: Math.ceil(Number(budgetMs) / 1e3) }));
-  if (gates.length === 0) return { reason: `dist/hooks-router.txt lists no gate for ${event}` };
-  return gates;
+  const rows = manifest.split("\n").map((line) => line.split(" ")).filter((f) => f.length >= 5 && f[3] === event && f[4] === matcher && /^[a-z0-9-]+$/.test(f[0]));
+  if (rows.length === 0) return { reason: `dist/hooks-router.txt lists no gate for ${event} ${matcher}` };
+  const dispatched = (name2, budgetMs) => ({ type: "command", command: `"\${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" ${name2}`, timeout: Math.ceil(budgetMs / 1e3) });
+  const chain = GROUP_CHAIN[matcher];
+  if (chain === void 0) return rows.map(([gate, budgetMs]) => dispatched(gate, Number(budgetMs)));
+  const filtered = (f) => (f[5] ?? "*") !== "*";
+  const unfilteredMs = rows.filter((f) => !filtered(f)).reduce((n, f) => n + Number(f[1]), 0);
+  const largestFilteredMs = Math.max(0, ...rows.filter(filtered).map((f) => Number(f[1])));
+  return [dispatched(chain, unfilteredMs + largestFilteredMs)];
 }
 function keptHooks(group) {
   return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));

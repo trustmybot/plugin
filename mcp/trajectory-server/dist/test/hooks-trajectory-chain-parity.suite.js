@@ -173,7 +173,7 @@ export function materialize(file, s, paths) {
     const { corpus_env: env = {}, corpus_cwd: cwd = 'project', corpus_stdin: stdin, corpus_expect: expect = '', corpus_divergent: divergent, ...payload } = JSON.parse(text);
     return { input: Buffer.from(stdin ?? JSON.stringify(payload)), env, cwd: join(s, cwd), expect, divergent };
 }
-function caseEnv(s, locale, extra, cwd) {
+export function caseEnv(s, locale, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

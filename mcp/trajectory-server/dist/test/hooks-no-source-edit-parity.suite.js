@@ -94,7 +94,7 @@ export function buildSourceEditSandbox(s) {
     mkdirSync(join(nest, 'agents'));
     symlinkSync(join(checkout, '.claude/tmb/scratch'), join(s, 'scratchlink'));
 }
-function materialize(file, p) {
+export function materialize(file, p) {
     const text = readFileSync(file, 'utf8')
         .replaceAll('@SANDBOX@', p.sandbox)
         .replaceAll('@HARNESS_TMP@', p.harnessTmp)
@@ -106,7 +106,7 @@ function materialize(file, p) {
 function byLocale(expect, locale) {
     return typeof expect === 'string' ? expect : (expect[locale] ?? '');
 }
-function caseEnv(s, locale, extra, cwd) {
+export function caseEnv(s, locale, extra, cwd) {
     const env = { ...process.env };
     for (const key of UNSET)
         delete env[key];

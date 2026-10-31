@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { ALLOW, type Gate, type GateResult } from '../hooks/gate.js';
 import { armDeadline, disarmDeadline, noteSpawn, spawnLimit } from '../hooks/lib/deadline.js';
 import { gitRun } from '../hooks/lib/git.js';
-import { type RouterGroup, ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, routerGates, routerTimeoutS } from '../hooks/registry.js';
+import { type RouterGroup, ROUTER_GROUPS, routerGates, routerGroup, routerTimeoutS } from '../hooks/registry.js';
 import { decide } from '../hooks/router/decide.js';
 import { routerMain } from '../hooks/router/main.js';
 
@@ -26,8 +26,10 @@ const context = (text: string): GateResult => ({
   code: 0,
 });
 
+const BASH_GROUP = routerGroup('PreToolUse', 'Bash') as RouterGroup;
+
 function group(...gates: [string, 'enforcement' | 'advisory', number?][]): RouterGroup[] {
-  return [{ event: 'PreToolUse', tools: ['Bash'], gates: gates.map(([name, kind, budgetMs]) => ({ name, kind, budgetMs: budgetMs ?? 5000 })) }];
+  return [{ event: 'PreToolUse', matcher: 'Bash', groupBudgetMs: BASH_GROUP.groupBudgetMs, gates: gates.map(([name, kind, budgetMs]) => ({ name, kind, budgetMs: budgetMs ?? 5000 })) }];
 }
 
 function bash(command: string, extra: Record<string, unknown> = {}): string {
@@ -189,7 +191,7 @@ describe('router budgets', () => {
       return ALLOW;
     };
     const d = await decide('PreToolUse', bash('true'), {}, {
-      groups: [{ event: 'PreToolUse', tools: ['Bash'], gates: [{ name: 'quick', kind: 'enforcement', budgetMs: 200 }, { name: 'heavy', kind: 'enforcement', budgetMs: 5000 }] }],
+      groups: [{ event: 'PreToolUse', matcher: 'Bash', groupBudgetMs: BASH_GROUP.groupBudgetMs, gates: [{ name: 'quick', kind: 'enforcement', budgetMs: 200 }, { name: 'heavy', kind: 'enforcement', budgetMs: 5000 }] }],
       findGate: fakes({ quick, heavy }),
     });
     assert.equal(d.denied, null, JSON.stringify(d.gates));
@@ -209,12 +211,159 @@ describe('router budgets', () => {
     assert.deepEqual(log, ['a:start', 'a:end', 'b:start', 'b:end', 'c:start', 'c:end']);
   });
 
-  it('the router timeout covers the group budget plus the parse allowance, and the group budget the largest gate budget', () => {
-    const largest = Math.max(...ROUTER_GROUPS.flatMap((g) => g.gates).map((x) => x.budgetMs));
-    assert.ok(ROUTER_GROUP_BUDGET_MS >= largest, `${ROUTER_GROUP_BUDGET_MS} < ${largest}`);
-    assert.ok(routerTimeoutS() * 1000 > ROUTER_GROUP_BUDGET_MS, `${routerTimeoutS()} s <= ${ROUTER_GROUP_BUDGET_MS} ms`);
-    assert.ok(routerTimeoutS(3000) * 1000 >= 3000);
-    assert.ok(routerTimeoutS(3000) < routerTimeoutS(4500));
+  it('each group\'s router timeout covers its budget plus the parse allowance, and its budget its largest gate budget', () => {
+    for (const g of ROUTER_GROUPS) {
+      const largest = Math.max(...g.gates.map((x) => x.budgetMs));
+      assert.ok(g.groupBudgetMs >= largest, `${g.matcher}: ${g.groupBudgetMs} < ${largest}`);
+      assert.ok(routerTimeoutS(g) * 1000 > g.groupBudgetMs, `${g.matcher}: ${routerTimeoutS(g)} s <= ${g.groupBudgetMs} ms`);
+    }
+    assert.ok(routerTimeoutS({ groupBudgetMs: 3000 }) * 1000 >= 3000);
+    assert.ok(routerTimeoutS({ groupBudgetMs: 3000 }) < routerTimeoutS({ groupBudgetMs: 4500 }));
+  });
+});
+
+describe('router groups (GH 1692 R2)', () => {
+  const MCP = 'mcp__plugin_tmb_trajectory-server__';
+  const toolCall = (tool: string, input: Record<string, unknown> = {}): string => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
+  const names = (tool: string): string[] => routerGates('PreToolUse', tool).map((g) => g.name);
+  const CHAIN_HEAD = ['agent-arg-matches-caller', 'swe-brief-gate'];
+
+  it('the mcp matcher takes every trajectory-server tool, whatever the plugin prefix, and no other', () => {
+    for (const prefix of ['mcp__plugin_tmb_trajectory-server__', 'mcp__trajectory-server__']) {
+      assert.deepEqual(names(`${prefix}task_brief`), CHAIN_HEAD, prefix);
+    }
+    assert.deepEqual(names('mcp__plugin_other__query'), []);
+    assert.deepEqual(names('xmcp__trajectory-server__task_brief'), [], 'the matcher fits the whole name');
+  });
+
+  it('a matcher fits the whole tool name, not a part of it', () => {
+    assert.ok(names('Read').includes('debug-trajectory'));
+    assert.deepEqual(names('ReadFile'), []);
+    assert.deepEqual(names('Bashful'), []);
+  });
+
+  it('a tool-filtered gate runs only for its own tool', () => {
+    assert.deepEqual(names(`${MCP}task_update_status`), [...CHAIN_HEAD, 'swe-verification-gate']);
+    assert.deepEqual(names(`${MCP}validation_record`), [...CHAIN_HEAD, 'reviewer-identity-observe']);
+    assert.deepEqual(names(`${MCP}cheatcode_install`), [...CHAIN_HEAD, 'cheatcode-install-approval']);
+    assert.deepEqual(names(`${MCP}task_update_statusx`), CHAIN_HEAD);
+  });
+
+  it('decide skips a tool-filtered gate for another tool', async () => {
+    const seen: string[] = [];
+    const gate = (name: string): Gate => () => (seen.push(name), ALLOW);
+    const groups: RouterGroup[] = [
+      {
+        event: 'PreToolUse',
+        matcher: 'mcp__.*trajectory-server__.*',
+        groupBudgetMs: 5000,
+        gates: [
+          { name: 'every', kind: 'enforcement', budgetMs: 1000 },
+          { name: 'only-close', kind: 'enforcement', budgetMs: 1000, toolSuffix: 'task_update_status' },
+        ],
+      },
+    ];
+    const findGate = fakes({ every: gate('every'), 'only-close': gate('only-close') });
+    const other = await decide('PreToolUse', toolCall(`${MCP}task_brief`), {}, { groups, findGate });
+    assert.deepEqual(other.gates.map((g) => g.gate), ['every']);
+    const close = await decide('PreToolUse', toolCall(`${MCP}task_update_status`), {}, { groups, findGate });
+    assert.deepEqual(close.gates.map((g) => g.gate), ['every', 'only-close']);
+    assert.deepEqual(seen, ['every', 'every', 'only-close']);
+  });
+
+  it('a tool no group matches runs nothing and allows', async () => {
+    let ran = false;
+    const d = await decide('PreToolUse', toolCall('Glob'), {}, { findGate: () => () => ((ran = true), deny('never')) });
+    assert.equal(ran, false);
+    assert.deepEqual(d.gates, []);
+    assert.equal(d.denied, null);
+    assert.equal(d.stdout, '');
+    assert.equal(d.code, 0);
+  });
+
+  it('the first deny in group order wins, whatever follows it', async () => {
+    const seen: string[] = [];
+    const gate = (name: string): Gate => () => (seen.push(name), deny(`${name} denies`));
+    const groups: RouterGroup[] = [
+      {
+        event: 'PreToolUse',
+        matcher: 'Write|Edit',
+        groupBudgetMs: 5000,
+        gates: [
+          { name: 'first', kind: 'enforcement', budgetMs: 1000 },
+          { name: 'second', kind: 'enforcement', budgetMs: 1000 },
+        ],
+      },
+    ];
+    const d = await decide('PreToolUse', toolCall('Edit'), {}, { groups, findGate: fakes({ first: gate('first'), second: gate('second') }) });
+    assert.equal(d.denied?.gate, 'first');
+    assert.equal(reasonOf(d.stdout), 'first denies');
+    assert.deepEqual(seen, ['first', 'second'], 'a group runs on past a deny, as its separate registrations did');
+  });
+
+  it('the trajectory-server group stops at the first deny, as the chain does: a denied call leaves no later side effect', async () => {
+    const mcp = routerGroup('PreToolUse', `${MCP}task_update_status`);
+    assert.equal(mcp?.stopAtFirstDeny, true);
+    assert.deepEqual(ROUTER_GROUPS.filter((g) => g.stopAtFirstDeny).map((g) => g.matcher), ['mcp__.*trajectory-server__.*']);
+    const seen: string[] = [];
+    const d = await decide('PreToolUse', toolCall(`${MCP}task_update_status`), {}, {
+      findGate: (name) => () => (seen.push(name), name === 'swe-brief-gate' ? deny('brief first') : ALLOW),
+    });
+    assert.deepEqual(seen, CHAIN_HEAD, 'swe-verification-gate never starts');
+    assert.equal(d.denied?.gate, 'swe-brief-gate');
+    assert.deepEqual(d.gates.map((g) => g.gate), CHAIN_HEAD);
+  });
+
+  it('every chain member is enforcement: the chain fails closed on any of them', () => {
+    const mcp = ROUTER_GROUPS.find((g) => g.matcher.startsWith('mcp__'));
+    assert.ok(mcp);
+    assert.ok(mcp.gates.every((g) => g.kind === 'enforcement'));
+  });
+
+  it('matchers do not overlap: each tool name belongs to one group', () => {
+    const names = ROUTER_GROUPS.flatMap((g) => g.matcher.split('|'));
+    assert.equal(names.length, new Set(names).size);
+    assert.equal(routerGroup('PreToolUse', 'Write')?.matcher, 'Write|Edit|MultiEdit|NotebookEdit');
+  });
+});
+
+describe('per-group budgets (GH 1692 R2)', () => {
+  const HANG_S = 30;
+  const VERIFICATION_FLOOR_MS = 1_830_000;
+  let bin: string;
+  let env: NodeJS.ProcessEnv;
+  const viaGit: Gate = (_payload, gateEnv) => {
+    gitRun('/', ['status'], gateEnv);
+    return ALLOW;
+  };
+
+  before(() => {
+    bin = mkdtempSync(join(tmpdir(), 'tmb-fake-git-'));
+    writeFileSync(join(bin, 'git'), `#!/bin/sh\nsleep ${HANG_S}\n`);
+    chmodSync(join(bin, 'git'), 0o755);
+    env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
+  });
+
+  after(() => rmSync(bin, { recursive: true, force: true }));
+
+  it('the Bash group budget is its own, far below the verification floor the mcp group holds', () => {
+    const mcp = routerGroup('PreToolUse', 'mcp__plugin_tmb_trajectory-server__task_update_status') as RouterGroup;
+    assert.ok(mcp.groupBudgetMs >= VERIFICATION_FLOOR_MS);
+    assert.ok(BASH_GROUP.groupBudgetMs < VERIFICATION_FLOOR_MS / 10, `${BASH_GROUP.groupBudgetMs}`);
+    assert.ok(routerTimeoutS(BASH_GROUP) < routerTimeoutS(mcp));
+    assert.equal(BASH_GROUP.gates.some((g) => g.name === 'swe-verification-gate'), false);
+  });
+
+  it('a hung gate in the Bash group ends at the Bash budget, though a sibling group holds the verification floor', async () => {
+    const groups: RouterGroup[] = [
+      { event: 'PreToolUse', matcher: 'Bash', groupBudgetMs: 300, gates: [{ name: 'hung', kind: 'enforcement', budgetMs: VERIFICATION_FLOOR_MS }] },
+      { event: 'PreToolUse', matcher: 'mcp__.*', groupBudgetMs: VERIFICATION_FLOOR_MS, gates: [{ name: 'verify', kind: 'enforcement', budgetMs: VERIFICATION_FLOOR_MS }] },
+    ];
+    const d = await decide('PreToolUse', bash('git status'), env, { groups, findGate: fakes({ hung: viaGit, verify: viaGit }) });
+    assert.equal(d.denied?.gate, 'hung');
+    assert.match(reasonOf(d.stdout), /300 ms group budget/);
+    assert.deepEqual(d.gates.map((g) => g.gate), ['hung']);
+    assert.ok(d.gates[0].ms < HANG_S * 1000, `${d.gates[0].ms} ms: git was not cut off`);
   });
 });
 
@@ -245,7 +394,7 @@ describe('router deadlines: every spawn stops at the gate deadline (decision 922
     assert.equal(d.denied?.gate, 'hung-enforcement');
     assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate hung-enforcement timed out after 300 ms \(infrastructure load, not a policy decision\)/);
     assert.match(d.stderr, /advisory gate hung-advisory ran past its 300 ms budget — skipped/);
-    for (const g of d.gates) assert.ok(g.ms < HANG_S * 1000 && g.ms < routerTimeoutS() * 1000, `${g.gate} ${g.ms} ms: git was not cut off`);
+    for (const g of d.gates) assert.ok(g.ms < HANG_S * 1000 && g.ms < routerTimeoutS(BASH_GROUP) * 1000, `${g.gate} ${g.ms} ms: git was not cut off`);
   });
 
   it('once the group budget is spent, the next enforcement gate denies naming itself and the group budget', async () => {
@@ -260,7 +409,7 @@ describe('router deadlines: every spawn stops at the gate deadline (decision 922
     assert.equal(d.denied?.gate, 'after-spent');
     assert.match(reasonOf(d.stdout), /^BLOCKED: TMB gate after-spent was not run: the gates before it spent the router's 300 ms group budget/);
     assert.match(d.stderr, /advisory gate eats-group ran out of the 300 ms group budget — skipped/);
-    assert.ok(d.gates[0].ms < HANG_S * 1000 && d.gates[0].ms < routerTimeoutS() * 1000, `${d.gates[0].ms} ms: git was not cut off`);
+    assert.ok(d.gates[0].ms < HANG_S * 1000 && d.gates[0].ms < routerTimeoutS(BASH_GROUP) * 1000, `${d.gates[0].ms} ms: git was not cut off`);
   });
 
   it('a gate the group budget cuts off mid-run denies naming the group budget', async () => {
@@ -397,6 +546,44 @@ describe('router entry: dedupe and records', () => {
     const record = join(dirname(db), 'locks/boundary-denies/sess-rec', digest);
     assert.ok(existsSync(record), `${record}: ${readdirSync(dirname(record)).join(', ')}`);
     assert.match(readFileSync(record, 'utf8'), /^g\n\d+\n$/);
+  });
+
+  it('a deny on a non-Bash tool writes the hook_denied row dispatch.sh writes and, as its record_bash_deny, no boundary-denies record', async () => {
+    const before = rows('hook_denied').length;
+    const payload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'sess-edit', tool_use_id: 'deny-edit', cwd: project, tool_name: 'Edit', tool_input: { file_path: join(base, 'x.txt') } });
+    const groups: RouterGroup[] = [{ event: 'PreToolUse', matcher: 'Edit', groupBudgetMs: 5000, gates: [{ name: 'g', kind: 'enforcement', budgetMs: 1000 }] }];
+    const r = await call(payload, fakes({ g: () => deny('g denies the edit') }), groups);
+    assert.equal(reasonOf(r.stdout), 'g denies the edit');
+    const denied = rows('hook_denied').slice(before);
+    assert.equal(denied.length, 1);
+    assert.equal(denied[0].from_node, 'hook:dispatch');
+    assert.equal(denied[0].summary, 'g denied Edit');
+    assert.deepEqual(JSON.parse(denied[0].content_json), { hook: 'g', rule: 'g denies the edit', tool: 'Edit', agent_type: null, task_id: null, cwd: project });
+    assert.equal(existsSync(join(dirname(db), 'locks/boundary-denies/sess-edit')), false);
+  });
+
+  it('never hands a call to an install whose router table has no group for its tool, and still does for one it has', async () => {
+    const old = join(base, 'old-install');
+    const manifest = join(old, 'mcp/trajectory-server/dist/hooks-router.txt');
+    mkdirSync(dirname(manifest), { recursive: true });
+    writeFileSync(manifest, 'containment-guard 5000 enforcement PreToolUse Bash\n');
+    const bundle = join(old, 'mcp/trajectory-server/dist/hooks.js');
+    writeFileSync(bundle, "process.stdout.write('{\"hookSpecificOutput\":{\"additionalContext\":\"old install answered\"}}\\n');\n");
+    const installed = join(base, 'installed.json');
+    writeFileSync(installed, JSON.stringify({ plugins: { 'tmb@trustmybot-dev': [{ scope: 'project', projectPath: project, installPath: old }] } }));
+    const run = async (payload: string): Promise<string> => {
+      let stdout = '';
+      await routerMain('PreToolUse', { ...env(), TMB_INSTALLED_JSON: installed }, { readStdin: () => payload, writeStdout: async (t) => void (stdout += t), writeStderr: () => {} }, {
+        findGate: fakes({ g: () => deny('this install decided') }),
+        groups: [{ event: 'PreToolUse', matcher: 'Write', groupBudgetMs: 5000, gates: [{ name: 'g', kind: 'enforcement', budgetMs: 1000 }] }],
+        selfRoot: PLUGIN_ROOT,
+      });
+      return stdout;
+    };
+    const write = await run(JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'sess-hop', tool_use_id: 'hop-w', tool_name: 'Write', tool_input: {} }));
+    assert.equal(reasonOf(write), 'this install decided');
+    const shell = await run(bash('ls', { session_id: 'sess-hop', tool_use_id: 'hop-b' }));
+    assert.match(shell, /old install answered/);
   });
 
   it('an unjudged deny records no path', async () => {

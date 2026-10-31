@@ -839,7 +839,7 @@ while IFS= read -r name; do
   [ "$want" = "$got" ] || diffs="$diffs $name(jq=<$want> awk=<$got>)"
 done < <(jq -r '.hooks[][]?.hooks[]?.command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
 assert_eq "" "$diffs" "every registration reads the same"
-[ "$n" -gt 30 ] && _pass || _fail "only $n registrations compared"
+[ "$n" -gt 20 ] && _pass || _fail "only $n registrations compared"
 assert_eq "1842 1" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" trajectory-gates)" "the chain: timeout and fail-closed"
 assert_eq " 0" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" not-registered)" "an unregistered name"
 printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"x{2}","hooks":[{"onFailure":"block","timeout":9,"command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-a"},{"timeout":3,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-ab"}]}]}}' > "$TMP/order.json"

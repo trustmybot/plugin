@@ -100,8 +100,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" containment-guard",
-            "timeout": 5,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 31,
             "onFailure": "block"
           }
         ]
@@ -122,8 +122,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" agent-spawn-dispatch",
-            "timeout": 16,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 19,
             "onFailure": "block"
           }
         ]
@@ -133,8 +133,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-resume-gate",
-            "timeout": 6,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 9,
             "onFailure": "block"
           }
         ]
@@ -144,8 +144,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" trajectory-gates",
-            "timeout": 1842,
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 1833,
             "onFailure": "block"
           }
         ]
@@ -155,61 +155,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" askuserquestion-length-lint",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" roundtable-auq-shape",
-            "timeout": 6
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 9
           }
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Read|Skill",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-brief-gate",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" no-source-edit-from-main",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-boundary",
-            "timeout": 6,
-            "onFailure": "block"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" swe-scope-fence",
-            "timeout": 6
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" naming-lint",
-            "timeout": 4
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" code-quality-lint",
-            "timeout": 4
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Write|Edit|MultiEdit|Agent|Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" debug-trajectory",
-            "timeout": 4
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/hooks.js\" PreToolUse",
+            "timeout": 11
           }
         ]
       }

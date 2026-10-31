@@ -3,14 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { ROUTER_GROUP_BUDGET_MS, ROUTER_GROUPS, routerTimeoutS } from '../hooks/registry.js';
+import { ROUTER_GROUPS, routerTimeoutS } from '../hooks/registry.js';
 import { gateOf, percentile, transcriptStats } from './hook-transcripts.js';
-import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_R1_TIMEOUT_S } from './router-floors.js';
+import { budgetMs, floorMs, groupBudgetMs, PARSE_ALLOWANCE_MS, p99Term, PRE_ROUTER_TIMEOUT_S } from './router-floors.js';
 import { PLUGIN_ROOT } from './router-sandboxes.js';
 const BUDGETS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'mcp/trajectory-server/src/hooks/router/budgets.json'), 'utf8'));
 const HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8'));
 describe('router budgets.json (GH 1861)', () => {
-    const gates = ROUTER_GROUPS.flatMap((g) => g.gates);
+    const gates = [...new Map(ROUTER_GROUPS.flatMap((g) => g.gates).map((g) => [g.name, g])).values()];
     it('comes from a bench of at least 20 rounds on 4 workers', () => {
         assert.ok(BUDGETS.rounds >= 20, `rounds ${BUDGETS.rounds}`);
         assert.equal(BUDGETS.workers, 4);
@@ -19,7 +19,7 @@ describe('router budgets.json (GH 1861)', () => {
         assert.deepEqual(Object.keys(BUDGETS.gates).sort(), gates.map((g) => g.name).sort());
     });
     for (const gate of gates) {
-        it(`${gate.name}: floor is its pre-R1 timeout share, both p99 inputs present, budget from the formula`, () => {
+        it(`${gate.name}: floor is its pre-router timeout share, both p99 inputs present, budget from the formula`, () => {
             const b = BUDGETS.gates[gate.name];
             assert.equal(b.kind, gate.kind);
             assert.equal(b.floor_ms, floorMs(gate.name));
@@ -44,30 +44,44 @@ describe('router budgets.json (GH 1861)', () => {
             for (const g of groups) {
                 for (const h of g.hooks) {
                     const gate = gateOf(h.command);
-                    if (gate !== null && gate in PRE_R1_TIMEOUT_S)
-                        assert.equal(h.timeout, PRE_R1_TIMEOUT_S[gate], `${gate} under ${g.matcher}`);
+                    if (gate !== null && gate in PRE_ROUTER_TIMEOUT_S)
+                        assert.equal(h.timeout, PRE_ROUTER_TIMEOUT_S[gate], `${gate} under ${g.matcher}`);
                 }
             }
         }
     });
-    it('group_budget_ms follows max(max_budget_ms, ceil(1.5 x p99_sum_ms)) from its recorded inputs', () => {
-        assert.equal(BUDGETS.max_budget_ms, Math.max(...Object.values(BUDGETS.gates).map((b) => b.budget_ms)));
-        assert.equal(BUDGETS.max_budget_ms, Math.max(...gates.map((g) => g.budgetMs)));
-        const sum = Object.values(BUDGETS.gates).reduce((n, b) => n + p99Term(b.bench_p99, b.transcript_p99), 0);
-        assert.equal(BUDGETS.p99_sum_ms, Math.round(sum * 10) / 10);
-        assert.equal(BUDGETS.group_budget_ms, groupBudgetMs(BUDGETS.max_budget_ms, BUDGETS.p99_sum_ms));
-        assert.equal(ROUTER_GROUP_BUDGET_MS, BUDGETS.group_budget_ms);
+    it('holds exactly one entry per router group', () => {
+        assert.deepEqual(Object.keys(BUDGETS.groups).sort(), ROUTER_GROUPS.map((g) => g.matcher).sort());
+    });
+    for (const group of ROUTER_GROUPS) {
+        it(`${group.matcher}: group_budget_ms follows max(max_budget_ms, ceil(1.5 x p99_sum_ms)) over its own gates`, () => {
+            const b = BUDGETS.groups[group.matcher];
+            const members = group.gates.map((g) => BUDGETS.gates[g.name]);
+            assert.equal(b.max_budget_ms, Math.max(...members.map((m) => m.budget_ms)));
+            assert.equal(b.max_budget_ms, Math.max(...group.gates.map((g) => g.budgetMs)));
+            const sum = members.reduce((n, m) => n + p99Term(m.bench_p99, m.transcript_p99), 0);
+            assert.equal(b.p99_sum_ms, Math.round(sum * 10) / 10);
+            assert.equal(b.group_budget_ms, groupBudgetMs(b.max_budget_ms, b.p99_sum_ms));
+            assert.equal(group.groupBudgetMs, b.group_budget_ms, 'ROUTER_GROUPS reads budgets.json');
+        });
+        it(`${group.matcher}: its hooks.json timeout is routerTimeoutS(group), covering the parse allowance plus its group budget`, () => {
+            const entries = HOOKS.hooks.PreToolUse.filter((g) => g.matcher === group.matcher);
+            assert.equal(entries.length, 1);
+            const { timeout, command } = entries[0].hooks[0];
+            assert.ok(command.endsWith('dist/hooks.js" PreToolUse'));
+            assert.ok(timeout * 1000 >= BUDGETS.parse_allowance_ms + group.groupBudgetMs, `${timeout} s`);
+            assert.equal(timeout, routerTimeoutS(group));
+            assert.equal(timeout, Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.groups[group.matcher].group_budget_ms) / 1000) + 1);
+        });
+    }
+    it('swe-verification-gate keeps its chain-table budget as its floor', () => {
+        assert.equal(BUDGETS.gates['swe-verification-gate'].floor_ms, 1_830_000);
+    });
+    it('the group formula and the parse allowance', () => {
         assert.equal(BUDGETS.parse_allowance_ms, PARSE_ALLOWANCE_MS);
         assert.equal(groupBudgetMs(16000, 100), 16000);
         assert.equal(groupBudgetMs(16000, 21492), 32238);
         assert.equal(groupBudgetMs(1000, 1000.1), 1501);
-    });
-    it('the router registration timeout covers the parse allowance plus the group budget', () => {
-        const entry = HOOKS.hooks.PreToolUse.flatMap((g) => g.hooks).find((h) => h.command.endsWith('dist/hooks.js" PreToolUse'));
-        assert.ok(entry);
-        assert.ok(entry.timeout * 1000 >= BUDGETS.parse_allowance_ms + BUDGETS.group_budget_ms, `${entry.timeout} s < ${BUDGETS.parse_allowance_ms} + ${BUDGETS.group_budget_ms} ms`);
-        assert.equal(entry.timeout, routerTimeoutS());
-        assert.equal(routerTimeoutS(), Math.ceil((BUDGETS.parse_allowance_ms + BUDGETS.group_budget_ms) / 1000) + 1);
     });
     it('the formula: max(floor, ceil(2 x max(bench_p99, transcript_p99)) + 200)', () => {
         assert.equal(budgetMs(5000, 10, null), 5000);

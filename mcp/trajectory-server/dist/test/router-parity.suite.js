@@ -1,6 +1,6 @@
 /**
- * SC2 decision parity (GH 1692 R1): every corpus payload of the 11 Bash router
- * gates, materialized in its gate's parity sandbox, gets from the router the
+ * Decision parity (GH 1692): every corpus payload of each router gate,
+ * materialized in its gate's parity sandbox, gets from the router the
  * decision the gates give one by one: the first deny in ROUTER_GROUPS order
  * with that gate's output, else the allowing gates' contexts merged.
  * One router-parity.<gate>.test.ts per gate runs it as its own node --test process (GH 2118).
@@ -57,7 +57,7 @@ async function inCase(c, fn) {
     }
 }
 export function routerParityGate(gate) {
-    describe('router decision parity over the 11 Bash gates corpora', () => {
+    describe('router decision parity over the gates corpora', () => {
         let sandbox;
         before(() => {
             sandbox = routerSandbox(mkdtempSync(join(tmpdir(), 'tmb-router-parity-')), [gate]);
@@ -66,7 +66,7 @@ export function routerParityGate(gate) {
         it(`${gate}: the router decides as the gates do one by one`, async () => {
             const cases = sandbox.cases.filter((c) => c.gate === gate);
             assert.ok(cases.length > 0, `${gate} has a corpus`);
-            let bash = 0;
+            let ran = 0;
             for (const c of cases) {
                 const want = await inCase(c, () => oneByOne(c));
                 const got = await inCase(c, () => decide(EVENT, c.input, c.env, { budgetMs: () => 120_000, groupBudgetMs: Number.POSITIVE_INFINITY }));
@@ -75,12 +75,12 @@ export function routerParityGate(gate) {
                 assert.equal(got.denied?.gate ?? null, want.gate, `${name}: denying gate`);
                 assert.deepEqual(parsed(got.stdout), want.stdout, `${name}: output`);
                 assert.equal(got.code, want.code, `${name}: exit code`);
-                if (got.tool === 'Bash') {
-                    bash++;
+                if (got.tool === 'Bash')
                     assert.equal(got.gates.length, 11, `${name}: all 11 gates ran`);
-                }
+                if (got.gates.some((g) => g.gate === gate))
+                    ran++;
             }
-            assert.ok(bash > 0, `${gate} has Bash payloads`);
+            assert.ok(ran > 0, `the router ran ${gate} on its corpus`);
         });
     });
 }
