@@ -15818,6 +15818,8 @@ function readState(db, taskId, env) {
                         AND (human.at IS NULL OR r.started_at > human.at)),
        'issue_fails', (SELECT COUNT(*) FROM validation_attempts v JOIN tasks x ON x.id = v.task_id, t, human
                         WHERE x.issue_id = t.issue_id AND v.verdict = 'fail'
+                          AND NOT EXISTS (SELECT 1 FROM validation_attempts p
+                                           WHERE p.task_id = v.task_id AND p.verdict = 'pass' AND p.id > v.id)
                           AND (human.at IS NULL OR v.created_at > human.at)),
        'waived_at', (SELECT at FROM human))
      FROM t;`,

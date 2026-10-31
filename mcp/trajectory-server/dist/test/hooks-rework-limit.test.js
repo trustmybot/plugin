@@ -1,8 +1,8 @@
 /**
  * The rework-limit gate (GH 1738, GH 2148) on a temp trajectory DB: a swe
  * spawn is denied once the task has two review FAILs since its last pass, six
- * swe runs (budget handbacks aside), or its issue four FAILs across its tasks,
- * each counted since the latest Human waiver (an author 'human', kind
+ * swe runs (budget handbacks aside), or its issue four FAILs across its tasks
+ * with no later pass on the same task, each counted since the latest Human waiver (an author 'human', kind
  * 'decision' row) on the task or its issue; no agent-written row and no Human
  * note lifts it. agent-spawn-dispatch.sh returns that deny
  * before any PREPARE step.
@@ -202,11 +202,11 @@ describe('rework-limit', () => {
         });
     });
     describe('issue FAILs', () => {
-        it('denies a spawn of a fresh task once the issue has four FAILs across its tasks', () => {
+        it('denies a spawn of a fresh task once the issue has four unresolved FAILs across its tasks', () => {
             const f = fixture();
-            f.verdictsOn(OTHER_TASK_ID, 'fail', 'pass', 'fail');
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
             f.verdictsOn(TASK_ID, 'fail');
-            f.verdictsOn(ELSEWHERE_TASK_ID, 'fail', 'pass', 'fail');
+            f.verdictsOn(ELSEWHERE_TASK_ID, 'fail');
             assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
             f.verdictsOn(OTHER_TASK_ID, 'fail');
             const reason = denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
@@ -217,9 +217,34 @@ describe('rework-limit', () => {
             denyReason(spawnOf(f, TASK_ID).stdout);
             assert.deepEqual(spawnOf(f, ELSEWHERE_TASK_ID), ALLOWED);
         });
+        it('allows every task of an issue whose FAILs all have a later pass on the same task, however many', () => {
+            const f = fixture();
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'pass', 'fail', 'fail', 'pass');
+            f.verdictsOn(TASK_ID, 'fail', 'pass', 'fail', 'fail', 'fail', 'pass');
+            for (const taskId of [FRESH_TASK_ID, TASK_ID, OTHER_TASK_ID]) {
+                assert.deepEqual(spawnOf(f, taskId), ALLOWED);
+            }
+        });
+        it('a FAIL after a task\'s latest pass counts again', () => {
+            const f = fixture();
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'pass', 'fail', 'fail');
+            f.verdictsOn(TASK_ID, 'fail', 'pass', 'fail');
+            assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
+            f.verdictsOn(TASK_ID, 'fail');
+            assert.match(denyReason(spawnOf(f, FRESH_TASK_ID).stdout), /issue FAILs: 4 review FAILs/);
+        });
+        it('a pass on one task does not clear the FAILs on another', () => {
+            const f = fixture();
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
+            f.verdictsOn(TASK_ID, 'fail', 'fail');
+            f.verdictsOn(FRESH_TASK_ID, 'pass');
+            assert.match(denyReason(spawnOf(f, FRESH_TASK_ID).stdout), /issue FAILs: 4 review FAILs/);
+            f.verdictsOn(TASK_ID, 'pass');
+            assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
+        });
         it('a newer issue-level Human row lifts it for every task', () => {
             const f = fixture();
-            f.verdictsOn(OTHER_TASK_ID, 'fail', 'pass', 'fail', 'pass', 'fail', 'pass', 'fail');
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail');
             denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
             f.discuss({ kind: 'decision', taskId: null });
             denyReason(spawnOf(f, FRESH_TASK_ID).stdout);
@@ -227,9 +252,18 @@ describe('rework-limit', () => {
             assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
             assert.deepEqual(spawnOf(f, TASK_ID), ALLOWED);
         });
+        it('counts unresolved FAILs afresh after the latest Human row', () => {
+            const f = fixture();
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail');
+            f.discuss({ author: 'human', kind: 'decision', taskId: null });
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail');
+            assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
+            f.verdictsOn(TASK_ID, 'fail');
+            assert.match(denyReason(spawnOf(f, FRESH_TASK_ID).stdout), /issue FAILs: 4 review FAILs/);
+        });
         it('a newer Human row on the task being spawned lifts it for that task only', () => {
             const f = fixture();
-            f.verdictsOn(OTHER_TASK_ID, 'fail', 'pass', 'fail', 'pass', 'fail', 'pass', 'fail');
+            f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail', 'fail', 'fail');
             f.discuss({ author: 'human', kind: 'decision', taskId: FRESH_TASK_ID });
             assert.deepEqual(spawnOf(f, FRESH_TASK_ID), ALLOWED);
             denyReason(spawnOf(f, TASK_ID).stdout);
@@ -238,7 +272,8 @@ describe('rework-limit', () => {
     it('names every limit that tripped', () => {
         const f = fixture();
         f.runs(6);
-        f.verdicts('fail', 'fail', 'pass', 'fail', 'fail');
+        f.verdicts('fail', 'fail');
+        f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
         const reason = denyReason(run(f).stdout);
         assert.match(reason, /task FAILs: 2 .*; task runs: 6 .*; issue FAILs: 4 /);
         assertHumanOnlyWaiver(reason, TASK_ID);
@@ -246,7 +281,8 @@ describe('rework-limit', () => {
     it("a newer author 'human' kind 'note' row (pr_monitor's shape for a login named human) resets none of the three limits", () => {
         const f = fixture();
         f.runs(6);
-        f.verdicts('fail', 'fail', 'pass', 'fail', 'fail');
+        f.verdicts('fail', 'fail');
+        f.verdictsOn(OTHER_TASK_ID, 'fail', 'fail');
         f.discuss({ author: 'human', kind: 'note' });
         f.discuss({ author: 'human', kind: 'note', taskId: null });
         const reason = denyReason(run(f).stdout);
