@@ -2,8 +2,9 @@
 # Fail when a tracked file names the reviewer by its pre-GH-1641 name
 # (pr-reviewer / pr_reviewer, any case) outside an explicit allowlist. The
 # reviewer is code-reviewer with no alias; the old name survives only in the
-# v51 migration, its tests and schema fixtures, the rejection tests, and
-# history (changelog, upgrade notes). It also checks that the UPGRADE.md
+# v51 migration, its tests and schema fixtures, the rejection tests, a research
+# question about the rename, and history (changelog, upgrade notes). It also
+# checks that the UPGRADE.md
 # schema v51 bullet names the audit.content_json rewrite.
 #
 # Allowlist: tests/l1-lint/legacy-reviewer-name.allowlist —
