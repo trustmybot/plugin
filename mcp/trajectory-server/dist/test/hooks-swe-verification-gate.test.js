@@ -7,13 +7,13 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { findGate, gateNames } from '../hooks/registry.js';
 import { commandOnPath } from '../hooks/lib/persona.js';
-import { joinToolchainPath, msToS, parseBudget, sweVerificationGate, VERIFICATION_DEFAULT_S, VERIFICATION_MAX_S } from '../hooks/swe-verification-gate.js';
+import { joinToolchainPath, msToS, parseBudget, sweVerificationGate, toolchainDirs, VERIFICATION_DEFAULT_S, VERIFICATION_MAX_S } from '../hooks/swe-verification-gate.js';
 import { buildVerificationSandbox } from './hooks-swe-verification-parity.suite.js';
 const ALLOWED = { stdout: '', code: 0 };
 function decision(stdout) {
@@ -65,6 +65,20 @@ describe('swe-verification-gate helpers', () => {
     it('joinToolchainPath puts the toolchain dirs first and keeps each dir once', () => {
         assert.equal(joinToolchainPath(['/a', '', '/b'], '/usr/bin:/a:/bin'), '/a:/b:/usr/bin:/bin');
         assert.equal(joinToolchainPath([], '/usr/bin::/bin'), '/usr/bin:/bin');
+    });
+    it('toolchainDirs asks mise for the bin-paths of the worktree, not the hook process cwd (GH 2134)', () => {
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'toolchain-dirs-')));
+        try {
+            const mise = join(dir, 'mise');
+            const worktree = join(dir, 'worktree');
+            mkdirSync(worktree);
+            writeFileSync(mise, '#!/bin/bash\npwd -P\n');
+            chmodSync(mise, 0o755);
+            assert.ok(toolchainDirs({ HOME: dir, MISE_INSTALL_PATH: mise }, worktree).includes(worktree));
+        }
+        finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
 describe('swe-verification-gate without jq or the sqlite3 CLI (decision 703)', () => {

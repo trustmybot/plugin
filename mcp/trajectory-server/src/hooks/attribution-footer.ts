@@ -28,6 +28,7 @@ import {
   wellFormed,
 } from './lib/lint-shell.js';
 import { jqRawText } from './lib/project-env.js';
+import { cmdCwd } from './lib/repo.js';
 
 export const GATE_NAME = 'attribution-footer';
 
@@ -74,8 +75,8 @@ function onPath(name: string, env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
-function run(file: string, args: string[], env: NodeJS.ProcessEnv): { stdout: string; ok: boolean } {
-  const r = spawnSync(file, args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
+function run(file: string, args: string[], repoDir: string, env: NodeJS.ProcessEnv): { stdout: string; ok: boolean } {
+  const r = spawnSync(file, args, { cwd: repoDir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
   return { stdout: r.stdout ?? '', ok: r.error === undefined && r.status === 0 };
 }
 
@@ -137,13 +138,14 @@ export const attributionFooter: SyncGate = (payload, env) => {
 
   const cli = onPath(kind.cli, env);
   if (cli === null) return ALLOW;
+  const repoDir = cmdCwd(command, payload, env);
   let orig: string;
   if (kind.cli === 'gh') {
-    const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], env);
+    const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], repoDir, env);
     if (!view.ok) return ALLOW;
     orig = shellCapture(view.stdout);
   } else {
-    const view = run(cli, [kind.group, 'view', number, '-F', 'json'], env);
+    const view = run(cli, [kind.group, 'view', number, '-F', 'json'], repoDir, env);
     const description = view.ok ? glabDescription(view.stdout) : null;
     if (description === null) return ALLOW;
     orig = description;
@@ -154,6 +156,6 @@ export const attributionFooter: SyncGate = (payload, env) => {
   const write = kind.cli === 'gh'
     ? [kind.group, 'edit', number, '--body', updated]
     : [kind.group, 'update', number, '--description', updated];
-  run(cli, write, env);
+  run(cli, write, repoDir, env);
   return ALLOW;
 };

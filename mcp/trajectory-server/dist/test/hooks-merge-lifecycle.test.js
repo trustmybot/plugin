@@ -229,6 +229,17 @@ describe('merge-lifecycle gates over a git and DB sandbox', () => {
         assert.equal(rows('SELECT status FROM issues WHERE id = 7')[0].status, 'open');
         assert.doesNotMatch(readFileSync(join(s, 'gh.log'), 'utf8'), /issue close/);
     });
+    it('close-issue-on-merge runs gh in the repo the merge ran in, also once its worktree is gone, not the hook process cwd (GH 2134)', () => {
+        const pwds = join(s, 'gh-pwd.log');
+        writeFileSync(join(s, 'bin/gh'), `#!/bin/bash\npwd -P >> '${pwds}'\n`);
+        chmodSync(join(s, 'bin/gh'), 0o755);
+        const expected = realpathSync(repo());
+        assert.notEqual(realpathSync(process.cwd()), expected);
+        closeIssueOnMerge(payload(`cd '${repo()}' && gh pr merge 46 --squash`, tmpdir()), env());
+        closeIssueOnMerge(payload(`cd '${join(s, 'wt/clean')}' && gh pr merge 46 --squash`, tmpdir()), env());
+        closeIssueOnMerge(payload(`cd '${join(repo(), '.claude/worktrees/removed')}' && gh pr merge 46 --squash`, tmpdir()), env());
+        assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected, expected]);
+    });
     it('close-issue-on-merge kills a hanging gh at its 10 s bound with no timeout on PATH and exits 0 (decision 703)', () => {
         const sleep = spawnSync('bash', ['-c', 'command -v sleep'], { encoding: 'utf8' }).stdout.trim();
         const pidFile = join(s, 'gh.pid');

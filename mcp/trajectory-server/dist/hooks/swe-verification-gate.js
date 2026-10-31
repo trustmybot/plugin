@@ -125,12 +125,12 @@ function executable(path) {
         return false;
     }
 }
-function capture(cmd, args, env) {
-    const r = spawnSync(cmd, args, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });
+function capture(cmd, args, dir, env) {
+    const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });
     return r.stdout ?? '';
 }
-/** tmb_user_toolchain_dirs: mise shims and bin-paths, Homebrew, ~/.local/bin and bun, in that order. */
-export function toolchainDirs(env) {
+/** tmb_user_toolchain_dirs: mise shims and <worktree>'s bin-paths, Homebrew, ~/.local/bin and bun, in that order. */
+export function toolchainDirs(env, worktree) {
     const home = env.HOME ?? '';
     const out = [];
     const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
@@ -138,9 +138,9 @@ export function toolchainDirs(env) {
         out.push(`${miseData}/shims`);
     const mise = [env.MISE_INSTALL_PATH ?? '', '/opt/homebrew/bin/mise', '/usr/local/bin/mise', `${home}/.local/bin/mise`].find(executable);
     if (mise !== undefined)
-        out.push(...capture(mise, ['bin-paths'], env).split('\n'));
+        out.push(...capture(mise, ['bin-paths'], worktree, env).split('\n'));
     const brew = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find(executable);
-    const brewPrefix = brew === undefined ? '' : commandSubstitution(capture(brew, ['--prefix'], env));
+    const brewPrefix = brew === undefined ? '' : commandSubstitution(capture(brew, ['--prefix'], worktree, env));
     const brewDirs = brewPrefix !== '' ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin'];
     out.push(...brewDirs.filter(isDir));
     if (home !== '' && isDir(`${home}/.local/bin`))
@@ -608,7 +608,7 @@ export const sweVerificationGate = async (payload, env) => {
             code: 0,
         };
     }
-    const toolchainPath = joinToolchainPath(toolchainDirs(genv), genv.PATH ?? '');
+    const toolchainPath = joinToolchainPath(toolchainDirs(genv, worktree), genv.PATH ?? '');
     const budget = parseBudget(genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv));
     if (budget.warning !== '')
         stderr(budget.warning);

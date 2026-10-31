@@ -3982,7 +3982,7 @@ __export(loader_exports, {
   parserLoadCount: () => parserLoadCount,
   wasmDir: () => wasmDir
 });
-import { existsSync as existsSync5 } from "node:fs";
+import { existsSync as existsSync6 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parserLoadCount() {
@@ -3991,7 +3991,7 @@ function parserLoadCount() {
 function wasmDir() {
   const here = dirname2(fileURLToPath2(import.meta.url));
   for (const dir of [join4(here, "parsing"), here]) {
-    if (existsSync5(join4(dir, RUNTIME_WASM))) return dir;
+    if (existsSync6(join4(dir, RUNTIME_WASM))) return dir;
   }
   throw new Error(`tree-sitter runtime not found: no ${RUNTIME_WASM} in ${join4(here, "parsing")} or ${here}`);
 }
@@ -6596,8 +6596,8 @@ var broTurnUsage = (payload, env) => {
 };
 
 // src/hooks/attribution-footer.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { accessSync as accessSync6, constants as constants6, statSync as statSync7 } from "node:fs";
+import { spawnSync as spawnSync4 } from "node:child_process";
+import { accessSync as accessSync6, constants as constants6, statSync as statSync9 } from "node:fs";
 
 // src/hooks/lib/lint-shell.ts
 import { existsSync as existsSync4 } from "node:fs";
@@ -6682,6 +6682,230 @@ function preToolContext(ctx) {
 `;
 }
 
+// src/hooks/cmd-analysis/path.ts
+import { existsSync as existsSync5, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
+var MAX_HOPS = 40;
+function isLink(p) {
+  try {
+    return lstatSync2(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function pathCanonical(path) {
+  if (!path.startsWith("/")) return path;
+  let cur = "";
+  let tail = "";
+  let rest = path;
+  let hops = 0;
+  while (rest !== "") {
+    rest = rest.replace(/^\//, "");
+    const slash = rest.indexOf("/");
+    const part = slash < 0 ? rest : rest.slice(0, slash);
+    rest = slash < 0 ? "" : rest.slice(slash + 1);
+    if (part === "" || part === ".") continue;
+    if (tail !== "") {
+      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
+      continue;
+    }
+    if (part === "..") {
+      cur = cur.replace(/\/[^/]*$/, "");
+      continue;
+    }
+    const next = `${cur}/${part}`;
+    if (hops < MAX_HOPS && isLink(next)) {
+      hops++;
+      const link = readlinkSync2(next);
+      if (link.startsWith("/")) cur = "";
+      rest = `${link}/${rest}`;
+      continue;
+    }
+    if (existsSync5(next)) cur = next;
+    else tail = `/${part}`;
+  }
+  return cur + tail || "/";
+}
+function payloadCwd(json, env = process.env) {
+  try {
+    const cwd = JSON.parse(json)?.cwd;
+    if (typeof cwd === "string") {
+      const c = cwd.replace(/\n+$/, "");
+      if (c !== "") return c;
+    }
+  } catch {
+  }
+  return env.PWD ?? "";
+}
+
+// src/hooks/lib/git.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { statSync as statSync7 } from "node:fs";
+var GIT_MAX_BUFFER = 256 * 1024 * 1024;
+function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
+  const limit = spawnLimit();
+  const r = spawnSync3("git", ["-C", dir, ...args2], {
+    encoding: "utf8",
+    env,
+    input,
+    maxBuffer: GIT_MAX_BUFFER,
+    stdio: ["pipe", "pipe", stderr2],
+    ...spawnOptions(limit)
+  });
+  noteSpawn(limit, r);
+  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
+}
+function gitOut(dir, args2, env = process.env, input = "") {
+  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
+}
+function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
+  return gitRun(dir, args2, env, "", stderr2).code === 0;
+}
+function isDir(path) {
+  if (path === "") return false;
+  try {
+    return statSync7(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function cdPwd(path, pwd) {
+  if (!isDir(path === "" ? "." : path)) return "";
+  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
+  const out2 = [];
+  for (const part of abs.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") out2.pop();
+    else out2.push(part);
+  }
+  return `/${out2.join("/")}`;
+}
+
+// src/hooks/lib/repo.ts
+import { statSync as statSync8 } from "node:fs";
+function isFile5(path) {
+  if (path === "") return false;
+  try {
+    return statSync8(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function firstLine2(text) {
+  const nl = text.indexOf("\n");
+  return nl < 0 ? text : text.slice(0, nl);
+}
+function readable2(db, env) {
+  return isFile5(db) && haveSqlite(env);
+}
+var CD_PREFIX = /^[ \t\v\f\r]*cd[ \t\v\f\r]+/;
+var CD_TARGETS = [/^"([^"]+)"/, /^'([^']+)'/, /^([^ \t\v\f\r&;]+)/];
+var GIT_C = /git -C ([^ \t\v\f\r]+)/;
+function cdTarget(line) {
+  const prefix = CD_PREFIX.exec(line);
+  if (!prefix) return null;
+  const rest = line.slice(prefix[0].length);
+  let best = null;
+  for (const re of CD_TARGETS) {
+    const m = re.exec(rest);
+    if (m && (best === null || m[0].length > best[0].length)) best = m;
+  }
+  return best === null ? null : best[1];
+}
+function cmdCwd(cmd, input, env = process.env) {
+  const base2 = payloadCwd(input, env);
+  const lines2 = cmd.split("\n");
+  let cdPath = null;
+  for (const line of lines2) {
+    cdPath = cdTarget(line);
+    if (cdPath !== null) break;
+  }
+  if (cdPath === null) {
+    cdPath = "";
+    for (const line of lines2) {
+      const m = GIT_C.exec(line);
+      if (m) {
+        cdPath = m[1].replace(/['"]/g, "");
+        break;
+      }
+    }
+  }
+  if (cdPath === "") return base2;
+  if (cdPath.startsWith("/")) return cdPath;
+  return `${base2.replace(/\/$/, "")}/${cdPath}`;
+}
+function repoDefaultBranch(root, env = process.env) {
+  if (root === "") return "";
+  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
+  if (remote !== "") return remote;
+  for (const cand of ["main", "master", "dev"]) {
+    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
+  }
+  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
+}
+function repoGitRoot(target, env = process.env) {
+  if (target === "") return "";
+  while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
+  if (!isDir(target)) return "";
+  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
+  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
+  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
+}
+function repoNameForRoot(db, root, env = process.env) {
+  if (!readable2(db, env) || root === "") return "";
+  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
+  if (name3 !== "") return name3;
+  const want = realdir(root);
+  for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
+    if (row === "") continue;
+    const bar = row.indexOf("|");
+    const rname = bar < 0 ? row : row.slice(0, bar);
+    const rpath = bar < 0 ? row : row.slice(bar + 1);
+    if (rpath === "") continue;
+    if (realdir(repoPathAbs(db, rpath)) === want) return rname;
+  }
+  return "";
+}
+function repoResolve(db, root, env = process.env) {
+  if (!readable2(db, env) || root === "") return "";
+  const name3 = repoNameForRoot(db, root, env);
+  if (name3 === "") return "";
+  return firstLine2(
+    sqliteRo(
+      db,
+      `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
+      env
+    )
+  );
+}
+function repoIsRegistered(db, root, env = process.env) {
+  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
+}
+function repoSinglePath(db, env = process.env) {
+  if (!readable2(db, env)) return "";
+  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
+  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
+}
+function repoPathByName(db, name3, env = process.env) {
+  if (!readable2(db, env) || name3 === "") return "";
+  return firstLine2(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+}
+function repoResolvePath(db, name3, env = process.env) {
+  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
+}
+var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
+function repoRemotes(db, gitRoot, env = process.env) {
+  if (!readable2(db, env)) return "";
+  const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
+  let out2 = "";
+  if (name3 !== "") {
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
+  }
+  if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
+    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
+  }
+  return out2;
+}
+
 // src/hooks/attribution-footer.ts
 var GATE_NAME4 = "attribution-footer";
 var TMB_FOOTER = "\u{1F916} Generated with [Claude Code](https://claude.com/claude-code), powered by [Bro](https://github.com/trustmybot/plugin)";
@@ -6711,7 +6935,7 @@ function onPath3(name3, env) {
   for (const dir of (env.PATH ?? "").split(":")) {
     const file = `${dir === "" ? "." : dir}/${name3}`;
     try {
-      if (!statSync7(file).isFile()) continue;
+      if (!statSync9(file).isFile()) continue;
       accessSync6(file, constants6.X_OK);
       return file;
     } catch {
@@ -6720,8 +6944,8 @@ function onPath3(name3, env) {
   }
   return null;
 }
-function run2(file, args2, env) {
-  const r = spawnSync3(file, args2, { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
+function run2(file, args2, repoDir, env) {
+  const r = spawnSync4(file, args2, { cwd: repoDir, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 30 });
   return { stdout: r.stdout ?? "", ok: r.error === void 0 && r.status === 0 };
 }
 function glabDescription(json) {
@@ -6773,13 +6997,14 @@ var attributionFooter = (payload, env) => {
   if (number === "") return ALLOW;
   const cli = onPath3(kind.cli, env);
   if (cli === null) return ALLOW;
+  const repoDir = cmdCwd(command, payload, env);
   let orig;
   if (kind.cli === "gh") {
-    const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], env);
+    const view = run2(cli, [kind.group, "view", number, "--json", "body", "-q", ".body"], repoDir, env);
     if (!view.ok) return ALLOW;
     orig = shellCapture2(view.stdout);
   } else {
-    const view = run2(cli, [kind.group, "view", number, "-F", "json"], env);
+    const view = run2(cli, [kind.group, "view", number, "-F", "json"], repoDir, env);
     const description = view.ok ? glabDescription(view.stdout) : null;
     if (description === null) return ALLOW;
     orig = description;
@@ -6787,7 +7012,7 @@ var attributionFooter = (payload, env) => {
   const updated = shellCapture2(normalizeFooter(orig, env));
   if (updated === orig) return ALLOW;
   const write2 = kind.cli === "gh" ? [kind.group, "edit", number, "--body", updated] : [kind.group, "update", number, "--description", updated];
-  run2(cli, write2, env);
+  run2(cli, write2, repoDir, env);
   return ALLOW;
 };
 
@@ -7113,49 +7338,6 @@ function encode(parser2, command) {
   } finally {
     tree.delete();
   }
-}
-
-// src/hooks/lib/git.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
-import { statSync as statSync8 } from "node:fs";
-var GIT_MAX_BUFFER = 256 * 1024 * 1024;
-function gitRun(dir, args2, env = process.env, input = "", stderr2 = "ignore") {
-  const limit = spawnLimit();
-  const r = spawnSync4("git", ["-C", dir, ...args2], {
-    encoding: "utf8",
-    env,
-    input,
-    maxBuffer: GIT_MAX_BUFFER,
-    stdio: ["pipe", "pipe", stderr2],
-    ...spawnOptions(limit)
-  });
-  noteSpawn(limit, r);
-  return { code: r.error ? -1 : r.status ?? -1, stdout: r.stdout ?? "" };
-}
-function gitOut(dir, args2, env = process.env, input = "") {
-  return gitRun(dir, args2, env, input).stdout.replace(/\n+$/, "");
-}
-function gitOk(dir, args2, env = process.env, stderr2 = "ignore") {
-  return gitRun(dir, args2, env, "", stderr2).code === 0;
-}
-function isDir(path) {
-  if (path === "") return false;
-  try {
-    return statSync8(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-function cdPwd(path, pwd) {
-  if (!isDir(path === "" ? "." : path)) return "";
-  const abs = path.startsWith("/") ? path : `${pwd.replace(/\/$/, "")}/${path}`;
-  const out2 = [];
-  for (const part of abs.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") out2.pop();
-    else out2.push(part);
-  }
-  return `/${out2.join("/")}`;
 }
 
 // src/hooks/cmd-analysis/parser.ts
@@ -8152,187 +8334,6 @@ import { accessSync as accessSync7, constants as constants7, realpathSync as rea
 
 // src/hooks/cmd-analysis/lister.ts
 import { statSync as statSync11 } from "node:fs";
-
-// src/hooks/cmd-analysis/path.ts
-import { existsSync as existsSync6, lstatSync as lstatSync2, readlinkSync as readlinkSync2 } from "node:fs";
-var MAX_HOPS = 40;
-function isLink(p) {
-  try {
-    return lstatSync2(p).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function pathCanonical(path) {
-  if (!path.startsWith("/")) return path;
-  let cur = "";
-  let tail = "";
-  let rest = path;
-  let hops = 0;
-  while (rest !== "") {
-    rest = rest.replace(/^\//, "");
-    const slash = rest.indexOf("/");
-    const part = slash < 0 ? rest : rest.slice(0, slash);
-    rest = slash < 0 ? "" : rest.slice(slash + 1);
-    if (part === "" || part === ".") continue;
-    if (tail !== "") {
-      tail = part === ".." ? tail.replace(/\/[^/]*$/, "") : `${tail}/${part}`;
-      continue;
-    }
-    if (part === "..") {
-      cur = cur.replace(/\/[^/]*$/, "");
-      continue;
-    }
-    const next = `${cur}/${part}`;
-    if (hops < MAX_HOPS && isLink(next)) {
-      hops++;
-      const link = readlinkSync2(next);
-      if (link.startsWith("/")) cur = "";
-      rest = `${link}/${rest}`;
-      continue;
-    }
-    if (existsSync6(next)) cur = next;
-    else tail = `/${part}`;
-  }
-  return cur + tail || "/";
-}
-function payloadCwd(json, env = process.env) {
-  try {
-    const cwd = JSON.parse(json)?.cwd;
-    if (typeof cwd === "string") {
-      const c = cwd.replace(/\n+$/, "");
-      if (c !== "") return c;
-    }
-  } catch {
-  }
-  return env.PWD ?? "";
-}
-
-// src/hooks/lib/repo.ts
-import { statSync as statSync9 } from "node:fs";
-function isFile5(path) {
-  if (path === "") return false;
-  try {
-    return statSync9(path).isFile();
-  } catch {
-    return false;
-  }
-}
-function firstLine2(text) {
-  const nl = text.indexOf("\n");
-  return nl < 0 ? text : text.slice(0, nl);
-}
-function readable2(db, env) {
-  return isFile5(db) && haveSqlite(env);
-}
-var CD_PREFIX = /^[ \t\v\f\r]*cd[ \t\v\f\r]+/;
-var CD_TARGETS = [/^"([^"]+)"/, /^'([^']+)'/, /^([^ \t\v\f\r&;]+)/];
-var GIT_C = /git -C ([^ \t\v\f\r]+)/;
-function cdTarget(line) {
-  const prefix = CD_PREFIX.exec(line);
-  if (!prefix) return null;
-  const rest = line.slice(prefix[0].length);
-  let best = null;
-  for (const re of CD_TARGETS) {
-    const m = re.exec(rest);
-    if (m && (best === null || m[0].length > best[0].length)) best = m;
-  }
-  return best === null ? null : best[1];
-}
-function cmdCwd(cmd, input, env = process.env) {
-  const base2 = payloadCwd(input, env);
-  const lines2 = cmd.split("\n");
-  let cdPath = null;
-  for (const line of lines2) {
-    cdPath = cdTarget(line);
-    if (cdPath !== null) break;
-  }
-  if (cdPath === null) {
-    cdPath = "";
-    for (const line of lines2) {
-      const m = GIT_C.exec(line);
-      if (m) {
-        cdPath = m[1].replace(/['"]/g, "");
-        break;
-      }
-    }
-  }
-  if (cdPath === "") return base2;
-  if (cdPath.startsWith("/")) return cdPath;
-  return `${base2.replace(/\/$/, "")}/${cdPath}`;
-}
-function repoDefaultBranch(root, env = process.env) {
-  if (root === "") return "";
-  const remote = gitOut(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], env).replace(/^origin\//gm, "");
-  if (remote !== "") return remote;
-  for (const cand of ["main", "master", "dev"]) {
-    if (gitOk(root, ["show-ref", "--verify", "--quiet", `refs/heads/${cand}`], env)) return cand;
-  }
-  return gitOut(root, ["symbolic-ref", "--short", "HEAD"], env) || "main";
-}
-function repoGitRoot(target, env = process.env) {
-  if (target === "") return "";
-  while (!isDir(target) && target !== "/" && target !== ".") target = posixDirname(target);
-  if (!isDir(target)) return "";
-  const common = gitOut(target, ["rev-parse", "--path-format=absolute", "--git-common-dir"], env);
-  if (common !== "") return cdPwd(posixDirname(common), shellPwd(env));
-  return gitOut(target, ["rev-parse", "--show-toplevel"], env);
-}
-function repoNameForRoot(db, root, env = process.env) {
-  if (!readable2(db, env) || root === "") return "";
-  const name3 = firstLine2(sqliteRo(db, `SELECT name FROM repos WHERE path = '${sqlQuote(root)}' LIMIT 1;`, env));
-  if (name3 !== "") return name3;
-  const want = realdir(root);
-  for (const row of sqliteRo(db, "SELECT name || '|' || path FROM repos ORDER BY name;", env).split("\n")) {
-    if (row === "") continue;
-    const bar = row.indexOf("|");
-    const rname = bar < 0 ? row : row.slice(0, bar);
-    const rpath = bar < 0 ? row : row.slice(bar + 1);
-    if (rpath === "") continue;
-    if (realdir(repoPathAbs(db, rpath)) === want) return rname;
-  }
-  return "";
-}
-function repoResolve(db, root, env = process.env) {
-  if (!readable2(db, env) || root === "") return "";
-  const name3 = repoNameForRoot(db, root, env);
-  if (name3 === "") return "";
-  return firstLine2(
-    sqliteRo(
-      db,
-      `SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'') FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`,
-      env
-    )
-  );
-}
-function repoIsRegistered(db, root, env = process.env) {
-  return readable2(db, env) && root !== "" && repoNameForRoot(db, root, env) !== "";
-}
-function repoSinglePath(db, env = process.env) {
-  if (!readable2(db, env)) return "";
-  if (sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) !== "1") return "";
-  return firstLine2(sqliteRo(db, "SELECT path FROM repos LIMIT 1;", env));
-}
-function repoPathByName(db, name3, env = process.env) {
-  if (!readable2(db, env) || name3 === "") return "";
-  return firstLine2(sqliteRo(db, `SELECT path FROM repos WHERE name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-}
-function repoResolvePath(db, name3, env = process.env) {
-  return (name3 === "" ? "" : repoPathByName(db, name3, env)) || repoSinglePath(db, env);
-}
-var REMOTES_SQL = "COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url)) FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')";
-function repoRemotes(db, gitRoot, env = process.env) {
-  if (!readable2(db, env)) return "";
-  const name3 = gitRoot === "" ? "" : repoNameForRoot(db, gitRoot, env);
-  let out2 = "";
-  if (name3 !== "") {
-    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r WHERE r.name = '${sqlQuote(name3)}' LIMIT 1;`, env));
-  }
-  if (out2 === "" && sqliteRo(db, "SELECT COUNT(*) FROM repos;", env) === "1") {
-    out2 = firstLine2(sqliteRo(db, `SELECT ${REMOTES_SQL} FROM repos r LIMIT 1;`, env));
-  }
-  return out2;
-}
 
 // src/hooks/lib/target-task.ts
 import { createHash } from "node:crypto";
@@ -19018,19 +19019,19 @@ function executable(path) {
     return false;
   }
 }
-function capture3(cmd, args2, env) {
-  const r = spawnSync10(cmd, args2, { encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
+function capture3(cmd, args2, dir, env) {
+  const r = spawnSync10(cmd, args2, { cwd: dir, encoding: "utf8", env, stdio: ["ignore", "pipe", "ignore"] });
   return r.stdout ?? "";
 }
-function toolchainDirs(env) {
+function toolchainDirs(env, worktree) {
   const home = env.HOME ?? "";
   const out2 = [];
   const miseData = env.MISE_DATA_DIR || `${env.XDG_DATA_HOME || `${home}/.local/share`}/mise`;
   if (isDir(`${miseData}/shims`)) out2.push(`${miseData}/shims`);
   const mise = [env.MISE_INSTALL_PATH ?? "", "/opt/homebrew/bin/mise", "/usr/local/bin/mise", `${home}/.local/bin/mise`].find(executable);
-  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], env).split("\n"));
+  if (mise !== void 0) out2.push(...capture3(mise, ["bin-paths"], worktree, env).split("\n"));
   const brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(executable);
-  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], env));
+  const brewPrefix = brew === void 0 ? "" : commandSubstitution(capture3(brew, ["--prefix"], worktree, env));
   const brewDirs = brewPrefix !== "" ? [`${brewPrefix}/bin`, `${brewPrefix}/sbin`] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
   out2.push(...brewDirs.filter(isDir));
   if (home !== "" && isDir(`${home}/.local/bin`)) out2.push(`${home}/.local/bin`);
@@ -19501,7 +19502,7 @@ var sweVerificationGate = async (payload, env) => {
       code: 0
     };
   }
-  const toolchainPath = joinToolchainPath(toolchainDirs(genv), genv.PATH ?? "");
+  const toolchainPath = joinToolchainPath(toolchainDirs(genv, worktree), genv.PATH ?? "");
   const budget = parseBudget(
     genv.TMB_VERIFICATION_TIMEOUT_S || sqliteRo(db, "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key = 'verification_timeout_s';", genv)
   );
@@ -21229,8 +21230,9 @@ function isFile16(path) {
     return false;
   }
 }
-function gh(args2, env) {
+function gh(args2, repoDir, env) {
   const r = spawnSync12("gh", args2, {
+    cwd: repoDir,
     encoding: "utf8",
     env,
     timeout: GH_TIMEOUT_MS,
@@ -21313,15 +21315,17 @@ function closingRefs(json) {
   return sortUniqueNumeric(lines2.filter((l) => /^[0-9]+$/.test(l)));
 }
 var Merge = class {
-  constructor(db, head, syncOn2, env) {
+  constructor(db, head, syncOn2, repoDir, env) {
     this.db = db;
     this.head = head;
     this.syncOn = syncOn2;
+    this.repoDir = repoDir;
     this.env = env;
   }
   db;
   head;
   syncOn;
+  repoDir;
   env;
   sql = [];
   closedIds = [];
@@ -21453,8 +21457,8 @@ var Merge = class {
       if (!this.syncOn) continue;
       const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
       if (ghIid === "") continue;
-      if (gh(["issue", "view", ghIid, "--json", "state", "-q", ".state"], this.env) !== "CLOSED") {
-        gh(["issue", "close", ghIid], this.env);
+      if (gh(["issue", "view", ghIid, "--json", "state", "-q", ".state"], this.repoDir, this.env) !== "CLOSED") {
+        gh(["issue", "close", ghIid], this.repoDir, this.env);
       }
     }
   }
@@ -21485,12 +21489,14 @@ function close(payload, env) {
   const db = dbPath(env);
   if (db === null || !isFile16(db) || !haveSqlite(env)) return;
   let ref = refFromArgs(commandSubstitution(args2.join("\n")).split("\n"));
-  if (ref === "") ref = gitOut(cmdCwd(cmd, input, env), ["rev-parse", "--abbrev-ref", "HEAD"], env);
+  const mergeDir = cmdCwd(cmd, input, env);
+  if (ref === "") ref = gitOut(mergeDir, ["rev-parse", "--abbrev-ref", "HEAD"], env);
   if (ref === "" || ref === "HEAD") return;
-  const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], env);
+  const repoDir = repoGitRoot(mergeDir, env) || mergeDir;
+  const prJson = gh(["pr", "view", ref, "--json", "closingIssuesReferences,body,headRefName"], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, "headRefName"));
   if (head === "" && /[^0-9]/.test(ref) && !ref.includes("://")) head = ref;
-  const merge = new Merge(db, head, syncOn(db, env), env);
+  const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
   const sql = merge.build(prJson);
   if (sql === "") return;
   const w = dbWrite(db, sql, { caller: GATE_NAME55, env });

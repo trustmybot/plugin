@@ -9,7 +9,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -118,6 +118,26 @@ describe('lint hooks: the TypeScript gates', () => {
       runSh('attribution-footer', input, env);
       assert.equal(existsSync(log), false);
     });
+  });
+
+  it('attribution-footer views and edits the artifact in the dir the create ran in, not the hook process cwd (GH 2134)', () => {
+    const bin = join(dir, 'pwd-bin');
+    const repoDir = join(dir, 'other-repo');
+    const pwds = join(dir, 'gh-pwd.log');
+    mkdirSync(bin);
+    mkdirSync(repoDir);
+    writeFileSync(join(bin, 'gh'), `#!/bin/bash\npwd -P >> '${pwds}'\nif [ "$2" = view ]; then echo Body; fi\n`);
+    chmodSync(join(bin, 'gh'), 0o755);
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, LC_ALL: 'C' };
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      cwd: tmpdir(),
+      tool_input: { command: `cd '${repoDir}' && gh pr create --fill` },
+      tool_response: 'https://github.com/o/r/pull/9',
+    });
+    assert.deepEqual(attributionFooter(input, env), { stdout: '', code: 0 });
+    const expected = realpathSync(repoDir);
+    assert.deepEqual(readFileSync(pwds, 'utf8').trim().split('\n'), [expected, expected]);
   });
 
   it('attribution-footer reads a letter newer than the OS tables (U+105C0) as a word char under UTF-8', () => {

@@ -15,6 +15,7 @@ import { ALLOW } from './gate.js';
 import { jqCompact, jsonStream } from './lib/jq.js';
 import { awkSpace, grepAlnum, grepMultibyte, grepSpace, JqError, jqIndex, jqPath, jqRawLines, jqRawOr, jqTruthy, shellCapture, wellFormed, } from './lib/lint-shell.js';
 import { jqRawText } from './lib/project-env.js';
+import { cmdCwd } from './lib/repo.js';
 export const GATE_NAME = 'attribution-footer';
 export const TMB_FOOTER = '🤖 Generated with [Claude Code](https://claude.com/claude-code), powered by [Bro](https://github.com/trustmybot/plugin)';
 const KINDS = [
@@ -56,8 +57,8 @@ function onPath(name, env) {
     }
     return null;
 }
-function run(file, args, env) {
-    const r = spawnSync(file, args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
+function run(file, args, repoDir, env) {
+    const r = spawnSync(file, args, { cwd: repoDir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 30 });
     return { stdout: r.stdout ?? '', ok: r.error === undefined && r.status === 0 };
 }
 /** `jq -r '.description // ""'` over glab's JSON, null when jq exits non-zero (pipefail ends the hook). */
@@ -121,15 +122,16 @@ export const attributionFooter = (payload, env) => {
     const cli = onPath(kind.cli, env);
     if (cli === null)
         return ALLOW;
+    const repoDir = cmdCwd(command, payload, env);
     let orig;
     if (kind.cli === 'gh') {
-        const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], env);
+        const view = run(cli, [kind.group, 'view', number, '--json', 'body', '-q', '.body'], repoDir, env);
         if (!view.ok)
             return ALLOW;
         orig = shellCapture(view.stdout);
     }
     else {
-        const view = run(cli, [kind.group, 'view', number, '-F', 'json'], env);
+        const view = run(cli, [kind.group, 'view', number, '-F', 'json'], repoDir, env);
         const description = view.ok ? glabDescription(view.stdout) : null;
         if (description === null)
             return ALLOW;
@@ -141,7 +143,7 @@ export const attributionFooter = (payload, env) => {
     const write = kind.cli === 'gh'
         ? [kind.group, 'edit', number, '--body', updated]
         : [kind.group, 'update', number, '--description', updated];
-    run(cli, write, env);
+    run(cli, write, repoDir, env);
     return ALLOW;
 };
 //# sourceMappingURL=attribution-footer.js.map

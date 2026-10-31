@@ -27,7 +27,7 @@ import { commandOnPath } from './lib/host.js';
 import { jqFieldOr, jqIndex, jqLiteralNumbers, jqMap } from './lib/jq.js';
 import { mergeFailed, readMergePayload } from './lib/merge.js';
 import { commandSubstitution, jqRawText } from './lib/project-env.js';
-import { cmdCwd } from './lib/repo.js';
+import { cmdCwd, repoGitRoot } from './lib/repo.js';
 import { RUN_UNMEASURED_SQL } from './swe-spawn-rollback.js';
 
 export const GATE_NAME = 'close-issue-on-merge';
@@ -62,9 +62,10 @@ function isFile(path: string): boolean {
   }
 }
 
-/** _cim_gh: `gh <args> 2>/dev/null` bounded to 10 s, its stdout as a `$(...)` capture holds it. */
-function gh(args: readonly string[], env: NodeJS.ProcessEnv): string {
+/** _cim_gh: `gh <args> 2>/dev/null` in <repoDir>, bounded to 10 s, its stdout as a `$(...)` capture holds it. */
+function gh(args: readonly string[], repoDir: string, env: NodeJS.ProcessEnv): string {
   const r = spawnSync('gh', args, {
+    cwd: repoDir,
     encoding: 'utf8',
     env,
     timeout: GH_TIMEOUT_MS,
@@ -167,6 +168,7 @@ class Merge {
     private readonly db: string,
     private readonly head: string,
     private readonly syncOn: boolean,
+    private readonly repoDir: string,
     private readonly env: NodeJS.ProcessEnv,
   ) {}
 
@@ -307,8 +309,8 @@ class Merge {
       if (!this.syncOn) continue;
       const ghIid = sqlInt(this.read(`SELECT gh_iid FROM issues WHERE id = ${id};`));
       if (ghIid === '') continue;
-      if (gh(['issue', 'view', ghIid, '--json', 'state', '-q', '.state'], this.env) !== 'CLOSED') {
-        gh(['issue', 'close', ghIid], this.env);
+      if (gh(['issue', 'view', ghIid, '--json', 'state', '-q', '.state'], this.repoDir, this.env) !== 'CLOSED') {
+        gh(['issue', 'close', ghIid], this.repoDir, this.env);
       }
     }
   }
@@ -345,14 +347,17 @@ function close(payload: string, env: NodeJS.ProcessEnv): void {
   if (db === null || !isFile(db) || !haveSqlite(env)) return;
 
   let ref = refFromArgs(commandSubstitution(args.join('\n')).split('\n'));
-  if (ref === '') ref = gitOut(cmdCwd(cmd, input, env), ['rev-parse', '--abbrev-ref', 'HEAD'], env);
+  const mergeDir = cmdCwd(cmd, input, env);
+  if (ref === '') ref = gitOut(mergeDir, ['rev-parse', '--abbrev-ref', 'HEAD'], env);
   if (ref === '' || ref === 'HEAD') return;
 
-  const prJson = gh(['pr', 'view', ref, '--json', 'closingIssuesReferences,body,headRefName'], env);
+  // clean-merged-branch may already have removed a merged worktree, so gh runs in the repo's main checkout.
+  const repoDir = repoGitRoot(mergeDir, env) || mergeDir;
+  const prJson = gh(['pr', 'view', ref, '--json', 'closingIssuesReferences,body,headRefName'], repoDir, env);
   let head = commandSubstitution(jqFieldOr(prJson, 'headRefName'));
   if (head === '' && /[^0-9]/.test(ref) && !ref.includes('://')) head = ref;
 
-  const merge = new Merge(db, head, syncOn(db, env), env);
+  const merge = new Merge(db, head, syncOn(db, env), repoDir, env);
   const sql = merge.build(prJson);
   if (sql === '') return;
   const w = dbWrite(db, sql, { caller: GATE_NAME, env });
